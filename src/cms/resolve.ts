@@ -1262,6 +1262,8 @@ export interface DecoPageResult {
   name: string;
   path: string;
   params: Record<string, string>;
+  /** CMS block key, e.g. "pages-Lista de cupons [APP]-397629" */
+  blockKey?: string;
   resolvedSections: ResolvedSection[];
   deferredSections: DeferredSection[];
   /**
@@ -1285,7 +1287,7 @@ export async function resolveDecoPage(
     return null;
   }
 
-  const { page, params } = match;
+  const { page, params, blockKey } = match;
   const ctx: MatcherContext = { ...matcherCtx, path: targetPath };
   const rctx: ResolveContext = { routeParams: params, matcherCtx: ctx, memo: new Map(), depth: 0 };
 
@@ -1403,6 +1405,7 @@ export async function resolveDecoPage(
     name: page.name,
     path: page.path || targetPath,
     params,
+    blockKey,
     resolvedSections: allResults.flat(),
     deferredSections,
     seoSection,
