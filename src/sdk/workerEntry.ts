@@ -39,9 +39,9 @@ import { getRenderShellConfig } from "../admin/setup";
 import { RequestContext } from "./requestContext";
 import { getAppMiddleware } from "./setupApps";
 import type { MatcherContext, ResolvedSection } from "../cms/resolve";
-import { resolveDecoPage, extractSeoFromProps, extractSeoFromSections } from "../cms/resolve";
+import { resolveDecoPage } from "../cms/resolve";
 import { runSectionLoaders, runSingleSectionLoader } from "../cms/sectionLoaders";
-import { getSiteSeo, loadBlocks } from "../cms/loader";
+import { loadBlocks } from "../cms/loader";
 
 /**
  * Append Link preload headers for CSS and fonts so the browser starts
@@ -980,24 +980,52 @@ export function createDecoWorkerEntry(
         }
         const enrichedSections = await runSectionLoaders(page.resolvedSections, request);
 
-        // Build SEO props — same logic as buildPageSeo in cmsRoute.ts:
-        // 1. Run section loader on seoSection (e.g. SEOPDP)
-        // 2. Extract SEO fields from resolved props
-        // 3. Merge with site-wide SEO defaults from the "Site" app block
-        // 4. Extract section-contributed SEO from enriched sections
-        const seoProps = await buildAsJsonSeo(page.seoSection, enrichedSections, request);
-        const seoComponent = page.seoSection?.component ?? "website/sections/Seo/SeoV2.tsx";
+        // Run SEO section loader if registered
+        let seoResult = page.seoSection;
+        if (seoResult) {
+          try {
+            seoResult = await runSingleSectionLoader(seoResult, request);
+          } catch {
+            // use unloaded seoSection
+          }
+        }
 
-        // Build legacy deco-cx/deco (Fresh) compatible response shape.
-        // The old framework returns { props: { name, path, seo, sections, ... }, metadata }.
-        // Mobile apps and other consumers rely on this exact structure.
-        const sections = enrichedSections.map((s) => ({
-          props: s.props,
-          metadata: {
-            resolveChain: [],
-            component: s.component,
-          },
-        }));
+        // Merge site-wide SEO defaults into seo props
+        const blocks = loadBlocks();
+        const site = blocks["Site"] as Record<string, unknown> | undefined;
+        const fullSiteSeo = (site?.seo as Record<string, unknown>) ?? {};
+
+        // When SeoV2 loader ran, use its output as base (preserves key order)
+        // and only fill in missing fields from the site-wide SEO config.
+        const loaderProps = seoResult?.props ?? {};
+        const seoProps: Record<string, unknown> = { ...loaderProps };
+        for (const [k, v] of Object.entries(fullSiteSeo)) {
+          if (!(k in seoProps)) seoProps[k] = v;
+        }
+        // Strip internal template fields
+        delete seoProps.titleTemplate;
+        delete seoProps.descriptionTemplate;
+
+        // Build resolveChain statically to match legacy deco-cx/deco format.
+        type FieldResolver = { type: string; value: string | number };
+        const rawKey = page.blockKey ?? `pages-${page.name}`;
+        const encodedKey = rawKey.replace(
+          /^(pages-)(.+)$/,
+          (_m, prefix, rest) => prefix + encodeURIComponent(rest),
+        );
+        const pageChain: FieldResolver[] = [
+          { type: "resolver", value: "website/handlers/fresh.ts" },
+          { type: "prop", value: "page" },
+          { type: "resolver", value: "resolved" },
+          { type: "resolvable", value: encodedKey },
+          { type: "resolver", value: "website/pages/Page.tsx" },
+        ];
+
+        const seoChain: FieldResolver[] = [
+          ...pageChain,
+          { type: "prop", value: "seo" },
+          { type: "resolver", value: seoResult?.component ?? "website/sections/Seo/SeoV2.tsx" },
+        ];
 
         const result = {
           props: {
@@ -1006,16 +1034,27 @@ export function createDecoWorkerEntry(
             seo: {
               props: seoProps,
               metadata: {
-                resolveChain: [],
-                component: seoComponent,
+                resolveChain: seoChain,
+                component: seoResult?.component ?? "website/sections/Seo/SeoV2.tsx",
               },
             },
-            sections,
+            sections: enrichedSections.map((s, i) => ({
+              props: s.props,
+              metadata: {
+                resolveChain: [
+                  ...pageChain,
+                  { type: "prop", value: "sections" },
+                  { type: "prop", value: String(i) },
+                  { type: "resolver", value: s.component },
+                ],
+                component: s.component,
+              },
+            })),
             devMode: false,
             unindexedDomain: false,
           },
           metadata: {
-            resolveChain: [],
+            resolveChain: pageChain,
             component: "website/pages/Page.tsx",
           },
         };
@@ -1455,77 +1494,3 @@ export function createDecoWorkerEntry(
   }
 }
 
-// ---------------------------------------------------------------------------
-// ?asJson SEO builder — mirrors buildPageSeo() from cmsRoute.ts
-// ---------------------------------------------------------------------------
-
-/**
- * Build SEO props for the ?asJson response, matching the legacy deco-cx/deco
- * format. Runs the SEO section loader, merges with site-wide SEO defaults,
- * and extracts section-contributed SEO.
- */
-async function buildAsJsonSeo(
-  seoSection: ResolvedSection | null | undefined,
-  enrichedSections: ResolvedSection[],
-  request: Request,
-): Promise<Record<string, unknown>> {
-  const siteSeo = getSiteSeo();
-  const sectionSeo = extractSeoFromSections(enrichedSections);
-
-  // getSiteSeo() returns a typed subset, but the actual Site.seo block
-  // may contain additional fields (type, canonical, noIndexing, etc.)
-  // that the legacy ?asJson response needs. Read the full object.
-  const blocks = loadBlocks();
-  const site = blocks["Site"] as Record<string, unknown> | undefined;
-  const fullSiteSeo = (site?.seo as Record<string, unknown>) ?? {};
-
-  if (!seoSection) {
-    const merged: Record<string, unknown> = { ...fullSiteSeo, ...sectionSeo };
-    if (!merged.jsonLDs) merged.jsonLDs = [];
-    return merged;
-  }
-
-  // Run the section loader if registered (e.g. SEOPDP)
-  let enrichedProps = seoSection.props;
-  try {
-    const enriched = await runSingleSectionLoader(seoSection, request);
-    if (enriched) enrichedProps = enriched.props;
-  } catch {
-    // Section loader failed — use raw resolved props
-  }
-
-  const pageSeo = extractSeoFromProps(enrichedProps);
-
-  // Merge: site-wide SEO as base, then section-contributed, then page-level on top.
-  // pageSeo fields override siteSeo only when truthy (same as cmsRoute.ts buildPageSeo).
-  if (!pageSeo.title && siteSeo.title) pageSeo.title = siteSeo.title;
-  if (!pageSeo.description && siteSeo.description) pageSeo.description = siteSeo.description;
-  if (!pageSeo.image && siteSeo.image) pageSeo.image = siteSeo.image;
-
-  // Apply title/description templates (mirrors buildPageSeo in cmsRoute.ts).
-  const rawProps = seoSection.props;
-  const titleTemplate =
-    effectiveTemplate(rawProps.titleTemplate as string | undefined) ??
-    effectiveTemplate(siteSeo.titleTemplate);
-  const descTemplate =
-    effectiveTemplate(rawProps.descriptionTemplate as string | undefined) ??
-    effectiveTemplate(siteSeo.descriptionTemplate);
-
-  if (titleTemplate && pageSeo.title) {
-    pageSeo.title = titleTemplate.replace("%s", pageSeo.title);
-  }
-  if (descTemplate && pageSeo.description) {
-    pageSeo.description = descTemplate.replace("%s", pageSeo.description);
-  }
-
-  // fullSiteSeo as base ensures type, canonical, noIndexing, favicon are included
-  const merged = { ...fullSiteSeo, ...sectionSeo, ...pageSeo } as Record<string, unknown>;
-  if (!merged.jsonLDs) merged.jsonLDs = [];
-  return merged;
-}
-
-/** Returns a non-trivial template string, or undefined for "%s" / empty / blank. */
-function effectiveTemplate(tmpl: string | undefined): string | undefined {
-  if (!tmpl || tmpl.trim() === "" || tmpl.trim() === "%s") return undefined;
-  return tmpl;
-}
