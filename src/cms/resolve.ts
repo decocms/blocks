@@ -298,6 +298,16 @@ export function registerCommerceLoaders(loaders: Record<string, CommerceLoader>)
   Object.assign(commerceLoaders, loaders);
 }
 
+/** Delete a single commerce loader by key. No-op if key is absent. */
+export function unregisterCommerceLoader(key: string): void {
+  delete commerceLoaders[key];
+}
+
+/** Clear all commerce loaders. Use with care — wipes site-registered entries too. */
+export function clearCommerceLoaders(): void {
+  for (const key of Object.keys(commerceLoaders)) delete commerceLoaders[key];
+}
+
 // ---------------------------------------------------------------------------
 // Custom matchers
 // ---------------------------------------------------------------------------

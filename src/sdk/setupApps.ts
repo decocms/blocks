@@ -21,6 +21,10 @@
 
 import { clearInvokeHandlers, registerInvokeHandlers } from "../admin/invoke";
 import { registerSections } from "../cms/registry";
+import {
+  registerCommerceLoaders,
+  unregisterCommerceLoader,
+} from "../cms/resolve";
 import { RequestContext } from "./requestContext";
 
 // ---------------------------------------------------------------------------
@@ -67,6 +71,17 @@ const appMiddlewares: Array<{
   name: string;
   middleware: AppMiddleware;
 }> = [];
+
+/**
+ * Keys this module wrote into the commerce-loaders map. Tracked so hot-reload
+ * can wipe app-owned entries without touching site-local registrations.
+ */
+const appCommerceLoaderKeys = new Set<string>();
+
+function clearAppCommerceLoaders() {
+  for (const key of appCommerceLoaderKeys) unregisterCommerceLoader(key);
+  appCommerceLoaderKeys.clear();
+}
 
 function registerAppState(name: string, state: unknown) {
   appStates.push({ name, state });
@@ -143,6 +158,26 @@ function flattenDependencies(apps: AppDefinition[]): AppDefinition[] {
   return result;
 }
 
+/**
+ * Register handlers into the commerce-loaders map used by the CMS resolve path
+ * (src/cms/resolve.ts). Tracks the keys so clearAppCommerceLoaders() can revert
+ * them on hot-reload without clobbering site-registered loaders.
+ *
+ * CommerceLoader receives `(props)` only. The admin invoke path passes
+ * `(props, req)`; here `req` is undefined. Handlers that need `req` should
+ * rely on RequestContext instead of a positional argument.
+ */
+function registerAppCommerceHandlers(
+  handlers: Record<string, (props: any, req: Request) => Promise<any>>,
+) {
+  const entries: Record<string, (props: any) => Promise<any>> = {};
+  for (const [key, handler] of Object.entries(handlers)) {
+    entries[key] = (props: any) => handler(props, undefined as unknown as Request);
+    appCommerceLoaderKeys.add(key);
+  }
+  registerCommerceLoaders(entries);
+}
+
 // ---------------------------------------------------------------------------
 // Main pipeline
 // ---------------------------------------------------------------------------
@@ -161,13 +196,17 @@ export async function setupApps(
   // Clear previous registrations (safe for hot-reload via onChange)
   clearRegistrations();
   clearInvokeHandlers();
+  clearAppCommerceLoaders();
 
   for (const app of flattenDependencies(apps as AppDefinition[])) {
     const appWithHandlers = app as AppDefinitionWithHandlers;
 
     // 1. Register explicit handlers (pre-unwrapped by the app, e.g. resend)
+    //    These also go into the commerce-loaders map so the CMS resolve path
+    //    (src/cms/resolve.ts) can dispatch to them by __resolveType.
     if (appWithHandlers.handlers) {
       registerInvokeHandlers(appWithHandlers.handlers);
+      registerAppCommerceHandlers(appWithHandlers.handlers);
     }
 
     // 2. Flatten manifest modules → individual invoke handlers
@@ -186,6 +225,10 @@ export async function setupApps(
           const handler = (props: any, req: Request) =>
             (fn as Function)(props, req);
           registerInvokeHandlers({
+            [key]: handler,
+            [`${key}.ts`]: handler,
+          });
+          registerAppCommerceHandlers({
             [key]: handler,
             [`${key}.ts`]: handler,
           });
