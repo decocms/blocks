@@ -1,89 +1,154 @@
 /**
- * Auto-configures known apps from CMS blocks using AppModContract.
+ * Registry-driven auto-configuration of known apps from CMS blocks.
  *
- * Scans the decofile for known app block keys (e.g. "deco-vtex", "deco-resend")
- * and calls each app's `configure()` function from its mod.ts.
- * Then delegates to `setupApps()` for invoke handler registration, middleware, etc.
+ * A site passes an `AppRegistry` (declarative list of known app blockKeys +
+ * lazy module imports). For every registry entry whose `blockKey` exists in
+ * the decofile, this calls `mod.configure(block, resolveSecret)` and then
+ * hands the resulting AppDefinitions off to `setupApps()`.
+ *
+ * The canonical registry lives in `@decocms/apps/registry` so the framework
+ * itself has zero knowledge of which apps exist.
  *
  * Usage in setup.ts:
  *   import { autoconfigApps } from "@decocms/start/apps/autoconfig";
- *   setBlocks(generatedBlocks);
- *   await autoconfigApps(generatedBlocks);
+ *   import { APP_REGISTRY } from "@decocms/apps/registry";
+ *   await autoconfigApps(generatedBlocks, APP_REGISTRY);
  */
 
 import { onChange } from "../cms/loader";
 import { resolveSecret } from "../sdk/crypto";
 import {
-	setupApps,
-	type AppDefinition,
-	type AppDefinitionWithHandlers,
+  setupApps,
+  type AppDefinition,
+  type AppDefinitionWithHandlers,
 } from "../sdk/setupApps";
 
-// ---------------------------------------------------------------------------
-// Known app block keys → dynamic import of their mod.ts
-// ---------------------------------------------------------------------------
+/**
+ * Shape of the secret resolver passed to each app's `configure()`. Matches
+ * `resolveSecret` in `src/sdk/crypto.ts`. Apps typically narrow the return
+ * type inside their own `configure()` by throwing on null.
+ */
+export type ResolveSecret = (
+  value: unknown,
+  envVarName?: string,
+) => Promise<string | null>;
 
-const APP_MODS: Record<string, () => Promise<any>> = {
-	"deco-vtex": () => import("@decocms/apps/vtex/mod" as string),
-	"deco-shopify": () => import("@decocms/apps/shopify/mod" as string),
-	"deco-resend": () => import("@decocms/apps/resend/mod" as string),
-};
+/**
+ * One entry in the app registry — describes a single installable app.
+ * Sites pass an array of these to `autoconfigApps()` (typically imported
+ * from `@decocms/apps/registry`).
+ */
+export interface AppRegistryEntry {
+  /** Block key in the decofile, e.g. "deco-shopify". */
+  blockKey: string;
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
+  /**
+   * Lazy import of the app's mod module. Must return an object exposing
+   * `configure(block, resolveSecret)` and optionally `handlers`.
+   *
+   * Use a string-literal dynamic import so bundlers (Vite/Rollup) can
+   * statically trace the chunk. E.g.
+   *   () => import("@decocms/apps/shopify/mod")
+   */
+  module: () => Promise<{
+    configure: (
+      block: unknown,
+      resolveSecret: ResolveSecret,
+    ) => Promise<AppDefinition | null>;
+    handlers?: Record<string, (props: any, req: Request) => Promise<any>>;
+  }>;
+
+  /** Human-readable name shown in admin install UI. */
+  displayName?: string;
+  /** Icon URL (absolute or site-relative) shown in admin install UI. */
+  icon?: string;
+  /** Grouping label, e.g. "commerce", "email", "analytics". */
+  category?: string;
+  /** Short summary (one sentence) shown in admin install UI. */
+  description?: string;
+}
+
+export type AppRegistry = readonly AppRegistryEntry[];
+
+/**
+ * Attempt to load `@decocms/apps/registry` dynamically. Returns `[]` if the
+ * module isn't installed or doesn't export `APP_REGISTRY`. Prefer passing
+ * the registry explicitly — this fallback is convenience only.
+ */
+async function loadDefaultRegistry(): Promise<AppRegistry> {
+  try {
+    // Cast to string bypasses Vite's static analysis, letting the import
+    // fail silently at runtime if @decocms/apps is not installed.
+    const mod = await import(/* @vite-ignore */ "@decocms/apps/registry" as string);
+    const registry = mod?.APP_REGISTRY ?? mod?.default;
+    return Array.isArray(registry) ? registry : [];
+  } catch {
+    return [];
+  }
+}
 
 async function configureAllApps(
-	blocks: Record<string, unknown>,
+  blocks: Record<string, unknown>,
+  registry: AppRegistry,
 ): Promise<AppDefinitionWithHandlers[]> {
-	const apps: AppDefinitionWithHandlers[] = [];
+  const apps: AppDefinitionWithHandlers[] = [];
 
-	for (const [blockKey, importMod] of Object.entries(APP_MODS)) {
-		const block = blocks[blockKey];
-		if (!block) continue;
+  for (const entry of registry) {
+    const block = blocks[entry.blockKey];
+    if (!block) continue;
 
-		try {
-			const mod = await importMod();
-			if (typeof mod.configure !== "function") continue;
+    try {
+      const mod = await entry.module();
+      if (typeof mod?.configure !== "function") continue;
 
-			const appDef: AppDefinition | null = await mod.configure(
-				block,
-				resolveSecret,
-			);
-			if (!appDef) continue;
+      const appDef: AppDefinition | null = await mod.configure(
+        block,
+        resolveSecret,
+      );
+      if (!appDef) continue;
 
-			// Attach explicit handlers from mod.ts (e.g. resend's pre-wrapped handlers)
-			const withHandlers: AppDefinitionWithHandlers = {
-				...appDef,
-				handlers: mod.handlers,
-			};
-			apps.push(withHandlers);
-		} catch {
-			// App not installed or configure failed — skip silently
-		}
-	}
+      const withHandlers: AppDefinitionWithHandlers = {
+        ...appDef,
+        handlers: mod.handlers,
+      };
+      apps.push(withHandlers);
+    } catch {
+      // App module missing, configure threw, or block was malformed — skip.
+    }
+  }
 
-	return apps;
+  return apps;
 }
 
 /**
- * Auto-configure apps from CMS blocks.
- * Call in setup.ts after setBlocks(). Also re-runs on admin hot-reload.
+ * Auto-configure apps from CMS blocks against a declarative registry.
+ *
+ * Call once in setup.ts after setBlocks(). Re-runs on admin hot-reload.
+ *
+ * @param blocks   Decofile blocks (from blocks.gen or loadBlocks()).
+ * @param registry List of installable apps. If omitted, attempts to load
+ *                 `@decocms/apps/registry` as a convenience default.
  */
-export async function autoconfigApps(blocks: Record<string, unknown>) {
-	if (typeof document !== "undefined") return; // server-only
+export async function autoconfigApps(
+  blocks: Record<string, unknown>,
+  registry?: AppRegistry,
+): Promise<void> {
+  if (typeof document !== "undefined") return; // server-only
 
-	const apps = await configureAllApps(blocks);
-	if (apps.length > 0) {
-		await setupApps(apps);
-	}
+  const effectiveRegistry = registry ?? (await loadDefaultRegistry());
+  if (effectiveRegistry.length === 0) return;
 
-	// Re-configure on admin hot-reload
-	onChange(async (newBlocks) => {
-		if (typeof document !== "undefined") return;
-		const updatedApps = await configureAllApps(newBlocks);
-		if (updatedApps.length > 0) {
-			await setupApps(updatedApps);
-		}
-	});
+  const apps = await configureAllApps(blocks, effectiveRegistry);
+  if (apps.length > 0) {
+    await setupApps(apps);
+  }
+
+  // Re-configure on admin hot-reload
+  onChange(async (newBlocks) => {
+    if (typeof document !== "undefined") return;
+    const updatedApps = await configureAllApps(newBlocks, effectiveRegistry);
+    if (updatedApps.length > 0) {
+      await setupApps(updatedApps);
+    }
+  });
 }

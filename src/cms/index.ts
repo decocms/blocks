@@ -49,6 +49,8 @@ export {
   registerBotPattern,
   registerCommerceLoader,
   registerCommerceLoaders,
+  unregisterCommerceLoader,
+  clearCommerceLoaders,
   registerMatcher,
   registerEagerSections,
   registerSeoSections,
