@@ -1,6 +1,6 @@
 {
   "name": "@decocms/start",
-  "version": "1.5.0",
+  "version": "2.0.1",
   "type": "module",
   "description": "Deco framework for TanStack Start - CMS bridge, admin protocol, hooks, schema generation",
   "main": "./src/index.ts",
@@ -48,6 +48,7 @@
     "./sdk/createInvoke": "./src/sdk/createInvoke.ts",
     "./sdk/router": "./src/sdk/router.ts",
     "./matchers/posthog": "./src/matchers/posthog.ts",
+    "./apps": "./src/apps/index.ts",
     "./apps/autoconfig": "./src/apps/autoconfig.ts",
     "./sdk/setupApps": "./src/sdk/setupApps.ts",
     "./matchers/builtins": "./src/matchers/builtins.ts",

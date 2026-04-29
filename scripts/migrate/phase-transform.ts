@@ -38,11 +38,11 @@ function applyTransforms(content: string, filePath: string, ctx?: MigrationConte
   }
 
   // Pipeline: imports → jsx → fresh-apis → dead-code → deno-isms → tailwind
-  const pipeline = [
-    { name: "imports", fn: transformImports },
+  const pipeline: Array<{ name: string; fn: (content: string) => TransformResult }> = [
+    { name: "imports", fn: (c) => transformImports(c, ctx?.islandWrapperTargets) },
     { name: "jsx", fn: transformJsx },
     { name: "fresh-apis", fn: transformFreshApis },
-    { name: "dead-code", fn: transformDeadCode },
+    { name: "dead-code", fn: (c) => transformDeadCode(c, ctx?.platform) },
     { name: "deno-isms", fn: transformDenoIsms },
     { name: "tailwind", fn: transformTailwind },
   ];
@@ -86,6 +86,17 @@ export function transform(ctx: MigrationContext): void {
     // Apply transforms
     const result = applyTransforms(content, absPath, ctx, record.path);
 
+    // Fix section re-exports from wrapper islands — point to the wrapped component
+    const resolvedTarget = (record as any).__resolvedReExportTarget;
+    if (resolvedTarget && result.content.includes("~/components/")) {
+      // The import transform rewrote $store/islands/X → ~/components/X
+      // but for wrapper islands, the actual component is at a different path
+      const reExportRe = /from\s+"~\/components\/[^"]+"/g;
+      result.content = result.content.replace(reExportRe, `from "${resolvedTarget}"`);
+      result.notes.push(`Re-export resolved to wrapper target: ${resolvedTarget}`);
+      result.changed = true;
+    }
+
     // Add manual review items
     for (const note of result.notes) {
       if (note.startsWith("[") && note.includes("MANUAL:")) {
@@ -112,6 +123,48 @@ export function transform(ctx: MigrationContext): void {
         file: targetPath,
         reason: "hx-on:click with useScript found — convert to onClick with React event handler. The useScript serialization won't work as onClick value.",
         severity: "warning",
+      });
+    }
+
+    // Flag the legacy sections/Component.tsx dynamic-section loader.
+    // This file uses Deno-specific APIs (toFileUrl, import.meta.resolve)
+    // and the HTMX-driven `useComponent(component, props)` pattern, which
+    // do not run on Cloudflare Workers and have no equivalent in
+    // @decocms/start. The whole file must be deleted.
+    if (
+      /sections\/Component\.tsx?$/.test(record.path) ||
+      /sections\/Component\.tsx?$/.test(targetPath)
+    ) {
+      ctx.manualReviewItems.push({
+        file: targetPath,
+        reason:
+          "sections/Component.tsx (Deno HTMX dynamic-section loader) is incompatible with TanStack Start / Cloudflare Workers. " +
+          "DELETE this file and migrate every `useComponent(...)` call site to one of: " +
+          "(a) local React state for client-side toggles, " +
+          "(b) `createServerFn` + `useMutation` for server actions, or " +
+          "(c) a direct `invoke` call (`~/server/invoke`) for ad-hoc loaders. " +
+          "See: deco-to-tanstack-migration skill, 'useComponent / partial sections' section.",
+        severity: "error",
+      });
+    }
+
+    // Flag any import of useComponent — typically `import { useComponent } from "site/sections/Component.tsx"`.
+    // We also catch `from "../../sections/Component"` and similar relative variants.
+    if (
+      /\buseComponent\b/.test(result.content) &&
+      /from\s+["'][^"']*sections\/Component(?:\.tsx?)?["']/.test(result.content)
+    ) {
+      ctx.manualReviewItems.push({
+        file: targetPath,
+        reason:
+          "useComponent({ ... }) call site detected. This is the HTMX-style dynamic-section render pattern " +
+          "that ships HTML fragments and swaps them client-side. It does not work on TanStack Start. " +
+          "Recipes: " +
+          "(1) Self-contained UI toggles → keep state in React (`useState` + event handlers); " +
+          "(2) Form submissions / mutations → `createServerFn` + `useMutation` (see casaevideo-storefront for canonical examples); " +
+          "(3) Ad-hoc data fetches → call the loader/action via `~/server/invoke` and store results in `useState`. " +
+          "Remove the import after refactoring, then delete `src/sections/Component.tsx`.",
+        severity: "error",
       });
     }
 

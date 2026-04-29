@@ -229,7 +229,18 @@ function isBot(userAgent?: string): boolean {
   return botPatterns.some((re) => re.test(userAgent));
 }
 
-export type CommerceLoader = (props: any) => Promise<any>;
+/**
+ * A loader registered against a `__resolveType` key. The runtime invokes it
+ * through two paths:
+ *
+ * 1. CMS resolution (`commerceLoader(resolvedProps)`) — 1-arg call.
+ * 2. `/deco/invoke/...` endpoint — `(props, request)` 2-arg call.
+ *
+ * Loaders that need the `Request` (cookies, geo, headers) declare the second
+ * parameter; pure loaders ignore it. This shape lets a single registry serve
+ * both invocation paths without `as any` casts at every wrapper.
+ */
+export type CommerceLoader = (props: any, request?: Request) => Promise<any>;
 
 /**
  * Context passed through the resolution pipeline.
@@ -328,6 +339,16 @@ function inferLoaderTags(key: string): string[] {
     return ["product-list"];
   }
   return [];
+}
+
+/** Delete a single commerce loader by key. No-op if key is absent. */
+export function unregisterCommerceLoader(key: string): void {
+  delete commerceLoaders[key];
+}
+
+/** Clear all commerce loaders. Use with care — wipes site-registered entries too. */
+export function clearCommerceLoaders(): void {
+  for (const key of Object.keys(commerceLoaders)) delete commerceLoaders[key];
 }
 
 // ---------------------------------------------------------------------------
@@ -1528,7 +1549,11 @@ export async function resolveDeferredSection(
   ensureInitialized();
 
   const ctx: MatcherContext = { ...matcherCtx, path: pagePath };
+  // Recover routeParams from the page match so nested `requestToParam`
+  // resolvers (e.g. `:slug` on PDPs) return the right value.
+  const match = findPageByPath(pagePath);
   const rctx: ResolveContext = {
+    routeParams: match?.params,
     matcherCtx: ctx,
     memo: new Map(),
     depth: 0,

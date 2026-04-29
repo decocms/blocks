@@ -34,7 +34,7 @@ import {
 } from "./cacheHeaders";
 import { buildHtmlShell } from "./htmlShell";
 import { cleanPathForCacheKey } from "./urlUtils";
-import { isMobileUA } from "./useDevice";
+import { type Device, isMobileUA } from "./useDevice";
 import { getRenderShellConfig } from "../admin/setup";
 import { RequestContext } from "./requestContext";
 import { getAppMiddleware } from "./setupApps";
@@ -88,7 +88,16 @@ interface ServerEntry {
  * cache entry; different segments get different cached responses.
  */
 export interface SegmentKey {
-  device: "mobile" | "desktop";
+  /**
+   * Device class derived from the request User-Agent.
+   *
+   * Accepts the full `Device` union (`"mobile" | "desktop" | "tablet"`) so
+   * that callers can pass `detectDevice(...)` directly without manual
+   * narrowing. Sites that want to share cache entries between mobile and
+   * tablet can collapse the value at the call site (e.g.
+   * `device === "tablet" ? "mobile" : device`).
+   */
+  device: Device;
   /** Whether the user is logged in (e.g., has a valid auth cookie). */
   loggedIn?: boolean;
   /** Commerce sales channel / price list. */

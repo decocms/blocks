@@ -61,7 +61,9 @@ export type DetectedPattern =
   | "asset-function"
   | "head-component"
   | "define-app"
-  | "invoke-proxy";
+  | "invoke-proxy"
+  | "use-component"
+  | "sections-component-loader";
 
 /** Metadata extracted from a section file during analysis */
 export interface SectionMeta {
@@ -131,6 +133,8 @@ export interface MigrationContext {
   sourceDir: string;
   siteName: string;
   platform: Platform;
+  /** VTEX account name (e.g. "casaevideonewio") — extracted from source code */
+  vtexAccount: string | null;
   gtmId: string | null;
 
   /** deno.json import map entries */
@@ -151,6 +155,8 @@ export interface MigrationContext {
   sectionMetas: SectionMeta[];
   /** Island classifications */
   islandClassifications: IslandClassification[];
+  /** Map from island path → wrapped component import path (for wrapper islands) */
+  islandWrapperTargets: Map<string, string>;
   /** Loader inventory */
   loaderInventory: LoaderInfo[];
 
@@ -191,6 +197,7 @@ export function createContext(
     sourceDir,
     siteName: "",
     platform: "custom",
+    vtexAccount: null,
     gtmId: null,
     importMap: {},
     discoveredNpmDeps: {},
@@ -199,6 +206,7 @@ export function createContext(
     files: [],
     sectionMetas: [],
     islandClassifications: [],
+    islandWrapperTargets: new Map(),
     loaderInventory: [],
     scaffoldedFiles: [],
     transformedFiles: [],

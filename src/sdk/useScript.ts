@@ -137,13 +137,34 @@ export function inlineScript(js: string) {
 }
 
 /**
- * Stub -- Deco partial sections don't apply in TanStack Start.
- * Returns the provided props as-is.
+ * @deprecated Removed in TanStack Start.
+ *
+ * The Fresh/Deno HTMX-based partial-section pattern (`useSection` /
+ * `usePartialSection` + `sections/Component.tsx`) does not apply on
+ * Cloudflare Workers and React. Replace call-sites with one of:
+ *
+ *   1. Local React state (`useState` + event handlers) for client-side toggles.
+ *   2. `createServerFn` + `useMutation` for server actions.
+ *   3. Direct `invoke` calls (`~/server/invoke`) for ad-hoc loaders.
+ *
+ * See: deco-to-tanstack-migration skill, "useComponent / partial sections"
+ * section, for the per-pattern recipes.
+ *
+ * Both stubs throw at runtime (and at import time, if you call them at
+ * module top level) so legacy code surfaces a clear error instead of a
+ * silent no-op.
  */
-export function usePartialSection(props?: Record<string, unknown>) {
-  return props || {};
+const DEPRECATION_MESSAGE =
+  "[@decocms/start] useSection / usePartialSection were removed. " +
+  "The Fresh/Deno HTMX partial-section pattern does not apply on " +
+  "TanStack Start / Cloudflare Workers. Replace call-sites with " +
+  "createServerFn + useMutation, or local React state. See the " +
+  "deco-to-tanstack-migration skill for per-pattern recipes.";
+
+export function usePartialSection(_props?: Record<string, unknown>): never {
+  throw new Error(DEPRECATION_MESSAGE);
 }
 
-export function useSection(_props?: Record<string, unknown>) {
-  return "";
+export function useSection(_props?: Record<string, unknown>): never {
+  throw new Error(DEPRECATION_MESSAGE);
 }
