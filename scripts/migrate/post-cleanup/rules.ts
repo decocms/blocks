@@ -156,7 +156,306 @@ const ruleObsoleteVitePlugins: Rule = {
     }
     return findings;
   },
+  applyFix({ siteDir, fs }, findings, writer): FixAction[] {
+    // Group findings by file so we rewrite each vite.config in one pass.
+    const byFile = new Map<string, string[]>();
+    for (const f of findings) {
+      const plugin = (f.meta?.plugin as string | undefined) ?? "";
+      if (!plugin) continue;
+      const arr = byFile.get(f.file) ?? [];
+      arr.push(plugin);
+      byFile.set(f.file, arr);
+    }
+    const actions: FixAction[] = [];
+    for (const [rel, pluginNames] of byFile) {
+      const abs = `${siteDir}/${rel}`;
+      if (!fs.exists(abs)) continue;
+      const before = fs.readText(abs);
+      const removed: string[] = [];
+      let next = before;
+      // Process plugins right-to-left in document order so each removal
+      // does not invalidate the indices of the next one.
+      const ordered = pluginNames
+        .map((name) => ({ name, span: findInlineVitePluginSpan(next, name) }))
+        .filter((p): p is { name: string; span: PluginSpan } => p.span !== null)
+        .sort((a, b) => b.span.startIdx - a.span.startIdx);
+      for (const p of ordered) {
+        next = next.slice(0, p.span.startIdx) + next.slice(p.span.endIdx);
+        removed.push(p.name);
+      }
+      if (next !== before) {
+        writer.writeText(abs, next);
+        actions.push({
+          file: rel,
+          kind: "rewrite-vite-config",
+          detail: `removed obsolete plugin(s): ${removed
+            .reverse()
+            .join(", ")}`,
+        });
+      }
+    }
+    return actions;
+  },
 };
+
+/**
+ * Span of an inline plugin object literal inside vite.config.ts that
+ * the auto-fixer should strip. Includes:
+ *
+ * - `startIdx`: position of the first attached `// ...` line above the
+ *   `{`, or the `{` itself if no leading comment is attached. Leading
+ *   indentation is included.
+ * - `endIdx`: exclusive — points just past the trailing `,\n` (or `\n`
+ *   if there's no comma). The next character is the start of the next
+ *   plugin (or the closing `]`).
+ *
+ * Removing `[startIdx, endIdx)` produces a clean diff: comment + literal
+ * gone, no orphan separator, surrounding plugins still paired with their
+ * own commas / comments.
+ */
+type PluginSpan = { startIdx: number; endIdx: number };
+
+/**
+ * Brace-balanced search for an inline `{ name: "<plugin>", ... }`
+ * object literal inside a vite config. Properly skips over strings,
+ * template literals, line comments and block comments so it doesn't
+ * miscount braces inside e.g. a `config()` body that contains
+ * `{ build: { rollupOptions: ... } }` or template-string interpolation.
+ *
+ * Returns null when the plugin name isn't present, or when we can't
+ * walk the braces unambiguously (defensive — the rule's `run()` will
+ * still flag the finding for a manual fix).
+ */
+export function findInlineVitePluginSpan(
+  content: string,
+  pluginName: string,
+): PluginSpan | null {
+  const re = new RegExp(`name:\\s*(['"\`])${escapeRegex(pluginName)}\\1`);
+  const m = re.exec(content);
+  if (!m) return null;
+  const namePropIdx = m.index;
+
+  // Walk backwards from the name property to find the enclosing `{`.
+  // Track string / comment state so we don't false-match on `{` inside
+  // a string literal somewhere earlier in the file.
+  const openIdx = findEnclosingObjectOpen(content, namePropIdx);
+  if (openIdx < 0) return null;
+
+  // Walk forward from the open brace counting matching braces, again
+  // skipping strings / comments. Returns the index of the matching `}`.
+  const closeIdx = findMatchingClose(content, openIdx);
+  if (closeIdx < 0) return null;
+
+  // Compute trailingEnd: consume `,` (optional) then whitespace up to
+  // and including the first `\n` after the closing brace. If we never
+  // hit `\n`, just stop at the comma / next non-whitespace.
+  let trailingEnd = closeIdx + 1;
+  while (
+    trailingEnd < content.length &&
+    (content[trailingEnd] === " " || content[trailingEnd] === "\t")
+  ) {
+    trailingEnd++;
+  }
+  if (content[trailingEnd] === ",") trailingEnd++;
+  while (
+    trailingEnd < content.length &&
+    (content[trailingEnd] === " " || content[trailingEnd] === "\t")
+  ) {
+    trailingEnd++;
+  }
+  if (content[trailingEnd] === "\n") trailingEnd++;
+
+  // Compute leadingStart: walk backwards over consecutive `//`-only
+  // lines that are immediately attached to the `{` (no blank line
+  // between them and the literal). Block comments are left alone.
+  const leadingStart = findAttachedLeadingComments(content, openIdx);
+
+  return { startIdx: leadingStart, endIdx: trailingEnd };
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Walk backwards from `fromIdx` to find the index of the `{` that
+ * opens the object literal currently containing `fromIdx`. Returns
+ * -1 if no such `{` is found before the start of the file or if
+ * the walk is too ambiguous (mismatched balance).
+ *
+ * Skips over string, template-literal and comment regions so braces
+ * inside those don't affect the count.
+ */
+function findEnclosingObjectOpen(content: string, fromIdx: number): number {
+  // Strategy: scan the file from the start to fromIdx, maintaining a
+  // stack of open `{` positions, skipping inside strings/comments.
+  // The top of the stack at fromIdx is our enclosing open.
+  const stack: number[] = [];
+  let i = 0;
+  const n = Math.min(content.length, fromIdx);
+  while (i < n) {
+    const ch = content[i];
+    const next = content[i + 1];
+    if (ch === "/" && next === "/") {
+      i += 2;
+      while (i < n && content[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < n && !(content[i] === "*" && content[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i++;
+      while (i < n && content[i] !== quote) {
+        if (content[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === "`") {
+      i++;
+      while (i < n && content[i] !== "`") {
+        if (content[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (content[i] === "$" && content[i + 1] === "{") {
+          i += 2;
+          // Recursively skip until matching `}` of the interpolation.
+          let depth = 1;
+          while (i < n && depth > 0) {
+            if (content[i] === "{") depth++;
+            else if (content[i] === "}") depth--;
+            if (depth === 0) break;
+            i++;
+          }
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === "{") {
+      stack.push(i);
+      i++;
+      continue;
+    }
+    if (ch === "}") {
+      stack.pop();
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return stack.length > 0 ? stack[stack.length - 1] : -1;
+}
+
+/**
+ * From the `{` at `openIdx`, walk forward to find the matching `}`.
+ * Skips strings / template literals / comments.
+ */
+function findMatchingClose(content: string, openIdx: number): number {
+  let i = openIdx + 1;
+  let depth = 1;
+  const n = content.length;
+  while (i < n) {
+    const ch = content[i];
+    const next = content[i + 1];
+    if (ch === "/" && next === "/") {
+      i += 2;
+      while (i < n && content[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < n && !(content[i] === "*" && content[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i++;
+      while (i < n && content[i] !== quote) {
+        if (content[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === "`") {
+      i++;
+      while (i < n && content[i] !== "`") {
+        if (content[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (content[i] === "$" && content[i + 1] === "{") {
+          i += 2;
+          let d = 1;
+          while (i < n && d > 0) {
+            if (content[i] === "{") d++;
+            else if (content[i] === "}") d--;
+            if (d === 0) break;
+            i++;
+          }
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === "{") {
+      depth++;
+      i++;
+      continue;
+    }
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return i;
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * Walk backwards from `openIdx` consuming the contiguous block of
+ * `//`-only lines immediately preceding the `{`. Stops at the first
+ * blank line, the first non-comment line, or block-comment territory.
+ * Returns the absolute index where the leading comment block (plus
+ * its indentation) starts — equal to `openIdx` minus its own line's
+ * indentation when no comment is attached.
+ */
+function findAttachedLeadingComments(content: string, openIdx: number): number {
+  // Walk back to start of the line containing `{`.
+  let lineStart = openIdx;
+  while (lineStart > 0 && content[lineStart - 1] !== "\n") lineStart--;
+  // Now climb up: each iteration considers the line ending at
+  // `lineStart - 1`. If it is a `//`-only line, include it; else stop.
+  let cursor = lineStart;
+  while (cursor > 0) {
+    const prevLineEnd = cursor - 1; // index of the `\n` separating
+    if (prevLineEnd <= 0) break;
+    let prevLineStart = prevLineEnd;
+    while (prevLineStart > 0 && content[prevLineStart - 1] !== "\n") {
+      prevLineStart--;
+    }
+    const line = content.slice(prevLineStart, prevLineEnd);
+    if (/^\s*\/\/.*$/.test(line)) {
+      cursor = prevLineStart;
+      continue;
+    }
+    break;
+  }
+  return cursor;
+}
 
 /* ------------------------------------------------------------------ */
 /* Rule 3 — dead `src/runtime.ts` invoke shim                          */

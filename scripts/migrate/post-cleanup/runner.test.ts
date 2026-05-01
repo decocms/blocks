@@ -591,6 +591,7 @@ describe("runAudit — totals", () => {
         "dead-lib-shims",
         "dead-runtime-shim",
         "local-widgets-types",
+        "obsolete-vite-plugins",
         "vtex-shim-regression",
       ].sort(),
     );
@@ -802,5 +803,186 @@ describe("runAudit — fix mode — vtex-shim-regression swap cases", () => {
     expect(store["/site/src/loaders/x.ts"]).toContain(
       'import { toProduct as toP } from "@decocms/apps/vtex/utils/transform"',
     );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* W12-F — obsolete-vite-plugins --fix                                 */
+/* ------------------------------------------------------------------ */
+
+describe("runAudit — fix mode — obsolete-vite-plugins", () => {
+  it("removes a single inline obsolete plugin literal cleanly", () => {
+    const before = `import { defineConfig } from "vite";
+export default defineConfig({
+  plugins: [
+    react(),
+    {
+      name: "site-manual-chunks",
+      config(_cfg, { command }) {
+        if (command !== "build") return;
+        return { build: { rollupOptions: { output: { manualChunks(_id: string) {} } } } };
+      },
+    },
+    tailwindcss(),
+  ],
+});
+`;
+    const { fs, writer, store } = makeMutableFs({
+      "/site/vite.config.ts": before,
+    });
+    const report = runAudit(SITE, fs, { writer });
+    const r = report.rules.find((r) => r.rule === "obsolete-vite-plugins")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.fixes).toHaveLength(1);
+    expect(r.fixes![0].kind).toBe("rewrite-vite-config");
+    expect(r.fixes![0].detail).toContain("site-manual-chunks");
+    const after = store["/site/vite.config.ts"];
+    // Plugin literal is gone; siblings remain intact.
+    expect(after).not.toContain('name: "site-manual-chunks"');
+    expect(after).toContain("react()");
+    expect(after).toContain("tailwindcss()");
+    // The literal's body has been fully unindented out — no dangling braces.
+    expect(after).not.toContain("manualChunks(_id");
+  });
+
+  it("removes the leading `//` comment block attached to the plugin literal", () => {
+    const before = `export default defineConfig({
+  plugins: [
+    decoVitePlugin(),
+    // Override decoVitePlugin's default manualChunks — circular deps
+    // would crash if split.
+    // (mirrors the framework's improved splitting)
+    {
+      name: "site-manual-chunks",
+      config() { return {}; },
+    },
+    tailwindcss(),
+  ],
+});
+`;
+    const { fs, writer, store } = makeMutableFs({
+      "/site/vite.config.ts": before,
+    });
+    runAudit(SITE, fs, { writer });
+    const after = store["/site/vite.config.ts"];
+    expect(after).not.toContain("Override decoVitePlugin");
+    expect(after).not.toContain("circular deps");
+    expect(after).not.toContain("framework's improved splitting");
+    expect(after).not.toContain("site-manual-chunks");
+    // decoVitePlugin call still there, no orphan separator left behind.
+    expect(after).toContain("decoVitePlugin(),");
+    expect(after).toContain("tailwindcss()");
+    expect(after).not.toMatch(/,\s*,/);
+  });
+
+  it("removes BOTH obsolete plugins in one pass without disturbing each other", () => {
+    const before = `export default defineConfig({
+  plugins: [
+    decoVitePlugin(),
+    // chunks override
+    {
+      name: "site-manual-chunks",
+      config() { return {}; },
+    },
+    // meta.gen client stub
+    {
+      name: "deco-stub-meta-gen",
+      enforce: "pre" as const,
+      load(id: string) { if (id === "x") return "export default {}"; },
+    },
+    tailwindcss(),
+  ],
+});
+`;
+    const { fs, writer, store } = makeMutableFs({
+      "/site/vite.config.ts": before,
+    });
+    const report = runAudit(SITE, fs, { writer });
+    const r = report.rules.find((r) => r.rule === "obsolete-vite-plugins")!;
+    expect(r.findings).toHaveLength(2);
+    expect(r.fixes).toHaveLength(1);
+    expect(r.fixes![0].detail).toContain("site-manual-chunks");
+    expect(r.fixes![0].detail).toContain("deco-stub-meta-gen");
+    const after = store["/site/vite.config.ts"];
+    expect(after).not.toContain("site-manual-chunks");
+    expect(after).not.toContain("deco-stub-meta-gen");
+    expect(after).not.toContain("chunks override");
+    expect(after).not.toContain("meta.gen client stub");
+    expect(after).toContain("decoVitePlugin(),");
+    expect(after).toContain("tailwindcss()");
+  });
+
+  it("does not miscount braces inside template literals or strings inside the plugin body", () => {
+    // Template literal containing `${'}'}` and string with `}` must not
+    // throw off the brace walker.
+    const before = `export default defineConfig({
+  plugins: [
+    {
+      name: "site-manual-chunks",
+      load(id: string) {
+        const a = \`a\${'}'}b\`;
+        const b = "}";
+        return id + a + b;
+      },
+    },
+    tailwindcss(),
+  ],
+});
+`;
+    const { fs, writer, store } = makeMutableFs({
+      "/site/vite.config.ts": before,
+    });
+    runAudit(SITE, fs, { writer });
+    const after = store["/site/vite.config.ts"];
+    expect(after).not.toContain("site-manual-chunks");
+    expect(after).toContain("tailwindcss()");
+    // Sanity: closing brackets of defineConfig + plugins array preserved.
+    expect(after).toContain("],");
+    expect(after.trim().endsWith("});")).toBe(true);
+  });
+
+  it("is a no-op (no fixes) when no obsolete plugins are present", () => {
+    const before = `export default defineConfig({
+  plugins: [react(), tailwindcss()],
+});
+`;
+    const { fs, writer, store } = makeMutableFs({
+      "/site/vite.config.ts": before,
+    });
+    const report = runAudit(SITE, fs, { writer });
+    const r = report.rules.find((r) => r.rule === "obsolete-vite-plugins")!;
+    expect(r.findings).toEqual([]);
+    expect(r.fixes).toBeUndefined();
+    expect(store["/site/vite.config.ts"]).toBe(before);
+  });
+
+  it("is idempotent — running --fix twice is a no-op the second time", () => {
+    const before = `export default defineConfig({
+  plugins: [
+    decoVitePlugin(),
+    {
+      name: "deco-stub-meta-gen",
+      load() { return "export default {};"; },
+    },
+    tailwindcss(),
+  ],
+});
+`;
+    const { fs, writer, store } = makeMutableFs({
+      "/site/vite.config.ts": before,
+    });
+    runAudit(SITE, fs, { writer });
+    const afterFirst = store["/site/vite.config.ts"];
+    runAudit(SITE, fs, { writer });
+    expect(store["/site/vite.config.ts"]).toBe(afterFirst);
+  });
+
+  it("includes obsolete-vite-plugins in supportsAutoFix", () => {
+    const fs = makeFs({});
+    const report = runAudit(SITE, fs);
+    const supported = report.rules
+      .filter((r) => r.supportsAutoFix)
+      .map((r) => r.rule);
+    expect(supported).toContain("obsolete-vite-plugins");
   });
 });
