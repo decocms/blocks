@@ -11,12 +11,12 @@ export {
   type CacheProfileName,
   type CacheProfileOverrides,
   type CacheTimingWindow,
-  type EdgeCacheConfig,
-  type LoaderCacheOptions,
   cacheHeaders,
   detectCacheProfile,
+  type EdgeCacheConfig,
   edgeCacheConfig,
   getCacheProfile,
+  type LoaderCacheOptions,
   loaderCacheOptions,
   registerCachePattern,
   routeCacheDefaults,
@@ -24,15 +24,26 @@ export {
 } from "./cacheHeaders";
 export { clx } from "./clx";
 export { decodeCookie, deleteCookie, getCookie, getServerSideCookie, setCookie } from "./cookie";
+export { forwardResponseCookies, getRequestCookieHeader } from "./cookiePassthrough";
 export { buildCSPHeaderValue, type CSPOptions, setCSPHeaders } from "./csp";
+export { djb2, djb2Hex } from "./djb2";
 export { isDevMode } from "./env";
+export { buildHtmlShell, type HtmlShellOptions } from "./htmlShell";
 export {
   createInstrumentedFetch,
   type FetchInstrumentationOptions,
   type FetchMetrics,
   instrumentFetch,
 } from "./instrumentedFetch";
-export { batchInvoke, createInvokeProxy, type InvokeProxy, invokeQueryOptions } from "./invoke";
+export {
+  batchInvoke,
+  createAppInvoke,
+  createInvokeProxy,
+  type InvokeProxy,
+  invoke,
+  invokeQueryOptions,
+  type NestedFromFlat,
+} from "./invoke";
 export { createCacheControlCollector, mergeCacheControl } from "./mergeCacheControl";
 export {
   getProductionOrigins,
@@ -59,8 +70,6 @@ export {
   registerTrackingParams,
   stripTrackingParams,
 } from "./urlUtils";
-export { djb2, djb2Hex } from "./djb2";
-export { buildHtmlShell, type HtmlShellOptions } from "./htmlShell";
 export {
   checkDesktop,
   checkMobile,
@@ -74,9 +83,14 @@ export {
 } from "./useDevice";
 export { useHydrated } from "./useHydrated";
 export { useId } from "./useId";
-export { inlineScript, usePartialSection, useScript, useScriptAsDataURI, useSection } from "./useScript";
+export {
+  inlineScript,
+  usePartialSection,
+  useScript,
+  useScriptAsDataURI,
+  useSection,
+} from "./useScript";
 export { createDecoWorkerEntry, type DecoWorkerEntryOptions } from "./workerEntry";
-export { forwardResponseCookies, getRequestCookieHeader } from "./cookiePassthrough";
 export {
   isWrappedError,
   unwrapError,
