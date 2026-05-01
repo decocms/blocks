@@ -485,3 +485,41 @@ This script handles **Phases 0-6** of the [migration playbook](../deco-to-tansta
 - Phase 7-12 — Section registry tuning, route customization, matchers, async rendering, search
 
 The script gets you from "raw Fresh site" to "builds with `npm run build` and has ~0 old imports". Human work starts at runtime debugging and feature wiring.
+
+## Post-Migration Audit (`deco-post-cleanup`)
+
+After the migration script's compile phase passes, run the
+**`deco-post-cleanup`** audit to catch the residual cleanup the
+script leaves behind on existing-but-pre-framework-helpers sites:
+
+```bash
+# Read-only audit (default)
+npx -p @decocms/start deco-post-cleanup
+
+# Auto-fix the safe rules (dead-lib-shims, dead-runtime-shim, local-widgets-types)
+npx -p @decocms/start deco-post-cleanup --fix
+
+# CI gate: auto-fix safe rules, exit 2 if any warnings remain
+npx -p @decocms/start deco-post-cleanup --fix --strict
+```
+
+The audit covers 7 rules (delete dead lib shims, drop obsolete inline
+Vite plugins, delete dead `runtime.ts` invoke shim, delete site-local
+`withSiteGlobals` wrapper, repoint `~/lib/vtex-*` shim regressions,
+delete shadowed `widgets.ts`, surface orphan framework TODOs). The
+detection logic mirrors the canonical checklist at
+[`deco-to-tanstack-migration/references/post-migration-cleanup.md`](../deco-to-tanstack-migration/references/post-migration-cleanup.md).
+
+**Why `compile` and `audit` are complementary:**
+
+| Tool | Catches |
+|------|---------|
+| `phase-compile` (in this script) | TS5097, missing exports, type bugs — anything `tsc --noEmit` finds |
+| `deco-post-cleanup` (separate CLI) | Silent runtime stubs (e.g. dead `~/lib/vtex-*` shims that typecheck cleanly but resolve to `{}` at runtime) |
+
+`tsc` doesn't catch the silent-stub class of bug because the dead
+shim files have valid TypeScript signatures. The audit's pattern
+matches surface what compilation cannot.
+
+Source: `scripts/migrate-post-cleanup.ts` + `scripts/migrate/post-cleanup/`.
+Tests: `scripts/migrate/post-cleanup/runner.test.ts`.
