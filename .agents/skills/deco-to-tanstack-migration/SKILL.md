@@ -369,6 +369,7 @@ For sites with 100+ sections:
 | Admin / CMS integration | `references/admin-cms.md` |
 | Gotchas index | `references/gotchas.md` |
 | Post-migration cleanup checklist | `references/post-migration-cleanup.md` |
+| HTMX → React rewrite recipes | `references/htmx-rewrite.md` |
 | React hooks patterns | `references/react-hooks-patterns.md` |
 | React signals & state | `references/react-signals-state.md` |
 | JSX migration differences | `references/jsx-migration.md` |
