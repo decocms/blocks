@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { resolveSectionConventions } from "./config";
 import type { MigrationContext, TransformResult, SectionMeta } from "./types";
 import { log, logPhase } from "./types";
 import { transformImports } from "./transforms/imports";
@@ -8,7 +9,7 @@ import { transformFreshApis } from "./transforms/fresh-apis";
 import { transformDenoIsms } from "./transforms/deno-isms";
 import { transformTailwind } from "./transforms/tailwind";
 import { transformDeadCode } from "./transforms/dead-code";
-import { transformSectionConventions } from "./transforms/section-conventions";
+import { createSectionConventionsTransform } from "./transforms/section-conventions";
 
 /** Map of section path → metadata, populated per-run */
 let sectionMetaMap: Map<string, SectionMeta> | null = null;
@@ -21,6 +22,22 @@ function getSectionMeta(ctx: MigrationContext, relPath: string): SectionMeta | u
     }
   }
   return sectionMetaMap.get(relPath);
+}
+
+/**
+ * Cached per-run section-conventions closure. Built once from the
+ * resolved config sets (`ctx.config.sectionConventions`), so casaevideo
+ * defaults still apply when no config file exists.
+ */
+let cachedSectionTransform:
+  | ReturnType<typeof createSectionConventionsTransform>
+  | null = null;
+
+function getSectionConventionsTransform(ctx: MigrationContext) {
+  if (cachedSectionTransform) return cachedSectionTransform;
+  const sets = resolveSectionConventions(ctx.config ?? null);
+  cachedSectionTransform = createSectionConventionsTransform(sets);
+  return cachedSectionTransform;
 }
 
 /**
@@ -59,7 +76,9 @@ function applyTransforms(content: string, filePath: string, ctx?: MigrationConte
   // Section conventions (sync/eager/layout/cache) — only for section files
   if (ctx && relPath && relPath.startsWith("sections/")) {
     const meta = getSectionMeta(ctx, relPath);
-    const result = transformSectionConventions(currentContent, meta);
+    // Build the closure once per ctx, cache it on the context.
+    const sectionTransform = getSectionConventionsTransform(ctx);
+    const result = sectionTransform(currentContent, meta);
     if (result.changed) {
       anyChanged = true;
       currentContent = result.content;

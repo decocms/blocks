@@ -1,4 +1,8 @@
-import type { TransformResult, SectionMeta } from "../types";
+import type {
+	SectionConventionSets,
+} from "../config";
+import { resolveSectionConventions } from "../config";
+import type { SectionMeta, TransformResult } from "../types";
 
 /**
  * Adds section convention exports (sync, eager, layout, cache)
@@ -6,158 +10,179 @@ import type { TransformResult, SectionMeta } from "../types";
  *
  * These exports are read by generate-sections.ts in @decocms/start
  * to build the sections.gen.ts registry.
+ *
+ * The set of section *names* that get hints applied is configurable
+ * via `.deco-migrate.config.json` (see `migrate/config.ts`). The exported
+ * `transformSectionConventions` keeps a back-compat signature using the
+ * baked-in defaults; new callers should prefer
+ * `createSectionConventionsTransform(sets)` so config can drive the lists.
  */
 
-const EAGER_SYNC_SECTIONS = new Set([
-  "UtilLinks",
-  "DepartamentList",
-  "ImageGallery",
-  "BannersGrid",
-  "Carousel",
-  "Tipbar",
-  "Live",
-]);
-
-const SYNC_SECTIONS = new Set([
-  "ProductShelf",
-  "ProductShelfTabbed",
-  "ProductShelfGroup",
-  "ProductShelfTopSort",
-  "CouponList",
-  "NotFoundChallenge",
-  "MountedPDP",
-  "BackgroundWrapper",
-  "SearchResult",
-  "LpCartao",
-]);
-
-const LISTING_CACHE_SECTIONS = new Set([
-  "ProductShelf",
-  "ProductShelfTabbed",
-  "ProductShelfGroup",
-  "ProductShelfTimedOffers",
-]);
-
-const STATIC_CACHE_SECTIONS = new Set([
-  "InstagramPosts",
-  "Faq",
-]);
-
 function getSectionBasename(filePath: string): string {
-  return filePath.split("/").pop()?.replace(/\.\w+$/, "") || "";
+	return filePath.split("/").pop()?.replace(/\.\w+$/, "") || "";
 }
 
+/**
+ * Build a `transformSectionConventions` closure bound to the given
+ * resolved sets. This is the preferred entry point — the caller (usually
+ * `phase-transform`) loads config once and passes the sets in.
+ */
+export function createSectionConventionsTransform(
+	sets: SectionConventionSets,
+) {
+	return (
+		content: string,
+		sectionMeta: SectionMeta | undefined,
+	): TransformResult => transformWithSets(content, sectionMeta, sets);
+}
+
+/** Default-configured transform. Uses the baked-in defaults from `config.ts`. */
+const defaultSets = resolveSectionConventions(null);
+
 export function transformSectionConventions(
-  content: string,
-  sectionMeta: SectionMeta | undefined,
+	content: string,
+	sectionMeta: SectionMeta | undefined,
 ): TransformResult {
-  if (!sectionMeta) {
-    return { content, changed: false, notes: [] };
-  }
+	return transformWithSets(content, sectionMeta, defaultSets);
+}
 
-  const notes: string[] = [];
-  let result = content;
-  let changed = false;
-  const basename = getSectionBasename(sectionMeta.path);
+function transformWithSets(
+	content: string,
+	sectionMeta: SectionMeta | undefined,
+	sets: SectionConventionSets,
+): TransformResult {
+	if (!sectionMeta) {
+		return { content, changed: false, notes: [] };
+	}
 
-  // Header, footer, theme → eager + sync + layout
-  if (sectionMeta.isHeader || sectionMeta.isFooter || sectionMeta.isTheme) {
-    if (!result.includes("export const eager")) {
-      result += "\nexport const eager = true;\n";
-      notes.push("Added: export const eager = true");
-      changed = true;
-    }
-    if (!result.includes("export const sync")) {
-      result += "export const sync = true;\n";
-      notes.push("Added: export const sync = true");
-      changed = true;
-    }
-    // Header in golden does NOT have layout=true; only footer+theme do
-    if ((sectionMeta.isFooter || sectionMeta.isTheme) && !result.includes("export const layout")) {
-      result += "export const layout = true;\n";
-      notes.push("Added: export const layout = true");
-      changed = true;
-    }
-  }
+	const notes: string[] = [];
+	let result = content;
+	let changed = false;
+	const basename = getSectionBasename(sectionMeta.path);
 
-  // Known eager+sync sections (non-layout)
-  if (EAGER_SYNC_SECTIONS.has(basename)) {
-    if (!result.includes("export const eager")) {
-      result += "\nexport const eager = true;\n";
-      notes.push(`Added: export const eager = true (${basename})`);
-      changed = true;
-    }
-    if (!result.includes("export const sync")) {
-      result += "export const sync = true;\n";
-      notes.push(`Added: export const sync = true (${basename})`);
-      changed = true;
-    }
-  }
+	// Header, footer, theme → eager + sync + layout
+	if (sectionMeta.isHeader || sectionMeta.isFooter || sectionMeta.isTheme) {
+		if (!result.includes("export const eager")) {
+			result += "\nexport const eager = true;\n";
+			notes.push("Added: export const eager = true");
+			changed = true;
+		}
+		if (!result.includes("export const sync")) {
+			result += "export const sync = true;\n";
+			notes.push("Added: export const sync = true");
+			changed = true;
+		}
+		// Header in golden does NOT have layout=true; only footer+theme do
+		if (
+			(sectionMeta.isFooter || sectionMeta.isTheme) &&
+			!result.includes("export const layout")
+		) {
+			result += "export const layout = true;\n";
+			notes.push("Added: export const layout = true");
+			changed = true;
+		}
+	}
 
-  // Known sync-only sections
-  if (SYNC_SECTIONS.has(basename) && !result.includes("export const sync")) {
-    result += "\nexport const sync = true;\n";
-    notes.push(`Added: export const sync = true (${basename})`);
-    changed = true;
-  }
+	// Known eager+sync sections (non-layout)
+	if (sets.eagerSync.has(basename)) {
+		if (!result.includes("export const eager")) {
+			result += "\nexport const eager = true;\n";
+			notes.push(`Added: export const eager = true (${basename})`);
+			changed = true;
+		}
+		if (!result.includes("export const sync")) {
+			result += "export const sync = true;\n";
+			notes.push(`Added: export const sync = true (${basename})`);
+			changed = true;
+		}
+	}
 
-  // Listing cache sections
-  if (LISTING_CACHE_SECTIONS.has(basename) && !result.includes("export const cache")) {
-    result += '\nexport const cache = "listing";\n';
-    notes.push(`Added: export const cache = "listing" (${basename})`);
-    changed = true;
-  }
+	// Known sync-only sections
+	if (sets.sync.has(basename) && !result.includes("export const sync")) {
+		result += "\nexport const sync = true;\n";
+		notes.push(`Added: export const sync = true (${basename})`);
+		changed = true;
+	}
 
-  // Static cache sections
-  if (STATIC_CACHE_SECTIONS.has(basename) && !result.includes("export const cache")) {
-    result += '\nexport const cache = "static";\n';
-    notes.push(`Added: export const cache = "static" (${basename})`);
-    changed = true;
-  }
+	// Listing cache sections
+	if (
+		sets.listingCache.has(basename) &&
+		!result.includes("export const cache")
+	) {
+		result += '\nexport const cache = "listing";\n';
+		notes.push(`Added: export const cache = "listing" (${basename})`);
+		changed = true;
+	}
 
-  // Generic: listing sections not already matched above
-  if (sectionMeta.isListing && !result.includes("export const cache")) {
-    result += '\nexport const cache = "listing";\n';
-    notes.push('Added: export const cache = "listing"');
-    changed = true;
-  }
+	// Static cache sections
+	if (
+		sets.staticCache.has(basename) &&
+		!result.includes("export const cache")
+	) {
+		result += '\nexport const cache = "static";\n';
+		notes.push(`Added: export const cache = "static" (${basename})`);
+		changed = true;
+	}
 
-  // Sections with loaders that use device → add sync (needs SSR device detection)
-  if (sectionMeta.hasLoader && sectionMeta.loaderUsesDevice && !result.includes("export const sync")) {
-    result += "\nexport const sync = true;\n";
-    notes.push("Added: export const sync = true (loader uses device)");
-    changed = true;
-  }
+	// Generic: listing sections not already matched above
+	if (sectionMeta.isListing && !result.includes("export const cache")) {
+		result += '\nexport const cache = "listing";\n';
+		notes.push('Added: export const cache = "listing"');
+		changed = true;
+	}
 
-  // Sections that render nested Section children need sync so they're in
-  // the syncComponents registry (SectionRenderer resolves the string key).
-  const hasNestedSections =
-    /children:\s*Section\b/.test(result) || /fallback:\s*Section\b/.test(result);
-  if (hasNestedSections && !result.includes("export const sync")) {
-    result += "\nexport const sync = true;\n";
-    notes.push("Added: export const sync = true (renders nested Section children)");
-    changed = true;
-  }
+	// Sections with loaders that use device → add sync (needs SSR device detection)
+	if (
+		sectionMeta.hasLoader &&
+		sectionMeta.loaderUsesDevice &&
+		!result.includes("export const sync")
+	) {
+		result += "\nexport const sync = true;\n";
+		notes.push("Added: export const sync = true (loader uses device)");
+		changed = true;
+	}
 
-  // Re-export sections that wrap PDP/nested content need sync too.
-  // Detect: file is a re-export AND the target component renders nested Sections
-  const isReExport = /^export\s+\{[^}]*default[^}]*\}\s+from\s+/.test(result.trim());
-  if (isReExport && (basename === "MountedPDP" || basename === "NotFoundChallenge")) {
-    if (!result.includes("export const sync")) {
-      result += "\nexport const sync = true;\n";
-      notes.push(`Added: export const sync = true (re-export: ${basename})`);
-      changed = true;
-    }
-  }
+	// Sections that render nested Section children need sync so they're in
+	// the syncComponents registry (SectionRenderer resolves the string key).
+	const hasNestedSections =
+		/children:\s*Section\b/.test(result) ||
+		/fallback:\s*Section\b/.test(result);
+	if (hasNestedSections && !result.includes("export const sync")) {
+		result += "\nexport const sync = true;\n";
+		notes.push(
+			"Added: export const sync = true (renders nested Section children)",
+		);
+		changed = true;
+	}
 
-  // Don't add LoadingFallback re-exports to thin section files —
-  // we can't guarantee the target component exports it.
-  // Instead, if it's a listing section, a generic skeleton will be added below.
+	// Re-export sections that wrap PDP/nested content need sync too.
+	// Detect: file is a re-export AND the target component renders nested Sections
+	const isReExport = /^export\s+\{[^}]*default[^}]*\}\s+from\s+/.test(
+		result.trim(),
+	);
+	if (
+		isReExport &&
+		(basename === "MountedPDP" || basename === "NotFoundChallenge")
+	) {
+		if (!result.includes("export const sync")) {
+			result += "\nexport const sync = true;\n";
+			notes.push(`Added: export const sync = true (re-export: ${basename})`);
+			changed = true;
+		}
+	}
 
-  // Generate a basic LoadingFallback if the section doesn't have one
-  // and it's a listing section (visible skeleton improvement)
-  if (sectionMeta.isListing && !sectionMeta.hasLoadingFallback && !result.includes("LoadingFallback")) {
-    result += `
+	// Don't add LoadingFallback re-exports to thin section files —
+	// we can't guarantee the target component exports it.
+	// Instead, if it's a listing section, a generic skeleton will be added below.
+
+	// Generate a basic LoadingFallback if the section doesn't have one
+	// and it's a listing section (visible skeleton improvement)
+	if (
+		sectionMeta.isListing &&
+		!sectionMeta.hasLoadingFallback &&
+		!result.includes("LoadingFallback")
+	) {
+		result += `
 export function LoadingFallback() {
   return (
     <div className="w-full py-8">
@@ -177,9 +202,9 @@ export function LoadingFallback() {
   );
 }
 `;
-    notes.push("Added: LoadingFallback skeleton for listing section");
-    changed = true;
-  }
+		notes.push("Added: LoadingFallback skeleton for listing section");
+		changed = true;
+	}
 
-  return { content: result, changed, notes };
+	return { content: result, changed, notes };
 }

@@ -137,6 +137,14 @@ export interface MigrationContext {
   vtexAccount: string | null;
   gtmId: string | null;
 
+  /**
+   * Per-site config loaded from `.deco-migrate.config.json`. `null` means
+   * no config file was present — defaults apply throughout. Imported
+   * lazily as `MigrateConfig` to avoid a circular dependency between
+   * `types.ts` and `config.ts`.
+   */
+  config?: import("./config").MigrateConfig | null;
+
   /** deno.json import map entries */
   importMap: Record<string, string>;
 
@@ -191,7 +199,11 @@ export interface TransformResult {
 
 export function createContext(
   sourceDir: string,
-  opts: { dryRun?: boolean; verbose?: boolean } = {},
+  opts: {
+    dryRun?: boolean;
+    verbose?: boolean;
+    config?: import("./config").MigrateConfig | null;
+  } = {},
 ): MigrationContext {
   return {
     sourceDir,
@@ -199,6 +211,7 @@ export function createContext(
     platform: "custom",
     vtexAccount: null,
     gtmId: null,
+    config: opts.config ?? null,
     importMap: {},
     discoveredNpmDeps: {},
     themeColors: {},

@@ -34,6 +34,33 @@ npx tsx node_modules/@decocms/start/scripts/migrate.ts --source /path/to/old-sit
 
 **CI usage:** pair `--strict` with `--with-build` to catch both type and runtime regressions before merge.
 
+### Per-site config: `.deco-migrate.config.json`
+
+Optional JSON file at the source root that customises the migration for sites whose section names don't match the casaevideo-derived defaults baked into the script.
+
+```jsonc
+{
+  "sectionConventions": {
+    // Add to defaults — preferred for sites that share most defaults.
+    "extend": {
+      "sync": ["MyCustomShelf"],
+      "listingCache": ["MyCustomShelf"],
+      "staticCache": ["AboutUs", "PrivacyPolicy"]
+    }
+    // Or replace defaults entirely (rare):
+    // "replace": { "sync": [...], "eagerSync": [...], ... }
+  }
+}
+```
+
+**Categories:**
+- `eagerSync` — section files registered as both eager and sync (rendered above-the-fold, no client-defer).
+- `sync` — registered as sync only (server-side default applies for loading).
+- `listingCache` — emit `export const cache = "listing"` (medium TTL).
+- `staticCache` — emit `export const cache = "static"` (long TTL).
+
+When the file is absent the baked-in casaevideo defaults apply, so existing migrations are unaffected.
+
 ## Architecture
 
 ```
