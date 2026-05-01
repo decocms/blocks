@@ -25,6 +25,7 @@
 
 import * as path from "node:path";
 import { execSync } from "node:child_process";
+import { loadConfig, validateConfig } from "./migrate/config";
 import { createContext, logPhase } from "./migrate/types";
 import { analyze } from "./migrate/phase-analyze";
 import { scaffold } from "./migrate/phase-scaffold";
@@ -121,9 +122,19 @@ async function main() {
   stat("Mode", opts.dryRun ? yellow("DRY RUN") : green("EXECUTE"));
   stat("Verbose", opts.verbose ? "yes" : "no");
 
+  // Load optional per-site config from `.deco-migrate.config.json`. Drives
+  // section-conventions hardcoded lists today; future fields will tune
+  // import rewrites, scaffolding, etc.
+  const siteConfig = loadConfig(sourceDir);
+  if (siteConfig) {
+    validateConfig(siteConfig);
+    stat("Config", green(".deco-migrate.config.json (loaded)"));
+  }
+
   const ctx = createContext(sourceDir, {
     dryRun: opts.dryRun,
     verbose: opts.verbose,
+    config: siteConfig,
   });
 
   try {
