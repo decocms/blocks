@@ -154,29 +154,21 @@ type SplitFirst<S extends string> = S extends `${infer Head}/${infer Tail}`
   ? [Head, Tail]
   : [S, never];
 
-type BuildNested<Key extends string, Value> = SplitFirst<Key> extends [
-  infer H extends string,
-  infer T,
-]
-  ? T extends string
-    ? { [K in H]: BuildNested<T, Value> }
-    : { [K in H]: Value }
-  : never;
+type BuildNested<Key extends string, Value> =
+  SplitFirst<Key> extends [infer H extends string, infer T]
+    ? T extends string
+      ? { [K in H]: BuildNested<T, Value> }
+      : { [K in H]: Value }
+    : never;
 
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (
-  k: infer I,
-) => void
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
   ? I
   : never;
 
-type DeepMerge<T> = T extends object
-  ? { [K in keyof T]: DeepMerge<T[K]> }
-  : T;
+type DeepMerge<T> = T extends object ? { [K in keyof T]: DeepMerge<T[K]> } : T;
 
 export type NestedFromFlat<T extends Record<string, any>> = DeepMerge<
-  UnionToIntersection<
-    { [K in keyof T & string]: BuildNested<K, T[K]> }[keyof T & string]
-  >
+  UnionToIntersection<{ [K in keyof T & string]: BuildNested<K, T[K]> }[keyof T & string]>
 >;
 
 /**
@@ -203,10 +195,10 @@ export type NestedFromFlat<T extends Record<string, any>> = DeepMerge<
  * ```
  */
 export function createAppInvoke(basePath?: string): any;
-export function createAppInvoke<T extends Record<string, any>>(basePath?: string): NestedFromFlat<T>;
-export function createAppInvoke(
-  basePath = "/deco/invoke",
-): any {
+export function createAppInvoke<T extends Record<string, any>>(
+  basePath?: string,
+): NestedFromFlat<T>;
+export function createAppInvoke(basePath = "/deco/invoke"): any {
   function buildProxy(path: string[]): any {
     return new Proxy(
       Object.assign(async (props: any) => {
@@ -217,7 +209,10 @@ export function createAppInvoke(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(props ?? {}),
           });
-          if (response.status === 404) { await response.body?.cancel(); continue; }
+          if (response.status === 404) {
+            await response.body?.cancel();
+            continue;
+          }
           if (!response.ok) {
             const error = await response.json().catch(() => ({ error: response.statusText }));
             throw new Error(
@@ -242,3 +237,24 @@ export function createAppInvoke(
 
   return buildProxy([]);
 }
+
+/**
+ * Default nested invoke proxy bound to `/deco/invoke`.
+ *
+ * Replaces site-level `~/runtime.ts` shims that wrap the same `createAppInvoke`
+ * call. Importing this singleton means no per-site boilerplate.
+ *
+ * @example
+ * ```ts
+ * import { invoke } from "@decocms/start/sdk/invoke";
+ *
+ * await invoke.vtex.actions.checkout.addItemsToCart({ orderFormId, orderItems });
+ * await invoke.site.loaders.Wishlist.getWishlist({});
+ * ```
+ *
+ * For a custom `basePath` or typed handlers, call `createAppInvoke()` directly:
+ * ```ts
+ * const invoke = createAppInvoke<Handlers>("/my/invoke");
+ * ```
+ */
+export const invoke = createAppInvoke();
