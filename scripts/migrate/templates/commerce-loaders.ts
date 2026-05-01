@@ -204,7 +204,8 @@ export function generateCommerceLoaders(ctx: MigrationContext): string {
       lines.push(`      breadcrumb: createBreadcrumbFromPath(url.pathname, url, collection.name) ?? {},`);
       lines.push(`      seo: {`);
       lines.push(`        title: collection.name,`);
-      lines.push(`        description: "O melhor site de compras online para sua casa: compre itens de cozinha, móveis para sala e escritório, acessórios de tecnologia e mais. Clique já!",`);
+      lines.push(`        // MIGRATION TODO: replace with site-specific category description`);
+      lines.push(`        description: collection.name,`);
       lines.push(`        noIndexing: false,`);
       lines.push(`        canonical: url.toString(),`);
       lines.push(`      },`);

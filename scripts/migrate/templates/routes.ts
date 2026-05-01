@@ -67,8 +67,10 @@ import { DecoRootLayout } from "@decocms/start/hooks";
 // @ts-ignore Vite ?url import
 import appCss from "../styles/app.css?url";
 
-const DEFAULT_DESCRIPTION =
-  "${siteTitle} - Tudo para sua casa com os melhores preços.";
+// MIGRATION TODO: customize description, OG image, and locale for ${siteTitle}.
+// The migration scaffold leaves a generic default so it never falls through;
+// CMS \`Site.seo\` overrides this once block resolution kicks in.
+const DEFAULT_DESCRIPTION = "${siteTitle}";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -108,11 +110,14 @@ function generateIndex(ctx: MigrationContext, siteTitle: string): string {
 import { cmsHomeRouteConfig, deferredSectionLoader } from "@decocms/start/routes";
 import { DecoPageRenderer } from "@decocms/start/hooks";
 
+// MIGRATION TODO: customize defaultTitle / defaultDescription / fallback
+// copy below for ${siteTitle}. CMS \`Site.seo\` overrides these once block
+// resolution kicks in, so leaving the migration scaffold defaults is safe
+// but visible in pre-block-resolution states.
 export const Route = createFileRoute("/")({
   ...cmsHomeRouteConfig({
-    defaultTitle: "${siteTitle} - Tudo para sua casa",
-    defaultDescription:
-      "${siteTitle} - Tudo para sua casa com os melhores preços.",
+    defaultTitle: "${siteTitle}",
+    defaultDescription: "${siteTitle}",
     siteName: "${siteTitle}",
   }),
   component: HomePage,
@@ -126,8 +131,7 @@ function HomePage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-4xl font-bold mb-4">${siteTitle}</h1>
-          <p className="text-lg text-base-content/60">Tudo para sua casa</p>
-          <p className="text-sm text-base-content/40 mt-2">Nenhuma página CMS encontrada para /</p>
+          <p className="text-sm text-base-content/40 mt-2">No CMS page registered for /</p>
         </div>
       </div>
     );
@@ -152,11 +156,12 @@ function generateCatchAll(ctx: MigrationContext, siteTitle: string): string {
 import { cmsRouteConfig, deferredSectionLoader } from "@decocms/start/routes";
 import { DecoPageRenderer } from "@decocms/start/hooks";
 
+// MIGRATION TODO: customize defaultTitle / defaultDescription for ${siteTitle}
+// (CMS \`Site.seo\` overrides these per-page once block resolution kicks in).
 const routeConfig = cmsRouteConfig({
   siteName: "${siteTitle}",
-  defaultTitle: "${siteTitle} - Tudo para sua casa",
-  defaultDescription:
-    "${siteTitle} - Tudo para sua casa com os melhores preços.",
+  defaultTitle: "${siteTitle}",
+  defaultDescription: "${siteTitle}",
   ignoreSearchParams: ["skuId"],
 });
 

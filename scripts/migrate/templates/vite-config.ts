@@ -53,41 +53,6 @@ export default defineConfig({
     }),
     tailwindcss(),
     decoVitePlugin(),
-    {
-      name: "site-manual-chunks",
-      config(_cfg, { command }) {
-        if (command !== "build") return;
-        return {
-          build: {
-            rollupOptions: {
-              output: {
-                manualChunks(id: string) {
-                  if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/"))
-                    return "vendor-react";
-                  if (id.includes("@tanstack/react-router") || id.includes("@tanstack/start"))
-                    return "vendor-router";
-                  if (id.includes("@tanstack/react-query")) return "vendor-query";
-                },
-              },
-            },
-          },
-        };
-      },
-    },
-    {
-      name: "deco-stub-meta-gen",
-      enforce: "pre" as const,
-      resolveId(id, importer, options) {
-        if (!options?.ssr && importer && id.includes("meta.gen")) {
-          return "\\0stub:meta-gen";
-        }
-      },
-      load(id) {
-        if (id === "\\0stub:meta-gen") {
-          return "export default {};";
-        }
-      },
-    },
   ],
   build: {
     sourcemap: "hidden",

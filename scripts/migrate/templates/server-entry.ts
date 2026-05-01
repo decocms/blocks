@@ -216,50 +216,20 @@ declare module "@tanstack/react-router" {
 
 function generateRuntime(): string {
   return `/**
- * Runtime invoke proxy.
+ * Runtime invoke proxy — re-exports the framework canonical from @decocms/start/sdk.
  *
- * Turns nested property access into a typed RPC call to /deco/invoke.
- * Converts dot-notation paths to slash-separated keys:
- *   invoke.vtex.loaders.productList(props)
- *   → POST /deco/invoke/vtex/loaders/productList
+ * The implementation (typed RPC over /deco/invoke, dotted-path proxy, .ts
+ * suffix fallback) lives in @decocms/start/sdk/invoke. This file exists so
+ * existing site code can keep \`import { invoke } from "~/runtime"\` and
+ * \`Runtime.invoke\` shapes without churn.
  *
- * The .ts suffix variant is also tried if the primary key isn't found
- * (registered loaders may have ".ts" extensions in their keys).
+ * Don't reimplement here — extend @decocms/start/sdk/invoke instead.
  */
-function createNestedInvokeProxy(path: string[] = []): any {
-  return new Proxy(
-    Object.assign(async (props: any) => {
-      const key = path.join("/");
-      for (const k of [key, \`\${key}.ts\`]) {
-        const response = await fetch(\`/deco/invoke/\${k}\`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(props ?? {}),
-        });
-        if (response.status === 404) continue;
-        if (!response.ok) {
-          throw new Error(\`invoke(\${k}) failed: \${response.status}\`);
-        }
-        return response.json();
-      }
-      throw new Error(\`invoke(\${key}) failed: handler not found\`);
-    }, {}),
-    {
-      get(_target: any, prop: string) {
-        if (prop === "then" || prop === "catch" || prop === "finally") {
-          return undefined;
-        }
-        return createNestedInvokeProxy([...path, prop]);
-      },
-    },
-  );
-}
+import { invoke } from "@decocms/start/sdk";
 
-export const invoke = createNestedInvokeProxy() as any;
+export { invoke };
 
-export const Runtime = {
-  invoke,
-};
+export const Runtime = { invoke };
 `;
 }
 
@@ -299,11 +269,8 @@ export const invoke = {} as const;
  * auto-generated in invoke.gen.ts. Run \`npm run generate:invoke\` to update.
  */
 import { createServerFn } from "@tanstack/react-start";
-import {
-  getRequestHeader,
-  getResponseHeaders,
-  setResponseHeader,
-} from "@tanstack/react-start/server";
+import { getRequestHeader } from "@tanstack/react-start/server";
+import { forwardResponseCookies } from "@decocms/start/sdk/cookiePassthrough";
 import { vtexActions } from "./invoke.gen";
 ${hasVtexAuthLoader ? `import vtexAuthLoader from "../loaders/vtex-auth-loader";\n` : ""}import {
   extractVtexCookiesFromHeader,
@@ -313,15 +280,6 @@ ${hasVtexAuthLoader ? `import vtexAuthLoader from "../loaders/vtex-auth-loader";
 } from "@decocms/apps/vtex/utils/authHelpers";
 
 export type { OrderForm } from "./invoke.gen";
-
-function mergeSetCookies(newCookies: string[]): void {
-  if (newCookies.length === 0) return;
-  const existing: string[] =
-    typeof getResponseHeaders().getSetCookie === "function"
-      ? getResponseHeaders().getSetCookie()
-      : [];
-  setResponseHeader("set-cookie", [...existing, ...newCookies]);
-}
 
 function getVtexCookies(): string {
   return extractVtexCookiesFromHeader(getRequestHeader("cookie") ?? "");
@@ -336,7 +294,7 @@ ${hasVtexAuthLoader ? `const _vtexAuth = createServerFn({ method: "POST" })
     } as any);
     if (result instanceof Response) {
       const setCookies = result.headers.getSetCookie?.() ?? [];
-      mergeSetCookies(stripCookieDomain(setCookies));
+      forwardResponseCookies(stripCookieDomain(setCookies));
       return result.json();
     }
     return result;
@@ -344,7 +302,7 @@ ${hasVtexAuthLoader ? `const _vtexAuth = createServerFn({ method: "POST" })
 ` : ""}const _logout = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ success: boolean }> => {
     const { setCookies } = await performVtexLogout(getVtexCookies());
-    mergeSetCookies(setCookies);
+    forwardResponseCookies(setCookies);
     return { success: true };
   },
 );

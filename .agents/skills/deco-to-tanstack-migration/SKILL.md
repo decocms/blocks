@@ -43,7 +43,7 @@ Each phase has entry/exit criteria. Follow in order. Automation % indicates how 
 | [2](#phase-2--signals--state) | Signals & State | ~50% | `references/signals/` |
 | [3](#phase-3--deco-framework) | Deco Framework Elimination | ~80% | `references/deco-framework/` |
 | [4](#phase-4--commerce--types) | Commerce Types & UI | ~70% | `references/commerce/` |
-| [5](#phase-5--platform-hooks) | Platform Hooks | 0% | `references/platform-hooks/` |
+| [5](#phase-5--platform-hooks) | Platform Hooks (factories, W12+) | template | `references/platform-hooks-factories.md` |
 | [6](#phase-6--islands-elimination) | Islands Elimination | ~60% | `references/islands.md` |
 | [7](#phase-7--section-registry) | Section Registry & Setup | 0% | `references/async-rendering.md` |
 | [8](#phase-8--routes--cms) | Routes & CMS | template | `references/navigation.md` |
@@ -152,14 +152,18 @@ See: `references/commerce/README.md`, `references/vtex-commerce.md`
 
 **Entry**: Phase 4 complete
 
-**Actions** (manual implementation):
-1. Create `src/hooks/useCart.ts` — module-level singleton + listener pattern
-2. Create `src/hooks/useUser.ts`, `src/hooks/useWishlist.ts` (stubs or real)
-3. Wire VTEX API calls via `@decocms/apps` invoke functions
+**Actions (Wave 12+ factory-based — current)**:
+1. `src/hooks/useCart.ts` — 5-line shim around `createUseCart` from `@decocms/apps/vtex/hooks/createUseCart`
+2. `src/hooks/useUser.ts` — 5-line shim around `createUseUser`
+3. `src/hooks/useWishlist.ts` — 5-line shim around `createUseWishlist`
+4. The migration template (`scripts/migrate/templates/hooks.ts`) emits all three for VTEX sites automatically.
+
+For non-VTEX platforms, scaffold no-op stubs using `@decocms/start/sdk/signal` (see factories doc § "Non-VTEX platforms").
 
 **Exit**: Cart add/remove works, no `apps/{platform}/hooks` imports
 
-See: `references/platform-hooks/README.md`
+See: `references/platform-hooks-factories.md` (canonical, Wave 12+).
+Pre-W12 manual approach is preserved at `references/platform-hooks/README.md` for sites that haven't migrated to factories yet.
 
 ---
 
@@ -356,7 +360,8 @@ For sites with 100+ sections:
 | Signals → TanStack Store | `references/signals/` |
 | Deco framework elimination | `references/deco-framework/` |
 | Commerce & widget types | `references/commerce/` |
-| Platform hooks (VTEX) | `references/platform-hooks/` |
+| Platform hooks (VTEX, factories — Wave 12+) | `references/platform-hooks-factories.md` |
+| Platform hooks (manual, legacy pre-W12) | `references/platform-hooks/README.md` |
 | Vite configuration | `references/vite-config/` |
 | Automation commands | `references/codemod-commands.md` |
 | Islands elimination | `references/islands.md` |

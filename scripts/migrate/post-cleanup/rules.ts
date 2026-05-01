@@ -462,6 +462,31 @@ function findAttachedLeadingComments(content: string, openIdx: number): number {
 /* Rule 3 — dead `src/runtime.ts` invoke shim                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Detection covers two shapes of `src/runtime.ts`:
+ *
+ * 1. Legacy inline proxy (pre-Wave 15-A migration template) — defines
+ *    `createNestedInvokeProxy` plus `invoke` and `Runtime` constants.
+ *    The whole 40-50 LOC body duplicates `@decocms/start/sdk`'s `invoke`.
+ *
+ * 2. Simple re-export shim — the file only re-exports `invoke` /
+ *    `createNestedInvokeProxy` (no inline proxy body, but also not yet
+ *    pointing at `@decocms/start/sdk`).
+ *
+ * Both should be replaced with `import { invoke } from "@decocms/start/sdk"`
+ * at every callsite, and the file deleted. The Wave 15-A migration template
+ * scaffolds a thin re-export form that's also acceptable (re-exports
+ * `invoke` from `@decocms/start/sdk` and rebuilds `Runtime = { invoke }`);
+ * we explicitly skip it via the "imports invoke from @decocms/start/sdk
+ * AND no inline proxy" check below.
+ */
+const INLINE_PROXY_RE =
+  /(?:function|const)\s+createNestedInvokeProxy\b|new\s+Proxy\s*\(\s*Object\.assign\s*\(\s*async\s*\(\s*props/;
+const FRAMEWORK_INVOKE_IMPORT_RE =
+  /import\s+\{[^}]*\binvoke\b[^}]*\}\s+from\s+['"]@decocms\/start(?:\/sdk)?['"]/;
+
+const ALLOWED_RUNTIME_EXPORTS = new Set(["invoke", "createNestedInvokeProxy", "Runtime"]);
+
 const ruleDeadRuntimeShim: Rule = {
   id: "dead-runtime-shim",
   title: "Dead src/runtime.ts invoke shim",
@@ -469,24 +494,54 @@ const ruleDeadRuntimeShim: Rule = {
     const abs = `${siteDir}/src/runtime.ts`;
     if (!fs.exists(abs)) return [];
     const content = fs.readText(abs);
-    // Heuristic: if the file's only meaningful exports are `invoke` /
-    // `createNestedInvokeProxy`, it's purely a shim.
+
+    const hasInlineProxy = INLINE_PROXY_RE.test(content);
+    const reExportsFromFramework = FRAMEWORK_INVOKE_IMPORT_RE.test(content);
     const exports = extractExports(content);
-    const onlyInvokeShim =
-      exports.length > 0 && exports.every((e) => ["invoke", "createNestedInvokeProxy"].includes(e));
-    if (!onlyInvokeShim) return [];
+    const onlyKnownInvokeExports =
+      exports.length > 0 && exports.every((e) => ALLOWED_RUNTIME_EXPORTS.has(e));
+
+    // Wave 15-A canonical template: re-exports invoke from @decocms/start/sdk
+    // and exposes `Runtime = { invoke }` for legacy callers. No inline proxy
+    // body. This is the desired shape — skip.
+    if (reExportsFromFramework && !hasInlineProxy) return [];
+
+    // Site-specific helpers alongside invoke: don't flag — the file has its
+    // own purpose beyond shimming. (Old behavior preserved.)
+    if (!hasInlineProxy && !onlyKnownInvokeExports) return [];
+
+    const exportSummary = exports.length > 0 ? exports.join(", ") : "(re-exports only)";
+    const flavor = hasInlineProxy ? "inline createNestedInvokeProxy body" : "shim re-exports";
+    // Only safe to auto-delete when exports are pure invoke surface; if a
+    // legacy file mixes the inline proxy with custom helpers, we still flag
+    // it but skip the destructive fix.
+    const safeToAutoFix = onlyKnownInvokeExports;
+
     return [
       {
         rule: "dead-runtime-shim",
         severity: "info",
         file: "src/runtime.ts",
-        message: `Only re-exports invoke (${exports.join(", ")}) — replace with @decocms/start/sdk`,
-        fix: 'rg -l "from \\"~/runtime\\"" src/ | xargs sed -i \'\' \'s|from "~/runtime"|from "@decocms/start/sdk"|g\' && rm src/runtime.ts',
+        message: safeToAutoFix
+          ? `${flavor} [${exportSummary}] — replace with @decocms/start/sdk`
+          : `${flavor} [${exportSummary}] — manual review: file mixes the runtime proxy with site-specific exports`,
+        fix: safeToAutoFix
+          ? 'rg -l "from \\"~/runtime\\"" src/ | xargs sed -i \'\' \'s|from "~/runtime"|from "@decocms/start/sdk"|g\' && rm src/runtime.ts'
+          : "Move the inline `createNestedInvokeProxy` body to call @decocms/start/sdk's `invoke`; relocate site-specific helpers to a dedicated module before deleting src/runtime.ts",
+        meta: {
+          hasInlineProxy,
+          exports,
+          safeToAutoFix,
+        },
       },
     ];
   },
   applyFix(ctx, findings, writer): FixAction[] {
     if (findings.length === 0) return [];
+    // Honor the per-finding safety gate emitted by run() — never auto-delete
+    // a runtime.ts that mixes the proxy with site-specific helpers.
+    const safe = findings.every((f) => f.meta?.safeToAutoFix !== false);
+    if (!safe) return [];
     const updated = rewriteImportSpec(ctx, writer, "~/runtime", "@decocms/start/sdk");
     writer.deleteFile(`${ctx.siteDir}/src/runtime.ts`);
     return [
