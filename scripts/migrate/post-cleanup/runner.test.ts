@@ -1240,6 +1240,51 @@ describe("rule: local-framework-duplicate", () => {
     expect(r.findings[0].fix).toContain("typed AnalyticsEvent generic");
   });
 
+  it("flags src/sdk/url.ts as warn-only (positional bool → options object call-site rewrite)", () => {
+    const fs = makeFs({
+      "/site/src/sdk/url.ts":
+        "export const relative = (\n" +
+        "  link?: string | undefined,\n" +
+        "  removeIdSku?: boolean,\n" +
+        ") => {\n" +
+        '  const linkUrl = link ? new URL(link, "http://localhost") : undefined;\n' +
+        "  if (linkUrl && removeIdSku) {\n" +
+        '    linkUrl.searchParams.delete("idsku");\n' +
+        '    linkUrl.searchParams.delete("skuId");\n' +
+        "  }\n" +
+        "  return linkUrl ? `${linkUrl.pathname}` : undefined;\n" +
+        "};\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "local-framework-duplicate")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].file).toBe("src/sdk/url.ts");
+    expect(r.findings[0].meta?.id).toBe("url-relative");
+    expect(r.findings[0].meta?.safeToAutoFix).toBe(false);
+    expect(r.findings[0].meta?.canonicalImport).toBe(
+      "@decocms/apps/commerce/sdk/url",
+    );
+    expect(r.findings[0].fix).toContain("stripSearchParams");
+  });
+
+  it("does NOT flag a forked url.ts that no longer carries the removeIdSku flag", () => {
+    // A site that already adopted an options-object-shaped local helper
+    // should not be flagged — the rule's signature is anchored on the
+    // legacy positional-boolean shape.
+    const fs = makeFs({
+      "/site/src/sdk/url.ts":
+        "export const relative = (link?: string, options?: { stripSearchParams?: string[] }) => {\n" +
+        '  if (!link) return undefined;\n' +
+        '  return new URL(link, "https://localhost").pathname;\n' +
+        "};\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "local-framework-duplicate")!;
+    // url-relative entry must NOT fire on the canonical-shaped local fork.
+    const urlFinding = r.findings.find((f) => f.meta?.id === "url-relative");
+    expect(urlFinding).toBeUndefined();
+  });
+
   it("flags src/matchers/location.ts as warn-only (behaviour-superset opportunity)", () => {
     const fs = makeFs({
       "/site/src/matchers/location.ts":

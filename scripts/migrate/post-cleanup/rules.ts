@@ -1053,6 +1053,31 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
     description:
       "src/matchers/location.ts overlaps with @decocms/start/matchers/builtins → registerBuiltinMatchers()",
   },
+  {
+    id: "url-relative",
+    sitePath: "src/sdk/url.ts",
+    canonicalImport: "@decocms/apps/commerce/sdk/url",
+    // Fingerprint: site fork carries a positional `removeIdSku?: boolean`
+    // flag + hardcoded VTEX-specific keys (`idsku`, `skuId`). Canonical
+    // apps export uses an options object — `{ stripSearchParams: string[] }`
+    // — which is generic and platform-agnostic.
+    contentSignature: [
+      /export\s+const\s+relative\s*=/,
+      /removeIdSku\s*\?\s*:\s*boolean/,
+      /['"](idsku|skuId)['"]/,
+    ],
+    safeToAutoFix: false,
+    reason:
+      "rewrite imports to '@decocms/apps/commerce/sdk/url'. " +
+      "Each call site using the boolean form `relative(url, true)` becomes " +
+      "`relative(url, { stripSearchParams: [\"idsku\", \"skuId\"] })`. " +
+      "1-arg calls are unchanged. Then delete src/sdk/url.ts. " +
+      "Auto-fix is gated because the call-site rewrite needs JSX/TS-aware " +
+      "transformation (positional bool → options object), not pure import " +
+      "rewrite.",
+    description:
+      "src/sdk/url.ts overlaps with @decocms/apps/commerce/sdk/url → relative() (extended in @decocms/apps@1.9+)",
+  },
 ];
 
 const ruleLocalFrameworkDuplicate: Rule = {
