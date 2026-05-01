@@ -1215,9 +1215,76 @@ copy-paste regression on any future site gets caught automatically.
 - **15-B-4** — `Picture` API unification (breaking; needs a
   picking-the-winner pass between casaevideo's and baggagio's
   shapes, plus a codemod for call sites).
-- **15-B-5** — `relative()` SKU-stripping option in
-  `@decocms/apps/commerce/sdk/url`. Apps-side change; sites delete
-  their wrapper.
+
+### Wave 15-B-5 (canonical `relative()` + audit registry entry — apps + deco-start) — 🟡 **IN FLIGHT**
+
+The smallest 15-B slice: extend `commerce/sdk/url.ts → relative()`
+with a generic options bag, then point the audit at the canonical
+so future site forks get caught automatically.
+
+Verified state (2026-05-01 grep against baggagio-tanstack):
+
+- `src/sdk/url.ts` carries a positional 2-arg fork (`relative(link,
+  removeIdSku?: boolean)`) with VTEX-specific keys (`idsku`,
+  `skuId`) hardcoded inside.
+- 9 importers in baggagio. ONE of them — `ProductCard.tsx` — uses
+  the 2-arg form (via prop `removeIdSkuFromUrl`). The other 8 use
+  the 1-arg form, identical to the apps canonical.
+- casaevideo doesn't carry a fork.
+
+So the convergence is one apps-side extension + one audit registry
+entry. The single `ProductCard` call site rewrites by hand or by a
+future codemod (out of scope here).
+
+**Shipped (two PRs):**
+
+39. [`apps-start#36`](https://github.com/decocms/apps-start/pull/36) — `feat(commerce/sdk): extend relative() with stripSearchParams option` ✅ **MERGED** (will release as `@decocms/apps@1.9.x`).
+    - **`commerce/sdk/url.ts`**: backwards-compatible second
+      `RelativeOptions` argument with `stripSearchParams?:
+      string[]` primitive. 1-arg callers (everyone in apps + 8/9
+      of baggagio's call sites) unaffected. The byte-for-byte
+      "://path-style" passthrough is locked in by an explicit
+      backwards-compat test.
+    - **Why generic, not `removeIdSku?: boolean`**: hardcoded VTEX
+      key names belong at call sites, not in a generic commerce
+      helper. `stripSearchParams: string[]` works for any platform.
+      Sites pass `["idsku", "skuId"]` themselves — honest about
+      where the platform knowledge lives.
+    - **`commerce/__tests__/url.test.ts`** (new): 18 tests covering
+      base behaviour (relative/absolute/undefined/empty/malformed
+      via `toString()` thrower), `stripSearchParams` primitive
+      (single, multi, empty, missing, repeated keys, all-stripped
+      → drop trailing `?`), and three explicit backwards-compat
+      assertions.
+    - 290/290 tests pass, typecheck + biome clean.
+
+40. `feat(migrate): add url-relative entry to local-framework-duplicate registry` 🟡 **WAITING ON CI** (deco-start side).
+    - **Registry entry** in `FRAMEWORK_DUPLICATES` for
+      `src/sdk/url.ts` → `@decocms/apps/commerce/sdk/url`. Content
+      signature anchored on the legacy positional `removeIdSku?:
+      boolean` shape so sites that already adopted the canonical
+      options-object aren't flagged.
+    - **`safeToAutoFix: false`** — the call-site rewrite from
+      positional `relative(url, true)` to `relative(url, {
+      stripSearchParams: ["idsku", "skuId"] })` requires JSX/TS-
+      aware transformation, not pure import rewrite. The finding's
+      `fix:` field carries the exact recipe.
+    - **Two new tests**: positive case (legacy fork → flagged with
+      the correct hint), negative case (canonical-shaped local
+      fork that already adopted the options object → NOT flagged,
+      proves the signature-anchoring works).
+    - **Skill doc § 8 table** updated with the 4th entry, including
+      version pin (`@decocms/apps@1.9+`).
+    - 355/355 tests pass, typecheck clean. Smoke against baggagio
+      now fires 3 findings (was 2): clx, useSendEvent, url; smoke
+      against casaevideo unchanged at 1 (location-matcher).
+
+**Process note**: this is the first time we ran the apps-side and
+deco-start-side as a pair of PRs. The order matters — apps-start
+must merge first so the deco-start audit registry can point at
+the released canonical. The skill doc explicitly version-pins the
+canonical (`@decocms/apps@1.9+`) so engineers reading the audit
+output know whether they need to bump apps before adopting.
 
 ### Wave 15+ (htmx cleanup PRs on als + propagation to other sites) — Priority 3 / 4
 
