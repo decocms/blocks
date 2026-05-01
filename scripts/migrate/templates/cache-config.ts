@@ -1,4 +1,4 @@
-import type { MigrationContext } from "../types.ts";
+import type { MigrationContext } from "../types";
 
 export function generateCacheConfig(ctx: MigrationContext): string {
   if (ctx.platform !== "vtex") {

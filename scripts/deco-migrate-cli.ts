@@ -25,7 +25,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync, spawnSync } from "node:child_process";
-import { banner, stat, red, green, yellow, cyan, bold, dim, icons } from "./migrate/colors.ts";
+import { banner, stat, red, green, yellow, cyan, bold, dim, icons } from "./migrate/colors";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

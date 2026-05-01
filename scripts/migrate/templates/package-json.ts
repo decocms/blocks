@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import type { MigrationContext } from "../types.ts";
+import type { MigrationContext } from "../types";
 
 /**
  * Get the latest published version of an npm package.

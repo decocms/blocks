@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext, LoaderInfo, Platform } from "../types.ts";
-import { log } from "../types.ts";
+import type { MigrationContext, LoaderInfo, Platform } from "../types";
+import { log } from "../types";
 
 /** Well-known loaders that map directly to @decocms/apps equivalents */
 const APPS_EQUIVALENTS: Record<string, string> = {

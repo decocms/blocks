@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext } from "./types.ts";
-import { logPhase } from "./types.ts";
+import type { MigrationContext } from "./types";
+import { logPhase } from "./types";
 
 interface Check {
   name: string;

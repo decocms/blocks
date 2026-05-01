@@ -1,14 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext, TransformResult, SectionMeta } from "./types.ts";
-import { log, logPhase } from "./types.ts";
-import { transformImports } from "./transforms/imports.ts";
-import { transformJsx } from "./transforms/jsx.ts";
-import { transformFreshApis } from "./transforms/fresh-apis.ts";
-import { transformDenoIsms } from "./transforms/deno-isms.ts";
-import { transformTailwind } from "./transforms/tailwind.ts";
-import { transformDeadCode } from "./transforms/dead-code.ts";
-import { transformSectionConventions } from "./transforms/section-conventions.ts";
+import type { MigrationContext, TransformResult, SectionMeta } from "./types";
+import { log, logPhase } from "./types";
+import { transformImports } from "./transforms/imports";
+import { transformJsx } from "./transforms/jsx";
+import { transformFreshApis } from "./transforms/fresh-apis";
+import { transformDenoIsms } from "./transforms/deno-isms";
+import { transformTailwind } from "./transforms/tailwind";
+import { transformDeadCode } from "./transforms/dead-code";
+import { transformSectionConventions } from "./transforms/section-conventions";
 
 /** Map of section path → metadata, populated per-run */
 let sectionMetaMap: Map<string, SectionMeta> | null = null;

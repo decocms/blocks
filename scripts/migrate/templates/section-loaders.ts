@@ -1,4 +1,4 @@
-import type { MigrationContext, SectionMeta } from "../types.ts";
+import type { MigrationContext, SectionMeta } from "../types";
 import * as fs from "node:fs";
 import * as path from "node:path";
 

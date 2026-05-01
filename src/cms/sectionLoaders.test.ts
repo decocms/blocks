@@ -24,7 +24,10 @@ const makeSection = (component: string, props: Record<string, unknown> = {}): Re
 
 describe("runSingleSectionLoader — page context injection", () => {
   it("injects __pageUrl and __pagePath into loader props", async () => {
-    const loader = vi.fn(async (props: Record<string, unknown>) => props);
+    // Two-arg signature so loader.mock.calls[0] types as [props, req].
+    const loader = vi.fn(
+      async (props: Record<string, unknown>, _req: Request) => props,
+    );
     registerSectionLoader("site/sections/SearchBanner.tsx", loader);
 
     const section = makeSection("site/sections/SearchBanner.tsx", { foo: "bar" });

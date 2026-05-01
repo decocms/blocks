@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext } from "./types.ts";
-import { log, logPhase } from "./types.ts";
+import type { MigrationContext } from "./types";
+import { log, logPhase } from "./types";
 
 /** Directories to remove entirely after migration */
 const DIRS_TO_DELETE = [

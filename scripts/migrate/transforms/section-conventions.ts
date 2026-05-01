@@ -1,4 +1,4 @@
-import type { TransformResult, SectionMeta } from "../types.ts";
+import type { TransformResult, SectionMeta } from "../types";
 
 /**
  * Adds section convention exports (sync, eager, layout, cache)

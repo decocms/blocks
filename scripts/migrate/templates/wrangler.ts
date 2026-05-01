@@ -1,4 +1,4 @@
-import type { MigrationContext } from "../types.ts";
+import type { MigrationContext } from "../types";
 
 export function generateWrangler(ctx: MigrationContext): string {
   const workerName = ctx.siteName

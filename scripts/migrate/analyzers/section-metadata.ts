@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext, SectionMeta } from "../types.ts";
-import { log } from "../types.ts";
+import type { MigrationContext, SectionMeta } from "../types";
+import { log } from "../types";
 
 const HEADER_RE = /\bheader\b/i;
 const FOOTER_RE = /\bfooter\b/i;
