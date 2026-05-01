@@ -5,6 +5,43 @@ recurring set of dead-code and boilerplate cleanup that every migrated
 site benefits from. Run this checklist before the first PR review, not
 after the site has been shipping for weeks.
 
+## Run the audit first
+
+This whole checklist is now automated by the **`deco-post-cleanup`**
+audit script (added in `@decocms/start >= 2.11.0`, `--fix` mode in
+`>= 2.12.0`). Run it from the site repo to get a structured report
+of which sections below actually apply to your codebase:
+
+```bash
+# Pretty text output, exits 0 unless --strict is passed
+npx -p @decocms/start deco-post-cleanup
+
+# Auto-apply mechanical fixes for the safe rules, then report what's left.
+# Safe rules: dead-lib-shims, dead-runtime-shim, local-widgets-types.
+# Other rules stay detect-only — they require human judgment.
+npx -p @decocms/start deco-post-cleanup --fix
+
+# Combine for CI: auto-fix safe rules, fail (exit 2) if warnings remain.
+npx -p @decocms/start deco-post-cleanup --fix --strict
+
+# Machine-readable JSON for dashboards
+npx -p @decocms/start deco-post-cleanup --json
+```
+
+The audit covers all 7 rules below and prints the exact file path +
+suggested fix for each finding. With `--fix`, the three safe rules
+auto-apply (`rm` for dead files, regex-anchored import rewrites for
+shadowed shims). The output explicitly tags rules that require manual
+work as `(0 fixed, manual)`, so you always know what's left after
+auto-fix runs.
+
+Real-world signal: on baggagio, `--fix` produced a byte-identical
+diff to the manual cleanup PR a human had just made (45 files,
++45/-53). On casaevideo-storefront (production), the audit caught
+six silent VTEX shim regressions that no `tsc --noEmit` run can
+detect — those still require manual cleanup until rule 5 gains a
+per-shim mapping table.
+
 ## 1. Delete unused `src/lib/*` shims
 
 The migration script's `templates/lib-utils.ts` generates 11 shim files
