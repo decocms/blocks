@@ -227,15 +227,91 @@ describe("rule: dead-runtime-shim", () => {
     const r = report.rules.find((r) => r.rule === "dead-runtime-shim")!;
     expect(r.findings).toHaveLength(1);
     expect(r.findings[0].file).toBe("src/runtime.ts");
+    expect(r.findings[0].meta?.safeToAutoFix).toBe(true);
+    expect(r.findings[0].meta?.hasInlineProxy).toBe(true);
   });
 
-  it("does not flag a runtime.ts that exports site-specific helpers", () => {
+  it("does not flag a runtime.ts that exports site-specific helpers (no inline proxy)", () => {
     const fs = makeFs({
       "/site/src/runtime.ts": "export const invoke = {};\nexport const customHelper = () => 1;\n",
     });
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "dead-runtime-shim")!;
     expect(r.findings).toEqual([]);
+  });
+
+  it("does NOT flag the Wave 15-A canonical re-export shape", () => {
+    // The migration template now scaffolds a thin re-export from
+    // @decocms/start/sdk plus a Runtime alias. No inline proxy body.
+    const fs = makeFs({
+      "/site/src/runtime.ts":
+        'import { invoke } from "@decocms/start/sdk";\nexport { invoke };\nexport const Runtime = { invoke };\n',
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "dead-runtime-shim")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("flags the legacy 47-line inline createNestedInvokeProxy body (with Runtime export)", () => {
+    // The pre-Wave-15-A migration template emitted a full Proxy body
+    // alongside `Runtime = { invoke }`. The earlier rule heuristic
+    // missed this shape because `Runtime` was not in its allowlist.
+    const fs = makeFs({
+      "/site/src/runtime.ts": `
+function createNestedInvokeProxy(path: string[] = []): any {
+  return new Proxy(
+    Object.assign(async (props: any) => {
+      const key = path.join("/");
+      const response = await fetch(\`/deco/invoke/\${key}\`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(props ?? {}),
+      });
+      return response.json();
+    }, {}),
+    {
+      get(_target: any, prop: string) {
+        if (prop === "then") return undefined;
+        return createNestedInvokeProxy([...path, prop]);
+      },
+    },
+  );
+}
+
+export const invoke = createNestedInvokeProxy() as any;
+export const Runtime = { invoke };
+`,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "dead-runtime-shim")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].meta?.hasInlineProxy).toBe(true);
+    expect(r.findings[0].meta?.safeToAutoFix).toBe(true);
+    expect(r.findings[0].message).toContain("inline createNestedInvokeProxy body");
+  });
+
+  it("flags but does NOT auto-fix when inline proxy coexists with site-specific helpers", () => {
+    // Defensive: if a site has hand-tuned the runtime file with extra
+    // exports beyond invoke/Runtime, deletion would lose data. Surface
+    // the issue but skip the destructive fix.
+    const fs = makeFs({
+      "/site/src/runtime.ts": `
+function createNestedInvokeProxy(path: string[] = []): any {
+  return new Proxy(Object.assign(async (props: any) => {}, {}), {});
+}
+export const invoke = createNestedInvokeProxy();
+export const trackPageView = () => console.log("custom tracker");
+`,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "dead-runtime-shim")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].meta?.hasInlineProxy).toBe(true);
+    expect(r.findings[0].meta?.safeToAutoFix).toBe(false);
+    expect(r.findings[0].message).toContain("manual review");
+    // applyFix should be a no-op when safeToAutoFix is false — verified
+    // implicitly by the runner test for --fix below; here we only
+    // assert the metadata gate.
   });
 });
 

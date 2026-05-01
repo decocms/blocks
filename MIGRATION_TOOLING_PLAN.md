@@ -239,6 +239,58 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
 
 > Append-only. Each entry: date, what we found, where it impacts the plan.
 
+### 2026-05-01 — Wave 15-A double-check exposed a self-perpetuating template→audit loop
+
+- **Q1 (sites→packages promotion completeness):** Two subagents
+  swept `casaevideo-storefront` + `baggagio-tanstack`. The big
+  A-list icebergs are caught — but **5 cross-site duplications
+  satisfying D4** slipped through (`useSuggestions`, `useOffer`
+  forks, `useVariantPossibilities` forks, site-local copies of
+  framework `clx` / `useSendEvent`, three competing `Picture`
+  APIs). Plus 4 migration debts where the framework already has
+  the answer (`useCart` factory not adopted in casaevideo,
+  `runtime.ts` inline proxy still scaffolded, location matcher
+  duplication, inline cookie helpers).
+- **Q2 (script/skill coverage of what we shipped):** Worse. The
+  migration script's templates were **scaffolding code that the
+  audit's `--fix` then removed** — the textbook
+  self-perpetuating loop. `templates/vite-config.ts` was emitting
+  `site-manual-chunks` + `deco-stub-meta-gen` (both already
+  inside `decoVitePlugin()`). `templates/server-entry.ts` was
+  emitting a 47-line `createNestedInvokeProxy` body (already in
+  `@decocms/start/sdk`). The factories shipped in W12 (`createUseUser`
+  / `createUseWishlist`) had **zero skill mentions** — the
+  pre-W12 manual approach was still the canonical doc. Cookie
+  passthrough helpers in `cookiePassthrough.ts` were **half-shipped**:
+  the deco-start side compiled, the apps-start providers it
+  references in its own docstring don't exist, and the migration
+  script never wired either.
+- **Decided: ship Wave 15-A as a single PR.** Drop the obsolete
+  emissions (G1/G2/G4/G5), expand `dead-runtime-shim` to catch
+  both the legacy inline shape (with `Runtime` export) and the
+  Wave-15-A canonical re-export shape (skip — desired form),
+  publish a `platform-hooks-factories.md` skill that supersedes
+  the stale README, and update plan + journal.
+- **Defer to Wave 15-B / 16:** (G3) promotion of the
+  `invoke.gen.ts` 170-LOC server-fn block to apps-start needs
+  research on TanStack Start's compiler scanning behaviour
+  (whether `createServerFn` can be transformed when it lives in
+  a node_module). (H1) full cookie-passthrough provider wiring
+  (`setRequestCookieProvider` / `setResponseCookieForwarder` in
+  apps-start, auto-wire in `setup.ts`) needs design. The 5
+  cross-site convergence promotions (`useSuggestions`,
+  `useOffer` factory, `Picture` unification, `clx`/`useSendEvent`
+  redirects, `relative()` extension) are now in the priority-2
+  backlog, sequenced after Wave 15-A merges.
+- **The double-check itself is a useful primitive.** "Did we
+  ship script/skill/audit coverage for everything we built?" run
+  against the framework + apps inventory consistently surfaces
+  these loops. Codify it: when promoting a new factory or
+  helper, the PR checklist must include "matching template
+  emit", "matching audit-rule expansion", "matching skill doc
+  entry". This is the kind of self-check that prevents the next
+  16-month-old stale skill.
+
 ### 2026-05-01 — Wave 14-A rescoped from three codemods to one based on real als data
 
 - **Pre-data plan vs post-data plan.** The plan called for three
@@ -983,6 +1035,98 @@ recipes in `references/htmx-rewrite.md`.
   TODO marker would still fire (we look for `useScript(` calls,
   not the import), but the import-removal would create dead
   references. Order is correct.
+
+### Wave 15-A (close template→audit loops + factories skill — Priority 2 follow-on) — 🟡 **IN FLIGHT**
+
+Triggered by the double-check audit on 2026-05-01: subagent sweeps over
+casaevideo-storefront + baggagio-tanstack revealed (a) the migration
+template was scaffolding code that the audit's `--fix` then removed,
+and (b) the W12 factory hooks (`createUseUser`, `createUseWishlist`)
+had no skill coverage. Wave 15-A closes both loops in one PR.
+
+**Shipped (one PR against `decocms/deco-start`):**
+
+37. `feat(migrate): close template→audit loops for vite plugins, runtime, cookies, branding + factories skill` 🟡 **WAITING ON CI**.
+    - **`templates/vite-config.ts`** — drop `site-manual-chunks` and
+      `deco-stub-meta-gen` plugin emissions. Both already live in
+      `decoVitePlugin()` (`src/vite/plugin.js`). The audit's
+      `obsolete-vite-plugins --fix` was undoing the template's own
+      output; now the template emits clean, the audit catches
+      regressions in legacy sites.
+    - **`templates/server-entry.ts` `generateRuntime()`** — replace
+      the 47-line inline `createNestedInvokeProxy` body with a 6-line
+      re-export from `@decocms/start/sdk`. Sites keep
+      `import { invoke } from "~/runtime"` and `Runtime.invoke`
+      shapes. A2 of the original investigation finally lands at the
+      template layer (was previously only patched post-migration by
+      the audit).
+    - **`templates/server-entry.ts` `generateInvoke()` (VTEX path)**
+      — replace inline `mergeSetCookies` helper with
+      `forwardResponseCookies` from
+      `@decocms/start/sdk/cookiePassthrough`. The framework helper
+      already shipped with try/catch for build-time safety.
+      `getVtexCookies` stays inline (it's auth-specific filtering, not
+      generic passthrough — see Wave 15-B/16 for full provider wiring
+      under H1).
+    - **`templates/routes.ts` + `templates/commerce-loaders.ts`** —
+      replace casaevideo-specific branding leaks ("Tudo para sua
+      casa…" tagline, "O melhor site de compras online…"
+      `productListPageCollection` SEO description) with
+      `${siteTitle}`-derived defaults plus `MIGRATION TODO` markers
+      pointing at the per-site customization spot. CMS `Site.seo`
+      overrides the defaults at runtime so leaving them visible in
+      pre-resolution states is the safe behaviour.
+    - **Audit rule expansion: `dead-runtime-shim`** — previously only
+      flagged when exports were exactly `{ invoke }` or
+      `{ invoke, createNestedInvokeProxy }`. Updated to detect (a)
+      inline `createNestedInvokeProxy` body via regex (catches the
+      legacy 47-line shape **with** `Runtime` export — which the old
+      heuristic missed entirely; this is the shape every existing
+      VTEX site has) and (b) skip the new Wave-15-A canonical
+      re-export shape (where `import invoke from
+      @decocms/start/sdk` is present and no inline proxy body
+      exists). Auto-fix is gated by `safeToAutoFix` metadata: legacy
+      shim shapes get the rewrite + delete; sites that mix the proxy
+      with custom helpers get a warning only. Three new tests.
+      **Verified against casaevideo-storefront**: now flags
+      `[invoke, Runtime] inline createNestedInvokeProxy body` (was
+      missed entirely before).
+    - **Skill: `references/platform-hooks-factories.md`** — new
+      canonical doc covering `createUseCart` / `createUseUser` /
+      `createUseWishlist`. Replaces the pre-W12 manual approach of
+      hand-rolling 200+ LOC of `createServerFn` wrappers per site.
+      Documents the 5-line shim shape, why factories instead of
+      direct hook imports (state isolation per site), non-VTEX
+      stubs using `@decocms/start/sdk/signal`, and the migration
+      path off the manual approach.
+    - **Skill update: `references/platform-hooks/README.md`** —
+      retained as legacy reference but now opens with a
+      "deprecated, see canonical" header pointing at the new doc.
+      The pre-W12 `createServerFn` examples are kept for sites that
+      haven't migrated to factories yet.
+    - **`SKILL.md` index update** — Phase 5 entry now points to the
+      factories doc; reference table lists both new + legacy paths.
+    - 342 → 345 tests pass, typecheck clean, smoke against casaevideo
+      + baggagio confirms expanded rule fires correctly on legacy
+      shapes and stays silent on baggagio (no `runtime.ts` file there).
+
+**Deferred to Wave 15-B / 16 (intentionally — see discoveries journal):**
+
+- **G3** — promote the 170-LOC `invoke.gen.ts` VTEX `createServerFn`
+  wrappers into `@decocms/apps/vtex/server-fns`. Needs research on
+  whether TanStack Start's compiler can transform `createServerFn`
+  call sites that live inside a node_module. Not safe to ship blind.
+- **H1** — full cookie-passthrough provider wiring
+  (`setRequestCookieProvider` / `setResponseCookieForwarder` in
+  apps-start, auto-wire in `templates/setup.ts`). The
+  `cookiePassthrough.ts` docstring already references this design but
+  the apps-start side doesn't exist. Needs a design pass to scope
+  what calls inside `vtex/utils/fetch.ts` need the provider hook
+  (currently each call site forwards cookies manually).
+- **Cross-site convergence promotions** (5 items) — `useSuggestions`,
+  `useOffer` factory, `Picture` API unification, redirect
+  `useSendEvent`/`clx`/location-matcher imports, `relative()`
+  SKU-stripping extension. Sequenced after 15-A merges.
 
 ### Wave 15+ (htmx cleanup PRs on als + propagation to other sites) — Priority 3 / 4
 
