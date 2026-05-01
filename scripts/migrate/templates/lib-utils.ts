@@ -38,15 +38,41 @@ export function selectImportedLibTemplates(
   return out;
 }
 
+// Per the migration tooling policy (D3 — Throwing stubs):
+// generated stubs MUST throw at runtime so the first call surfaces the
+// gap loudly. Silent identity-cast `toProduct` was the bug behind
+// baggagio-tanstack#10 (PDP product data was being dropped on the floor
+// for weeks before anyone noticed).
+//
+// Each thrown message points at the canonical replacement so the fix
+// is mechanical. `deco-post-cleanup --fix` automates the swap.
 const LIB_VTEX_TRANSFORM = `import type { Product } from "@decocms/apps/commerce/types";
 
-export function toProduct(vtexProduct: any): Product {
-  return vtexProduct as Product;
+const STUB =
+  "[deco-migrate] \`~/lib/vtex-transform.toProduct\` is a generated stub. " +
+  "Replace with: import { toProduct } from '@decocms/apps/vtex/utils/transform' " +
+  "(canonical signature: \`toProduct(product, sku, level, options)\`). " +
+  "Run \`deco-post-cleanup --fix\` or see the deco-to-tanstack-migration skill " +
+  "(post-migration-cleanup § 5).";
+
+export function toProduct(_vtexProduct: any, ..._rest: any[]): Product {
+  throw new Error(STUB);
 }
 `;
 
-const LIB_VTEX_INTELLIGENT_SEARCH = `export function getISCookiesFromBag(_req?: any): Record<string, string> {
-  return {};
+const LIB_VTEX_INTELLIGENT_SEARCH = `// Per the migration tooling policy (D3): \`getISCookiesFromBag\` cannot
+// be implemented on TanStack Start because the bag-based lookup
+// mechanism does not exist. Sites must read cookies directly from the
+// request — see the \`vtex-shim-regression\` audit rule for guidance.
+const STUB_GET_IS_COOKIES =
+  "[deco-migrate] \`~/lib/vtex-intelligent-search.getISCookiesFromBag\` is a " +
+  "generated stub. Refactor: extract IS cookies from " +
+  "\`request.headers.get('cookie')\` directly. The bag-based lookup mechanism " +
+  "does not exist on TanStack Start. See the deco-to-tanstack-migration " +
+  "skill (post-migration-cleanup § 5).";
+
+export function getISCookiesFromBag(_req?: any): Record<string, string> {
+  throw new Error(STUB_GET_IS_COOKIES);
 }
 
 export function isFilterParam(key: string): boolean {
@@ -85,17 +111,30 @@ export function withDefaultParams(
 }
 `;
 
-const LIB_VTEX_SEGMENT = `export function getSegmentFromBag(_req?: any): Record<string, unknown> | null {
-  return null;
+const LIB_VTEX_SEGMENT = `// Per the migration tooling policy (D3): both these stubs throw at
+// runtime to force the call site to be fixed. Silent fallbacks here
+// mean the storefront silently fails to forward VTEX segment data
+// (sales channel, regionId, currency, etc.) and pricing/inventory
+// quietly diverge from what the user should see.
+const STUB_GET_SEGMENT_FROM_BAG =
+  "[deco-migrate] \`~/lib/vtex-segment.getSegmentFromBag\` is a generated " +
+  "stub. Refactor: read cookies via \`request.headers.get('cookie')\` then " +
+  "call \`buildSegmentFromCookies()\` from '@decocms/apps/vtex/utils/segment'. " +
+  "The bag-based lookup mechanism does not exist on TanStack Start.";
+
+const STUB_WITH_SEGMENT_COOKIE =
+  "[deco-migrate] \`~/lib/vtex-segment.withSegmentCookie\` is a generated " +
+  "stub. Replace with: import { withSegmentCookie } from " +
+  "'@decocms/apps/vtex/utils/segment' (canonical signature: " +
+  "\`withSegmentCookie(segment, headers?)\`). Run \`deco-post-cleanup --fix\` " +
+  "or see the deco-to-tanstack-migration skill.";
+
+export function getSegmentFromBag(_req?: any): Record<string, unknown> | null {
+  throw new Error(STUB_GET_SEGMENT_FROM_BAG);
 }
 
 export function withSegmentCookie(..._args: any[]): any {
-  for (const arg of _args) {
-    if (arg instanceof Headers) {
-      return arg;
-    }
-  }
-  return new Headers();
+  throw new Error(STUB_WITH_SEGMENT_COOKIE);
 }
 `;
 

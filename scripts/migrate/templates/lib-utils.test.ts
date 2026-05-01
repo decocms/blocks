@@ -89,3 +89,51 @@ describe("selectImportedLibTemplates()", () => {
     }
   });
 });
+
+describe("D3 — generated stubs throw at runtime", () => {
+  // Each stub MUST throw an Error whose message identifies:
+  //  - the stub path so the dev sees it in their stack trace
+  //  - the canonical replacement (so the fix is mechanical)
+  //
+  // See migration-tooling-policy.mdc § Decision 3.
+  it("vtex-transform.toProduct throws and points at the canonical path", () => {
+    const src = LIB_TEMPLATES["src/lib/vtex-transform.ts"];
+    expect(src).toMatch(/throw new Error/);
+    expect(src).toMatch(/@decocms\/apps\/vtex\/utils\/transform/);
+    expect(src).toMatch(/\[deco-migrate\]/);
+  });
+
+  it("vtex-intelligent-search.getISCookiesFromBag throws", () => {
+    const src = LIB_TEMPLATES["src/lib/vtex-intelligent-search.ts"];
+    expect(src).toMatch(/getISCookiesFromBag[\s\S]*?throw new Error/);
+    expect(src).toMatch(/\[deco-migrate\]/);
+    // The other helpers in this file (isFilterParam, toPath,
+    // withDefaultFacets, withDefaultParams) are real impls — must not
+    // throw.
+    expect(src).toMatch(/export function isFilterParam[\s\S]*?return key\.startsWith/);
+  });
+
+  it("vtex-segment.getSegmentFromBag and withSegmentCookie both throw", () => {
+    const src = LIB_TEMPLATES["src/lib/vtex-segment.ts"];
+    expect(src).toMatch(/getSegmentFromBag[\s\S]*?throw new Error/);
+    expect(src).toMatch(/withSegmentCookie[\s\S]*?throw new Error/);
+    expect(src).toMatch(/@decocms\/apps\/vtex\/utils\/segment/);
+  });
+
+  it("non-stub helpers stay implemented (negative check — no throw)", () => {
+    // These are real impls, not stubs. They must not throw.
+    const real = [
+      "src/lib/http-utils.ts",
+      "src/lib/vtex-id.ts",
+      "src/lib/graphql-utils.ts",
+      "src/lib/filter-navigate.ts",
+      "src/lib/fetch-utils.ts",
+    ];
+    for (const key of real) {
+      const src = LIB_TEMPLATES[key];
+      expect(src, `${key} should not contain a generated stub throw`).not.toMatch(
+        /\[deco-migrate\][^"]*generated stub/,
+      );
+    }
+  });
+});
