@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext, IslandClassification } from "../types.ts";
-import { log } from "../types.ts";
+import type { MigrationContext, IslandClassification } from "../types";
+import { log } from "../types";
 
 const REEXPORT_RE = /^export\s+\{\s*default\s*\}\s+from\s+["']([^"']+)["']/m;
 const NAMED_REEXPORT_RE = /^export\s+\{[^}]+\}\s+from\s+["']([^"']+)["']/m;

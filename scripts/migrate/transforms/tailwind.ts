@@ -1,4 +1,4 @@
-import type { TransformResult } from "../types.ts";
+import type { TransformResult } from "../types";
 
 /**
  * Tailwind v3 → v4 class migration transform.

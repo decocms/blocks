@@ -1,4 +1,4 @@
-import type { MigrationContext } from "../types.ts";
+import type { MigrationContext } from "../types";
 
 export function generateViteConfig(ctx: MigrationContext): string {
   const isVtex = ctx.platform === "vtex";

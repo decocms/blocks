@@ -1,4 +1,4 @@
-import type { MigrationContext } from "../types.ts";
+import type { MigrationContext } from "../types";
 
 export function generateUiComponents(_ctx: MigrationContext): Record<string, string> {
   const files: Record<string, string> = {};

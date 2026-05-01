@@ -1,4 +1,4 @@
-import type { TransformResult } from "../types.ts";
+import type { TransformResult } from "../types";
 
 /**
  * Removes dead code patterns from the old Deco stack that don't work

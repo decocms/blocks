@@ -1,4 +1,4 @@
-import type { TransformResult } from "../types.ts";
+import type { TransformResult } from "../types";
 
 /**
  * Convert JSX attribute syntax to object literal entries.

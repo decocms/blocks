@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext } from "../types.ts";
-import type { ExtractedTheme } from "../analyzers/theme-extractor.ts";
+import type { MigrationContext } from "../types";
+import type { ExtractedTheme } from "../analyzers/theme-extractor";
 
 /**
  * Find the original site's custom CSS file.

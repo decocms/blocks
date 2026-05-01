@@ -1,4 +1,4 @@
-import type { TransformResult } from "../types.ts";
+import type { TransformResult } from "../types";
 
 /**
  * Removes Deno-specific patterns:

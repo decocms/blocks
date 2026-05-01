@@ -1,4 +1,4 @@
-import type { TransformResult } from "../types.ts";
+import type { TransformResult } from "../types";
 
 /**
  * Fix JSX after scriptAsDataURI → useScript replacement.

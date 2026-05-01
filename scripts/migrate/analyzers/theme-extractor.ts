@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext } from "../types.ts";
-import { log } from "../types.ts";
+import type { MigrationContext } from "../types";
+import { log } from "../types";
 
 export interface ExtractedTheme {
   /** Raw CSS variable -> hex color map from DEFAULT_THEME */

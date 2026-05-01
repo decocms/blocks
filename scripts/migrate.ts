@@ -25,14 +25,14 @@
 
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import { createContext, logPhase } from "./migrate/types.ts";
-import { analyze } from "./migrate/phase-analyze.ts";
-import { scaffold } from "./migrate/phase-scaffold.ts";
-import { transform } from "./migrate/phase-transform.ts";
-import { cleanup } from "./migrate/phase-cleanup.ts";
-import { report } from "./migrate/phase-report.ts";
-import { verify } from "./migrate/phase-verify.ts";
-import { banner, stat, red, green, yellow } from "./migrate/colors.ts";
+import { createContext, logPhase } from "./migrate/types";
+import { analyze } from "./migrate/phase-analyze";
+import { scaffold } from "./migrate/phase-scaffold";
+import { transform } from "./migrate/phase-transform";
+import { cleanup } from "./migrate/phase-cleanup";
+import { report } from "./migrate/phase-report";
+import { verify } from "./migrate/phase-verify";
+import { banner, stat, red, green, yellow } from "./migrate/colors";
 
 function parseArgs(args: string[]): {
   source: string;

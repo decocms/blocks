@@ -5,11 +5,11 @@ import type {
   FileRecord,
   MigrationContext,
   Platform,
-} from "./types.ts";
-import { log, logPhase } from "./types.ts";
-import { extractSectionMetadata } from "./analyzers/section-metadata.ts";
-import { classifyIslands } from "./analyzers/island-classifier.ts";
-import { inventoryLoaders } from "./analyzers/loader-inventory.ts";
+} from "./types";
+import { log, logPhase } from "./types";
+import { extractSectionMetadata } from "./analyzers/section-metadata";
+import { classifyIslands } from "./analyzers/island-classifier";
+import { inventoryLoaders } from "./analyzers/loader-inventory";
 
 const PATTERN_DETECTORS: Array<[DetectedPattern, RegExp]> = [
   ["preact-hooks", /from\s+["']preact\/hooks["']/],
@@ -390,7 +390,7 @@ function scanDir(
 
     let content = "";
     let patterns: DetectedPattern[] = [];
-    let reExport = { is: false, target: undefined as string | undefined };
+    let reExport: { is: boolean; target?: string } = { is: false };
 
     if (isCode) {
       content = fs.readFileSync(fullPath, "utf-8");

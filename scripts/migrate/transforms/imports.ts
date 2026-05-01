@@ -1,4 +1,4 @@
-import type { TransformResult } from "../types.ts";
+import type { TransformResult } from "../types";
 
 /**
  * Import rewriting rules: from (Deno/Fresh/Preact) → to (Node/TanStack/React)

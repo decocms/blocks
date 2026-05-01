@@ -1,4 +1,4 @@
-import type { MigrationContext } from "../types.ts";
+import type { MigrationContext } from "../types";
 
 /**
  * Generates src/lib/ utility wrappers that provide signature-compatible
