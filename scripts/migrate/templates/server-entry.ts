@@ -43,17 +43,26 @@ function generateWorkerEntry(ctx: MigrationContext): string {
  * Cloudflare Worker entry point.
  *
  * Wraps TanStack Start with admin protocol handlers, edge caching, and
- * the @decocms/start observability stack:
- *   - structured JSON logger (console.log) -> Cloudflare Workers Logs ->
- *     CF-managed OTLP push when wrangler.jsonc has the
- *     observability.logs.destinations block
- *   - @opentelemetry/api global tracer bridge (so withTracing() spans flow
- *     to whichever destination CF tracing pushes to)
- *   - request/cache metrics to AE (DECO_METRICS binding)
+ * the @decocms/start observability stack (5.0+, Cloudflare-native):
+ *   - logs:    console.* -> CF Workers Logs (captured by the platform
+ *              when wrangler.jsonc has \`observability.enabled: true\`).
+ *              View in the CF dashboard -> Workers & Pages -> <site> ->
+ *              Observability -> Logs.
+ *   - traces:  @opentelemetry/api global tracer bridge (so
+ *              withTracing() spans are picked up by Cloudflare's
+ *              auto-instrumentation) -> CF Workers Tracing. View in the
+ *              same dashboard, Traces tab.
+ *   - metrics: AE (DECO_METRICS binding). Query via the AE SQL API or
+ *              Grafana ClickHouse datasource pointed at AE.
  *
- * Run \`npx -p @decocms/start deco-cf-observability --write\` after wiring
- * wrangler.jsonc to add the CF-native observability block. See
- * https://github.com/decocms/deco-start#observability
+ * No in-Worker OTLP exporter ships with 5.x — the CF dashboard is the
+ * destination. A ClickHouse-collector adapter is scaffolded at
+ * @decocms/start/sdk/otelAdapters/clickhouseCollector but throws if
+ * called; it'll get a real implementation once the OTel collector
+ * gateway lands.
+ *
+ * To wire wrangler.jsonc with the canonical observability block, run:
+ *   npx -p @decocms/start deco-cf-observability --write
  */
 import "./setup";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
@@ -204,17 +213,17 @@ const abTestedWorker = withABTesting(decoWorker, {
 // ---------------------------------------------------------------------------
 // Observability wrap (outermost layer)
 //
-// As of @decocms/start 4.4.0, instrumentWorker uses Cloudflare-native
-// observability by default:
-//   - logs:   console.* -> CF Workers Logs -> CF-managed OTLP push
-//             (when wrangler.jsonc has observability.logs.destinations)
-//   - traces: @opentelemetry/api global tracer (bridged from withTracing)
-//             -> CF Workers Tracing -> CF-managed OTLP push
-//   - metrics: AE (DECO_METRICS) + app-side OTLP (until CF ships
-//              OTLP metrics export)
+// @decocms/start 5.0+ converged on Cloudflare-native observability:
+//   - logs:    console.* -> CF Workers Logs (dashboard captures, no
+//              app-side OTLP exporter)
+//   - traces:  @opentelemetry/api global tracer (bridged from
+//              withTracing) -> CF Workers Tracing (auto-instrumented)
+//   - metrics: AE (DECO_METRICS binding only; OTLP metrics path
+//              removed in 5.0 — track ClickHouse roadmap at
+//              src/sdk/otelAdapters/clickhouseCollector.ts)
 //
-// Run \`npx -p @decocms/start deco-cf-observability --write\` after
-// wiring wrangler.jsonc to inject the CF-native observability block.
+// Wire wrangler.jsonc with the canonical observability block via:
+//   npx -p @decocms/start deco-cf-observability --write
 // ---------------------------------------------------------------------------
 export default instrumentWorker(abTestedWorker, {
   serviceName: "${ctx.siteName}",
