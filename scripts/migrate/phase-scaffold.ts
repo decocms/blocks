@@ -238,6 +238,11 @@ vite.config.timestamp_*
 # IDE
 .vscode/
 .idea/
+
+# Lockfiles — bun is canonical, prevent accidental drift
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 `;
 }
 

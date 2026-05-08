@@ -246,11 +246,16 @@ function bootstrap(ctx: { sourceDir: string }) {
     return true;
   };
 
-  // Detect package manager
-  const pm = process.env.npm_execpath?.includes("bun") ? "bun" : "npm";
+  // bun is the fleet-wide canonical package manager for decocms storefronts.
+  // We hardcode it here (instead of sniffing process.env.npm_execpath) so a
+  // freshly-migrated site always commits a bun.lock and never accidentally
+  // ships a package-lock.json that drifts vs bun.lock under CF Workers Builds.
+  // See MIGRATION_TOOLING_PLAN.md and the package-json template for the
+  // matching `packageManager` field that pins the version.
+  const pm = "bun";
   if (!run(`${pm} install`, "Install dependencies", true)) return;
-  run("npx tsx node_modules/@decocms/start/scripts/generate-blocks.ts", "Generate CMS blocks");
-  run("npx tsr generate", "Generate TanStack routes");
+  run("bunx tsx node_modules/@decocms/start/scripts/generate-blocks.ts", "Generate CMS blocks");
+  run("bunx tsr generate", "Generate TanStack routes");
 
   if (failures > 0) {
     console.log(
