@@ -243,3 +243,86 @@ When the D6.3 replacement lands, expect:
 Until then, do NOT scaffold caller stubs that reference
 `decocms/deco-start/.github/workflows/*.yml@vN` — those workflows are
 gone.
+
+
+## 47. Observability (5.0+, Cloudflare-native)
+
+**Status (2026-05-08)**: As of `@decocms/start@5.0.0`, the framework
+ships **no in-Worker OTLP exporter**. Logs and traces flow to the
+Cloudflare dashboard via the platform's native `observability` block
+in `wrangler.jsonc`. Metrics flow to Analytics Engine. There's no
+external destination by default — the CF dashboard is the destination.
+
+### What `instrumentWorker` actually does
+
+```ts
+import { instrumentWorker } from "@decocms/start/sdk/observability";
+
+export default instrumentWorker(decoWorker, {
+  serviceName: "<site-name>",
+});
+```
+
+- Bridges `withTracing(name, fn, attrs)` calls to the `@opentelemetry/api`
+  global tracer. CF Workers Tracing picks the spans up.
+- Stamps `deco.runtime.version`, `deco.apps.version`, `deployment.environment`
+  on every span and every structured log record (via
+  `spanAttributeFloor` + `setLoggerAttributeFloor`).
+- Wires the AE meter adapter against the `DECO_METRICS` binding when
+  the binding is present in `env`. Falls back to a no-op meter if the
+  binding is missing — `recordRequestMetric` / `recordCacheMetric`
+  silently drop.
+
+`instrumentWorker` no longer accepts: `enableAppSideOtlpLogs`,
+`otlpEndpoint`, `otlpHeaders`, `otlpMinSeverity`, `samplingConfig`,
+`exportIntervalMillis`. These were removed in 5.0 alongside the OTLP
+transport.
+
+### Required wrangler.jsonc shape
+
+```jsonc
+{
+  "observability": {
+    "enabled": true,                // master switch — without it CF captures NOTHING
+    "logs":   { "enabled": true, "invocation_logs": true,
+                "head_sampling_rate": 1, "persist": true },
+    "traces": { "enabled": true,
+                "head_sampling_rate": 0.1, "persist": true }
+  },
+  "analytics_engine_datasets": [
+    { "binding": "DECO_METRICS", "dataset": "deco_metrics_<site>" }
+  ],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" }
+}
+```
+
+`enabled: true` at the top level is the master switch — without it
+Cloudflare captures nothing, regardless of the sub-block flags.
+Discovered the hard way during the lebiscuit canary cutover.
+
+Apply via the codemod:
+
+```bash
+npx -p @decocms/start deco-cf-observability         # dry-run
+npx -p @decocms/start deco-cf-observability --write # apply
+```
+
+The codemod is idempotent and strips legacy `destinations: ["hyperdx-..."]`
+arrays if they're still present from the pre-5.0 era.
+
+### AE datasets are auto-provisioned
+
+Cloudflare creates AE datasets automatically on the first
+`writeDataPoint` from a Worker that has the binding declared. No CF
+API call needed, no dashboard step. If `DECO_METRICS` is undefined at
+request time, the AE meter adapter no-ops silently — that's the only
+way metrics drop.
+
+### Future: ClickHouse-collector adapter
+
+A placeholder lives at `src/sdk/otelAdapters/clickhouseCollector.ts`
+in the framework. It's a documented stub that throws if called. When
+the OTel collector gateway lands (Worker → OTLP/HTTP → collector →
+ClickHouse), this file will get the real exporter wiring back. Site
+code never wires it today; the symbol exists only so the future API
+surface is committed.
