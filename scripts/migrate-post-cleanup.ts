@@ -78,9 +78,11 @@ function showHelp() {
     --fix            Auto-apply mechanical fixes for the safe rules
                      (dead-lib-shims, dead-runtime-shim, local-widgets-types,
                      vtex-shim-regression swap subset, obsolete-vite-plugins,
-                     local-framework-duplicate auto-fixable subset).
-                     Other rules — including htmx-residue and the warn-only
-                     entries of local-framework-duplicate — stay detect-only.
+                     local-framework-duplicate auto-fixable subset,
+                     lockfile-multiple, package-manager-missing).
+                     Other rules — including htmx-residue, lockfile-missing,
+                     lockfile-drift, and the warn-only entries of
+                     local-framework-duplicate — stay detect-only.
     --json           Emit machine-readable JSON instead of pretty text
     --strict         Exit code 2 if any warning-severity findings exist
     --help, -h       Show this help

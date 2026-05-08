@@ -1239,6 +1239,345 @@ const ruleHtmxResidue: Rule = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Rule 9 — `lockfile-multiple` — multiple lockfiles tracked          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Per the fleet-wide bun-canonical decision, every storefront commits
+ * exactly one lockfile: `bun.lock`. This rule fires when any of the
+ * non-bun lockfiles co-exist with bun.lock — that's the exact pattern
+ * that broke Cloudflare Workers Builds with `lockfile had changes, but
+ * lockfile is frozen` (the dual-lockfile drift).
+ *
+ * The `--fix` deletes the offending non-bun lockfiles. Adding the
+ * `.gitignore` bans is a separate concern handled by `packageManager-missing`
+ * (which also nudges the site to add the bans), so this rule stays
+ * focused.
+ */
+const NON_BUN_LOCKFILES = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"];
+
+const ruleLockfileMultiple: Rule = {
+  id: "lockfile-multiple",
+  title: "Multiple lockfiles tracked alongside bun.lock",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const bunLock = `${siteDir}/bun.lock`;
+    if (!fs.exists(bunLock)) return [];
+    const findings: Finding[] = [];
+    for (const name of NON_BUN_LOCKFILES) {
+      const abs = `${siteDir}/${name}`;
+      if (!fs.exists(abs)) continue;
+      findings.push({
+        rule: "lockfile-multiple",
+        severity: "warning",
+        file: name,
+        message: `${name} co-exists with bun.lock — Cloudflare Workers Builds picks bun and the other will silently drift`,
+        fix: `rm ${name} (bun.lock is the canonical lockfile)`,
+        meta: { lockfile: name },
+      });
+    }
+    return findings;
+  },
+  applyFix({ siteDir }, findings, writer): FixAction[] {
+    const actions: FixAction[] = [];
+    for (const f of findings) {
+      writer.deleteFile(`${siteDir}/${f.file}`);
+      actions.push({
+        file: f.file,
+        kind: "delete",
+        detail: `deleted (bun.lock is canonical)`,
+      });
+    }
+    return actions;
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Rule 10 — `lockfile-missing` — package.json without bun.lock        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A storefront with `package.json` but no committed lockfile cannot
+ * run `bun install --frozen-lockfile` in CI — Cloudflare Workers
+ * Builds either falls back to a non-reproducible install or fails
+ * outright depending on the build image. Detect-only because the
+ * fix (`bun install`) requires network access and a working bun
+ * toolchain that the audit shouldn't shell out to from inside its
+ * own runner.
+ */
+const ruleLockfileMissing: Rule = {
+  id: "lockfile-missing",
+  title: "Lockfile missing",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const pkg = `${siteDir}/package.json`;
+    if (!fs.exists(pkg)) return [];
+    const bunLock = `${siteDir}/bun.lock`;
+    if (fs.exists(bunLock)) return [];
+    // If a non-bun lockfile is present, `lockfile-multiple` doesn't
+    // apply but the site is still mid-migration to bun. We flag the
+    // missing bun.lock here so the operator runs `bun install` to
+    // produce the canonical one.
+    return [
+      {
+        rule: "lockfile-missing",
+        severity: "warning",
+        file: "bun.lock",
+        message: `No bun.lock committed — frozen installs cannot run on CF Workers Builds`,
+        fix: `Run \`bun install\` and commit the resulting bun.lock`,
+        meta: {},
+      },
+    ];
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Rule 11 — `lockfile-drift` — bun.lock out of sync with package.json */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Detects the head-on case behind the `lockfile had changes, but
+ * lockfile is frozen` Workers Builds error: a direct dependency in
+ * `package.json` has no version in `bun.lock` that satisfies the
+ * declared range.
+ *
+ * Coverage is intentionally pragmatic — we recognise the four most
+ * common range shapes (`^a.b.c`, `~a.b.c`, plain `a.b.c`, and the
+ * sentinels `*` / `latest` / `next` / git/github specs which we skip).
+ * Everything else falls back to "present in lockfile?", treating
+ * unknown ranges as satisfied as long as the name appears at all.
+ * The goal is high signal on the storefront fleet's actual failure
+ * mode; full npm-semver fidelity is out of scope for this rule.
+ *
+ * Detect-only: regenerating bun.lock requires running `bun install`,
+ * which the audit script doesn't do (would need network + bun in
+ * PATH). Operators run it manually and re-run the audit.
+ */
+const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)(?:-[\w.+-]+)?$/;
+
+function parseSemver(v: string): [number, number, number] | null {
+  const m = SEMVER_RE.exec(v.trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+function gte(a: [number, number, number], b: [number, number, number]): boolean {
+  if (a[0] !== b[0]) return a[0] > b[0];
+  if (a[1] !== b[1]) return a[1] > b[1];
+  return a[2] >= b[2];
+}
+
+function lt(a: [number, number, number], b: [number, number, number]): boolean {
+  if (a[0] !== b[0]) return a[0] < b[0];
+  if (a[1] !== b[1]) return a[1] < b[1];
+  return a[2] < b[2];
+}
+
+/**
+ * Minimal `range satisfies version` check. Returns:
+ * - `true` when the range is satisfied,
+ * - `false` when it is definitely violated,
+ * - `null` when we don't recognise the range shape and the caller
+ *   should fall back to a presence check.
+ */
+function satisfiesRange(version: string, range: string): boolean | null {
+  const trimmed = range.trim();
+  // Sentinels and non-numeric specs we don't try to evaluate.
+  if (
+    trimmed === "*" ||
+    trimmed === "latest" ||
+    trimmed === "next" ||
+    trimmed.startsWith("workspace:") ||
+    trimmed.startsWith("file:") ||
+    trimmed.startsWith("link:") ||
+    trimmed.startsWith("git+") ||
+    trimmed.startsWith("github:") ||
+    trimmed.includes("://")
+  ) {
+    return null;
+  }
+  const ver = parseSemver(version);
+  if (!ver) return null;
+  // Caret: ^a.b.c → >=a.b.c <(a+1).0.0   when a > 0
+  //        ^0.b.c → >=0.b.c <0.(b+1).0   when a == 0 && b > 0
+  //        ^0.0.c → exactly 0.0.c
+  if (trimmed.startsWith("^")) {
+    const base = parseSemver(trimmed.slice(1));
+    if (!base) return null;
+    if (!gte(ver, base)) return false;
+    let upper: [number, number, number];
+    if (base[0] > 0) upper = [base[0] + 1, 0, 0];
+    else if (base[1] > 0) upper = [0, base[1] + 1, 0];
+    else upper = [0, 0, base[2] + 1];
+    return lt(ver, upper);
+  }
+  // Tilde: ~a.b.c → >=a.b.c <a.(b+1).0
+  if (trimmed.startsWith("~")) {
+    const base = parseSemver(trimmed.slice(1));
+    if (!base) return null;
+    return gte(ver, base) && lt(ver, [base[0], base[1] + 1, 0]);
+  }
+  // Plain pin: a.b.c → exact match.
+  const exact = parseSemver(trimmed);
+  if (exact) return exact[0] === ver[0] && exact[1] === ver[1] && exact[2] === ver[2];
+  return null;
+}
+
+/**
+ * Pull every `"<name>@<version>"` token out of bun.lock for a given
+ * package name. Bun's lockfile format embeds the version inside the
+ * package descriptor array, e.g.:
+ *
+ *   "@decocms/start": ["@decocms/start@2.1.1", ...]
+ *
+ * We scan all such occurrences (a single package may appear multiple
+ * times if the dep tree pulled different versions).
+ */
+function lockfileVersionsOf(lockfile: string, name: string): string[] {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`['"]${escaped}@([^'"\\s]+)['"]`, "g");
+  const seen = new Set<string>();
+  for (const m of lockfile.matchAll(re)) {
+    seen.add(m[1]);
+  }
+  return [...seen];
+}
+
+const ruleLockfileDrift: Rule = {
+  id: "lockfile-drift",
+  title: "bun.lock drifted vs package.json direct dependencies",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const pkgPath = `${siteDir}/package.json`;
+    const lockPath = `${siteDir}/bun.lock`;
+    if (!fs.exists(pkgPath) || !fs.exists(lockPath)) return [];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readText(pkgPath));
+    } catch {
+      return [];
+    }
+    if (typeof parsed !== "object" || parsed === null) return [];
+    const pkg = parsed as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    const lockText = fs.readText(lockPath);
+    const drifted: { name: string; range: string; locked: string[] }[] = [];
+    const buckets: Record<string, string>[] = [pkg.dependencies ?? {}, pkg.devDependencies ?? {}];
+    for (const bucket of buckets) {
+      for (const [name, range] of Object.entries(bucket)) {
+        const versions = lockfileVersionsOf(lockText, name);
+        if (versions.length === 0) {
+          drifted.push({ name, range, locked: [] });
+          continue;
+        }
+        // If at least one locked version satisfies the range, we're fine.
+        // For unknown range shapes (return null), treat presence as
+        // satisfaction — pragmatic, see rule docstring.
+        let satisfied = false;
+        for (const v of versions) {
+          const result = satisfiesRange(v, range);
+          if (result === true || result === null) {
+            satisfied = true;
+            break;
+          }
+        }
+        if (!satisfied) drifted.push({ name, range, locked: versions });
+      }
+    }
+    if (drifted.length === 0) return [];
+    return [
+      {
+        rule: "lockfile-drift",
+        severity: "warning",
+        file: "bun.lock",
+        message: `${drifted.length} direct dep(s) not satisfied by bun.lock — frozen install will fail`,
+        fix: `Run \`bun install\` to refresh bun.lock, then commit. Drift: ${drifted
+          .slice(0, 5)
+          .map((d) => `${d.name} ${d.range} (locked: ${d.locked.length > 0 ? d.locked.join(", ") : "none"})`)
+          .join("; ")}${drifted.length > 5 ? `; +${drifted.length - 5} more` : ""}`,
+        meta: { drifted },
+      },
+    ];
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Rule 12 — `package-manager-missing` — no packageManager field      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Without a `packageManager` field in package.json, neither developers
+ * nor CI are forced to agree on a PM. Anyone running `npm install`
+ * or `yarn` produces an alternate lockfile that risks drifting from
+ * `bun.lock` and breaking Workers Builds. The fleet-wide canonical
+ * value is `bun@<CANONICAL_BUN_VERSION>`; bumping that constant here
+ * propagates to all `--fix` runs.
+ */
+const CANONICAL_PACKAGE_MANAGER = "bun@1.3.5";
+
+const rulePackageManagerMissing: Rule = {
+  id: "package-manager-missing",
+  title: "Missing packageManager field in package.json",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const pkgPath = `${siteDir}/package.json`;
+    if (!fs.exists(pkgPath)) return [];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readText(pkgPath));
+    } catch {
+      return [];
+    }
+    if (typeof parsed !== "object" || parsed === null) return [];
+    const pkg = parsed as { packageManager?: string };
+    if (typeof pkg.packageManager === "string" && pkg.packageManager.length > 0) {
+      return [];
+    }
+    return [
+      {
+        rule: "package-manager-missing",
+        severity: "info",
+        file: "package.json",
+        message: `Missing "packageManager" field — contributors and CF Workers Builds may pick different PMs`,
+        fix: `Set "packageManager": "${CANONICAL_PACKAGE_MANAGER}" in package.json`,
+        meta: { canonical: CANONICAL_PACKAGE_MANAGER },
+      },
+    ];
+  },
+  applyFix({ siteDir, fs }, findings, writer): FixAction[] {
+    if (findings.length === 0) return [];
+    const pkgPath = `${siteDir}/package.json`;
+    if (!fs.exists(pkgPath)) return [];
+    const content = fs.readText(pkgPath);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(content) as Record<string, unknown>;
+    } catch {
+      return [];
+    }
+    if (typeof parsed.packageManager === "string" && parsed.packageManager.length > 0) {
+      return [];
+    }
+    // Insert `packageManager` directly after `license` to match the
+    // convention used across the storefront fleet. Falls back to the
+    // end of the object when `license` is absent.
+    const ordered: Record<string, unknown> = {};
+    let inserted = false;
+    for (const [k, v] of Object.entries(parsed)) {
+      ordered[k] = v;
+      if (!inserted && k === "license") {
+        ordered.packageManager = CANONICAL_PACKAGE_MANAGER;
+        inserted = true;
+      }
+    }
+    if (!inserted) ordered.packageManager = CANONICAL_PACKAGE_MANAGER;
+    writer.writeText(pkgPath, `${JSON.stringify(ordered, null, 2)}\n`);
+    return [
+      {
+        file: "package.json",
+        kind: "edit",
+        detail: `set packageManager: "${CANONICAL_PACKAGE_MANAGER}"`,
+      },
+    ];
+  },
+};
+
 export const ALL_RULES: Rule[] = [
   ruleDeadLibShims,
   ruleObsoleteVitePlugins,
@@ -1249,12 +1588,18 @@ export const ALL_RULES: Rule[] = [
   ruleFrameworkTodos,
   ruleLocalFrameworkDuplicate,
   ruleHtmxResidue,
+  ruleLockfileMultiple,
+  ruleLockfileMissing,
+  ruleLockfileDrift,
+  rulePackageManagerMissing,
 ];
 
 /** Exported for direct unit tests. */
 export const _internals = {
   extractExports,
   symbolUsedOutsideLib,
+  satisfiesRange,
+  lockfileVersionsOf,
   rules: {
     ruleDeadLibShims,
     ruleObsoleteVitePlugins,
@@ -1265,5 +1610,9 @@ export const _internals = {
     ruleLocalWidgetsTypes,
     ruleFrameworkTodos,
     ruleLocalFrameworkDuplicate,
+    ruleLockfileMultiple,
+    ruleLockfileMissing,
+    ruleLockfileDrift,
+    rulePackageManagerMissing,
   },
 };
