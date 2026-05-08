@@ -31,7 +31,48 @@
  * export default defineConfig({ plugins: [decoVitePlugin(), ...] });
  * ```
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+
+/**
+ * Resolve a per-build identifier for cache-key versioning.
+ *
+ * The returned string is injected into the worker bundle as the
+ * `__DECO_BUILD_HASH__` global via Vite `define`. `createDecoWorkerEntry`
+ * appends it (or `env.BUILD_HASH` if explicitly set) as `__v=<hash>` on
+ * every Cache API key, so each new deploy gets its own cache namespace
+ * — old edge-cached HTML referencing dead asset filenames stops being
+ * served the moment the new worker is live.
+ *
+ * Resolution order:
+ *   1. WORKERS_CI_COMMIT_SHA — Cloudflare Workers Builds default env var
+ *      (the production deploy path-of-record). Sliced to 12 chars.
+ *   2. `git rev-parse --short=12 HEAD` — local `wrangler deploy` from a
+ *      developer laptop. Try/catch so missing git or shallow clones don't
+ *      fail the build.
+ *   3. `Date.now().toString(36)` — last-resort fallback so the cache-bust
+ *      invariant never silently regresses to "always the same key".
+ *
+ * For dev (`command !== "build"`), the value is the literal `"dev"`.
+ *
+ * @returns {string}
+ */
+function resolveBuildHash() {
+  const ciSha = process.env.WORKERS_CI_COMMIT_SHA;
+  if (ciSha?.trim()) return ciSha.trim().slice(0, 12);
+
+  try {
+    const sha = execFileSync("git", ["rev-parse", "--short=12", "HEAD"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (sha) return sha;
+  } catch {
+    // git absent, not a repo, or shallow clone w/o history — fall through.
+  }
+
+  return Date.now().toString(36);
+}
 
 // Bare-specifier stubs resolved by ID before Vite touches them.
 /** @type {Record<string, string>} */
@@ -226,6 +267,20 @@ export function decoVitePlugin() {
           allowedHosts: [".deco.host", ".decocdn.com", ".deco.studio"],
         };
       }
+
+      // Inject a per-build identifier as `__DECO_BUILD_HASH__` so
+      // createDecoWorkerEntry can fall back to it when env.BUILD_HASH is
+      // unset (the default on Cloudflare Workers Builds, where there's
+      // no GH-Actions step injecting --var BUILD_HASH).
+      //
+      // Dev gets the literal "dev" so SSR doesn't crash on an undefined
+      // identifier; prod gets WORKERS_CI_COMMIT_SHA → git rev-parse →
+      // time-based fallback (see resolveBuildHash above).
+      const buildHash = command === "build" ? resolveBuildHash() : "dev";
+      cfg.define = {
+        ...cfg.define,
+        __DECO_BUILD_HASH__: JSON.stringify(buildHash),
+      };
 
       // Only split chunks for production builds — dev uses unbundled ESM.
       if (command !== "build") return cfg;
