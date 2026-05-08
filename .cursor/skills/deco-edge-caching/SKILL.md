@@ -183,17 +183,21 @@ This is per-isolate in-memory cache (V8 Map). Resets on cold start. Includes req
 
 ## Cache Versioning with BUILD_HASH
 
-Deploy-time cache busting uses a `BUILD_HASH` environment variable (typically the git short SHA) passed to `wrangler deploy`. The worker-entry appends this to cache keys so deploying a new version automatically serves fresh content.
+Every cached entry's key is suffixed with `__v=<hash>` so a new deploy starts a fresh cache namespace and previously-cached HTML (which references now-deleted asset filenames like `/assets/main-XYZ.js`) stops being served the moment the new worker is live. Old entries become orphaned and expire naturally — no purge endpoint call required.
 
-```yaml
-# .github/workflows/deploy.yml
-- name: Deploy to Cloudflare Workers
-  run: npx wrangler deploy
-  env:
-    BUILD_HASH: ${{ github.sha }}
+The hash is resolved automatically by `decoVitePlugin()` at build time and injected into the worker bundle as `__DECO_BUILD_HASH__`. Resolution order:
+
+1. `WORKERS_CI_COMMIT_SHA` — Cloudflare Workers Builds default env var ([CF docs](https://developers.cloudflare.com/changelog/2025-06-10-default-env-vars/)). This is the production deploy path-of-record per `MIGRATION_TOOLING_PLAN.md` D6.3.
+2. `git rev-parse --short=12 HEAD` — for someone running `wrangler deploy` from a developer laptop.
+3. `Date.now().toString(36)` — last-resort fallback so the cache-bust invariant never silently regresses.
+
+`createDecoWorkerEntry` reads `env.BUILD_HASH` first (explicit override path, e.g. `wrangler deploy --var BUILD_HASH:foo`) and falls back to the `__DECO_BUILD_HASH__` constant. Sites running `decoVitePlugin()` get the behaviour for free — **no per-site dashboard, `wrangler.jsonc`, or `--var` configuration required**.
+
+The active version is exposed on every cached response via the `X-Cache-Version` header for observability. Confirm a new deploy is shipping the right hash with:
+
+```bash
+curl -sI https://www.example.com/ | grep -i x-cache-version
 ```
-
-The worker-entry reads `env.BUILD_HASH` and injects it into cache keys. On new deploys, old cache entries simply expire naturally — no purge needed.
 
 ## Site-Level Cache Pattern Registration
 

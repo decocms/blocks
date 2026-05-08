@@ -46,6 +46,17 @@ import { cleanPathForCacheKey } from "./urlUtils";
 import { type Device, isMobileUA } from "./useDevice";
 
 /**
+ * Build-time identifier injected by `decoVitePlugin()` (see
+ * `src/vite/plugin.js`). Falls back to `undefined` if the consuming site
+ * isn't using the plugin or the symbol wasn't `define`d at bundle time.
+ *
+ * The runtime `env.BUILD_HASH` (when explicitly set, e.g. via
+ * `wrangler deploy --var BUILD_HASH:foo`) takes precedence — see
+ * `getBuildHash()` below.
+ */
+declare const __DECO_BUILD_HASH__: string | undefined;
+
+/**
  * Append Link preload headers for CSS and fonts so the browser starts
  * fetching them before parsing HTML. Only applied to HTML responses.
  */
@@ -673,6 +684,23 @@ export function createDecoWorkerEntry(
     return parts.join("|");
   }
 
+  /**
+   * Resolve the per-deploy cache-key version with this priority:
+   *   1. `env[cacheVersionEnv]` — explicit override (e.g. `wrangler
+   *      deploy --var BUILD_HASH:foo`). Wins so callers can always
+   *      force a specific value.
+   *   2. `__DECO_BUILD_HASH__` — build-time constant injected by
+   *      `decoVitePlugin()` from WORKERS_CI_COMMIT_SHA / git rev-parse.
+   *      This is the production path on Cloudflare Workers Builds.
+   *   3. Empty string — versioning disabled (legacy pre-plugin sites).
+   */
+  function getBuildHash(env: Record<string, unknown>): string {
+    if (cacheVersionEnv === false) return "";
+    const fromEnv = (env[cacheVersionEnv] as string) || "";
+    if (fromEnv) return fromEnv;
+    return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
+  }
+
   function buildCacheKey(
     request: Request,
     env: Record<string, unknown>,
@@ -685,11 +713,9 @@ export function createDecoWorkerEntry(
       url.search = cleanUrl.search;
     }
 
-    if (cacheVersionEnv !== false) {
-      const version = (env[cacheVersionEnv] as string) || "";
-      if (version) {
-        url.searchParams.set("__v", version);
-      }
+    const version = getBuildHash(env);
+    if (version) {
+      url.searchParams.set("__v", version);
     }
 
     // Include CF geo data in cache key so location matcher results don't leak
@@ -791,10 +817,8 @@ export function createDecoWorkerEntry(
         for (const seg of segments) {
           for (const cc of geoKeys) {
             const url = new URL(p, baseUrl);
-            if (cacheVersionEnv !== false) {
-              const version = (env[cacheVersionEnv] as string) || "";
-              if (version) url.searchParams.set("__v", version);
-            }
+            const purgeVersion = getBuildHash(env);
+            if (purgeVersion) url.searchParams.set("__v", purgeVersion);
             url.searchParams.set("__seg", hashSegment(seg));
             if (cc) url.searchParams.set("__cf_geo", cc);
             const key = new Request(url.toString(), { method: "GET" });
@@ -816,10 +840,8 @@ export function createDecoWorkerEntry(
         for (const device of devices) {
           for (const cc of geoKeys) {
             const url = new URL(p, baseUrl);
-            if (cacheVersionEnv !== false) {
-              const version = (env[cacheVersionEnv] as string) || "";
-              if (version) url.searchParams.set("__v", version);
-            }
+            const purgeVersion = getBuildHash(env);
+            if (purgeVersion) url.searchParams.set("__v", purgeVersion);
             if (device) url.searchParams.set("__cf_device", device);
             if (cc) url.searchParams.set("__cf_geo", cc);
             const key = new Request(url.toString(), { method: "GET" });
@@ -1190,10 +1212,8 @@ export function createDecoWorkerEntry(
       // different regions or channels get separate cache entries.
       const cacheKeyUrl = new URL(request.url);
       cacheKeyUrl.searchParams.set("__body", bodyHash);
-      if (cacheVersionEnv !== false) {
-        const version = (env[cacheVersionEnv] as string) || "";
-        if (version) cacheKeyUrl.searchParams.set("__v", version);
-      }
+      const sfnVersion = getBuildHash(env);
+      if (sfnVersion) cacheKeyUrl.searchParams.set("__v", sfnVersion);
       if (sfnSegment) {
         cacheKeyUrl.searchParams.set("__seg", hashSegment(sfnSegment));
       } else if (deviceSpecificKeys) {
@@ -1409,10 +1429,8 @@ export function createDecoWorkerEntry(
       out.headers.set("X-Cache", xCache);
       out.headers.set("X-Cache-Profile", profile);
       if (segment) out.headers.set("X-Cache-Segment", hashSegment(segment));
-      if (cacheVersionEnv !== false) {
-        const v = (env[cacheVersionEnv] as string) || "";
-        if (v) out.headers.set("X-Cache-Version", v);
-      }
+      const headerVersion = getBuildHash(env);
+      if (headerVersion) out.headers.set("X-Cache-Version", headerVersion);
       if (extra) for (const [k, v] of Object.entries(extra)) out.headers.set(k, v);
       appendResourceHints(out);
       return out;
