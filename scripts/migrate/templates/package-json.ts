@@ -2,6 +2,17 @@ import { execSync } from "node:child_process";
 import type { MigrationContext } from "../types";
 
 /**
+ * Fleet-wide canonical bun version. Bumped here propagates to all newly
+ * migrated sites via the `packageManager` field AND the
+ * `lockfile-check.yml` workflow's `bun-version` input. See
+ * MIGRATION_TOOLING_PLAN.md for the bun-canonical decision.
+ *
+ * Exported because the lockfile-check workflow template reads it
+ * directly to keep both files in lockstep.
+ */
+export const CANONICAL_BUN_VERSION = "1.3.5";
+
+/**
  * Get the latest published version of an npm package.
  * Falls back to the provided default if the lookup fails.
  */
@@ -120,7 +131,7 @@ export function generatePackageJson(ctx: MigrationContext): string {
       "format:check": 'prettier --check "src/**/*.{ts,tsx}"',
       knip: "knip",
       clean:
-        "rm -rf node_modules .cache dist .wrangler/state node_modules/.vite && npm install",
+        "rm -rf node_modules .cache dist .wrangler/state node_modules/.vite && bun install",
       "tailwind:lint":
         "tsx scripts/tailwind-lint.ts",
       "tailwind:fix":
@@ -128,6 +139,7 @@ export function generatePackageJson(ctx: MigrationContext): string {
     },
     author: "deco.cx",
     license: "MIT",
+    packageManager: `bun@${CANONICAL_BUN_VERSION}`,
     dependencies: {
       "@decocms/apps": `^${appsVersion}`,
       "@decocms/start": `^${startVersion}`,

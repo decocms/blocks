@@ -668,7 +668,9 @@ describe("runAudit — totals", () => {
         "dead-runtime-shim",
         "local-framework-duplicate",
         "local-widgets-types",
+        "lockfile-multiple",
         "obsolete-vite-plugins",
+        "package-manager-missing",
         "vtex-shim-regression",
       ].sort(),
     );
@@ -1448,5 +1450,219 @@ describe("rule: local-framework-duplicate", () => {
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "local-framework-duplicate")!;
     expect(r.supportsAutoFix).toBe(true);
+  });
+});
+
+describe("rule: lockfile-multiple", () => {
+  it("flags package-lock.json and yarn.lock when bun.lock exists", () => {
+    const fs = makeFs({
+      "/site/package.json": "{}",
+      "/site/bun.lock": "{}",
+      "/site/package-lock.json": "{}",
+      "/site/yarn.lock": "",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-multiple")!;
+    expect(r.findings.map((f) => f.file).sort()).toEqual(["package-lock.json", "yarn.lock"]);
+  });
+
+  it("does not flag when only bun.lock is present", () => {
+    const fs = makeFs({
+      "/site/package.json": "{}",
+      "/site/bun.lock": "{}",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-multiple")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("does not fire when bun.lock is absent (lockfile-missing handles that case)", () => {
+    const fs = makeFs({
+      "/site/package.json": "{}",
+      "/site/package-lock.json": "{}",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-multiple")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("--fix deletes the offending lockfiles", () => {
+    const { fs, writer, store } = makeMutableFs({
+      "/site/package.json": "{}",
+      "/site/bun.lock": "{}",
+      "/site/package-lock.json": "{}",
+      "/site/yarn.lock": "",
+    });
+    runAudit(SITE, fs, { writer });
+    expect(store["/site/package-lock.json"]).toBeUndefined();
+    expect(store["/site/yarn.lock"]).toBeUndefined();
+    expect(store["/site/bun.lock"]).toBeDefined();
+  });
+});
+
+describe("rule: lockfile-missing", () => {
+  it("fires when package.json exists without bun.lock", () => {
+    const fs = makeFs({ "/site/package.json": "{}" });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-missing")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].file).toBe("bun.lock");
+    expect(r.findings[0].fix).toContain("bun install");
+  });
+
+  it("does not fire when bun.lock exists", () => {
+    const fs = makeFs({ "/site/package.json": "{}", "/site/bun.lock": "{}" });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-missing")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("does not fire on a directory without package.json", () => {
+    const fs = makeFs({});
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-missing")!;
+    expect(r.findings).toEqual([]);
+  });
+});
+
+describe("rule: lockfile-drift", () => {
+  it("flags a caret range whose locked version is below the floor", () => {
+    const pkg = JSON.stringify({
+      dependencies: { "@decocms/apps": "^1.11.0" },
+    });
+    const lock = `"@decocms/apps@1.6.2"\n`;
+    const fs = makeFs({
+      "/site/package.json": pkg,
+      "/site/bun.lock": lock,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-drift")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].fix).toContain("@decocms/apps");
+  });
+
+  it("does not flag when locked version satisfies the caret range", () => {
+    const pkg = JSON.stringify({
+      dependencies: { "@decocms/apps": "^1.11.0" },
+    });
+    const lock = `"@decocms/apps@1.13.2"\n`;
+    const fs = makeFs({
+      "/site/package.json": pkg,
+      "/site/bun.lock": lock,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-drift")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("flags a dep that's missing from bun.lock entirely", () => {
+    const pkg = JSON.stringify({
+      dependencies: { "missing-pkg": "^1.0.0" },
+    });
+    const fs = makeFs({
+      "/site/package.json": pkg,
+      "/site/bun.lock": `"other-pkg@1.0.0"\n`,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-drift")!;
+    expect(r.findings).toHaveLength(1);
+  });
+
+  it("treats * / latest / git specs as satisfied by mere presence", () => {
+    const pkg = JSON.stringify({
+      dependencies: {
+        "loose-dep": "*",
+        "latest-dep": "latest",
+      },
+    });
+    const lock = `"loose-dep@9.9.9"\n"latest-dep@0.0.1"\n`;
+    const fs = makeFs({
+      "/site/package.json": pkg,
+      "/site/bun.lock": lock,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-drift")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("considers devDependencies too", () => {
+    const pkg = JSON.stringify({
+      devDependencies: { typescript: "~5.9.0" },
+    });
+    const lock = `"typescript@5.8.0"\n`;
+    const fs = makeFs({
+      "/site/package.json": pkg,
+      "/site/bun.lock": lock,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "lockfile-drift")!;
+    expect(r.findings).toHaveLength(1);
+  });
+
+  it("internals: satisfiesRange handles caret, tilde, exact, and sentinels", () => {
+    const { satisfiesRange } = _internals;
+    expect(satisfiesRange("1.13.2", "^1.11.0")).toBe(true);
+    expect(satisfiesRange("1.6.2", "^1.11.0")).toBe(false);
+    expect(satisfiesRange("2.0.0", "^1.11.0")).toBe(false);
+    expect(satisfiesRange("0.5.3", "^0.5.0")).toBe(true);
+    expect(satisfiesRange("0.6.0", "^0.5.0")).toBe(false);
+    expect(satisfiesRange("5.9.5", "~5.9.0")).toBe(true);
+    expect(satisfiesRange("5.10.0", "~5.9.0")).toBe(false);
+    expect(satisfiesRange("1.2.3", "1.2.3")).toBe(true);
+    expect(satisfiesRange("1.2.4", "1.2.3")).toBe(false);
+    expect(satisfiesRange("1.2.3", "*")).toBeNull();
+    expect(satisfiesRange("1.2.3", "latest")).toBeNull();
+    expect(satisfiesRange("1.2.3", "git+https://...")).toBeNull();
+  });
+});
+
+describe("rule: package-manager-missing", () => {
+  it("fires when packageManager is absent", () => {
+    const fs = makeFs({
+      "/site/package.json": JSON.stringify({ name: "x", license: "MIT" }),
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "package-manager-missing")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].fix).toContain("bun@");
+  });
+
+  it("does not fire when packageManager is set", () => {
+    const fs = makeFs({
+      "/site/package.json": JSON.stringify({
+        name: "x",
+        packageManager: "bun@1.3.5",
+      }),
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "package-manager-missing")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("--fix writes packageManager directly after license, preserving other keys", () => {
+    const initial = JSON.stringify({
+      name: "x",
+      version: "1.0.0",
+      license: "MIT",
+      dependencies: { foo: "^1.0.0" },
+    });
+    const { fs, writer, store } = makeMutableFs({
+      "/site/package.json": initial,
+    });
+    runAudit(SITE, fs, { writer });
+    const updated = JSON.parse(store["/site/package.json"]);
+    expect(updated.packageManager).toMatch(/^bun@/);
+    const keys = Object.keys(updated);
+    expect(keys.indexOf("packageManager")).toBe(keys.indexOf("license") + 1);
+    expect(updated.dependencies).toEqual({ foo: "^1.0.0" });
+  });
+
+  it("--fix appends packageManager when license is absent", () => {
+    const { fs, writer, store } = makeMutableFs({
+      "/site/package.json": JSON.stringify({ name: "x" }),
+    });
+    runAudit(SITE, fs, { writer });
+    const updated = JSON.parse(store["/site/package.json"]);
+    expect(updated.packageManager).toMatch(/^bun@/);
   });
 });
