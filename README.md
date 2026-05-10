@@ -49,7 +49,7 @@ import {
   resolveDecoPage,
   loadCmsPagePure,
   registerSectionsSync,
-  loadAllDecofileBlocks,
+  setBlocks,
 } from "@decocms/start/core";
 ```
 
@@ -84,6 +84,18 @@ For client-only components (no `node:async_hooks` in the bundle):
 
 ```ts
 import { useDevice, signal } from "@decocms/start/next/client";
+```
+
+### `@decocms/start/node` — Node-only helpers
+
+Disk-loading helpers that depend on `node:fs`. Not safe to import into client bundles. Use from server entry points only:
+
+```ts
+import { loadAllDecofileBlocks } from "@decocms/start/node";
+import { setBlocks } from "@decocms/start/core";
+
+// In a server-only setup file:
+setBlocks(await loadAllDecofileBlocks(".deco/blocks"));
 ```
 
 **Caveat:** Next.js Pages Router is not supported. App Router only.
