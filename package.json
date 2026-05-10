@@ -285,14 +285,14 @@
       "require": "./dist/core/matchers/builtins.cjs"
     },
     "./apps": {
-      "types": "./dist/apps/index.d.ts",
-      "import": "./dist/apps/index.js",
-      "require": "./dist/apps/index.cjs"
+      "types": "./dist/tanstack/apps/index.d.ts",
+      "import": "./dist/tanstack/apps/index.js",
+      "require": "./dist/tanstack/apps/index.cjs"
     },
     "./apps/autoconfig": {
-      "types": "./dist/apps/autoconfig.d.ts",
-      "import": "./dist/apps/autoconfig.js",
-      "require": "./dist/apps/autoconfig.cjs"
+      "types": "./dist/tanstack/apps/autoconfig.d.ts",
+      "import": "./dist/tanstack/apps/autoconfig.js",
+      "require": "./dist/tanstack/apps/autoconfig.cjs"
     },
     "./setup": {
       "types": "./dist/setup.d.ts",
@@ -340,13 +340,13 @@
       "require": "./dist/scripts/tailwind-lint.cjs"
     },
     "./vite": {
-      "import": "./dist/vite/plugin.js",
-      "require": "./dist/vite/plugin.cjs"
+      "import": "./dist/tanstack/vite/plugin.js",
+      "require": "./dist/tanstack/vite/plugin.cjs"
     },
     "./daemon": {
-      "types": "./dist/daemon/index.d.ts",
-      "import": "./dist/daemon/index.js",
-      "require": "./dist/daemon/index.cjs"
+      "types": "./dist/tanstack/daemon/index.d.ts",
+      "import": "./dist/tanstack/daemon/index.js",
+      "require": "./dist/tanstack/daemon/index.cjs"
     }
   },
   "scripts": {

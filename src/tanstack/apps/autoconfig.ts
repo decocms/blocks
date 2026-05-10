@@ -15,13 +15,13 @@
  *   await autoconfigApps(generatedBlocks, APP_REGISTRY);
  */
 
-import { onChange } from "../core/cms/loader";
-import { resolveSecret } from "../core/sdk/crypto";
+import { onChange } from "../../core/cms/loader";
+import { resolveSecret } from "../../core/sdk/crypto";
 import {
   setupApps,
   type AppDefinition,
   type AppDefinitionWithHandlers,
-} from "../tanstack/sdk/setupApps";
+} from "../sdk/setupApps";
 
 /**
  * Shape of the secret resolver passed to each app's `configure()`. Matches

@@ -21,4 +21,4 @@ export {
   type AppDefinitionWithHandlers,
   type AppManifest,
   type AppMiddleware,
-} from "../tanstack/sdk/setupApps";
+} from "../sdk/setupApps";
