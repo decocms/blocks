@@ -88,7 +88,6 @@ export default defineConfig([
       "src/tanstack/apps/autoconfig.ts",
       "src/tanstack/daemon/index.ts",
       "src/tanstack/daemon/*.ts",
-      "src/setup.ts",
       "src/tanstack/vite/plugin.js",
       "src/core/index.ts",
       "src/core/cms/index.ts",

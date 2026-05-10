@@ -295,9 +295,9 @@
       "require": "./dist/tanstack/apps/autoconfig.cjs"
     },
     "./setup": {
-      "types": "./dist/setup.d.ts",
-      "import": "./dist/setup.js",
-      "require": "./dist/setup.cjs"
+      "types": "./dist/tanstack/setup.d.ts",
+      "import": "./dist/tanstack/setup.js",
+      "require": "./dist/tanstack/setup.cjs"
     },
     "./routes": {
       "types": "./dist/tanstack/routes/index.d.ts",
