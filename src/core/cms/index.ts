@@ -67,6 +67,11 @@ export {
 } from "./resolve";
 export { loadCmsPagePure } from "./loadCmsPagePure";
 export type { LoadedCmsPage } from "./loadCmsPagePure";
+export { resolveDeferredSectionPure } from "./resolveDeferredSectionPure";
+export type {
+  ResolvedDeferredSection,
+  ResolveDeferredSectionPureOptions,
+} from "./resolveDeferredSectionPure";
 export type { SectionLoaderFn } from "./sectionLoaders";
 export {
   isLayoutSection,
