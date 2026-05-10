@@ -27,6 +27,12 @@
 
 import { getRenderShellConfig } from "../core/admin/setup";
 import { loadBlocks } from "../core/cms/loader";
+import { installTanStackRuntime } from "../tanstack/setup";
+
+// Install ALS-backed RequestStore(s) on first module load. The Cloudflare
+// Worker module evaluates once per isolate, so this runs at boot and not on
+// every request. Idempotent — safe even if multiple bundles import this.
+installTanStackRuntime();
 import type { MatcherContext } from "../core/cms/resolve";
 import { resolveDecoPage } from "../core/cms/resolve";
 import { runSectionLoaders, runSingleSectionLoader } from "../core/cms/sectionLoaders";

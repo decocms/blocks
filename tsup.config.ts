@@ -100,6 +100,7 @@ export default defineConfig([
       "src/core/runtime/*.ts",
       "src/tanstack/runtime/index.ts",
       "src/tanstack/runtime/*.ts",
+      "src/tanstack/setup.ts",
     ],
     format: ["esm", "cjs"],
     dts: false,
