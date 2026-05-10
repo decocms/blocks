@@ -21,7 +21,7 @@
 
 import type { MeterAdapter } from "../../tanstack/middleware/observability";
 import { MetricNames } from "../../tanstack/middleware/observability";
-import { RequestContext } from "../../tanstack/sdk/requestContext";
+import { RequestContext } from "./requestContext";
 
 // ---------------------------------------------------------------------------
 // Env / binding access

@@ -7,9 +7,16 @@
  * removed when the framework converged on Cloudflare-native log + trace
  * capture. AE remains the in-Worker metrics path.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createAnalyticsEngineMeterAdapter, setRuntimeEnv } from "./otelAdapters";
-import { RequestContext } from "../../tanstack/sdk/requestContext";
+import { RequestContext, setRequestContextStore } from "./requestContext";
+import { createAlsRequestStore } from "../../tanstack/runtime/alsRequestStore";
+
+// Install an ALS-backed store so RequestContext.run actually carries
+// per-scope state (mirrors what installTanStackRuntime does in production).
+beforeAll(() => {
+  setRequestContextStore(createAlsRequestStore());
+});
 
 describe("createAnalyticsEngineMeterAdapter", () => {
   afterEach(() => vi.restoreAllMocks());

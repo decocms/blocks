@@ -21,7 +21,7 @@
  * ```
  */
 
-import { RequestContext } from "../../tanstack/sdk/requestContext";
+import { RequestContext } from "./requestContext";
 
 export type Device = "mobile" | "tablet" | "desktop";
 

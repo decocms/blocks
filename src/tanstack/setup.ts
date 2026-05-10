@@ -27,6 +27,10 @@ import {
 	setPreviewWrapper,
 	setRenderShell,
 } from "../core/admin/index";
+import {
+	type RequestContextData,
+	setRequestContextStore,
+} from "../core/sdk/requestContext";
 import { createAlsRequestStore } from "./runtime/alsRequestStore";
 
 let installed = false;
@@ -39,6 +43,7 @@ export function installTanStackRuntime(): void {
 	if (installed) return;
 	installed = true;
 	setBlocksOverrideStore(createAlsRequestStore<Record<string, unknown>>());
+	setRequestContextStore(createAlsRequestStore<RequestContextData>());
 }
 
 export interface SiteSetupOptions {

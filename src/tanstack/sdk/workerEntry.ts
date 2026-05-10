@@ -46,7 +46,7 @@ import {
 } from "../../core/sdk/cacheHeaders";
 import { buildHtmlShell } from "../../core/sdk/htmlShell";
 import { setRuntimeEnv } from "../../core/sdk/otelAdapters";
-import { RequestContext } from "./requestContext";
+import { RequestContext } from "../../core/sdk/requestContext";
 import { getAppMiddleware } from "./setupApps";
 import { cleanPathForCacheKey } from "../../core/sdk/urlUtils";
 import { type Device, isMobileUA } from "../../core/sdk/useDevice";

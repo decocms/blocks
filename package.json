@@ -250,9 +250,9 @@
       "require": "./dist/core/sdk/mergeCacheControl.cjs"
     },
     "./sdk/requestContext": {
-      "types": "./dist/tanstack/sdk/requestContext.d.ts",
-      "import": "./dist/tanstack/sdk/requestContext.js",
-      "require": "./dist/tanstack/sdk/requestContext.cjs"
+      "types": "./dist/core/sdk/requestContext.d.ts",
+      "import": "./dist/core/sdk/requestContext.js",
+      "require": "./dist/core/sdk/requestContext.cjs"
     },
     "./sdk/createInvoke": {
       "types": "./dist/tanstack/sdk/createInvoke.d.ts",

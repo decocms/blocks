@@ -25,7 +25,7 @@ import {
   registerCommerceLoaders,
   unregisterCommerceLoader,
 } from "../../core/cms/resolve";
-import { RequestContext } from "./requestContext";
+import { RequestContext } from "../../core/sdk/requestContext";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors @decocms/apps/commerce/app-types without importing it

@@ -1,10 +1,15 @@
 /**
- * Per-request context via AsyncLocalStorage.
+ * Per-request context backed by an injectable RequestStore.
  *
- * Binds request-scoped state (request, abort signal, device info, flags)
- * that any code in the call stack can access without prop drilling.
+ * Binds request-scoped state (request, abort signal, device info, flags) that
+ * any code in the call stack can access without prop drilling.
  *
- * Requires `nodejs_compat` in wrangler.jsonc (already enabled).
+ * **Framework-agnostic.** This file lives in `core/` and never imports
+ * `node:async_hooks` directly. Hosts that want AsyncLocalStorage semantics
+ * must call `setRequestContextStore()` with an ALS-backed RequestStore
+ * (see `tanstack/runtime/alsRequestStore.ts`). When no store is installed,
+ * `RequestContext` operates in a noop mode and getters return safe defaults
+ * (or `undefined` for the optional `current` accessor).
  *
  * **Design decisions:**
  * - We do NOT monkey-patch global `fetch`. Instead, `RequestContext.fetch`
@@ -14,6 +19,11 @@
  *
  * @example
  * ```ts
+ * // In a host bootstrap (e.g. installTanStackRuntime):
+ * import { setRequestContextStore } from "@decocms/start/sdk/requestContext";
+ * import { createAlsRequestStore } from "@decocms/start/tanstack";
+ * setRequestContextStore(createAlsRequestStore());
+ *
  * // In TanStack Start middleware:
  * import { RequestContext } from "@decocms/start/sdk/requestContext";
  *
@@ -28,7 +38,8 @@
  * ```
  */
 
-import { AsyncLocalStorage } from "node:async_hooks";
+import { isMobileUA } from "./useDevice";
+import { noopRequestStore, type RequestStore } from "../runtime/requestStore";
 
 // -------------------------------------------------------------------------
 // Types
@@ -58,12 +69,26 @@ export interface RequestContextData {
 }
 
 // -------------------------------------------------------------------------
-// Storage
+// Storage (injectable)
 // -------------------------------------------------------------------------
 
-const storage = new AsyncLocalStorage<RequestContextData>();
+let store: RequestStore<RequestContextData> =
+  noopRequestStore as RequestStore<RequestContextData>;
 
-import { isMobileUA } from "../../core/sdk/useDevice";
+/**
+ * Install the runtime-specific RequestStore implementation.
+ *
+ * Hosts call this once at startup. The default is a noop store, which means
+ * `RequestContext.run` invokes the callback directly but `RequestContext.current`
+ * always returns `null` and getters that throw outside a scope continue to throw.
+ *
+ * Pass `undefined` to reset to the noop store (useful in tests).
+ */
+export function setRequestContextStore(
+  s: RequestStore<RequestContextData> | undefined,
+): void {
+  store = s ?? (noopRequestStore as RequestStore<RequestContextData>);
+}
 
 const BOT_RE =
   /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|linkedinbot|twitterbot|whatsapp|telegram|googlebot|yandex|baidu|duckduck/i;
@@ -101,14 +126,14 @@ export const RequestContext = {
       responseHeaders: new Headers(),
     };
 
-    return storage.run(ctx, fn);
+    return store.run(ctx, fn);
   },
 
   /**
    * Get the current request context, or null if not in a request scope.
    */
   get current(): RequestContextData | null {
-    return storage.getStore() ?? null;
+    return store.get() ?? null;
   },
 
   /**
@@ -116,7 +141,7 @@ export const RequestContext = {
    * @throws if called outside a request context
    */
   get request(): Request {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     if (!ctx) throw new Error("RequestContext.request accessed outside a request scope");
     return ctx.request;
   },
@@ -126,7 +151,7 @@ export const RequestContext = {
    * Use this to cancel in-flight operations when the client disconnects.
    */
   get signal(): AbortSignal {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     if (!ctx) throw new Error("RequestContext.signal accessed outside a request scope");
     return ctx.signal;
   },
@@ -135,7 +160,7 @@ export const RequestContext = {
    * Detected device type based on User-Agent.
    */
   get device(): "mobile" | "desktop" {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     if (!ctx) return "desktop";
     if (ctx._device) return ctx._device;
     const ua = ctx.request.headers.get("user-agent") ?? "";
@@ -147,7 +172,7 @@ export const RequestContext = {
    * Whether the request appears to be from a bot/crawler.
    */
   get isBot(): boolean {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     if (!ctx) return false;
     if (ctx._isBot !== undefined) return ctx._isBot;
     const ua = ctx.request.headers.get("user-agent") ?? "";
@@ -159,7 +184,7 @@ export const RequestContext = {
    * Elapsed time since the request started (in milliseconds).
    */
   get elapsed(): number {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     if (!ctx) return 0;
     return Date.now() - ctx.startedAt;
   },
@@ -172,7 +197,7 @@ export const RequestContext = {
    * calls `RequestContext.fetch()` gets this behavior.
    */
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     if (!ctx) return globalThis.fetch(input, init);
 
     return globalThis.fetch(input, {
@@ -187,7 +212,7 @@ export const RequestContext = {
    * from deco-cx/deco).
    */
   get responseHeaders(): Headers {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     if (!ctx) throw new Error("RequestContext.responseHeaders accessed outside a request scope");
     return ctx.responseHeaders;
   },
@@ -197,12 +222,12 @@ export const RequestContext = {
    * Useful for middleware to pass data to loaders.
    */
   getBag<T>(key: string): T | undefined {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     return ctx?.bag.get(key) as T | undefined;
   },
 
   setBag(key: string, value: unknown): void {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     ctx?.bag.set(key, value);
   },
 
@@ -221,7 +246,7 @@ export const RequestContext = {
    * ```
    */
   getAppState<T>(appName: string): T | undefined {
-    const ctx = storage.getStore();
+    const ctx = store.get();
     return ctx?.bag.get(`app:${appName}:state`) as T | undefined;
   },
 };
