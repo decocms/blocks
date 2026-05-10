@@ -48,7 +48,7 @@
 
 import { trace } from "@opentelemetry/api";
 
-import { configureMeter, configureTracer } from "../../tanstack/middleware/observability";
+import { configureMeter, configureTracer } from "./observability";
 import { configureLogger, defaultLoggerAdapter, setLoggerAttributeFloor } from "./logger";
 import { createAnalyticsEngineMeterAdapter } from "./otelAdapters";
 

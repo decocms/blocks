@@ -4,6 +4,13 @@
  * Pluggable adapters for tracing (spans) and metrics (counters, gauges,
  * histograms). Works with any backend: OpenTelemetry, Sentry, Datadog, etc.
  *
+ * **Framework-agnostic.** This file lives in `core/` and never imports
+ * `node:async_hooks` directly. Hosts that want AsyncLocalStorage-backed
+ * span propagation install one via `setObservabilitySpanStore()` (see
+ * `tanstack/runtime/alsRequestStore.ts`). When no store is installed,
+ * spans still work — they just don't propagate across `await` boundaries
+ * inside `withTracing`, which is acceptable for hosts that don't need it.
+ *
  * @example
  * ```ts
  * import { configureTracer, configureMeter } from "@decocms/start/middleware";
@@ -27,11 +34,11 @@
  * ```
  */
 
+import { noopRequestStore, type RequestStore } from "../runtime/requestStore";
+
 // ---------------------------------------------------------------------------
 // Tracer
 // ---------------------------------------------------------------------------
-
-import * as asyncHooks from "node:async_hooks";
 
 export interface Span {
   end(): void;
@@ -45,16 +52,20 @@ export interface TracerAdapter {
 
 let tracer: TracerAdapter | null = null;
 
-// Per-request active span stored in AsyncLocalStorage so concurrent requests
-// cannot overwrite each other's span when `withTracing` awaits async work.
-// The namespace import + runtime guard mirrors loader.ts to stay safe in client builds.
-const ALS = (asyncHooks as any).AsyncLocalStorage as
-  | (new <T>() => { getStore(): T | undefined; run<R>(store: T, fn: () => R): R })
-  | undefined;
-const spanStorage: {
-  getStore(): Span | null | undefined;
-  run<R>(store: Span | null, fn: () => R): R;
-} = ALS ? new ALS<Span | null>() : { getStore: () => undefined, run: (_s: any, fn: any) => fn() };
+// Per-request active span propagation. Hosts that want AsyncLocalStorage
+// semantics call `setObservabilitySpanStore` with an ALS-backed store; the
+// default is a noop store, which means `withTracing` still records spans
+// but `getActiveSpan()` returns null outside the immediate sync frame.
+let spanStore: RequestStore<Span | null> = noopRequestStore as RequestStore<Span | null>;
+
+/**
+ * Install the runtime-specific RequestStore for active-span propagation.
+ *
+ * Pass `undefined` to reset to the noop store (useful in tests).
+ */
+export function setObservabilitySpanStore(s: RequestStore<Span | null> | undefined): void {
+  spanStore = s ?? (noopRequestStore as RequestStore<Span | null>);
+}
 
 export function configureTracer(t: TracerAdapter) {
   tracer = t;
@@ -66,7 +77,7 @@ export function getTracer(): TracerAdapter | null {
 
 /** Get the currently active span for the current async context, if any. */
 export function getActiveSpan(): Span | null {
-  return spanStorage.getStore() ?? null;
+  return spanStore.get() ?? null;
 }
 
 /** Set an attribute on the active span, if one exists. */
@@ -84,7 +95,7 @@ export async function withTracing<T>(
   const span = tracer.startSpan(name, attributes);
 
   try {
-    const result = await spanStorage.run(span, fn);
+    const result = await spanStore.run(span, fn);
     span.end();
     return result;
   } catch (error) {

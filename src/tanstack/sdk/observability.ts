@@ -31,7 +31,7 @@
  * the transport layer was stripped.
  */
 
-// Tracer / meter / request log primitives (re-exported from the middleware)
+// Tracer / meter / request log primitives (re-exported from core)
 export {
   configureMeter,
   configureTracer,
@@ -47,7 +47,7 @@ export {
   setSpanAttribute,
   type TracerAdapter,
   withTracing,
-} from "../middleware/observability";
+} from "../../core/sdk/observability";
 // Composite helpers (for advanced multi-backend wiring — e.g. AE + future
 // ClickHouse-collector meter, or default-console + future-collector logger)
 export { createCompositeLogger, createCompositeMeter } from "../../core/sdk/composite";

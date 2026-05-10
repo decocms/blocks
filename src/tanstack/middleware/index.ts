@@ -53,7 +53,7 @@ export {
   setSpanAttribute,
   type TracerAdapter,
   withTracing,
-} from "./observability";
+} from "../../core/sdk/observability";
 
 export { buildHydrationContext, type HydrationContext } from "./hydrationContext";
 export {

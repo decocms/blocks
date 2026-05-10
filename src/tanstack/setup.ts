@@ -28,6 +28,10 @@ import {
 	setRenderShell,
 } from "../core/admin/index";
 import {
+	type Span,
+	setObservabilitySpanStore,
+} from "../core/sdk/observability";
+import {
 	type RequestContextData,
 	setRequestContextStore,
 } from "../core/sdk/requestContext";
@@ -44,6 +48,7 @@ export function installTanStackRuntime(): void {
 	installed = true;
 	setBlocksOverrideStore(createAlsRequestStore<Record<string, unknown>>());
 	setRequestContextStore(createAlsRequestStore<RequestContextData>());
+	setObservabilitySpanStore(createAlsRequestStore<Span | null>());
 }
 
 export interface SiteSetupOptions {

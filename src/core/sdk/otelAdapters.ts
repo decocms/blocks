@@ -19,8 +19,8 @@
  * `workerEntry.ts` and the AE adapter both depend on them.
  */
 
-import type { MeterAdapter } from "../../tanstack/middleware/observability";
-import { MetricNames } from "../../tanstack/middleware/observability";
+import type { MeterAdapter } from "./observability";
+import { MetricNames } from "./observability";
 import { RequestContext } from "./requestContext";
 
 // ---------------------------------------------------------------------------

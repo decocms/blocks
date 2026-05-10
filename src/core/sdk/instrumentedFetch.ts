@@ -15,7 +15,7 @@
  * ```
  */
 
-import { getTracer } from "../../tanstack/middleware/observability";
+import { getTracer } from "./observability";
 import { logger } from "./logger";
 
 /**
