@@ -75,13 +75,22 @@ function resolveBuildHash() {
 }
 
 // Bare-specifier stubs resolved by ID before Vite touches them.
+//
+// Both `node:`-prefixed and unprefixed forms are listed: source code uses the
+// prefixed form, but tsup-compiled output (when `node:async_hooks`/etc. is in
+// `external`) emits the unprefixed form. The plugin runs against both raw
+// `.ts` source (when consumers `npm link` against an unbuilt repo) and against
+// our shipped `dist/`, so it must match both. Same stub body for either.
 /** @type {Record<string, string>} */
 const CLIENT_STUBS = {
   "react-dom/server": "\0stub:react-dom-server",
   "react-dom/server.browser": "\0stub:react-dom-server",
   "node:stream": "\0stub:node-stream",
+  stream: "\0stub:node-stream",
   "node:stream/web": "\0stub:node-stream-web",
+  "stream/web": "\0stub:node-stream-web",
   "node:async_hooks": "\0stub:node-async-hooks",
+  async_hooks: "\0stub:node-async-hooks",
   "tanstack-start-injected-head-scripts:v": "\0stub:tanstack-head-scripts",
 };
 

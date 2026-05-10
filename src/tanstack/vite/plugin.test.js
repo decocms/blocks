@@ -46,6 +46,29 @@ describe("decoVitePlugin client stubs (regression guard)", () => {
     expect(id).toBe("\0stub:node-async-hooks");
   });
 
+  // tsup with `external: ["node:async_hooks", "async_hooks"]` strips the
+  // `node:` prefix in compiled output. Consumers npm-link our `dist/` and
+  // their Vite sees `import { AsyncLocalStorage } from "async_hooks"`.
+  // Without these unprefixed entries, Vite falls through to its standard
+  // browser-external stub which throws on Object.get at module load time.
+  it("rewrites unprefixed `async_hooks` on the client build", () => {
+    const p = getPlugin();
+    const id = p.resolveId.call({}, "async_hooks", undefined, { ssr: false });
+    expect(id).toBe("\0stub:node-async-hooks");
+  });
+
+  it("rewrites unprefixed `stream` on the client build", () => {
+    const p = getPlugin();
+    const id = p.resolveId.call({}, "stream", undefined, { ssr: false });
+    expect(id).toBe("\0stub:node-stream");
+  });
+
+  it("rewrites unprefixed `stream/web` on the client build", () => {
+    const p = getPlugin();
+    const id = p.resolveId.call({}, "stream/web", undefined, { ssr: false });
+    expect(id).toBe("\0stub:node-stream-web");
+  });
+
   it("does not rewrite client stubs on SSR", () => {
     const p = getPlugin();
     const id = p.resolveId.call({}, "react-dom/server", undefined, { ssr: true });
