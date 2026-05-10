@@ -78,7 +78,10 @@
     "./daemon": "./src/daemon/index.ts"
   },
   "scripts": {
-    "build": "tsc",
+    "build:js": "tsup",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "bun run build:js && bun run build:types",
+    "prepublishOnly": "bun run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/ scripts/",
