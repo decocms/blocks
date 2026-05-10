@@ -1,0 +1,110 @@
+import { defineConfig } from "tsup";
+
+const sharedExternal = [
+  "@tanstack/react-query",
+  "@tanstack/react-start",
+  "@tanstack/react-start/server",
+  "@tanstack/react-start/api",
+  "@tanstack/react-start/server-entry",
+  "@tanstack/react-router",
+  "@tanstack/store",
+  "react",
+  "react-dom",
+  "react-dom/server",
+  "next",
+  "next/server",
+  "vite",
+  "node:async_hooks",
+  "node:stream",
+  "node:fs",
+  "node:crypto",
+  "node:path",
+  "node:url",
+  "node:util",
+  // Unprefixed Node built-ins pulled in by bundled deps (ts-morph, fdir, etc.).
+  // Required because platform: "neutral" does not auto-externalize Node built-ins.
+  "fs",
+  "path",
+  "os",
+  "url",
+  "util",
+  "stream",
+  "crypto",
+  "events",
+  "buffer",
+  "assert",
+  "tty",
+  "child_process",
+  "inspector",
+  "perf_hooks",
+  "module",
+  "fs/promises",
+  "async_hooks",
+];
+
+export default defineConfig([
+  {
+    name: "src",
+    entry: [
+      "src/index.ts",
+      "src/cms/index.ts",
+      "src/admin/index.ts",
+      "src/hooks/index.ts",
+      "src/middleware/index.ts",
+      "src/routes/index.ts",
+      "src/matchers/builtins.ts",
+      "src/matchers/posthog.ts",
+      "src/types/index.ts",
+      "src/types/widgets.ts",
+      "src/sdk/index.ts",
+      "src/sdk/*.ts",
+      "src/sdk/otelAdapters/*.ts",
+      "src/apps/index.ts",
+      "src/apps/autoconfig.ts",
+      "src/daemon/index.ts",
+      "src/setup.ts",
+      "src/vite/plugin.js",
+    ],
+    format: ["esm", "cjs"],
+    dts: false,
+    splitting: false,
+    sourcemap: true,
+    clean: true,
+    outDir: "dist",
+    target: "es2022",
+    external: sharedExternal,
+    esbuildOptions(opts) {
+      opts.jsx = "automatic";
+      opts.platform = "neutral";
+      opts.outbase = "src";
+    },
+    ignoreWatch: ["**/*.test.ts", "**/*.test.tsx"],
+  },
+  {
+    name: "scripts",
+    entry: [
+      "scripts/generate-blocks.ts",
+      "scripts/generate-schema.ts",
+      "scripts/generate-invoke.ts",
+      "scripts/migrate.ts",
+      "scripts/migrate-post-cleanup.ts",
+      "scripts/migrate-to-cf-observability.ts",
+      "scripts/htmx-analyze.ts",
+      "scripts/tailwind-lint.ts",
+    ],
+    format: ["esm", "cjs"],
+    dts: false,
+    splitting: false,
+    sourcemap: true,
+    clean: false,
+    outDir: "dist/scripts",
+    target: "es2022",
+    external: sharedExternal,
+    esbuildOptions(opts) {
+      opts.jsx = "automatic";
+      opts.platform = "neutral";
+      opts.outbase = "scripts";
+    },
+    ignoreWatch: ["**/*.test.ts", "**/*.test.tsx"],
+  },
+]);
