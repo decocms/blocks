@@ -13,6 +13,11 @@
 
 import { recordCacheMetric, withTracing } from "../../core/sdk/observability";
 import { type CacheProfileName, loaderCacheOptions } from "../../core/sdk/cacheHeaders";
+import {
+  type CacheEntry,
+  inflightLoaderRequests as inflightRequests,
+  loaderCache as cache,
+} from "../../core/sdk/loaderCache";
 
 export type CachePolicy = "no-store" | "no-cache" | "stale-while-revalidate";
 
@@ -32,16 +37,8 @@ export interface LoaderModule<TProps = any, TResult = any> {
   cacheKey?: (props: TProps) => string | null;
 }
 
-interface CacheEntry<T = unknown> {
-  value: T;
-  createdAt: number;
-  refreshing: boolean;
-}
-
 const DEFAULT_MAX_AGE = 60_000;
 const MAX_CACHE_ENTRIES = 500;
-
-const cache = new Map<string, CacheEntry>();
 
 function evictIfNeeded() {
   if (cache.size <= MAX_CACHE_ENTRIES) return;
@@ -49,8 +46,6 @@ function evictIfNeeded() {
   const toDelete = oldest.slice(0, cache.size - MAX_CACHE_ENTRIES);
   for (const [key] of toDelete) cache.delete(key);
 }
-
-const inflightRequests = new Map<string, Promise<unknown>>();
 
 function resolveOptions(
   optionsOrProfile: CachedLoaderOptions | CacheProfileName,
@@ -237,16 +232,9 @@ export function createCachedLoaderFromModule<TProps, TResult>(
   });
 }
 
-/** Clear all cached entries. Useful for decofile hot-reload. */
-export function clearLoaderCache() {
-  cache.clear();
-  inflightRequests.clear();
-}
-
-/** Get cache stats for diagnostics. */
-export function getLoaderCacheStats() {
-  return {
-    entries: cache.size,
-    inflight: inflightRequests.size,
-  };
-}
+// Re-export the cache state management surface from core for backward
+// compatibility — `clearLoaderCache` is the hot-reload hook for decofile
+// updates, and `getLoaderCacheStats` is exposed for diagnostics. Both
+// live in `core/sdk/loaderCache.ts` so framework-agnostic admin code
+// can reach them without importing from the tanstack tier.
+export { clearLoaderCache, getLoaderCacheStats } from "../../core/sdk/loaderCache";
