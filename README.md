@@ -36,6 +36,60 @@ Full export reference: [docs.deco.cx/v2/en/reference/package-exports](https://do
 
 ---
 
+## Import Tiers
+
+`@decocms/start` exposes three import tiers, each with a distinct dependency budget:
+
+### `@decocms/start/core` — framework-agnostic
+
+CMS resolution, registry, blocks, matchers, schema, plain SDK utilities. Zero imports from `@tanstack/*`, `next/*`, or `node:async_hooks`. Safe to use from any host:
+
+```ts
+import {
+  resolveDecoPage,
+  loadCmsPagePure,
+  registerSectionsSync,
+  loadAllDecofileBlocks,
+} from "@decocms/start/core";
+```
+
+### `@decocms/start/tanstack` — TanStack Start adapter
+
+Routes, hooks, middleware, worker entry, vite plugin. The default for storefronts on Cloudflare Workers + TanStack Start.
+
+```ts
+import { loadCmsPage, cmsRouteConfig } from "@decocms/start/tanstack";
+```
+
+### `@decocms/start/next` — Next.js (App Router) adapter
+
+```ts
+import {
+  loadCmsPage,
+  buildMatcherContextFromNext,
+  handleDecoAdminRoute,
+  DecoPage,
+} from "@decocms/start/next";
+
+// app/[[...path]]/page.tsx
+export default DecoPage;
+
+// app/(deco-admin)/[...path]/route.ts
+import { handleDecoAdminRoute } from "@decocms/start/next";
+export const GET = handleDecoAdminRoute;
+export const POST = handleDecoAdminRoute;
+```
+
+For client-only components (no `node:async_hooks` in the bundle):
+
+```ts
+import { useDevice, signal } from "@decocms/start/next/client";
+```
+
+**Caveat:** Next.js Pages Router is not supported. App Router only.
+
+---
+
 ## Hello, World
 
 A minimal v2 storefront has six files. Here they are.
