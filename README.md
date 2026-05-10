@@ -86,6 +86,8 @@ For client-only components (no `node:async_hooks` in the bundle):
 import { useDevice, signal } from "@decocms/start/next/client";
 ```
 
+**Caveat:** Next.js Pages Router is not supported. App Router only.
+
 ### `@decocms/start/node` — Node-only helpers
 
 Disk-loading helpers that depend on `node:fs`. Not safe to import into client bundles. Use from server entry points only:
@@ -98,7 +100,7 @@ import { setBlocks } from "@decocms/start/core";
 setBlocks(await loadAllDecofileBlocks(".deco/blocks"));
 ```
 
-**Caveat:** Next.js Pages Router is not supported. App Router only.
+**Caveat:** these helpers depend on `node:fs` / `node:path` and must not appear in any module that ends up in a browser bundle. From Next.js, that means importing them only from server-only files (`getServerSideProps`/`getStaticProps`, App Router server components, route handlers, or non-route server utility modules) — never from a file ultimately imported by a client component.
 
 ---
 
