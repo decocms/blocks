@@ -44,6 +44,11 @@
       "import": "./dist/next/client.js",
       "require": "./dist/next/client.cjs"
     },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js",
+      "require": "./dist/node/index.cjs"
+    },
     "./cms": {
       "types": "./dist/core/cms/index.d.ts",
       "import": "./dist/core/cms/index.js",

@@ -2,14 +2,15 @@
  * Load all `.deco/blocks/*.json` files from a directory into a map keyed by
  * the filename (without `.json` extension), URL-decoded.
  *
- * Node-only — uses `node:fs/promises` and `node:path` lazily so the symbol
- * can appear in the framework-agnostic core barrel without breaking client
- * bundles (the function body is never reached at parse time on the client).
+ * Node-only — uses `node:fs/promises` and `node:path`. Lives under
+ * `@decocms/start/node` so that the framework-agnostic `@decocms/start/core`
+ * barrel never pulls a hard reference to `node:fs` into client bundles.
  *
  * Pair with `setBlocks(blocks)` to populate the CMS at app boot:
  *
  * ```ts
- * import { setBlocks, loadAllDecofileBlocks } from "@decocms/start/core";
+ * import { loadAllDecofileBlocks } from "@decocms/start/node";
+ * import { setBlocks } from "@decocms/start/core";
  * setBlocks(await loadAllDecofileBlocks());
  * ```
  *
@@ -20,8 +21,8 @@
 export async function loadAllDecofileBlocks(
   dir: string = ".deco/blocks",
 ): Promise<Record<string, unknown>> {
-  const { readdir, readFile } = await import("node:fs/promises");
-  const path = await import("node:path");
+  const { readdir, readFile } = await import(/* webpackIgnore: true */ "node:fs/promises");
+  const path = await import(/* webpackIgnore: true */ "node:path");
   const out: Record<string, unknown> = {};
 
   let entries: string[];

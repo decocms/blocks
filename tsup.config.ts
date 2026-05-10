@@ -109,6 +109,8 @@ export default defineConfig([
       "src/next/client.ts",
       "src/next/*.ts",
       "src/next/*.tsx",
+      "src/node/index.ts",
+      "src/node/*.ts",
     ],
     format: ["esm", "cjs"],
     dts: false,

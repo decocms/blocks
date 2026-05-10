@@ -67,7 +67,6 @@ export {
 } from "./resolve";
 export { loadCmsPagePure } from "./loadCmsPagePure";
 export type { LoadedCmsPage } from "./loadCmsPagePure";
-export { loadAllDecofileBlocks } from "./loadAllDecofileBlocks";
 export { resolveDeferredSectionPure } from "./resolveDeferredSectionPure";
 export type {
   ResolvedDeferredSection,
