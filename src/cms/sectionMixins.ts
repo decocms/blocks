@@ -16,7 +16,7 @@
  * });
  * ```
  */
-import { detectDevice } from "../sdk/useDevice";
+import { detectDevice } from "../core/sdk/useDevice";
 import type { SectionLoaderFn } from "./sectionLoaders";
 
 /**

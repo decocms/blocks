@@ -5,7 +5,7 @@ export {
   clearLoaderCache,
   createCachedLoader,
   getLoaderCacheStats,
-} from "./cachedLoader";
+} from "../../sdk/cachedLoader";
 export {
   type CacheProfileConfig,
   type CacheProfileName,
@@ -24,7 +24,7 @@ export {
 } from "./cacheHeaders";
 export { clx } from "./clx";
 export { decodeCookie, deleteCookie, getCookie, getServerSideCookie, setCookie } from "./cookie";
-export { forwardResponseCookies, getRequestCookieHeader } from "./cookiePassthrough";
+export { forwardResponseCookies, getRequestCookieHeader } from "../../sdk/cookiePassthrough";
 export { buildCSPHeaderValue, type CSPOptions, setCSPHeaders } from "./csp";
 export { djb2, djb2Hex } from "./djb2";
 export { isDevMode } from "./env";
@@ -59,7 +59,7 @@ export {
   type RedirectMap,
   registerRedirectResolveType,
 } from "./redirects";
-export { RequestContext, type RequestContextData } from "./requestContext";
+export { RequestContext, type RequestContextData } from "../../sdk/requestContext";
 export { createServerTimings, type ServerTimings } from "./serverTimings";
 export { type ReactiveSignal, signal } from "./signal";
 export {
@@ -90,7 +90,7 @@ export {
   useScriptAsDataURI,
   useSection,
 } from "./useScript";
-export { createDecoWorkerEntry, type DecoWorkerEntryOptions } from "./workerEntry";
+export { createDecoWorkerEntry, type DecoWorkerEntryOptions } from "../../sdk/workerEntry";
 export {
   isWrappedError,
   unwrapError,

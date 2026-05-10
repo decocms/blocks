@@ -15,7 +15,7 @@
  * ```
  */
 
-import { getTracer } from "../middleware/observability";
+import { getTracer } from "../../middleware/observability";
 import { logger } from "./logger";
 
 /**

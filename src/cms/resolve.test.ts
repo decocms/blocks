@@ -6,7 +6,7 @@ vi.mock("./sectionLoaders", () => ({
   runSingleSectionLoader: vi.fn(async (section: any) => section),
 }));
 
-vi.mock("../sdk/normalizeUrls", () => ({
+vi.mock("../core/sdk/normalizeUrls", () => ({
   normalizeUrlsInObject: vi.fn(<T>(x: T) => x),
 }));
 
@@ -21,7 +21,7 @@ vi.mock("./registry", () => ({
 
 import { resolveDeferredSectionFull, resolveSectionsList } from "./resolve";
 import { runSingleSectionLoader } from "./sectionLoaders";
-import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
+import { normalizeUrlsInObject } from "../core/sdk/normalizeUrls";
 import type { DeferredSection } from "./resolve";
 
 describe("resolveDeferredSectionFull", () => {

@@ -9,7 +9,7 @@ import {
   WELL_KNOWN_TYPES,
 } from "../cms/resolve";
 import { runSingleSectionLoader } from "../cms/sectionLoaders";
-import { buildHtmlShell } from "../sdk/htmlShell";
+import { buildHtmlShell } from "../core/sdk/htmlShell";
 import { LIVE_CONTROLS_SCRIPT } from "./liveControls";
 import { getPreviewWrapper } from "./setup";
 

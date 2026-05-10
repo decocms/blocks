@@ -16,7 +16,7 @@
  */
 
 import { onChange } from "../cms/loader";
-import { resolveSecret } from "../sdk/crypto";
+import { resolveSecret } from "../core/sdk/crypto";
 import {
   setupApps,
   type AppDefinition,

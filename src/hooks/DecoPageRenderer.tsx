@@ -84,7 +84,7 @@ function NestedSectionFallback() {
   return <div className="w-full h-24 bg-base-200 animate-pulse rounded" />;
 }
 
-import { isDevMode } from "../sdk/env";
+import { isDevMode } from "../core/sdk/env";
 
 const isDev = isDevMode();
 

@@ -37,13 +37,13 @@ import {
   detectCacheProfile,
   edgeCacheConfig,
   getCacheProfile,
-} from "./cacheHeaders";
-import { buildHtmlShell } from "./htmlShell";
-import { setRuntimeEnv } from "./otelAdapters";
+} from "../core/sdk/cacheHeaders";
+import { buildHtmlShell } from "../core/sdk/htmlShell";
+import { setRuntimeEnv } from "../core/sdk/otelAdapters";
 import { RequestContext } from "./requestContext";
 import { getAppMiddleware } from "./setupApps";
-import { cleanPathForCacheKey } from "./urlUtils";
-import { type Device, isMobileUA } from "./useDevice";
+import { cleanPathForCacheKey } from "../core/sdk/urlUtils";
+import { type Device, isMobileUA } from "../core/sdk/useDevice";
 
 /**
  * Build-time identifier injected by `decoVitePlugin()` (see

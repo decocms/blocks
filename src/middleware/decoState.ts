@@ -2,7 +2,7 @@
  * Per-request Deco state that the middleware pipeline builds up
  * and passes through the request lifecycle.
  */
-import { createServerTimings, type ServerTimings } from "../sdk/serverTimings";
+import { createServerTimings, type ServerTimings } from "../core/sdk/serverTimings";
 import type { Flag } from "../types/index";
 
 export interface DecoState {

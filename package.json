@@ -7,7 +7,11 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "deco-migrate": "./dist/scripts/migrate.cjs",
     "deco-post-cleanup": "./dist/scripts/migrate-post-cleanup.cjs",
@@ -51,59 +55,59 @@
       "require": "./dist/types/widgets.cjs"
     },
     "./sdk": {
-      "types": "./dist/sdk/index.d.ts",
-      "import": "./dist/sdk/index.js",
-      "require": "./dist/sdk/index.cjs"
+      "types": "./dist/core/sdk/index.d.ts",
+      "import": "./dist/core/sdk/index.js",
+      "require": "./dist/core/sdk/index.cjs"
     },
     "./sdk/useScript": {
-      "types": "./dist/sdk/useScript.d.ts",
-      "import": "./dist/sdk/useScript.js",
-      "require": "./dist/sdk/useScript.cjs"
+      "types": "./dist/core/sdk/useScript.d.ts",
+      "import": "./dist/core/sdk/useScript.js",
+      "require": "./dist/core/sdk/useScript.cjs"
     },
     "./sdk/signal": {
-      "types": "./dist/sdk/signal.d.ts",
-      "import": "./dist/sdk/signal.js",
-      "require": "./dist/sdk/signal.cjs"
+      "types": "./dist/core/sdk/signal.d.ts",
+      "import": "./dist/core/sdk/signal.js",
+      "require": "./dist/core/sdk/signal.cjs"
     },
     "./sdk/clx": {
-      "types": "./dist/sdk/clx.d.ts",
-      "import": "./dist/sdk/clx.js",
-      "require": "./dist/sdk/clx.cjs"
+      "types": "./dist/core/sdk/clx.d.ts",
+      "import": "./dist/core/sdk/clx.js",
+      "require": "./dist/core/sdk/clx.cjs"
     },
     "./sdk/cn": {
-      "types": "./dist/sdk/cn.d.ts",
-      "import": "./dist/sdk/cn.js",
-      "require": "./dist/sdk/cn.cjs"
+      "types": "./dist/core/sdk/cn.d.ts",
+      "import": "./dist/core/sdk/cn.js",
+      "require": "./dist/core/sdk/cn.cjs"
     },
     "./sdk/encoding": {
-      "types": "./dist/sdk/encoding.d.ts",
-      "import": "./dist/sdk/encoding.js",
-      "require": "./dist/sdk/encoding.cjs"
+      "types": "./dist/core/sdk/encoding.d.ts",
+      "import": "./dist/core/sdk/encoding.js",
+      "require": "./dist/core/sdk/encoding.cjs"
     },
     "./sdk/http": {
-      "types": "./dist/sdk/http.d.ts",
-      "import": "./dist/sdk/http.js",
-      "require": "./dist/sdk/http.cjs"
+      "types": "./dist/core/sdk/http.d.ts",
+      "import": "./dist/core/sdk/http.js",
+      "require": "./dist/core/sdk/http.cjs"
     },
     "./sdk/useSuggestions": {
-      "types": "./dist/sdk/useSuggestions.d.ts",
-      "import": "./dist/sdk/useSuggestions.js",
-      "require": "./dist/sdk/useSuggestions.cjs"
+      "types": "./dist/core/sdk/useSuggestions.d.ts",
+      "import": "./dist/core/sdk/useSuggestions.js",
+      "require": "./dist/core/sdk/useSuggestions.cjs"
     },
     "./sdk/retry": {
-      "types": "./dist/sdk/retry.d.ts",
-      "import": "./dist/sdk/retry.js",
-      "require": "./dist/sdk/retry.cjs"
+      "types": "./dist/core/sdk/retry.d.ts",
+      "import": "./dist/core/sdk/retry.js",
+      "require": "./dist/core/sdk/retry.cjs"
     },
     "./sdk/useId": {
-      "types": "./dist/sdk/useId.d.ts",
-      "import": "./dist/sdk/useId.js",
-      "require": "./dist/sdk/useId.cjs"
+      "types": "./dist/core/sdk/useId.d.ts",
+      "import": "./dist/core/sdk/useId.js",
+      "require": "./dist/core/sdk/useId.cjs"
     },
     "./sdk/cookie": {
-      "types": "./dist/sdk/cookie.d.ts",
-      "import": "./dist/sdk/cookie.js",
-      "require": "./dist/sdk/cookie.cjs"
+      "types": "./dist/core/sdk/cookie.d.ts",
+      "import": "./dist/core/sdk/cookie.js",
+      "require": "./dist/core/sdk/cookie.cjs"
     },
     "./sdk/cookiePassthrough": {
       "types": "./dist/sdk/cookiePassthrough.d.ts",
@@ -111,9 +115,9 @@
       "require": "./dist/sdk/cookiePassthrough.cjs"
     },
     "./sdk/analytics": {
-      "types": "./dist/sdk/analytics.d.ts",
-      "import": "./dist/sdk/analytics.js",
-      "require": "./dist/sdk/analytics.cjs"
+      "types": "./dist/core/sdk/analytics.d.ts",
+      "import": "./dist/core/sdk/analytics.js",
+      "require": "./dist/core/sdk/analytics.cjs"
     },
     "./sdk/cachedLoader": {
       "types": "./dist/sdk/cachedLoader.d.ts",
@@ -121,54 +125,54 @@
       "require": "./dist/sdk/cachedLoader.cjs"
     },
     "./sdk/serverTimings": {
-      "types": "./dist/sdk/serverTimings.d.ts",
-      "import": "./dist/sdk/serverTimings.js",
-      "require": "./dist/sdk/serverTimings.cjs"
+      "types": "./dist/core/sdk/serverTimings.d.ts",
+      "import": "./dist/core/sdk/serverTimings.js",
+      "require": "./dist/core/sdk/serverTimings.cjs"
     },
     "./sdk/cacheHeaders": {
-      "types": "./dist/sdk/cacheHeaders.d.ts",
-      "import": "./dist/sdk/cacheHeaders.js",
-      "require": "./dist/sdk/cacheHeaders.cjs"
+      "types": "./dist/core/sdk/cacheHeaders.d.ts",
+      "import": "./dist/core/sdk/cacheHeaders.js",
+      "require": "./dist/core/sdk/cacheHeaders.cjs"
     },
     "./sdk/crypto": {
-      "types": "./dist/sdk/crypto.d.ts",
-      "import": "./dist/sdk/crypto.js",
-      "require": "./dist/sdk/crypto.cjs"
+      "types": "./dist/core/sdk/crypto.d.ts",
+      "import": "./dist/core/sdk/crypto.js",
+      "require": "./dist/core/sdk/crypto.cjs"
     },
     "./sdk/invoke": {
-      "types": "./dist/sdk/invoke.d.ts",
-      "import": "./dist/sdk/invoke.js",
-      "require": "./dist/sdk/invoke.cjs"
+      "types": "./dist/core/sdk/invoke.d.ts",
+      "import": "./dist/core/sdk/invoke.js",
+      "require": "./dist/core/sdk/invoke.cjs"
     },
     "./sdk/instrumentedFetch": {
-      "types": "./dist/sdk/instrumentedFetch.d.ts",
-      "import": "./dist/sdk/instrumentedFetch.js",
-      "require": "./dist/sdk/instrumentedFetch.cjs"
+      "types": "./dist/core/sdk/instrumentedFetch.d.ts",
+      "import": "./dist/core/sdk/instrumentedFetch.js",
+      "require": "./dist/core/sdk/instrumentedFetch.cjs"
     },
     "./sdk/otel": {
-      "types": "./dist/sdk/otel.d.ts",
-      "import": "./dist/sdk/otel.js",
-      "require": "./dist/sdk/otel.cjs"
+      "types": "./dist/core/sdk/otel.d.ts",
+      "import": "./dist/core/sdk/otel.js",
+      "require": "./dist/core/sdk/otel.cjs"
     },
     "./sdk/logger": {
-      "types": "./dist/sdk/logger.d.ts",
-      "import": "./dist/sdk/logger.js",
-      "require": "./dist/sdk/logger.cjs"
+      "types": "./dist/core/sdk/logger.d.ts",
+      "import": "./dist/core/sdk/logger.js",
+      "require": "./dist/core/sdk/logger.cjs"
     },
     "./sdk/composite": {
-      "types": "./dist/sdk/composite.d.ts",
-      "import": "./dist/sdk/composite.js",
-      "require": "./dist/sdk/composite.cjs"
+      "types": "./dist/core/sdk/composite.d.ts",
+      "import": "./dist/core/sdk/composite.js",
+      "require": "./dist/core/sdk/composite.cjs"
     },
     "./sdk/otelAdapters": {
-      "types": "./dist/sdk/otelAdapters.d.ts",
-      "import": "./dist/sdk/otelAdapters.js",
-      "require": "./dist/sdk/otelAdapters.cjs"
+      "types": "./dist/core/sdk/otelAdapters.d.ts",
+      "import": "./dist/core/sdk/otelAdapters.js",
+      "require": "./dist/core/sdk/otelAdapters.cjs"
     },
     "./sdk/otelAdapters/clickhouseCollector": {
-      "types": "./dist/sdk/otelAdapters/clickhouseCollector.d.ts",
-      "import": "./dist/sdk/otelAdapters/clickhouseCollector.js",
-      "require": "./dist/sdk/otelAdapters/clickhouseCollector.cjs"
+      "types": "./dist/core/sdk/otelAdapters/clickhouseCollector.d.ts",
+      "import": "./dist/core/sdk/otelAdapters/clickhouseCollector.js",
+      "require": "./dist/core/sdk/otelAdapters/clickhouseCollector.cjs"
     },
     "./sdk/observability": {
       "types": "./dist/sdk/observability.d.ts",
@@ -181,54 +185,54 @@
       "require": "./dist/sdk/workerEntry.cjs"
     },
     "./sdk/abTesting": {
-      "types": "./dist/sdk/abTesting.d.ts",
-      "import": "./dist/sdk/abTesting.js",
-      "require": "./dist/sdk/abTesting.cjs"
+      "types": "./dist/core/sdk/abTesting.d.ts",
+      "import": "./dist/core/sdk/abTesting.js",
+      "require": "./dist/core/sdk/abTesting.cjs"
     },
     "./sdk/redirects": {
-      "types": "./dist/sdk/redirects.d.ts",
-      "import": "./dist/sdk/redirects.js",
-      "require": "./dist/sdk/redirects.cjs"
+      "types": "./dist/core/sdk/redirects.d.ts",
+      "import": "./dist/core/sdk/redirects.js",
+      "require": "./dist/core/sdk/redirects.cjs"
     },
     "./sdk/sitemap": {
-      "types": "./dist/sdk/sitemap.d.ts",
-      "import": "./dist/sdk/sitemap.js",
-      "require": "./dist/sdk/sitemap.cjs"
+      "types": "./dist/core/sdk/sitemap.d.ts",
+      "import": "./dist/core/sdk/sitemap.js",
+      "require": "./dist/core/sdk/sitemap.cjs"
     },
     "./sdk/useDevice": {
-      "types": "./dist/sdk/useDevice.d.ts",
-      "import": "./dist/sdk/useDevice.js",
-      "require": "./dist/sdk/useDevice.cjs"
+      "types": "./dist/core/sdk/useDevice.d.ts",
+      "import": "./dist/core/sdk/useDevice.js",
+      "require": "./dist/core/sdk/useDevice.cjs"
     },
     "./sdk/useHydrated": {
-      "types": "./dist/sdk/useHydrated.d.ts",
-      "import": "./dist/sdk/useHydrated.js",
-      "require": "./dist/sdk/useHydrated.cjs"
+      "types": "./dist/core/sdk/useHydrated.d.ts",
+      "import": "./dist/core/sdk/useHydrated.js",
+      "require": "./dist/core/sdk/useHydrated.cjs"
     },
     "./sdk/wrapCaughtErrors": {
-      "types": "./dist/sdk/wrapCaughtErrors.d.ts",
-      "import": "./dist/sdk/wrapCaughtErrors.js",
-      "require": "./dist/sdk/wrapCaughtErrors.cjs"
+      "types": "./dist/core/sdk/wrapCaughtErrors.d.ts",
+      "import": "./dist/core/sdk/wrapCaughtErrors.js",
+      "require": "./dist/core/sdk/wrapCaughtErrors.cjs"
     },
     "./sdk/csp": {
-      "types": "./dist/sdk/csp.d.ts",
-      "import": "./dist/sdk/csp.js",
-      "require": "./dist/sdk/csp.cjs"
+      "types": "./dist/core/sdk/csp.d.ts",
+      "import": "./dist/core/sdk/csp.js",
+      "require": "./dist/core/sdk/csp.cjs"
     },
     "./sdk/urlUtils": {
-      "types": "./dist/sdk/urlUtils.d.ts",
-      "import": "./dist/sdk/urlUtils.js",
-      "require": "./dist/sdk/urlUtils.cjs"
+      "types": "./dist/core/sdk/urlUtils.d.ts",
+      "import": "./dist/core/sdk/urlUtils.js",
+      "require": "./dist/core/sdk/urlUtils.cjs"
     },
     "./sdk/normalizeUrls": {
-      "types": "./dist/sdk/normalizeUrls.d.ts",
-      "import": "./dist/sdk/normalizeUrls.js",
-      "require": "./dist/sdk/normalizeUrls.cjs"
+      "types": "./dist/core/sdk/normalizeUrls.d.ts",
+      "import": "./dist/core/sdk/normalizeUrls.js",
+      "require": "./dist/core/sdk/normalizeUrls.cjs"
     },
     "./sdk/mergeCacheControl": {
-      "types": "./dist/sdk/mergeCacheControl.d.ts",
-      "import": "./dist/sdk/mergeCacheControl.js",
-      "require": "./dist/sdk/mergeCacheControl.cjs"
+      "types": "./dist/core/sdk/mergeCacheControl.d.ts",
+      "import": "./dist/core/sdk/mergeCacheControl.js",
+      "require": "./dist/core/sdk/mergeCacheControl.cjs"
     },
     "./sdk/requestContext": {
       "types": "./dist/sdk/requestContext.d.ts",

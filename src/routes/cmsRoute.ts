@@ -48,9 +48,9 @@ import {
   cacheHeaders,
   detectCacheProfile,
   routeCacheDefaults,
-} from "../sdk/cacheHeaders";
-import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
-import { type Device, detectDevice } from "../sdk/useDevice";
+} from "../core/sdk/cacheHeaders";
+import { normalizeUrlsInObject } from "../core/sdk/normalizeUrls";
+import { type Device, detectDevice } from "../core/sdk/useDevice";
 
 const isServer = typeof document === "undefined";
 

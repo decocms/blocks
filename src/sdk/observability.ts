@@ -50,7 +50,7 @@ export {
 } from "../middleware/observability";
 // Composite helpers (for advanced multi-backend wiring — e.g. AE + future
 // ClickHouse-collector meter, or default-console + future-collector logger)
-export { createCompositeLogger, createCompositeMeter } from "./composite";
+export { createCompositeLogger, createCompositeMeter } from "../core/sdk/composite";
 // Logger surface
 export {
   configureLogger,
@@ -65,9 +65,9 @@ export {
   serializeError,
   setLoggerAttributeFloor,
   setLogLevel,
-} from "./logger";
+} from "../core/sdk/logger";
 // Worker-entry wrapper + adapter wiring
-export { instrumentWorker, type OtelOptions } from "./otel";
+export { instrumentWorker, type OtelOptions } from "../core/sdk/otel";
 // AE meter adapter + runtime env helpers (for tests / custom wiring)
 export {
   type AnalyticsEngineDataset,
@@ -75,11 +75,11 @@ export {
   createAnalyticsEngineMeterAdapter,
   getRuntimeEnv,
   setRuntimeEnv,
-} from "./otelAdapters";
+} from "../core/sdk/otelAdapters";
 // ClickHouse collector adapter — stub today, real exporter when the
 // collector lands. Re-exported from here so site code can import the
 // future-target symbol via the canonical observability barrel.
 export {
   type ClickhouseCollectorOptions,
   createClickhouseCollectorAdapter,
-} from "./otelAdapters/clickhouseCollector";
+} from "../core/sdk/otelAdapters/clickhouseCollector";

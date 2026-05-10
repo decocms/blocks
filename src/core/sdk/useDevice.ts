@@ -21,7 +21,7 @@
  * ```
  */
 
-import { RequestContext } from "./requestContext";
+import { RequestContext } from "../../sdk/requestContext";
 
 export type Device = "mobile" | "tablet" | "desktop";
 

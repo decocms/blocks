@@ -19,7 +19,7 @@ import {
 	setResolveErrorHandler,
 } from "./cms/index";
 import { registerBuiltinMatchers } from "./matchers/builtins";
-import { registerProductionOrigins } from "./sdk/normalizeUrls";
+import { registerProductionOrigins } from "./core/sdk/normalizeUrls";
 import {
 	setInvokeLoaders,
 	setMetaData,

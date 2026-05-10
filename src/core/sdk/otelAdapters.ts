@@ -19,9 +19,9 @@
  * `workerEntry.ts` and the AE adapter both depend on them.
  */
 
-import type { MeterAdapter } from "../middleware/observability";
-import { MetricNames } from "../middleware/observability";
-import { RequestContext } from "./requestContext";
+import type { MeterAdapter } from "../../middleware/observability";
+import { MetricNames } from "../../middleware/observability";
+import { RequestContext } from "../../sdk/requestContext";
 
 // ---------------------------------------------------------------------------
 // Env / binding access
