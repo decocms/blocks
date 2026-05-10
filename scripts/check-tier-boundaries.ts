@@ -17,7 +17,11 @@ const FORBIDDEN_IN_CORE = [
   /@tanstack\/react-router/,
   /^next$/,
   /^next\//,
-  /node:async_hooks/,
+  // Both the prefixed (`node:async_hooks`) and unprefixed (`async_hooks`)
+  // forms must be flagged. tsup emits the unprefixed form when it appears
+  // in the `external` list without the prefix.
+  /^node:async_hooks$/,
+  /^async_hooks$/,
 ];
 
 const FORBIDDEN_IN_NEXT = [/@tanstack\/react-start/, /@tanstack\/react-router/];
@@ -35,6 +39,10 @@ async function* walk(dir: string): AsyncGenerator<string> {
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) yield* walk(path);
+    // Skip test artifacts — they import test-only setup helpers that
+    // legitimately cross tier boundaries (e.g. an ALS-backed RequestStore
+    // installer) and never ship to consumers.
+    else if (/\.test\.(js|cjs|mjs)$/.test(entry.name)) continue;
     else if (/\.(js|cjs|mjs)$/.test(entry.name)) yield path;
   }
 }
@@ -57,11 +65,37 @@ export async function checkTierBoundaries(
     for (const m of content.matchAll(IMPORT_RE)) imports.push(m[1]);
 
     for (const imp of imports) {
+      // Only consider relative imports for cross-tier path detection. We
+      // match `./foo` and `../foo` (any depth) — bare specifiers and
+      // absolute URLs are out of scope here. This avoids false positives
+      // from packages or runtime URLs that happen to contain `/tanstack/`
+      // or `/next/` in their path.
+      const isRelative = imp.startsWith("./") || imp.startsWith("../");
+      const crossesInto = (target: "tanstack" | "next" | "core"): boolean => {
+        if (!isRelative) return false;
+        return new RegExp(`(?:^|/)${target}/`).test(imp);
+      };
+
       if (tier === "core") {
         for (const re of FORBIDDEN_IN_CORE) {
           if (re.test(imp)) {
             violations.push({ file: path, imported: imp, reason: `core forbids ${imp}` });
           }
+        }
+        // Core must not reach into other tiers via relative paths.
+        if (crossesInto("tanstack")) {
+          violations.push({
+            file: path,
+            imported: imp,
+            reason: `core forbids relative path into tanstack: ${imp}`,
+          });
+        }
+        if (crossesInto("next")) {
+          violations.push({
+            file: path,
+            imported: imp,
+            reason: `core forbids relative path into next: ${imp}`,
+          });
         }
       } else if (tier === "next") {
         for (const re of FORBIDDEN_IN_NEXT) {
@@ -69,19 +103,19 @@ export async function checkTierBoundaries(
             violations.push({ file: path, imported: imp, reason: `next forbids ${imp}` });
           }
         }
-        if (imp.startsWith("../tanstack/") || imp.includes("/tanstack/")) {
+        if (crossesInto("tanstack")) {
           violations.push({
             file: path,
             imported: imp,
-            reason: `next must not import from tanstack`,
+            reason: `next must not import from tanstack: ${imp}`,
           });
         }
       } else if (tier === "tanstack") {
-        if (imp.startsWith("../next/") || imp.includes("/next/")) {
+        if (crossesInto("next")) {
           violations.push({
             file: path,
             imported: imp,
-            reason: `tanstack must not import from next`,
+            reason: `tanstack must not import from next: ${imp}`,
           });
         }
       }
