@@ -22,11 +22,39 @@ const FORBIDDEN_IN_CORE = [
   // in the `external` list without the prefix.
   /^node:async_hooks$/,
   /^async_hooks$/,
+  // Node-only modules — must not appear anywhere in dist/core/, even via
+  // dynamic await import(), because webpack statically analyzes literal-
+  // string specifiers and fails to resolve them for browser targets.
+  // Both `node:` prefixed and unprefixed forms must be matched: tsup with
+  // `platform: "neutral"` strips the `node:` prefix from dynamic imports
+  // when the module appears externalized without the prefix.
+  /^node:fs$/,
+  /^fs$/,
+  /^node:fs\/promises$/,
+  /^fs\/promises$/,
+  /^node:path$/,
+  /^path$/,
+  /^node:os$/,
+  /^os$/,
+  /^node:child_process$/,
+  /^child_process$/,
+  /^node:stream$/,
+  /^node:net$/,
+  /^net$/,
+  /^node:tls$/,
+  /^tls$/,
+  // crypto is debatable — Web Crypto exists; flag if it appears, surface
+  // and decide. Allowlist if a Web Crypto-compatible call is needed.
+  /^node:crypto$/,
+  /^crypto$/,
 ];
 
 const FORBIDDEN_IN_NEXT = [/@tanstack\/react-start/, /@tanstack\/react-router/];
 
-const IMPORT_RE = /(?:from|import\()\s*["']([^"']+)["']/g;
+// Match `from "spec"`, `import("spec")`, and `import(/* webpackIgnore: true */ "spec")`.
+// The `(?:\/\*[\s\S]*?\*\/\s*)?` segment skips an optional block comment after `import(`,
+// which esbuild preserves when the source uses `await import(/* webpackIgnore: true */ "x")`.
+const IMPORT_RE = /(?:from|import\()\s*(?:\/\*[\s\S]*?\*\/\s*)?["']([^"']+)["']/g;
 
 async function* walk(dir: string): AsyncGenerator<string> {
   let entries: import("node:fs").Dirent[];
