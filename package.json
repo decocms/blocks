@@ -9,6 +9,11 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "scripts/generate-blocks.ts",
+    "scripts/generate-sections.ts",
+    "scripts/generate-loaders.ts",
+    "scripts/generate-schema.ts",
+    "scripts/generate-invoke.ts",
     "README.md",
     "LICENSE"
   ],

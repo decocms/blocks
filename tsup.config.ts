@@ -129,18 +129,22 @@ export default defineConfig([
   },
   {
     name: "scripts",
-    entry: [
-      "scripts/generate-blocks.ts",
-      "scripts/generate-schema.ts",
-      "scripts/generate-invoke.ts",
-      "scripts/generate-sections.ts",
-      "scripts/generate-loaders.ts",
-      "scripts/migrate.ts",
-      "scripts/migrate-post-cleanup.ts",
-      "scripts/migrate-to-cf-observability.ts",
-      "scripts/htmx-analyze.ts",
-      "scripts/tailwind-lint.ts",
-    ],
+    // The `generate-*` source files live in scripts/_impl/ so that the
+    // scripts/generate-*.ts paths at the package root can be thin shims
+    // shipped in the tarball (see `files` in package.json). Named entries
+    // keep output paths at dist/scripts/<name>.cjs regardless of source dir.
+    entry: {
+      "generate-blocks": "scripts/_impl/generate-blocks.ts",
+      "generate-schema": "scripts/_impl/generate-schema.ts",
+      "generate-invoke": "scripts/_impl/generate-invoke.ts",
+      "generate-sections": "scripts/_impl/generate-sections.ts",
+      "generate-loaders": "scripts/_impl/generate-loaders.ts",
+      migrate: "scripts/migrate.ts",
+      "migrate-post-cleanup": "scripts/migrate-post-cleanup.ts",
+      "migrate-to-cf-observability": "scripts/migrate-to-cf-observability.ts",
+      "htmx-analyze": "scripts/htmx-analyze.ts",
+      "tailwind-lint": "scripts/tailwind-lint.ts",
+    },
     // Scripts are CLI tools invoked via `node …/foo.cjs` — CJS only. ESM bundles
     // of ts-morph (which inlines TypeScript) leave `require("fs")` callsites
     // intact; in an ESM context those go through a __require shim that throws
