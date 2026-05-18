@@ -280,3 +280,118 @@ describe("instrumentWorker — tracer bridge", () => {
     });
   });
 });
+
+describe("instrumentWorker — OTLP/HTTP metrics exporter wiring", () => {
+  beforeEach(() => {
+    _resetBootStateForTests();
+  });
+
+  afterEach(() => {
+    _resetBootStateForTests();
+    vi.restoreAllMocks();
+  });
+
+  function makeFetchSpy() {
+    const calls: Array<{ url: string; body: string }> = [];
+    const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response("{}", { status: 200 });
+    });
+    return { impl: impl as unknown as typeof fetch, calls };
+  }
+
+  it("wires the OTLP meter only when DECO_OTEL_METRICS_ENDPOINT is set on env", async () => {
+    const { impl } = makeFetchSpy();
+    const handler = { fetch: vi.fn().mockResolvedValue(new Response("ok")) };
+    const wrapped = instrumentWorker(handler, {
+      serviceName: "smoke-site",
+      otlpMetricsFetchImpl: impl,
+    });
+
+    // Without the env var, no flush is enqueued via ctx.waitUntil.
+    const ctxNoEndpoint = fakeCtx();
+    await wrapped.fetch(new Request("https://example.test/"), {}, ctxNoEndpoint);
+    expect(ctxNoEndpoint.waited).toHaveLength(0);
+  });
+
+  it("records metrics + flushes via ctx.waitUntil at request end", async () => {
+    const { impl, calls } = makeFetchSpy();
+    const handler = {
+      fetch: vi.fn(async () => {
+        observability.recordRequestMetric("GET", "/p/123", 200, 42);
+        return new Response("ok");
+      }),
+    };
+    const wrapped = instrumentWorker(handler, {
+      serviceName: "smoke-site",
+      otlpMetricsFetchImpl: impl,
+    });
+
+    const env: TestEnv = {
+      DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics",
+    } as TestEnv & { DECO_OTEL_METRICS_ENDPOINT: string };
+    const ctx = fakeCtx();
+    await wrapped.fetch(new Request("https://example.test/"), env, ctx);
+
+    // ctx.waitUntil was used to drain the buffer.
+    expect(ctx.waited).toHaveLength(1);
+    await Promise.all(ctx.waited);
+
+    // Exactly one POST to the configured endpoint.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://ingest.test/v1/metrics");
+
+    // Payload carries the resource floor and at least the http_requests_total
+    // counter that recordRequestMetric emits.
+    const payload = JSON.parse(calls[0].body) as {
+      resourceMetrics: Array<{
+        resource: { attributes: Array<{ key: string; value: { stringValue: string } }> };
+        scopeMetrics: Array<{ metrics: Array<{ name: string }> }>;
+      }>;
+    };
+    const attrs = payload.resourceMetrics[0].resource.attributes;
+    expect(attrs).toContainEqual({
+      key: "service.name",
+      value: { stringValue: "smoke-site" },
+    });
+    const names = payload.resourceMetrics[0].scopeMetrics[0].metrics.map((m) => m.name);
+    expect(names).toContain("http_requests_total");
+    expect(names).toContain("http_request_duration_ms");
+  });
+
+  it("otlpMetricsEnabled=false disables the OTLP meter even when env is set", async () => {
+    const { impl, calls } = makeFetchSpy();
+    const handler = { fetch: vi.fn().mockResolvedValue(new Response("ok")) };
+    const wrapped = instrumentWorker(handler, {
+      otlpMetricsEnabled: false,
+      otlpMetricsFetchImpl: impl,
+    });
+
+    const env: TestEnv = {
+      DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics",
+    } as TestEnv & { DECO_OTEL_METRICS_ENDPOINT: string };
+    const ctx = fakeCtx();
+    await wrapped.fetch(new Request("https://example.test/"), env, ctx);
+
+    expect(ctx.waited).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("falling back to handler.fetch failure still triggers a flush", async () => {
+    const { impl } = makeFetchSpy();
+    const handler = { fetch: vi.fn().mockRejectedValue(new Error("boom")) };
+    const wrapped = instrumentWorker(handler, {
+      otlpMetricsFetchImpl: impl,
+    });
+
+    const env: TestEnv = {
+      DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics",
+    } as TestEnv & { DECO_OTEL_METRICS_ENDPOINT: string };
+    const ctx = fakeCtx();
+    await expect(
+      wrapped.fetch(new Request("https://example.test/"), env, ctx),
+    ).rejects.toThrow("boom");
+
+    expect(ctx.waited).toHaveLength(1);
+  });
+});
