@@ -15,8 +15,9 @@
  * ```
  */
 
-import { getTracer } from "./observability";
+import { getTracer, injectTraceContext } from "./observability";
 import { logger } from "./logger";
+import { redactUrl } from "./urlRedaction";
 
 /**
  * Cloudflare / VTEX response headers that operators want to see as span
@@ -52,6 +53,20 @@ export interface FetchInstrumentationOptions {
    * custom headers, or a proxy) that must be preserved.
    */
   baseFetch?: typeof fetch;
+  /**
+   * Query parameter names whose value should NOT be redacted in logs +
+   * span attributes. Default: empty — every value is redacted. Use for
+   * structural params that don't carry secrets, e.g. `["page", "sort"]`.
+   * See `redactUrl` in `./urlRedaction.ts`.
+   */
+  keepQueryKeys?: ReadonlyArray<string>;
+  /**
+   * Inject the active span's W3C `traceparent` header onto outbound
+   * requests so downstream services that participate in OTel can join
+   * our trace. Default: true. Set to false for calls to endpoints that
+   * reject unknown headers (rare).
+   */
+  injectTraceparent?: boolean;
 }
 
 export interface FetchMetrics {
@@ -81,27 +96,51 @@ export function createInstrumentedFetch(
     tracing = true,
     onComplete,
     baseFetch = globalThis.fetch,
+    keepQueryKeys,
+    injectTraceparent = true,
   } = options;
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url =
+    const rawUrl =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const safeUrl = redactUrl(rawUrl, { keepQueryKeys });
     const method = init?.method || "GET";
     const startTime = performance.now();
 
+    // Inject W3C traceparent onto outbound requests so upstream services
+    // that participate in OTel join our trace. No-op when no span is
+    // active; never throws (see `injectTraceContext`).
+    //
+    // We mutate a fresh Headers object and pass it via `init` rather than
+    // mutating `input` directly — Request objects are immutable in modern
+    // runtimes and accepting `RequestInfo` means we may not own them.
+    let finalInit = init;
+    if (injectTraceparent) {
+      const headers = new Headers(init?.headers ?? undefined);
+      injectTraceContext(headers);
+      // If `input` is a Request, copy its headers too so we don't drop
+      // pre-existing values (Headers() only takes one source).
+      if (typeof input !== "string" && !(input instanceof URL)) {
+        for (const [k, v] of input.headers) {
+          if (!headers.has(k)) headers.set(k, v);
+        }
+      }
+      finalInit = { ...(init ?? {}), headers };
+    }
+
     const doFetch = async (): Promise<Response> => {
       if (logging) {
-        console.log(`[${name}] ${method} ${truncateUrl(url)}`);
+        console.log(`[${name}] ${method} ${truncateUrl(safeUrl)}`);
       }
 
-      const response = await baseFetch(input, init);
+      const response = await baseFetch(input, finalInit);
       const durationMs = performance.now() - startTime;
       const cached = response.headers.get("x-cache") === "HIT";
 
       if (logging) {
         const color = response.ok ? "\x1b[32m" : "\x1b[31m";
         console.log(
-          `[${name}] ${color}${response.status}\x1b[0m ${method} ${truncateUrl(url)} ${durationMs.toFixed(0)}ms${cached ? " (cached)" : ""}`,
+          `[${name}] ${color}${response.status}\x1b[0m ${method} ${truncateUrl(safeUrl)} ${durationMs.toFixed(0)}ms${cached ? " (cached)" : ""}`,
         );
       }
 
@@ -113,7 +152,7 @@ export function createInstrumentedFetch(
         let host = "";
         let path = "";
         try {
-          const u = new URL(url);
+          const u = new URL(rawUrl);
           host = u.host;
           path = u.pathname;
         } catch {
@@ -133,7 +172,7 @@ export function createInstrumentedFetch(
 
       onComplete?.({
         name,
-        url,
+        url: safeUrl,
         method,
         status: response.status,
         durationMs,
@@ -148,7 +187,9 @@ export function createInstrumentedFetch(
       if (tracer) {
         const span = tracer.startSpan(`${name}.fetch`, {
           "http.method": method,
-          "http.url": url,
+          // Redacted URL on the span attribute — once a CF Trace lands in
+          // the dashboard, we can't redact retroactively.
+          "http.url": safeUrl,
           "fetch.integration": name,
         });
 

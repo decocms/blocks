@@ -194,6 +194,16 @@
       "import": "./dist/core/sdk/otelAdapters/clickhouseCollector.js",
       "require": "./dist/core/sdk/otelAdapters/clickhouseCollector.cjs"
     },
+    "./sdk/otelHttpMeter": {
+      "types": "./dist/core/sdk/otelHttpMeter.d.ts",
+      "import": "./dist/core/sdk/otelHttpMeter.js",
+      "require": "./dist/core/sdk/otelHttpMeter.cjs"
+    },
+    "./sdk/urlRedaction": {
+      "types": "./dist/core/sdk/urlRedaction.d.ts",
+      "import": "./dist/core/sdk/urlRedaction.js",
+      "require": "./dist/core/sdk/urlRedaction.cjs"
+    },
     "./sdk/observability": {
       "types": "./dist/tanstack/sdk/observability.d.ts",
       "import": "./dist/tanstack/sdk/observability.js",
