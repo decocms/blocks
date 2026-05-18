@@ -162,23 +162,36 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     return parts.join("\u0001");
   }
 
-  function getOrCreate(name: string, kind: MetricKind): MetricEntry | null {
-    let entry = metrics.get(name);
-    if (!entry) {
-      entry = { kind };
-      if (kind === "counter") entry.counter = new Map();
-      else if (kind === "gauge") entry.gauge = new Map();
-      else entry.histogram = new Map();
-      metrics.set(name, entry);
-      return entry;
+  /**
+   * Look up an existing entry without creating one. The two helpers below
+   * (`checkAdmissibility`, `materializeEntry`) split what was a single
+   * `getOrCreate` so the overflow check can run BEFORE we materialize a
+   * new entry — otherwise a dropped datapoint leaves a permanent empty
+   * `MetricEntry` in the `metrics` map that gets serialized as an empty
+   * OTLP envelope each flush, inflating payloads and leaking memory.
+   */
+  function checkAdmissibility(
+    name: string,
+    kind: MetricKind,
+  ): { entry: MetricEntry | null; isNewName: boolean } {
+    const existing = metrics.get(name);
+    if (!existing) return { entry: null, isNewName: true };
+    if (existing.kind !== kind) {
+      onError?.(
+        "kind-mismatch",
+        new Error(`metric "${name}" already registered as ${existing.kind}`),
+      );
+      return { entry: null, isNewName: false };
     }
-    if (entry.kind !== kind) {
-      // OTel forbids re-registering the same metric name as a different kind.
-      // Drop the call (no throw) and surface to onError. The first
-      // registration wins for the lifetime of the isolate.
-      onError?.("kind-mismatch", new Error(`metric "${name}" already registered as ${entry.kind}`));
-      return null;
-    }
+    return { entry: existing, isNewName: false };
+  }
+
+  function materializeEntry(name: string, kind: MetricKind): MetricEntry {
+    const entry: MetricEntry = { kind };
+    if (kind === "counter") entry.counter = new Map();
+    else if (kind === "gauge") entry.gauge = new Map();
+    else entry.histogram = new Map();
+    metrics.set(name, entry);
     return entry;
   }
 
@@ -193,13 +206,16 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
   }
 
   function counterInc(name: string, value = 1, labels?: Labels) {
-    const entry = getOrCreate(name, "counter");
-    if (!entry || !entry.counter) return;
-    if (pendingDatapointCount() >= maxBuffer && !entry.counter.has(attrKey(labels))) {
+    const { entry: existing, isNewName } = checkAdmissibility(name, "counter");
+    if (existing === null && !isNewName) return; // kind mismatch
+    const key = attrKey(labels);
+    const isNewDatapoint = !existing?.counter?.has(key);
+    if (isNewDatapoint && pendingDatapointCount() >= maxBuffer) {
       onError?.("overflow", new Error(`metric buffer at cap (${maxBuffer}) — dropping "${name}"`));
       return;
     }
-    const key = attrKey(labels);
+    const entry = existing ?? materializeEntry(name, "counter");
+    if (!entry.counter) return;
     let point = entry.counter.get(key);
     if (!point) {
       point = {
@@ -213,13 +229,16 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
   }
 
   function gaugeSet(name: string, value: number, labels?: Labels) {
-    const entry = getOrCreate(name, "gauge");
-    if (!entry || !entry.gauge) return;
-    if (pendingDatapointCount() >= maxBuffer && !entry.gauge.has(attrKey(labels))) {
+    const { entry: existing, isNewName } = checkAdmissibility(name, "gauge");
+    if (existing === null && !isNewName) return; // kind mismatch
+    const key = attrKey(labels);
+    const isNewDatapoint = !existing?.gauge?.has(key);
+    if (isNewDatapoint && pendingDatapointCount() >= maxBuffer) {
       onError?.("overflow", new Error(`metric buffer at cap (${maxBuffer}) — dropping "${name}"`));
       return;
     }
-    const key = attrKey(labels);
+    const entry = existing ?? materializeEntry(name, "gauge");
+    if (!entry.gauge) return;
     entry.gauge.set(key, {
       value,
       attrs: labels ? { ...labels } : {},
@@ -228,13 +247,16 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
   }
 
   function histogramRecord(name: string, value: number, labels?: Labels) {
-    const entry = getOrCreate(name, "histogram");
-    if (!entry || !entry.histogram) return;
-    if (pendingDatapointCount() >= maxBuffer && !entry.histogram.has(attrKey(labels))) {
+    const { entry: existing, isNewName } = checkAdmissibility(name, "histogram");
+    if (existing === null && !isNewName) return; // kind mismatch
+    const key = attrKey(labels);
+    const isNewDatapoint = !existing?.histogram?.has(key);
+    if (isNewDatapoint && pendingDatapointCount() >= maxBuffer) {
       onError?.("overflow", new Error(`metric buffer at cap (${maxBuffer}) — dropping "${name}"`));
       return;
     }
-    const key = attrKey(labels);
+    const entry = existing ?? materializeEntry(name, "histogram");
+    if (!entry.histogram) return;
     let point = entry.histogram.get(key);
     if (!point) {
       point = {

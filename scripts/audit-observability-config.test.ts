@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auditObservabilityBlock } from "./audit-observability-config";
+import { parseJsonc, stripJsoncTrailingCommas } from "./lib/jsonc";
 
 describe("auditObservabilityBlock", () => {
   it("flags missing observability block as error", () => {
@@ -131,5 +135,62 @@ describe("auditObservabilityBlock", () => {
     expect(ids).toContain("logs_head_sampling_rate_low");
     // both traces and logs each emit a persist_disabled_no_destination
     expect(ids.filter((i) => i === "persist_disabled_no_destination")).toHaveLength(2);
+  });
+});
+
+describe("JSONC handling — trailing commas + comments", () => {
+  it("stripJsoncTrailingCommas removes commas before `}` and `]`", () => {
+    expect(stripJsoncTrailingCommas(`{ "a": 1, "b": 2, }`)).toBe(`{ "a": 1, "b": 2 }`);
+    expect(stripJsoncTrailingCommas(`{ "a": [1, 2, 3,], }`)).toBe(`{ "a": [1, 2, 3] }`);
+  });
+
+  it("stripJsoncTrailingCommas preserves commas INSIDE string literals", () => {
+    expect(stripJsoncTrailingCommas(`{ "a": "hello,], world", }`)).toBe(
+      `{ "a": "hello,], world" }`,
+    );
+  });
+
+  it("parseJsonc accepts both line comments and trailing commas", () => {
+    const src = `{
+      // a wrangler.jsonc-style config
+      "observability": {
+        "enabled": true,
+        "traces": { "enabled": true, "head_sampling_rate": 0.01, "persist": true, },
+        "logs":   { "enabled": true, "head_sampling_rate": 1,    "persist": true, },
+      },
+    }`;
+    expect(parseJsonc<{ observability: { enabled: boolean } }>(src).observability.enabled).toBe(
+      true,
+    );
+  });
+});
+
+describe("CLI smoke — wrangler.jsonc with trailing commas", () => {
+  let tmpdir: string;
+  beforeEach(() => {
+    tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "audit-jsonc-"));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpdir, { recursive: true, force: true });
+  });
+
+  it("audits a canonical wrangler.jsonc containing trailing commas without parse failure", () => {
+    const src = `{
+      // canonical, with trailing commas — common in real wrangler.jsonc files
+      "name": "my-store",
+      "observability": {
+        "enabled": true,
+        "traces": { "enabled": true, "head_sampling_rate": 0.01, "persist": true, },
+        "logs":   { "enabled": true, "head_sampling_rate": 1,    "persist": true, },
+      },
+    }`;
+    fs.writeFileSync(path.join(tmpdir, "wrangler.jsonc"), src);
+    // The audit's pure function still works against the parsed shape; this
+    // test guards the parse step itself, which previously threw on the
+    // trailing commas.
+    const parsed = parseJsonc<{
+      observability?: Parameters<typeof auditObservabilityBlock>[0];
+    }>(src);
+    expect(auditObservabilityBlock(parsed.observability)).toEqual([]);
   });
 });

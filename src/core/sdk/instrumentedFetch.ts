@@ -111,20 +111,31 @@ export function createInstrumentedFetch(
     // that participate in OTel join our trace. No-op when no span is
     // active; never throws (see `injectTraceContext`).
     //
-    // We mutate a fresh Headers object and pass it via `init` rather than
-    // mutating `input` directly — Request objects are immutable in modern
-    // runtimes and accepting `RequestInfo` means we may not own them.
+    // Header semantics follow the Fetch spec: when both a Request and an
+    // `init` are passed to `fetch()`, `init.headers` REPLACES the
+    // Request's headers — they do NOT union. So:
+    //
+    //  - If the caller supplied `init.headers`, start from those (the
+    //    caller's explicit choice wins; we don't smuggle in Request
+    //    headers behind their back).
+    //  - Otherwise, if `input` is a Request, start from its headers (so
+    //    its existing headers reach the wire alongside the injected
+    //    traceparent).
+    //  - Otherwise, start empty.
+    //
+    // In all cases, we mutate a fresh Headers object and pass it via the
+    // returned `init` — Request objects are immutable in modern runtimes
+    // and accepting `RequestInfo` means we may not own them.
     let finalInit = init;
     if (injectTraceparent) {
-      const headers = new Headers(init?.headers ?? undefined);
+      const base =
+        init?.headers !== undefined
+          ? init.headers
+          : typeof input !== "string" && !(input instanceof URL)
+            ? input.headers
+            : undefined;
+      const headers = new Headers(base ?? undefined);
       injectTraceContext(headers);
-      // If `input` is a Request, copy its headers too so we don't drop
-      // pre-existing values (Headers() only takes one source).
-      if (typeof input !== "string" && !(input instanceof URL)) {
-        for (const [k, v] of input.headers) {
-          if (!headers.has(k)) headers.set(k, v);
-        }
-      }
       finalInit = { ...(init ?? {}), headers };
     }
 

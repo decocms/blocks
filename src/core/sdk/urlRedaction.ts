@@ -73,8 +73,10 @@ export function redactUrl(input: string, options: RedactUrlOptions = {}): string
     return u.toString();
   } catch {
     // Unparseable URL — defensively drop everything from the first `?`
-    // onwards. Better to lose the query than to leak a token.
-    const q = input.indexOf("?");
-    return q >= 0 ? input.slice(0, q) : input;
+    // OR `#` onwards. Either can carry a secret (`?token=…`,
+    // `#access_token=…`); cutting at whichever appears first preserves
+    // the most context while leaking nothing.
+    const idx = input.search(/[?#]/);
+    return idx >= 0 ? input.slice(0, idx) : input;
   }
 }

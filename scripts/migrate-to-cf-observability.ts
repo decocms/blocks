@@ -69,7 +69,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { stripJsoncComments as sharedStripJsoncComments } from "./lib/jsonc";
+import {
+  parseJsonc,
+  stripJsoncComments as sharedStripJsoncComments,
+} from "./lib/jsonc";
 
 interface CliOpts {
   source: string;
@@ -451,7 +454,7 @@ function isAlreadyCanonical(src: string, opts: CliOpts): boolean {
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripJsoncComments(src));
+    parsed = parseJsonc(src);
   } catch {
     return false;
   }
@@ -487,7 +490,7 @@ function isAlreadyCanonical(src: string, opts: CliOpts): boolean {
 
 function validateJson(src: string): { ok: true } | { ok: false; error: string } {
   try {
-    JSON.parse(stripJsoncComments(src));
+    parseJsonc(src);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

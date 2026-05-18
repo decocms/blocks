@@ -256,6 +256,119 @@ describe("createOtlpHttpErrorLogAdapter — flush semantics", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("non-200 response RESTORES records to the buffer (no permanent loss)", async () => {
+    // The earlier behavior dropped records on the ground when the POST
+    // failed — sites lost errors permanently. After the fix, a failing
+    // POST returns the buffered records to the front of the queue so a
+    // subsequent successful flush picks them up.
+    const onError = vi.fn();
+    let attempt = 0;
+    const fetchImpl: typeof fetch = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) return new Response("oops", { status: 502 });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const sink = buildAdapter({ fetchImpl, onError, minFlushIntervalMs: 0 });
+    sink.adapter.log("error", "boom-1");
+    sink.adapter.log("error", "boom-2");
+    expect(sink.pendingRecordCount()).toBe(2);
+
+    await sink.flush();
+    expect(onError).toHaveBeenCalledWith("flush", expect.any(Error));
+    // Records restored.
+    expect(sink.pendingRecordCount()).toBe(2);
+
+    await sink.flush();
+    expect(sink.pendingRecordCount()).toBe(0);
+    expect(attempt).toBe(2);
+  });
+
+  it("fetch rejection RESTORES records to the buffer (no permanent loss)", async () => {
+    const onError = vi.fn();
+    let attempt = 0;
+    const fetchImpl: typeof fetch = vi.fn(() => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new Error("offline"));
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as unknown as typeof fetch;
+    const sink = buildAdapter({ fetchImpl, onError, minFlushIntervalMs: 0 });
+    sink.adapter.log("error", "boom");
+    await sink.flush();
+    expect(sink.pendingRecordCount()).toBe(1);
+    await sink.flush();
+    expect(sink.pendingRecordCount()).toBe(0);
+  });
+
+  it("on restore, when buffer has grown past the cap, drops the oldest-tail records of the snapshot", async () => {
+    const onError = vi.fn();
+    let inFlightResolve: ((res: Response) => void) | undefined;
+    const fetchImpl: typeof fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          inFlightResolve = resolve;
+        }),
+    ) as unknown as typeof fetch;
+    // cap = 3; buffer two, flush, while POST is in flight enqueue two
+    // more records, then fail the POST. The snapshot held 2; the buffer
+    // grew by 2 during the POST. cap=3 means we can only re-prepend 1
+    // of the snapshot's 2 records. The fix surfaces the drop via
+    // `onError("overflow", ...)` rather than silently losing both.
+    const sink = buildAdapter({
+      fetchImpl,
+      onError,
+      minFlushIntervalMs: 0,
+      maxBufferRecords: 3,
+    });
+    sink.adapter.log("error", "old-a");
+    sink.adapter.log("error", "old-b");
+    const flushPromise = sink.flush();
+    // Buffer is empty mid-flush (snapshot moved out).
+    expect(sink.pendingRecordCount()).toBe(0);
+    sink.adapter.log("error", "new-c");
+    sink.adapter.log("error", "new-d");
+    expect(sink.pendingRecordCount()).toBe(2);
+    inFlightResolve?.(new Response("oops", { status: 503 }));
+    await flushPromise;
+    // After restore: 2 new + 1 of the snapshot (oldest-first preserved
+    // by `unshift` of a truncated snapshot) = 3, at cap.
+    expect(sink.pendingRecordCount()).toBe(3);
+    expect(onError).toHaveBeenCalledWith(
+      "overflow",
+      expect.objectContaining({ message: expect.stringContaining("dropped") }),
+    );
+  });
+
+  it("serializes a record whose attribute value is `undefined` without crashing or emitting undefined", async () => {
+    // `JSON.stringify(undefined)` returns the JS value `undefined`, not the
+    // string "undefined". Without the guard, that surfaces in the OTLP
+    // payload as `{ stringValue: undefined }` which the ingestor rejects.
+    const { impl, calls } = captureFetch();
+    const sink = buildAdapter({ fetchImpl: impl, minFlushIntervalMs: 0 });
+    sink.adapter.log("error", "boom", {
+      fnAttr: () => 1,
+      undef: undefined,
+      ok: "yes",
+    });
+    await sink.flush();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(String(calls[0].init?.body)) as {
+      resourceLogs: Array<{
+        scopeLogs: Array<{
+          logRecords: Array<{
+            attributes: Array<{ key: string; value: Record<string, unknown> }>;
+          }>;
+        }>;
+      }>;
+    };
+    const attrs = body.resourceLogs[0].scopeLogs[0].logRecords[0].attributes;
+    const fnAttr = attrs.find((a) => a.key === "fnAttr");
+    // Function should fall back to a stringified form, never `undefined`.
+    expect(fnAttr).toBeDefined();
+    expect(typeof (fnAttr?.value as { stringValue?: unknown }).stringValue).toBe("string");
+    // `undefined` attrs are dropped at the serializer top-level filter.
+    expect(attrs.find((a) => a.key === "undef")).toBeUndefined();
+  });
+
   it("concurrent flushes share a single in-flight POST", async () => {
     let release: ((res: Response) => void) | undefined;
     const slow: typeof fetch = vi.fn(

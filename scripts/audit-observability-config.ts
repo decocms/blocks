@@ -41,7 +41,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { stripJsoncComments } from "./lib/jsonc";
+import { parseJsonc } from "./lib/jsonc";
 
 export type Severity = "error" | "warn" | "info";
 
@@ -265,7 +265,7 @@ function main(): void {
 
   let parsed: { observability?: ObservabilityBlock };
   try {
-    parsed = JSON.parse(stripJsoncComments(fs.readFileSync(file, "utf8")));
+    parsed = parseJsonc(fs.readFileSync(file, "utf8"));
   } catch (err) {
     console.error(`audit: ${file} could not be parsed: ${(err as Error).message}`);
     process.exit(2);

@@ -45,6 +45,17 @@ describe("redactUrl", () => {
     expect(redactUrl("not-a-url?token=abc")).toBe("not-a-url");
   });
 
+  it("falls back to substring-before-# on unparseable URLs (no `?`)", () => {
+    // Fragments can also carry secrets (`#access_token=…` in OAuth implicit
+    // grant). The defensive path must drop them too.
+    expect(redactUrl("not-a-url#access_token=abc")).toBe("not-a-url");
+  });
+
+  it("falls back to whichever of `?` / `#` appears first on unparseable URLs", () => {
+    expect(redactUrl("not-a-url?x=1#y=2")).toBe("not-a-url");
+    expect(redactUrl("not-a-url#frag?then=secret")).toBe("not-a-url");
+  });
+
   it("returns the raw value when there is no query and the URL is unparseable", () => {
     expect(redactUrl("relative/path")).toBe("relative/path");
   });

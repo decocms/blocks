@@ -184,14 +184,46 @@ export function createOtlpHttpErrorLogAdapter(
 
   async function doFlush(): Promise<void> {
     if (buffer.length === 0) return;
-    // Snapshot + reset BEFORE the network call so concurrent records
-    // landing during the POST don't get reset on success.
+    // Snapshot + remove BEFORE the network call so concurrent records
+    // landing during the POST don't get reset on success. On failure we
+    // restore the snapshot to the FRONT of the buffer (preserving order
+    // and prioritizing the originating-error context). The `maxBuffer`
+    // cap on the `log()` path still bounds total memory if the endpoint
+    // stays down — newest records are dropped via `onError("overflow")`.
     const snapshot = buffer.splice(0, buffer.length);
     const payload = serializeOtlp(snapshot, {
       resourceAttributes,
       scopeName,
       scopeVersion,
     });
+
+    const restoreOnFailure = () => {
+      // Restore intelligently respecting the cap. If the buffer has
+      // grown during the POST and there's no room for everything, keep
+      // the oldest (most-likely-causal) records by truncating the tail
+      // of the snapshot before re-prepending.
+      const room = Math.max(0, maxBuffer - buffer.length);
+      if (room === 0) {
+        onError?.(
+          "overflow",
+          new Error(
+            `error-log buffer full after flush failure — dropped ${snapshot.length} records`,
+          ),
+        );
+        return;
+      }
+      if (snapshot.length > room) {
+        const dropped = snapshot.length - room;
+        onError?.(
+          "overflow",
+          new Error(
+            `error-log buffer full after flush failure — dropped ${dropped} oldest-tail records`,
+          ),
+        );
+        snapshot.length = room;
+      }
+      buffer.unshift(...snapshot);
+    };
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), flushTimeoutMs);
@@ -208,9 +240,11 @@ export function createOtlpHttpErrorLogAdapter(
         } catch {
           /* swallow */
         }
+        restoreOnFailure();
         onError?.("flush", new Error(`POST ${endpoint} → ${res.status}`));
       }
     } catch (err) {
+      restoreOnFailure();
       onError?.("flush", err);
     } finally {
       clearTimeout(timer);
@@ -260,8 +294,12 @@ function attrToOtlpValue(
     return { doubleValue: v };
   }
   // Fallback — JSON-stringify so structured attrs round-trip as strings.
+  // `JSON.stringify` returns `undefined` for `undefined`, functions, and
+  // symbols. OTLP requires `stringValue` to be a string, so coerce with
+  // `String(v)` whenever serialization yields nothing parseable.
   try {
-    return { stringValue: JSON.stringify(v) };
+    const s = JSON.stringify(v);
+    return { stringValue: typeof s === "string" ? s : String(v) };
   } catch {
     return { stringValue: String(v) };
   }

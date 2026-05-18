@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInstrumentedFetch } from "./instrumentedFetch";
+import { configureLogger, defaultLoggerAdapter } from "./logger";
 import { configureTracer, setObservabilitySpanStore } from "./observability";
 import type { Span, TracerAdapter } from "./observability";
 
@@ -38,6 +39,7 @@ describe("createInstrumentedFetch — URL redaction", () => {
   afterEach(() => {
     configureTracer({ startSpan: () => ({ end: () => {} }) });
     setObservabilitySpanStore(undefined);
+    configureLogger(defaultLoggerAdapter);
     vi.restoreAllMocks();
   });
 
@@ -77,21 +79,77 @@ describe("createInstrumentedFetch — URL redaction", () => {
     );
   });
 
-  it("preserves rawUrl in the structured `outgoing fetch` log's host/path", async () => {
-    // OTEL_LOG_OUTGOING_FETCH is consulted via globalThis.process.env;
-    // the breadcrumb logs `host` and `path` derived from the rawUrl,
-    // which is correct — the structured log goes into the logger pipe
-    // where attribute redaction is the ingestor's job.
-    const baseFetch = vi.fn(async () => new Response("ok"));
-    const f = createInstrumentedFetch({
-      name: "vtex",
-      baseFetch: baseFetch as unknown as typeof fetch,
-      logging: false,
+  it("emits the structured `outgoing fetch` log with host+path when OTEL_LOG_OUTGOING_FETCH=true", async () => {
+    // The breadcrumb is gated behind an env flag to avoid log explosion
+    // in production; we flip it on for the test and assert on the
+    // payload to keep this test honest about what it verifies.
+    const captured: Array<{
+      level: string;
+      msg: string;
+      attrs?: Record<string, unknown>;
+    }> = [];
+    configureLogger({
+      log: (level, msg, attrs) => {
+        captured.push({ level, msg, attrs });
+      },
     });
 
-    const res = await f("https://api.test/items?id=42");
-    expect(res.status).toBe(200);
-    expect(baseFetch).toHaveBeenCalledOnce();
+    const previous = process.env.OTEL_LOG_OUTGOING_FETCH;
+    process.env.OTEL_LOG_OUTGOING_FETCH = "true";
+
+    try {
+      const baseFetch = vi.fn(async () => new Response("ok", { status: 200 }));
+      const f = createInstrumentedFetch({
+        name: "vtex",
+        baseFetch: baseFetch as unknown as typeof fetch,
+        logging: false,
+      });
+
+      const res = await f("https://api.test/items?id=42");
+      expect(res.status).toBe(200);
+
+      const breadcrumb = captured.find((c) => c.msg === "outgoing fetch");
+      expect(breadcrumb).toBeDefined();
+      expect(breadcrumb?.level).toBe("info");
+      expect(breadcrumb?.attrs).toMatchObject({
+        app: "vtex",
+        host: "api.test",
+        path: "/items",
+        method: "GET",
+        status: 200,
+        ok: true,
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OTEL_LOG_OUTGOING_FETCH;
+      } else {
+        process.env.OTEL_LOG_OUTGOING_FETCH = previous;
+      }
+    }
+  });
+
+  it("does NOT emit the `outgoing fetch` breadcrumb when the env flag is unset", async () => {
+    const captured: Array<{ msg: string }> = [];
+    configureLogger({
+      log: (_level, msg) => captured.push({ msg }),
+    });
+
+    const previous = process.env.OTEL_LOG_OUTGOING_FETCH;
+    delete process.env.OTEL_LOG_OUTGOING_FETCH;
+
+    try {
+      const baseFetch = vi.fn(async () => new Response("ok"));
+      const f = createInstrumentedFetch({
+        name: "vtex",
+        baseFetch: baseFetch as unknown as typeof fetch,
+        logging: false,
+      });
+      await f("https://api.test/items?id=42");
+
+      expect(captured.find((c) => c.msg === "outgoing fetch")).toBeUndefined();
+    } finally {
+      if (previous !== undefined) process.env.OTEL_LOG_OUTGOING_FETCH = previous;
+    }
   });
 });
 
@@ -233,5 +291,95 @@ describe("createInstrumentedFetch — traceparent injection", () => {
     expect(body.tp).toBe(
       `00-${fakeSpan.span.spanContext!().traceId}-${fakeSpan.span.spanContext!().spanId}-01`,
     );
+  });
+
+  it("honors Fetch-spec semantics: init.headers REPLACES Request headers (does not union)", async () => {
+    // Per the Fetch spec, when both a Request and `init.headers` are
+    // passed to `fetch()`, init.headers replace Request.headers — not
+    // union. Verify our wrapper preserves that contract: a Request with
+    // header `x-from-req` and an init with header `x-from-init` should
+    // surface only `x-from-init` on the wire, plus our injected
+    // traceparent.
+    const fakeSpan = makeFakeSpan("vtex.fetch", undefined, {
+      traceId: "55555555555555555555555555555555",
+      spanId: "6666666666666666",
+      traceFlags: 1,
+    });
+    configureTracer({ startSpan: () => fakeSpan.span });
+    setObservabilitySpanStore({
+      get: () => fakeSpan.span,
+      run: (_s, fn) => fn(),
+    });
+
+    const baseFetch = vi.fn(async (_i: unknown, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      return new Response(
+        JSON.stringify({
+          fromReq: h.get("x-from-req"),
+          fromInit: h.get("x-from-init"),
+          tp: h.get("traceparent"),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+    });
+
+    const req = new Request("https://api.test/x", {
+      headers: { "x-from-req": "REQ" },
+    });
+    const res = await f(req, { headers: { "x-from-init": "INIT" } });
+    const body = (await res.json()) as {
+      fromReq: string | null;
+      fromInit: string | null;
+      tp: string | null;
+    };
+    // init.headers replaces, so x-from-req must NOT leak through.
+    expect(body.fromReq).toBeNull();
+    expect(body.fromInit).toBe("INIT");
+    expect(body.tp).toMatch(/^00-/);
+  });
+
+  it("preserves Request headers when init.headers is omitted", async () => {
+    const fakeSpan = makeFakeSpan("vtex.fetch", undefined, {
+      traceId: "77777777777777777777777777777777",
+      spanId: "8888888888888888",
+      traceFlags: 1,
+    });
+    configureTracer({ startSpan: () => fakeSpan.span });
+    setObservabilitySpanStore({
+      get: () => fakeSpan.span,
+      run: (_s, fn) => fn(),
+    });
+
+    const baseFetch = vi.fn(async (_i: unknown, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      return new Response(
+        JSON.stringify({
+          fromReq: h.get("x-from-req"),
+          tp: h.get("traceparent"),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+    });
+
+    const req = new Request("https://api.test/x", {
+      headers: { "x-from-req": "REQ" },
+    });
+    // No init.headers — Request headers must reach the wire.
+    const res = await f(req);
+    const body = (await res.json()) as { fromReq: string | null; tp: string | null };
+    expect(body.fromReq).toBe("REQ");
+    expect(body.tp).toMatch(/^00-/);
   });
 });
