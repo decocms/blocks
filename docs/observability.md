@@ -227,6 +227,33 @@ async function tracedFetch(url: string, init?: RequestInit) {
 
 `injectTraceContext` is a no-op when no span is active and when the active span doesn't expose `spanContext()` — safe to call unconditionally. In `@decocms/apps`, the canonical `createInstrumentedFetch` helper calls this for every outbound call, so most sites don't have to think about it.
 
+### Per-call operation names on outbound fetches
+
+`createInstrumentedFetch(name)` from `@decocms/start/sdk/instrumentedFetch` produces spans named `${name}.fetch` by default. For commerce calls where operators want to query by SEMANTIC endpoint (`vtex.intelligent-search.product_search`, `vtex.checkout.orderForm`) rather than by URL, supply an `operation` per call or wire a URL-derived router on the integration:
+
+```ts
+const vtexFetch = createInstrumentedFetch({
+  name: "vtex",
+  // Long-tail fallback: URL → operation. Returns undefined to opt out
+  // (span falls back to `vtex.fetch`).
+  resolveOperation: (url) => {
+    const path = new URL(url).pathname;
+    if (path.startsWith("/api/io/_v/intelligent-search/")) return "intelligent-search";
+    if (path.startsWith("/api/checkout/pub/orderForm")) return "checkout.orderForm";
+    return undefined;
+  },
+  // Or set a default when every call is the same operation:
+  // defaultOperation: "emails.send",
+});
+
+// Hot path — explicit operation wins over the router.
+await vtexFetch("https://account.vtexcommercestable.com.br/api/io/_v/intelligent-search/product_search", {
+  operation: "intelligent-search.product_search",
+});
+```
+
+Resolution precedence is `init.operation` → `defaultOperation` → `resolveOperation(url, method)` → the literal `"fetch"`. The resolved value lands on the span as `fetch.operation` (so dashboards can `GROUP BY SpanAttributes['fetch.operation']` independent of span name) and is included in the `onComplete` callback payload (so per-app duration histograms can label by operation). `operation` is stripped from `init` before reaching the underlying `fetch` — it never surfaces to the network.
+
 ## Sampling
 
 `head_sampling_rate` on `observability.traces` and `observability.logs` decides at the very start of a trace/log whether Cloudflare Destinations forwards it to the deco-otel-ingest endpoint. CF Destinations does NOT support tail sampling (status-aware filtering after the trace completes), so the framework leans on head sampling for cost control plus a separate direct-POST channel for error logs and metrics (100% of errors and metrics are captured regardless of the head sampling rate).
@@ -320,5 +347,5 @@ What this means operationally:
 
 - **In-Worker OTLP exporter for spans / info-logs.** Removed in 5.0.0; CF Destinations is the spans + info/warn-logs path. (Direct-POST does still exist for **metrics** and **error logs**, by deliberate choice — both are signals CF Destinations cannot or should not carry.)
 - **Tail-on-error sampling.** Designed away — CF Destinations doesn't support tail sampling, and a DO-backed buffer would add ~$8K/mo at fleet scale (see [Cost model](#cost-model-fleet-of-100-sites-25b-reqmonth)). 100% capture of errors is achieved instead via the direct-POST error channel.
-- **Commerce-specific spans.** Per-app (VTEX, Shopify) HTTP spans live in `@decocms/apps` via `createInstrumentedFetch`. PR #3 in the apps-start repo migrates the per-app fetch sites onto that helper.
+- **Commerce-specific spans.** Per-app (VTEX, Shopify) HTTP spans live in `@decocms/apps`, which calls `createInstrumentedFetch` (with `defaultOperation` / `resolveOperation` configured per provider) and authors `init.operation` at hot call sites. PR #3 in the apps-start repo migrates the per-app fetch sites onto that pattern. The framework owns the span shape (`${name}.${operation}`); the apps repo owns the operation strings + provider-labelled duration histogram.
 - **PII redaction at the framework layer.** URLs are redacted by `redactUrl()` on outbound `fetch` spans; the rest (cookie, authorization, x-vtex-* headers) is redacted in the ingest Worker. No per-site code required for either side.

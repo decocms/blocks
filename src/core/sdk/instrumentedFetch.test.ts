@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInstrumentedFetch } from "./instrumentedFetch";
 import { configureLogger, defaultLoggerAdapter } from "./logger";
-import { configureTracer, setObservabilitySpanStore } from "./observability";
 import type { Span, TracerAdapter } from "./observability";
+import { configureTracer, setObservabilitySpanStore } from "./observability";
 
 function makeFakeTracer(): {
   tracer: TracerAdapter;
@@ -56,9 +56,7 @@ describe("createInstrumentedFetch — URL redaction", () => {
     await f("https://api.test/search?token=SECRET123&page=2");
 
     expect(spans).toHaveLength(1);
-    expect(spans[0].attrs["http.url"]).toBe(
-      "https://api.test/search?token=REDACTED&page=REDACTED",
-    );
+    expect(spans[0].attrs["http.url"]).toBe("https://api.test/search?token=REDACTED&page=REDACTED");
   });
 
   it("honors keepQueryKeys for benign query params", async () => {
@@ -200,9 +198,7 @@ describe("createInstrumentedFetch — traceparent injection", () => {
 
     const res = await f("https://api.test/x");
     const body = await res.text();
-    expect(body).toBe(
-      `00-${knownCtx.traceId}-${knownCtx.spanId}-01`,
-    );
+    expect(body).toBe(`00-${knownCtx.traceId}-${knownCtx.spanId}-01`);
   });
 
   it("does NOT inject traceparent when injectTraceparent: false", async () => {
@@ -342,6 +338,143 @@ describe("createInstrumentedFetch — traceparent injection", () => {
     expect(body.fromReq).toBeNull();
     expect(body.fromInit).toBe("INIT");
     expect(body.tp).toMatch(/^00-/);
+  });
+
+  it("uses init.operation to name the span", async () => {
+    const { tracer, spans } = makeFakeTracer();
+    configureTracer(tracer);
+    const baseFetch = vi.fn(async () => new Response("ok", { status: 200 }));
+
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+    });
+
+    await f("https://api.test/whatever", {
+      method: "POST",
+      operation: "intelligent-search.product_search",
+    });
+
+    expect(spans).toHaveLength(1);
+    expect(spans[0].name).toBe("vtex.intelligent-search.product_search");
+    expect(spans[0].attrs["fetch.operation"]).toBe("intelligent-search.product_search");
+  });
+
+  it("strips `operation` from init before calling baseFetch", async () => {
+    const baseFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      // `operation` is an extension on InstrumentedFetchInit, NOT a
+      // valid RequestInit property. It must be removed before the
+      // underlying fetch sees the init.
+      expect(init && "operation" in init).toBe(false);
+      return new Response("ok");
+    });
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+    });
+    await f("https://api.test/x", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      operation: "checkout.orderForm",
+    });
+    expect(baseFetch).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to defaultOperation when init.operation is omitted", async () => {
+    const { tracer, spans } = makeFakeTracer();
+    configureTracer(tracer);
+    const baseFetch = vi.fn(async () => new Response("ok"));
+
+    const f = createInstrumentedFetch({
+      name: "resend",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+      defaultOperation: "emails.send",
+    });
+    await f("https://api.resend.com/emails");
+
+    expect(spans[0].name).toBe("resend.emails.send");
+    expect(spans[0].attrs["fetch.operation"]).toBe("emails.send");
+  });
+
+  it("falls back to resolveOperation when init.operation + defaultOperation are unset", async () => {
+    const { tracer, spans } = makeFakeTracer();
+    configureTracer(tracer);
+    const baseFetch = vi.fn(async () => new Response("ok"));
+
+    const resolveOperation = vi.fn((url: string, _method: string) => {
+      const u = new URL(url);
+      // Toy router: `/api/checkout/...` → checkout.<segment>
+      const m = u.pathname.match(/^\/api\/checkout\/(\w+)/);
+      if (m) return `checkout.${m[1]}`;
+      return undefined;
+    });
+
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+      resolveOperation,
+    });
+    await f("https://api.vtex.test/api/checkout/orderForm");
+
+    expect(resolveOperation).toHaveBeenCalledWith(
+      "https://api.vtex.test/api/checkout/orderForm",
+      "GET",
+    );
+    expect(spans[0].name).toBe("vtex.checkout.orderForm");
+  });
+
+  it("falls back to the literal '.fetch' suffix when resolveOperation returns undefined", async () => {
+    const { tracer, spans } = makeFakeTracer();
+    configureTracer(tracer);
+    const baseFetch = vi.fn(async () => new Response("ok"));
+
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+      resolveOperation: () => undefined,
+    });
+    await f("https://api.vtex.test/unknown");
+
+    expect(spans[0].name).toBe("vtex.fetch");
+    expect(spans[0].attrs["fetch.operation"]).toBe("fetch");
+  });
+
+  it("explicit init.operation wins over defaultOperation AND resolveOperation", async () => {
+    const { tracer, spans } = makeFakeTracer();
+    configureTracer(tracer);
+    const baseFetch = vi.fn(async () => new Response("ok"));
+
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+      defaultOperation: "from-default",
+      resolveOperation: () => "from-router",
+    });
+    await f("https://api.vtex.test/x", { operation: "from-call" });
+
+    expect(spans[0].name).toBe("vtex.from-call");
+  });
+
+  it("passes the resolved operation to onComplete", async () => {
+    const baseFetch = vi.fn(async () => new Response("ok"));
+    const onComplete = vi.fn();
+    const f = createInstrumentedFetch({
+      name: "vtex",
+      baseFetch: baseFetch as unknown as typeof fetch,
+      logging: false,
+      defaultOperation: "catalog.fallback",
+      onComplete,
+    });
+    await f("https://api.vtex.test/x", { operation: "intelligent-search.product_search" });
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "intelligent-search.product_search" }),
+    );
   });
 
   it("preserves Request headers when init.headers is omitted", async () => {

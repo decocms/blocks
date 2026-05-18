@@ -15,8 +15,8 @@
  * ```
  */
 
-import { getTracer, injectTraceContext } from "./observability";
 import { logger } from "./logger";
+import { getTracer, injectTraceContext } from "./observability";
 import { redactUrl } from "./urlRedaction";
 
 /**
@@ -67,6 +67,26 @@ export interface FetchInstrumentationOptions {
    * reject unknown headers (rare).
    */
   injectTraceparent?: boolean;
+  /**
+   * Fallback operation name used when a call doesn't supply one via
+   * `init.operation`. Span name becomes `${name}.${defaultOperation}`.
+   * Useful when a client is single-purpose, e.g. a Resend client where
+   * every call is the literal `"emails.send"`. Default: not set (the
+   * resolver below runs next, then the literal `"fetch"`).
+   */
+  defaultOperation?: string;
+  /**
+   * URL-derived operation router. Called when neither `init.operation`
+   * nor `defaultOperation` is set. Receives the rawUrl + method, returns
+   * an operation string or `undefined` to opt out (in which case the
+   * span falls back to `${name}.fetch`). Centralizes the long-tail of
+   * commerce endpoints that don't merit a hand-authored operation name
+   * at the call site while staying visibly debuggable in spans.
+   *
+   * Resolution precedence:
+   *   `init.operation` ?? `defaultOperation` ?? `resolveOperation(url, method)` ?? `"fetch"`
+   */
+  resolveOperation?: (url: string, method: string) => string | undefined;
 }
 
 export interface FetchMetrics {
@@ -76,7 +96,36 @@ export interface FetchMetrics {
   status: number;
   durationMs: number;
   cached: boolean;
+  /** Resolved operation name (post-precedence-resolution). */
+  operation: string;
 }
+
+/**
+ * Init shape accepted by an instrumented fetch. Strictly a superset of
+ * `RequestInit` (the only extra property is optional), so an
+ * `InstrumentedFetch` is assignable wherever a `typeof fetch` is
+ * expected — existing callers that don't author an operation string
+ * keep compiling unchanged.
+ */
+export type InstrumentedFetchInit = RequestInit & {
+  /**
+   * Per-call operation override. Produces a span named
+   * `${name}.${operation}` instead of the default `${name}.fetch`.
+   * Stripped from the init before reaching `baseFetch` so it never
+   * surfaces to the network as a request property.
+   */
+  operation?: string;
+};
+
+/**
+ * Fetch with an optional per-call `operation` extension on init. Returned
+ * by `createInstrumentedFetch`. Assignable to `typeof fetch` because the
+ * extra property is optional.
+ */
+export type InstrumentedFetch = (
+  input: RequestInfo | URL,
+  init?: InstrumentedFetchInit,
+) => Promise<Response>;
 
 const isDev =
   typeof globalThis.process !== "undefined" && globalThis.process.env?.NODE_ENV === "development";
@@ -86,7 +135,7 @@ const isDev =
  */
 export function createInstrumentedFetch(
   nameOrOptions: string | FetchInstrumentationOptions,
-): typeof fetch {
+): InstrumentedFetch {
   const options: FetchInstrumentationOptions =
     typeof nameOrOptions === "string" ? { name: nameOrOptions } : nameOrOptions;
 
@@ -98,14 +147,29 @@ export function createInstrumentedFetch(
     baseFetch = globalThis.fetch,
     keepQueryKeys,
     injectTraceparent = true,
+    defaultOperation,
+    resolveOperation,
   } = options;
 
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  return async (input: RequestInfo | URL, init?: InstrumentedFetchInit): Promise<Response> => {
     const rawUrl =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const safeUrl = redactUrl(rawUrl, { keepQueryKeys });
     const method = init?.method || "GET";
     const startTime = performance.now();
+
+    // Resolve the operation BEFORE we touch init, then strip `operation`
+    // off init so it never reaches `baseFetch` as an unknown RequestInit
+    // property (some runtimes warn / future runtimes might reject).
+    const explicitOp = init?.operation;
+    let initForFetch: RequestInit | undefined = init;
+    if (init && "operation" in init) {
+      const { operation: _drop, ...rest } = init;
+      initForFetch = rest;
+    }
+    const operation =
+      explicitOp ?? defaultOperation ?? resolveOperation?.(rawUrl, method) ?? "fetch";
+    const spanName = `${name}.${operation}`;
 
     // Inject W3C traceparent onto outbound requests so upstream services
     // that participate in OTel join our trace. No-op when no span is
@@ -126,17 +190,17 @@ export function createInstrumentedFetch(
     // In all cases, we mutate a fresh Headers object and pass it via the
     // returned `init` — Request objects are immutable in modern runtimes
     // and accepting `RequestInfo` means we may not own them.
-    let finalInit = init;
+    let finalInit: RequestInit | undefined = initForFetch;
     if (injectTraceparent) {
       const base =
-        init?.headers !== undefined
-          ? init.headers
+        initForFetch?.headers !== undefined
+          ? initForFetch.headers
           : typeof input !== "string" && !(input instanceof URL)
             ? input.headers
             : undefined;
       const headers = new Headers(base ?? undefined);
       injectTraceContext(headers);
-      finalInit = { ...(init ?? {}), headers };
+      finalInit = { ...(initForFetch ?? {}), headers };
     }
 
     const doFetch = async (): Promise<Response> => {
@@ -188,6 +252,7 @@ export function createInstrumentedFetch(
         status: response.status,
         durationMs,
         cached,
+        operation,
       });
 
       return response;
@@ -196,12 +261,15 @@ export function createInstrumentedFetch(
     if (tracing) {
       const tracer = getTracer();
       if (tracer) {
-        const span = tracer.startSpan(`${name}.fetch`, {
+        const span = tracer.startSpan(spanName, {
           "http.method": method,
           // Redacted URL on the span attribute — once a CF Trace lands in
           // the dashboard, we can't redact retroactively.
           "http.url": safeUrl,
           "fetch.integration": name,
+          // Stamp the resolved operation so it's queryable independent of
+          // span name (e.g. "GROUP BY SpanAttributes['fetch.operation']").
+          "fetch.operation": operation,
         });
 
         try {
@@ -239,7 +307,15 @@ function truncateUrl(url: string, maxLen = 120): string {
  * Wraps an existing fetch function with logging and tracing instrumentation.
  * Unlike `createInstrumentedFetch`, this preserves the original fetch's
  * behavior (custom headers, cookies, proxy logic) and adds observability on top.
+ *
+ * Accepts the same options as `createInstrumentedFetch` (sans `name` and
+ * `baseFetch`, which are positional), so callers can supply
+ * `defaultOperation` / `resolveOperation` here as well.
  */
-export function instrumentFetch(originalFetch: typeof fetch, name: string): typeof fetch {
-  return createInstrumentedFetch({ name, baseFetch: originalFetch });
+export function instrumentFetch(
+  originalFetch: typeof fetch,
+  name: string,
+  options?: Omit<FetchInstrumentationOptions, "name" | "baseFetch">,
+): InstrumentedFetch {
+  return createInstrumentedFetch({ ...(options ?? {}), name, baseFetch: originalFetch });
 }
