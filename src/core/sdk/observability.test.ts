@@ -173,3 +173,65 @@ describe("recordCacheMetric — stamps cache decision on active span", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression — state survives cross-module-instance access
+//
+// The 5.3.0-rc.0 release hit a "phantom" no-op: tsup inlined this module
+// into every entry file in dist/, so `configureMeter()` called inside
+// `dist/core/sdk/otel.js` wrote to a `meter` variable that
+// `recordRequestMetric()` inside `dist/tanstack/sdk/workerEntry.js` never
+// saw (each entry held its own copy of the module's locals). Direct-POST
+// metrics silently no-op'd in prod despite the boot breadcrumb showing
+// `otlpMetrics: true`.
+//
+// Fix: park state on `globalThis` under a `Symbol.for(...)` slot so all
+// copies of this module read/write the same object.
+//
+// This test simulates the cross-bundle scenario by re-importing the
+// module via Vitest's cache reset — each fresh import re-runs the
+// top-level `getState()` lazy init, which under the bug returned a fresh
+// `meter: null` each time. Under the fix, all imports converge on the
+// same `globalThis[Symbol.for(...)].meter`.
+// ---------------------------------------------------------------------------
+
+describe("module state singleton (cross-bundle)", () => {
+  it("configureMeter writes survive a module re-import", async () => {
+    vi.resetModules();
+    const a = await import("./observability");
+    const counter = vi.fn();
+    a.configureMeter({ counterInc: counter });
+
+    vi.resetModules();
+    const b = await import("./observability");
+    // Module B's source has its OWN `meter` local in the unfixed code.
+    // Under the fix both modules look up via Symbol.for, so module B's
+    // `recordCacheMetric` finds the meter that module A installed.
+    b.recordCacheMetric(true, "product", "HIT");
+
+    expect(counter).toHaveBeenCalledTimes(1);
+    expect(counter).toHaveBeenCalledWith(
+      "cache_hit_total",
+      1,
+      { profile: "product", decision: "HIT" },
+    );
+  });
+
+  it("configureTracer + active-span propagation survive re-import", async () => {
+    const setAttribute = vi.fn();
+    const span: Span = { end: () => {}, setAttribute };
+
+    vi.resetModules();
+    const a = await import("./observability");
+    a.configureTracer({ startSpan: () => span });
+    a.setObservabilitySpanStore(fakeStore<Span | null>());
+
+    vi.resetModules();
+    const b = await import("./observability");
+    await b.withTracing("outer", async () => {
+      b.setSpanAttribute("k", "v");
+    });
+
+    expect(setAttribute).toHaveBeenCalledWith("k", "v");
+  });
+});

@@ -57,13 +57,38 @@ export interface TracerAdapter {
   startSpan(name: string, attributes?: Record<string, string | number | boolean>): Span;
 }
 
-let tracer: TracerAdapter | null = null;
+// ---------------------------------------------------------------------------
+// Shared module state — pinned to globalThis via Symbol.for so multiple
+// inlined copies of this module (one per bundled entry file in dist/)
+// converge on the SAME state. Without this indirection, `configureMeter()`
+// from one entry's copy writes to a meter that `getMeter()` in another
+// entry's copy never sees, and direct-POST telemetry silently no-ops.
+//
+// Pattern borrowed from @opentelemetry/api / Sentry — both solve the same
+// "library with multiple entry exports re-bundles internal state modules"
+// problem. Cloudflare Workers guarantee one `globalThis` per isolate, so
+// there's no risk of cross-isolate bleed.
+// ---------------------------------------------------------------------------
 
-// Per-request active span propagation. Hosts that want AsyncLocalStorage
-// semantics call `setObservabilitySpanStore` with an ALS-backed store; the
-// default is a noop store, which means `withTracing` still records spans
-// but `getActiveSpan()` returns null outside the immediate sync frame.
-let spanStore: RequestStore<Span | null> = noopRequestStore as RequestStore<Span | null>;
+interface ObservabilityState {
+  tracer: TracerAdapter | null;
+  meter: MeterAdapter | null;
+  spanStore: RequestStore<Span | null>;
+}
+
+const STATE_KEY = Symbol.for("@decocms/start/observability/state.v1");
+
+function getState(): ObservabilityState {
+  const g = globalThis as Record<symbol, unknown>;
+  if (!g[STATE_KEY]) {
+    g[STATE_KEY] = {
+      tracer: null,
+      meter: null,
+      spanStore: noopRequestStore as RequestStore<Span | null>,
+    } satisfies ObservabilityState;
+  }
+  return g[STATE_KEY] as ObservabilityState;
+}
 
 /**
  * Install the runtime-specific RequestStore for active-span propagation.
@@ -71,20 +96,20 @@ let spanStore: RequestStore<Span | null> = noopRequestStore as RequestStore<Span
  * Pass `undefined` to reset to the noop store (useful in tests).
  */
 export function setObservabilitySpanStore(s: RequestStore<Span | null> | undefined): void {
-  spanStore = s ?? (noopRequestStore as RequestStore<Span | null>);
+  getState().spanStore = s ?? (noopRequestStore as RequestStore<Span | null>);
 }
 
 export function configureTracer(t: TracerAdapter) {
-  tracer = t;
+  getState().tracer = t;
 }
 
 export function getTracer(): TracerAdapter | null {
-  return tracer;
+  return getState().tracer;
 }
 
 /** Get the currently active span for the current async context, if any. */
 export function getActiveSpan(): Span | null {
-  return spanStore.get() ?? null;
+  return getState().spanStore.get() ?? null;
 }
 
 /** Set an attribute on the active span, if one exists. */
@@ -126,12 +151,13 @@ export async function withTracing<T>(
   fn: () => Promise<T>,
   attributes?: Record<string, string | number | boolean>,
 ): Promise<T> {
-  if (!tracer) return fn();
+  const s = getState();
+  if (!s.tracer) return fn();
 
-  const span = tracer.startSpan(name, attributes);
+  const span = s.tracer.startSpan(name, attributes);
 
   try {
-    const result = await spanStore.run(span, fn);
+    const result = await s.spanStore.run(span, fn);
     span.end();
     return result;
   } catch (error) {
@@ -153,14 +179,12 @@ export interface MeterAdapter {
   histogramRecord?(name: string, value: number, labels?: Labels): void;
 }
 
-let meter: MeterAdapter | null = null;
-
 export function configureMeter(m: MeterAdapter) {
-  meter = m;
+  getState().meter = m;
 }
 
 export function getMeter(): MeterAdapter | null {
-  return meter;
+  return getState().meter;
 }
 
 /** Pre-defined metric names for consistency. */
@@ -184,12 +208,13 @@ export function recordRequestMetric(
   status: number,
   durationMs: number,
 ) {
-  if (!meter) return;
+  const m = getState().meter;
+  if (!m) return;
   const labels: Labels = { method, path: normalizePath(path), status };
-  meter.counterInc(MetricNames.HTTP_REQUESTS_TOTAL, 1, labels);
-  meter.histogramRecord?.(MetricNames.HTTP_REQUEST_DURATION_MS, durationMs, labels);
+  m.counterInc(MetricNames.HTTP_REQUESTS_TOTAL, 1, labels);
+  m.histogramRecord?.(MetricNames.HTTP_REQUEST_DURATION_MS, durationMs, labels);
   if (status >= 500) {
-    meter.counterInc(MetricNames.HTTP_REQUEST_ERRORS, 1, labels);
+    m.counterInc(MetricNames.HTTP_REQUEST_ERRORS, 1, labels);
   }
 }
 
@@ -222,11 +247,12 @@ export function recordCacheMetric(hit: boolean, profile?: string, decision?: Cac
     if (profile) active.setAttribute?.("deco.cache.profile", profile);
   }
 
-  if (!meter) return;
+  const m = getState().meter;
+  if (!m) return;
   const labels: Labels = {};
   if (profile) labels.profile = profile;
   if (decision) labels.decision = decision;
-  meter.counterInc(hit ? MetricNames.CACHE_HIT : MetricNames.CACHE_MISS, 1, labels);
+  m.counterInc(hit ? MetricNames.CACHE_HIT : MetricNames.CACHE_MISS, 1, labels);
 }
 
 function normalizePath(path: string): string {
