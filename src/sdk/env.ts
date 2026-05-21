@@ -11,8 +11,8 @@ let _isDev: boolean | null = null;
  * Returns `true` when running in a development environment.
  *
  * Detection order:
- *  1. `DECO_CACHE_DISABLE=true` — explicit opt-in (always wins)
- *  2. `NODE_ENV=development`    — standard Node/Vite convention
+ *  1. `import.meta.env.DEV`  — Vite build-time constant (reliable in Workers/Miniflare)
+ *  2. `NODE_ENV=development` — standard Node/Vite convention
  *
  * The result is memoised after the first evaluation.
  */
@@ -21,7 +21,11 @@ export function isDevMode(): boolean {
 
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
 
-  _isDev = env?.DECO_CACHE_DISABLE === "true" || env?.NODE_ENV === "development";
+  // Vite statically replaces import.meta.env.DEV at build time (true in dev, false in prod).
+  // In Miniflare/Workers, process.env is unavailable, so this is the reliable signal.
+  const vitaDev = !!(import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
+
+  _isDev = vitaDev || env?.NODE_ENV === "development" || env?.DECO_PREVIEW === "true";
 
   return _isDev;
 }
