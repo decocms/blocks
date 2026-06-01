@@ -685,10 +685,13 @@ export function createDecoWorkerEntry(
   // existing sites get region-segmented cache "for free" on bump — no
   // worker-entry.ts edit required.
   function readRegionFromRequest(request: Request): string | undefined {
-    const fromHeader = request.headers.get("cf-region-code");
-    if (fromHeader) return fromHeader;
+    // Trust the Cloudflare-injected `request.cf` first — it can't be spoofed
+    // by clients. Fall back to the `cf-region-code` header for environments
+    // that surface geo only via headers (e.g. tests, non-CF proxies).
     const cf = (request as unknown as { cf?: { regionCode?: string } }).cf;
-    return cf?.regionCode || undefined;
+    if (cf?.regionCode) return cf.regionCode;
+    const fromHeader = request.headers.get("cf-region-code");
+    return fromHeader || undefined;
   }
 
   const buildSegment = rawBuildSegment
