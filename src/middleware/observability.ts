@@ -33,6 +33,7 @@
  */
 
 import * as asyncHooks from "node:async_hooks";
+import { logger } from "../sdk/logger";
 
 // ---------------------------------------------------------------------------
 // RequestStore — minimal per-request context abstraction. Inlined here so
@@ -427,10 +428,14 @@ export function recordCacheMetric(
 
   const m = getState().meter;
   if (!m) return;
+  // Label names mirror the dotted span attributes `deco.cache.decision`,
+  // `deco.cache.profile`, `deco.cache.layer` (see model/registry/deco.yaml +
+  // model/metrics.yaml). Prometheus convention requires snake_case without
+  // dots — so `cache_decision` / `cache_layer` (not `decision` / `layer`).
   const labels: Labels = {};
   if (profile) labels.profile = profile;
-  if (decision) labels.decision = decision;
-  if (layer) labels.layer = layer;
+  if (decision) labels.cache_decision = decision;
+  if (layer) labels.cache_layer = layer;
   m.counterInc(hit ? MetricNames.CACHE_HIT : MetricNames.CACHE_MISS, 1, labels);
 }
 
@@ -527,28 +532,20 @@ export function logRequest(
   extra?: Record<string, unknown>,
 ) {
   const url = new URL(request.url);
-
-  if (isDev) {
-    const color = status >= 500 ? "\x1b[31m" : status >= 400 ? "\x1b[33m" : "\x1b[32m";
-    const extraStr = extra ? ` ${JSON.stringify(extra)}` : "";
-    console.log(
-      `${color}${request.method}\x1b[0m ${url.pathname} ${status} ${durationMs.toFixed(0)}ms${extraStr}`,
-    );
-  } else {
-    const ctx = getActiveSpan()?.spanContext?.();
-    console.log(
-      JSON.stringify({
-        level: status >= 500 ? "error" : "info",
-        method: request.method,
-        path: url.pathname,
-        status,
-        durationMs: Math.round(durationMs),
-        timestamp: new Date().toISOString(),
-        ...(ctx ? { trace_id: ctx.traceId, span_id: ctx.spanId } : {}),
-        ...extra,
-      }),
-    );
-  }
+  // Route through the framework logger so the access log fans out to every
+  // configured adapter — local stdout via `defaultLoggerAdapter`, OTLP direct-
+  // POST via `otlpErrorLog.adapter` when configured (subject to its
+  // `DECO_OTEL_LOGS_MIN_LEVEL` threshold). 5xx upgrades to `error`; 4xx and
+  // 2xx land on `info`. `request.id` and `trace_id` are stamped by the
+  // logger floor automatically (no need to attach manually here).
+  const level = status >= 500 ? "error" : "info";
+  logger[level]("request handled", {
+    method: request.method,
+    path: url.pathname,
+    status,
+    duration_ms: Math.round(durationMs),
+    ...extra,
+  });
 }
 
 // noopRequestStore is kept as a no-op fallback for advanced tests; not

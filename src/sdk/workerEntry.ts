@@ -46,7 +46,7 @@ import {
   setSpanAttribute,
   withTracing,
 } from "./observability";
-import { _setRequestTraceContext } from "./otel";
+import { _setRequestTraceContext, instrumentWorker, type OtelOptions } from "./otel";
 import { setRuntimeEnv } from "./otelAdapters";
 import { parseTraceparent } from "./otelHttpTracer";
 import { RequestContext } from "./requestContext";
@@ -404,6 +404,23 @@ export interface DecoWorkerEntryOptions {
    * @default "no-store"
    */
   cdnCacheControl?: "no-store" | "match-profile" | ((profile: CacheProfileName) => string | null);
+  /**
+   * Auto-instrumentation via `instrumentWorker` is enabled by default. The
+   * framework wraps the returned handler so that, when OTel env vars
+   * (`DECO_OTEL_*_ENDPOINT`, `DECO_OTEL_TRACES_SAMPLING_RATE`,
+   * `DECO_OTEL_LOGS_MIN_LEVEL`) are set on the Worker's `env`, telemetry
+   * starts flowing without the site having to touch its worker entry.
+   *
+   * - Pass an `OtelOptions` object to override defaults (serviceName,
+   *   sampling, custom env var names, etc.).
+   * - Pass `false` to disable framework-side instrumentation entirely
+   *   (e.g., when the site applies its own `instrumentWorker` wrap or
+   *   uses a custom transport).
+   *
+   * When the OTel endpoint env vars are absent the wrap is effectively a
+   * no-op — no buffers, no flushes, no network calls.
+   */
+  observability?: OtelOptions | false;
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +693,7 @@ export function createDecoWorkerEntry(
     safeCookies: safeCookiesOpt = DEFAULT_SAFE_COOKIES,
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
     cdnCacheControl: cdnCacheControlOpt = "no-store",
+    observability: observabilityOpt,
   } = options;
 
   // Backfill `regionId` from Cloudflare geo when the consumer's buildSegment
@@ -1218,7 +1236,15 @@ export function createDecoWorkerEntry(
     },
   };
 
-  return handler;
+  // Auto-instrument with `instrumentWorker` unless explicitly opted out.
+  // When `observabilityOpt === false` the site is taking control of its own
+  // OTel wiring; otherwise the framework wraps the handler so that, when
+  // `DECO_OTEL_*_ENDPOINT` env vars are configured, telemetry flows
+  // without any change to the site's worker-entry. When the env vars are
+  // absent the wrap is a no-op (no exporters created, no flush calls).
+  return observabilityOpt === false
+    ? handler
+    : instrumentWorker(handler, (observabilityOpt as OtelOptions | undefined) ?? {});
 
   async function handleRequest(
     request: Request,
