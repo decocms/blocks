@@ -106,7 +106,16 @@ export function useDevice(): Device {
   // callers outside a React render (loaders, server functions, tests
   // without the framework root), where useContext throws "Invalid hook
   // call" — those callers fall through to the original runtime resolution.
+  //
+  // Rules-of-hooks note: `useContext` is called *unconditionally* inside the
+  // try block — exactly once per `useDevice()` invocation. The catch only
+  // fires when there is no React dispatcher at all (outside a render),
+  // never *between* hooks in the same render. Hook order within a component
+  // therefore remains consistent. Callers that conditionally call
+  // `useDevice()` itself were already violating rules of hooks; this PR
+  // doesn't change that.
   try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const fromContext = useContext(DeviceContext);
     if (fromContext) return fromContext;
   } catch {
