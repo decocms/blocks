@@ -75,12 +75,23 @@ const MAX_CACHE_BYTES = resolveMaxBytes();
 const cache = new Map<string, CacheEntry>();
 let cacheBytes = 0;
 
+// Floor each entry at 512 bytes so we never accumulate unbounded zero-cost
+// entries when a loader legitimately returns `undefined` or an empty object
+// — `JSON.stringify(undefined) === undefined` and the eviction loop would
+// otherwise never reclaim them. JSON-length also under-counts V8's actual
+// retention (structured objects retain 2–5× the JSON byte size); the 32 MB
+// cap is conservative enough that this approximation is fine for an OOM
+// safety net, but real RSS at the cap can land around 64–160 MB on
+// object-heavy payloads.
+const MIN_ENTRY_BYTES = 512;
+
 function estimateBytes(value: unknown): number {
   try {
     // UTF-16 string length is an order-of-magnitude estimate of the bytes the
     // object retains in V8 (V8 keeps a structured representation, not JSON).
     // The absolute value is less important than the relative pressure signal.
-    return JSON.stringify(value)?.length ?? 0;
+    const len = JSON.stringify(value)?.length ?? 0;
+    return Math.max(len, MIN_ENTRY_BYTES);
   } catch {
     // Circular refs / non-serializable values: fall back to a fixed budget so
     // the entry still counts against the cap.
