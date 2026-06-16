@@ -319,6 +319,21 @@ section[data-deferred="true"] {
   body:has(.drawer-toggle:checked) {
     overflow: hidden;
   }
+
+  /* Tailwind v3 → v4 compat: restore the default cursor:pointer on interactive
+     elements. Tailwind v4 dropped this from Preflight, leaving Fresh-era sites
+     with hundreds of buttons looking unclickable. See:
+     https://tailwindcss.com/docs/upgrade-guide#default-button-cursor */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  label[for],
+  summary {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }`);
 
   // ── Scrollbar utility ─────────────────────────────────────────────
