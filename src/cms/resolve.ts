@@ -1109,10 +1109,19 @@ function shouldDeferSection(
   const finalKey = resolveFinalSectionKey(section, matcherCtx);
   if (!finalKey) return false;
 
-  // Permanent registry — `export const eager = true` cannot be clobbered
-  if (isEagerSection(finalKey)) return false;
-  if (cfg.alwaysEager.has(finalKey)) return false;
+  // Layout sections (Header, Footer, Theme) are ALWAYS eager — they're shared
+  // across pages and their resolved output is cached, so serialization cost is
+  // amortized. Deferring them would flash a skeleton on every navigation.
   if (isLayoutSection(finalKey)) return false;
+
+  // `export const eager = true` keeps sections eager only WITHIN the fold
+  // threshold. Past the threshold, defer even eager sections — their resolved
+  // props (often full product arrays) dominate the SSR hydration blob and
+  // deferral strips them. Bots still get full eager (line above: isBotReq).
+  if (flatIndex < cfg.foldThreshold) {
+    if (isEagerSection(finalKey)) return false;
+    if (cfg.alwaysEager.has(finalKey)) return false;
+  }
 
   // Walk the full wrapper chain (including multivariate flags) to detect
   // Lazy.tsx or Deferred.tsx wrappers at any nesting level.
