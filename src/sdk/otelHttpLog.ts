@@ -39,6 +39,7 @@
  * composed onto the active logger via `createCompositeLogger`.
  */
 
+import { getActiveSpan } from "./observability";
 import type { LoggerAdapter, LogLevel } from "./logger";
 
 // ---------------------------------------------------------------------------
@@ -82,6 +83,11 @@ export interface OtlpHttpLogOptions {
   fetchImpl?: typeof fetch;
   /** Test seam — override Date.now(). */
   nowMs?: () => number;
+  /**
+   * Test seam — override getActiveSpan. Production code uses the
+   * framework's AsyncLocalStorage-backed getActiveSpan automatically.
+   */
+  getActiveSpanFn?: () => { spanContext?: () => { traceFlags?: number } } | undefined | null;
   /** Optional sink for transport / rate-limit / overflow errors. */
   onError?: (kind: "flush" | "overflow" | "rate-limit", err: unknown) => void;
 }
@@ -130,10 +136,11 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
   const flushTimeoutMs = options.flushTimeoutMs ?? 5000;
   const burstCapacity = options.rateLimitBurstCapacity ?? 20;
   const refillPerMinute = options.rateLimitRefillPerMinute ?? 100;
-  const minSeverity = SEVERITY_NUMBER[options.minLevel ?? "error"];
+  const minSeverity = SEVERITY_NUMBER[options.minLevel ?? "warn"];
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.nowMs ?? (() => Date.now());
   const onError = options.onError;
+  const getSpan = options.getActiveSpanFn ?? getActiveSpan;
 
   const buffer: PendingRecord[] = [];
   // Token bucket — starts full.
@@ -162,9 +169,18 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
 
   const adapter: LoggerAdapter = {
     log(level, msg, attrs) {
-      // Filter by severity threshold (default: error only). Lower-severity
-      // records are silently dropped at ingress so the buffer never holds them.
+      // Filter by severity threshold. Levels below minLevel are dropped.
       if (SEVERITY_NUMBER[level] < minSeverity) return;
+
+      // Trace-based sampling for info/debug: only forward when the current
+      // request's trace is sampled (W3C traceFlags bit 0x01). This keeps
+      // log-trace correlation intact — if you have the trace you have the
+      // logs; if the trace was dropped, the info/debug logs have no context
+      // and are dropped too. Errors and warnings always pass regardless.
+      if (level === "info" || level === "debug") {
+        const flags = getSpan()?.spanContext?.()?.traceFlags;
+        if (!((flags ?? 0) & 0x01)) return;
+      }
 
       if (!tryConsumeToken()) {
         onError?.(

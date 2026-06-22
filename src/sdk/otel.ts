@@ -633,7 +633,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   const otlpLogsMinLevel: LogLevel =
     (validLogLevels as readonly string[]).includes(otlpLogsMinLevelFromEnv)
       ? (otlpLogsMinLevelFromEnv as LogLevel)
-      : opts.otlpLogsMinLevel ?? "warn";
+      : opts.otlpLogsMinLevel ?? "info";
   if (otlpLogsEnabled) {
     state.otlpLog = createOtlpHttpLogAdapter({
       endpoint: otlpLogsEndpoint,
@@ -798,20 +798,30 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
     patchConsole(state);
   }
 
-  // Boot breadcrumb — goes through the now-configured logger (direct-POST in
-  // production, console in dev). Lets operators confirm the wiring at a glance.
-  logger.info("observability booted", {
-    service: serviceName,
-    analyticsEngine: aeEnabled,
-    otlpMetrics: otlpEnabled,
-    otlpLogs: otlpLogsEnabled,
-    otlpLogsMinLevel: otlpLogsMinLevel,
-    otlpTraces: otlpTracesEnabled,
-    consolePatch: otlpLogsEnabled,
-    runtimeVersion: decoRuntimeVersion,
-    deploymentEnvironment,
-    ...(serviceVersion ? { serviceVersion } : {}),
-  });
+  // Boot breadcrumb — infra telemetry, not application telemetry. Goes to the
+  // original console (pre-patch) so it shows in wrangler dev / wrangler tail
+  // without polluting the OTLP buffer (where it would interfere with trace-
+  // based sampling — there is no active span at boot time).
+  try {
+    warnDirect(
+      JSON.stringify({
+        level: "info",
+        msg: "observability booted",
+        service: serviceName,
+        analyticsEngine: aeEnabled,
+        otlpMetrics: otlpEnabled,
+        otlpLogs: otlpLogsEnabled,
+        otlpLogsMinLevel: otlpLogsMinLevel,
+        otlpTraces: otlpTracesEnabled,
+        consolePatch: otlpLogsEnabled,
+        runtimeVersion: decoRuntimeVersion,
+        deploymentEnvironment,
+        ...(serviceVersion ? { serviceVersion } : {}),
+      }),
+    );
+  } catch {
+    /* swallow */
+  }
 }
 
 /**
