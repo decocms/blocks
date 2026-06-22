@@ -118,34 +118,32 @@ export interface OtelOptions {
   /** Set to `false` to disable the OTLP/HTTP metrics exporter explicitly. */
   otlpMetricsEnabled?: boolean;
   /**
-   * Env var name holding the OTLP/HTTP logs endpoint used by the
-   * direct-POST error-log channel. Defaults to `"DECO_OTEL_LOGS_ENDPOINT"`.
-   * When set (and `otlpErrorLogsEnabled !== false`), `logger.error(...)`
-   * dual-emits via `console.error` (CF Destinations path, head-sampled)
-   * AND a direct POST to this endpoint (100% capture, rate-limited).
+   * Env var name holding the OTLP/HTTP logs endpoint — the primary log
+   * transport. Defaults to `"DECO_OTEL_LOGS_ENDPOINT"`. When set (and
+   * `otlpLogsEnabled !== false`), `instrumentWorker` patches `console.*`
+   * at boot so all application and third-party log calls route through
+   * the framework logger → direct-POST to this endpoint.
    */
-  otlpErrorLogsEndpointEnvVar?: string;
-  /** Set to `false` to disable the OTLP/HTTP error-log exporter explicitly. */
-  otlpErrorLogsEnabled?: boolean;
+  otlpLogsEndpointEnvVar?: string;
+  /** Set to `false` to disable the OTLP/HTTP logs exporter explicitly. */
+  otlpLogsEnabled?: boolean;
   /**
-   * Minimum log level that the OTLP/HTTP error-log channel forwards.
-   * Defaults to `"error"` — production-safe: only errors travel
-   * direct-POST; info/warn flow through CF Destinations sampling. Set
-   * to `"warn"` to include warnings, or `"info"` / `"debug"` to capture
-   * everything (preview / local-dev only — bypasses sampling and can
-   * overwhelm the rate-limit bucket).
+   * Minimum log level forwarded via direct-POST. Defaults to `"warn"` —
+   * errors and warnings travel at 100% capture; debug/info are dropped.
+   * Set to `"info"` to include informational logs, or `"debug"` to capture
+   * everything (preview / local-dev only — can be high volume).
    *
-   * Precedence: env var (`otlpErrorLogsMinLevelEnvVar`, default
-   * `DECO_OTEL_LOGS_MIN_LEVEL`) > this option > `"error"`. Invalid env
+   * Precedence: env var (`otlpLogsMinLevelEnvVar`, default
+   * `DECO_OTEL_LOGS_MIN_LEVEL`) > this option > `"warn"`. Invalid env
    * values fall through silently.
    */
-  otlpErrorLogsMinLevel?: LogLevel;
+  otlpLogsMinLevel?: LogLevel;
   /**
-   * Env var name to read the OTLP/HTTP error-log minimum level from.
-   * Defaults to `"DECO_OTEL_LOGS_MIN_LEVEL"`. Value MUST be one of
+   * Env var name to read the minimum log level from. Defaults to
+   * `"DECO_OTEL_LOGS_MIN_LEVEL"`. Value MUST be one of
    * `"debug"`, `"info"`, `"warn"`, `"error"`.
    */
-  otlpErrorLogsMinLevelEnvVar?: string;
+  otlpLogsMinLevelEnvVar?: string;
   /**
    * Env var name holding the OTLP/HTTP traces endpoint used by the
    * direct-POST span exporter. Defaults to `"DECO_OTEL_TRACES_ENDPOINT"`.
@@ -201,8 +199,8 @@ export interface OtelOptions {
    * exporter without touching the worker's outbound fetch.
    */
   otlpMetricsFetchImpl?: typeof fetch;
-  /** Test seam — replace the global `fetch` used by the error-log exporter. */
-  otlpErrorLogsFetchImpl?: typeof fetch;
+  /** Test seam — replace the global `fetch` used by the logs exporter. */
+  otlpLogsFetchImpl?: typeof fetch;
 }
 
 interface WorkerExecutionContext {
@@ -618,14 +616,16 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   // need no changes. Records from the direct-POST path are
   // distinguishable from CF-Destinations records by `ScopeName =
   // "@decocms/start"` if needed (CF stamps its own scope).
-  const otlpLogsEnvVar = opts.otlpErrorLogsEndpointEnvVar ?? "DECO_OTEL_LOGS_ENDPOINT";
+  const otlpLogsEnvVar = opts.otlpLogsEndpointEnvVar ?? "DECO_OTEL_LOGS_ENDPOINT";
   const otlpLogsEndpoint = (env[otlpLogsEnvVar] as string | undefined) ?? "";
-  const otlpErrorLogsEnabled =
-    opts.otlpErrorLogsEnabled !== false && otlpLogsEndpoint.length > 0;
-  // Minimum log level precedence: env var > options > "error" default.
+  const otlpLogsEnabled =
+    opts.otlpLogsEnabled !== false && otlpLogsEndpoint.length > 0;
+  // Minimum log level precedence: env var > options > "warn" default.
+  // "warn" ships errors + warnings at 100%; info/debug are dropped unless
+  // explicitly opted in via DECO_OTEL_LOGS_MIN_LEVEL=info.
   // Invalid env values fall through silently.
   const otlpLogsMinLevelEnvVar =
-    opts.otlpErrorLogsMinLevelEnvVar ?? "DECO_OTEL_LOGS_MIN_LEVEL";
+    opts.otlpLogsMinLevelEnvVar ?? "DECO_OTEL_LOGS_MIN_LEVEL";
   const otlpLogsMinLevelFromEnv = (
     (env[otlpLogsMinLevelEnvVar] as string | undefined) ?? ""
   ).toLowerCase();
@@ -633,14 +633,14 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   const otlpLogsMinLevel: LogLevel =
     (validLogLevels as readonly string[]).includes(otlpLogsMinLevelFromEnv)
       ? (otlpLogsMinLevelFromEnv as LogLevel)
-      : opts.otlpErrorLogsMinLevel ?? "error";
-  if (otlpErrorLogsEnabled) {
+      : opts.otlpLogsMinLevel ?? "warn";
+  if (otlpLogsEnabled) {
     state.otlpErrorLog = createOtlpHttpErrorLogAdapter({
       endpoint: otlpLogsEndpoint,
       resourceAttributes: floor,
       scopeVersion: decoRuntimeVersion,
       minLevel: otlpLogsMinLevel,
-      fetchImpl: opts.otlpErrorLogsFetchImpl,
+      fetchImpl: opts.otlpLogsFetchImpl,
       onError: (kind, err) => {
         // Use warnDirect (pre-patch console.warn) to avoid routing this
         // warning back through the OTLP adapter that is currently failing.
@@ -663,7 +663,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
     state.otlpErrorLog = null;
   }
 
-  if (otlpErrorLogsEnabled) {
+  if (otlpLogsEnabled) {
     // OTLP active: direct-POST is the sole log transport.
     // console.* will be intercepted by patchConsole() below so all
     // application and third-party console calls route here too.
@@ -794,7 +794,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   // Intercept console.* only when OTLP is active (production). In dev mode
   // (no OTLP endpoint) console is left untouched so wrangler dev / wrangler
   // tail keep showing output normally.
-  if (otlpErrorLogsEnabled) {
+  if (otlpLogsEnabled) {
     patchConsole(state);
   }
 
@@ -804,10 +804,10 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
     service: serviceName,
     analyticsEngine: aeEnabled,
     otlpMetrics: otlpEnabled,
-    otlpErrorLogs: otlpErrorLogsEnabled,
-    otlpErrorLogsMinLevel: otlpLogsMinLevel,
+    otlpLogs: otlpLogsEnabled,
+    otlpLogsMinLevel: otlpLogsMinLevel,
     otlpTraces: otlpTracesEnabled,
-    consolePatch: otlpErrorLogsEnabled,
+    consolePatch: otlpLogsEnabled,
     runtimeVersion: decoRuntimeVersion,
     deploymentEnvironment,
     ...(serviceVersion ? { serviceVersion } : {}),
