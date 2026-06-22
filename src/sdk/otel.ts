@@ -656,6 +656,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       scopeVersion: decoRuntimeVersion,
       minLevel: otlpLogsMinLevel,
       fetchImpl: opts.otlpLogsFetchImpl,
+      promoteTrace: (traceId) => state.otlpTracer?.promoteTrace(traceId),
       onError: (kind, err) => {
         // Use warnDirect (pre-patch console.warn) to avoid routing this
         // warning back through the OTLP adapter that is currently failing.
@@ -686,18 +687,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
     // framework logs (which would make them visible to the tail worker a
     // second time — the tail worker only needs to see what the worker
     // itself cannot capture: exceededCpu / exceededMemory / isolate crashes).
-    // Wrap the OTLP adapter to promote unsampled traces when an error fires.
-    // Keeps otelHttpLog.ts unaware of the tracer — the wiring lives here.
-    const logAdapter = state.otlpLog!.adapter;
-    configureLogger(createCompositeLogger([{
-      log(level, msg, attrs) {
-        logAdapter.log(level, msg, attrs);
-        if (level === "error" || level === "warn") {
-          const traceId = getActiveSpan()?.spanContext?.()?.traceId;
-          if (traceId) state.otlpTracer?.promoteTrace(traceId);
-        }
-      },
-    }]));
+    configureLogger(createCompositeLogger([state.otlpLog!.adapter]));
   } else {
     // No OTLP endpoint — dev mode. Keep writing to console so wrangler dev /
     // wrangler tail show output normally. No monkey-patch applied.
