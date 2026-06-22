@@ -82,7 +82,7 @@ import {
   ATTR_CLOUD_PROVIDER,
 } from "@opentelemetry/semantic-conventions/incubating";
 import { createCompositeLogger, createCompositeMeter } from "./composite";
-import { configureLogger, defaultLoggerAdapter, setLoggerAttributeFloor, type LogLevel } from "./logger";
+import { configureLogger, defaultLoggerAdapter, logger, setLoggerAttributeFloor, type LogLevel } from "./logger";
 import { METRIC_METADATA } from "../middleware/observability";
 import { configureMeter, configureTracer, getActiveSpan } from "./observability";
 import { createAnalyticsEngineMeterAdapter } from "./otelAdapters";
@@ -246,12 +246,15 @@ interface WorkerHandler {
 // hot reloads in `wrangler dev` too.
 // ---------------------------------------------------------------------------
 
+type OrigConsole = Pick<typeof console, "log" | "info" | "warn" | "error" | "debug">;
+
 interface BootState {
   booted: boolean;
   otlpMeter: OtlpHttpMeter | null;
   otlpErrorLog: OtlpHttpErrorLog | null;
   otlpTracer: OtlpHttpTracer | null;
   spanAttributeFloor: Record<string, string>;
+  origConsole: OrigConsole | null;
 }
 
 const BOOT_STATE_KEY = Symbol.for("@decocms/start/sdk/otel/boot.v1");
@@ -265,6 +268,7 @@ function getBootState(): BootState {
       otlpErrorLog: null,
       otlpTracer: null,
       spanAttributeFloor: {},
+      origConsole: null,
     } satisfies BootState;
   }
   return g[BOOT_STATE_KEY] as BootState;
@@ -486,9 +490,67 @@ function configureTracerStack(otlpAdapter: OtlpHttpTracer | null): void {
 // Boot — wires the loggers/meters once (per worker isolate)
 // ---------------------------------------------------------------------------
 
+/**
+ * Replaces `console.*` with thin shims that route every call through the
+ * framework `logger`, which forwards to the configured adapter (direct-POST
+ * OTLP when active). The original functions are saved on `BootState` so
+ * `_resetBootStateForTests()` can restore them between test runs.
+ *
+ * A re-entrancy guard (`busy`) prevents the loop that would occur if the
+ * active logger adapter ever calls back into `console.*` (e.g. the
+ * `defaultLoggerAdapter` in dev mode). Without the guard:
+ *   console.error → logger.error → defaultLoggerAdapter → console.error → …
+ *
+ * Only called when the OTLP logs endpoint is configured. In dev (no OTLP),
+ * `console.*` is left untouched so `wrangler dev` / `wrangler tail` keep
+ * showing output normally.
+ */
+function patchConsole(state: BootState): void {
+  if (state.origConsole) return; // already patched this isolate
+
+  const orig: OrigConsole = {
+    log:   console.log.bind(console),
+    info:  console.info.bind(console),
+    warn:  console.warn.bind(console),
+    error: console.error.bind(console),
+    debug: console.debug.bind(console),
+  };
+  state.origConsole = orig;
+
+  let busy = false;
+
+  const forward = (level: LogLevel, args: unknown[]): void => {
+    if (busy) return;
+    busy = true;
+    try {
+      const msg = args
+        .map((a) => {
+          if (typeof a === "string") return a;
+          try { return JSON.stringify(a); } catch { return String(a); }
+        })
+        .join(" ");
+      logger[level](msg);
+    } finally {
+      busy = false;
+    }
+  };
+
+  console.log   = (...args: unknown[]) => forward("info",  args);
+  console.info  = (...args: unknown[]) => forward("info",  args);
+  console.warn  = (...args: unknown[]) => forward("warn",  args);
+  console.error = (...args: unknown[]) => forward("error", args);
+  console.debug = (...args: unknown[]) => forward("debug", args);
+}
+
 function bootObservability(opts: OtelOptions, env: Record<string, unknown>): void {
   const state = getBootState();
   if (state.booted) return;
+
+  // Capture the original console.warn BEFORE patchConsole() runs. The onError
+  // callbacks below need a direct channel to console that bypasses the logger
+  // to avoid routing exporter-level warnings back through the OTLP adapter
+  // that is currently failing.
+  const warnDirect = console.warn.bind(console);
 
   const serviceName = opts.serviceName ?? (env.DECO_SITE_NAME as string | undefined) ?? "deco-site";
   const decoRuntimeVersion = opts.decoRuntimeVersion ?? DECO_RUNTIME_VERSION;
@@ -580,12 +642,10 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       minLevel: otlpLogsMinLevel,
       fetchImpl: opts.otlpErrorLogsFetchImpl,
       onError: (kind, err) => {
-        // Don't recurse — use console.warn directly, not logger.warn.
-        // The whole point of this adapter is to bypass the logger path
-        // for high-fidelity error capture, so logging back into it
-        // would be circular.
+        // Use warnDirect (pre-patch console.warn) to avoid routing this
+        // warning back through the OTLP adapter that is currently failing.
         try {
-          console.warn(
+          warnDirect(
             JSON.stringify({
               level: "warn",
               msg: "otlp error-log exporter",
@@ -603,12 +663,20 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
     state.otlpErrorLog = null;
   }
 
-  configureLogger(
-    createCompositeLogger([
-      defaultLoggerAdapter,
-      state.otlpErrorLog ? state.otlpErrorLog.adapter : null,
-    ]),
-  );
+  if (otlpErrorLogsEnabled) {
+    // OTLP active: direct-POST is the sole log transport.
+    // console.* will be intercepted by patchConsole() below so all
+    // application and third-party console calls route here too.
+    // defaultLoggerAdapter is excluded to prevent workerd from capturing
+    // framework logs (which would make them visible to the tail worker a
+    // second time — the tail worker only needs to see what the worker
+    // itself cannot capture: exceededCpu / exceededMemory / isolate crashes).
+    configureLogger(createCompositeLogger([state.otlpErrorLog!.adapter]));
+  } else {
+    // No OTLP endpoint — dev mode. Keep writing to console so wrangler dev /
+    // wrangler tail show output normally. No monkey-patch applied.
+    configureLogger(createCompositeLogger([defaultLoggerAdapter]));
+  }
 
   // Meter — fan out to two backends when both are configured:
   //
@@ -640,13 +708,19 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       fetchImpl: opts.otlpMetricsFetchImpl,
       metricMetadata: METRIC_METADATA,
       onError: (kind, err) => {
-        // Surface flush + overflow errors at warn so operators see them in
-        // CF Logs without enabling debug. Stays JSON via the logger so
-        // structured filters keep working.
-        defaultLoggerAdapter.log("warn", "otlp metrics exporter", {
-          kind,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        try {
+          warnDirect(
+            JSON.stringify({
+              level: "warn",
+              msg: "otlp metrics exporter",
+              kind,
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        } catch {
+          /* swallow */
+        }
       },
     });
   } else {
@@ -691,10 +765,19 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       getActiveSpanForParent: () => getActiveSpan(),
       getRequestTraceContext,
       onError: (kind, err) => {
-        defaultLoggerAdapter.log("warn", "otlp traces exporter", {
-          kind,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        try {
+          warnDirect(
+            JSON.stringify({
+              level: "warn",
+              msg: "otlp traces exporter",
+              kind,
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        } catch {
+          /* swallow */
+        }
       },
     });
   } else {
@@ -708,15 +791,23 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
 
   state.booted = true;
 
-  // Single boot-time breadcrumb so operators can confirm the wiring at a
-  // glance from CF Logs without enabling debug.
-  defaultLoggerAdapter.log("info", "observability booted", {
+  // Intercept console.* only when OTLP is active (production). In dev mode
+  // (no OTLP endpoint) console is left untouched so wrangler dev / wrangler
+  // tail keep showing output normally.
+  if (otlpErrorLogsEnabled) {
+    patchConsole(state);
+  }
+
+  // Boot breadcrumb — goes through the now-configured logger (direct-POST in
+  // production, console in dev). Lets operators confirm the wiring at a glance.
+  logger.info("observability booted", {
     service: serviceName,
     analyticsEngine: aeEnabled,
     otlpMetrics: otlpEnabled,
     otlpErrorLogs: otlpErrorLogsEnabled,
     otlpErrorLogsMinLevel: otlpLogsMinLevel,
     otlpTraces: otlpTracesEnabled,
+    consolePatch: otlpErrorLogsEnabled,
     runtimeVersion: decoRuntimeVersion,
     deploymentEnvironment,
     ...(serviceVersion ? { serviceVersion } : {}),
@@ -734,6 +825,14 @@ export function _resetBootStateForTests(): void {
   state.otlpMeter = null;
   state.otlpErrorLog = null;
   state.otlpTracer = null;
+  if (state.origConsole) {
+    console.log   = state.origConsole.log;
+    console.info  = state.origConsole.info;
+    console.warn  = state.origConsole.warn;
+    console.error = state.origConsole.error;
+    console.debug = state.origConsole.debug;
+    state.origConsole = null;
+  }
   setLoggerAttributeFloor({});
 }
 
