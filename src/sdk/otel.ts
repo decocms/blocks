@@ -12,7 +12,7 @@
  *    `/v1/logs` — when `env.DECO_OTEL_LOGS_ENDPOINT` is set. Carries
  *    `logger.error(...)` calls at 100% capture (rate-limited per
  *    isolate) so head-sampled CF Destinations don't drop them.
- *    See `otelHttpErrorLog.ts` for the rate limiter + flush model.
+ *    See `otelHttpLog.ts` for the rate limiter + flush model.
  *  - Bridges framework-internal `withTracing()` calls onto the global
  *    `@opentelemetry/api` tracer, stamping `deco.*` attributes on every span
  *    so they survive Cloudflare's platform-managed trace export
@@ -82,11 +82,11 @@ import {
   ATTR_CLOUD_PROVIDER,
 } from "@opentelemetry/semantic-conventions/incubating";
 import { createCompositeLogger, createCompositeMeter } from "./composite";
-import { configureLogger, defaultLoggerAdapter, setLoggerAttributeFloor, type LogLevel } from "./logger";
+import { configureLogger, defaultLoggerAdapter, logger, setLoggerAttributeFloor, type LogLevel } from "./logger";
 import { METRIC_METADATA } from "../middleware/observability";
 import { configureMeter, configureTracer, getActiveSpan } from "./observability";
 import { createAnalyticsEngineMeterAdapter } from "./otelAdapters";
-import { createOtlpHttpErrorLogAdapter, type OtlpHttpErrorLog } from "./otelHttpErrorLog";
+import { createOtlpHttpLogAdapter, type OtlpHttpLog } from "./otelHttpLog";
 import { createOtlpHttpMeterAdapter, type OtlpHttpMeter } from "./otelHttpMeter";
 import {
   createOtlpHttpTracerAdapter,
@@ -118,34 +118,32 @@ export interface OtelOptions {
   /** Set to `false` to disable the OTLP/HTTP metrics exporter explicitly. */
   otlpMetricsEnabled?: boolean;
   /**
-   * Env var name holding the OTLP/HTTP logs endpoint used by the
-   * direct-POST error-log channel. Defaults to `"DECO_OTEL_LOGS_ENDPOINT"`.
-   * When set (and `otlpErrorLogsEnabled !== false`), `logger.error(...)`
-   * dual-emits via `console.error` (CF Destinations path, head-sampled)
-   * AND a direct POST to this endpoint (100% capture, rate-limited).
+   * Env var name holding the OTLP/HTTP logs endpoint — the primary log
+   * transport. Defaults to `"DECO_OTEL_LOGS_ENDPOINT"`. When set (and
+   * `otlpLogsEnabled !== false`), `instrumentWorker` patches `console.*`
+   * at boot so all application and third-party log calls route through
+   * the framework logger → direct-POST to this endpoint.
    */
-  otlpErrorLogsEndpointEnvVar?: string;
-  /** Set to `false` to disable the OTLP/HTTP error-log exporter explicitly. */
-  otlpErrorLogsEnabled?: boolean;
+  otlpLogsEndpointEnvVar?: string;
+  /** Set to `false` to disable the OTLP/HTTP logs exporter explicitly. */
+  otlpLogsEnabled?: boolean;
   /**
-   * Minimum log level that the OTLP/HTTP error-log channel forwards.
-   * Defaults to `"error"` — production-safe: only errors travel
-   * direct-POST; info/warn flow through CF Destinations sampling. Set
-   * to `"warn"` to include warnings, or `"info"` / `"debug"` to capture
-   * everything (preview / local-dev only — bypasses sampling and can
-   * overwhelm the rate-limit bucket).
+   * Minimum log level forwarded via direct-POST. Defaults to `"warn"` —
+   * errors and warnings travel at 100% capture; debug/info are dropped.
+   * Set to `"info"` to include informational logs, or `"debug"` to capture
+   * everything (preview / local-dev only — can be high volume).
    *
-   * Precedence: env var (`otlpErrorLogsMinLevelEnvVar`, default
-   * `DECO_OTEL_LOGS_MIN_LEVEL`) > this option > `"error"`. Invalid env
+   * Precedence: env var (`otlpLogsMinLevelEnvVar`, default
+   * `DECO_OTEL_LOGS_MIN_LEVEL`) > this option > `"warn"`. Invalid env
    * values fall through silently.
    */
-  otlpErrorLogsMinLevel?: LogLevel;
+  otlpLogsMinLevel?: LogLevel;
   /**
-   * Env var name to read the OTLP/HTTP error-log minimum level from.
-   * Defaults to `"DECO_OTEL_LOGS_MIN_LEVEL"`. Value MUST be one of
+   * Env var name to read the minimum log level from. Defaults to
+   * `"DECO_OTEL_LOGS_MIN_LEVEL"`. Value MUST be one of
    * `"debug"`, `"info"`, `"warn"`, `"error"`.
    */
-  otlpErrorLogsMinLevelEnvVar?: string;
+  otlpLogsMinLevelEnvVar?: string;
   /**
    * Env var name holding the OTLP/HTTP traces endpoint used by the
    * direct-POST span exporter. Defaults to `"DECO_OTEL_TRACES_ENDPOINT"`.
@@ -201,8 +199,8 @@ export interface OtelOptions {
    * exporter without touching the worker's outbound fetch.
    */
   otlpMetricsFetchImpl?: typeof fetch;
-  /** Test seam — replace the global `fetch` used by the error-log exporter. */
-  otlpErrorLogsFetchImpl?: typeof fetch;
+  /** Test seam — replace the global `fetch` used by the logs exporter. */
+  otlpLogsFetchImpl?: typeof fetch;
 }
 
 interface WorkerExecutionContext {
@@ -246,12 +244,15 @@ interface WorkerHandler {
 // hot reloads in `wrangler dev` too.
 // ---------------------------------------------------------------------------
 
+type OrigConsole = Pick<typeof console, "log" | "info" | "warn" | "error" | "debug">;
+
 interface BootState {
   booted: boolean;
   otlpMeter: OtlpHttpMeter | null;
-  otlpErrorLog: OtlpHttpErrorLog | null;
+  otlpLog: OtlpHttpLog | null;
   otlpTracer: OtlpHttpTracer | null;
   spanAttributeFloor: Record<string, string>;
+  origConsole: OrigConsole | null;
 }
 
 const BOOT_STATE_KEY = Symbol.for("@decocms/start/sdk/otel/boot.v1");
@@ -262,9 +263,10 @@ function getBootState(): BootState {
     g[BOOT_STATE_KEY] = {
       booted: false,
       otlpMeter: null,
-      otlpErrorLog: null,
+      otlpLog: null,
       otlpTracer: null,
       spanAttributeFloor: {},
+      origConsole: null,
     } satisfies BootState;
   }
   return g[BOOT_STATE_KEY] as BootState;
@@ -278,9 +280,14 @@ function getBootState(): BootState {
  * concurrent requests in the same isolate don't trample each other.
  */
 const TRACE_CTX_BAG_KEY = "deco.observability.traceContext.v1";
+const DEBUG_SAMPLED_BAG_KEY = "deco.observability.debugSampled.v1";
 
 function getRequestTraceContext(): TraceContext | null {
   return RequestContext.getBag<TraceContext>(TRACE_CTX_BAG_KEY) ?? null;
+}
+
+function getDebugSampled(): boolean {
+  return RequestContext.getBag<boolean>(DEBUG_SAMPLED_BAG_KEY) ?? false;
 }
 
 /**
@@ -291,6 +298,16 @@ function getRequestTraceContext(): TraceContext | null {
  */
 export function _setRequestTraceContext(ctx: TraceContext | null): void {
   if (ctx) RequestContext.setBag(TRACE_CTX_BAG_KEY, ctx);
+}
+
+/**
+ * Called by `workerEntry.ts` when the inbound URL contains `?__d=<any>`.
+ * Forces trace sampling for the current request regardless of `headSamplingRate`.
+ * Useful for debugging individual requests in production without changing
+ * the global sampling rate.
+ */
+export function _setDebugSampled(): void {
+  RequestContext.setBag(DEBUG_SAMPLED_BAG_KEY, true);
 }
 
 /**
@@ -354,9 +371,9 @@ export function instrumentWorker(
             /* ctx.waitUntil throwing is benign — never block the response */
           }
         }
-        if (state.otlpErrorLog) {
+        if (state.otlpLog) {
           try {
-            ctx.waitUntil(state.otlpErrorLog.flush());
+            ctx.waitUntil(state.otlpLog.flush());
           } catch {
             /* swallow */
           }
@@ -486,9 +503,67 @@ function configureTracerStack(otlpAdapter: OtlpHttpTracer | null): void {
 // Boot — wires the loggers/meters once (per worker isolate)
 // ---------------------------------------------------------------------------
 
+/**
+ * Replaces `console.*` with thin shims that route every call through the
+ * framework `logger`, which forwards to the configured adapter (direct-POST
+ * OTLP when active). The original functions are saved on `BootState` so
+ * `_resetBootStateForTests()` can restore them between test runs.
+ *
+ * A re-entrancy guard (`busy`) prevents the loop that would occur if the
+ * active logger adapter ever calls back into `console.*` (e.g. the
+ * `defaultLoggerAdapter` in dev mode). Without the guard:
+ *   console.error → logger.error → defaultLoggerAdapter → console.error → …
+ *
+ * Only called when the OTLP logs endpoint is configured. In dev (no OTLP),
+ * `console.*` is left untouched so `wrangler dev` / `wrangler tail` keep
+ * showing output normally.
+ */
+function patchConsole(state: BootState): void {
+  if (state.origConsole) return; // already patched this isolate
+
+  const orig: OrigConsole = {
+    log:   console.log.bind(console),
+    info:  console.info.bind(console),
+    warn:  console.warn.bind(console),
+    error: console.error.bind(console),
+    debug: console.debug.bind(console),
+  };
+  state.origConsole = orig;
+
+  let busy = false;
+
+  const forward = (level: LogLevel, args: unknown[]): void => {
+    if (busy) return;
+    busy = true;
+    try {
+      const msg = args
+        .map((a) => {
+          if (typeof a === "string") return a;
+          try { return JSON.stringify(a); } catch { return String(a); }
+        })
+        .join(" ");
+      logger[level](msg);
+    } finally {
+      busy = false;
+    }
+  };
+
+  console.log   = (...args: unknown[]) => forward("info",  args);
+  console.info  = (...args: unknown[]) => forward("info",  args);
+  console.warn  = (...args: unknown[]) => forward("warn",  args);
+  console.error = (...args: unknown[]) => forward("error", args);
+  console.debug = (...args: unknown[]) => forward("debug", args);
+}
+
 function bootObservability(opts: OtelOptions, env: Record<string, unknown>): void {
   const state = getBootState();
   if (state.booted) return;
+
+  // Capture the original console.warn BEFORE patchConsole() runs. The onError
+  // callbacks below need a direct channel to console that bypasses the logger
+  // to avoid routing exporter-level warnings back through the OTLP adapter
+  // that is currently failing.
+  const warnDirect = console.warn.bind(console);
 
   const serviceName = opts.serviceName ?? (env.DECO_SITE_NAME as string | undefined) ?? "deco-site";
   const decoRuntimeVersion = opts.decoRuntimeVersion ?? DECO_RUNTIME_VERSION;
@@ -545,25 +620,27 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   //    Workers Logs captures this and CF Destinations forwards a
   //    `logs.head_sampling_rate` fraction to `deco-otel-ingest/v1/logs`.
   //    Carries debug / info / warn / error.
-  //  - `otlpErrorLog.adapter`: direct POST to `/v1/logs` for level=error
+  //  - `otlpLog.adapter`: direct POST to `/v1/logs` for level=error
   //    only, rate-limited (default 100/min, burst 20), buffered, flushed
   //    via `ctx.waitUntil` at request end. Guarantees ≥99% error capture
   //    regardless of the CF Destinations sampling rate. See
-  //    `otelHttpErrorLog.ts` for the aggregation + rate-limit details.
+  //    `otelHttpLog.ts` for the aggregation + rate-limit details.
   //
   // The two paths land in the SAME `default.otel_logs` table, so the
   // ingestor's existing PII redaction applies uniformly and dashboards
   // need no changes. Records from the direct-POST path are
   // distinguishable from CF-Destinations records by `ScopeName =
   // "@decocms/start"` if needed (CF stamps its own scope).
-  const otlpLogsEnvVar = opts.otlpErrorLogsEndpointEnvVar ?? "DECO_OTEL_LOGS_ENDPOINT";
+  const otlpLogsEnvVar = opts.otlpLogsEndpointEnvVar ?? "DECO_OTEL_LOGS_ENDPOINT";
   const otlpLogsEndpoint = (env[otlpLogsEnvVar] as string | undefined) ?? "";
-  const otlpErrorLogsEnabled =
-    opts.otlpErrorLogsEnabled !== false && otlpLogsEndpoint.length > 0;
-  // Minimum log level precedence: env var > options > "error" default.
+  const otlpLogsEnabled =
+    opts.otlpLogsEnabled !== false && otlpLogsEndpoint.length > 0;
+  // Minimum log level precedence: env var > options > "warn" default.
+  // "warn" ships errors + warnings at 100%; info/debug are dropped unless
+  // explicitly opted in via DECO_OTEL_LOGS_MIN_LEVEL=info.
   // Invalid env values fall through silently.
   const otlpLogsMinLevelEnvVar =
-    opts.otlpErrorLogsMinLevelEnvVar ?? "DECO_OTEL_LOGS_MIN_LEVEL";
+    opts.otlpLogsMinLevelEnvVar ?? "DECO_OTEL_LOGS_MIN_LEVEL";
   const otlpLogsMinLevelFromEnv = (
     (env[otlpLogsMinLevelEnvVar] as string | undefined) ?? ""
   ).toLowerCase();
@@ -571,21 +648,19 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   const otlpLogsMinLevel: LogLevel =
     (validLogLevels as readonly string[]).includes(otlpLogsMinLevelFromEnv)
       ? (otlpLogsMinLevelFromEnv as LogLevel)
-      : opts.otlpErrorLogsMinLevel ?? "error";
-  if (otlpErrorLogsEnabled) {
-    state.otlpErrorLog = createOtlpHttpErrorLogAdapter({
+      : opts.otlpLogsMinLevel ?? "info";
+  if (otlpLogsEnabled) {
+    state.otlpLog = createOtlpHttpLogAdapter({
       endpoint: otlpLogsEndpoint,
       resourceAttributes: floor,
       scopeVersion: decoRuntimeVersion,
       minLevel: otlpLogsMinLevel,
-      fetchImpl: opts.otlpErrorLogsFetchImpl,
+      fetchImpl: opts.otlpLogsFetchImpl,
       onError: (kind, err) => {
-        // Don't recurse — use console.warn directly, not logger.warn.
-        // The whole point of this adapter is to bypass the logger path
-        // for high-fidelity error capture, so logging back into it
-        // would be circular.
+        // Use warnDirect (pre-patch console.warn) to avoid routing this
+        // warning back through the OTLP adapter that is currently failing.
         try {
-          console.warn(
+          warnDirect(
             JSON.stringify({
               level: "warn",
               msg: "otlp error-log exporter",
@@ -600,15 +675,23 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       },
     });
   } else {
-    state.otlpErrorLog = null;
+    state.otlpLog = null;
   }
 
-  configureLogger(
-    createCompositeLogger([
-      defaultLoggerAdapter,
-      state.otlpErrorLog ? state.otlpErrorLog.adapter : null,
-    ]),
-  );
+  if (otlpLogsEnabled) {
+    // OTLP active: direct-POST is the sole log transport.
+    // console.* will be intercepted by patchConsole() below so all
+    // application and third-party console calls route here too.
+    // defaultLoggerAdapter is excluded to prevent workerd from capturing
+    // framework logs (which would make them visible to the tail worker a
+    // second time — the tail worker only needs to see what the worker
+    // itself cannot capture: exceededCpu / exceededMemory / isolate crashes).
+    configureLogger(createCompositeLogger([state.otlpLog!.adapter]));
+  } else {
+    // No OTLP endpoint — dev mode. Keep writing to console so wrangler dev /
+    // wrangler tail show output normally. No monkey-patch applied.
+    configureLogger(createCompositeLogger([defaultLoggerAdapter]));
+  }
 
   // Meter — fan out to two backends when both are configured:
   //
@@ -640,13 +723,19 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       fetchImpl: opts.otlpMetricsFetchImpl,
       metricMetadata: METRIC_METADATA,
       onError: (kind, err) => {
-        // Surface flush + overflow errors at warn so operators see them in
-        // CF Logs without enabling debug. Stays JSON via the logger so
-        // structured filters keep working.
-        defaultLoggerAdapter.log("warn", "otlp metrics exporter", {
-          kind,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        try {
+          warnDirect(
+            JSON.stringify({
+              level: "warn",
+              msg: "otlp metrics exporter",
+              kind,
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        } catch {
+          /* swallow */
+        }
       },
     });
   } else {
@@ -690,11 +779,21 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       fetchImpl: opts.otlpTracesFetchImpl,
       getActiveSpanForParent: () => getActiveSpan(),
       getRequestTraceContext,
+      getForceSampled: getDebugSampled,
       onError: (kind, err) => {
-        defaultLoggerAdapter.log("warn", "otlp traces exporter", {
-          kind,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        try {
+          warnDirect(
+            JSON.stringify({
+              level: "warn",
+              msg: "otlp traces exporter",
+              kind,
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        } catch {
+          /* swallow */
+        }
       },
     });
   } else {
@@ -708,19 +807,37 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
 
   state.booted = true;
 
-  // Single boot-time breadcrumb so operators can confirm the wiring at a
-  // glance from CF Logs without enabling debug.
-  defaultLoggerAdapter.log("info", "observability booted", {
-    service: serviceName,
-    analyticsEngine: aeEnabled,
-    otlpMetrics: otlpEnabled,
-    otlpErrorLogs: otlpErrorLogsEnabled,
-    otlpErrorLogsMinLevel: otlpLogsMinLevel,
-    otlpTraces: otlpTracesEnabled,
-    runtimeVersion: decoRuntimeVersion,
-    deploymentEnvironment,
-    ...(serviceVersion ? { serviceVersion } : {}),
-  });
+  // Intercept console.* only when OTLP is active (production). In dev mode
+  // (no OTLP endpoint) console is left untouched so wrangler dev / wrangler
+  // tail keep showing output normally.
+  if (otlpLogsEnabled) {
+    patchConsole(state);
+  }
+
+  // Boot breadcrumb — infra telemetry, not application telemetry. Goes to the
+  // original console (pre-patch) so it shows in wrangler dev / wrangler tail
+  // without polluting the OTLP buffer (where it would interfere with trace-
+  // based sampling — there is no active span at boot time).
+  try {
+    warnDirect(
+      JSON.stringify({
+        level: "info",
+        msg: "observability booted",
+        service: serviceName,
+        analyticsEngine: aeEnabled,
+        otlpMetrics: otlpEnabled,
+        otlpLogs: otlpLogsEnabled,
+        otlpLogsMinLevel: otlpLogsMinLevel,
+        otlpTraces: otlpTracesEnabled,
+        consolePatch: otlpLogsEnabled,
+        runtimeVersion: decoRuntimeVersion,
+        deploymentEnvironment,
+        ...(serviceVersion ? { serviceVersion } : {}),
+      }),
+    );
+  } catch {
+    /* swallow */
+  }
 }
 
 /**
@@ -732,8 +849,16 @@ export function _resetBootStateForTests(): void {
   state.booted = false;
   state.spanAttributeFloor = {};
   state.otlpMeter = null;
-  state.otlpErrorLog = null;
+  state.otlpLog = null;
   state.otlpTracer = null;
+  if (state.origConsole) {
+    console.log   = state.origConsole.log;
+    console.info  = state.origConsole.info;
+    console.warn  = state.origConsole.warn;
+    console.error = state.origConsole.error;
+    console.debug = state.origConsole.debug;
+    state.origConsole = null;
+  }
   setLoggerAttributeFloor({});
 }
 

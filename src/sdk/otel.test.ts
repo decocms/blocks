@@ -426,7 +426,7 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     };
     const wrapped = instrumentWorker(handler, {
       serviceName: "smoke-site",
-      otlpErrorLogsFetchImpl: impl,
+      otlpLogsFetchImpl: impl,
     });
 
     const env: TestEnv = {
@@ -453,18 +453,17 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     expect(rec.body.stringValue).toBe("payment failed");
   });
 
-  it("info / warn / debug calls do NOT trigger a direct POST", async () => {
+  it("info / debug calls do NOT trigger a direct POST (below default warn minLevel)", async () => {
     const { impl, calls } = makeFetchSpy();
     const handler = {
       fetch: vi.fn(async () => {
         logger.logger.info("info msg");
-        logger.logger.warn("warn msg");
         logger.logger.debug("debug msg");
         return new Response("ok");
       }),
     };
     const wrapped = instrumentWorker(handler, {
-      otlpErrorLogsFetchImpl: impl,
+      otlpLogsFetchImpl: impl,
     });
 
     const env: TestEnv = {
@@ -477,7 +476,33 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("otlpErrorLogsEnabled=false disables the channel even when env is set", async () => {
+  it("warn calls DO trigger a direct POST (at default warn minLevel)", async () => {
+    const { impl, calls } = makeFetchSpy();
+    const handler = {
+      fetch: vi.fn(async () => {
+        logger.logger.warn("topsort api key not found");
+        return new Response("ok");
+      }),
+    };
+    const wrapped = instrumentWorker(handler, {
+      otlpLogsFetchImpl: impl,
+    });
+
+    const env: TestEnv = {
+      DECO_OTEL_LOGS_ENDPOINT: "https://ingest.test/v1/logs",
+    } as TestEnv & { DECO_OTEL_LOGS_ENDPOINT: string };
+    const ctx = fakeCtx();
+    await wrapped.fetch(new Request("https://example.test/"), env, ctx);
+    await Promise.all(ctx.waited);
+
+    expect(calls).toHaveLength(1);
+    const payload = JSON.parse(calls[0].body) as {
+      resourceLogs: Array<{ scopeLogs: Array<{ logRecords: Array<{ severityText: string }> }> }>;
+    };
+    expect(payload.resourceLogs[0].scopeLogs[0].logRecords[0].severityText).toBe("warn");
+  });
+
+  it("otlpLogsEnabled=false disables the channel even when env is set", async () => {
     const { impl, calls } = makeFetchSpy();
     const handler = {
       fetch: vi.fn(async () => {
@@ -486,8 +511,8 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
       }),
     };
     const wrapped = instrumentWorker(handler, {
-      otlpErrorLogsEnabled: false,
-      otlpErrorLogsFetchImpl: impl,
+      otlpLogsEnabled: false,
+      otlpLogsFetchImpl: impl,
     });
 
     const env: TestEnv = {

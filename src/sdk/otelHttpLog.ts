@@ -39,13 +39,14 @@
  * composed onto the active logger via `createCompositeLogger`.
  */
 
+import { getActiveSpan } from "./observability";
 import type { LoggerAdapter, LogLevel } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface OtlpHttpErrorLogOptions {
+export interface OtlpHttpLogOptions {
   /** Full OTLP/HTTP JSON logs endpoint, e.g. `https://.../v1/logs`. */
   endpoint: string;
   /** Resource attributes stamped on every payload (service.name etc.). */
@@ -62,10 +63,12 @@ export interface OtlpHttpErrorLogOptions {
   flushTimeoutMs?: number;
   /**
    * Token-bucket parameters. The bucket holds up to `burstCapacity`
-   * tokens and refills at `refillPerMinute` per minute. Each error
-   * consumed costs one token. When the bucket is empty, errors are
-   * dropped (with `onError("rate-limit", ...)`) until refill resumes.
-   * Defaults: 20 burst, 100/min.
+   * tokens and refills at `refillPerMinute` per minute. Each log record
+   * costs one token. When the bucket is empty, records are dropped (with
+   * `onError("rate-limit", ...)`) until refill resumes.
+   * Defaults: 500 burst, 1000/min — sized for console monkey-patch, which
+   * routes ALL console.* (including third-party libs at boot) through this
+   * adapter. The old 20/100 defaults were sized for error-only traffic.
    */
   rateLimitBurstCapacity?: number;
   rateLimitRefillPerMinute?: number;
@@ -82,11 +85,16 @@ export interface OtlpHttpErrorLogOptions {
   fetchImpl?: typeof fetch;
   /** Test seam — override Date.now(). */
   nowMs?: () => number;
+  /**
+   * Test seam — override getActiveSpan. Production code uses the
+   * framework's AsyncLocalStorage-backed getActiveSpan automatically.
+   */
+  getActiveSpanFn?: () => { spanContext?: () => { traceId?: string; spanId?: string; traceFlags?: number } } | undefined | null;
   /** Optional sink for transport / rate-limit / overflow errors. */
   onError?: (kind: "flush" | "overflow" | "rate-limit", err: unknown) => void;
 }
 
-export interface OtlpHttpErrorLog {
+export interface OtlpHttpLog {
   adapter: LoggerAdapter;
   /** Force a flush, subject to the per-isolate cooldown. */
   flush(): Promise<void>;
@@ -105,6 +113,9 @@ interface PendingRecord {
   severityText: string;
   body: string;
   attributes: Record<string, unknown>;
+  traceId: string;
+  spanId: string;
+  traceFlags: number;
 }
 
 // OTel SeverityNumber values, OTel spec. See
@@ -120,7 +131,7 @@ const SEVERITY_NUMBER: Record<LogLevel, number> = {
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createOtlpHttpErrorLogAdapter(options: OtlpHttpErrorLogOptions): OtlpHttpErrorLog {
+export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpLog {
   const endpoint = options.endpoint;
   const resourceAttributes = options.resourceAttributes;
   const scopeName = options.scopeName ?? "@decocms/start";
@@ -128,12 +139,13 @@ export function createOtlpHttpErrorLogAdapter(options: OtlpHttpErrorLogOptions):
   const maxBuffer = options.maxBufferRecords ?? 500;
   const minFlushIntervalMs = options.minFlushIntervalMs ?? 5000;
   const flushTimeoutMs = options.flushTimeoutMs ?? 5000;
-  const burstCapacity = options.rateLimitBurstCapacity ?? 20;
-  const refillPerMinute = options.rateLimitRefillPerMinute ?? 100;
-  const minSeverity = SEVERITY_NUMBER[options.minLevel ?? "error"];
+  const burstCapacity = options.rateLimitBurstCapacity ?? 500;
+  const refillPerMinute = options.rateLimitRefillPerMinute ?? 1000;
+  const minSeverity = SEVERITY_NUMBER[options.minLevel ?? "warn"];
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.nowMs ?? (() => Date.now());
   const onError = options.onError;
+  const getSpan = options.getActiveSpanFn ?? getActiveSpan;
 
   const buffer: PendingRecord[] = [];
   // Token bucket — starts full.
@@ -162,9 +174,18 @@ export function createOtlpHttpErrorLogAdapter(options: OtlpHttpErrorLogOptions):
 
   const adapter: LoggerAdapter = {
     log(level, msg, attrs) {
-      // Filter by severity threshold (default: error only). Lower-severity
-      // records are silently dropped at ingress so the buffer never holds them.
+      // Filter by severity threshold. Levels below minLevel are dropped.
       if (SEVERITY_NUMBER[level] < minSeverity) return;
+
+      // Trace-based sampling for info/debug: only forward when the current
+      // request's trace is sampled (W3C traceFlags bit 0x01). This keeps
+      // log-trace correlation intact — if you have the trace you have the
+      // logs; if the trace was dropped, the info/debug logs have no context
+      // and are dropped too. Errors and warnings always pass regardless.
+      if (level === "info" || level === "debug") {
+        const flags = getSpan()?.spanContext?.()?.traceFlags;
+        if (!((flags ?? 0) & 0x01)) return;
+      }
 
       if (!tryConsumeToken()) {
         onError?.(
@@ -182,6 +203,7 @@ export function createOtlpHttpErrorLogAdapter(options: OtlpHttpErrorLogOptions):
         return;
       }
 
+      const spanCtx = getSpan()?.spanContext?.();
       const t = msToNs(now());
       buffer.push({
         timeUnixNano: t,
@@ -190,6 +212,9 @@ export function createOtlpHttpErrorLogAdapter(options: OtlpHttpErrorLogOptions):
         severityText: level,
         body: msg,
         attributes: attrs ? { ...attrs } : {},
+        traceId: spanCtx?.traceId ?? "",
+        spanId: spanCtx?.spanId ?? "",
+        traceFlags: spanCtx?.traceFlags ?? 0,
       });
     },
   };
@@ -357,6 +382,9 @@ function serializeOtlp(records: PendingRecord[], opts: SerializeOpts): { resourc
     attributes: Object.entries(r.attributes)
       .filter(([_, v]) => v !== undefined && v !== null)
       .map(([k, v]) => ({ key: k, value: attrToOtlpValue(v) })),
+    ...(r.traceId ? { traceId: r.traceId } : {}),
+    ...(r.spanId  ? { spanId:  r.spanId  } : {}),
+    ...(r.traceFlags ? { flags: r.traceFlags } : {}),
   }));
 
   const resourceAttrs = Object.entries(opts.resourceAttributes)
