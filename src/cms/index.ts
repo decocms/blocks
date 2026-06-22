@@ -54,6 +54,7 @@ export {
   clearCommerceLoaders,
   registerMatcher,
   registerEagerSections,
+  registerNeverDeferSections,
   registerSeoSections,
   resolveDecoPage,
   resolvePageSections,

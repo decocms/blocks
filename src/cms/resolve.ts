@@ -186,6 +186,25 @@ function isEagerSection(key: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Permanent neverDefer section registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Register sections that declared `export const neverDefer = true`.
+ * These sections are NEVER deferred regardless of fold threshold —
+ * use for interactive components that need their props on the client
+ * during hydration (search filters, configurators, etc.).
+ */
+export function registerNeverDeferSections(keys: string[]): void {
+  const set: Set<string> = G.__deco.neverDeferSectionKeys ??= new Set();
+  for (const k of keys) set.add(k);
+}
+
+function isNeverDeferSection(key: string): boolean {
+  return (G.__deco.neverDeferSectionKeys as Set<string> | undefined)?.has(key) ?? false;
+}
+
+// ---------------------------------------------------------------------------
 // Deferred rawProps cache — keeps rawProps server-side to trim HTML payload
 // ---------------------------------------------------------------------------
 
@@ -1113,6 +1132,11 @@ function shouldDeferSection(
   // across pages and their resolved output is cached, so serialization cost is
   // amortized. Deferring them would flash a skeleton on every navigation.
   if (isLayoutSection(finalKey)) return false;
+
+  // `export const neverDefer = true` — unconditionally eager, ignores fold
+  // threshold. Use for interactive components that need their props on the
+  // client during hydration (search filters, configurators, etc.).
+  if (isNeverDeferSection(finalKey)) return false;
 
   // `export const eager = true` keeps sections eager only WITHIN the fold
   // threshold. Past the threshold, defer even eager sections — their resolved
