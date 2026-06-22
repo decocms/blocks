@@ -32,6 +32,7 @@ const outFile = path.resolve(process.cwd(), arg("out-file", "src/server/cms/sect
 
 interface SectionMeta {
   eager?: boolean;
+  neverDefer?: boolean;
   cache?: string;
   layout?: boolean;
   sync?: boolean;
@@ -40,7 +41,7 @@ interface SectionMeta {
   hasLoadingFallback?: boolean;
 }
 
-const EXPORT_CONST_RE = /export\s+const\s+(eager|cache|layout|sync|clientOnly|seo)\s*=\s*(.+?)(?:;|\n)/g;
+const EXPORT_CONST_RE = /export\s+const\s+(eager|neverDefer|cache|layout|sync|clientOnly|seo)\s*=\s*(.+?)(?:;|\n)/g;
 // Detects `export function LoadingFallback(...)`, `export const LoadingFallback = ...`, etc.
 const LOADING_FALLBACK_INLINE_RE = /export\s+(?:function|const|let|var)\s+LoadingFallback\b/;
 // Detects re-exports like:
@@ -141,7 +142,8 @@ const lines: string[] = [
   "// Do not edit manually. Add convention exports to your section files instead.",
   "//",
   "// Supported conventions:",
-  "//   export const eager = true       → always SSR'd (never deferred)",
+  "//   export const eager = true       → prefer eager (defers past fold threshold)",
+  "//   export const neverDefer = true  → ALWAYS eager, ignores fold threshold",
   "//   export const cache = \"listing\"  → SWR-cached section loader results",
   "//   export const layout = true      → cached as layout (Header, Footer, Theme)",
   "//   export const sync = true        → bundled synchronously (not lazy-loaded)",

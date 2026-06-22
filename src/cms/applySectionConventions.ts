@@ -18,6 +18,7 @@ import {
 import {
   type AsyncRenderingConfig,
   registerEagerSections,
+  registerNeverDeferSections,
   registerSeoSections,
   setAsyncRenderingConfig,
   getAsyncRenderingConfig,
@@ -25,6 +26,7 @@ import {
 
 export interface SectionMetaEntry {
   eager?: boolean;
+  neverDefer?: boolean;
   cache?: string;
   layout?: boolean;
   sync?: boolean;
@@ -48,12 +50,14 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
   const { meta, syncComponents, loadingFallbacks, sectionGlob } = input;
 
   const eagerSections: string[] = [];
+  const neverDeferSections: string[] = [];
   const layoutSections: string[] = [];
   const seoSections: string[] = [];
   const cacheableSections: Record<string, CacheableSectionInput> = {};
 
   for (const [key, entry] of Object.entries(meta)) {
     if (entry.eager) eagerSections.push(key);
+    if (entry.neverDefer) neverDeferSections.push(key);
     if (entry.layout) layoutSections.push(key);
     if (entry.seo) seoSections.push(key);
     if (entry.cache) cacheableSections[key] = entry.cache as CacheableSectionInput;
@@ -80,16 +84,24 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
   }
 
   if (eagerSections.length > 0) {
-    // Permanent registry — survives subsequent setAsyncRenderingConfig() calls
     registerEagerSections(eagerSections);
-    // Also add to alwaysEager for backward compat with code that reads the config
-    const existing: Partial<AsyncRenderingConfig> =
-      getAsyncRenderingConfig() ?? {};
-    setAsyncRenderingConfig({
-      ...existing,
-      alwaysEager: [...(existing.alwaysEager ?? []), ...eagerSections],
-    });
   }
+
+  if (neverDeferSections.length > 0) {
+    registerNeverDeferSections(neverDeferSections);
+  }
+
+  // Always initialize asyncConfig so the default foldThreshold takes effect
+  // even when no section declares `export const eager = true`. Without this,
+  // asyncConfig stays null and ALL sections render eagerly — serializing their
+  // full resolved props into the SSR hydration blob (measured: 8.6 MB HTML on
+  // a PLP with 40 products).
+  const existing: Partial<AsyncRenderingConfig> =
+    getAsyncRenderingConfig() ?? {};
+  setAsyncRenderingConfig({
+    ...existing,
+    alwaysEager: [...(existing.alwaysEager ?? []), ...eagerSections],
+  });
 
   if (layoutSections.length > 0) {
     registerLayoutSections(layoutSections);
