@@ -201,6 +201,21 @@ export interface OtelOptions {
    * `"DECO_OTEL_ERROR_PROMOTION"`. Value must be `"true"` to enable.
    */
   otlpTracesErrorPromotionEnvVar?: string;
+  /**
+   * Sampling rate applied to error-promoted traces, 0.0..1.0. Default `0.1`
+   * (promote 10% of error traces). Lower values cap ClickHouse volume when
+   * errors are frequent. Uses the same FNV-1a hash as head sampling.
+   *
+   * Precedence: env var (`otlpTracesErrorPromotionRateEnvVar`, default
+   * `DECO_OTEL_ERROR_PROMOTION_RATE`) > this option > `1.0`.
+   */
+  otlpTracesErrorPromotionRate?: number;
+  /**
+   * Env var name to read the error promotion rate from. Defaults to
+   * `"DECO_OTEL_ERROR_PROMOTION_RATE"`. Value must be a finite number in
+   * `[0, 1]`. Invalid values are ignored.
+   */
+  otlpTracesErrorPromotionRateEnvVar?: string;
   /** Test seam — replace the global `fetch` used by the traces exporter. */
   otlpTracesFetchImpl?: typeof fetch;
   /**
@@ -797,11 +812,24 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       samplingRateFromEnv <= 1
         ? samplingRateFromEnv
         : undefined;
+    const errorPromotionRateEnvVar =
+      opts.otlpTracesErrorPromotionRateEnvVar ?? "DECO_OTEL_ERROR_PROMOTION_RATE";
+    const errorPromotionRateFromEnv = Number.parseFloat(
+      (env[errorPromotionRateEnvVar] as string | undefined) ?? "",
+    );
+    const errorPromotionRate =
+      Number.isFinite(errorPromotionRateFromEnv) &&
+      errorPromotionRateFromEnv >= 0 &&
+      errorPromotionRateFromEnv <= 1
+        ? errorPromotionRateFromEnv
+        : (opts.otlpTracesErrorPromotionRate ?? 0.1);
+
     state.otlpTracer = createOtlpHttpTracerAdapter({
       endpoint: otlpTracesEndpoint,
       resourceAttributes: floor,
       scopeVersion: decoRuntimeVersion,
       headSamplingRate: samplingRateOverride ?? opts.otlpTracesSamplingRate ?? 0.01,
+      errorPromotionRate,
       fetchImpl: opts.otlpTracesFetchImpl,
       getActiveSpanForParent: () => getActiveSpan(),
       getRequestTraceContext,
