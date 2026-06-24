@@ -186,8 +186,9 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
 
       // No SDK-level sampling for info/debug. Volume is controlled by
       // minLevel (severity threshold) here, and by the probabilistic
-      // sampler in the otel-ingest collector — keeping log and trace
-      // sampling pipelines fully independent per OTel spec.
+      // sampler in the otel-ingest collector. The OTel spec defines a
+      // Sampler interface only for traces — log volume control belongs
+      // to the collector pipeline.
 
       if (!tryConsumeToken()) {
         onError?.(
