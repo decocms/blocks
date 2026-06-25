@@ -27,6 +27,7 @@ import {
   registerEagerSections,
   registerNeverDeferSections,
   resolveDeferredSectionFull,
+  resolvePageSeoBlock,
   resolveSectionsList,
   resolveValue,
   setAsyncRenderingConfig,
@@ -388,5 +389,65 @@ describe("shouldDeferSection — admin is the source of truth", () => {
     const section = { __resolveType: "site/sections/Shelf.tsx" };
     expect(shouldDeferSection(section, 5, mkCfg({ foldThreshold: 3 }), false)).toBe(true);
     expect(shouldDeferSection(section, 1, mkCfg({ foldThreshold: 3 }), false)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Page SEO block — bot-aware commerce resolution
+// ---------------------------------------------------------------------------
+//
+// The page-level SEO block (e.g. `commerce/sections/Seo/SeoPLPV2.tsx` with
+// `jsonLD: { __resolveType: "PLP Loader" }`) is always eager. For humans the
+// commerce-loader-backed props must be skipped: resolving them blocks SSR on a
+// heavy upstream fetch and serializes the full product payload into HTML that a
+// human request never renders. Bots keep the full resolution for indexing.
+describe("resolvePageSeoBlock — bot-aware commerce SEO", () => {
+  const KEY = "site/loaders/__test/plpSeoLoader";
+  const HUMAN_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
+  const BOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+
+  const seoBlock = {
+    __resolveType: "commerce/sections/Seo/SeoPLPV2.tsx",
+    title: "Escolar",
+    jsonLD: { __resolveType: KEY },
+  };
+
+  const rctx = (userAgent?: string) =>
+    ({
+      matcherCtx: { userAgent, url: "https://store.com/escolar", path: "/escolar" },
+      memo: new Map(),
+      depth: 0,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any;
+
+  beforeEach(() => clearCommerceLoaders());
+  afterEach(() => clearCommerceLoaders());
+
+  it("humans: skips the commerce loader and drops the commerce-backed prop", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { seo: { title: "Rich SEO title" }, products: [{ id: 1 }] };
+    });
+
+    const res = await resolvePageSeoBlock(seoBlock, rctx(HUMAN_UA));
+
+    expect(calls).toBe(0); // heavy upstream fetch never runs for humans
+    expect(res?.props).toHaveProperty("title", "Escolar"); // literal props kept
+    expect(res?.props).not.toHaveProperty("jsonLD"); // no product payload in HTML
+  });
+
+  it("bots: resolves the commerce loader and keeps the JSON-LD payload", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { seo: { title: "Rich SEO title" }, products: [{ id: 1 }] };
+    });
+
+    const res = await resolvePageSeoBlock(seoBlock, rctx(BOT_UA));
+
+    expect(calls).toBe(1);
+    expect(res?.props?.jsonLD).toMatchObject({ seo: { title: "Rich SEO title" } });
   });
 });
