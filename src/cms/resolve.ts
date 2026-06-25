@@ -277,6 +277,36 @@ export function isBot(userAgent?: string): boolean {
 }
 
 /**
+ * Explicit override to force the eager (full SSR / crawler) render from a normal
+ * browser — for QA and SEO auditing without spoofing the User-Agent. Triggered
+ * by `?__deco_ssr=1` (alias `?__bot=1`) on the request URL.
+ *
+ * The flag lives in the query string, so it is part of the edge cache key: the
+ * forced-eager response gets its own cache bucket and never contaminates the
+ * human page. Cookies are intentionally NOT honored here — they are not in the
+ * cache key and would risk serving a stale human entry.
+ */
+function hasForceEagerParam(ctx?: MatcherContext): boolean {
+  const url = ctx?.url;
+  if (!url) return false;
+  try {
+    const sp = new URL(url, "https://localhost").searchParams;
+    return sp.get("__deco_ssr") === "1" || sp.get("__bot") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when the request should receive the full eager (crawler) render: real
+ * search-engine bots (by User-Agent) OR an explicit `?__deco_ssr=1` override.
+ * Used to gate both section deferral and page-SEO commerce resolution.
+ */
+export function isEagerRequest(ctx?: MatcherContext): boolean {
+  return isBot(ctx?.userAgent) || hasForceEagerParam(ctx);
+}
+
+/**
  * A loader registered against a `__resolveType` key. The runtime invokes it
  * through two paths:
  *
@@ -300,6 +330,14 @@ export interface MatcherContext {
   cookies?: Record<string, string>;
   headers?: Record<string, string>;
   request?: Request;
+  /**
+   * Client-side (SPA) navigation via TanStack `<Link>`. Disables section
+   * deferral: deferral is a streaming-SSR optimization, but a client nav
+   * receives the server-fn JSON in one shot, so deferral adds a round-trip +
+   * skeleton with no benefit (and breaks loaders that need per-request app
+   * context — see decocms/deco-start#277). Set by the route loaders.
+   */
+  isClientNavigation?: boolean;
 }
 
 /**
@@ -899,6 +937,14 @@ export async function resolvePageSeoBlock(
 ): Promise<ResolvedSection | null> {
   if (!seoBlock || typeof seoBlock !== "object") return null;
 
+  // Crawlers get the SEO block fully resolved (e.g. a ProductListingPage for
+  // JSON-LD ItemList) — that content exists for indexing. Humans get only the
+  // lightweight metadata: SEO props backed by a commerce loader are skipped
+  // (see `stripCommerceLoaderProps`) so SSR doesn't block on the heavy upstream
+  // call and the bulky payload (full product list) is never serialized into the
+  // HTML for a request that never renders it.
+  const seoForBot = isEagerRequest(rctx.matcherCtx);
+
   const blocks = loadBlocks();
   let current = seoBlock;
 
@@ -953,8 +999,13 @@ export async function resolvePageSeoBlock(
     // Terminal section (site section or framework SEO type).
     // Resolve all nested prop __resolveType refs (commerce loaders, etc.).
     const { __resolveType: _, ...rawProps } = current;
+    // For humans, drop SEO props whose value resolves to a commerce loader
+    // (e.g. `jsonLD: { __resolveType: "PLP Loader" }`). This avoids the heavy
+    // SSR fetch and keeps the product payload out of the human HTML. Bots keep
+    // the full props so JSON-LD/rich metadata is still emitted for indexing.
+    const propsToResolve = seoForBot ? rawProps : stripCommerceLoaderProps(rawProps);
     try {
-      const resolvedProps = await resolveProps(rawProps, rctx);
+      const resolvedProps = await resolveProps(propsToResolve, rctx);
       return {
         component: rt,
         props: resolvedProps as Record<string, unknown>,
@@ -967,6 +1018,69 @@ export async function resolvePageSeoBlock(
   }
 
   return null;
+}
+
+/**
+ * Does resolving `value` invoke a commerce loader (a heavy upstream data
+ * fetch)? Walks named block references, Lazy/Deferred wrappers, commerce
+ * extension wrappers, and multivariate flags to find a terminal
+ * `__resolveType` registered in `commerceLoaders`.
+ *
+ * Used to keep commerce-backed SEO props (product listings/details for
+ * JSON-LD) out of the human SSR path while preserving them for bots.
+ */
+function resolvesToCommerceLoader(value: unknown, depth = 0): boolean {
+  if (depth > 10 || !value || typeof value !== "object" || Array.isArray(value)) return false;
+  const obj = value as Record<string, unknown>;
+  const rt = obj.__resolveType as string | undefined;
+  if (!rt) return false;
+
+  if (commerceLoaders[rt]) return true;
+
+  if (rt === WELL_KNOWN_TYPES.LAZY) return resolvesToCommerceLoader(obj.section, depth + 1);
+  if (rt === WELL_KNOWN_TYPES.DEFERRED) {
+    const inner = obj.sections;
+    const one = Array.isArray(inner) ? inner[0] : inner;
+    return resolvesToCommerceLoader(one, depth + 1);
+  }
+  if (
+    rt === WELL_KNOWN_TYPES.COMMERCE_EXT_DETAILS ||
+    rt === WELL_KNOWN_TYPES.COMMERCE_EXT_LISTING
+  ) {
+    // Extension wrappers carry their inner loader in `data`; they're commerce
+    // by definition, but guard the recursion for clarity.
+    return obj.data ? resolvesToCommerceLoader(obj.data, depth + 1) : true;
+  }
+  if (rt === WELL_KNOWN_TYPES.MULTIVARIATE || rt === WELL_KNOWN_TYPES.MULTIVARIATE_SECTION) {
+    const variants = obj.variants as Array<{ value?: unknown }> | undefined;
+    return Array.isArray(variants)
+      ? variants.some((v) => resolvesToCommerceLoader(v?.value, depth + 1))
+      : false;
+  }
+
+  // Named block reference — follow one level of the chain.
+  const block = loadBlocks()[rt] as Record<string, unknown> | undefined;
+  if (block) return resolvesToCommerceLoader(block, depth + 1);
+
+  return false;
+}
+
+/**
+ * Return a copy of `rawProps` with every top-level field that resolves to a
+ * commerce loader removed. Applied to page SEO props for human (non-bot)
+ * requests so the heavy commerce fetch is skipped and its payload is never
+ * serialized into the HTML. Lightweight literal props (title, description,
+ * canonical, …) are preserved.
+ */
+function stripCommerceLoaderProps(
+  rawProps: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rawProps)) {
+    if (resolvesToCommerceLoader(v)) continue;
+    out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -1491,9 +1605,14 @@ async function resolveDecoPageImpl(
     rawSections = resolved;
   }
 
-  const isBotReq = isBot(matcherCtx?.userAgent);
+  const isBotReq = isEagerRequest(matcherCtx);
+  // SPA navigation (TanStack <Link>) receives the server-fn JSON in one shot —
+  // there is no HTTP streaming, so deferral adds a round-trip + skeleton with
+  // no benefit (and breaks loaders that need per-request app context, #277).
+  // Resolve everything eagerly on client nav; SSR/bots keep deferral.
+  const isClientNav = matcherCtx?.isClientNavigation ?? false;
   const currentAsyncConfig = getAsyncConfig();
-  const useAsync = currentAsyncConfig !== null && !isBotReq;
+  const useAsync = currentAsyncConfig !== null && !isBotReq && !isClientNav;
 
   const eagerResults: (ResolvedSection[] | Promise<ResolvedSection[]>)[] = [];
   const deferredSections: DeferredSection[] = [];
