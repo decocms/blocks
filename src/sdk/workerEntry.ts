@@ -33,6 +33,7 @@ import { runSectionLoaders, runSingleSectionLoader } from "../cms/sectionLoaders
 import {
   type CacheProfileName,
   cacheHeaders,
+  canonicalizeServerFnPayloadForCacheKey,
   detectCacheProfile,
   edgeCacheConfig,
   getCacheProfile,
@@ -825,6 +826,21 @@ export function createDecoWorkerEntry(
       const cleanPath = cleanPathForCacheKey(url.toString());
       const cleanUrl = new URL(cleanPath, url.origin);
       url.search = cleanUrl.search;
+    }
+
+    // For GET server-fn requests (SPA navigation data), the page being loaded
+    // is encoded in the `payload` arg. Canonicalize it and strip variant params
+    // (skuId/idsku) that the loader ignores — otherwise `/p?skuId=X` and `/p`
+    // get distinct keys and every variant-carrying PDP→PDP nav MISSes, even
+    // though the resolved response is identical. Keeps PLP filter params intact.
+    if (
+      url.pathname.startsWith("/_serverFn/") ||
+      url.pathname.startsWith("/_server/")
+    ) {
+      const payload = url.searchParams.get("payload");
+      if (payload) {
+        url.searchParams.set("payload", canonicalizeServerFnPayloadForCacheKey(payload));
+      }
     }
 
     const version = getBuildHash(env);

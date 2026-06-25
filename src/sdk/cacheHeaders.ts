@@ -370,3 +370,55 @@ export function serverFnPagePath(url: URL): string | null {
     return null;
   }
 }
+
+/**
+ * Search params that never change a CMS page's resolved server-fn response and
+ * so must not fragment its edge cache key. `skuId`/`idsku` select a product
+ * variant client-side (mirrors `cmsRouteConfig`'s default
+ * `ignoreSearchParams: ["skuId"]`) — without stripping them, every PDP→PDP
+ * navigation that carries a variant param is a unique key and always MISSes,
+ * re-running the full page resolution (~1-2s) even though the response is
+ * identical to the canonical `/product/p`.
+ */
+export const DEFAULT_SERVERFN_CACHE_IGNORE_PARAMS = ["skuId", "idsku"];
+
+/**
+ * Canonicalize a TanStack GET server-fn `payload` for use in the edge cache
+ * key: re-serialize it (so equivalent requests always produce byte-identical
+ * keys) and strip the given cache-irrelevant search params from any embedded
+ * route path. This makes `/product/p?skuId=148940` and `/product/p` share one
+ * cache entry, since `loadCmsPage` resolves both to the same page.
+ *
+ * Returns the original payload unchanged on any parse failure (fail-safe: the
+ * caller keeps the raw payload, never worse than before).
+ */
+export function canonicalizeServerFnPayloadForCacheKey(
+  payload: string,
+  ignoreParams: string[] = DEFAULT_SERVERFN_CACHE_IGNORE_PARAMS,
+): string {
+  try {
+    const stripQuery = (s: string): string => {
+      if (!s.startsWith("/") || s.startsWith("//")) return s;
+      const qIdx = s.indexOf("?");
+      if (qIdx < 0) return s;
+      const path = s.slice(0, qIdx);
+      const sp = new URLSearchParams(s.slice(qIdx + 1));
+      for (const p of ignoreParams) sp.delete(p);
+      const rest = sp.toString();
+      return rest ? `${path}?${rest}` : path;
+    };
+    const visit = (v: unknown): unknown => {
+      if (typeof v === "string") return stripQuery(v);
+      if (Array.isArray(v)) return v.map(visit);
+      if (v && typeof v === "object") {
+        const out: Record<string, unknown> = {};
+        for (const [k, val] of Object.entries(v)) out[k] = visit(val);
+        return out;
+      }
+      return v;
+    };
+    return JSON.stringify(visit(JSON.parse(payload)));
+  } catch {
+    return payload;
+  }
+}

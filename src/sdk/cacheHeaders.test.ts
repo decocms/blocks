@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detectCacheProfile, serverFnPagePath } from "./cacheHeaders";
+import {
+  canonicalizeServerFnPayloadForCacheKey,
+  detectCacheProfile,
+  serverFnPagePath,
+} from "./cacheHeaders";
 
 const sfn = (payload: unknown): URL => {
   const u = new URL("https://store.com/_serverFn/abc123");
@@ -54,5 +58,58 @@ describe("serverFnPagePath — extract page path from GET server-fn payload", ()
 
     const home = serverFnPagePath(sfn({ data: "/" }));
     expect(detectCacheProfile(home!)).toBe("static");
+  });
+});
+
+describe("canonicalizeServerFnPayloadForCacheKey — variant-param cache key", () => {
+  // The real envelope shape observed from a loadCmsPage preload.
+  const envelope = (path: string) =>
+    JSON.stringify({
+      t: { t: 10, i: 0, p: { k: ["data"], v: [{ t: 1, s: path }] }, o: 0 },
+      f: 63,
+      m: [],
+    });
+
+  it("strips skuId so a variant URL keys the same as the canonical path", () => {
+    const withSku = canonicalizeServerFnPayloadForCacheKey(
+      envelope("/mala-preta/p?skuId=148940"),
+    );
+    const canonical = canonicalizeServerFnPayloadForCacheKey(envelope("/mala-preta/p"));
+    expect(withSku).toBe(canonical);
+  });
+
+  it("strips idsku as well", () => {
+    const a = canonicalizeServerFnPayloadForCacheKey(envelope("/x/p?idsku=99"));
+    const b = canonicalizeServerFnPayloadForCacheKey(envelope("/x/p"));
+    expect(a).toBe(b);
+  });
+
+  it("keeps PLP filter/search params (they DO change the response)", () => {
+    const filtered = canonicalizeServerFnPayloadForCacheKey(
+      envelope("/c/shoes?filter.size=40"),
+    );
+    const plain = canonicalizeServerFnPayloadForCacheKey(envelope("/c/shoes"));
+    expect(filtered).not.toBe(plain);
+    expect(filtered).toContain("filter.size=40");
+  });
+
+  it("keeps a non-ignored param while dropping skuId", () => {
+    const out = canonicalizeServerFnPayloadForCacheKey(
+      envelope("/c/shoes?q=boot&skuId=1"),
+    );
+    expect(out).toContain("q=boot");
+    expect(out).not.toContain("skuId");
+  });
+
+  it("canonicalizes equivalent payloads to byte-identical strings", () => {
+    // Even with no ignored param, both must round-trip to the same string so
+    // the cache key is stable regardless of incidental serialization diffs.
+    const a = canonicalizeServerFnPayloadForCacheKey(envelope("/a/p"));
+    const b = canonicalizeServerFnPayloadForCacheKey(envelope("/a/p"));
+    expect(a).toBe(b);
+  });
+
+  it("returns the original string on malformed payload (fail-safe)", () => {
+    expect(canonicalizeServerFnPayloadForCacheKey("{not json")).toBe("{not json");
   });
 });
