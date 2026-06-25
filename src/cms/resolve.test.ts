@@ -450,4 +450,27 @@ describe("resolvePageSeoBlock — bot-aware commerce SEO", () => {
     expect(calls).toBe(1);
     expect(res?.props?.jsonLD).toMatchObject({ seo: { title: "Rich SEO title" } });
   });
+
+  it("?__deco_ssr=1 override: a human UA gets the full eager SEO (QA/audit)", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { seo: { title: "Rich SEO title" }, products: [{ id: 1 }] };
+    });
+
+    const ctx = {
+      matcherCtx: {
+        userAgent: HUMAN_UA,
+        url: "https://store.com/escolar?__deco_ssr=1",
+        path: "/escolar",
+      },
+      memo: new Map(),
+      depth: 0,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+    const res = await resolvePageSeoBlock(seoBlock, ctx);
+
+    expect(calls).toBe(1); // override forces the commerce loader to run
+    expect(res?.props?.jsonLD).toMatchObject({ seo: { title: "Rich SEO title" } });
+  });
 });

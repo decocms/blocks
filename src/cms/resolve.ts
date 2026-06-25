@@ -277,6 +277,36 @@ export function isBot(userAgent?: string): boolean {
 }
 
 /**
+ * Explicit override to force the eager (full SSR / crawler) render from a normal
+ * browser — for QA and SEO auditing without spoofing the User-Agent. Triggered
+ * by `?__deco_ssr=1` (alias `?__bot=1`) on the request URL.
+ *
+ * The flag lives in the query string, so it is part of the edge cache key: the
+ * forced-eager response gets its own cache bucket and never contaminates the
+ * human page. Cookies are intentionally NOT honored here — they are not in the
+ * cache key and would risk serving a stale human entry.
+ */
+function hasForceEagerParam(ctx?: MatcherContext): boolean {
+  const url = ctx?.url;
+  if (!url) return false;
+  try {
+    const sp = new URL(url, "https://localhost").searchParams;
+    return sp.get("__deco_ssr") === "1" || sp.get("__bot") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when the request should receive the full eager (crawler) render: real
+ * search-engine bots (by User-Agent) OR an explicit `?__deco_ssr=1` override.
+ * Used to gate both section deferral and page-SEO commerce resolution.
+ */
+export function isEagerRequest(ctx?: MatcherContext): boolean {
+  return isBot(ctx?.userAgent) || hasForceEagerParam(ctx);
+}
+
+/**
  * A loader registered against a `__resolveType` key. The runtime invokes it
  * through two paths:
  *
@@ -905,7 +935,7 @@ export async function resolvePageSeoBlock(
   // (see `stripCommerceLoaderProps`) so SSR doesn't block on the heavy upstream
   // call and the bulky payload (full product list) is never serialized into the
   // HTML for a request that never renders it.
-  const seoForBot = isBot(rctx.matcherCtx?.userAgent);
+  const seoForBot = isEagerRequest(rctx.matcherCtx);
 
   const blocks = loadBlocks();
   let current = seoBlock;
@@ -1567,7 +1597,7 @@ async function resolveDecoPageImpl(
     rawSections = resolved;
   }
 
-  const isBotReq = isBot(matcherCtx?.userAgent);
+  const isBotReq = isEagerRequest(matcherCtx);
   const currentAsyncConfig = getAsyncConfig();
   const useAsync = currentAsyncConfig !== null && !isBotReq;
 
