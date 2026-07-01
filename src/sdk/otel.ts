@@ -82,7 +82,7 @@ import {
   ATTR_CLOUD_PROVIDER,
 } from "@opentelemetry/semantic-conventions/incubating";
 import { createCompositeLogger, createCompositeMeter } from "./composite";
-import { configureLogger, defaultLoggerAdapter, logger, setLoggerAttributeFloor, type LogLevel } from "./logger";
+import { configureLogger, defaultLoggerAdapter, logger, setLogLevel, setLoggerAttributeFloor, type LogLevel } from "./logger";
 import { METRIC_METADATA } from "../middleware/observability";
 import { configureMeter, configureTracer, getActiveSpan } from "./observability";
 import { createAnalyticsEngineMeterAdapter } from "./otelAdapters";
@@ -698,6 +698,9 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
     (validLogLevels as readonly string[]).includes(otlpLogsMinLevelFromEnv)
       ? (otlpLogsMinLevelFromEnv as LogLevel)
       : opts.otlpLogsMinLevel ?? "warn";
+  // Sync the logger gate so logger.debug() calls are not silently dropped
+  // before reaching the OTLP adapter when minLevel is "debug" or "info".
+  setLogLevel(otlpLogsMinLevel);
   const otlpHeadersEnvVar = opts.otlpHeadersEnvVar ?? "DECO_OTEL_HEADERS";
   const otlpHeadersFromEnv = (env[otlpHeadersEnvVar] as string | undefined) ?? "";
   const parsedEnvHeaders: Record<string, string> = {};
