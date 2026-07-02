@@ -219,29 +219,29 @@ export interface OtelOptions {
    */
   otlpTracesSamplingRateEnvVar?: string;
   /**
-   * When `true` (or when `DECO_OTEL_ERROR_PROMOTION=true` is set), any
-   * `logger.error()` call with an active trace context marks that trace for
-   * export even if head sampling did not select it. Useful for ensuring
+   * When `true` (default) or when `DECO_OTEL_ERROR_PROMOTION=true` is set,
+   * any `logger.error()` call with an active trace context marks that trace
+   * for export even if head sampling did not select it. Useful for ensuring
    * errors always have a trace in ClickHouse without raising the global
    * sampling rate.
    *
-   * Disabled by default — enable via env var or this option once validated
-   * in production. Precedence: env var (`otlpTracesErrorPromotionEnvVar`,
-   * default `DECO_OTEL_ERROR_PROMOTION`) > this option > `false`.
+   * Enabled by default — set `DECO_OTEL_ERROR_PROMOTION=false` to opt out.
+   * Precedence: env var (`otlpTracesErrorPromotionEnvVar`, default
+   * `DECO_OTEL_ERROR_PROMOTION`) > this option > `true`.
    */
   otlpTracesErrorPromotion?: boolean;
   /**
    * Env var name to read the error promotion flag from. Defaults to
-   * `"DECO_OTEL_ERROR_PROMOTION"`. Value must be `"true"` to enable.
+   * `"DECO_OTEL_ERROR_PROMOTION"`. Value must be `"true"` or `"false"`.
    */
   otlpTracesErrorPromotionEnvVar?: string;
   /**
-   * Sampling rate applied to error-promoted traces, 0.0..1.0. Default `0.1`
-   * (promote 10% of error traces). Lower values cap ClickHouse volume when
+   * Sampling rate applied to error-promoted traces, 0.0..1.0. Default `1`
+   * (promote 100% of error traces). Lower values cap ClickHouse volume when
    * errors are frequent. Uses the same FNV-1a hash as head sampling.
    *
    * Precedence: env var (`otlpTracesErrorPromotionRateEnvVar`, default
-   * `DECO_OTEL_ERROR_PROMOTION_RATE`) > this option > `0.1`.
+   * `DECO_OTEL_ERROR_PROMOTION_RATE`) > this option > `1`.
    */
   otlpTracesErrorPromotionRate?: number;
   /**
@@ -733,9 +733,12 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
 
   const errorPromotionEnvVar =
     opts.otlpTracesErrorPromotionEnvVar ?? "DECO_OTEL_ERROR_PROMOTION";
+  const errorPromotionEnvValue = env[errorPromotionEnvVar] as string | undefined;
   const errorPromotionEnabled =
-    (env[errorPromotionEnvVar] as string | undefined) === "true" ||
-    (opts.otlpTracesErrorPromotion ?? false);
+    errorPromotionEnvValue === "false"
+      ? false
+      : errorPromotionEnvValue === "true" ||
+        (opts.otlpTracesErrorPromotion ?? true);
 
   if (otlpLogsEnabled) {
     state.otlpLog = createOtlpHttpLogAdapter({
@@ -874,7 +877,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       errorPromotionRateFromEnv >= 0 &&
       errorPromotionRateFromEnv <= 1
         ? errorPromotionRateFromEnv
-        : (opts.otlpTracesErrorPromotionRate ?? 0.1);
+        : (opts.otlpTracesErrorPromotionRate ?? 1);
 
     state.otlpTracer = createOtlpHttpTracerAdapter({
       endpoint: otlpTracesEndpoint,
