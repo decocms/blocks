@@ -83,7 +83,7 @@ describe("createOtlpHttpLogAdapter — level filter + OTLP shape", () => {
     expect(calls).toHaveLength(1);
     const p = JSON.parse(String(calls[0].init.body)) as OtlpLogsPayload;
     const r = p.resourceLogs[0].scopeLogs[0].logRecords[0];
-    expect(r.severityText).toBe("error");
+    expect(r.severityText).toBe("ERROR");
     expect(r.severityNumber).toBe(17);
     expect(r.body.stringValue).toBe("boom");
     expect(r.attributes).toContainEqual({
