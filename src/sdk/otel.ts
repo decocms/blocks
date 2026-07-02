@@ -731,6 +731,22 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   // Priority: auth token (lowest) → DECO_OTEL_HEADERS env → otlpHeaders option (highest).
   const otlpHeaders: Record<string, string> = { ...authHeader, ...parsedEnvHeaders, ...(opts.otlpHeaders ?? {}) };
 
+  // Compression: opt-in via `DECO_OTEL_COMPRESSION=gzip|zstd`. Default
+  // `"none"` preserves the pre-flag wire behavior for sites whose collector
+  // isn't configured for `Content-Encoding`. `zstd` silently falls back to
+  // gzip if the runtime lacks `node:zlib.zstdCompress` (workerd without
+  // `nodejs_compat`, Node <22, etc.); the request always advertises the
+  // actual encoding via `Content-Encoding`.
+  const otlpCompressionRaw = (
+    (env["DECO_OTEL_COMPRESSION"] as string | undefined) ?? ""
+  ).toLowerCase();
+  const otlpCompression: "zstd" | "gzip" | "none" =
+    otlpCompressionRaw === "zstd"
+      ? "zstd"
+      : otlpCompressionRaw === "gzip"
+        ? "gzip"
+        : "none";
+
   const errorPromotionEnvVar =
     opts.otlpTracesErrorPromotionEnvVar ?? "DECO_OTEL_ERROR_PROMOTION";
   const errorPromotionEnabled =
@@ -744,6 +760,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       scopeVersion: decoRuntimeVersion,
       minLevel: otlpLogsMinLevel,
       headers: otlpHeaders,
+      compression: otlpCompression,
       fetchImpl: opts.otlpLogsFetchImpl,
       promoteTrace: errorPromotionEnabled
         ? (traceId) => state.otlpTracer?.promoteTrace(traceId)
@@ -813,6 +830,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       resourceAttributes: floor,
       scopeVersion: decoRuntimeVersion,
       headers: otlpHeaders,
+      compression: otlpCompression,
       fetchImpl: opts.otlpMetricsFetchImpl,
       metricMetadata: METRIC_METADATA,
       onError: (kind, err) => {
@@ -883,6 +901,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
       headSamplingRate: samplingRateOverride ?? opts.otlpTracesSamplingRate ?? 0.01,
       errorPromotionRate,
       headers: otlpHeaders,
+      compression: otlpCompression,
       fetchImpl: opts.otlpTracesFetchImpl,
       getActiveSpanForParent: () => getActiveSpan(),
       getRequestTraceContext,

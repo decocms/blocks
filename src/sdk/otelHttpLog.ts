@@ -41,6 +41,7 @@
 
 import { getActiveSpan } from "./observability";
 import type { LoggerAdapter, LogLevel } from "./logger";
+import { compressJsonPayload, type OtlpCompression } from "./otlpCompression";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,6 +87,12 @@ export interface OtlpHttpLogOptions {
    * `Content-Type: application/json` is always set and cannot be overridden here.
    */
   headers?: Record<string, string>;
+  /**
+   * Payload compression. `"gzip"` uses the runtime's native `CompressionStream`
+   * and sets `Content-Encoding: gzip`. Defaults to `"none"` — the caller
+   * (`bootObservability`) opts into gzip via `DECO_OTEL_COMPRESSION`.
+   */
+  compression?: OtlpCompression;
   /** Test seam — override fetch. */
   fetchImpl?: typeof fetch;
   /** Test seam — override Date.now(). */
@@ -154,6 +161,7 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
   const refillPerMinute = options.rateLimitRefillPerMinute ?? 1000;
   const minSeverity = SEVERITY_NUMBER[options.minLevel ?? "error"];
   const extraHeaders = options.headers ?? {};
+  const compression: OtlpCompression = options.compression ?? "none";
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.nowMs ?? (() => Date.now());
   const onError = options.onError;
@@ -301,10 +309,16 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), flushTimeoutMs);
     try {
+      const { body, contentEncoding } = await compressJsonPayload(payload, compression);
+      const headers: Record<string, string> = {
+        ...extraHeaders,
+        "Content-Type": "application/json",
+      };
+      if (contentEncoding) headers["Content-Encoding"] = contentEncoding;
       const res = await fetchImpl(endpoint, {
         method: "POST",
-        headers: { ...extraHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        headers,
+        body,
         signal: controller.signal,
       });
       if (!res.ok) {
