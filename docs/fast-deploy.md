@@ -90,34 +90,56 @@ the caller may retry. Cache purge is a **separate** `POST /_cache/purge` call.
 - `deco-migrate-blocks-to-kv` (`scripts/migrate-blocks-to-kv.ts`) — one-shot KV
   population from `.deco/blocks/*.json`. Dry-run by default; `--write` applies and
   verifies. Run once before flipping a site to KV-first.
-- `deco-sync-blocks-to-kv` (`scripts/sync-blocks-to-kv.ts`) — CI content sync.
+- `deco-sync-blocks-to-kv` (`scripts/sync-blocks-to-kv.ts`) — content sync.
   Default mode skips when no `.deco/blocks/*.json` changed since `--since`;
   `--all` always writes. Writes the full snapshot, bumps the revision, and
   optionally `POST`s `/_cache/purge` for changed page paths.
 
-Both use the KV REST API (CI has no binding) — env `CF_ACCOUNT_ID`,
-`CF_KV_NAMESPACE_ID`, `CF_API_TOKEN` (stored as GitHub secrets).
+Both use the KV REST API (no Worker binding at sync time) — env `CF_ACCOUNT_ID`,
+`CF_KV_NAMESPACE_ID`, `CF_API_TOKEN`. Running `deco-sync-blocks-to-kv` (rather than a
+re-implementation in another language) is **required for correctness**: the runtime
+recomputes the revision as `djb2Hex(JSON.stringify(blocks))` on `setBlocks()` and the poll
+compares against KV's `index:revision`, so the writer must produce a byte-identical
+serialization. This script is that writer.
 
 ## Cross-repo contracts (implemented elsewhere)
 
-**admin.deco.cx (Studio):** on publish, `POST` a delta envelope to the site's
-`/.decofile`, then `POST` affected paths to `/_cache/purge`. Dispatch the
-deco-sync-bot commit in parallel (off the critical path). Gate on a per-site
-`fast_deploy_enabled` capability. Bulk publish = one delta payload.
+Content sync to KV is driven by **git push**, handled end-to-end by the **deco operator** —
+no GitHub Actions, no studio, no admin. The operator runs the `deco-sync-blocks-to-kv` script
+inside a short-lived, self-cleaning Kubernetes Job.
 
-**Site CI:** provision a KV namespace + `DECO_KV` binding; store CF KV REST creds
-as secrets. New `sync-content-to-kv.yml` (push to `main`, detects
-`.deco/blocks/*.json` changes, runs `deco-sync-blocks-to-kv`, purges; never blocks
-deploys). `deploy.yml` runs only on code changes and runs
-`deco-sync-blocks-to-kv --all` once post-deploy for bootstrap. `regen-blocks.yml`
-(bundled snapshot) is unchanged.
+**deco operator** (entry point + executor):
+1. Hosts a signature-verified `POST /webhooks/github`. On a push that touches only
+   `.deco/blocks/**` for a `cloudflare-worker` site with fast-deploy enabled, a
+   `DeploymentTarget` impl (`cloudflare-workers`) resolves the site's KV config
+   (`kvNamespaceId`, `siteOrigin`) from the repo's `Deco` CR and creates/updates a `Decofile`
+   CR (`target: tanstack-kv`, `repo`, `commit`). Code changes take the normal build path.
+2. Watches the `Decofile` CR. A `FastDeployment` impl (`tanstack-kv`, dispatched by the CR's
+   target) creates a self-cleaning `batch/v1` Job (the minimal `decofile-syncer` image) that
+   clones `repo@commit` and runs `npx -p @decocms/start deco-sync-blocks-to-kv --write --all
+   --purge-url … --purge-token …`. `ttlSecondsAfterFinished` reaps the Job/pod; status lands
+   on the CR.
+
+Both the webhook→CR step and the CR→effect step are **interfaces**, so new deploy targets and
+new execution strategies (e.g. a future warm-pool sandbox impl behind `FastDeployment`) plug
+in without reworking the flow.
+
+**Studio live-edit path (parallel, unchanged):** an in-Studio publish still `POST`s a delta
+envelope to the site's `/.decofile` (worker write-through) + `/_cache/purge`. Both paths write
+the same KV keys; last-write-wins on the djb2 revision.
+
+**Site prerequisites:** provision a KV namespace + `DECO_KV` binding + `DECO_FAST_DEPLOY=1`;
+record `kvNamespaceId`/`fastDeployEnabled`/`siteOrigin` on the site's `Deco` CR; configure the
+repo's GitHub webhook (push on `main`) → operator `/webhooks/github`. `regen-blocks.yml`
+(bundled snapshot) is unchanged. A code deploy runs `deco-sync-blocks-to-kv --all` once
+post-deploy for bootstrap.
 
 ## Rollout & rollback
 
 1. Ship the framework (flag off everywhere → inert). 2. Migrate one playground
 site (`deco-migrate-blocks-to-kv --write`); verify both keys, reads, latency.
-3. Migrate one production site; monitor a week. 4. Enable Studio
-`fast_deploy_enabled`. 5. Batch-roll out.
+3. Migrate one production site; monitor a week. 4. Set `fastDeployEnabled` on the site's
+`Deco` CR + configure its GitHub webhook. 5. Batch-roll out.
 
 **Rollback:** unset `DECO_FAST_DEPLOY` / set it to `"0"` (or remove the `DECO_KV`
 binding) → the worker serves the bundled snapshot immediately. No content
