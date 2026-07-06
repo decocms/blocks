@@ -30,6 +30,7 @@ import { loadBlocks } from "../cms/loader";
 import type { MatcherContext } from "../cms/resolve";
 import { isBot, resolveDecoPage } from "../cms/resolve";
 import { runSectionLoaders, runSingleSectionLoader } from "../cms/sectionLoaders";
+import { DECO_MATCHERS_OVERRIDE_PARAM } from "../matchers/override";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -770,6 +771,10 @@ export function createDecoWorkerEntry(
     if (url.searchParams.has("__deco_draft")) return false;
     if (url.searchParams.has("__deco_preview")) return false;
     if (url.searchParams.has("pathTemplate")) return false;
+    // Forced matcher results must never be served from (or stored in) the
+    // shared edge cache.
+    if (url.searchParams.has(DECO_MATCHERS_OVERRIDE_PARAM)) return false;
+    if (request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM)) return false;
     return true;
   }
 
@@ -1519,6 +1524,19 @@ export function createDecoWorkerEntry(
         resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
         resp.headers.set("X-Cache", "BYPASS");
         resp.headers.set("X-Cache-Reason", "logged-in");
+        return resp;
+      }
+
+      // Matcher overrides via header don't vary the body-hash cache key —
+      // bypass so forced variants are neither stored nor served from cache.
+      // (QS overrides travel inside the payload's pageUrl, so they already
+      // produce a distinct body hash.)
+      if (request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM)) {
+        const origin = await serverEntry.fetch(request, env, ctx);
+        const resp = new Response(origin.body, origin);
+        resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+        resp.headers.set("X-Cache", "BYPASS");
+        resp.headers.set("X-Cache-Reason", "matchers-override");
         return resp;
       }
 

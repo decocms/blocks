@@ -4,6 +4,7 @@ import {
   registerActionSchemas,
   registerLoaderSchemas,
 } from "../admin/schema";
+import { getMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
 import { djb2Hex } from "../sdk/djb2";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
@@ -615,6 +616,11 @@ export function evaluateMatcher(
   const blocks = loadBlocks();
 
   if (blocks[resolveType]) {
+    // x-deco-matchers-override forces saved matcher blocks by name — checked
+    // before the recursion below, which swaps __resolveType for the
+    // underlying matcher type and loses the block name.
+    const forced = getMatchersOverride(ctx)[resolveType];
+    if (forced !== undefined) return forced;
     const resolvedRule = blocks[resolveType] as Record<string, unknown>;
     return evaluateMatcher(
       { ...resolvedRule, ...rule, __resolveType: resolvedRule.__resolveType as string },
