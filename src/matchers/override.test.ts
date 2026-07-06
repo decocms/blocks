@@ -125,3 +125,81 @@ describe("evaluateMatcher with overrides", () => {
     expect(matcherFn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("evaluateMatcher with inline rule path overrides", () => {
+  const PAGE_ID = "pages-home-c4bcbfb771e9";
+
+  function setPageBlocks() {
+    const page = {
+      __resolveType: "website/pages/Page.tsx",
+      sections: [
+        { __resolveType: "site/sections/Header.tsx" },
+        {
+          __resolveType: "website/flags/multivariate/section.ts",
+          variants: [
+            {
+              rule: { __resolveType: TEST_MATCHER_KEY, result: true },
+              value: { __resolveType: "site/sections/A.tsx" },
+            },
+            {
+              rule: { __resolveType: TEST_MATCHER_KEY, result: false },
+              value: { __resolveType: "site/sections/B.tsx" },
+            },
+          ],
+        },
+      ],
+    };
+    setBlocks({ [PAGE_ID]: page });
+    return page;
+  }
+
+  it("forces an inline rule by <blockId>@<prop.path> without running it", () => {
+    const page = setPageBlocks();
+    const rule = page.sections[1].variants![0].rule as Record<string, unknown>;
+    const result = evaluateMatcher(
+      rule,
+      ctxWithQS(
+        `${DECO_MATCHERS_OVERRIDE_PARAM}=${encodeURIComponent(
+          `${PAGE_ID}@sections.1.variants.0.rule=0`,
+        )}`,
+      ),
+    );
+    expect(result).toBe(false);
+    expect(matcherFn).not.toHaveBeenCalled();
+  });
+
+  it("forces an inline rule to true via header path key", () => {
+    const page = setPageBlocks();
+    const rule = page.sections[1].variants![1].rule as Record<string, unknown>;
+    const result = evaluateMatcher(rule, ctxWithHeader(`${PAGE_ID}@sections.1.variants.1.rule=1`));
+    expect(result).toBe(true);
+    expect(matcherFn).not.toHaveBeenCalled();
+  });
+
+  it("evaluates normally when the path key targets a different position", () => {
+    const page = setPageBlocks();
+    const rule = page.sections[1].variants![0].rule as Record<string, unknown>;
+    const result = evaluateMatcher(rule, ctxWithHeader(`${PAGE_ID}@sections.1.variants.1.rule=0`));
+    expect(result).toBe(true);
+    expect(matcherFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("rebuilds the index when blocks are swapped", () => {
+    const first = setPageBlocks();
+    const overrideCtx = () => ctxWithHeader(`${PAGE_ID}@sections.1.variants.0.rule=0`);
+    expect(
+      evaluateMatcher(
+        first.sections[1].variants![0].rule as Record<string, unknown>,
+        overrideCtx(),
+      ),
+    ).toBe(false);
+
+    const second = setPageBlocks();
+    expect(
+      evaluateMatcher(
+        second.sections[1].variants![0].rule as Record<string, unknown>,
+        overrideCtx(),
+      ),
+    ).toBe(false);
+  });
+});

@@ -2,12 +2,19 @@
  * Per-request matcher override — port of the Deno runtime's
  * `x-deco-matchers-override` flag (deco/blocks/matcher.ts).
  *
- * Forces the result of saved matcher blocks without running them, keyed by
- * the block name as stored in the decofile:
+ * Forces matcher results without running them, keyed by the Deno-style
+ * uniqueId derived from the matcher's position in the decofile:
  *
- * - Header: `x-deco-matchers-override: Segment A=1 Segment B=0`
+ * - Saved matcher block referenced by name → the block name
+ *   (`Segmento Mobile=1`), mirroring Deno's resolve chain stopping at the
+ *   first resolvable.
+ * - Inline matcher → `<blockId>@<prop.path.to.rule>`
+ *   (`pages-home-c4bcbfb771e9@sections.2.variants.0.rule=0`).
+ *
+ * Carried by:
+ * - Header: `x-deco-matchers-override: SegmentA=1 SegmentB=0`
  *   (space-separated pairs; `=1` forces true, anything else forces false)
- * - Query string: `?x-deco-matchers-override=Segment%20A=1` (repeatable)
+ * - Query string: `?x-deco-matchers-override=Segment%20A%3D1` (repeatable)
  *
  * Header takes precedence over query string when both are present.
  */
@@ -67,4 +74,63 @@ export function getMatchersOverride(ctx: MatcherContext): Record<string, boolean
   const values = parseFromHeaders(ctx) ?? parseFromQS(ctx) ?? EMPTY;
   if (request) overridesByRequest.set(request, values);
   return values;
+}
+
+export function hasMatchersOverride(ctx: MatcherContext): boolean {
+  const overrides = getMatchersOverride(ctx);
+  for (const _ in overrides) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Rule uniqueId index — Deno resolveChain semantics
+// ---------------------------------------------------------------------------
+
+type RuleIdIndex = WeakMap<object, string>;
+
+// Keyed by the blocks map identity, so the index is rebuilt on decofile
+// hot-reload / KV swap (setBlocks replaces the map) and admin preview
+// (withBlocksOverride returns a fresh merged map).
+const indexByBlocks = new WeakMap<Record<string, unknown>, RuleIdIndex>();
+
+function walkBlock(node: unknown, blockId: string, path: string, index: RuleIdIndex): void {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) {
+      walkBlock(node[i], blockId, path ? `${path}.${i}` : `${i}`, index);
+    }
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  if (path && typeof obj.__resolveType === "string") {
+    index.set(obj, `${blockId}@${path}`);
+  }
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "__resolveType") continue;
+    walkBlock(value, blockId, path ? `${path}.${key}` : key, index);
+  }
+}
+
+/**
+ * Resolve the Deno-style uniqueId (`<blockId>@<prop.path>`) for an inline
+ * rule object by its identity in the blocks map. Returns undefined for
+ * objects created during resolution (spreads/merges) — those are addressed
+ * by their saved-block name instead.
+ *
+ * The index is built lazily (only when a request carries an override) and
+ * cached per blocks map, so override-free traffic pays nothing.
+ */
+export function getRuleOverrideId(
+  blocks: Record<string, unknown>,
+  rule: object,
+): string | undefined {
+  let index = indexByBlocks.get(blocks);
+  if (!index) {
+    index = new WeakMap();
+    for (const [blockId, block] of Object.entries(blocks)) {
+      walkBlock(block, blockId, "", index);
+    }
+    indexByBlocks.set(blocks, index);
+  }
+  return index.get(rule);
 }

@@ -4,7 +4,7 @@ import {
   registerActionSchemas,
   registerLoaderSchemas,
 } from "../admin/schema";
-import { getMatchersOverride } from "../matchers/override";
+import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
 import { djb2Hex } from "../sdk/djb2";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
@@ -615,12 +615,21 @@ export function evaluateMatcher(
 
   const blocks = loadBlocks();
 
-  if (blocks[resolveType]) {
-    // x-deco-matchers-override forces saved matcher blocks by name — checked
-    // before the recursion below, which swaps __resolveType for the
-    // underlying matcher type and loses the block name.
-    const forced = getMatchersOverride(ctx)[resolveType];
+  // x-deco-matchers-override — Deno resolveChain semantics: a saved matcher
+  // block is keyed by its name; an inline rule by `<blockId>@<prop.path>`
+  // (e.g. `pages-home-abc123@sections.2.variants.0.rule`). Checked before
+  // the saved-block recursion below, which swaps __resolveType for the
+  // underlying matcher type and merges into a fresh object, losing both the
+  // block name and the rule's identity in the blocks map.
+  if (hasMatchersOverride(ctx)) {
+    const overrides = getMatchersOverride(ctx);
+    const forced =
+      (blocks[resolveType] ? overrides[resolveType] : undefined) ??
+      overrides[getRuleOverrideId(blocks, rule) ?? ""];
     if (forced !== undefined) return forced;
+  }
+
+  if (blocks[resolveType]) {
     const resolvedRule = blocks[resolveType] as Record<string, unknown>;
     return evaluateMatcher(
       { ...resolvedRule, ...rule, __resolveType: resolvedRule.__resolveType as string },
