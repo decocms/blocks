@@ -1,5 +1,5 @@
 {
-  "branches": ["7.x"],
+  "branches": [{ "name": "7.x", "main": true }],
   "tagFormat": "live-v${version}",
   "plugins": [
     ["@semantic-release/commit-analyzer", {

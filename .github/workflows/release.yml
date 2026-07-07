@@ -22,7 +22,9 @@ name: Release
 
 on:
   push:
-    branches: [main, 7.x]
+    # TEMP: 7.x omitted while the release config is still being verified via
+    # workflow_dispatch dry-runs — re-add once confirmed. See PR discussion.
+    branches: [main]
   # Manual escape hatch to verify what a release WOULD do — especially for the
   # 7.x line, which publishes 5 brand-new npm packages that have never been
   # published before. Run this from the Actions tab (pick the branch) before
