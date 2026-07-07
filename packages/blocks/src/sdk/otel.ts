@@ -83,8 +83,7 @@ import {
 } from "@opentelemetry/semantic-conventions/incubating";
 import { createCompositeLogger, createCompositeMeter } from "./composite";
 import { configureLogger, defaultLoggerAdapter, logger, setLogLevel, setLoggerAttributeFloor, type LogLevel } from "./logger";
-import { METRIC_METADATA } from "../middleware/observability";
-import { configureMeter, configureTracer, getActiveSpan } from "./observability";
+import { configureMeter, configureTracer, getActiveSpan, METRIC_METADATA } from "../middleware/observability";
 import { createAnalyticsEngineMeterAdapter } from "./otelAdapters";
 import { createOtlpHttpLogAdapter, type OtlpHttpLog } from "./otelHttpLog";
 import { createOtlpHttpMeterAdapter, type OtlpHttpMeter } from "./otelHttpMeter";
