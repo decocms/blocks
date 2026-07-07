@@ -567,7 +567,14 @@ export function recordLoaderError(name: string) {
   m.counterInc(MetricNames.LOADER_ERRORS, 1, { loader: name });
 }
 
-function normalizePath(path: string): string {
+/**
+ * Collapse dynamic path segments (ids, product slugs) into placeholders so a
+ * path can be used as a bounded metric label. Exported so every metric that
+ * labels by route (`http.server.request.duration`, `deco.cms.resolve.duration`)
+ * shares the exact same normalization — a raw path is unbounded cardinality
+ * (one histogram series per URL) and must never reach a metric attribute.
+ */
+export function normalizePath(path: string): string {
   // Collapse dynamic segments to reduce cardinality
   return path
     .replace(/\/[0-9a-f]{8,}/gi, "/:id")
