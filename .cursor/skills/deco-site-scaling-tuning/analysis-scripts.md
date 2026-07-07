@@ -1,5 +1,13 @@
 # Analysis Scripts
 
+> **LEGACY — Deno-on-Kubernetes/Knative only.** These scripts query a
+> cluster's Prometheus for Knative KPA/HPA metrics
+> (`autoscaler_actual_pods`, `autoscaler_panic_mode`,
+> `container_cpu_usage_seconds_total`, …). They do not apply to current
+> `@decocms/tanstack` (Cloudflare Workers) or `@decocms/next` (Node) sites,
+> which have no Kubernetes namespace or Knative revision to query. See the
+> note at the top of `SKILL.md`.
+
 Ready-to-use Python scripts for discovering optimal scaling parameters via Prometheus.
 
 ## Prerequisites

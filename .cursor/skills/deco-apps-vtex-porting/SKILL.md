@@ -24,7 +24,7 @@ When in doubt about how something should work, look at the original first.
 | [commerce-porting.md](./commerce-porting.md) | Porting the commerce/ module (types, utils, SDK, components) |
 | [website-porting.md](./website-porting.md) | Where website/ code goes (framework, storefront, worker entry) |
 | [transform-mapping.md](./transform-mapping.md) | Field-by-field VTEX → schema.org mapping in transform.ts |
-| [cookie-auth-patterns.md](./cookie-auth-patterns.md) | Cookie propagation, auth headers, session handling |
+| [deco-apps-vtex-review](../deco-apps-vtex-review/SKILL.md) | Cookie propagation, auth headers, session handling (full audit checklist) |
 
 ## Architecture Comparison
 

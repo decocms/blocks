@@ -1,18 +1,19 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env -S npx tsx
 /**
  * Baseline Management Script
  * ==========================
  * Save current test results as baseline and compare against it.
  *
  * Usage:
- *   deno run -A scripts/baseline.ts save [name]
- *   deno run -A scripts/baseline.ts compare [name]
- *   deno run -A scripts/baseline.ts list
- *   deno run -A scripts/baseline.ts delete <name>
+ *   npx tsx scripts/baseline.ts save [name]
+ *   npx tsx scripts/baseline.ts compare [name]
+ *   npx tsx scripts/baseline.ts list
+ *   npx tsx scripts/baseline.ts delete <name>
  */
 
-import { ensureDirSync, existsSync } from "https://deno.land/std@0.224.0/fs/mod.ts";
-import { join, dirname, fromFileUrl } from "https://deno.land/std@0.224.0/path/mod.ts";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 interface PerformanceMetrics {
     TTFB: number | null
@@ -44,7 +45,11 @@ interface ComparisonResult {
     status: 'improved' | 'regressed' | 'unchanged'
 }
 
-const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url))
+function ensureDirSync(dir: string): void {
+    mkdirSync(dir, { recursive: true });
+}
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPORTS_DIR = join(SCRIPT_DIR, '..', 'reports')
 const BASELINES_DIR = join(REPORTS_DIR, 'baselines')
 const LATEST_REPORT = join(REPORTS_DIR, 'report-latest.json')
@@ -60,7 +65,7 @@ const THRESHOLDS: Record<string, number> = {
 
 function loadReport(filepath: string): Report | null {
     try {
-        const content = Deno.readTextFileSync(filepath)
+        const content = readFileSync(filepath, "utf-8")
         return JSON.parse(content)
     } catch {
         return null
@@ -73,8 +78,8 @@ function saveBaseline(name?: string): void {
     const latest = loadReport(LATEST_REPORT)
     if (!latest) {
         console.error('❌ No report found at', LATEST_REPORT)
-        console.error('   Run the e2e tests first: deno task test:e2e')
-        Deno.exit(1)
+        console.error('   Run the e2e tests first: npm run test:e2e')
+        process.exit(1)
     }
 
     const targetPath = name
@@ -87,7 +92,7 @@ function saveBaseline(name?: string): void {
         name: name || 'default',
     }
 
-    Deno.writeTextFileSync(targetPath, JSON.stringify(baseline, null, 2))
+    writeFileSync(targetPath, JSON.stringify(baseline, null, 2))
     console.log(`✅ Baseline saved: ${targetPath}`)
     console.log(`   Timestamp: ${latest.timestamp}`)
     console.log(`   Pages: ${latest.metrics.map(m => m.pageName).join(', ')}`)
@@ -98,8 +103,8 @@ function listBaselines(): void {
 
     let files: string[] = []
     try {
-        files = [...Deno.readDirSync(BASELINES_DIR)]
-            .filter(f => f.isFile && f.name.endsWith('.json'))
+        files = readdirSync(BASELINES_DIR, { withFileTypes: true })
+            .filter(f => f.isFile() && f.name.endsWith('.json'))
             .map(f => f.name)
     } catch {
         // Directory might not exist yet
@@ -107,7 +112,7 @@ function listBaselines(): void {
 
     if (files.length === 0) {
         console.log('📋 No baselines saved yet')
-        console.log('   Save one with: deno task test:e2e:baseline:save')
+        console.log('   Save one with: npm run test:e2e:baseline:save')
         return
     }
 
@@ -132,10 +137,10 @@ function deleteBaseline(name: string): void {
 
     if (!existsSync(targetPath)) {
         console.error(`❌ Baseline not found: ${name}`)
-        Deno.exit(1)
+        process.exit(1)
     }
 
-    Deno.removeSync(targetPath)
+    rmSync(targetPath)
     console.log(`✅ Deleted baseline: ${name}`)
 }
 
@@ -147,15 +152,17 @@ function compare(baselineName?: string): void {
     const baseline = loadReport(baselinePath)
     if (!baseline) {
         console.error('❌ No baseline found at', baselinePath)
-        console.error('   Save a baseline first: deno task test:e2e:baseline:save')
-        Deno.exit(1)
+        console.error('   Save a baseline first: npm run test:e2e:baseline:save')
+        process.exit(1)
+        return
     }
 
     const current = loadReport(LATEST_REPORT)
     if (!current) {
         console.error('❌ No current report found at', LATEST_REPORT)
-        console.error('   Run the e2e tests first: deno task test:e2e')
-        Deno.exit(1)
+        console.error('   Run the e2e tests first: npm run test:e2e')
+        process.exit(1)
+        return
     }
 
     console.log('📊 Performance Comparison\n')
@@ -231,14 +238,14 @@ function compare(baselineName?: string): void {
 
     if (hasRegression) {
         console.log('\n⚠️  Performance regressions detected!')
-        Deno.exit(1)
+        process.exit(1)
     } else {
         console.log('\n✅ No regressions detected')
     }
 }
 
 // CLI
-const [command, arg] = Deno.args
+const [command, arg] = process.argv.slice(2)
 
 switch (command) {
     case 'save':
@@ -253,7 +260,7 @@ switch (command) {
     case 'delete':
         if (!arg) {
             console.error('❌ Please specify baseline name to delete')
-            Deno.exit(1)
+            process.exit(1)
         }
         deleteBaseline(arg)
         break
@@ -269,11 +276,11 @@ Commands:
   delete <name>    Delete a specific baseline
 
 Examples:
-  deno task test:e2e:baseline:save
-  deno task test:e2e:baseline:compare
+  npm run test:e2e:baseline:save
+  npm run test:e2e:baseline:compare
 
   # With names:
-  deno run -A scripts/baseline.ts save pre-release
-  deno run -A scripts/baseline.ts compare pre-release
+  npx tsx scripts/baseline.ts save pre-release
+  npx tsx scripts/baseline.ts compare pre-release
 `)
 }

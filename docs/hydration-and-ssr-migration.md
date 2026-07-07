@@ -1,6 +1,6 @@
 # Hydration & SSR — Migration to TanStack Native Patterns
 
-> Migration guide for `@decocms/start` to adopt TanStack Router/Start native SSR, hydration, and deferred data patterns. Eliminates custom server function workarounds and aligns with the framework's execution model.
+> Migration guide for `@decocms/tanstack` to adopt TanStack Router/Start native SSR, hydration, and deferred data patterns. Eliminates custom server function workarounds and aligns with the framework's execution model.
 
 ---
 
@@ -234,7 +234,7 @@ const fetchSecurely = createServerFn().handler(() => {
 loader: () => fetchSecurely() // isomorphic call
 ```
 
-**Implication for `@decocms/start`:** The `loadCmsPage` server function is correct — it's called from the loader and executes server-side. But CMS section loaders that access server-only resources (KV, D1) must also be wrapped in server functions.
+**Implication for `@decocms/tanstack`:** The `loadCmsPage` server function is correct — it's called from the loader and executes server-side. But CMS section loaders that access server-only resources (KV, D1) must also be wrapped in server functions.
 
 ---
 

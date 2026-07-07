@@ -1,11 +1,11 @@
 ---
 name: deco-cms-layout-caching
-description: Cache layout sections (Header, Footer, Theme) in @decocms/start to avoid redundant CMS resolution and API calls on every navigation. Covers resolvedLayoutCache in resolve.ts, layoutInflight dedup in sectionLoaders.ts, pageInflight dedup in cmsRoute.ts, registerLayoutSections, staleTime in dev mode, and diagnosing repeated intelligent-search calls. Use when page loads trigger duplicate VTEX API calls for Header shelves, variant changes re-resolve the entire CMS page, or layout sections cause N+1 API patterns.
+description: Cache layout sections (Header, Footer, Theme) across @decocms/runtime and @decocms/tanstack to avoid redundant CMS resolution and API calls on every navigation. Covers resolvedLayoutCache in resolve.ts, layoutInflight dedup in sectionLoaders.ts, pageInflight dedup in cmsRoute.ts, registerLayoutSections, staleTime in dev mode, and diagnosing repeated intelligent-search calls. Use when page loads trigger duplicate VTEX API calls for Header shelves, variant changes re-resolve the entire CMS page, or layout sections cause N+1 API patterns.
 ---
 
 # CMS Layout Section Caching
 
-Multi-layer caching strategy for layout sections (Header, Footer, Theme, etc.) in `@decocms/start`. These sections appear on every page but rarely change — caching them eliminates the biggest source of redundant API calls.
+Multi-layer caching strategy for layout sections (Header, Footer, Theme, etc.) across `@decocms/runtime` and `@decocms/tanstack`. These sections appear on every page but rarely change — caching them eliminates the biggest source of redundant API calls.
 
 ## When to Use This Skill
 
@@ -29,15 +29,17 @@ Request → loadCmsPage (pageInflight dedup)
        └→ Content sections → run loader normally
 ```
 
-| Layer | File | What it caches | TTL | Key |
-|-------|------|----------------|-----|-----|
-| **Page inflight** | `cmsRoute.ts` | Entire `loadCmsPage` result | In-flight only | `basePath` (no query) |
-| **Layout resolution** | `resolve.ts` | Fully resolved CMS props for layout sections | 5 min | Block reference key |
-| **Layout loaders** | `sectionLoaders.ts` | Section loader output for layout sections | 5 min | Component key |
+| Layer | Package | File | What it caches | TTL | Key |
+|-------|---------|------|----------------|-----|-----|
+| **Page inflight** | `@decocms/tanstack` | `src/routes/cmsRoute.ts` | Entire `loadCmsPage` result | In-flight only | `basePath` (no query) |
+| **Layout resolution** | `@decocms/runtime` | `src/cms/resolve.ts` | Fully resolved CMS props for layout sections | 5 min | Block reference key |
+| **Layout loaders** | `@decocms/runtime` | `src/cms/sectionLoaders.ts` | Section loader output for layout sections | 5 min | Component key |
+
+Note the package split: Layer 1 (`pageInflight`) lives in `@decocms/tanstack` (it's TanStack-route plumbing), while Layers 2 and 3 live in `@decocms/runtime` (framework-agnostic CMS resolution internals). They aren't in the same package.
 
 ---
 
-## Layer 1: Page In-Flight Deduplication (`cmsRoute.ts`)
+## Layer 1: Page In-Flight Deduplication (`cmsRoute.ts`, `@decocms/tanstack`)
 
 Prevents concurrent `loadCmsPage` calls for the same path (e.g., prefetch + click happening simultaneously).
 
@@ -66,7 +68,7 @@ The CMS page structure is the same regardless of `?skuId=X` or other query param
 
 ---
 
-## Layer 2: Layout Resolution Cache (`resolve.ts`)
+## Layer 2: Layout Resolution Cache (`resolve.ts`, `@decocms/runtime`)
 
 Caches the fully resolved CMS output for layout sections. This is the most impactful layer because layout sections often contain embedded commerce loaders (Header with product shelves) that make expensive API calls.
 
@@ -75,7 +77,7 @@ Caches the fully resolved CMS output for layout sections. This is the most impac
 In your site's `setup.ts`:
 
 ```typescript
-import { registerLayoutSections } from "@decocms/start/cms";
+import { registerLayoutSections } from "@decocms/runtime/cms";
 
 registerLayoutSections([
   "site/sections/Header/Header.tsx",
@@ -84,6 +86,14 @@ registerLayoutSections([
   "site/sections/Miscellaneous/CookieConsent.tsx",
   "site/sections/Social/WhatsApp.tsx",
 ]);
+```
+
+To remove sections from the layout cache (e.g. a section is being demoted back to per-page resolution), use the matching `unregisterLayoutSections` export from the same module:
+
+```typescript
+import { unregisterLayoutSections } from "@decocms/runtime/cms";
+
+unregisterLayoutSections(["site/sections/Social/WhatsApp.tsx"]);
 ```
 
 ### How It Works
@@ -141,7 +151,7 @@ function isRawSectionLayout(section: RawSection): string | null {
 
 ---
 
-## Layer 3: Layout Section Loader Cache (`sectionLoaders.ts`)
+## Layer 3: Layout Section Loader Cache (`sectionLoaders.ts`, `@decocms/runtime`)
 
 Caches the output of section loaders (the `export const loader` functions) for layout sections.
 
@@ -186,6 +196,16 @@ export async function runSectionLoaders(
 
 ---
 
+## Regression Test: Shared-Object Index Corruption (`layoutCacheRace.test.ts`)
+
+`packages/runtime/src/cms/layoutCacheRace.test.ts` is a permanent regression test guarding a real production incident, not a hypothetical. `resolveDecoPage`'s layout-section cache (Layer 2 above) returns the **same cached object** to every concurrent caller that resolves to the same layout section (e.g. Footer). Each caller then stamps its own page's flat position onto that object's `.index` field so `mergeSections` can sort eager + deferred sections back into CMS order.
+
+The bug: an earlier version of this stamping step mutated the shared cached object **in place** instead of cloning it first. If two concurrent requests needed the same cached layout section at *different* flat positions (page A has Footer at index 0, page B has Footer at index 2), whichever request's stamp landed last won — and both requests then observed that same, possibly-wrong-for-them index. This shipped in `@decocms/start@6.12.1` and caused a same-day production rollback on two live sites (intermittent "footer renders above other sections" under concurrent traffic) before being fixed in 6.12.2 by cloning the wrapper object (`{ ...section, index }`) before stamping, so the shared cache/in-flight objects are never touched.
+
+If you ever see this test fail, do not "fix" it by relaxing the assertion — it is asserting exactly the invariant that broke production once already. See `CLAUDE.md` (repo root) for the full incident writeup.
+
+---
+
 ## Diagnosing Layout Cache Issues
 
 ### Symptom: Repeated `intelligent-search` calls in logs
@@ -222,11 +242,15 @@ if (isDev) return { staleTime: 5_000, gcTime: 30_000 };
 
 ### Error: `isLayoutSection is not a function`
 
-The `isLayoutSection` function must be exported from `@decocms/start/cms`:
+The `isLayoutSection` function must be exported from `@decocms/runtime/cms`:
 
 ```typescript
-// cms/index.ts
-export { isLayoutSection, registerLayoutSections } from "./sectionLoaders";
+// packages/runtime/src/cms/index.ts
+export {
+  isLayoutSection,
+  registerLayoutSections,
+  unregisterLayoutSections,
+} from "./sectionLoaders";
 ```
 
 ### Error: Layout sections cached but still showing stale content
@@ -290,4 +314,5 @@ After layout caching + `vtexCachedFetch` SWR:
 | `deco-variant-selection-perf` | Eliminate server calls for same-product variant selection |
 | `deco-api-call-dedup` | In-flight deduplication + batching for VTEX API calls |
 | `deco-edge-caching` | Cloudflare edge caching configuration |
-| `deco-cms-route-config` | CMS route configuration in @decocms/start |
+| `deco-cms-route-config` | CMS route configuration (`@decocms/tanstack`) |
+| `deco-to-tanstack-migration` | Migration playbook whose `references/async-rendering.md` documents this same layout-cache/`cmsRoute.ts` machinery in depth (deferred sections, hydration payload size) |

@@ -1,34 +1,65 @@
-# CDP Connection Guide
+# CDP Connection Guide (Node/RSC — `@decocms/next`)
 
-How to connect to a Deno pod's Chrome DevTools Protocol inspector for memory debugging.
+> This file covers **Node/RSC (`@decocms/next`) sites only**. Cloudflare
+> Workers (`@decocms/tanstack`) sites have no equivalent production
+> connection flow — there's no long-running process to attach to. See
+> Part 1 of `SKILL.md` for the Workers diagnostic path (tail-worker +
+> ClickHouse + `wrangler tail`/`wrangler dev`).
+
+How to connect to a Node process's built-in inspector for memory debugging.
 
 ## Prerequisites
 
-- `kubectl` configured with cluster access
+- Network access to the Node process's inspector port (default `9229`) — how you get that access depends on your hosting/orchestration layer (see "Reaching the port" below). deco-start does not prescribe a specific host for `@decocms/next`.
 - Python 3 with `websockets` package (`pip3 install websockets`)
-- Pod must be running Deno with inspector enabled (Deco sites expose port 9229 by default)
+- The Node process must be started with the inspector enabled, or have it enabled at runtime (see Step 1)
 
-## Step 1: Identify the Pod
+## Step 1: Enable the Inspector
 
-```bash
-# List pods in the site namespace
-kubectl get pods -n sites-<sitename> -o wide
-
-# Check current memory usage
-kubectl top pods -n sites-<sitename>
-```
-
-## Step 2: Port-Forward
+If you control the start command, launch with the inspector already listening:
 
 ```bash
-# Forward local 9229 to pod's inspector port
-kubectl port-forward -n sites-<sitename> <pod-name> 9229:9229
-
-# If port 9229 is busy, use a different local port
-kubectl port-forward -n sites-<sitename> <pod-name> 19229:9229
+node --inspect=0.0.0.0:9229 server.js
+# or the break-on-start variant, useful for reproducing a startup-time leak:
+node --inspect-brk=0.0.0.0:9229 server.js
 ```
 
-**Keep this running in a separate terminal.** Port-forwards drop frequently — check if it's alive before running scripts.
+If the process is already running and you don't want to restart it, send `SIGUSR1` — Node toggles the inspector on/off on this signal without a restart:
+
+```bash
+kill -USR1 <pid>
+# Node logs the listening address to stderr, e.g.:
+# Debugger listening on ws://127.0.0.1:9229/...
+```
+
+Check current process memory quickly without the inspector, as a sanity check before going further:
+
+```bash
+# From inside the container/host, or via an exec shell into it:
+ps -o pid,rss,vsz,comm -p <pid>
+```
+
+## Step 2: Reach the Port
+
+`0.0.0.0:9229` only binds locally to that host/container — it does not
+publish the port externally. Forward it the way your infrastructure
+provides today:
+
+```bash
+# Docker
+docker exec -it <container> sh -c 'kill -USR1 1'   # enable inspector on PID 1
+docker port <container> 9229                        # if published at run time
+# or, if not published, an SSH tunnel into the host:
+ssh -L 9229:127.0.0.1:9229 <host>
+
+# Any orchestrator with its own port-forward primitive
+# (ECS exec, Nomad, a PaaS CLI, etc.) — use its equivalent of
+# "open a tunnel to this task's port 9229"
+```
+
+There is no `kubectl port-forward` step here — this repo makes no
+Kubernetes assumption for `@decocms/next` sites. Replace this step with
+whatever your deployment target's actual port-forwarding mechanism is.
 
 ## Step 3: Get WebSocket URL
 
@@ -38,17 +69,17 @@ curl -s http://127.0.0.1:9229/json/list | jq '.[0].webSocketDebuggerUrl'
 
 This returns something like:
 ```
-ws://127.0.0.1:9229/ws/b9cf0f05-6e67-4ad6-865f-f418f6b4856c
+ws://127.0.0.1:9229/f9cf0f05-6e67-4ad6-865f-f418f6b4856c
 ```
 
-**The UUID changes every time the pod restarts.** Always fetch a fresh URL.
+**The UUID changes every time the inspector is re-enabled or the process restarts.** Always fetch a fresh URL.
 
 ## Step 4: Connect via Python
 
 ```python
 import asyncio, json, websockets
 
-WS = "ws://127.0.0.1:9229/ws/<UUID>"
+WS = "ws://127.0.0.1:9229/<UUID>"
 MSG_ID = 0
 
 async def send_cmd(ws, method, params=None):
@@ -68,7 +99,6 @@ async def send_cmd(ws, method, params=None):
 async def evaluate(ws, expr):
     r = await send_cmd(ws, "Runtime.evaluate", {
         "expression": expr,
-        "contextId": 1,  # IMPORTANT: always use contextId: 1
         "returnByValue": True,
         "awaitPromise": True,
         "timeout": 30000,
@@ -85,79 +115,77 @@ async def main():
 asyncio.run(main())
 ```
 
-## Common Mistakes and Pitfalls
+Note there's no `contextId: 1` pin in `evaluate` above — see pitfall #1
+below for why that Deno-specific requirement doesn't apply to Node.
 
-### 1. Missing `contextId: 1`
+## Common Mistakes and Pitfalls (Node, and how they differ from the old Deno flow)
 
-**Symptom:** `Runtime.evaluate` returns empty results or "Cannot find default execution context".
+### 1. `contextId` pinning is NOT required (unlike the old Deno flow)
 
-**Cause:** After `Runtime.enable`, Deno emits thousands of `Runtime.consoleAPICalled` events that flood the event loop. Without explicit `contextId`, the evaluation may target the wrong context.
+The previous (Deno) version of this doc required always passing
+`contextId: 1` to `Runtime.evaluate` because Deno's inspector floods
+`Runtime.consoleAPICalled` events after `Runtime.enable`, occasionally
+enough to make an unpinned evaluate target the wrong context. Node's
+inspector does not exhibit this specific failure mode — omitting
+`contextId` is safe and Node will evaluate in the default context. If you
+do see context-mismatch errors in a multi-worker-thread Node process
+(`node:worker_threads`), pass the specific `executionContextId` from the
+`Runtime.executionContextCreated` event for the thread you care about —
+that's a different, legitimate multi-context scenario, not the Deno flood
+issue.
 
-**Fix:** Always pass `contextId: 1` in every `Runtime.evaluate` call:
+### 2. `queryObjects` returns under `result.result`, not `result.objects`
+
+**This is the mirror image of the old Deno pitfall.** Deno's V8 inspector
+returned the array under `result.objects`; Node uses the standard CDP
+shape, `result.result`:
+
 ```python
-await send_cmd(ws, "Runtime.evaluate", {
-    "expression": expr,
-    "contextId": 1,  # <-- THIS IS REQUIRED
-    ...
-})
-```
-
-### 2. queryObjects returns under `objects`, not `result`
-
-**Symptom:** `KeyError: 'result'` when accessing `queryObjects` response.
-
-**Cause:** Deno's V8 inspector returns the array under `result.objects`, not `result.result` like Chrome does.
-
-**Fix:**
-```python
-# WRONG (Chrome-style):
-arr_id = qr["result"]["result"].get("objectId")
-
-# CORRECT (Deno-style):
-arr_id = qr["result"].get("objects", {}).get("objectId")
-```
-
-Full pattern:
-```python
+# CORRECT for Node:
 async def query_objects(ws, proto_expr):
-    proto_r = await send_cmd(ws, "Runtime.evaluate", {
-        "expression": proto_expr,
-        "contextId": 1,
-    })
+    proto_r = await send_cmd(ws, "Runtime.evaluate", {"expression": proto_expr})
     proto_id = proto_r["result"].get("result", {}).get("objectId")
     if not proto_id:
         return None
     qr = await send_cmd(ws, "Runtime.queryObjects", {"prototypeObjectId": proto_id})
     if not qr or "result" not in qr:
         return None
-    return qr["result"].get("objects", {}).get("objectId")
+    return qr["result"].get("result", {}).get("objectId")  # <-- result.result, not result.objects
 ```
 
-### 3. Event flooding drowns responses
+If you're porting a script written against the old Deno-flow doc, this is
+the single most common bug you'll hit — it'll silently return `None`
+instead of erroring.
 
-**Symptom:** `send_cmd` never receives the response, times out.
+### 3. Event flooding is lighter, but the drain-loop pattern is still safe to keep
 
-**Cause:** `Runtime.enable` triggers a flood of `Runtime.consoleAPICalled` events (can be thousands). The event drain loop in `send_cmd` may exhaust its iteration limit before finding the response.
+`Runtime.enable` on Node also replays buffered console events, but at a
+much smaller scale than Deno's flood in typical Deco workloads. Keeping
+the generous drain loop from the old doc is harmless:
 
-**Fix:** Increase the drain limit:
 ```python
-for _ in range(10000):  # Use 10000, not 100
+for _ in range(10000):
     raw = await asyncio.wait_for(ws.recv(), timeout=30)
     data = json.loads(raw)
     if data.get("id") == MSG_ID:
         return data
 ```
 
-### 4. Port-forward drops silently
+### 4. The inspector connection drops on process restart, not "port-forward flakiness"
 
-**Symptom:** `ConnectionClosedError: no close frame` or `ConnectionRefusedError`.
+**Symptom.** `ConnectionClosedError` or `ConnectionRefusedError`.
 
-**Cause:** `kubectl port-forward` drops connections under load or after inactivity.
+**Cause.** Either the Node process restarted (new PID, new inspector
+session, new WebSocket UUID) or whatever tunnel/forward you set up in
+Step 2 dropped — there's no Kubernetes-specific "port-forward drops under
+load" behavior here since the transport is now whatever your own infra
+uses (SSH tunnel, Docker port publish, etc.), so the fix is specific to
+that transport.
 
-**Fix:**
-1. Check if port-forward process is still running
-2. Re-establish port-forward
-3. Get a fresh WebSocket URL (same pod, new connection)
+**Fix.**
+1. Confirm the process is still running (`ps`/orchestrator status)
+2. Re-establish whatever tunnel you're using
+3. Get a fresh WebSocket URL (step 3) — the UUID always changes
 4. Script should handle reconnection gracefully
 
 ### 5. WebSocket message too large
@@ -169,36 +197,26 @@ for _ in range(10000):  # Use 10000, not 100
 async with websockets.connect(WS, max_size=100*1024*1024) as ws:
 ```
 
-### 6. Deno 2.x API changes
+### 6. `process.memoryUsage()` shape differs from Deno's
 
-Some APIs changed in Deno 2.x:
-- `Deno.resources()` → **removed** in Deno 2.x. Use `/proc/self/fd` instead.
-- `caches.keys()` → may not be available as a function. Use `caches.open(name)` and `cache.keys()` instead.
+Node's `process.memoryUsage()` breaks `arrayBuffers` out as its own field,
+separate from `external` — Deno folded `ArrayBuffer`/external allocations
+into a single `external` number. See `memory-analysis.md` and the Memory
+Breakdown Model in `SKILL.md` for the corrected field list.
 
-### 7. /proc access requires permissions
+### 7. No `/proc` permission gate — but also no Deno-style resource listing
 
-**Symptom:** "Requires all access" error when reading `/proc/self/status` or `/proc/self/maps`.
+Deno's permission system blocked `/proc` reads unless explicitly granted;
+Node has no such gate, so `/proc/self/fd` (Linux) works unconditionally if
+you need open-file-descriptor counts. There's also no direct Node
+equivalent of `Deno.resources()` (already removed in Deno 2.x anyway) —
+use `process._getActiveHandles()` / `process._getActiveRequests()`
+(undocumented but stable in practice across current Node LTS versions) or
+`/proc/self/fd` for a coarser count.
 
-**Cause:** Deno's permission system blocks filesystem reads outside allowed paths.
+### 8. `callFunctionOn` for object analysis — unchanged from the old flow
 
-**Workaround:** Use `Deno.memoryUsage()` instead — it doesn't require extra permissions and gives RSS, heap, and external memory.
-
-### 8. Heap snapshot node_fields empty
-
-**Symptom:** Heap snapshot `snapshot.node_fields` is an empty array.
-
-**Cause:** Deno/V8 stores `node_fields` under `snapshot.meta` or uses a different layout than Chrome.
-
-**Fix:** Infer field count from `len(nodes) / node_count`. Standard V8 uses 6 or 7 fields per node:
-```python
-field_count = len(nodes) // node_count
-# 6 fields: type, name, id, self_size, edge_count, trace_node_id
-# 7 fields: + detachedness
-```
-
-### 9. callFunctionOn for object analysis
-
-After `queryObjects`, use `callFunctionOn` to analyze the returned array:
+This part carries over as-is:
 ```python
 async def call_on(ws, obj_id, func):
     r = await send_cmd(ws, "Runtime.callFunctionOn", {

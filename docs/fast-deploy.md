@@ -30,7 +30,7 @@ KV DOWN / not migrated     serve the bundled blocks.gen snapshot (no behavior ch
 | `decofile:current` | full decofile JSON (the blocks map) | runtime source of truth |
 | `index:revision` | DJB2 hex hash of the snapshot | polled for change detection |
 
-`index:revision` **must** equal `computeRevision(blocks)` (`src/cms/blockSource.ts`,
+`index:revision` **must** equal `computeRevision(blocks)` (`packages/runtime/src/cms/blockSource.ts`,
 DJB2 over `JSON.stringify`) — the runtime, the write-through path, and the CI
 scripts all use that one function so a hydrating isolate computes a matching
 revision and the poller doesn't loop. The original plan's `block:<name>` /
@@ -60,19 +60,19 @@ DECO_FAST_DEPLOY = "1"
 
 ## Read path (runtime)
 
-- `src/cms/blockSource.ts` — `BlockSource` interface, `BundledBlockSource`,
-  `computeRevision`, `KV_KEYS`, minimal `KVNamespace` type.
-- `src/cms/kvBlockSource.ts` — `KVBlockSource` reads the two keys.
-- `src/sdk/kvHydration.ts` — `ensureBlocksHydrated(env, ctx)` (cold start),
+- `packages/runtime/src/cms/blockSource.ts` — `BlockSource` interface, `BundledBlockSource`,
+  `computeRevision`, `KV_KEYS`, minimal `KVNamespace` type. (Generic/framework-agnostic — lives in `runtime`.)
+- `packages/tanstack/src/cms/kvBlockSource.ts` — `KVBlockSource` reads the two keys. (Cloudflare-KV-specific — lives in `tanstack`, not `runtime`, since fast-deploy is a `@decocms/tanstack`-only feature.)
+- `packages/tanstack/src/sdk/kvHydration.ts` — `ensureBlocksHydrated(env, ctx)` (cold start),
   `maybePollRevision(env, ctx)` (throttled `waitUntil` poll), `isFastDeployEnabled`.
-- Wired into `src/sdk/workerEntry.ts` `handleRequest`, before admin routes.
+- Wired into `packages/tanstack/src/sdk/workerEntry.ts` `handleRequest`, before admin routes.
 
 Cold start **awaits** the KV snapshot (one ~10–30ms hit per isolate) to guarantee
 fresh content — the bundled snapshot is frozen at the last code deploy.
 
 ## Write path (publish)
 
-`POST /.decofile` (`src/admin/decofile.ts` → `handleDecofileReload`) accepts:
+`POST /.decofile` (`packages/admin/src/admin/decofile.ts` → `handleDecofileReload`) accepts:
 
 - **Delta** envelope (preferred): `{ "blocks": { "<name>": <json> | null } }` —
   `null` deletes a block. Identified by a body with exactly one top-level key,
@@ -116,7 +116,7 @@ inside a short-lived, self-cleaning Kubernetes Job.
    CR (`target: tanstack-kv`, `repo`, `commit`). Code changes take the normal build path.
 2. Watches the `Decofile` CR. A `FastDeployment` impl (`tanstack-kv`, dispatched by the CR's
    target) creates a self-cleaning `batch/v1` Job (the minimal `decofile-syncer` image) that
-   clones `repo@commit` and runs `npx -p @decocms/start deco-sync-blocks-to-kv --write --all
+   clones `repo@commit` and runs `npx -p @decocms/cli deco-sync-blocks-to-kv --write --all
    --purge-url … --purge-token …`. `ttlSecondsAfterFinished` reaps the Job/pod; status lands
    on the CR.
 

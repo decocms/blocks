@@ -22,7 +22,7 @@ This skill helps you implement comprehensive e2e performance tests for Deco e-co
 1. **Discover site-specific values** (read `discovery.md`)
 2. **Run scaffold script** or copy templates manually
 3. **Configure selectors** for your site
-4. **Add deno.json tasks** for easy test execution
+4. **Add package.json scripts** for easy test execution
 5. **Run tests** and verify
 
 ## Workflow
@@ -31,8 +31,8 @@ This skill helps you implement comprehensive e2e performance tests for Deco e-co
 1. Read discovery.md → Find site-specific selectors
 2. Run scaffold.sh → Create test directory structure
 3. Replace {{PLACEHOLDERS}} → Customize for site
-4. Add deno.json tasks → Enable `deno task test:e2e`
-5. npm install && deno task test:e2e → Verify tests work
+4. Add package.json scripts → Enable `npm run test:e2e`
+5. npm install && npm run test:e2e → Verify tests work
 ```
 
 ## Directory Structure to Create
@@ -74,12 +74,88 @@ scripts/
 
 ## Key Features
 
-### 1. Lazy Section Tracking
+### 1. Lazy Section Tracking (rewritten — see note)
 
-The test tracks all `/deco/render` requests (lazy-loaded sections) with:
-- **Section name** extracted from `x-deco-section` header
-- **Timing** with color-coded status (🟢 fast, 🟡 medium, 🔴 slow)
-- **Cache status** (💾 HIT, ❌ MISS, ⏳ STALE)
+> **The header-based version of this feature described in older versions of
+> this skill is dead.** It assumed a Fresh/Deno-era Deco runtime that
+> round-tripped every lazy section through `/deco/render` and stamped the
+> response with `x-deco-section` / `x-deco-page` / `x-deco-route` headers. A
+> grep of the current `packages/runtime`, `packages/admin`, `packages/tanstack`,
+> and `packages/next` source (2026-07) for
+> `x-deco-section|x-deco-page|x-deco-route|x-deco-platform` returns **zero
+> hits**. `/deco/render` still exists (`packages/admin/src/admin/render.ts`,
+> wired via `decoRenderRoute` in `packages/tanstack/src/routes/adminRoutes.ts`
+> and the Next.js route handlers in `packages/next`) but it is now the
+> **admin visual-editor preview endpoint only** — it renders a section/page to
+> an HTML string for the CMS iframe and sets no identifying headers at all
+> (just `Content-Type`). It is never hit during normal storefront browsing.
+
+**What actually happens today:** lazy/deferred sections are a client-side
+rendering concern, not a per-section HTTP fetch with identifying headers.
+
+- `packages/runtime/src/hooks/LazySection.tsx` — a generic
+  IntersectionObserver wrapper. When the wrapped element scrolls into view it
+  flips React state and renders `children` instead of `fallback`. **No
+  network request happens at all** — the component code is already in the
+  bundle; this only delays mounting it.
+- `packages/tanstack/src/hooks/DecoPageRenderer.tsx` (TanStack Start) and
+  `packages/next/src/DeferredSection.tsx` / `SectionRenderer.tsx` (Next.js App
+  Router) render each section inside a wrapper that carries
+  **`data-manifest-key={section.key}`** (the section's identifier, e.g.
+  `site/sections/Hero.tsx`) and, while the section is still a skeleton,
+  **`data-deferred="true"`**. Once the section resolves, the wrapper is
+  re-rendered without `data-deferred` and the real content replaces the
+  skeleton.
+- On TanStack, the initial page load streams deferred sections inline via SSR
+  (Suspense + `Await`) — no client-visible request at all in the common case.
+  There is a `loadDeferredSection` TanStack `createServerFn` (POST, in
+  `packages/tanstack/src/routes/cmsRoute.ts`) used as a fallback for SPA
+  navigation, explicitly marked `@deprecated` in favor of native streaming;
+  its POST body carries `{ component, pagePath, pageUrl, index }`, but the
+  request goes to TanStack's internal server-fn RPC path, not `/deco/render`,
+  and there's no response header naming the section either.
+- On Next.js, `DeferredSectionBoundary` (`packages/next/src/DeferredSection.tsx`)
+  is RSC-native: it `await`s a promise inside an async Server Component under
+  `<Suspense>`. The resolved section is streamed as part of the same HTTP
+  response — there is no separate observable request per section at all.
+
+**Modern replacement — track sections via the DOM, not HTTP headers:**
+
+```typescript
+// Section identifiers currently loading (skeleton) or already resolved.
+const pendingKeys = await page.locator('[data-deferred="true"]')
+    .evaluateAll(els => els.map(el => el.getAttribute('data-manifest-key')))
+
+const allSectionKeys = await page.locator('[data-manifest-key]')
+    .evaluateAll(els => els.map(el => el.getAttribute('data-manifest-key')))
+
+// Timing: poll until a given section's data-deferred attribute disappears.
+async function waitForSectionLoaded(page, manifestKey: string, timeout = 8000) {
+    const start = Date.now()
+    await page.waitForFunction(
+        (key) => {
+            const el = document.querySelector(`[data-manifest-key="${key}"]`)
+            return el && !el.hasAttribute('data-deferred')
+        },
+        manifestKey,
+        { timeout },
+    )
+    return Date.now() - start
+}
+```
+
+This measures "when did the skeleton get replaced with real content"
+(a DOM-mutation timing), which is a different signal than the old "how long
+did the section's HTTP round trip take" — but it is the only lazy-section
+signal the current frameworks actually expose. There is currently **no**
+reliable cross-binding network signal (no header, no consistent URL pattern)
+to reconstruct the old cache-HIT/MISS-per-section or color-coded timing
+table below. If you need that fidelity, it is not implementable today without
+framework changes — don't fabricate a fake header check that will silently
+report all-MISS or find nothing.
+
+Old (no longer produced by any current binding — kept only as a record of
+what the removed feature used to look like):
 
 ```
 🔄 Lazy Sections (14):
@@ -136,12 +212,17 @@ Reports include a summary for easy comparison:
 }
 ```
 
-### 5. Deco Observability Headers
+### 5. Deco Observability Signals
 
-The test captures custom Deco headers for debugging:
-- `x-deco-section` - Section component type and title
-- `x-deco-page` - Matched page block name
-- `x-deco-route` - Matched route template
+**Not header-based today.** Older versions of this skill captured custom
+Deco response headers (`x-deco-section`, `x-deco-page`, `x-deco-route`) for
+debugging. Those headers do not exist anywhere in the current runtime — see
+the "Lazy Section Tracking" note above. The nearest current equivalent is the
+`data-manifest-key` DOM attribute described there (identifies the section)
+plus normal Playwright network inspection for the underlying data-loading
+requests your app makes (e.g. `X-Deco-Cacheable` is set on some TanStack
+server-fn responses to control edge caching, but it's not a per-section
+identifier).
 
 ## Critical: Server Warmup
 
@@ -212,21 +293,30 @@ const SITE_CONFIG = {
 }
 ```
 
-## deno.json Integration
+## package.json Integration
 
-Add these tasks to the site's `deno.json`:
+Current sites are TanStack Start (Vite, `bun run dev` / `npm run dev` →
+`vite dev`) or Next.js App Router (`npm run dev` / `bun run dev` → `next
+dev`) — both driven by `package.json` scripts, not `deno.json`/`deno task`.
+Add these scripts to the **site's own** `package.json` (not the test
+directory's):
 
-```json
+```jsonc
 {
-  "tasks": {
-    "test:e2e": "deno run -A scripts/run-e2e.ts",
-    "test:e2e:headed": "deno run -A scripts/run-e2e.ts --headed",
+  "scripts": {
+    "test:e2e": "tsx scripts/run-e2e.ts",
+    "test:e2e:headed": "tsx scripts/run-e2e.ts --headed",
     "test:e2e:install": "cd tests/e2e && npm install && npx playwright install chromium",
-    "test:e2e:baseline:save": "deno run -A tests/e2e/scripts/baseline.ts save",
-    "test:e2e:baseline:compare": "deno run -A tests/e2e/scripts/baseline.ts compare"
+    "test:e2e:baseline:save": "tsx tests/e2e/scripts/baseline.ts save",
+    "test:e2e:baseline:compare": "tsx tests/e2e/scripts/baseline.ts compare"
   }
 }
 ```
+
+Use whichever TS runner the site already has available (`tsx`, `bun run`, or
+plain `ts-node`) — `tsx` above is a reasonable default since it works with
+both npm- and bun-managed sites. If the site uses Bun as its package manager,
+`bun run test:e2e` invokes the same script.
 
 ## .gitignore Updates
 
@@ -304,13 +394,13 @@ Save performance baselines and compare future runs to detect regressions.
 ### Save a Baseline
 
 ```bash
-deno task test:e2e:baseline:save
+npm run test:e2e:baseline:save
 ```
 
 ### Compare Against Baseline
 
 ```bash
-deno task test:e2e:baseline:compare
+npm run test:e2e:baseline:compare
 ```
 
 ### Regression Thresholds
@@ -352,17 +442,41 @@ async isMinicartOpen(): Promise<boolean> {
 
 ## Integration with Deco Runtime
 
-For full lazy section observability, ensure your deco runtime includes:
+**This section describes the current (2026-07) TanStack Start / Next.js
+framework packages, not the old Fresh/Deno `deco/runtime`.** There is no
+`deco/runtime/`, `apps/website/handlers/fresh.ts`, or header-setting
+middleware in the current stack — that architecture (and the header-based
+lazy-section observability it enabled) was retired with the Fresh → TanStack
+migration.
 
-1. **x-deco-section header** in `/deco/render` responses
-2. **x-deco-page header** with matched page block name
-3. **x-deco-route header** with matched route template
+For lazy/deferred section observability on a current site, the relevant
+source is:
 
-These are set in:
-- `deco/runtime/features/render.tsx` - Section name extraction
-- `deco/runtime/routes/render.tsx` - Header setting
-- `deco/runtime/middleware.ts` - Page/route headers
-- `apps/website/handlers/fresh.ts` - Page block state
+- `packages/runtime/src/hooks/LazySection.tsx` — generic IntersectionObserver
+  deferral primitive (no network involved).
+- `packages/tanstack/src/hooks/DecoPageRenderer.tsx` — TanStack Start's page
+  renderer; wraps each section in `<section data-manifest-key={key}
+  data-deferred={...}>` and streams deferred sections via SSR Suspense/Await.
+- `packages/tanstack/src/routes/cmsRoute.ts` — the deprecated
+  `loadDeferredSection` POST server-fn fallback used for SPA navigation.
+- `packages/next/src/DeferredSection.tsx` and `packages/next/src/SectionRenderer.tsx`
+  — Next.js App Router's RSC-native equivalents, same `data-manifest-key`
+  convention.
+- `packages/admin/src/admin/render.ts` — the current `/deco/render` handler.
+  Still real, but it's the CMS visual-editor preview endpoint (renders a
+  section/page to HTML for an iframe), not something a storefront visitor's
+  browser calls while scrolling. It sets no `x-deco-*` headers.
+- `packages/runtime/src/middleware/liveness.ts` and
+  `packages/tanstack/src/sdk/workerEntry.ts` — confirm `/deco/_liveness`
+  (and `/_liveness`) are still real, current endpoints. The warmup/liveness
+  parts of this skill are unaffected by any of the above and don't need
+  rewriting.
+
+If you need per-section HTTP-level observability beyond what
+`data-manifest-key`/`data-deferred` DOM tracking gives you, that would
+require a runtime change (e.g. emitting a header or `Server-Timing` entry
+from `DecoPageRenderer`/`DeferredSection`) — it doesn't exist today. Flag
+this as a gap rather than inventing headers that aren't sent.
 
 ## Next Steps
 

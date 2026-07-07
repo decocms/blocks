@@ -1,44 +1,43 @@
-# @decocms/start
+# deco-start
 
-[![npm version](https://img.shields.io/npm/v/@decocms/start.svg)](https://www.npmjs.com/package/@decocms/start)
-[![license](https://img.shields.io/npm/l/@decocms/start.svg)](https://github.com/decocms/deco-start/blob/main/LICENSE)
+Framework layer for [deco.cx](https://deco.cx) storefronts — a Bun workspace monorepo of five packages, split out of the single `@decocms/start` package to give each concern real package boundaries instead of bundled dist tiers.
 
-Framework layer for [deco.cx](https://deco.cx) storefronts on **TanStack Start + React 19 + Cloudflare Workers**.
-
-`@decocms/start` is the npm package that storefronts depend on. It provides the CMS bridge, admin protocol, section registry, schema generation, edge caching, the Vite plugin, and a small SDK. It is **not** itself a storefront — it is what storefronts build on top of.
-
-📖 **[Read the full documentation →](https://docs.deco.cx/v2/en/getting-started/overview)**
+None of these packages are published yet (all sit at `0.0.0`). Consuming sites link against a local checkout via `bun link` until the first release — see [Local development](#local-development) below.
 
 ---
 
 ## What's in the box
 
 ```
-┌─────────────────────────────────────────────────┐
-│   Site repo (your storefront)                    │  ← Components, sections, routes
-├─────────────────────────────────────────────────┤
-│   @decocms/apps  (commerce integrations)         │  ← VTEX, Shopify, Resend
-├─────────────────────────────────────────────────┤
-│   @decocms/start  (framework — this package)     │  ← CMS bridge, admin, caching
-└─────────────────────────────────────────────────┘
-              ↓ runs on ↓
-   TanStack Start  +  React 19  +  Cloudflare Workers
+┌──────────────────────────────────────────────────────────┐
+│   Site repo (your storefront)                             │  ← Components, sections, routes
+├──────────────────────────────────────────────────────────┤
+│   @decocms/apps  (commerce integrations)                  │  ← VTEX, Shopify, Magento, ...
+├──────────────────┬───────────────────┬────────────────────┤
+│  @decocms/tanstack │  @decocms/next    │  (future bindings) │  ← Framework bindings
+├──────────────────┴───────────────────┴────────────────────┤
+│   @decocms/admin        (admin protocol, site bootstrap)   │
+├──────────────────────────────────────────────────────────┤
+│   @decocms/runtime       (CMS core — zero framework deps)  │
+└──────────────────────────────────────────────────────────┘
+                    ↑ codegen: @decocms/cli
 ```
 
-`@decocms/start` exports cover four surfaces:
+| Package | Responsibility | Depends on |
+|---|---|---|
+| **`@decocms/runtime`** | Framework-agnostic CMS core: block loading, page/section resolution, the section registry, matchers, request context. Zero deco-package dependencies. | — |
+| **`@decocms/admin`** | Admin protocol (`/live/_meta`, `/.decofile`, `/deco/render`, `/deco/invoke`) and the admin half of site setup (`createAdminSetup`: meta schema, preview shell, commerce-loader wiring). | `runtime` |
+| **`@decocms/cli`** | Codegen (`generate-blocks`, `generate-schema`, `generate-invoke`, `generate-sections`, `generate-loaders`) and the Fresh/Preact/Deno → TanStack migration scripts. | `runtime` |
+| **`@decocms/tanstack`** | Production TanStack Start + Cloudflare Workers binding: `cmsRouteConfig`, `DecoPageRenderer`, `createDecoWorkerEntry`, the Vite plugin, fast-deploy (KV-backed content). | `runtime`, `admin`, `cli` |
+| **`@decocms/next`** | Next.js App Router binding: `createDecoPage`, `DecoRootLayout`, `SectionRenderer`/`ClientOnlySection`/`DeferredSectionBoundary`, and admin Route Handlers. RSC-native — no Vite, no Cloudflare-specific code. | `runtime`, `admin` |
 
-- **Worker entry** — `createDecoWorkerEntry` wraps your Cloudflare Worker with admin routes, edge cache, and asset bypass.
-- **CMS bridge** — `loadCmsPage`, `resolveDecoPage`, `registerSectionLoaders`, `registerLayoutSections`.
-- **Admin protocol** — `handleMeta`, `handleDecofile`, `handleRender`, `handleInvoke`.
-- **SDK** — `createCachedLoader`, `createInstrumentedFetch`, `createInvoke`, `decoVitePlugin`, plus utilities (cookies, redirects, sitemap, A/B testing).
+Every export maps straight to a `.ts` source file — no package bundles another's source, which is the actual fix for the module-state-duplication bug that caused the v5.2.2 revert of the old single-package, tsup-bundled `@decocms/start`.
 
-Full export reference: [docs.deco.cx/v2/en/reference/package-exports](https://docs.deco.cx/v2/en/reference/package-exports).
+Working examples of both bindings: [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/next-smoke`](./examples/next-smoke).
 
 ---
 
-## Hello, World
-
-A minimal v2 storefront has six files. Here they are.
+## Hello, World (TanStack Start)
 
 ### `package.json`
 
@@ -46,22 +45,17 @@ A minimal v2 storefront has six files. Here they are.
 {
   "name": "my-store",
   "type": "module",
-  "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
-    "deploy": "wrangler deploy"
-  },
+  "scripts": { "dev": "vite dev", "build": "vite build", "deploy": "wrangler deploy" },
   "dependencies": {
-    "@decocms/start": "^2.28.0",
+    "@decocms/runtime": "*",
+    "@decocms/admin": "*",
+    "@decocms/tanstack": "*",
     "@decocms/apps": "^1.11.0",
     "@tanstack/react-start": "^1.166.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
-  "devDependencies": {
-    "vite": "^6.0.0",
-    "wrangler": "^4.72.0"
-  }
+  "devDependencies": { "vite": "^6.0.0", "wrangler": "^4.72.0" }
 }
 ```
 
@@ -72,7 +66,8 @@ import { defineConfig } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
-import decoVitePlugin from "@decocms/start/vite";
+// @ts-expect-error — @decocms/tanstack/vite ships plain .js, no .d.ts yet
+import { decoVitePlugin } from "@decocms/tanstack/vite";
 
 export default defineConfig({
   plugins: [
@@ -83,31 +78,18 @@ export default defineConfig({
   ],
   resolve: {
     alias: { "~": "/src" },
-    deduplicate: ["react", "react-dom", "@decocms/start", "@decocms/apps"],
+    dedupe: ["react", "react-dom", "@decocms/runtime", "@decocms/admin", "@decocms/tanstack", "@decocms/apps"],
   },
 });
-```
-
-### `wrangler.jsonc`
-
-```jsonc
-{
-  "name": "my-store",
-  "main": "./src/worker-entry.ts",
-  "compatibility_date": "2026-02-14",
-  "compatibility_flags": [
-    "nodejs_compat",
-    "no_handle_cross_request_promise_resolution"
-  ],
-  "assets": { "directory": "./dist/client" }
-}
 ```
 
 ### `src/setup.ts`
 
 ```ts
-import { createSiteSetup } from "@decocms/start/setup";
-import { applySectionConventions } from "@decocms/start/cms";
+import { createSiteSetup } from "@decocms/runtime/setup";
+import { createAdminSetup } from "@decocms/admin/setup";
+import { applySectionConventions } from "@decocms/runtime/cms";
+import { setupTanstackFastDeploy } from "@decocms/tanstack";
 
 import blocks from "./server/cms/blocks.gen";
 import sectionsGen from "./server/cms/sections.gen";
@@ -116,29 +98,25 @@ import meta from "./server/cms/meta.gen.json";
 createSiteSetup({
   sections: import.meta.glob("./sections/**/*.tsx", { eager: true }),
   blocks,
-  meta: () => meta,
   productionOrigins: ["https://my-store.com"],
 });
 
+createAdminSetup({ meta: () => meta });
 applySectionConventions(sectionsGen);
+setupTanstackFastDeploy();
 ```
 
 ### `src/worker-entry.ts`
 
 ```ts
-import "./setup";   // MUST be first
+import "./setup"; // MUST be first
 
-import { createDecoWorkerEntry } from "@decocms/start/sdk/workerEntry";
-import {
-  handleMeta,
-  handleDecofile,
-  handleRender,
-  handleInvoke,
-} from "@decocms/start/admin";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, handleInvoke } from "@decocms/admin";
 import serverEntry from "./server";
 
 export default createDecoWorkerEntry(serverEntry, {
-  admin: { handleMeta, handleDecofile, handleRender, handleInvoke },
+  admin: { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, handleInvoke },
 });
 ```
 
@@ -146,89 +124,111 @@ export default createDecoWorkerEntry(serverEntry, {
 
 ```tsx
 import { createFileRoute } from "@tanstack/react-router";
-import { cmsRouteConfig } from "@decocms/start/routes";
+import { cmsRouteConfig } from "@decocms/tanstack";
 
-export const Route = createFileRoute("/$")(
-  cmsRouteConfig({ siteName: "my-store" }),
-);
+export const Route = createFileRoute("/$")(cmsRouteConfig({ siteName: "my-store" }));
 ```
 
-That is the entire skeleton. `npm install`, `npm run dev`, point `admin.deco.cx` at it, and you have a working CMS-driven site.
-
-For commerce integrations (VTEX, Shopify) see [`@decocms/apps`](https://www.npmjs.com/package/@decocms/apps).
+`npm install`, `npm run dev`, point `admin.deco.cx` at it, and you have a working CMS-driven site. For commerce integrations (VTEX, Shopify) see [`@decocms/apps`](https://www.npmjs.com/package/@decocms/apps).
 
 ---
 
-## Migrating from Fresh / Preact / Deno
+## Hello, World (Next.js App Router)
 
-`@decocms/start` ships an Agent Skill that handles the migration for you. It works with Claude Code, Cursor, Codex, and any tool that supports skills.
+### `src/setup.ts`
 
-```bash
-npx skills add decocms/deco-start
+```ts
+import { createSiteSetup } from "@decocms/runtime/setup";
+import { createAdminSetup } from "@decocms/admin/setup";
+
+createSiteSetup({
+  sections: { "site/sections/Hero.tsx": () => import("./sections/Hero") },
+  blocks: {},
+});
+
+createAdminSetup({ meta: () => Promise.resolve({}) });
 ```
 
-Then, in your editor, point at your Fresh storefront and prompt:
+### `src/app/layout.tsx`
 
-> migrate this project to TanStack Start
+```tsx
+import { DecoRootLayout } from "@decocms/next";
 
-The skill runs the migration script, walks you through `MIGRATION_REPORT.md`, fixes typecheck/build errors interactively, and shows the diff before committing.
-
-### Or run the script directly
-
-```bash
-# from inside the v1 storefront directory
-npx -p @decocms/start deco-migrate
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <DecoRootLayout siteName="my-store">{children}</DecoRootLayout>
+      </body>
+    </html>
+  );
+}
 ```
 
-The script runs seven phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap), produces `MIGRATION_REPORT.md` with manual TODOs, and gets you to "compiles clean, builds clean".
+### `src/app/[[...slug]]/page.tsx`
 
-Full migration playbook: [docs.deco.cx/v2/en/migration/overview](https://docs.deco.cx/v2/en/migration/overview).
+```ts
+import { createDecoPage } from "@decocms/next";
+
+export const { generateMetadata, default: Page } = createDecoPage({ siteName: "my-store" });
+```
+
+### `src/app/deco/render/route.ts`, `.decofile/route.ts`, `live/meta/route.ts`
+
+```ts
+export { renderGET as GET, renderPOST as POST } from "@decocms/next";
+```
+
+Swap `renderGET`/`renderPOST` for `decofileGET`/`decofilePOST` or `metaGET` as appropriate — see [`examples/next-smoke`](./examples/next-smoke) for the full route wiring, including the Next.js routing quirks (dot-prefixed segments stay literal, `_`-prefixed segments need `%5F`).
 
 ---
 
-## Documentation
+## Migrating
 
-The full v2 docs live at **[docs.deco.cx/v2](https://docs.deco.cx/v2/en/getting-started/overview)**:
+- **Fresh/Preact/Deno → TanStack Start**: `.agents/skills/deco-to-tanstack-migration/` (also runnable directly via `.agents/skills/deco-migrate-script/`, the automated 8-phase script).
+- **Old single-package `@decocms/start@5.x` → the split packages, for Next.js sites**: `.agents/skills/deco-next-package-migration/` — covers the import remap, splitting `createSiteSetup` into `createSiteSetup` + `createAdminSetup`, and rewriting admin routes as thin per-concern Route Handlers.
 
-- [Getting started](https://docs.deco.cx/v2/en/getting-started/overview) — install paths, project structure, stack overview.
-- [Concepts](https://docs.deco.cx/v2/en/concepts/sections) — sections, loaders, blocks, routes, deferred rendering.
-- [Framework reference](https://docs.deco.cx/v2/en/framework/overview) — every export of `@decocms/start`, page by page.
-- [Migration](https://docs.deco.cx/v2/en/migration/overview) — v1 → v2 playbook + script + skill.
-- [Case studies](https://docs.deco.cx/v2/en/case-studies/overview) — three production stores end-to-end.
+These are Agent Skills — usable from Claude Code, Cursor, Codex, or any tool that supports the skill format.
 
 ---
 
 ## Peer dependencies
 
-```json
-{
-  "@tanstack/react-start": ">=1.0.0",
-  "@tanstack/store": ">=0.7.0",
-  "@tanstack/react-query": ">=5.0.0",
-  "react": "^19.0.0",
-  "react-dom": "^19.0.0",
-  "vite": ">=6.0.0"
-}
-```
+| Package | Peer deps |
+|---|---|
+| `@decocms/runtime`, `@decocms/admin` | `react ^19.0.0`, `react-dom ^19.0.0` |
+| `@decocms/tanstack` | + `@tanstack/react-start >=1.0.0`, `@tanstack/store >=0.7.0`, `@tanstack/react-query >=5.0.0`, `vite >=6.0.0` |
+| `@decocms/next` | + `next >=15.0.0` |
 
 OpenTelemetry is optional but recommended: `@microlabs/otel-cf-workers >=1.0.0-rc.0`, `@opentelemetry/api >=1.9.0`.
 
 ---
 
-## Development
+## Local development
 
 ```bash
-npm run typecheck   # tsc --noEmit
-npm run lint        # biome check
-npm run check       # typecheck + lint + unused exports
+bun install
+bun run typecheck   # per-package tsc --noEmit
+bun run test        # per-package vitest
+bun run check       # typecheck + lint + unused-exports
 ```
 
-This is a library — there is no dev server here. Consumer storefronts run their own `vite dev`.
+This is a monorepo of libraries — there's no dev server here. `examples/tanstack-smoke` and `examples/next-smoke` are minimal real consumers you can `bun run dev` directly.
 
-Contributing? See `CLAUDE.md` for the architectural decisions, and `MIGRATION_TOOLING_PLAN.md` for the append-only history of the migration tooling.
+**Linking into a real site** (until packages are published):
+
+```bash
+cd packages/runtime && bun link
+cd packages/admin && bun link
+cd packages/tanstack && bun link   # or packages/next
+```
+
+Then in the site repo: `bun link @decocms/runtime @decocms/admin @decocms/tanstack && bun install`. Full walkthrough in the `deco-next-package-migration` skill.
+
+Contributing? See [`CLAUDE.md`](./CLAUDE.md) for architectural decisions, [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) for the append-only history of the migration tooling, and the `docs/` folder for fast-deploy, observability, and RUM guides.
 
 ---
 
 ## License
 
-MIT
+Not yet declared — no `LICENSE` file or `license` field exists in this repo at present.

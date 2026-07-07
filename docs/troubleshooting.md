@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common issues developers hit while running deco storefronts on `@decocms/start`, with concrete diagnostics and mitigations.
+Common issues developers hit while running deco storefronts on `@decocms/tanstack`, with concrete diagnostics and mitigations.
 
 ---
 
@@ -23,7 +23,7 @@ When the home page has many `Rendering/Lazy.tsx` sections, IntersectionObserver 
 
 - For demos / parity checks against prod source-of-truth: deploy to a preview Worker rather than relying on `bun run dev`. The bug is dev-runner only.
 - During local development: trigger sections one at a time by scrolling slowly, or refresh after the initial flaky loads to re-trigger the IntersectionObserver. Subsequent requests for the same key are usually faster (the failure pattern doesn't repeat deterministically per section).
-- If you can reproduce on a minimal repro (TanStack Start + `@cloudflare/vite-plugin`, no `@decocms/start`), upstream the bug to `cloudflare/workers-sdk` with the concurrent-fetch test case — that's the load-bearing path to a real fix.
+- If you can reproduce on a minimal repro (TanStack Start + `@cloudflare/vite-plugin`, no `@decocms/tanstack`), upstream the bug to `cloudflare/workers-sdk` with the concurrent-fetch test case — that's the load-bearing path to a real fix.
 
 **What we ruled out** (issue #198):
 
