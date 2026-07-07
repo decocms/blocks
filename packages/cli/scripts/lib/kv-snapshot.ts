@@ -7,7 +7,7 @@
  * hydrating isolate computes a matching revision and the poller doesn't loop.
  */
 
-import { computeRevision, KV_KEYS } from "@decocms/live/cms";
+import { computeRevision, KV_KEYS } from "@decocms/blocks/cms";
 import type { KvRestClient } from "./cf-kv-rest";
 
 export interface Snapshot {

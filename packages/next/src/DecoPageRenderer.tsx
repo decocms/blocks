@@ -1,5 +1,5 @@
-import type { DeferredSection, ResolvedSection } from "@decocms/live/cms";
-import { resolveDeferredSection } from "@decocms/live/cms";
+import type { DeferredSection, ResolvedSection } from "@decocms/blocks/cms";
+import { resolveDeferredSection } from "@decocms/blocks/cms";
 import { SectionRenderer } from "./SectionRenderer";
 import { DeferredSectionBoundary } from "./DeferredSection";
 import { cloneElement, type ReactElement, type ReactNode } from "react";
@@ -41,7 +41,7 @@ export async function DecoPageRenderer({
 }: DecoPageRendererProps) {
   const items = mergeSections(sections, deferredSections);
 
-  // `resolveDeferredSection`'s real signature (packages/live/src/cms/resolve.ts)
+  // `resolveDeferredSection`'s real signature (packages/blocks/src/cms/resolve.ts)
   // takes positional args `(component, rawProps, pagePath, matcherCtx?)` and
   // returns a `ResolvedSection` WITHOUT `index` set — unlike the object-shaped
   // call the plan sketch assumed. `pageUrl` isn't a direct parameter either; it

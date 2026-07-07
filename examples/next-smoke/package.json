@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@decocms/live": "workspace:*",
+    "@decocms/blocks": "workspace:*",
     "@decocms/admin": "workspace:*",
     "@decocms/next": "workspace:*",
     "next": "^15.4.0",

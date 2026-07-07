@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RequestContext } from "@decocms/live/sdk/requestContext";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import {
   clearInvokeHandlers,
   handleInvoke,

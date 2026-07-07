@@ -38,7 +38,7 @@
 // into the client graph, which is exactly the `UnhandledSchemeError` we're
 // avoiding. Node/Vitest resolve the `default`/`node` condition → real storage;
 // Next.js's client webpack compiler resolves `browser` → the stub.
-import { storage } from "@decocms/live/sdk/requestContextStorage";
+import { storage } from "@decocms/blocks/sdk/requestContextStorage";
 
 // -------------------------------------------------------------------------
 // Types

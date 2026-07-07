@@ -26,7 +26,7 @@ export {
   registerLoaderSchemas,
   registerMatcherSchema,
   registerMatcherSchemas,
-} from "@decocms/live/cms";
+} from "@decocms/blocks/cms";
 
 let cssHref: string | null = null;
 let fontHrefs: string[] = [];

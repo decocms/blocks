@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { LiveControls } from "@decocms/live/hooks";
-import { ANALYTICS_SCRIPT } from "@decocms/live/sdk/analytics";
+import { LiveControls } from "@decocms/blocks/hooks";
+import { ANALYTICS_SCRIPT } from "@decocms/blocks/sdk/analytics";
 
 function buildDecoEventsBootstrap(account?: string): string {
   const accountJson = JSON.stringify(account ?? "");

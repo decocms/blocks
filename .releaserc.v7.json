@@ -1,6 +1,6 @@
 {
-  "branches": ["decocms-live-legacy-anchor", "v7"],
-  "tagFormat": "live-v${version}",
+  "branches": ["decocms-blocks-legacy-anchor", "v7"],
+  "tagFormat": "blocks-v${version}",
   "plugins": [
     ["@semantic-release/commit-analyzer", {
       "preset": "angular",

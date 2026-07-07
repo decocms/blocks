@@ -2,7 +2,7 @@
  * Browser-bundle stand-in for the `node:async_hooks`-backed request storage in
  * `./requestContextStorage`. Selected automatically by bundlers that set the
  * `"browser"` export condition (Next.js / webpack client compiler, Vite client
- * build) via the conditional `exports` entry in `packages/live/package.json`.
+ * build) via the conditional `exports` entry in `packages/blocks/package.json`.
  *
  * There is no per-request async context on the client, so this backend simply
  * reports "no active store". Every `RequestContext` accessor built on top of it

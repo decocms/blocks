@@ -564,7 +564,7 @@ export function decoVitePlugin() {
                   return "vendor-query";
                 }
                 // Intentionally NOT splitting @decocms/tanstack,
-                // @decocms/live, @decocms/admin, or
+                // @decocms/blocks, @decocms/admin, or
                 // @decocms/apps: they have circular re-exports (e.g. apps
                 // imports from runtime/sdk/cachedLoader, admin
                 // imports from apps). Splitting them into separate chunks
@@ -597,7 +597,7 @@ export function decoVitePlugin() {
       // manifest, and every POST /_serverFn/* call from the browser returns
       // HTTP 500 ("Invalid server function ID"). See #197.
       //
-      // @decocms/live does NOT need this: despite its
+      // @decocms/blocks does NOT need this: despite its
       // validateSection.ts / useScript.ts doc comments mentioning
       // `createServerFn`, neither file (nor anything else in runtime)
       // actually calls it — those are a JSDoc usage example for a site's

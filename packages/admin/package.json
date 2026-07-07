@@ -20,7 +20,7 @@
     "lint:unused": "knip"
   },
   "dependencies": {
-    "@decocms/live": "workspace:*"
+    "@decocms/blocks": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0",

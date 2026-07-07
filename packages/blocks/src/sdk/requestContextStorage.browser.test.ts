@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // Import the browser stub explicitly by path. Vitest (no "browser" export
-// condition) would otherwise resolve `@decocms/live/sdk/requestContextStorage`
+// condition) would otherwise resolve `@decocms/blocks/sdk/requestContextStorage`
 // to the real `node:async_hooks`-backed module; here we assert the client-safe
 // stand-in that Next.js's client webpack compiler selects via the "browser"
 // export condition behaves exactly like the real storage does outside a request

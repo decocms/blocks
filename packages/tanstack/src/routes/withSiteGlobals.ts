@@ -25,8 +25,8 @@
  * ```
  */
 
-import type { ResolvedSection } from "@decocms/live/cms";
-import { loadBlocks, onChange, resolvePageSections } from "@decocms/live/cms";
+import type { ResolvedSection } from "@decocms/blocks/cms";
+import { loadBlocks, onChange, resolvePageSections } from "@decocms/blocks/cms";
 
 // ---------------------------------------------------------------------------
 // Types

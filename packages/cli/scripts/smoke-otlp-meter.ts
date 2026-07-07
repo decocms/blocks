@@ -12,7 +12,7 @@
  * Expected output: `{"inserted":{"sum":1,"gauge":1,"histogram":1}}`.
  */
 
-import { createOtlpHttpMeterAdapter } from "@decocms/live/sdk/otelHttpMeter";
+import { createOtlpHttpMeterAdapter } from "@decocms/blocks/sdk/otelHttpMeter";
 
 async function main() {
   const meter = createOtlpHttpMeterAdapter({

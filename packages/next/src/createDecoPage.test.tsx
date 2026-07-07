@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { registerSections, setBlocks } from "@decocms/live/cms";
+import { registerSections, setBlocks } from "@decocms/blocks/cms";
 import { createDecoPage } from "./createDecoPage";
 
 function Hero({ label }: { label?: string }) {
@@ -9,7 +9,7 @@ function Hero({ label }: { label?: string }) {
 
 describe("createDecoPage (next)", () => {
   it("resolves and renders the page for the current path", async () => {
-    // registerSections (the async-loader registry, packages/live/src/cms/registry.ts)
+    // registerSections (the async-loader registry, packages/blocks/src/cms/registry.ts)
     // — NOT registerSectionsSync — is what resolveDecoPage's pipeline reads:
     // resolveRawSection() gates each raw CMS section through getSection(),
     // which only consults the registry registerSections populates.
@@ -21,7 +21,7 @@ describe("createDecoPage (next)", () => {
     // original registerSectionsSync-based sketch.
     registerSections({ "site/sections/CreateDecoPageHero.tsx": async () => ({ default: Hero }) });
     // Block key MUST start with "pages-" — that's the prefix getAllPages()
-    // (packages/live/src/cms/loader.ts) filters on. The plan's sketch used
+    // (packages/blocks/src/cms/loader.ts) filters on. The plan's sketch used
     // "pages/home.json", which getAllPages() would silently skip, so
     // resolveDecoPage would return null and this test would fail even with a
     // correct implementation.

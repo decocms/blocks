@@ -18,8 +18,8 @@ export interface NetworkMetrics {
 
 /**
  * Cache decision vocabulary as actually emitted by the current runtime
- * (`packages/live/src/middleware/observability.ts`'s `CacheDecision`
- * type, used by `packages/live/src/sdk/cachedLoader.ts`). NOT the old
+ * (`packages/blocks/src/middleware/observability.ts`'s `CacheDecision`
+ * type, used by `packages/blocks/src/sdk/cachedLoader.ts`). NOT the old
  * lowercase `hit`/`miss`/`stale`/`bypass` set older versions of this
  * template assumed.
  */
@@ -31,15 +31,15 @@ export type CacheStatus = 'HIT' | 'STALE-HIT' | 'STALE-ERROR' | 'MISS' | 'BYPASS
  * IMPORTANT — read before assuming this is populated: as of 2026-07, no
  * call site in `packages/tanstack` or `packages/next` ever calls
  * `state.timings.start(...)` / `.record(...)` (the `ServerTimings` API in
- * `packages/live/src/sdk/serverTimings.ts` that actually feeds the
+ * `packages/blocks/src/sdk/serverTimings.ts` that actually feeds the
  * `Server-Timing` HTTP header via `applyServerTiming()`). `buildDecoState`
  * itself is only referenced from its own definition and a doc-comment
- * example in `packages/live/src/middleware/index.ts` — it isn't wired
+ * example in `packages/blocks/src/middleware/index.ts` — it isn't wired
  * into any current site's request pipeline. The real per-loader cache
  * decision (HIT / STALE-HIT / STALE-ERROR / MISS / BYPASS) is recorded via
  * `recordLoaderMetric()` / `recordCacheMetric()` in
- * `packages/live/src/middleware/observability.ts`, called from
- * `packages/live/src/sdk/cachedLoader.ts` — but those push to an OTel
+ * `packages/blocks/src/middleware/observability.ts`, called from
+ * `packages/blocks/src/sdk/cachedLoader.ts` — but those push to an OTel
  * meter (counters/histograms), not the HTTP response, so they are NOT
  * visible to Playwright at all.
  *
@@ -588,7 +588,7 @@ export class MetricsCollector {
                 cacheStats.total++
 
                 // Real vocabulary per `CacheDecision`
-                // (packages/live/src/middleware/observability.ts):
+                // (packages/blocks/src/middleware/observability.ts):
                 // HIT | STALE-HIT | STALE-ERROR | MISS | BYPASS.
                 switch (parsed.status) {
                     case 'HIT': cacheStats.hit++; break

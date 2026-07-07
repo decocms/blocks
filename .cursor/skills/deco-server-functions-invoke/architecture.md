@@ -52,7 +52,7 @@ import {
   getResponseHeaders,
   setResponseHeader,
 } from "@tanstack/react-start/server";
-import { RequestContext } from "@decocms/live/sdk/requestContext";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 
 function unwrapResult<T>(result: unknown): T {
   if (result && typeof result === "object" && "data" in result) {

@@ -16,7 +16,7 @@ describe("DecoRootLayout (next)", () => {
     // `window.DECO = window.DECO || {}` and `window.DECO.events = ...`), so it
     // would still pass even if the ANALYTICS_SCRIPT <script> tag were deleted
     // entirely. "IntersectionObserver" only exists inside ANALYTICS_SCRIPT
-    // (packages/live/src/sdk/analytics.ts) — it genuinely pins that script.
+    // (packages/blocks/src/sdk/analytics.ts) — it genuinely pins that script.
     expect(html).toContain("IntersectionObserver");
   });
 });

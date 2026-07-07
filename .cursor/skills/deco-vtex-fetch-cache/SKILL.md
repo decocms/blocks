@@ -29,7 +29,7 @@ Site Setup
 
 | Layer | File | Scope | TTL |
 |-------|------|-------|-----|
-| `createCachedLoader` | `@decocms/live/sdk/cachedLoader` | Loader result (parsed + transformed) | 30-120s per loader |
+| `createCachedLoader` | `@decocms/blocks/sdk/cachedLoader` | Loader result (parsed + transformed) | 30-120s per loader |
 | `vtexCachedFetch` | `apps-start/vtex/client.ts` | Raw HTTP JSON response | 3 min (200), 10s (404) |
 | `fetchWithCache` | `apps-start/vtex/utils/fetchCache.ts` | Core SWR + dedup engine | Status-based |
 

@@ -28,12 +28,12 @@ import {
   runSectionLoaders,
   setBlocks,
   setResolveErrorHandler,
-} from '@decocms/live/cms'
+} from '@decocms/blocks/cms'
 // Only needed if the site loads a directory of pre-existing legacy block
 // JSON files (e.g. a `.deco/blocks/` snapshot exported from an old admin).
 // Sites with build-time-generated blocks (a single blocks.gen.ts/.json)
 // import that module directly and pass it to `setBlocks` instead.
-import { loadDecofileDirectory } from '@decocms/live/cms/loadDecofileDirectory'
+import { loadDecofileDirectory } from '@decocms/blocks/cms/loadDecofileDirectory'
 
 // --- site-specific: curated block overrides, if any ------------------
 // import { homeBlock, HOME_BLOCK_KEY } from './curated/home'
@@ -129,7 +129,7 @@ export function ensureSetup(): Promise<void> {
  * @decocms/start/next tier's loadCmsPage returned, so page files that
  * already consume this function need no changes.
  *
- * Built directly on @decocms/live's resolveDecoPage rather than
+ * Built directly on @decocms/blocks's resolveDecoPage rather than
  * @decocms/next's createDecoPage helper: createDecoPage assumes a
  * generic single-page-per-URL model, while a site with its own SEO
  * merging (e.g. store-config fallback title/description) or curated
@@ -178,7 +178,7 @@ export const resolveCmsPageByPath = cache(async (pathname: string) =>
 
 ## Key patterns
 
-1. **Import-path-only changes are the bulk of the work.** `registerSection`, `registerSectionsSync`, `getResolvedComponent`, `loadBlocks`, `listRegisteredSections`, `setBlocks`, `setResolveErrorHandler`, `registerLayoutSections`, `registerSectionLoaders` all kept their names and signatures across the package split — swap `@decocms/start/core` for `@decocms/live/cms` and move on.
+1. **Import-path-only changes are the bulk of the work.** `registerSection`, `registerSectionsSync`, `getResolvedComponent`, `loadBlocks`, `listRegisteredSections`, `setBlocks`, `setResolveErrorHandler`, `registerLayoutSections`, `registerSectionLoaders` all kept their names and signatures across the package split — swap `@decocms/start/core` for `@decocms/blocks/cms` and move on.
 2. **`registerSeoSections` is a new call, not a rename.** If the site never called it under the old package, it still needs to be added now — `extractSeoFromSections` silently returns `{}` without it.
 3. **`resolveDecoPage` doesn't run section loaders.** The wrapper must call `runSectionLoaders` itself, or server-fetched data never reaches the page.
 4. **Keep the wrapper's exported names and return shape stable.** This is what lets page-level code that already calls `resolveCmsPage`/`resolveCmsPageByPath` avoid any changes at all — the whole point of routing the migration through a site-owned wrapper rather than inlining the new package's calls at every call site.

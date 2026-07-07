@@ -1,6 +1,6 @@
-import { KV_KEYS, getRevision, loadBlocks, setBlocks } from "@decocms/live/cms";
-import { clearLoaderCache } from "@decocms/live/sdk/cachedLoader";
-import { getRuntimeEnv } from "@decocms/live/sdk/otelAdapters";
+import { KV_KEYS, getRevision, loadBlocks, setBlocks } from "@decocms/blocks/cms";
+import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
+import { getRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { invalidateMetaCache } from "./meta";
 
 type FastDeployKVGetter = (

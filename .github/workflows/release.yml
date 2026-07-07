@@ -61,7 +61,7 @@ jobs:
 
       # main publishes the single legacy @decocms/start package (v*.*.* tags).
       # v7 publishes the 5 split @decocms/* packages under an entirely
-      # separate, non-colliding tag namespace (live-v*.*.*) and version
+      # separate, non-colliding tag namespace (blocks-v*.*.*) and version
       # lineage — they're unrelated npm packages that happen to live in the
       # same repo, so they get their own semantic-release config rather than
       # sharing main's `branches` array. This swap is transient — it edits
@@ -102,7 +102,7 @@ jobs:
       # tag to the latest exact tag in the same series. Idempotent: if no new
       # release happened, this just re-points to the existing latest, which is a
       # no-op force-push. main-only: it walks v*.*.* tags specifically (the
-      # legacy @decocms/start line); v7's live-v*.*.* tags don't match that
+      # legacy @decocms/start line); v7's blocks-v*.*.* tags don't match that
       # glob, so this has nothing to do there.
       #
       # Why not a separate workflow on `push: tags`? GitHub suppresses workflow

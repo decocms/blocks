@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { computeRevision, getRevision, KV_KEYS, type KVNamespace, loadBlocks, setBlocks } from "@decocms/live/cms";
+import { computeRevision, getRevision, KV_KEYS, type KVNamespace, loadBlocks, setBlocks } from "@decocms/blocks/cms";
 import {
   __resetKvHydrationStateForTests,
   ensureBlocksHydrated,

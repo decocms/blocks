@@ -80,7 +80,7 @@ scripts/
 > this skill is dead.** It assumed a Fresh/Deno-era Deco runtime that
 > round-tripped every lazy section through `/deco/render` and stamped the
 > response with `x-deco-section` / `x-deco-page` / `x-deco-route` headers. A
-> grep of the current `packages/live`, `packages/admin`, `packages/tanstack`,
+> grep of the current `packages/blocks`, `packages/admin`, `packages/tanstack`,
 > and `packages/next` source (2026-07) for
 > `x-deco-section|x-deco-page|x-deco-route|x-deco-platform` returns **zero
 > hits**. `/deco/render` still exists (`packages/admin/src/admin/render.ts`,
@@ -93,7 +93,7 @@ scripts/
 **What actually happens today:** lazy/deferred sections are a client-side
 rendering concern, not a per-section HTTP fetch with identifying headers.
 
-- `packages/live/src/hooks/LazySection.tsx` — a generic
+- `packages/blocks/src/hooks/LazySection.tsx` — a generic
   IntersectionObserver wrapper. When the wrapped element scrolls into view it
   flips React state and renders `children` instead of `fallback`. **No
   network request happens at all** — the component code is already in the
@@ -452,7 +452,7 @@ migration.
 For lazy/deferred section observability on a current site, the relevant
 source is:
 
-- `packages/live/src/hooks/LazySection.tsx` — generic IntersectionObserver
+- `packages/blocks/src/hooks/LazySection.tsx` — generic IntersectionObserver
   deferral primitive (no network involved).
 - `packages/tanstack/src/hooks/DecoPageRenderer.tsx` — TanStack Start's page
   renderer; wraps each section in `<section data-manifest-key={key}
@@ -466,7 +466,7 @@ source is:
   Still real, but it's the CMS visual-editor preview endpoint (renders a
   section/page to HTML for an iframe), not something a storefront visitor's
   browser calls while scrolling. It sets no `x-deco-*` headers.
-- `packages/live/src/middleware/liveness.ts` and
+- `packages/blocks/src/middleware/liveness.ts` and
   `packages/tanstack/src/sdk/workerEntry.ts` — confirm `/deco/_liveness`
   (and `/_liveness`) are still real, current endpoints. The warmup/liveness
   parts of this skill are unaffected by any of the above and don't need

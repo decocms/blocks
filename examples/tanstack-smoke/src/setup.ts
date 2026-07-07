@@ -1,4 +1,4 @@
-import { createSiteSetup } from "@decocms/live/setup";
+import { createSiteSetup } from "@decocms/blocks/setup";
 import { createAdminSetup } from "@decocms/admin/setup";
 import { setupTanstackFastDeploy } from "@decocms/tanstack";
 

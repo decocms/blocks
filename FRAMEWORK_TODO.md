@@ -1,4 +1,4 @@
-# @decocms/live / @decocms/tanstack — Framework TODO
+# @decocms/blocks / @decocms/tanstack — Framework TODO
 
 Issues and feature gaps discovered during real site migration work. Trimmed during the docs cleanup that accompanied the monorepo split — the "fixed in script" bug-fix trivia table that used to live here was removed (git blame covers it if you ever need it); this keeps only items that are still genuinely open or not obviously superseded by the package split.
 
@@ -8,12 +8,12 @@ Issues and feature gaps discovered during real site migration work. Trimmed duri
 
 ### `setup.ts` boilerplate — partially addressed by the package split
 - **Was**: every site had a `setup.ts` with identical boilerplate (import.meta.glob, registerSections, setBlocks, registerBuiltinMatchers).
-- **Now**: `createSiteSetup()` (`@decocms/live/setup`) + `createAdminSetup()` (`@decocms/admin/setup`) absorb most of this. Sites still need a `setup.ts` file that calls them, so the boilerplate isn't zero, but it's a single call each rather than hand-wiring the registry.
+- **Now**: `createSiteSetup()` (`@decocms/blocks/setup`) + `createAdminSetup()` (`@decocms/admin/setup`) absorb most of this. Sites still need a `setup.ts` file that calls them, so the boilerplate isn't zero, but it's a single call each rather than hand-wiring the registry.
 - **Still open**: whether to push further (Vite-plugin-injected, zero-file setup) is undecided.
 
 ### `SiteTheme` component missing from the framework packages
 - **Current**: `apps/website/components/Theme.tsx` was removed upstream; migration scaffolds a local per-site replacement.
-- **Ideal**: export `SiteTheme` from `@decocms/live` or `@decocms/apps` so sites stop diverging.
+- **Ideal**: export `SiteTheme` from `@decocms/blocks` or `@decocms/apps` so sites stop diverging.
 - **Not verified against current `@decocms/apps`** — check there before starting work here.
 
 ---
@@ -41,7 +41,7 @@ Issues and feature gaps discovered during real site migration work. Trimmed duri
 
 ### GTM/Analytics SDK duplicated across sites
 - Every site still has a custom `Session.tsx`-style analytics SDK (data-event listeners, data-gtm-event listeners, IntersectionObserver) rather than a shared framework export.
-- **Ideal**: `@decocms/live`/`@decocms/tanstack` exports a `<DecoAnalytics gtmId="GTM-XXX" />` component for `__root.tsx`.
+- **Ideal**: `@decocms/blocks`/`@decocms/tanstack` exports a `<DecoAnalytics gtmId="GTM-XXX" />` component for `__root.tsx`.
 
 ### `useGTMEvent` hook is duplicated per site
 - Same story — a local `sdk/useGTMEvent.ts` per site instead of a framework export.

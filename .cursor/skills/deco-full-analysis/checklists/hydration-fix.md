@@ -68,7 +68,7 @@ or anything in `alwaysEager` in `setup.ts`) — `@decocms/start` shell-renders e
 sections in a React root without `__root.tsx`'s providers, so `useDevice()` falls
 back to its context default server-side while the client gets the real value,
 producing a structural mismatch. Prefer the `device` prop injected by the section's
-own server loader (via the `withDevice()` mixin from `@decocms/live/cms`) over
+own server loader (via the `withDevice()` mixin from `@decocms/blocks/cms`) over
 calling `useDevice()` directly in eager sections. See item 13 in the
 `hydration-fixes.md` reference above for the full pattern and fixes.
 

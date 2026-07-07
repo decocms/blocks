@@ -33,7 +33,7 @@ const response = await fetch(url, { signal: controller.signal });
 **Check**: Are PDP loaders blocking on below-fold content?
 - There's no "island" concept anymore — the modern equivalent is wrapping the
   section in `website/sections/Rendering/Lazy.tsx` in the CMS content (still
-  literally checked for — see `isCmsDeferralWrapped` in `packages/live/src/cms/resolve.ts`
+  literally checked for — see `isCmsDeferralWrapped` in `packages/blocks/src/cms/resolve.ts`
   and `.agents/skills/deco-to-tanstack-migration/references/async-rendering.md`).
   A `Lazy`-wrapped section is shallow-resolved on the server (no data fetch) and
   only fully resolved + loaded client-side when it scrolls into view.
@@ -88,7 +88,7 @@ still generally sound, but verify the actual option name/shape against
 
 ```json
 // Good: Reference a shared named block by its plain name (the `$live/...`
-// prefix is stale — verified against packages/live/src/cms/resolve.ts,
+// prefix is stale — verified against packages/blocks/src/cms/resolve.ts,
 // named-block refs resolve directly by name, no prefix)
 { "__resolveType": "PDP-Main-Loader" }
 ```
@@ -143,7 +143,7 @@ await Promise.all(ids.map(id => fetch(id)));
 ### 17. External API Loaders
 **Check**: Do loaders have proper error handling?
 - The `ctx.invoke("some/loader/key.ts", props)` pattern doesn't apply here —
-  verified against `packages/live/src/cms/sectionLoaders.ts`: modern section
+  verified against `packages/blocks/src/cms/sectionLoaders.ts`: modern section
   loaders are plain `(props, req) => enrichedProps` functions, and custom
   loaders are just regular TS functions called directly (see the
   `COMMERCE_LOADERS` map pattern in `cache-strategy.md`). Prefer calling the
@@ -172,7 +172,7 @@ export function LoadingFallback() {
 ### 21. Deferred Tab Loading
 **Check**: Do tabbed components load all tabs on server?
 - `isDeferred`/`asResolved` (deco-cx/deco's CMS-level deferred-prop primitives)
-  don't exist in `@decocms/live`. The current deferred-rendering primitive
+  don't exist in `@decocms/blocks`. The current deferred-rendering primitive
   operates at the **section** level, not the individual-prop level (see
   `Lazy.tsx` in item 1 and `async-rendering.md`) — there's no verified
   equivalent for deferring just one prop/tab within an already-eager section.

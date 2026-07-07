@@ -37,7 +37,7 @@ No dev server at the repo root — these are libraries. `examples/tanstack-smoke
 
 ```
 packages/
-├── runtime/    @decocms/live   — CMS core. Zero deco-package deps.
+├── runtime/    @decocms/blocks   — CMS core. Zero deco-package deps.
 ├── admin/      @decocms/admin     — admin protocol + createAdminSetup.  depends on: runtime
 ├── cli/        @decocms/cli       — codegen + migration scripts.       depends on: runtime
 ├── tanstack/   @decocms/tanstack  — TanStack Start + CF Workers binding. depends on: runtime, admin, cli
@@ -61,10 +61,10 @@ Every export maps to a source file — no dist indirection. Representative subse
 
 | Import path | Package | File |
 |---|---|---|
-| `@decocms/live/cms` | runtime | `src/cms/index.ts` |
-| `@decocms/live/setup` | runtime | `src/setup.ts` |
-| `@decocms/live/sdk/*` | runtime | `src/sdk/*.ts` |
-| `@decocms/live/hooks` | runtime | `src/hooks/index.ts` |
+| `@decocms/blocks/cms` | runtime | `src/cms/index.ts` |
+| `@decocms/blocks/setup` | runtime | `src/setup.ts` |
+| `@decocms/blocks/sdk/*` | runtime | `src/sdk/*.ts` |
+| `@decocms/blocks/hooks` | runtime | `src/hooks/index.ts` |
 | `@decocms/admin` (root) | admin | `src/admin/index.ts` |
 | `@decocms/admin/setup` | admin | `src/createAdminSetup.ts` |
 | `@decocms/admin/apps/autoconfig` | admin | `src/apps/autoconfig.ts` |
@@ -75,7 +75,7 @@ Every export maps to a source file — no dist indirection. Representative subse
 
 ### Key Boundaries
 
-- `@decocms/live` must NOT import from `admin`/`cli`/`tanstack`/`next`, and must NOT contain framework-specific code (no TanStack Router types, no Next.js types, no Cloudflare-Workers-only APIs at the type level).
+- `@decocms/blocks` must NOT import from `admin`/`cli`/`tanstack`/`next`, and must NOT contain framework-specific code (no TanStack Router types, no Next.js types, no Cloudflare-Workers-only APIs at the type level).
 - `@decocms/tanstack` and `@decocms/next` must NOT import from each other.
 - `@decocms/apps` (commerce integrations — separate repo) must NOT contain UI components or framework-binding code.
 - Site repos must NOT contain compat/wrapper directories reimplementing what a package already exports — if something's missing from a package's public surface, that's a gap in the package, not a reason to hand-roll a workaround in every site (see "Known gaps in package exports" below).
@@ -84,7 +84,7 @@ Every export maps to a source file — no dist indirection. Representative subse
 
 Decouples CMS content updates from code deploys: content served from Cloudflare KV (`decofile:current` + `index:revision`) with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on explicit opt-in — requires both `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise.
 
-This is deliberately **not** available in `@decocms/next` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/live/src/cms/blockSource.ts`, `packages/admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
+This is deliberately **not** available in `@decocms/next` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/blocks/src/cms/blockSource.ts`, `packages/admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
 
 ## Admin Protocol
 
@@ -100,15 +100,15 @@ Both bindings expose the same four handlers from `@decocms/admin` (`handleMeta`,
 - **TanStack**: admin routes MUST be handled inside `createDecoWorkerEntry` (`@decocms/tanstack`), NOT inside TanStack's `createServerEntry` — Vite strips custom fetch logic from server entries in production builds.
 - **Next.js**: each handler is exported as a one-line Route Handler re-export (`metaGET`, `decofileGET`/`decofilePOST`, `renderGET`/`renderPOST`, `invokeGET`/`invokePOST` from `@decocms/next`) — no single dispatcher, since Next's routing is already file-based. `renderGET`/`renderPOST` can be mounted at more than one path (`/deco/render` and `/live/previews/*`).
 
-Schema is composed at runtime: `@decocms/cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/live/cms`) injects page schemas and framework definitions.
+Schema is composed at runtime: `@decocms/cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/blocks/cms`) injects page schemas and framework definitions.
 
 ## Request-scoped state: `RequestContext` (client-bundle-safe)
 
-`@decocms/live/sdk/requestContext` binds per-request state (request, abort signal, device info, flags) via `AsyncLocalStorage`. The tricky part: `AsyncLocalStorage` comes from `node:async_hooks`, which breaks Next's client webpack bundle if statically imported from anything reachable by a `"use client"` file.
+`@decocms/blocks/sdk/requestContext` binds per-request state (request, abort signal, device info, flags) via `AsyncLocalStorage`. The tricky part: `AsyncLocalStorage` comes from `node:async_hooks`, which breaks Next's client webpack bundle if statically imported from anything reachable by a `"use client"` file.
 
-Fixed via conditional package exports on `@decocms/live/sdk/requestContextStorage` — `workerd`/`node`/`default` resolve to the real `AsyncLocalStorage`-backed implementation, `browser` resolves to a no-op stub with the identical shape (`{ run, getStore }`). **Condition order matters and is a real footgun**: `workerd`/`node` must be listed *before* `browser` in the exports map, because Cloudflare Workers builds activate a condition set that includes `browser` too (`["workerd", "worker", "browser"]`) — if `browser` came first, a real Workers production deploy would silently get the no-op stub instead of the real backend, breaking cookies/abort-signal/device-detection with no build error. This is exactly the kind of dual-instance-state bug the whole package split exists to eliminate — if you touch this file, verify the condition order empirically (Node's own `--conditions` flag, or a clean-room reproduction of `PACKAGE_TARGET_RESOLVE`), don't just eyeball it.
+Fixed via conditional package exports on `@decocms/blocks/sdk/requestContextStorage` — `workerd`/`node`/`default` resolve to the real `AsyncLocalStorage`-backed implementation, `browser` resolves to a no-op stub with the identical shape (`{ run, getStore }`). **Condition order matters and is a real footgun**: `workerd`/`node` must be listed *before* `browser` in the exports map, because Cloudflare Workers builds activate a condition set that includes `browser` too (`["workerd", "worker", "browser"]`) — if `browser` came first, a real Workers production deploy would silently get the no-op stub instead of the real backend, breaking cookies/abort-signal/device-detection with no build error. This is exactly the kind of dual-instance-state bug the whole package split exists to eliminate — if you touch this file, verify the condition order empirically (Node's own `--conditions` flag, or a clean-room reproduction of `PACKAGE_TARGET_RESOLVE`), don't just eyeball it.
 
-There's a permanent regression test for a related-but-distinct historical bug at `packages/live/src/cms/layoutCacheRace.test.ts`: `resolveDecoPage`'s layout-section cache (Header/Footer) returns a shared object to every concurrent caller, and mutating `.index` on it in place (rather than cloning first) let one request's flat position overwrite another's — this shipped in `@decocms/start@6.12.1` and caused a same-day production rollback on two live sites before being fixed in 6.12.2. If you ever see this test fail, do not "fix" it by relaxing the assertion — it's asserting exactly the invariant that broke production once already.
+There's a permanent regression test for a related-but-distinct historical bug at `packages/blocks/src/cms/layoutCacheRace.test.ts`: `resolveDecoPage`'s layout-section cache (Header/Footer) returns a shared object to every concurrent caller, and mutating `.index` on it in place (rather than cloning first) let one request's flat position overwrite another's — this shipped in `@decocms/start@6.12.1` and caused a same-day production rollback on two live sites before being fixed in 6.12.2. If you ever see this test fail, do not "fix" it by relaxing the assertion — it's asserting exactly the invariant that broke production once already.
 
 ## Known gaps in package exports (documented, not yet fixed)
 

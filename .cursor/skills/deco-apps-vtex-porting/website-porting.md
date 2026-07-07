@@ -15,7 +15,7 @@ handlers/redirect.ts            →    @decocms/start/sdk/redirects
 handlers/sitemap.ts             →    @decocms/start/sdk/sitemap
 handlers/fresh.ts               →    Not needed (TanStack replaces Fresh)
 
-loaders/pages.ts                →    @decocms/live/cms (loadBlocks)
+loaders/pages.ts                →    @decocms/blocks/cms (loadBlocks)
 loaders/fonts/*                 →    Storefront CSS (Tailwind/Vite handles fonts)
 loaders/image/*                 →    Storefront component (Image.tsx)
 loaders/redirects.ts            →    @decocms/start/sdk/redirects
@@ -32,11 +32,11 @@ components/Events.tsx            →    @decocms/apps/commerce/sdk/analytics
 components/Clickhouse.tsx        →    Not needed (different observability)
 
 sections/Analytics/*             →    Storefront sections
-sections/Rendering/*             →    @decocms/live/hooks (LazySection)
+sections/Rendering/*             →    @decocms/blocks/hooks (LazySection)
 sections/Seo/*                   →    Storefront sections
 
-flags/audience.ts                →    @decocms/live/matchers/builtins
-matchers/*                       →    @decocms/live/matchers/builtins, @decocms/live/matchers/posthog
+flags/audience.ts                →    @decocms/blocks/matchers/builtins
+matchers/*                       →    @decocms/blocks/matchers/builtins, @decocms/blocks/matchers/posthog
 mod.ts                           →    @decocms/start (the framework package itself)
 types.ts                         →    @decocms/start/types
 ```
@@ -47,9 +47,9 @@ The `deco-start` package (`@decocms/start`) IS the TanStack equivalent of `websi
 
 | Capability | website/ | @decocms/start |
 |-----------|----------|----------------|
-| CMS page resolution | `handlers/router.ts` | `@decocms/live/cms` (loadBlocks) |
+| CMS page resolution | `handlers/router.ts` | `@decocms/blocks/cms` (loadBlocks) |
 | Section rendering | Fresh island hydration | `hooks/DecoPageRenderer.tsx` |
-| Lazy loading | Fresh partials | `@decocms/live/hooks` (LazySection) |
+| Lazy loading | Fresh partials | `@decocms/blocks/hooks` (LazySection) |
 | Live editing | Fresh middleware | `hooks/LiveControls.tsx` |
 | Admin protocol | N/A (Deco runtime) | `@decocms/admin` (meta, decofile, invoke, render) |
 | Schema generation | `@deco/deco/scripts/bundle` | `scripts/generate-schema.ts` |
@@ -57,7 +57,7 @@ The `deco-start` package (`@decocms/start`) IS the TanStack equivalent of `websi
 | Edge caching | N/A | `sdk/cacheHeaders.ts`, `sdk/mergeCacheControl.ts` |
 | Redirects | `handlers/redirect.ts` | `sdk/redirects.ts` |
 | Sitemap | `handlers/sitemap.ts` | `sdk/sitemap.ts` |
-| Matchers | `matchers/*` | `@decocms/live/matchers/builtins`, `@decocms/live/matchers/posthog` |
+| Matchers | `matchers/*` | `@decocms/blocks/matchers/builtins`, `@decocms/blocks/matchers/posthog` |
 | Script injection | `@deco/deco/hooks` (useScript) | `sdk/useScript.ts` |
 | Signals | `@preact/signals` | `sdk/signal.ts` (TanStack Store wrapper) |
 | CSS class helper | N/A | `sdk/clx.ts` |
@@ -99,7 +99,7 @@ src/components/
 ```typescript
 // src/setup.ts — registers everything
 import { setMetaData, setInvokeLoaders, setRenderShell } from "@decocms/admin";
-import { setBlocks } from "@decocms/live/cms";
+import { setBlocks } from "@decocms/blocks/cms";
 import metaData from "./meta.gen.json";
 import blocks from "./.deco/blocks/index.ts";
 
@@ -144,12 +144,12 @@ VTEX checkout proxy (`/checkout/*`, `/api/*`) can be handled:
 2. In the Worker entry before TanStack handles the request
 3. Via Cloudflare Workers routes in `wrangler.jsonc`
 
-## Matchers → Storefront + @decocms/live
+## Matchers → Storefront + @decocms/blocks
 
 Original matchers (device, cookie, date, etc.) are used for audience targeting. In TanStack:
 
 ```typescript
-// @decocms/live/matchers/builtins provides:
+// @decocms/blocks/matchers/builtins provides:
 // - device detection
 // - cookie matching
 // - random percentage
@@ -186,9 +186,9 @@ export const Route = createFileRoute("/$")({
 | `handlers/proxy.ts` | Worker entry / route handlers | Storefront |
 | `handlers/sitemap.ts` | `@decocms/start/sdk/sitemap` | Framework |
 | `handlers/redirect.ts` | `@decocms/start/sdk/redirects` | Framework |
-| `loaders/pages.ts` | `@decocms/live/cms` | Framework |
-| `matchers/*` | `@decocms/live/matchers/builtins` | Framework |
+| `loaders/pages.ts` | `@decocms/blocks/cms` | Framework |
+| `matchers/*` | `@decocms/blocks/matchers/builtins` | Framework |
 | `components/Image.tsx` | `~/components/ui/Image.tsx` | Storefront |
 | `components/_seo/*` | `~/components/Seo.tsx` | Storefront |
 | `sections/*` | `~/sections/*` | Storefront |
-| `flags/*` | `@decocms/live/matchers/builtins` | Framework |
+| `flags/*` | `@decocms/blocks/matchers/builtins` | Framework |

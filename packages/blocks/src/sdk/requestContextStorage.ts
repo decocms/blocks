@@ -6,7 +6,7 @@
  * `node:async_hooks`. It is split out from `requestContext.ts` so that
  * bundlers building for a browser target can swap it for the no-op stub in
  * `./requestContextStorage.browser` via the `"browser"` export condition in
- * `packages/live/package.json` — without that condition, Next.js's client
+ * `packages/blocks/package.json` — without that condition, Next.js's client
  * webpack compiler tries to resolve the `node:async_hooks` specifier for a
  * non-Node target and fails the build with `UnhandledSchemeError`, even though
  * `AsyncLocalStorage` is only ever meaningfully used server-side.

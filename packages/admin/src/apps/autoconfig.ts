@@ -15,8 +15,8 @@
  *   await autoconfigApps(generatedBlocks, APP_REGISTRY);
  */
 
-import { onChange } from "@decocms/live/cms";
-import { resolveSecret } from "@decocms/live/sdk/crypto";
+import { onChange } from "@decocms/blocks/cms";
+import { resolveSecret } from "@decocms/blocks/sdk/crypto";
 import {
   setupApps,
   type AppDefinition,

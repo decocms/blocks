@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { KV_KEYS, type KVNamespace, getRevision, loadBlocks, setBlocks } from "@decocms/live/cms";
+import { KV_KEYS, type KVNamespace, getRevision, loadBlocks, setBlocks } from "@decocms/blocks/cms";
 import { handleDecofileReload, setFastDeployKVGetter } from "./decofile";
 
 // In vitest, import.meta.env.DEV is true, so handleDecofileReload skips the

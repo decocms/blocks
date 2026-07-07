@@ -1,7 +1,7 @@
 /**
  * The admin-facing half of a site's one-call bootstrap: admin meta schema,
  * render shell config, preview wrapper, and commerce-loaders-to-invoke
- * wiring. Call alongside createSiteSetup() (@decocms/live/setup)
+ * wiring. Call alongside createSiteSetup() (@decocms/blocks/setup)
  * — the two were one function before the package split; they're separate
  * here because these four steps need admin/index.ts's setters, which
  * runtime cannot import without creating a circular dependency.
@@ -40,7 +40,7 @@ export interface AdminSetupOptions {
 /**
  * Bootstrap a Deco site's admin protocol — meta schema, render shell,
  * preview wrapper, commerce-loader-to-invoke wiring. Call alongside
- * createSiteSetup() (@decocms/live/setup).
+ * createSiteSetup() (@decocms/blocks/setup).
  */
 export function createAdminSetup(options: AdminSetupOptions): void {
   // 7. Admin meta schema (lazy)

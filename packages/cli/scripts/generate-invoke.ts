@@ -325,7 +325,7 @@ out += `import {
   getResponseHeaders,
   setResponseHeader,
 } from "@tanstack/react-start/server";
-import { RequestContext } from "@decocms/live/sdk/requestContext";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 `;
 
 out += `

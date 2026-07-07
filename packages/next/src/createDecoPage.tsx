@@ -7,7 +7,7 @@ import {
   resolveDecoPage,
   type DecoPageResult,
   type PageSeo,
-} from "@decocms/live/cms";
+} from "@decocms/blocks/cms";
 import { DecoPageRenderer } from "./DecoPageRenderer";
 
 interface CreateDecoPageOptions {
@@ -58,7 +58,7 @@ function buildSeo(page: DecoPageResult): PageSeo {
  * untestable outside Next's own pipeline.
  */
 export function createDecoPage({ siteName }: CreateDecoPageOptions) {
-  // `siteName` is unused here. `MatcherContext` (packages/live/src/cms/resolve.ts)
+  // `siteName` is unused here. `MatcherContext` (packages/blocks/src/cms/resolve.ts)
   // has no siteName field, so there's nothing to thread it into `resolveDecoPage`.
   // It's kept in the options shape to mirror `cmsRouteConfig({ siteName })`'s call
   // signature and as the extension point for Task 7's root layout

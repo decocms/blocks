@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@decocms/live": "workspace:*",
+    "@decocms/blocks": "workspace:*",
     "@decocms/admin": "workspace:*",
     "@decocms/tanstack": "workspace:*",
     "@tanstack/react-start": "^1.166.0",

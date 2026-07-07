@@ -9,7 +9,7 @@ Reusable route configuration factories that live in `@decocms/tanstack`. Sites u
 
 **Import split (two packages, different export-map shapes):**
 - **Runtime functions and components** — `cmsRouteConfig`, `cmsHomeRouteConfig`, `decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`, `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `DecoPageRenderer`, `CmsPage`, `NotFoundPage` — import from `@decocms/tanstack` (package root only; `packages/tanstack/package.json`'s `exports` map has just `.`, `./vite`, `./daemon` — there is no `./routes`, `./hooks`, or `./cms` subpath).
-- **Types and SEO/section primitives** — `ResolvedSection`, `DeferredSection`, `PageSeo`, `registerSeoSections`, `extractSeoFromProps`, `extractSeoFromSections`, `resolvePageSeoBlock` — import from `@decocms/live/cms`, a separate package.
+- **Types and SEO/section primitives** — `ResolvedSection`, `DeferredSection`, `PageSeo`, `registerSeoSections`, `extractSeoFromProps`, `extractSeoFromSections`, `resolvePageSeoBlock` — import from `@decocms/blocks/cms`, a separate package.
 
 ## When to Use This Skill
 
@@ -52,7 +52,7 @@ import {
   DecoPageRenderer,
   NotFoundPage,
 } from "@decocms/tanstack";
-import type { ResolvedSection, DeferredSection } from "@decocms/live/cms";
+import type { ResolvedSection, DeferredSection } from "@decocms/blocks/cms";
 
 const routeConfig = cmsRouteConfig({
   siteName: "My Store",
@@ -184,7 +184,7 @@ import {
   loadDeferredSection,
   DecoPageRenderer,
 } from "@decocms/tanstack";
-import type { ResolvedSection, DeferredSection } from "@decocms/live/cms";
+import type { ResolvedSection, DeferredSection } from "@decocms/blocks/cms";
 
 export const Route = createFileRoute("/")({
   ...cmsHomeRouteConfig({
@@ -318,10 +318,10 @@ export {
 };
 ```
 
-**Not exported from the `@decocms/tanstack` root** (they exist in `packages/tanstack/src/routes/index.ts`'s internal barrel, but that path isn't part of the public `exports` map, so it isn't importable from site code): `CmsRouteOptions`, `Device`, `CmsPagePendingFallback`, `deferredSectionLoader`, `setSectionChunkMap`, `SiteGlobalsLoaderData`. If you need the `Device` type, import it from `@decocms/live/sdk/useDevice` instead (a valid subpath in `packages/live/package.json`'s `exports` map).
+**Not exported from the `@decocms/tanstack` root** (they exist in `packages/tanstack/src/routes/index.ts`'s internal barrel, but that path isn't part of the public `exports` map, so it isn't importable from site code): `CmsRouteOptions`, `Device`, `CmsPagePendingFallback`, `deferredSectionLoader`, `setSectionChunkMap`, `SiteGlobalsLoaderData`. If you need the `Device` type, import it from `@decocms/blocks/sdk/useDevice` instead (a valid subpath in `packages/blocks/package.json`'s `exports` map).
 
 ```typescript
-// @decocms/live/cms
+// @decocms/blocks/cms
 export {
   registerSeoSections,    // Register section keys that contribute page SEO (secondary source)
   extractSeoFromProps,    // Extract SEO fields from any section's props
@@ -333,7 +333,7 @@ export {
   type PageSeo,           // { title, description, canonical, image, noIndexing, jsonLDs, type }
   type ResolvedSection,
   type DeferredSection,
-  // ... all existing exports — see packages/live/src/cms/index.ts
+  // ... all existing exports — see packages/blocks/src/cms/index.ts
 };
 ```
 
@@ -341,7 +341,7 @@ export {
 
 ## Common Errors
 
-### `Cannot find module '@decocms/tanstack'` or `'@decocms/live/cms'`
+### `Cannot find module '@decocms/tanstack'` or `'@decocms/blocks/cms'`
 
 TypeScript server needs restart after adding new exports to `package.json`. In VSCode/Cursor:
 - Cmd+Shift+P → "TypeScript: Restart TS Server"
@@ -429,7 +429,7 @@ In `cmsRoute.ts`, the seoSection is enriched by its section loader, then:
 Sections in `page.sections` that also contribute SEO metadata register themselves in `setup.ts`:
 
 ```typescript
-import { registerSeoSections } from "@decocms/live/cms";
+import { registerSeoSections } from "@decocms/blocks/cms";
 
 registerSeoSections([
   "site/sections/SEOPDP.tsx",     // Product structured data + meta

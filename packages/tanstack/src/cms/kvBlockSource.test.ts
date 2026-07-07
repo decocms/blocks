@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeRevision, KV_KEYS, type KVNamespace } from "@decocms/live/cms";
+import { computeRevision, KV_KEYS, type KVNamespace } from "@decocms/blocks/cms";
 import { KVBlockSource } from "./kvBlockSource";
 
 function makeKV(initial: Record<string, string> = {}): KVNamespace {
