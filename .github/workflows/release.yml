@@ -22,7 +22,17 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, 7.x]
+  # Manual escape hatch to verify what a release WOULD do — especially for the
+  # 7.x line, which publishes 5 brand-new npm packages that have never been
+  # published before. Run this from the Actions tab (pick the branch) before
+  # trusting a real push-triggered release on 7.x for the first time.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — compute and log the release, but don't publish, tag, or open a GitHub release"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -49,8 +59,21 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # main publishes the single legacy @decocms/start package (v*.*.* tags).
+      # 7.x publishes the 5 split @decocms/* packages under an entirely
+      # separate, non-colliding tag namespace (live-v*.*.*) and version
+      # lineage — they're unrelated npm packages that happen to live in the
+      # same repo, so they get their own semantic-release config rather than
+      # sharing main's `branches` array (which would force 7.x's versions to
+      # be "higher than main's last release", a constraint that makes no
+      # sense across two different package sets). This swap is transient —
+      # it edits the CI runner's checkout only, never committed back.
+      - name: Select release config for this branch
+        if: github.ref_name == '7.x'
+        run: cp .releaserc.7x.json .releaserc.json
+
       - name: Release
-        run: bunx semantic-release
+        run: bunx semantic-release${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && ' --dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -58,7 +81,9 @@ jobs:
       # GitHub Actions convention. After every release we fast-forward that major
       # tag to the latest exact tag in the same series. Idempotent: if no new
       # release happened, this just re-points to the existing latest, which is a
-      # no-op force-push.
+      # no-op force-push. main-only: it walks v*.*.* tags specifically (the
+      # legacy @decocms/start line); 7.x's live-v*.*.* tags don't match that
+      # glob, so this has nothing to do there.
       #
       # Why not a separate workflow on `push: tags`? GitHub suppresses workflow
       # triggers caused by the auto-issued `GITHUB_TOKEN` (anti-recursion guard),
@@ -66,6 +91,7 @@ jobs:
       # listener would never fire. Inlining keeps the lifecycle visible in one
       # job log.
       - name: Advance moveable major tag
+        if: github.ref_name == 'main' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         run: |
           git fetch --tags --force
           # Filter out prerelease tags (-rc.N, -next.N, -beta.N, -alpha.N) — the
