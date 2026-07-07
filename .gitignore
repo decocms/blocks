@@ -10,6 +10,9 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# Next.js build output (examples/next-smoke)
+# Next.js build output (examples/nextjs-smoke)
 .next/
 *.tsbuildinfo
+
+# npm auth tokens — never commit credentials
+.npmrc

@@ -22,18 +22,14 @@ name: Release
 
 on:
   push:
-    # TEMP: v7 omitted from push triggers. The npm credentials configured
-    # for this repo's Actions (NODE_AUTH_TOKEN) don't have create-package
-    # rights on the @decocms org yet (confirmed via repeated real 404s).
-    # Every push-triggered run on v7 until that's fixed: creates a real git
-    # tag (tag creation happens before the npm publish step, unconditionally),
-    # then fails on npm 404, leaving a stray tag that needs manual cleanup.
-    # Happened 3+ times during development. Re-add "v7" here once an npm
-    # Automation token with create-package rights is provisioned as this
-    # repo's NODE_AUTH_TOKEN secret — then trigger a real release via
-    # workflow_dispatch (dry_run: false) rather than waiting for the next
-    # push, since a push alone won't retroactively catch up past commits.
-    branches: [main]
+    # v7 restored 2026-07-07: NODE_AUTH_TOKEN is now a granular access
+    # token with "Bypass two-factor authentication" enabled and
+    # read/write access to the decocms org + all packages, so CI can
+    # actually publish. All 5 v7 packages were bootstrapped to 7.0.0 via
+    # a manual local publish first (git tags blocks-v0.0.1/blocks-v7.0.0
+    # already existed as the seed); future commits release normally
+    # through this trigger.
+    branches: [main, v7]
   # Manual escape hatch to verify what a release WOULD do — especially for the
   # v7 line, which publishes 5 brand-new npm packages that have never been
   # published before. Run this from the Actions tab (pick the branch) before
