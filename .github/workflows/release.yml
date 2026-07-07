@@ -75,7 +75,7 @@ jobs:
         run: cp .releaserc.7x.json .releaserc.json
 
       - name: Release
-        run: bunx semantic-release${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && ' --dry-run' || '' }}
+        run: ./node_modules/.bin/semantic-release${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && ' --dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEBUG: semantic-release:*

@@ -22,6 +22,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@semantic-release/exec": "^7.1.0",
+    "semantic-release": "^25.0.5",
     "typescript": "^5.9.0",
     "vitest": "^4.1.0",
     "jsdom": "^29.0.0"
