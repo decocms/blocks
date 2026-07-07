@@ -74,11 +74,22 @@ jobs:
         if: github.ref_name == '7.x'
         run: cp .releaserc.7x.json .releaserc.json
 
+      # GOTCHA: semantic-release's --dry-run ONLY skips its own native git-tag
+      # creation step (lib/index.js: `if (options.dryRun) { skip tag } else {
+      # tag, push, ... }`). It calls `plugins.prepare(context)` and
+      # `plugins.publish(context)` UNCONDITIONALLY either way, and
+      # @semantic-release/exec's prepare/publish hooks don't check dry-run
+      # themselves — they just run prepareCmd/publishCmd as configured. So a
+      # naive exec-based publishCmd WOULD attempt a real `npm publish` even
+      # during a "dry run". .releaserc.7x.json's publishCmd checks $DRY_RUN
+      # itself to guard against this — verified empirically (confirmed real
+      # publish was never reached only because npm auth wasn't configured;
+      # this DRY_RUN check is the actual, reliable guard).
       - name: Release
         run: ./node_modules/.bin/semantic-release${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && ' --dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEBUG: semantic-release:*
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'true' || 'false' }}
 
       # Caller workflows in storefront repos pin to a moveable major tag (`@v2`),
       # GitHub Actions convention. After every release we fast-forward that major

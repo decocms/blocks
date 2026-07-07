@@ -20,7 +20,7 @@
     "@semantic-release/release-notes-generator",
     ["@semantic-release/exec", {
       "prepareCmd": "VERSION=${nextRelease.version} node scripts/sync-versions.mjs",
-      "publishCmd": "for dir in packages/*/; do (cd \"$dir\" && npm publish --access public); done"
+      "publishCmd": "if [ \"$DRY_RUN\" = \"true\" ]; then echo \"[dry-run] would publish version ${nextRelease.version} for: $(ls -d packages/*/)\"; else for dir in packages/*/; do (cd \"$dir\" && npm publish --access public); done; fi"
     }],
     "@semantic-release/github"
   ]
