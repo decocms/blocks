@@ -32,7 +32,7 @@
  * ```
  */
 import { exec, execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -210,6 +210,7 @@ export function decoVitePlugin() {
       const cwd = process.cwd();
       const blocksDir = path.resolve(cwd, ".deco/blocks");
       const outFile = path.resolve(cwd, "src/server/cms/blocks.gen.ts");
+      const jsonFile = outFile.replace(/\.ts$/, ".json");
 
       // Lazily load the block generator module (generateBlocks for the cold-start
       // bootstrap, readBlockDelta for live edits). Same tsImport pattern as the
@@ -228,20 +229,35 @@ export function decoVitePlugin() {
           });
       };
 
-      // Live block edits are applied as a DELTA, not a full regen. The Studio
-      // daemon (or a manual edit) writes a single `.deco/blocks/*.json` file;
-      // re-reading and re-stringifying the whole 10MB+ decofile on every write
-      // blocks the Node/Vite event loop for seconds, which makes `/`
-      // unresponsive and trips the Studio liveness probe (the "dev server died"
-      // false positive). Instead we read only the changed file(s) and POST a
-      // delta envelope to `/.decofile` — the SSR runtime merges it via
-      // setBlocks() with no module invalidation (which would cascade through the
-      // route tree and break TanStack Start/Router state).
-      //
-      // The on-disk `blocks.gen.json` is intentionally NOT rewritten here: it's
-      // rebuilt from source by the cold-start bootstrap below on the next dev
-      // restart, and nothing re-reads it mid-session (the `blocks.gen.ts` module
-      // is never re-imported once SSR has started, since we never invalidate it).
+      // In-memory copy of the merged decofile, seeded once from the full
+      // generator run and patched with cheap deltas thereafter. Lets us keep
+      // `blocks.gen.json` on disk fresh WITHOUT re-reading + re-parsing all
+      // ~hundreds of `.deco/blocks/*.json` files on every edit (that whole-dir
+      // re-read is what pegged the event loop for seconds and tripped the
+      // Studio liveness probe).
+      /** @type {Record<string, unknown> | null} */
+      let mergedBlocks = null;
+      const ensureMerged = async () => {
+        if (mergedBlocks) return { merged: mergedBlocks, result: null };
+        const { generateBlocks } = await loadGenModule();
+        const result = await generateBlocks({ blocksDir, outFile, silent: true });
+        mergedBlocks = result.empty ? {} : result.blocks;
+        return { merged: mergedBlocks, result };
+      };
+
+      // Live block edits are applied as a DELTA. The Studio daemon (or a manual
+      // edit) writes a single `.deco/blocks/*.json` file; re-reading and
+      // re-merging the whole directory on every write blocks the Node/Vite event
+      // loop for seconds. Instead we read only the changed file(s) and:
+      //   1. patch the in-memory merged map and rewrite `blocks.gen.json` — this
+      //      keeps the on-disk snapshot authoritative, because Vite's
+      //      `full-reload` re-evaluates the SSR entry, which re-seeds
+      //      setBlocks() from `blocks.gen.json`. A stale file here renders stale
+      //      content on the auto-reload (only a later manual refresh, which does
+      //      NOT re-evaluate, would show the edit).
+      //   2. POST a delta envelope to `/.decofile` so the live isolate's
+      //      in-memory snapshot is updated too (covers reloads that don't
+      //      re-evaluate) — merged via applyDelta(), no module invalidation.
       let regenTimer = null;
       let regenInFlight = false;
       let regenQueued = false;
@@ -266,6 +282,21 @@ export function decoVitePlugin() {
           const delta = readBlockDelta({ blocksDir, files, silent: true });
           const keys = Object.keys(delta);
           if (keys.length === 0) return;
+
+          // Patch the merged map + rewrite blocks.gen.json so an SSR re-eval on
+          // reload reads fresh content. ensureMerged() seeds from a single full
+          // run the first time (reading current disk, which already includes the
+          // change); afterwards it's O(changed keys).
+          const { merged } = await ensureMerged();
+          for (const [name, value] of Object.entries(delta)) {
+            if (value === null) delete merged[name];
+            else merged[name] = value;
+          }
+          try {
+            writeFileSync(jsonFile, JSON.stringify(merged));
+          } catch (writeErr) {
+            console.warn("[deco] failed to write blocks.gen.json:", writeErr?.message ?? writeErr);
+          }
 
           // POST a delta envelope ({ blocks: {...} }) so handleDecofileReload
           // merges it over the current snapshot instead of replacing the whole
@@ -331,10 +362,9 @@ export function decoVitePlugin() {
       // reads the freshly-written .json via the load() hook on the first
       // request (the watch-driven path above handles live edits, with reload).
       if (existsSync(blocksDir)) {
-        loadGenModule()
-          .then((mod) => mod.generateBlocks({ blocksDir, outFile, silent: true }))
-          .then((result) => {
-            if (!result.empty) {
+        ensureMerged()
+          .then(({ result }) => {
+            if (result && !result.empty) {
               console.log(`[deco] bootstrapped ${result.count} blocks from .deco/blocks`);
             }
           })

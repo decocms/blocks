@@ -57,6 +57,12 @@ export interface GenerateBlocksResult {
   outFile: string;
   /** True when the blocks dir was missing and an empty barrel was emitted. */
   empty: boolean;
+  /**
+   * The merged decofile map that was written to `jsonFile`. Returned so callers
+   * (the dev Vite plugin) can seed an in-memory cache and apply cheap deltas to
+   * it without re-reading the whole `.deco/blocks` directory on every edit.
+   */
+  blocks: Record<string, unknown>;
 }
 
 export async function generateBlocks(
@@ -74,7 +80,7 @@ export async function generateBlocks(
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(jsonFile, "{}");
     fs.writeFileSync(outFile, TS_STUB);
-    return { count: 0, collisions: 0, jsonFile, outFile, empty: true };
+    return { count: 0, collisions: 0, jsonFile, outFile, empty: true, blocks: {} };
   }
 
   const files = fs.readdirSync(blocksDir).filter((f) => f.endsWith(".json"));
@@ -163,6 +169,7 @@ export async function generateBlocks(
     jsonFile,
     outFile,
     empty: false,
+    blocks,
   };
 }
 
