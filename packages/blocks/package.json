@@ -68,7 +68,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --root ../.. packages/blocks",
+    "test": "vitest run --root ../.. packages/blocks/",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
   },
