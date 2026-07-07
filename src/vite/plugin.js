@@ -210,65 +210,82 @@ export function decoVitePlugin() {
       const cwd = process.cwd();
       const blocksDir = path.resolve(cwd, ".deco/blocks");
       const outFile = path.resolve(cwd, "src/server/cms/blocks.gen.ts");
-      const jsonFile = outFile.replace(/\.ts$/, ".json");
 
-      let generateBlocksFn;
-      const loadGenerator = () => {
-        if (generateBlocksFn) return Promise.resolve(generateBlocksFn);
-        // Same tsImport pattern as the daemon loader below — keeps `tsx`
-        // scoped to this single import instead of registering a global hook.
+      // Lazily load the block generator module (generateBlocks for the cold-start
+      // bootstrap, readBlockDelta for live edits). Same tsImport pattern as the
+      // daemon loader below — keeps `tsx` scoped to this single import instead of
+      // registering a global hook.
+      let genModule;
+      const loadGenModule = () => {
+        if (genModule) return Promise.resolve(genModule);
         return import("tsx/esm/api")
           .then(({ tsImport }) =>
             tsImport("../../scripts/generate-blocks.ts", import.meta.url),
           )
           .then((mod) => {
-            generateBlocksFn = mod.generateBlocks;
-            return generateBlocksFn;
+            genModule = mod;
+            return mod;
           });
       };
 
+      // Live block edits are applied as a DELTA, not a full regen. The Studio
+      // daemon (or a manual edit) writes a single `.deco/blocks/*.json` file;
+      // re-reading and re-stringifying the whole 10MB+ decofile on every write
+      // blocks the Node/Vite event loop for seconds, which makes `/`
+      // unresponsive and trips the Studio liveness probe (the "dev server died"
+      // false positive). Instead we read only the changed file(s) and POST a
+      // delta envelope to `/.decofile` — the SSR runtime merges it via
+      // setBlocks() with no module invalidation (which would cascade through the
+      // route tree and break TanStack Start/Router state).
+      //
+      // The on-disk `blocks.gen.json` is intentionally NOT rewritten here: it's
+      // rebuilt from source by the cold-start bootstrap below on the next dev
+      // restart, and nothing re-reads it mid-session (the `blocks.gen.ts` module
+      // is never re-imported once SSR has started, since we never invalidate it).
       let regenTimer = null;
       let regenInFlight = false;
       let regenQueued = false;
-      const runRegen = async () => {
+      /** @type {Map<string, boolean>} block filename -> isDelete (last event wins). */
+      let pendingBlocks = new Map();
+      const runDelta = async () => {
         if (regenInFlight) {
           regenQueued = true;
           return;
         }
+        if (pendingBlocks.size === 0) return;
         regenInFlight = true;
+        const batch = pendingBlocks;
+        pendingBlocks = new Map();
         try {
-          const fn = await loadGenerator();
+          const { readBlockDelta } = await loadGenModule();
           const start = Date.now();
-          const result = await fn({ blocksDir, outFile, silent: true });
+          const files = [...batch.entries()].map(([name, isDelete]) => ({
+            name,
+            isDelete,
+          }));
+          const delta = readBlockDelta({ blocksDir, files, silent: true });
+          const keys = Object.keys(delta);
+          if (keys.length === 0) return;
+
+          // POST a delta envelope ({ blocks: {...} }) so handleDecofileReload
+          // merges it over the current snapshot instead of replacing the whole
+          // decofile. setBlocks() runs inside the workerd SSR runtime.
+          const addr = server.httpServer?.address();
+          const port = typeof addr === "object" && addr ? addr.port : 5173;
+          const res = await fetch(`http://localhost:${port}/.decofile`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ blocks: delta }),
+          });
           const ms = Date.now() - start;
-          if (result.empty) {
-            console.warn(`[deco] .deco/blocks not found — emitted empty blocks.gen.json`);
+          if (res.ok) {
+            console.log(`[deco] applied ${keys.length}-block delta in ${ms}ms`);
+            server.hot?.send({ type: "full-reload", path: "*" });
           } else {
-            console.log(`[deco] regenerated ${result.count} blocks in ${ms}ms`);
-            // POST blocks to the dev server's /.decofile endpoint so
-            // setBlocks() runs inside the workerd SSR runtime. No module
-            // invalidation — that would cascade through the route tree and
-            // break TanStack Start server functions.
-            try {
-              const addr = server.httpServer?.address();
-              const port = typeof addr === "object" && addr ? addr.port : 5173;
-              const blocksJson = readFileSync(jsonFile, "utf-8");
-              const res = await fetch(`http://localhost:${port}/.decofile`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: blocksJson,
-              });
-              if (res.ok) {
-                server.hot?.send({ type: "full-reload", path: "*" });
-              } else {
-                console.warn(`[deco] blocks reload failed: ${res.status}`);
-              }
-            } catch (reloadErr) {
-              console.warn("[deco] blocks reload request failed:", reloadErr?.message);
-            }
+            console.warn(`[deco] block delta reload failed: ${res.status}`);
           }
         } catch (err) {
-          console.warn("[deco] failed to regenerate blocks:", err?.message ?? err);
+          console.warn("[deco] failed to apply block delta:", err?.message ?? err);
         } finally {
           regenInFlight = false;
           if (regenQueued) {
@@ -281,7 +298,7 @@ export function decoVitePlugin() {
         if (regenTimer) clearTimeout(regenTimer);
         regenTimer = setTimeout(() => {
           regenTimer = null;
-          runRegen();
+          runDelta();
         }, 150);
       };
 
@@ -290,14 +307,17 @@ export function decoVitePlugin() {
       if (existsSync(blocksDir)) {
         server.watcher.add(blocksDir);
       }
-      const handleBlocksDirEvent = (file) => {
+      const handleBlocksDirEvent = (file, isDelete) => {
         if (!file.endsWith(".json")) return;
         if (!file.startsWith(blocksDir + path.sep) && file !== blocksDir) return;
+        // Block files are flat inside `.deco/blocks/`, so the basename is the
+        // encoded-key + ".json" filename that readBlockDelta expects.
+        pendingBlocks.set(path.basename(file), isDelete);
         scheduleRegen();
       };
-      server.watcher.on("add", handleBlocksDirEvent);
-      server.watcher.on("change", handleBlocksDirEvent);
-      server.watcher.on("unlink", handleBlocksDirEvent);
+      server.watcher.on("add", (file) => handleBlocksDirEvent(file, false));
+      server.watcher.on("change", (file) => handleBlocksDirEvent(file, false));
+      server.watcher.on("unlink", (file) => handleBlocksDirEvent(file, true));
 
       // Cold-start bootstrap: always regenerate `blocks.gen.json` from source
       // on dev startup. We deliberately do NOT gate this on mtime. A fresh git
@@ -311,8 +331,8 @@ export function decoVitePlugin() {
       // reads the freshly-written .json via the load() hook on the first
       // request (the watch-driven path above handles live edits, with reload).
       if (existsSync(blocksDir)) {
-        loadGenerator()
-          .then((fn) => fn({ blocksDir, outFile, silent: true }))
+        loadGenModule()
+          .then((mod) => mod.generateBlocks({ blocksDir, outFile, silent: true }))
           .then((result) => {
             if (!result.empty) {
               console.log(`[deco] bootstrapped ${result.count} blocks from .deco/blocks`);
