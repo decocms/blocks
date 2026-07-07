@@ -16,8 +16,8 @@
     "examples/next-smoke": {
       "name": "next-smoke-fixture",
       "dependencies": {
-        "@decocms/admin": "workspace:*",
         "@decocms/blocks": "workspace:*",
+        "@decocms/blocks-admin": "workspace:*",
         "@decocms/next": "workspace:*",
         "next": "^15.4.0",
         "react": "^19.0.0",
@@ -33,8 +33,8 @@
     "examples/tanstack-smoke": {
       "name": "tanstack-smoke-fixture",
       "dependencies": {
-        "@decocms/admin": "workspace:*",
         "@decocms/blocks": "workspace:*",
+        "@decocms/blocks-admin": "workspace:*",
         "@decocms/tanstack": "workspace:*",
         "@tanstack/react-start": "^1.166.0",
         "react": "^19.0.0",
@@ -49,23 +49,6 @@
         "@vitejs/plugin-react": "^4.3.0",
         "typescript": "^5.9.0",
         "vite": "^6.0.0",
-      },
-    },
-    "packages/admin": {
-      "name": "@decocms/admin",
-      "version": "0.0.0",
-      "dependencies": {
-        "@decocms/blocks": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/react": "^19.0.0",
-        "@types/react-dom": "^19.0.0",
-        "knip": "^5.86.0",
-        "typescript": "^5.9.0",
-      },
-      "peerDependencies": {
-        "react": "^19.0.0",
-        "react-dom": "^19.0.0",
       },
     },
     "packages/blocks": {
@@ -90,8 +73,25 @@
         "react-dom": "^19.0.0",
       },
     },
-    "packages/cli": {
-      "name": "@decocms/cli",
+    "packages/blocks-admin": {
+      "name": "@decocms/blocks-admin",
+      "version": "0.0.0",
+      "dependencies": {
+        "@decocms/blocks": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "knip": "^5.86.0",
+        "typescript": "^5.9.0",
+      },
+      "peerDependencies": {
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+      },
+    },
+    "packages/blocks-cli": {
+      "name": "@decocms/blocks-cli",
       "version": "0.0.0",
       "bin": {
         "deco-migrate": "./scripts/migrate.ts",
@@ -116,8 +116,8 @@
       "name": "@decocms/next",
       "version": "0.0.0",
       "dependencies": {
-        "@decocms/admin": "workspace:*",
         "@decocms/blocks": "workspace:*",
+        "@decocms/blocks-admin": "workspace:*",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -137,9 +137,9 @@
       "version": "0.0.0",
       "dependencies": {
         "@deco-cx/warp-node": "^0.3.16",
-        "@decocms/admin": "workspace:*",
         "@decocms/blocks": "workspace:*",
-        "@decocms/cli": "workspace:*",
+        "@decocms/blocks-admin": "workspace:*",
+        "@decocms/blocks-cli": "workspace:*",
         "fast-json-patch": "^3.1.0",
         "ws": "^8.18.0",
       },
@@ -252,11 +252,11 @@
 
     "@deco-cx/warp-node": ["@deco-cx/warp-node@0.3.23", "", { "dependencies": { "undici": "^6.21.0", "ws": "^8.18.0" } }, "sha512-GMh6Msj62wAvc+YbmIc8FoaIZy/cGUlEwR+FbgDl/08TomJRd3jCV8Tbrb38dIAdHlkmEc5UviLAnx5rfet3OQ=="],
 
-    "@decocms/admin": ["@decocms/admin@workspace:packages/admin"],
-
     "@decocms/blocks": ["@decocms/blocks@workspace:packages/blocks"],
 
-    "@decocms/cli": ["@decocms/cli@workspace:packages/cli"],
+    "@decocms/blocks-admin": ["@decocms/blocks-admin@workspace:packages/blocks-admin"],
+
+    "@decocms/blocks-cli": ["@decocms/blocks-cli@workspace:packages/blocks-cli"],
 
     "@decocms/next": ["@decocms/next@workspace:packages/next"],
 

@@ -135,7 +135,7 @@ bun run typecheck 2>&1 | head -50
 # .deco/blocks/*.json sanity check — no schema validator exists anymore
 # (deco.cx/validate has no current equivalent); this fails loudly on
 # malformed JSON in .deco/blocks/:
-npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts 2>&1 | grep -iE "error|fail"
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts 2>&1 | grep -iE "error|fail"
 
 # Recent changes
 git log --oneline -10

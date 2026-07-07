@@ -273,7 +273,7 @@ cat components/minicart/Cart.tsx | head -50
 
 **No `x-deco-section` / `x-deco-page` / `x-deco-route` / `x-deco-platform`
 headers exist in the current runtime.** A repo-wide grep for those header
-names across `packages/blocks`, `packages/admin`, `packages/tanstack`, and
+names across `packages/blocks`, `packages/blocks-admin`, `packages/tanstack`, and
 `packages/next` returns zero hits — this table described the old Fresh/Deno
 `@deco/deco` runtime and is not applicable to current TanStack Start / Next.js
 sites. Don't write test assertions against these headers; they will never be

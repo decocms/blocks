@@ -97,7 +97,7 @@ export { renderGET as GET, renderPOST as POST } from 'src/sdk/deco/adminRoute'
 
 ## Routes with no package equivalent
 
-The old dispatcher also served routes that have **no** `@decocms/admin`/`@decocms/next` equivalent — these were deliberately scoped out of the current package split (live-editing dev tunnel), not omitted by oversight. Delete them or replace with a simple non-daemon stub:
+The old dispatcher also served routes that have **no** `@decocms/blocks-admin`/`@decocms/next` equivalent — these were deliberately scoped out of the current package split (live-editing dev tunnel), not omitted by oversight. Delete them or replace with a simple non-daemon stub:
 
 ```typescript
 // src/app/%5Fwatch/route.ts — DELETE. This served an SSE channel

@@ -10,7 +10,7 @@ From `GAP_ANALYSIS_V2.md`'s own Part 6 roadmap (Tier 3 — Future/deferred), the
 
 | Gap | Notes |
 |---|---|
-| Loader/action schema generation | `@decocms/cli`'s `generate-schema.ts` only generates *section* schemas today. Needs a manifest format design before loader/action schemas can be generated the same way. |
+| Loader/action schema generation | `@decocms/blocks-cli`'s `generate-schema.ts` only generates *section* schemas today. Needs a manifest format design before loader/action schemas can be generated the same way. |
 | Admin live-preview (WebSocket) | `/deco/render` already renders a single section on demand; the admin currently polls/refreshes an iframe rather than getting a WebSocket push. Cross-repo effort (needs admin frontend changes too). |
 | SSE streaming reader | No streaming-loader support today, so there's nothing to stream from yet. |
 | `sectionMiddleware` / `transformProps` | Proposed pattern letting a section export a `transformProps(props)` function that runs server-side before render, for lightweight prop enrichment without a full commerce-loader registration. Would need registry changes in `@decocms/blocks`. |

@@ -4,7 +4,7 @@ import {
   handleInvoke,
   handleMeta,
   handleRender,
-} from "@decocms/admin";
+} from "@decocms/blocks-admin";
 
 /** For app/live/_meta/route.ts: `export { metaGET as GET } from "@decocms/next"` */
 export async function metaGET(request: Request): Promise<Response> {

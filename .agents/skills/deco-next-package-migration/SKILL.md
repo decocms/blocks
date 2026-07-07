@@ -1,6 +1,6 @@
 ---
 name: deco-next-package-migration
-description: Migrates a Next.js App Router site off the abandoned @decocms/start@5.x /next, /core, /node export tiers onto the current @decocms/blocks, @decocms/admin, and @decocms/next packages. Use when a site's package.json pins @decocms/start to a 5.x-next prerelease, or imports from @decocms/start/next, @decocms/start/core, or @decocms/start/node.
+description: Migrates a Next.js App Router site off the abandoned @decocms/start@5.x /next, /core, /node export tiers onto the current @decocms/blocks, @decocms/blocks-admin, and @decocms/next packages. Use when a site's package.json pins @decocms/start to a 5.x-next prerelease, or imports from @decocms/start/next, @decocms/start/core, or @decocms/start/node.
 ---
 
 # Deco Next.js Package Migration
@@ -19,10 +19,10 @@ See `references/import-mapping.md` for the full table. Summary: `@decocms/start/
 
 ## Steps
 
-1. **Dependencies**: remove the old `@decocms/start` pin, add `@decocms/blocks`, `@decocms/admin`, and (if the site uses Next.js pages/route handlers directly rather than its own wrapper) `@decocms/next`. During development before anything is published, use `bun link` against a local `deco-start` checkout — see `docs/fast-deploy.md`'s general local-dev-linking pattern, or this migration's own Task 2 for the exact commands.
+1. **Dependencies**: remove the old `@decocms/start` pin, add `@decocms/blocks`, `@decocms/blocks-admin`, and (if the site uses Next.js pages/route handlers directly rather than its own wrapper) `@decocms/next`. During development before anything is published, use `bun link` against a local `deco-start` checkout — see `docs/fast-deploy.md`'s general local-dev-linking pattern, or this migration's own Task 2 for the exact commands.
 2. **Section registration**: swap `@decocms/start/core`'s `registerSection`/`registerSectionsSync` imports for `@decocms/blocks/cms` — same names, no other changes needed.
 3. **CMS setup/resolution**: rewrite the site's setup wrapper against `@decocms/blocks/cms`'s `setBlocks`/`setResolveErrorHandler`/`registerLayoutSections`/`registerSectionLoaders` (same names) plus `resolveDecoPage`/`extractSeoFromSections` (replacing `loadCmsPage`) and, if needed, `loadDecofileDirectory` (replacing `loadAllDecofileBlocks`). See `templates/setup-ts.md` for a full worked example derived from the faststore-fila migration. Keep the wrapper's own exported function names and return shapes unchanged wherever possible — this is what let faststore-fila's page files avoid any changes at all.
-4. **Admin routes**: `@decocms/next` exports one function per admin concern rather than one dispatcher — rewrite the site's admin-route wrapper as thin per-concern re-exports. See `templates/admin-routes.md`. Any route the old dispatcher served that has no `@decocms/admin`/`@decocms/next` equivalent (live-editing dev tunnel: file-watch SSE, JSON-Patch file mutation) should be deleted or replaced with a simple non-daemon stub (e.g. a readiness check reading `loadBlocks()`'s size directly) — these were deliberately scoped out of the current package split, not omitted by oversight.
+4. **Admin routes**: `@decocms/next` exports one function per admin concern rather than one dispatcher — rewrite the site's admin-route wrapper as thin per-concern re-exports. See `templates/admin-routes.md`. Any route the old dispatcher served that has no `@decocms/blocks-admin`/`@decocms/next` equivalent (live-editing dev tunnel: file-watch SSE, JSON-Patch file mutation) should be deleted or replaced with a simple non-daemon stub (e.g. a readiness check reading `loadBlocks()`'s size directly) — these were deliberately scoped out of the current package split, not omitted by oversight.
 5. **Validate end-to-end against a real dev server**, not just unit tests — specifically the site's actual `.deco/blocks`-derived content (a real page path, not a synthetic fixture), since the on-disk block format and its resolution are exactly the surface most likely to have a real, only-visible-at-runtime discrepancy (see this migration's own Task 6).
 
 ## Gotchas

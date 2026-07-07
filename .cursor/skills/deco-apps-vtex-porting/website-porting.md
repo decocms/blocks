@@ -51,7 +51,7 @@ The `deco-start` package (`@decocms/start`) IS the TanStack equivalent of `websi
 | Section rendering | Fresh island hydration | `hooks/DecoPageRenderer.tsx` |
 | Lazy loading | Fresh partials | `@decocms/blocks/hooks` (LazySection) |
 | Live editing | Fresh middleware | `hooks/LiveControls.tsx` |
-| Admin protocol | N/A (Deco runtime) | `@decocms/admin` (meta, decofile, invoke, render) |
+| Admin protocol | N/A (Deco runtime) | `@decocms/blocks-admin` (meta, decofile, invoke, render) |
 | Schema generation | `@deco/deco/scripts/bundle` | `scripts/generate-schema.ts` |
 | Worker entry | N/A | `@decocms/tanstack` (createDecoWorkerEntry) |
 | Edge caching | N/A | `sdk/cacheHeaders.ts`, `sdk/mergeCacheControl.ts` |
@@ -98,7 +98,7 @@ src/components/
 ### Setup (from website/mod.ts)
 ```typescript
 // src/setup.ts — registers everything
-import { setMetaData, setInvokeLoaders, setRenderShell } from "@decocms/admin";
+import { setMetaData, setInvokeLoaders, setRenderShell } from "@decocms/blocks-admin";
 import { setBlocks } from "@decocms/blocks/cms";
 import metaData from "./meta.gen.json";
 import blocks from "./.deco/blocks/index.ts";

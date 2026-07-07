@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*",
-    "@decocms/admin": "workspace:*",
+    "@decocms/blocks-admin": "workspace:*",
     "@decocms/next": "workspace:*",
     "next": "^15.4.0",
     "react": "^19.0.0",

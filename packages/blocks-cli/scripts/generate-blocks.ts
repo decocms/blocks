@@ -10,14 +10,14 @@
  * and lets V8 use its fast JSON parser instead of the full JS parser.
  *
  * Usage (from site root):
- *   npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts
+ *   npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts
  *
  * Env / CLI:
  *   --blocks-dir  override input  (default: .deco/blocks)
  *   --out-file    override output (default: src/server/cms/blocks.gen.ts)
  *
  * Programmatic:
- *   import { generateBlocks } from "@decocms/cli/generate-blocks";
+ *   import { generateBlocks } from "@decocms/blocks-cli/generate-blocks";
  *   await generateBlocks({ blocksDir, outFile });
  *
  * The Vite plugin's dev-mode watcher uses the programmatic entry to keep the

@@ -3,7 +3,7 @@
  * section registration, matchers, blocks, and CMS-resolution error
  * handling. Sites that also need the admin protocol (meta schema, render
  * shell, preview wrapper, commerce-loader-to-invoke wiring) call
- * createAdminSetup() from @decocms/admin alongside this — the two
+ * createAdminSetup() from @decocms/blocks-admin alongside this — the two
  * were one function before the package split; they're split here because
  * createAdminSetup's concerns require importing from admin, and
  * runtime cannot depend on admin without creating a circular
@@ -69,7 +69,7 @@ export interface SiteSetupOptions {
  * Bootstrap a Deco site's framework-agnostic core — registers sections,
  * matchers, blocks, and error handlers. Call once at the top of your
  * setup.ts, before site-specific registrations, and alongside
- * createAdminSetup() (@decocms/admin) if the site also needs the
+ * createAdminSetup() (@decocms/blocks-admin) if the site also needs the
  * admin protocol.
  */
 export function createSiteSetup(options: SiteSetupOptions): void {

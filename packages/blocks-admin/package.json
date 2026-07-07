@@ -1,5 +1,5 @@
 {
-  "name": "@decocms/admin",
+  "name": "@decocms/blocks-admin",
   "version": "0.0.0",
   "type": "module",
   "description": "Deco admin protocol: /live/_meta, /.decofile, /deco/invoke, /deco/render, plus admin-facing site setup and commerce-app auto-configuration",
@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --root ../.. packages/admin",
+    "test": "vitest run --root ../.. packages/blocks-admin",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
   },

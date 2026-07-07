@@ -25,8 +25,8 @@
  * ```
  */
 
-import { getRenderShellConfig } from "@decocms/admin/admin/setup";
-import { getAppMiddleware } from "@decocms/admin/sdk/setupApps";
+import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
+import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
 import {
   isBot,
   loadBlocks,
@@ -45,7 +45,7 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "@decocms/blocks/sdk/cacheHeaders";
-import { buildHtmlShell } from "@decocms/admin/sdk/htmlShell";
+import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import {
   getActiveSpan,

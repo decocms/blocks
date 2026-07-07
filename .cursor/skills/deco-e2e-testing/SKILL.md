@@ -80,10 +80,10 @@ scripts/
 > this skill is dead.** It assumed a Fresh/Deno-era Deco runtime that
 > round-tripped every lazy section through `/deco/render` and stamped the
 > response with `x-deco-section` / `x-deco-page` / `x-deco-route` headers. A
-> grep of the current `packages/blocks`, `packages/admin`, `packages/tanstack`,
+> grep of the current `packages/blocks`, `packages/blocks-admin`, `packages/tanstack`,
 > and `packages/next` source (2026-07) for
 > `x-deco-section|x-deco-page|x-deco-route|x-deco-platform` returns **zero
-> hits**. `/deco/render` still exists (`packages/admin/src/admin/render.ts`,
+> hits**. `/deco/render` still exists (`packages/blocks-admin/src/admin/render.ts`,
 > wired via `decoRenderRoute` in `packages/tanstack/src/routes/adminRoutes.ts`
 > and the Next.js route handlers in `packages/next`) but it is now the
 > **admin visual-editor preview endpoint only** — it renders a section/page to
@@ -462,7 +462,7 @@ source is:
 - `packages/next/src/DeferredSection.tsx` and `packages/next/src/SectionRenderer.tsx`
   — Next.js App Router's RSC-native equivalents, same `data-manifest-key`
   convention.
-- `packages/admin/src/admin/render.ts` — the current `/deco/render` handler.
+- `packages/blocks-admin/src/admin/render.ts` — the current `/deco/render` handler.
   Still real, but it's the CMS visual-editor preview endpoint (renders a
   section/page to HTML for an iframe), not something a storefront visitor's
   browser calls while scrolling. It sets no `x-deco-*` headers.

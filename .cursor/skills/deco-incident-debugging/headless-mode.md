@@ -487,7 +487,7 @@ auto_fix_workflow:
   4. Sanity-check .deco/blocks/*.json: run the blocks generator (no schema
      validator exists anymore — deco.cx/validate has no current
      equivalent — this only catches malformed JSON, not semantic errors):
-     npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts
+     npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts
   5. If checks pass:
      - Create PR with investigation report
      - Request auto-merge if enabled

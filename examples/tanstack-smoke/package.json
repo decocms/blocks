@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*",
-    "@decocms/admin": "workspace:*",
+    "@decocms/blocks-admin": "workspace:*",
     "@decocms/tanstack": "workspace:*",
     "@tanstack/react-start": "^1.166.0",
     "react": "^19.0.0",

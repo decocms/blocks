@@ -48,18 +48,18 @@ Client (useCart)
 | Layer | Package | Role |
 |-------|---------|------|
 | **Commerce functions** | `@decocms/apps` (separate repo/package, not in this monorepo) | Pure async functions (`addItemsToCart`, `subscribe`, etc.) — no framework deps |
-| **Generator** | `@decocms/cli` (`packages/cli/` in this repo) | `generate-invoke.ts` script that creates top-level `createServerFn` declarations |
+| **Generator** | `@decocms/blocks-cli` (`packages/blocks-cli/` in this repo) | `generate-invoke.ts` script that creates top-level `createServerFn` declarations |
 | **Generated bridge** | Site (`invoke.gen.ts`) | Auto-generated file with RPC-transformable server functions for the canonical VTEX action set |
 | **Site composition (hand-written)** | Site (`invoke.ts`) | Merges generated `vtexActions` with site-specific server functions; see `architecture.md`'s "Layer 3.5" |
 | **Consumer** | Site components/hooks | Import `invoke` from `~/server/invoke` (the hand-written composition file, not `invoke.gen` directly) |
 
-`@decocms/cli` is one of five packages this framework split into from the old single `@decocms/start` package (see root `README.md`) — `runtime`, `admin`, `cli`, `tanstack`, `next`. Every path below reflects that split.
+`@decocms/blocks-cli` is one of five packages this framework split into from the old single `@decocms/start` package (see root `README.md`) — `runtime`, `admin`, `cli`, `tanstack`, `next`. Every path below reflects that split.
 
 ## Setup for a New Site
 
 ```bash
 # 1. Generate the invoke file (canonical VTEX actions)
-npx tsx node_modules/@decocms/cli/scripts/generate-invoke.ts
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts
 
 # 2. Hand-write src/server/invoke.ts merging generated + site-specific actions
 #    (see architecture.md's "Layer 3.5" for the full pattern)
@@ -75,7 +75,7 @@ Add to `package.json`:
 ```json
 {
   "scripts": {
-    "generate:invoke": "tsx node_modules/@decocms/cli/scripts/generate-invoke.ts",
+    "generate:invoke": "tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts",
     "build": "npm run generate:blocks && npm run generate:invoke && npm run generate:schema && tsr generate && vite build"
   }
 }
@@ -85,7 +85,7 @@ Add to `package.json`:
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `generate-invoke.ts` | `@decocms/cli/scripts/` (source: `packages/cli/scripts/generate-invoke.ts`) | Build-time generator script |
+| `generate-invoke.ts` | `@decocms/blocks-cli/scripts/` (source: `packages/blocks-cli/scripts/generate-invoke.ts`) | Build-time generator script |
 | `invoke.gen.ts` | Site `src/server/` | Generated file — canonical VTEX server functions, do not hand-edit |
 | `invoke.ts` | Site `src/server/` | Hand-written — merges `vtexActions` from `invoke.gen.ts` with site-specific actions; this is what components import |
 | `vtex/invoke.ts` | `@decocms/apps/` | Source of truth for action definitions (parsed by generator) |

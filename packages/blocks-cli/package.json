@@ -1,5 +1,5 @@
 {
-  "name": "@decocms/cli",
+  "name": "@decocms/blocks-cli",
   "version": "0.0.0",
   "type": "module",
   "description": "Deco codegen (generate-blocks, generate-schema, generate-invoke) and Fresh-to-TanStack migration tooling",
@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --root ../.. packages/cli",
+    "test": "vitest run --root ../.. packages/blocks-cli",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
   },

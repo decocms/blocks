@@ -221,7 +221,7 @@ export function decoVitePlugin() {
         if (genModule) return Promise.resolve(genModule);
         return import("tsx/esm/api")
           .then(({ tsImport }) =>
-            tsImport("@decocms/cli/generate-blocks", import.meta.url),
+            tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url),
           )
           .then((mod) => {
             genModule = mod;
@@ -397,7 +397,7 @@ export function decoVitePlugin() {
         const start = Date.now();
         const scriptPath = path.resolve(
           cwd,
-          "node_modules/@decocms/cli/scripts/generate-schema.ts",
+          "node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
         );
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} --site ${schemaSiteName}`;
         exec(cmd, { cwd }, (err) => {
@@ -564,7 +564,7 @@ export function decoVitePlugin() {
                   return "vendor-query";
                 }
                 // Intentionally NOT splitting @decocms/tanstack,
-                // @decocms/blocks, @decocms/admin, or
+                // @decocms/blocks, @decocms/blocks-admin, or
                 // @decocms/apps: they have circular re-exports (e.g. apps
                 // imports from runtime/sdk/cachedLoader, admin
                 // imports from apps). Splitting them into separate chunks

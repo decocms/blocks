@@ -159,7 +159,7 @@ itself still exists is **not verified** here — it would come from `@decocms/ap
 **Check**: Are there `deco-sites/std` or `apps/website` imports?
 
 Both of these are stale now, not just `deco-sites/std`. Verified against
-`packages/cli/scripts/migrate/templates/ui-components.ts` and
+`packages/blocks-cli/scripts/migrate/templates/ui-components.ts` and
 `.agents/skills/deco-to-tanstack-migration/references/commerce/README.md`: UI
 components (`Image`, `Picture`, `Seo`, `Theme`, etc.) are **site-local** —
 generated into `src/components/ui/` — not imported from an `apps/` package path.
@@ -246,7 +246,7 @@ verified here and shouldn't be guessed at.
 **Check**: Are loaders using absolute URLs?
 
 The specific `/live/invoke/...` endpoint from item 15's example is **not verified**
-to exist in the current runtime — a search of `@decocms/blocks`, `@decocms/admin`,
+to exist in the current runtime — a search of `@decocms/blocks`, `@decocms/blocks-admin`,
 `@decocms/next`, and `@decocms/tanstack` found no `live/invoke` route. Server-side
 data fetching in the current architecture goes through section loaders /
 `COMMERCE_LOADERS` function calls (see `cache-strategy.md`), not an HTTP invoke

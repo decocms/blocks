@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*",
-    "@decocms/admin": "workspace:*"
+    "@decocms/blocks-admin": "workspace:*"
   },
   "peerDependencies": {
     "next": ">=15.0.0",

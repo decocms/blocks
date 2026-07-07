@@ -38,8 +38,8 @@ No dev server at the repo root — these are libraries. `examples/tanstack-smoke
 ```
 packages/
 ├── runtime/    @decocms/blocks   — CMS core. Zero deco-package deps.
-├── admin/      @decocms/admin     — admin protocol + createAdminSetup.  depends on: runtime
-├── cli/        @decocms/cli       — codegen + migration scripts.       depends on: runtime
+├── admin/      @decocms/blocks-admin     — admin protocol + createAdminSetup.  depends on: runtime
+├── cli/        @decocms/blocks-cli       — codegen + migration scripts.       depends on: runtime
 ├── tanstack/   @decocms/tanstack  — TanStack Start + CF Workers binding. depends on: runtime, admin, cli
 └── next/       @decocms/next      — Next.js App Router binding.        depends on: runtime, admin
 examples/
@@ -65,13 +65,13 @@ Every export maps to a source file — no dist indirection. Representative subse
 | `@decocms/blocks/setup` | runtime | `src/setup.ts` |
 | `@decocms/blocks/sdk/*` | runtime | `src/sdk/*.ts` |
 | `@decocms/blocks/hooks` | runtime | `src/hooks/index.ts` |
-| `@decocms/admin` (root) | admin | `src/admin/index.ts` |
-| `@decocms/admin/setup` | admin | `src/createAdminSetup.ts` |
-| `@decocms/admin/apps/autoconfig` | admin | `src/apps/autoconfig.ts` |
+| `@decocms/blocks-admin` (root) | admin | `src/admin/index.ts` |
+| `@decocms/blocks-admin/setup` | admin | `src/createAdminSetup.ts` |
+| `@decocms/blocks-admin/apps/autoconfig` | admin | `src/apps/autoconfig.ts` |
 | `@decocms/tanstack` (root) | tanstack | `src/index.ts` (re-exports routes, hooks, worker entry, router sdk) |
 | `@decocms/tanstack/vite` | tanstack | `src/vite/plugin.js` (plain JS, no `.d.ts` yet) |
 | `@decocms/next` (root) | next | `src/index.ts` |
-| `@decocms/cli/generate-*` | cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
+| `@decocms/blocks-cli/generate-*` | cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
 
 ### Key Boundaries
 
@@ -84,7 +84,7 @@ Every export maps to a source file — no dist indirection. Representative subse
 
 Decouples CMS content updates from code deploys: content served from Cloudflare KV (`decofile:current` + `index:revision`) with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on explicit opt-in — requires both `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise.
 
-This is deliberately **not** available in `@decocms/next` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/blocks/src/cms/blockSource.ts`, `packages/admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
+This is deliberately **not** available in `@decocms/next` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/blocks/src/cms/blockSource.ts`, `packages/blocks-admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
 
 ## Admin Protocol
 
@@ -95,12 +95,12 @@ Communicates with `admin.deco.cx` via:
 - `POST /deco/render` — section/page preview in iframe
 - `POST /deco/invoke` — loader/action execution
 
-Both bindings expose the same four handlers from `@decocms/admin` (`handleMeta`, `handleDecofileRead`/`handleDecofileReload`, `handleRender`, `handleInvoke`), but wire them up differently:
+Both bindings expose the same four handlers from `@decocms/blocks-admin` (`handleMeta`, `handleDecofileRead`/`handleDecofileReload`, `handleRender`, `handleInvoke`), but wire them up differently:
 
 - **TanStack**: admin routes MUST be handled inside `createDecoWorkerEntry` (`@decocms/tanstack`), NOT inside TanStack's `createServerEntry` — Vite strips custom fetch logic from server entries in production builds.
 - **Next.js**: each handler is exported as a one-line Route Handler re-export (`metaGET`, `decofileGET`/`decofilePOST`, `renderGET`/`renderPOST`, `invokeGET`/`invokePOST` from `@decocms/next`) — no single dispatcher, since Next's routing is already file-based. `renderGET`/`renderPOST` can be mounted at more than one path (`/deco/render` and `/live/previews/*`).
 
-Schema is composed at runtime: `@decocms/cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/blocks/cms`) injects page schemas and framework definitions.
+Schema is composed at runtime: `@decocms/blocks-cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/blocks/cms`) injects page schemas and framework definitions.
 
 ## Request-scoped state: `RequestContext` (client-bundle-safe)
 
@@ -115,7 +115,7 @@ There's a permanent regression test for a related-but-distinct historical bug at
 A few symbols have real, intended-for-external-use implementations that aren't reachable from any package's public barrel or `exports` map. Sites currently work around this with local shim files rather than patching the package (tracked, not yet resolved):
 
 - `@decocms/tanstack`: `deferredSectionLoader` (in `src/routes/cmsRoute.ts`, exported from the internal `src/routes/index.ts` barrel but not the root), `getRequestCookieHeader`/`forwardResponseCookies` (`src/sdk/cookiePassthrough.ts`), `createInvokeFn` (`src/sdk/createInvoke.ts`).
-- `@decocms/cli`: `./scripts/generate-sections` and `./scripts/generate-loaders` have no `exports` map entry (only `generate-blocks`/`generate-schema`/`generate-invoke` do), even though the script files exist. Consumers reference them by literal filesystem path.
+- `@decocms/blocks-cli`: `./scripts/generate-sections` and `./scripts/generate-loaders` have no `exports` map entry (only `generate-blocks`/`generate-schema`/`generate-invoke` do), even though the script files exist. Consumers reference them by literal filesystem path.
 
 If you're the one wiring up a new site and hit one of these, the fix belongs in the package (add the export), not another copy-pasted local shim — check this list first.
 
@@ -124,7 +124,7 @@ If you're the one wiring up a new site and hit one of these, the fix belongs in 
 Three, each with a distinct scope:
 
 1. **`deco-to-tanstack-migration`** (`.agents/skills/`) — the site-code migration playbook, Fresh/Preact/Deno → TanStack Start/React/Workers. Import rewrites, Deco-framework elimination, commerce type migration, platform hooks (useCart/useUser/useWishlist), Vite config, documented gotchas.
-2. **`deco-migrate-script`** — the automated script backing (1): 8 phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap → compile), invoked via `@decocms/cli`'s `scripts/migrate.ts`.
+2. **`deco-migrate-script`** — the automated script backing (1): 8 phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap → compile), invoked via `@decocms/blocks-cli`'s `scripts/migrate.ts`.
 3. **`deco-next-package-migration`** — a different migration: moving a site *off the old single-package `@decocms/start`* (the abandoned `/next`, `/core`, `/node` tiers specifically) *onto the current split*, for sites building on `@decocms/next`. Has its own import-mapping reference and worked `setup.ts`/admin-routes templates, proven end-to-end against a real production Next.js site.
 
 Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework* (Fresh → TanStack), the third migrates a site's *package dependency* on an already-TanStack-or-Next site.

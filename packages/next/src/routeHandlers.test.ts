@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setMetaData } from "@decocms/admin";
+import { setMetaData } from "@decocms/blocks-admin";
 import { metaGET } from "./routeHandlers";
 
 describe("routeHandlers (next)", () => {

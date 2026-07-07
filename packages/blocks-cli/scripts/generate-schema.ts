@@ -9,7 +9,7 @@ import path from "node:path";
  * expected by the deco admin (/deco/meta endpoint).
  *
  * Usage (from site root):
- *   npx tsx node_modules/@decocms/cli/scripts/generate-schema.ts [options]
+ *   npx tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts [options]
  *
  * Options:
  *   --namespace   Section namespace  (default: "site")

@@ -8,7 +8,7 @@ Issues and feature gaps discovered during real site migration work. Trimmed duri
 
 ### `setup.ts` boilerplate — partially addressed by the package split
 - **Was**: every site had a `setup.ts` with identical boilerplate (import.meta.glob, registerSections, setBlocks, registerBuiltinMatchers).
-- **Now**: `createSiteSetup()` (`@decocms/blocks/setup`) + `createAdminSetup()` (`@decocms/admin/setup`) absorb most of this. Sites still need a `setup.ts` file that calls them, so the boilerplate isn't zero, but it's a single call each rather than hand-wiring the registry.
+- **Now**: `createSiteSetup()` (`@decocms/blocks/setup`) + `createAdminSetup()` (`@decocms/blocks-admin/setup`) absorb most of this. Sites still need a `setup.ts` file that calls them, so the boilerplate isn't zero, but it's a single call each rather than hand-wiring the registry.
 - **Still open**: whether to push further (Vite-plugin-injected, zero-file setup) is undecided.
 
 ### `SiteTheme` component missing from the framework packages
@@ -33,7 +33,7 @@ Issues and feature gaps discovered during real site migration work. Trimmed duri
 
 ### `dev:clean` should be built into the framework
 - Migration script adds `"dev:clean": "rm -rf node_modules/.vite .wrangler/state .tanstack && vite dev"` per site.
-- **Ideal**: a `@decocms/cli` command or Vite plugin hook that auto-cleans stale caches on startup, so developers don't hit mysterious caching bugs without knowing to clean.
+- **Ideal**: a `@decocms/blocks-cli` command or Vite plugin hook that auto-cleans stale caches on startup, so developers don't hit mysterious caching bugs without knowing to clean.
 
 ---
 

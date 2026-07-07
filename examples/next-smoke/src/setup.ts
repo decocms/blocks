@@ -1,5 +1,5 @@
 import { createSiteSetup } from "@decocms/blocks/setup";
-import { createAdminSetup } from "@decocms/admin/setup";
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
 
 // Unlike the Vite-based tanstack-smoke fixture (which passes
 // `import.meta.glob("./sections/**/*.tsx")` — a Vite-only construct not

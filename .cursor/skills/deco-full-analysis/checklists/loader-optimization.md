@@ -70,7 +70,7 @@ still generally sound, but verify the actual option name/shape against
 - The import path changed even if the concept didn't: VTEX commerce loaders
   now come from `createVtexCommerceLoaders()` in `@decocms/apps/vtex/commerceLoaders`
   (npm package), keyed like `"vtex/loaders/intelligentSearch/productListingPage.ts"`
-  — see `packages/cli/scripts/migrate/templates/commerce-loaders.ts` for a worked
+  — see `packages/blocks-cli/scripts/migrate/templates/commerce-loaders.ts` for a worked
   example of wiring these into a site's `COMMERCE_LOADERS` map. `deco-sites/std`
   (Deno CDN import) is dead regardless of platform.
 - Replace legacy cross-selling with Intelligent Search

@@ -340,8 +340,8 @@ A site's `wrangler.jsonc` can drift away from the canonical block above
 between migrations. The audit catches that drift in CI:
 
 ```bash
-npx -p @decocms/cli deco-audit-observability        # exits 1 on findings
-npx -p @decocms/cli deco-audit-observability --json # machine-readable
+npx -p @decocms/blocks-cli deco-audit-observability        # exits 1 on findings
+npx -p @decocms/blocks-cli deco-audit-observability --json # machine-readable
 ```
 
 Rule set (each rule maps 1:1 to a `deco-cf-observability --write …` fix

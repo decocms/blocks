@@ -13,7 +13,7 @@
  * export const Route = createFileRoute("/deco/meta")(decoMetaRoute);
  * ```
  */
-import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/admin";
+import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/blocks-admin";
 import { withTracing } from "@decocms/blocks/sdk/observability";
 
 function invokeAttrs(request: Request): Record<string, string | boolean> {

@@ -72,7 +72,7 @@ fresh content — the bundled snapshot is frozen at the last code deploy.
 
 ## Write path (publish)
 
-`POST /.decofile` (`packages/admin/src/admin/decofile.ts` → `handleDecofileReload`) accepts:
+`POST /.decofile` (`packages/blocks-admin/src/admin/decofile.ts` → `handleDecofileReload`) accepts:
 
 - **Delta** envelope (preferred): `{ "blocks": { "<name>": <json> | null } }` —
   `null` deletes a block. Identified by a body with exactly one top-level key,
@@ -116,7 +116,7 @@ inside a short-lived, self-cleaning Kubernetes Job.
    CR (`target: tanstack-kv`, `repo`, `commit`). Code changes take the normal build path.
 2. Watches the `Decofile` CR. A `FastDeployment` impl (`tanstack-kv`, dispatched by the CR's
    target) creates a self-cleaning `batch/v1` Job (the minimal `decofile-syncer` image) that
-   clones `repo@commit` and runs `npx -p @decocms/cli deco-sync-blocks-to-kv --write --all
+   clones `repo@commit` and runs `npx -p @decocms/blocks-cli deco-sync-blocks-to-kv --write --all
    --purge-url … --purge-token …`. `ttlSecondsAfterFinished` reaps the Job/pod; status lands
    on the CR.
 

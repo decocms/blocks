@@ -10,7 +10,7 @@
 > `createCachedLoaderFromModule(name, mod)`. **Correction to an earlier version of this
 > note**: `.deco/blocks/*.json` is still a real, current, on-disk convention — most real
 > sites (confirmed: faststore-fila, casaevideo-tanstack, bagaggio-tanstack) load CMS page/
-> section content from a `.deco/blocks/` directory snapshot, either via `@decocms/cli`'s
+> section content from a `.deco/blocks/` directory snapshot, either via `@decocms/blocks-cli`'s
 > `generate-blocks.ts`/`sync-blocks-to-kv.ts` codegen or `@decocms/blocks/cms`'s
 > `loadDecofileDirectory` helper. Passing an inline `blocks` object directly to
 > `createSiteSetup({ blocks: {...} })` in `src/setup.ts` is a second, simpler pattern used
@@ -61,7 +61,7 @@ export const cacheKey = (props: Props) => {
 
 ```json
 // Bad: Same loader config inline for Home, PLP, and PDP in the CMS blocks object
-// (in src/setup.ts's `blocks`, or the remote decofile behind @decocms/admin)
+// (in src/setup.ts's `blocks`, or the remote decofile behind @decocms/blocks-admin)
 { "loader": { "productId": "..." } }
 
 // Good: Reference a shared named block
@@ -151,7 +151,7 @@ Add this to AGENTS.md:
 (Loader keys above follow the `vtex/...` / `site/...` naming used when registering
 loaders into a `COMMERCE_LOADERS` map — see `createVtexCommerceLoaders()` in
 `@decocms/apps/vtex/commerceLoaders`, and the CLI's migration template at
-`packages/cli/scripts/migrate/templates/commerce-loaders.ts` for a worked example.)
+`packages/blocks-cli/scripts/migrate/templates/commerce-loaders.ts` for a worked example.)
 
 ## Quick Audit Commands
 
@@ -175,7 +175,7 @@ grep -rn "createCachedLoader\|createCachedLoaderFromModule" src/
 # inline `blocks` object for sites using that simpler pattern instead. Either
 # way, this only finds what's checked into the repo — a fast-deploy site's
 # live production content may live only in Cloudflare KV (see
-# packages/admin/src/admin/decofile.ts's handleDecofileRead) and isn't
+# packages/blocks-admin/src/admin/decofile.ts's handleDecofileRead) and isn't
 # greppable locally.
 grep -rn '"__resolveType"' .deco/blocks/*.json 2>/dev/null | grep -c "loader\|Loader"
 grep -n '"loader":' src/setup.ts | grep -v "__resolveType"

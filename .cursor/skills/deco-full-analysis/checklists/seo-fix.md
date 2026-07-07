@@ -5,14 +5,14 @@
 > **Correction to an earlier version of this note**: `.deco/blocks/*.json` is still a
 > real, current, on-disk convention on most real sites (confirmed: faststore-fila,
 > casaevideo-tanstack, bagaggio-tanstack) — that's where page/section CMS content,
-> including any `seo` block, actually lives locally, loaded via `@decocms/cli`'s
+> including any `seo` block, actually lives locally, loaded via `@decocms/blocks-cli`'s
 > `generate-blocks.ts`/`sync-blocks-to-kv.ts` or `@decocms/blocks/cms`'s
 > `loadDecofileDirectory`. A smaller number of sites (minimal fixtures like
 > `examples/tanstack-smoke`) instead pass an inline `blocks` object straight to
 > `createSiteSetup({ blocks: {...} })` in `src/setup.ts` — check which pattern a given
 > site uses before auditing. Either way, a fast-deploy site's *live production* content
 > can additionally live only in Cloudflare KV (not checked into the repo at all — see
-> `packages/admin/src/admin/decofile.ts`'s `handleDecofileRead`), so audit commands
+> `packages/blocks-admin/src/admin/decofile.ts`'s `handleDecofileRead`), so audit commands
 > below that grep local files should be treated as "nothing wrong in what's checked
 > in," not "verified against production."
 
@@ -177,7 +177,7 @@ content language.
 ```bash
 # Check local CMS fixture content in setup.ts for pages missing an `seo` field
 # (only covers dev fixtures checked into the repo — production page content lives
-# in the remote decofile behind @decocms/admin and isn't visible to this grep)
+# in the remote decofile behind @decocms/blocks-admin and isn't visible to this grep)
 grep -n '"seo"' src/setup.ts
 
 # Check for unescaped JSON-LD in section components

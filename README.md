@@ -16,18 +16,18 @@ None of these packages are published yet (all sit at `0.0.0`). Consuming sites l
 ├──────────────────┬───────────────────┬────────────────────┤
 │  @decocms/tanstack │  @decocms/next    │  (future bindings) │  ← Framework bindings
 ├──────────────────┴───────────────────┴────────────────────┤
-│   @decocms/admin        (admin protocol, site bootstrap)   │
+│   @decocms/blocks-admin        (admin protocol, site bootstrap)   │
 ├──────────────────────────────────────────────────────────┤
 │   @decocms/blocks       (CMS core — zero framework deps)  │
 └──────────────────────────────────────────────────────────┘
-                    ↑ codegen: @decocms/cli
+                    ↑ codegen: @decocms/blocks-cli
 ```
 
 | Package | Responsibility | Depends on |
 |---|---|---|
 | **`@decocms/blocks`** | Framework-agnostic CMS core: block loading, page/section resolution, the section registry, matchers, request context. Zero deco-package dependencies. | — |
-| **`@decocms/admin`** | Admin protocol (`/live/_meta`, `/.decofile`, `/deco/render`, `/deco/invoke`) and the admin half of site setup (`createAdminSetup`: meta schema, preview shell, commerce-loader wiring). | `runtime` |
-| **`@decocms/cli`** | Codegen (`generate-blocks`, `generate-schema`, `generate-invoke`, `generate-sections`, `generate-loaders`) and the Fresh/Preact/Deno → TanStack migration scripts. | `runtime` |
+| **`@decocms/blocks-admin`** | Admin protocol (`/live/_meta`, `/.decofile`, `/deco/render`, `/deco/invoke`) and the admin half of site setup (`createAdminSetup`: meta schema, preview shell, commerce-loader wiring). | `runtime` |
+| **`@decocms/blocks-cli`** | Codegen (`generate-blocks`, `generate-schema`, `generate-invoke`, `generate-sections`, `generate-loaders`) and the Fresh/Preact/Deno → TanStack migration scripts. | `runtime` |
 | **`@decocms/tanstack`** | Production TanStack Start + Cloudflare Workers binding: `cmsRouteConfig`, `DecoPageRenderer`, `createDecoWorkerEntry`, the Vite plugin, fast-deploy (KV-backed content). | `runtime`, `admin`, `cli` |
 | **`@decocms/next`** | Next.js App Router binding: `createDecoPage`, `DecoRootLayout`, `SectionRenderer`/`ClientOnlySection`/`DeferredSectionBoundary`, and admin Route Handlers. RSC-native — no Vite, no Cloudflare-specific code. | `runtime`, `admin` |
 
@@ -48,7 +48,7 @@ Working examples of both bindings: [`examples/tanstack-smoke`](./examples/tansta
   "scripts": { "dev": "vite dev", "build": "vite build", "deploy": "wrangler deploy" },
   "dependencies": {
     "@decocms/blocks": "*",
-    "@decocms/admin": "*",
+    "@decocms/blocks-admin": "*",
     "@decocms/tanstack": "*",
     "@decocms/apps": "^1.11.0",
     "@tanstack/react-start": "^1.166.0",
@@ -78,7 +78,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: { "~": "/src" },
-    dedupe: ["react", "react-dom", "@decocms/blocks", "@decocms/admin", "@decocms/tanstack", "@decocms/apps"],
+    dedupe: ["react", "react-dom", "@decocms/blocks", "@decocms/blocks-admin", "@decocms/tanstack", "@decocms/apps"],
   },
 });
 ```
@@ -87,7 +87,7 @@ export default defineConfig({
 
 ```ts
 import { createSiteSetup } from "@decocms/blocks/setup";
-import { createAdminSetup } from "@decocms/admin/setup";
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
 import { applySectionConventions } from "@decocms/blocks/cms";
 import { setupTanstackFastDeploy } from "@decocms/tanstack";
 
@@ -112,7 +112,7 @@ setupTanstackFastDeploy();
 import "./setup"; // MUST be first
 
 import { createDecoWorkerEntry } from "@decocms/tanstack";
-import { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, handleInvoke } from "@decocms/admin";
+import { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, handleInvoke } from "@decocms/blocks-admin";
 import serverEntry from "./server";
 
 export default createDecoWorkerEntry(serverEntry, {
@@ -139,7 +139,7 @@ export const Route = createFileRoute("/$")(cmsRouteConfig({ siteName: "my-store"
 
 ```ts
 import { createSiteSetup } from "@decocms/blocks/setup";
-import { createAdminSetup } from "@decocms/admin/setup";
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
 
 createSiteSetup({
   sections: { "site/sections/Hero.tsx": () => import("./sections/Hero") },
@@ -196,7 +196,7 @@ These are Agent Skills — usable from Claude Code, Cursor, Codex, or any tool t
 
 | Package | Peer deps |
 |---|---|
-| `@decocms/blocks`, `@decocms/admin` | `react ^19.0.0`, `react-dom ^19.0.0` |
+| `@decocms/blocks`, `@decocms/blocks-admin` | `react ^19.0.0`, `react-dom ^19.0.0` |
 | `@decocms/tanstack` | + `@tanstack/react-start >=1.0.0`, `@tanstack/store >=0.7.0`, `@tanstack/react-query >=5.0.0`, `vite >=6.0.0` |
 | `@decocms/next` | + `next >=15.0.0` |
 
@@ -219,11 +219,11 @@ This is a monorepo of libraries — there's no dev server here. `examples/tansta
 
 ```bash
 cd packages/blocks && bun link
-cd packages/admin && bun link
+cd packages/blocks-admin && bun link
 cd packages/tanstack && bun link   # or packages/next
 ```
 
-Then in the site repo: `bun link @decocms/blocks @decocms/admin @decocms/tanstack && bun install`. Full walkthrough in the `deco-next-package-migration` skill.
+Then in the site repo: `bun link @decocms/blocks @decocms/blocks-admin @decocms/tanstack && bun install`. Full walkthrough in the `deco-next-package-migration` skill.
 
 Contributing? See [`CLAUDE.md`](./CLAUDE.md) for architectural decisions, [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) for the append-only history of the migration tooling, and the `docs/` folder for fast-deploy, observability, and RUM guides.
 

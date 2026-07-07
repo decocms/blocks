@@ -11,7 +11,7 @@ Generates a **context-aware** QA checklist by reading the site's actual componen
 
 - After a Fresh → TanStack migration
 - After removing/refactoring islands
-- After upgrading `@decocms/blocks`, `@decocms/admin`, `@decocms/tanstack`, or `@decocms/next` (the split of the old `@decocms/start`), or `@decocms/apps` (unaffected by that split)
+- After upgrading `@decocms/blocks`, `@decocms/blocks-admin`, `@decocms/tanstack`, or `@decocms/next` (the split of the old `@decocms/start`), or `@decocms/apps` (unaffected by that split)
 - After changing caching configuration
 - After modifying the section registry or resolution engine
 - Before deploying a new version to production

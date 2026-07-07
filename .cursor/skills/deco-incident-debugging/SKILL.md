@@ -179,7 +179,7 @@ git diff HEAD~5
 # KV via sync-blocks-to-kv.ts / generate-blocks.ts). There is no
 # `deco.cx/validate`-style schema validator anymore. The closest check is
 # running the blocks generator, which fails loudly on malformed JSON:
-npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts
 ```
 
 ### Phase 5: Document New Learning
@@ -278,7 +278,7 @@ error masked by duplicate sections. Search `git log` for past fixes touching
 
 **Immediate Actions**:
 1. Sanity-check `.deco/blocks/*.json` by regenerating:
-   `npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts`
+   `npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts`
    (fails loudly on malformed JSON; there is no full schema validator)
 2. Check browser console for loader errors
 3. Verify component files exist
@@ -365,7 +365,7 @@ bun run typecheck
 
 # .deco/blocks/*.json sanity check — there is no schema validator anymore
 # (deco.cx/validate has no current equivalent); this fails on malformed JSON:
-npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts
 
 # Find missing cache
 grep -L "export const cache" loaders/**/*.ts
