@@ -47,19 +47,25 @@ Client (useCart)
 
 | Layer | Package | Role |
 |-------|---------|------|
-| **Commerce functions** | `@decocms/apps` | Pure async functions (`addItemsToCart`, `subscribe`, etc.) — no framework deps |
-| **Generator** | `@decocms/start` | `generate-invoke.ts` script that creates top-level `createServerFn` declarations |
-| **Generated bridge** | Site (`invoke.gen.ts`) | Auto-generated file with RPC-transformable server functions |
-| **Consumer** | Site components | Import `invoke` from `~/server/invoke.gen` |
+| **Commerce functions** | `@decocms/apps` (separate repo/package, not in this monorepo) | Pure async functions (`addItemsToCart`, `subscribe`, etc.) — no framework deps |
+| **Generator** | `@decocms/cli` (`packages/cli/` in this repo) | `generate-invoke.ts` script that creates top-level `createServerFn` declarations |
+| **Generated bridge** | Site (`invoke.gen.ts`) | Auto-generated file with RPC-transformable server functions for the canonical VTEX action set |
+| **Site composition (hand-written)** | Site (`invoke.ts`) | Merges generated `vtexActions` with site-specific server functions; see `architecture.md`'s "Layer 3.5" |
+| **Consumer** | Site components/hooks | Import `invoke` from `~/server/invoke` (the hand-written composition file, not `invoke.gen` directly) |
+
+`@decocms/cli` is one of five packages this framework split into from the old single `@decocms/start` package (see root `README.md`) — `runtime`, `admin`, `cli`, `tanstack`, `next`. Every path below reflects that split.
 
 ## Setup for a New Site
 
 ```bash
-# 1. Generate the invoke file
-npx tsx node_modules/@decocms/start/scripts/generate-invoke.ts
+# 1. Generate the invoke file (canonical VTEX actions)
+npx tsx node_modules/@decocms/cli/scripts/generate-invoke.ts
 
-# 2. Import in components
-import { invoke } from "~/server/invoke.gen";
+# 2. Hand-write src/server/invoke.ts merging generated + site-specific actions
+#    (see architecture.md's "Layer 3.5" for the full pattern)
+
+# 3. Import in components
+import { invoke } from "~/server/invoke";
 const cart = await invoke.vtex.actions.addItemsToCart({
   data: { orderFormId, orderItems }
 });
@@ -69,7 +75,7 @@ Add to `package.json`:
 ```json
 {
   "scripts": {
-    "generate:invoke": "tsx node_modules/@decocms/start/scripts/generate-invoke.ts",
+    "generate:invoke": "tsx node_modules/@decocms/cli/scripts/generate-invoke.ts",
     "build": "npm run generate:blocks && npm run generate:invoke && npm run generate:schema && tsr generate && vite build"
   }
 }
@@ -79,10 +85,13 @@ Add to `package.json`:
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `generate-invoke.ts` | `@decocms/start/scripts/` | Build-time generator script |
-| `invoke.gen.ts` | Site `src/server/` | Generated file with top-level server functions |
+| `generate-invoke.ts` | `@decocms/cli/scripts/` (source: `packages/cli/scripts/generate-invoke.ts`) | Build-time generator script |
+| `invoke.gen.ts` | Site `src/server/` | Generated file — canonical VTEX server functions, do not hand-edit |
+| `invoke.ts` | Site `src/server/` | Hand-written — merges `vtexActions` from `invoke.gen.ts` with site-specific actions; this is what components import |
 | `vtex/invoke.ts` | `@decocms/apps/` | Source of truth for action definitions (parsed by generator) |
 | `vtex/actions/*.ts` | `@decocms/apps/` | Pure commerce functions |
+
+**Two `invoke.ts`-shaped files, two different authoring rules**: `invoke.gen.ts` is regenerated, never hand-edited. `invoke.ts` is hand-written and never regenerated — its authoring pattern (`.inputValidator()`, `Promise<any>` return type, stripping non-serializable fields) is documented in `.agents/skills/deco-to-tanstack-migration/references/server-functions/README.md`. These are not competing/conflicting approaches — codegen handles the bulk canonical VTEX surface, the hand-written file is the documented extension point layered on top. See `architecture.md` and `generator.md` for the full mechanics.
 
 ## When to Re-generate
 

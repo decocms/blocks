@@ -1,154 +1,136 @@
 # Learnings Index - Quick Reference
 
-This index provides fast access to all documented learnings from past incidents. Use this during incidents to quickly find relevant solutions.
+**Status: `learnings/` does not exist in this repo (verified — no
+`learnings/` directory anywhere under the repo root or relative to this
+skill).** Everything below that references a specific learning filename is
+illustrative of the *category* of issue to look for, not a file you can
+actually open. Do not `cat` or link to any filename in this document without
+first confirming it exists.
 
-**Location**: `learnings/` folder in workspace root
+## What to use instead, right now
 
-## By Category
+Two real sources document past incidents/fixes in this repo:
 
-### Cache Strategy
+1. **`CHANGELOG.md`** (repo root) — human-curated, includes at least one
+   behavior-change entry that reads like an incident writeup: "Unreleased —
+   Admin async (⚡) toggle is the source of truth for deferral" (fixes
+   [#266](https://github.com/decocms/deco-start/issues/266) — sections were
+   silently rendering client-side due to position-based auto-deferral).
+2. **`git log`** — commit messages tagged `fix(...)` are past incident
+   fixes. Example: `a3f9b9c test(cms): add regression test for the
+   layout-cache index-corruption race` is a real regression with a root
+   cause you can read directly from the diff.
 
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [cache-strategy-standardization-loaders.md](../../learnings/cache-strategy-standardization-loaders.md) | High API calls, cache misses, rate limits | Add `export const cache = "stale-while-revalidate"` |
-| [vtex-cookies-prevent-edge-caching.md](../../learnings/vtex-cookies-prevent-edge-caching.md) | `/deco/render` uncached, high origin load | Middleware to strip Set-Cookie on lazy renders |
+```bash
+# Search CHANGELOG.md by symptom keyword
+grep -ri "SYMPTOM_KEYWORD" CHANGELOG.md
 
-### Loader Optimization
+# Search commit history for past fixes
+git log --oneline --grep="fix\|regression\|incident" -i -30
+git log --oneline -20 -- <affected-path>
 
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [loader-overfetching-n-plus-problem.md](../../learnings/loader-overfetching-n-plus-problem.md) | 429 errors, high API volume, slow pages | Reduce pagination, fetch only needed data |
-| [lazy-sections-external-css-loading.md](../../learnings/lazy-sections-external-css-loading.md) | Lazy sections missing styles | Preload CSS or inline critical styles |
+# Read a specific past fix in full
+git show <commit-sha>
+```
 
-### Block Configuration
-
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [dangling-block-references.md](../../learnings/dangling-block-references.md) | "dangling reference" error, missing sections | Remove or update broken block references |
-| [duplicate-sections-masked-by-broken-loaders.md](../../learnings/duplicate-sections-masked-by-broken-loaders.md) | Duplicate content, hidden loader errors | Fix loader errors, remove duplicates |
-
-### Content Issues
-
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [hardcoded-domain-urls-in-rich-text.md](../../learnings/hardcoded-domain-urls-in-rich-text.md) | Broken links in rich text, wrong domains | Use relative URLs or dynamic domain |
-
-### UI / Visual Bugs
-
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [invisible-clickable-areas-from-empty-links.md](../../learnings/invisible-clickable-areas-from-empty-links.md) | Elements not clickable, invisible overlays | Remove empty anchor tags |
-| [responsive-breakpoint-consistency.md](../../learnings/responsive-breakpoint-consistency.md) | Mobile/desktop layout differences | Align breakpoint definitions |
-| [safari-image-flash-fix.md](../../learnings/safari-image-flash-fix.md) | Image flashing in Safari on navigation | Use CSS contain property |
-
-### VTEX Integration
-
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [vtex-domain-routing-myvtex-vs-vtexcommercestable.md](../../learnings/vtex-domain-routing-myvtex-vs-vtexcommercestable.md) | VTEX API errors, wrong store data | Use correct domain (vtexcommercestable) |
-
-### Retry Logic
-
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [retry-strategy-max-attempts-off-by-one.md](../../learnings/retry-strategy-max-attempts-off-by-one.md) | Fewer retries than expected, early failures | Fix off-by-one in retry loop |
-
-### Migration
-
-| Learning | Key Symptoms | Quick Fix |
-|----------|--------------|-----------|
-| [migrate-deno1-to-deno2.md](../../learnings/migrate-deno1-to-deno2.md) | Deno 2 compatibility issues | Follow migration checklist |
-| [deco-subpath-imports-version-mismatch.md](../../learnings/deco-subpath-imports-version-mismatch.md) | Import errors after updates | Align subpath import versions |
+If `learnings/` has been created since this doc was last checked (see
+`SKILL.md` for the seeding structure), search it first — it takes priority
+over `CHANGELOG.md`/git log because it's purpose-built for this workflow.
 
 ---
 
-## By Symptom
+## Illustrative categories (not existing files)
 
-### Rate Limiting / 429 Errors
+These are the categories worth searching for, based on issue types this
+class of project commonly hits. Treat the "Key Symptoms" column as a search
+prompt for `CHANGELOG.md`/`git log`, not a promise that a matching learning
+file exists.
 
-1. **loader-overfetching-n-plus-problem.md** - Fetching too much data
-2. **cache-strategy-standardization-loaders.md** - Missing cache causing repeated calls
+### Cache Strategy
 
-### Slow Performance / High Latency
+| Symptom pattern | Search for |
+|------------------|------------|
+| High API calls, cache misses, rate limits | `cache`, `stale-while-revalidate`, loader `export const cache` |
+| Edge cache not hit despite static content | cookies / `set-cookie` blocking edge cache |
 
-1. **cache-strategy-standardization-loaders.md** - Missing or inconsistent caching
-2. **vtex-cookies-prevent-edge-caching.md** - Edge cache blocked by cookies
-3. **lazy-sections-external-css-loading.md** - CSS loading delays
-4. **loader-overfetching-n-plus-problem.md** - Too many API calls
+### Loader / Rendering Optimization
 
-### Missing Content / Blank Sections
+| Symptom pattern | Search for |
+|------------------|------------|
+| 429 errors, high API volume, slow pages | overfetching, N+1, pagination |
+| Deferred/lazy sections rendering unexpectedly | `foldThreshold`, async ⚡ toggle — see `CHANGELOG.md` "Unreleased" entry |
 
-1. **dangling-block-references.md** - Block points to deleted component
-2. **duplicate-sections-masked-by-broken-loaders.md** - Loader errors hidden
+### Block Configuration
 
-### Visual / Layout Issues
+| Symptom pattern | Search for |
+|------------------|------------|
+| Missing sections, "not found" errors | `.deco/blocks/*.json` malformed or dangling reference — regenerate via `generate-blocks.ts` |
+| Duplicate content, hidden loader errors | loader errors masked by duplicate sections |
 
-1. **invisible-clickable-areas-from-empty-links.md** - Empty links blocking clicks
-2. **responsive-breakpoint-consistency.md** - Breakpoint misalignment
-3. **safari-image-flash-fix.md** - Safari image flashing
-4. **lazy-sections-external-css-loading.md** - Missing styles on lazy sections
+### UI / Visual Bugs
 
-### VTEX Errors
+| Symptom pattern | Search for |
+|------------------|------------|
+| Elements not clickable, invisible overlays | empty anchor tags |
+| Mobile/desktop layout differences | breakpoint definitions |
+| Safari-specific rendering glitches | Safari/WebKit-specific CSS |
 
-1. **vtex-domain-routing-myvtex-vs-vtexcommercestable.md** - Wrong VTEX domain
-2. **vtex-cookies-prevent-edge-caching.md** - Cookie issues
+### VTEX Integration
 
-### Build / Type Errors
+| Symptom pattern | Search for |
+|------------------|------------|
+| VTEX API errors, wrong store data | domain routing (myvtex vs vtexcommercestable) |
 
-1. **migrate-deno1-to-deno2.md** - Deno 2 migration issues
-2. **deco-subpath-imports-version-mismatch.md** - Import version conflicts
+### Migration / Framework Upgrade
+
+| Symptom pattern | Search for |
+|------------------|------------|
+| Import/type errors after a dependency bump | `git log` for `refactor(monorepo)` / `fix(*)` commits around the same time |
 
 ---
 
 ## Quick Search Commands
 
-### Find learning by keyword
+### Find a past fix by keyword
 
 ```bash
 # Rate limiting issues
-grep -ri "429\|rate limit\|too many" learnings/
+grep -ri "429\|rate limit\|too many" CHANGELOG.md
+git log --oneline --grep="429\|rate limit" -i -30
 
 # Cache issues
-grep -ri "cache\|stale\|swr" learnings/
+grep -ri "cache\|stale\|swr" CHANGELOG.md
 
 # Performance issues
-grep -ri "slow\|performance\|ttfb\|latency" learnings/
+grep -ri "slow\|performance\|ttfb\|latency\|defer" CHANGELOG.md
 
 # VTEX issues
-grep -ri "vtex\|myvtex\|vtexcommerce" learnings/
+grep -ri "vtex\|myvtex\|vtexcommerce" CHANGELOG.md
+git log --oneline --grep="vtex" -i -30
 
 # Visual/UI issues
-grep -ri "css\|style\|invisible\|layout\|safari" learnings/
+git log --oneline --grep="css\|style\|layout\|ui" -i -30
 
 # Block/config issues
-grep -ri "dangling\|reference\|block\|missing" learnings/
+git log --oneline --grep="block\|dangling\|deco/blocks" -i -30
 
-# Migration issues
-grep -ri "deno\|migrate\|version\|import" learnings/
+# Migration/dependency issues
+grep -ri "migrat\|breaking\|deprecat" CHANGELOG.md
 ```
 
-### List all learnings with categories
+### If `learnings/` exists (check first)
 
 ```bash
-# Show category of each learning
-for f in learnings/*.md; do echo "=== $f ==="; grep -A 1 "## Category" "$f"; done
-```
-
-### Find learning by error message
-
-```bash
-# Exact error text search
-grep -ri "EXACT_ERROR_TEXT" learnings/
-
-# Partial match
-grep -ri "partial error" learnings/
+ls learnings/ 2>/dev/null && grep -ri "KEYWORD" learnings/
 ```
 
 ---
 
-## Learning File Structure
+## Learning File Structure (for future entries)
 
-Each learning follows this structure:
+If/when you write a new file into `learnings/`, use this structure — it
+matches the template already used in `SKILL.md` Phase 5 and
+`triage-workflow.md` Step 6:
 
 ```
 # Title
@@ -190,24 +172,22 @@ Each learning follows this structure:
 
 When documenting a new incident:
 
-1. **Choose a descriptive filename**: `[keyword]-[brief-description].md`
+1. **Create `learnings/` if it doesn't exist**: `mkdir -p learnings`
+2. **Choose a descriptive filename**: `[keyword]-[brief-description].md`
    - Example: `cors-headers-missing-api-routes.md`
-
-2. **Pick the right category**:
+3. **Pick a category** (or create a new one):
    - `cache-strategy` - Caching issues
-   - `loader-optimization` - Data fetching issues
-   - `block-config` - Deco block configuration
+   - `loader-optimization` - Data fetching / rendering issues
+   - `block-config` - `.deco/blocks/*.json` configuration
    - `ui-bug` - Visual/layout issues
    - `vtex-integration` - VTEX-specific issues
    - `migration` - Version/migration issues
-   - `retry-logic` - Error handling patterns
-   - Or create a new category if needed
-
-3. **Include code examples**: Both problem and solution code
-
-4. **Document debug commands**: Make it reproducible
-
-5. **Update this index**: Add entry to appropriate sections
+4. **Include code examples**: Both problem and solution code
+5. **Document debug commands**: Make it reproducible
+6. **Update this index**: Add a real entry once the file exists — don't
+   pre-populate this document with filenames that don't exist yet
+7. **Consider a `CHANGELOG.md` entry too** if the fix changes user-visible
+   behavior — it's the one surface guaranteed to get read on every release
 
 ---
 
@@ -215,13 +195,10 @@ When documenting a new incident:
 
 | Metric | Count |
 |--------|-------|
-| Total Learnings | 14 |
-| Categories | 9 |
-| Cache-related | 2 |
-| Loader-related | 2 |
-| VTEX-related | 2 |
-| UI/Visual | 4 |
-| Migration | 2 |
-| Other | 2 |
+| Total Learnings | 0 (folder does not exist yet) |
+| Categories | 0 |
 
-**Last Updated**: Check git log for learnings/ folder
+**Last verified**: 2026-07-07 — `learnings/` confirmed absent from repo
+root and relative to this skill directory. Re-verify with `ls learnings/`
+before trusting this file's "0" count, since it will go stale the moment
+someone seeds the folder.

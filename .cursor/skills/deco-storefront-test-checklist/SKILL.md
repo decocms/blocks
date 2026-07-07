@@ -11,7 +11,7 @@ Generates a **context-aware** QA checklist by reading the site's actual componen
 
 - After a Fresh → TanStack migration
 - After removing/refactoring islands
-- After upgrading `@decocms/start` or `@decocms/apps`
+- After upgrading `@decocms/live`, `@decocms/admin`, `@decocms/tanstack`, or `@decocms/next` (the split of the old `@decocms/start`), or `@decocms/apps` (unaffected by that split)
 - After changing caching configuration
 - After modifying the section registry or resolution engine
 - Before deploying a new version to production
@@ -360,10 +360,6 @@ node -e "
 
 | Skill | Purpose |
 |-------|---------|
-| `deco-to-tanstack-migration` | Full migration playbook (imports, signals, architecture) |
-| `deco-tanstack-navigation` | SPA navigation patterns (`<a>` → `<Link>`, `useNavigate`, `loaderDeps`, forms) |
-| `deco-tanstack-storefront-patterns` | Runtime fixes post-migration (nested sections, caching, SliderJS, async_hooks, cart, server functions) |
-| `deco-islands-migration` | Islands removal guide with its own verification checklist |
+| `deco-to-tanstack-migration` | Consolidated migration playbook: scaffold through async rendering, plus post-migration patterns, hydration fixes, navigation, search, matchers, and islands elimination |
 | `deco-e2e-testing` | Automated e2e performance tests with lazy section tracking |
 | `deco-full-analysis` | Full site analysis with 9 optimization checklists |
-| `deco-startup-analysis` | Analyze startup logs for issues before testing |

@@ -17,16 +17,48 @@ export interface NetworkMetrics {
 }
 
 /**
- * Individual loader timing from Server-Timing header
+ * Cache decision vocabulary as actually emitted by the current runtime
+ * (`packages/live/src/middleware/observability.ts`'s `CacheDecision`
+ * type, used by `packages/live/src/sdk/cachedLoader.ts`). NOT the old
+ * lowercase `hit`/`miss`/`stale`/`bypass` set older versions of this
+ * template assumed.
+ */
+export type CacheStatus = 'HIT' | 'STALE-HIT' | 'STALE-ERROR' | 'MISS' | 'BYPASS'
+
+/**
+ * Individual loader timing parsed from a `Server-Timing` header entry.
+ *
+ * IMPORTANT — read before assuming this is populated: as of 2026-07, no
+ * call site in `packages/tanstack` or `packages/next` ever calls
+ * `state.timings.start(...)` / `.record(...)` (the `ServerTimings` API in
+ * `packages/live/src/sdk/serverTimings.ts` that actually feeds the
+ * `Server-Timing` HTTP header via `applyServerTiming()`). `buildDecoState`
+ * itself is only referenced from its own definition and a doc-comment
+ * example in `packages/live/src/middleware/index.ts` — it isn't wired
+ * into any current site's request pipeline. The real per-loader cache
+ * decision (HIT / STALE-HIT / STALE-ERROR / MISS / BYPASS) is recorded via
+ * `recordLoaderMetric()` / `recordCacheMetric()` in
+ * `packages/live/src/middleware/observability.ts`, called from
+ * `packages/live/src/sdk/cachedLoader.ts` — but those push to an OTel
+ * meter (counters/histograms), not the HTTP response, so they are NOT
+ * visible to Playwright at all.
+ *
+ * This type and its parsing logic are kept because the `Server-Timing`
+ * header mechanism itself is real (a site's own middleware could opt in
+ * following the JSDoc example in `middleware/index.ts`), but expect
+ * `loaders` to normally be empty. See `ServerTimingMetrics.headerPresent`.
  */
 export interface LoaderTiming {
     name: string
     duration: number
-    status: string | null  // 'bypass', 'HIT', 'MISS', 'STALE', etc.
+    status: CacheStatus | string | null
 }
 
 /**
- * Server-side timing metrics from Deco's ?__d debug mode
+ * Server-side timing metrics parsed from a page's `Server-Timing` response
+ * header (sent via Deco's `?__d` debug mode). See the `LoaderTiming` doc
+ * comment above — this is normally empty in the current runtime because
+ * nothing populates per-loader entries by default.
  */
 export interface ServerTimingMetrics {
     loaders: LoaderTiming[]
@@ -34,25 +66,48 @@ export interface ServerTimingMetrics {
     slowestLoaders: LoaderTiming[]
     cacheStats: {
         total: number
-        bypass: number
         hit: number
+        staleHit: number
+        staleError: number
         miss: number
-        stale: number
+        bypass: number
     }
+    /**
+     * Whether a non-empty `Server-Timing` header was present on the page's
+     * main document response at all. Distinguishes "no header sent" from
+     * "header sent but had zero entries" so downstream reporting can be
+     * honest about which case it's in instead of always printing the same
+     * blank state.
+     */
+    headerPresent: boolean
 }
 
 /**
- * Lazy render request tracking (/deco/render)
+ * Timing for one deferred/lazy section, tracked via the DOM
+ * `data-manifest-key` / `data-deferred` attributes rendered by
+ * `DecoPageRenderer` (TanStack) or `SectionRenderer`/`DeferredSection`
+ * (Next.js) — see SKILL.md's "Lazy Section Tracking" section.
+ *
+ * There is no per-section HTTP request in the current architecture
+ * (deferred sections stream inline via SSR Suspense on both frameworks in
+ * the common case), so this is a DOM-mutation-timing signal, not an
+ * HTTP-timing signal like the old `/deco/render`-based tracking used to
+ * produce. `duration` is sampled by polling the DOM roughly every 100ms
+ * while `scrollPage()` runs, so treat it as an approximation (±100-500ms),
+ * not an exact measurement.
  */
-export interface LazyRenderRequest {
-    url: string
-    sectionName: string
-    duration: number
-    cached: boolean
-    cacheStatus: string | null  // 'HIT' | 'MISS' | 'STALE' | 'DYNAMIC' | null
-    cacheControl: string | null
-    serverTiming: LoaderTiming[]
-    status: number
+export interface DeferredSectionTiming {
+    /** The section's registry key, e.g. `site/sections/Hero.tsx`. */
+    manifestKey: string
+    /** True once `data-deferred` has been removed from the element. */
+    resolved: boolean
+    /**
+     * Approximate ms between first observing the section as
+     * `data-deferred="true"` and observing the attribute removed.
+     * `null` if the section never became visible as deferred (e.g. it
+     * rendered synchronously) or is still pending at collection time.
+     */
+    duration: number | null
 }
 
 /**
@@ -62,9 +117,10 @@ export interface CacheAnalysis {
     pageUrl: string
     pageCached: boolean
     pageCacheControl: string | null
-    lazyRenders: LazyRenderRequest[]
-    lazyRendersCached: number
-    lazyRendersUncached: number
+    /** All sections carrying `data-manifest-key` found in the DOM at collection time. */
+    deferredSections: DeferredSectionTiming[]
+    deferredSectionsResolved: number
+    deferredSectionsPending: number
     serverSideLoaders: LoaderTiming[]
     warnings: string[]
 }
@@ -79,12 +135,6 @@ export interface PageMetrics {
     cacheAnalysis: CacheAnalysis
     renderTime: number
     errors: string[]
-    /** Deco observability headers */
-    decoHeaders: {
-        page: string | null      // x-deco-page - matched page block name
-        route: string | null     // x-deco-route - matched route template
-        platform: string | null  // x-deco-platform
-    }
 }
 
 interface NetworkEntry {
@@ -97,8 +147,14 @@ interface NetworkEntry {
 }
 
 /**
- * Metrics collector for Deco e2e tests with Server-Timing and lazy render tracking
- * Captures browser Web Vitals, server-side loader timings, and /deco/render patterns
+ * Metrics collector for Deco e2e tests.
+ *
+ * Captures browser Web Vitals, network activity, page-level cache status,
+ * an optional `Server-Timing` breakdown (see `LoaderTiming` doc comment —
+ * usually empty in the current runtime), and deferred/lazy section
+ * resolution tracked via DOM `data-manifest-key` / `data-deferred`
+ * attributes (see SKILL.md's "Lazy Section Tracking" section — there is no
+ * `/deco/render` per-section network request to observe anymore).
  */
 export class MetricsCollector {
     private page: Page
@@ -107,13 +163,12 @@ export class MetricsCollector {
     private errors: string[] = []
     private startTime = 0
     private serverTimingHeader: string | null = null
+    private serverTimingHeaderPresent = false
     private pageCacheControl: string | null = null
-    private lazyRenders: LazyRenderRequest[] = []
-    private pendingLazyRenders = 0 // Track in-flight /deco/render requests
-    // Deco observability headers
-    private decoPageHeader: string | null = null
-    private decoRouteHeader: string | null = null
-    private decoPlatformHeader: string | null = null
+    // Deferred-section DOM tracking: first time a manifestKey was observed
+    // with data-deferred="true", and (once resolved) how long it took.
+    private sectionFirstSeenPending = new Map<string, number>()
+    private sectionDurations = new Map<string, number>()
 
     constructor(page: Page) {
         this.page = page
@@ -132,10 +187,6 @@ export class MetricsCollector {
                 startTime: Date.now(),
                 size: 0,
             })
-            // Track pending lazy render requests
-            if (req.url().includes('/deco/render')) {
-                this.pendingLazyRenders++
-            }
         })
 
         this.page.on('response', async (res: Response) => {
@@ -156,53 +207,15 @@ export class MetricsCollector {
 
             const headers = res.headers()
 
-            // Capture Server-Timing header from main document response
+            // Capture Server-Timing header from main document response.
+            // See the LoaderTiming doc comment: normally absent/empty today.
             if (res.request().resourceType() === 'document') {
                 const serverTiming = headers['server-timing']
+                this.serverTimingHeaderPresent = Boolean(serverTiming)
                 if (serverTiming) {
                     this.serverTimingHeader = serverTiming
                 }
                 this.pageCacheControl = headers['cache-control'] || null
-                
-                // Capture Deco observability headers
-                this.decoPageHeader = headers['x-deco-page'] || null
-                this.decoRouteHeader = headers['x-deco-route'] || null
-                this.decoPlatformHeader = headers['x-deco-platform'] || null
-            }
-
-            // Track /deco/render requests (lazy loading)
-            if (url.includes('/deco/render')) {
-                this.pendingLazyRenders = Math.max(0, this.pendingLazyRenders - 1)
-                
-                const startTime = this.requests.get(id!)?.startTime || Date.now()
-                const endTime = Date.now()
-                const cacheControl = headers['cache-control'] || null
-                const serverTiming = headers['server-timing'] || ''
-
-                // Extract section name from x-deco-section header (preferred) or URL fallback
-                const decoSectionHeader = headers['x-deco-section']
-                const headerUsable = decoSectionHeader && !decoSectionHeader.includes('Rendering/')
-                const sectionName = headerUsable ? decoSectionHeader : this.extractSectionName(url)
-
-                // Parse server timing from this specific render request
-                const loaderTimings = this.parseServerTimingString(serverTiming)
-
-                // Check if cached
-                const cached = this.isCached(cacheControl, res.status())
-                
-                // Get actual cache status from x-cache header
-                const xCache = headers['x-cache'] || null
-
-                this.lazyRenders.push({
-                    url: url.substring(0, 100) + (url.length > 100 ? '...' : ''),
-                    sectionName,
-                    duration: endTime - startTime,
-                    cached,
-                    cacheStatus: xCache,
-                    cacheControl,
-                    serverTiming: loaderTimings,
-                    status: res.status(),
-                })
             }
         })
 
@@ -215,9 +228,6 @@ export class MetricsCollector {
                 const entry = this.requests.get(id)!
                 entry.endTime = Date.now()
                 entry.status = 0
-            }
-            if (url.includes('/deco/render')) {
-                this.pendingLazyRenders = Math.max(0, this.pendingLazyRenders - 1)
             }
         })
 
@@ -240,147 +250,103 @@ export class MetricsCollector {
         return (hasMaxAge || hasSMaxAge) && !noStore && !noCache
     }
 
-    private extractSectionName(url: string): string {
-        try {
-            const urlObj = new URL(url, 'http://localhost')
-            
-            // Priority 1: Look in props for section type and title
-            const props = urlObj.searchParams.get('props')
-            if (props) {
-                try {
-                    const parsed = JSON.parse(decodeURIComponent(props))
-                    const nameFromProps = this.extractNameFromProps(parsed)
-                    if (nameFromProps) return nameFromProps
-                } catch {}
-            }
+    // ─────────────────────────────────────────────────────────────────
+    // Deferred/lazy section tracking (DOM-based — see SKILL.md's
+    // "Lazy Section Tracking" section for why this replaced the old
+    // /deco/render network-request tracking).
+    // ─────────────────────────────────────────────────────────────────
 
-            // Priority 2: sectionId parameter
-            const sectionId = urlObj.searchParams.get('sectionId')
-            if (sectionId) {
-                const cleaned = this.cleanName(sectionId)
-                if (cleaned) return cleaned
-            }
-
-            // Priority 3: resolveChain
-            const resolveChain = urlObj.searchParams.get('resolveChain')
-            if (resolveChain) {
-                try {
-                    const chain = JSON.parse(decodeURIComponent(resolveChain))
-                    if (Array.isArray(chain)) {
-                        for (const item of chain) {
-                            if (item.type === 'resolvable' && item.value) {
-                                const val = String(item.value)
-                                if (val.includes('sections/') || val.includes('Section')) {
-                                    const cleaned = this.cleanName(val)
-                                    if (cleaned) return cleaned
-                                }
-                            }
-                        }
-                    }
-                } catch {}
-            }
-
-            // Priority 4: href parameter
-            const href = urlObj.searchParams.get('href')
-            if (href) {
-                try {
-                    const hrefUrl = new URL(href, 'http://localhost')
-                    const match = hrefUrl.pathname.match(/\/section\/([^/]+)/)
-                    if (match) {
-                        const cleaned = this.cleanName(decodeURIComponent(match[1]))
-                        if (cleaned) return cleaned
-                    }
-                } catch {}
-            }
-
-            // Priority 5: pathname
-            const pathMatch = urlObj.pathname.match(/\/deco\/render\/([^/?]+)/)
-            if (pathMatch) {
-                const cleaned = this.cleanName(decodeURIComponent(pathMatch[1]))
-                if (cleaned) return cleaned
-            }
-
-            // Fallback: renderSalt
-            const renderSalt = urlObj.searchParams.get('renderSalt')
-            if (renderSalt) {
-                return `Section #${renderSalt}`
-            }
-
-            return 'Unknown Section'
-        } catch {
-            return 'Unknown Section'
-        }
+    /** All manifest keys currently present in the DOM (resolved or pending). */
+    private async getManifestKeys(): Promise<string[]> {
+        return this.page.locator('[data-manifest-key]')
+            .evaluateAll(els => els
+                .map(el => el.getAttribute('data-manifest-key'))
+                .filter((k): k is string => Boolean(k)))
+            .catch(() => [])
     }
-    
+
+    /** Manifest keys currently still showing a skeleton (data-deferred="true"). */
+    private async getPendingDeferredKeys(): Promise<string[]> {
+        return this.page.locator('[data-deferred="true"]')
+            .evaluateAll(els => els
+                .map(el => el.getAttribute('data-manifest-key'))
+                .filter((k): k is string => Boolean(k)))
+            .catch(() => [])
+    }
+
     /**
-     * Extract a meaningful name from section props
+     * Poll the DOM and update `sectionFirstSeenPending` / `sectionDurations`.
+     * Call this regularly (the scroll loop already polls every ~100ms) so
+     * `DeferredSectionTiming.duration` approximates how long each section
+     * stayed in the deferred state.
      */
-    private extractNameFromProps(props: Record<string, unknown>): string | null {
-        const section = props.section as Record<string, unknown> | undefined
-        const target = section || props
-        
-        const resolveType = (target.__resolveType || target['__resolveType']) as string | undefined
-        const componentName = resolveType ? this.cleanName(resolveType) : null
-        
-        const title = (target.title || target.name || target.label) as string | undefined
-        
-        const nestedTitle = (
-            (target.props as Record<string, unknown>)?.title ||
-            (target.content as Record<string, unknown>)?.title ||
-            (target.header as Record<string, unknown>)?.title
-        ) as string | undefined
-        
-        const displayTitle = title || nestedTitle
-        
-        if (componentName && displayTitle) {
-            const shortTitle = displayTitle.length > 20 ? displayTitle.substring(0, 17) + '...' : displayTitle
-            return `${componentName}: ${shortTitle}`
+    private async updateSectionTimings(): Promise<void> {
+        const pendingKeys = await this.getPendingDeferredKeys()
+        const pendingSet = new Set(pendingKeys)
+        const now = Date.now()
+
+        for (const key of pendingKeys) {
+            if (!this.sectionFirstSeenPending.has(key)) {
+                this.sectionFirstSeenPending.set(key, now)
+            }
         }
-        
-        if (displayTitle) {
-            return displayTitle.length > 30 ? displayTitle.substring(0, 27) + '...' : displayTitle
+
+        for (const [key, firstSeen] of this.sectionFirstSeenPending) {
+            if (!pendingSet.has(key) && !this.sectionDurations.has(key)) {
+                this.sectionDurations.set(key, now - firstSeen)
+            }
         }
-        
-        if (componentName) {
-            return componentName
-        }
-        
-        const collection = (
-            (target.products as Record<string, unknown>)?.props as Record<string, unknown>
-        )?.collection as string | undefined
-        
-        if (collection) {
-            return `Products: ${collection.substring(0, 20)}`
-        }
-        
-        return null
     }
 
-    private cleanName(name: string): string {
-        if (name.includes('Rendering/Lazy') || name.includes('Rendering/Deferred')) {
-            return ''
+    /**
+     * Wait for a specific section to resolve (its `data-deferred` attribute
+     * to disappear). Direct port of the pattern documented in SKILL.md.
+     * Returns the wait duration, or `null` if it timed out still deferred.
+     */
+    async waitForSectionLoaded(manifestKey: string, timeout = 8000): Promise<number | null> {
+        const start = Date.now()
+        try {
+            await this.page.waitForFunction(
+                (key) => {
+                    const el = document.querySelector(`[data-manifest-key="${key}"]`)
+                    return el !== null && !el.hasAttribute('data-deferred')
+                },
+                manifestKey,
+                { timeout },
+            )
+            return Date.now() - start
+        } catch {
+            return null
         }
-        
-        return name
-            .replace(/^site\//, '')
-            .replace(/^website\//, '')
-            .replace(/\.tsx$/, '')
-            .replace(/^sections\//, '')
-            .replace(/^islands\//, '')
-            .replace(/Rendering\//, '')
+    }
+
+    /** Poll until no sections are pending, or maxWait elapses. Returns remaining pending count. */
+    private async waitForPendingDeferred(maxWait: number): Promise<number> {
+        const start = Date.now()
+        await this.updateSectionTimings()
+        let pending = (await this.getPendingDeferredKeys()).length
+
+        while (pending > 0 && Date.now() - start < maxWait) {
+            await this.page.waitForTimeout(100)
+            await this.updateSectionTimings()
+            pending = (await this.getPendingDeferredKeys()).length
+        }
+
+        if (pending > 0) {
+            console.log(`      ⚠️  Timeout waiting for ${pending} section(s) to resolve`)
+        }
+        return pending
     }
 
     startMeasurement(): void {
         this.requests.clear()
         this.errors = []
         this.serverTimingHeader = null
+        this.serverTimingHeaderPresent = false
         this.pageCacheControl = null
-        this.lazyRenders = []
-        this.pendingLazyRenders = 0
+        this.sectionFirstSeenPending.clear()
+        this.sectionDurations.clear()
         this.startTime = Date.now()
-        this.decoPageHeader = null
-        this.decoRouteHeader = null
-        this.decoPlatformHeader = null
     }
 
     /**
@@ -408,13 +374,17 @@ export class MetricsCollector {
     }
 
     /**
-     * Scroll down the page to trigger lazy loading
-     * STRICT QUEUE: Only one /deco/render at a time
+     * Scroll down the page to trigger lazy/deferred sections into view and
+     * wait for them to resolve (data-deferred to disappear) before
+     * continuing. Returns the number of sections that newly resolved
+     * during this call.
      */
     async scrollPage(options: { full?: boolean; footerSelector?: string; maxTime?: number } = {}): Promise<number> {
         const { full = false, footerSelector = 'footer', maxTime = 30000 } = options
-        const initialRenders = this.lazyRenders.length
         const startTime = Date.now()
+
+        await this.updateSectionTimings()
+        const initialResolved = (await this.getManifestKeys()).length - (await this.getPendingDeferredKeys()).length
 
         await this.page.waitForTimeout(1000)
         await this.dismissPopups()
@@ -424,13 +394,14 @@ export class MetricsCollector {
                 await this.page.evaluate(() => window.scrollBy(0, 500)).catch(() => {})
                 await this.page.waitForTimeout(300)
             }
-            return this.lazyRenders.length - initialRenders
+            await this.waitForPendingDeferred(3000)
+            return this.countNewlyResolved(initialResolved)
         }
 
         const scrollStep = 200
         let stuckSectionCount = 0
         const maxStuckSections = 2
-        
+
         for (let i = 0; i < 300; i++) {
             if (this.page.isClosed()) break
 
@@ -440,23 +411,25 @@ export class MetricsCollector {
                 break
             }
 
-            if (this.pendingLazyRenders > 0) {
-                console.log(`      ⏳ Waiting for ${this.pendingLazyRenders} pending render before next scroll...`)
-                await this.waitForPendingRenders(8000)
-                
-                if (this.pendingLazyRenders > 0) {
+            await this.updateSectionTimings()
+            const pendingKeys = await this.getPendingDeferredKeys()
+
+            if (pendingKeys.length > 0) {
+                console.log(`      ⏳ Waiting for ${pendingKeys.length} pending section(s) before next scroll...`)
+                const stillPending = await this.waitForPendingDeferred(8000)
+
+                if (stillPending > 0) {
                     stuckSectionCount++
-                    console.log(`      ⚠️  Section STUCK (${stuckSectionCount}/${maxStuckSections}) - will skip`)
-                    this.pendingLazyRenders = 0
-                    
+                    console.log(`      ⚠️  Section(s) STUCK (${stuckSectionCount}/${maxStuckSections}) - will skip`)
+
                     if (stuckSectionCount >= maxStuckSections) {
                         console.log(`      🛑 Too many stuck sections - stopping scroll`)
                         break
                     }
-                    
+
                     await this.page.waitForTimeout(1000)
                 }
-                
+
                 await this.page.waitForTimeout(500)
                 continue
             }
@@ -477,30 +450,23 @@ export class MetricsCollector {
             }).catch(() => false)
 
             if (atBottom) {
-                if (this.pendingLazyRenders > 0) {
-                    await this.waitForPendingRenders(3000)
-                    this.pendingLazyRenders = 0
-                }
-                
+                await this.waitForPendingDeferred(3000)
+
                 const footerNow = await this.page.locator(footerSelector).first().isVisible().catch(() => false)
                 console.log(footerNow ? `      ✅ Footer visible at bottom` : `      ⚠️  At bottom, no footer`)
                 break
             }
         }
 
-        return this.lazyRenders.length - initialRenders
+        await this.updateSectionTimings()
+        return this.countNewlyResolved(initialResolved)
     }
 
-    private async waitForPendingRenders(maxWait: number): Promise<void> {
-        const startTime = Date.now()
-        
-        while (this.pendingLazyRenders > 0 && Date.now() - startTime < maxWait) {
-            await this.page.waitForTimeout(100)
-        }
-        
-        if (this.pendingLazyRenders > 0) {
-            console.log(`      ⚠️  Timeout waiting for ${this.pendingLazyRenders} render(s)`)
-        }
+    private async countNewlyResolved(initialResolved: number): Promise<number> {
+        const allKeys = await this.getManifestKeys()
+        const pendingKeys = await this.getPendingDeferredKeys()
+        const resolvedNow = allKeys.length - pendingKeys.length
+        return Math.max(0, resolvedNow - initialResolved)
     }
 
     async collectPageMetrics(pageName: string): Promise<PageMetrics> {
@@ -512,9 +478,10 @@ export class MetricsCollector {
         await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
         if (this.page.isClosed()) return this.getEmptyMetrics(pageName)
         await this.page.waitForTimeout(500).catch(() => {})
+        await this.updateSectionTimings()
 
         const serverTiming = this.parseServerTiming()
-        const cacheAnalysis = this.analyzeCaching(serverTiming)
+        const cacheAnalysis = await this.analyzeCaching(serverTiming)
 
         return {
             url: this.page.url(),
@@ -526,20 +493,27 @@ export class MetricsCollector {
             cacheAnalysis,
             renderTime: Date.now() - this.startTime,
             errors: [...this.errors],
-            decoHeaders: {
-                page: this.decoPageHeader,
-                route: this.decoRouteHeader,
-                platform: this.decoPlatformHeader,
-            },
         }
     }
 
-    private analyzeCaching(serverTiming: ServerTimingMetrics): CacheAnalysis {
+    private async getDeferredSectionTimings(): Promise<DeferredSectionTiming[]> {
+        const allKeys = [...new Set(await this.getManifestKeys())]
+        const pendingKeys = new Set(await this.getPendingDeferredKeys())
+
+        return allKeys.map(manifestKey => ({
+            manifestKey,
+            resolved: !pendingKeys.has(manifestKey),
+            duration: this.sectionDurations.get(manifestKey) ?? null,
+        }))
+    }
+
+    private async analyzeCaching(serverTiming: ServerTimingMetrics): Promise<CacheAnalysis> {
         const warnings: string[] = []
         const pageCached = this.isCached(this.pageCacheControl, 200)
 
-        const lazyRendersCached = this.lazyRenders.filter(r => r.cached).length
-        const lazyRendersUncached = this.lazyRenders.filter(r => !r.cached).length
+        const deferredSections = await this.getDeferredSectionTimings()
+        const deferredSectionsResolved = deferredSections.filter(s => s.resolved).length
+        const deferredSectionsPending = deferredSections.filter(s => !s.resolved).length
 
         const serverSideLoaders = serverTiming.slowestLoaders.filter(l => l.duration > 0)
 
@@ -560,10 +534,10 @@ export class MetricsCollector {
             )
         }
 
-        if (lazyRendersUncached > 0) {
+        if (deferredSectionsPending > 0) {
             warnings.push(
-                `⚠️ ${lazyRendersUncached} lazy render(s) without cache. ` +
-                `Add cache-control headers.`
+                `⚠️ ${deferredSectionsPending} deferred section(s) still showed data-deferred="true" ` +
+                `when metrics were collected. Consider a longer scrollPage maxTime or investigate slow sections.`
             )
         }
 
@@ -579,9 +553,9 @@ export class MetricsCollector {
             pageUrl: this.page.url(),
             pageCached,
             pageCacheControl: this.pageCacheControl,
-            lazyRenders: [...this.lazyRenders],
-            lazyRendersCached,
-            lazyRendersUncached,
+            deferredSections,
+            deferredSectionsResolved,
+            deferredSectionsPending,
             serverSideLoaders,
             warnings,
         }
@@ -593,7 +567,7 @@ export class MetricsCollector {
 
     private parseServerTimingToMetrics(header: string | null): ServerTimingMetrics {
         const loaders: LoaderTiming[] = []
-        const cacheStats = { total: 0, bypass: 0, hit: 0, miss: 0, stale: 0 }
+        const cacheStats = { total: 0, hit: 0, staleHit: 0, staleError: 0, miss: 0, bypass: 0 }
 
         if (!header) {
             return {
@@ -601,6 +575,7 @@ export class MetricsCollector {
                 totalServerTime: 0,
                 slowestLoaders: [],
                 cacheStats,
+                headerPresent: this.serverTimingHeaderPresent,
             }
         }
 
@@ -612,12 +587,16 @@ export class MetricsCollector {
                 loaders.push(parsed)
                 cacheStats.total++
 
-                if (parsed.status) {
-                    const statusLower = parsed.status.toLowerCase()
-                    if (statusLower === 'bypass') cacheStats.bypass++
-                    else if (statusLower === 'hit') cacheStats.hit++
-                    else if (statusLower === 'miss') cacheStats.miss++
-                    else if (statusLower === 'stale') cacheStats.stale++
+                // Real vocabulary per `CacheDecision`
+                // (packages/live/src/middleware/observability.ts):
+                // HIT | STALE-HIT | STALE-ERROR | MISS | BYPASS.
+                switch (parsed.status) {
+                    case 'HIT': cacheStats.hit++; break
+                    case 'STALE-HIT': cacheStats.staleHit++; break
+                    case 'STALE-ERROR': cacheStats.staleError++; break
+                    case 'MISS': cacheStats.miss++; break
+                    case 'BYPASS': cacheStats.bypass++; break
+                    default: break
                 }
             }
         }
@@ -636,16 +615,8 @@ export class MetricsCollector {
             totalServerTime,
             slowestLoaders,
             cacheStats,
+            headerPresent: this.serverTimingHeaderPresent,
         }
-    }
-
-    private parseServerTimingString(header: string): LoaderTiming[] {
-        if (!header) return []
-
-        const entries = header.split(/,\s*/)
-        return entries
-            .map(entry => this.parseServerTimingEntry(entry.trim()))
-            .filter((e): e is LoaderTiming => e !== null)
     }
 
     private parseServerTimingEntry(entry: string): LoaderTiming | null {
@@ -762,33 +733,57 @@ export class MetricsCollector {
             timestamp: new Date().toISOString(),
             performance: { LCP: null, FCP: null, CLS: null, TTFB: null, domContentLoaded: null },
             network: { totalRequests: 0, totalBytes: 0, totalBytesFormatted: '0 B', slowestRequests: [], failedRequests: 0 },
-            serverTiming: { loaders: [], totalServerTime: 0, slowestLoaders: [], cacheStats: { total: 0, bypass: 0, hit: 0, miss: 0, stale: 0 } },
-            cacheAnalysis: { pageUrl: 'page-closed', pageCached: false, pageCacheControl: null, lazyRenders: [], lazyRendersCached: 0, lazyRendersUncached: 0, serverSideLoaders: [], warnings: ['Page was closed before metrics collection'] },
+            serverTiming: {
+                loaders: [],
+                totalServerTime: 0,
+                slowestLoaders: [],
+                cacheStats: { total: 0, hit: 0, staleHit: 0, staleError: 0, miss: 0, bypass: 0 },
+                headerPresent: false,
+            },
+            cacheAnalysis: {
+                pageUrl: 'page-closed',
+                pageCached: false,
+                pageCacheControl: null,
+                deferredSections: [],
+                deferredSectionsResolved: 0,
+                deferredSectionsPending: 0,
+                serverSideLoaders: [],
+                warnings: ['Page was closed before metrics collection'],
+            },
             renderTime: 0,
             errors: ['Page was closed'],
-            decoHeaders: { page: null, route: null, platform: null },
         }
     }
 }
 
 /**
- * Format loader timings for beautiful console output
+ * Format loader timings for console output.
+ *
+ * NOTE: as documented on `LoaderTiming`, the current TanStack/Next.js
+ * middleware doesn't wire per-loader Server-Timing entries by default —
+ * `serverTiming.loaders` will normally be empty. This prints an explicit
+ * "no data" line in that case rather than fabricating a table.
  */
 export function formatLoaderTimings(serverTiming: ServerTimingMetrics): string[] {
     const lines: string[] = []
 
     if (serverTiming.loaders.length === 0) {
-        lines.push('   ⚡ Server Timing: 0ms total (1 loaders)')
+        if (serverTiming.headerPresent) {
+            lines.push('   ⚡ Server Timing: header present but no parsable loader entries')
+        } else {
+            lines.push('   ⚡ Server Timing: no per-loader data (this runtime doesn\'t wire loader-level Server-Timing entries by default — see SKILL.md "Deco Observability Signals")')
+        }
         return lines
     }
 
-    const { bypass, hit, miss, stale } = serverTiming.cacheStats
+    const { hit, staleHit, staleError, miss, bypass } = serverTiming.cacheStats
     const cacheInfo: string[] = []
     if (hit > 0) cacheInfo.push(`💾${hit}`)
+    if (staleHit > 0) cacheInfo.push(`⏳${staleHit}`)
+    if (staleError > 0) cacheInfo.push(`🟠${staleError}`)
     if (miss > 0) cacheInfo.push(`❌${miss}`)
-    if (stale > 0) cacheInfo.push(`⏳${stale}`)
     if (bypass > 0) cacheInfo.push(`⏭️${bypass}`)
-    
+
     const cacheStr = cacheInfo.length > 0 ? ` [${cacheInfo.join(' ')}]` : ''
     lines.push(`   ⚡ Server Timing: ${serverTiming.totalServerTime.toFixed(0)}ms total (${serverTiming.loaders.length} loaders)${cacheStr}`)
 
@@ -801,10 +796,11 @@ export function formatLoaderTimings(serverTiming: ServerTimingMetrics): string[]
             const speedIcon = loader.duration < 50 ? '🟢' : loader.duration < 200 ? '🟡' : '🔴'
             let cacheIcon = '  '
             if (loader.status === 'HIT') cacheIcon = '💾'
+            else if (loader.status === 'STALE-HIT') cacheIcon = '⏳'
+            else if (loader.status === 'STALE-ERROR') cacheIcon = '🟠'
             else if (loader.status === 'MISS') cacheIcon = '❌'
-            else if (loader.status === 'STALE') cacheIcon = '⏳'
-            else if (loader.status === 'bypass') cacheIcon = '⏭️'
-            
+            else if (loader.status === 'BYPASS') cacheIcon = '⏭️'
+
             const name = loader.name.length > 30 ? loader.name.substring(0, 27) + '...' : loader.name.padEnd(30)
             const status = loader.status ? `[${loader.status}]` : ''
 
@@ -822,7 +818,12 @@ export function formatLoaderTimings(serverTiming: ServerTimingMetrics): string[]
 }
 
 /**
- * Format lazy render analysis for console output
+ * Format deferred/lazy-section analysis for console output.
+ *
+ * Kept the historical export name (`formatLazyRenderAnalysis`) to avoid
+ * breaking imports, but the data source is now DOM-based
+ * (`data-manifest-key` / `data-deferred`), not HTTP `/deco/render`
+ * requests — see SKILL.md's "Lazy Section Tracking" section.
  */
 export function formatLazyRenderAnalysis(cacheAnalysis: CacheAnalysis): string[] {
     const lines: string[] = []
@@ -839,7 +840,11 @@ export function formatLazyRenderAnalysis(cacheAnalysis: CacheAnalysis): string[]
         lines.push('   ┌───────────────────────────────────────────────────────────')
         for (const loader of cacheAnalysis.serverSideLoaders.slice(0, 10)) {
             const speedIcon = loader.duration < 50 ? '🟢' : loader.duration < 200 ? '🟡' : '🔴'
-            const cacheIcon = loader.status === 'HIT' ? '💾' : loader.status === 'STALE' ? '⏳' : loader.status === 'MISS' ? '❌' : '⏭️'
+            const cacheIcon = loader.status === 'HIT' ? '💾'
+                : loader.status === 'STALE-HIT' ? '⏳'
+                : loader.status === 'STALE-ERROR' ? '🟠'
+                : loader.status === 'MISS' ? '❌'
+                : '⏭️'
             const name = loader.name.length > 30 ? loader.name.substring(0, 27) + '...' : loader.name.padEnd(30)
             const status = loader.status ? `[${loader.status}]` : ''
             lines.push(`   │ ${speedIcon} ${name} ${loader.duration.toString().padStart(4)}ms ${cacheIcon} ${status}`)
@@ -850,46 +855,38 @@ export function formatLazyRenderAnalysis(cacheAnalysis: CacheAnalysis): string[]
         lines.push('   └───────────────────────────────────────────────────────────')
     }
 
-    if (cacheAnalysis.lazyRenders.length > 0) {
+    if (cacheAnalysis.deferredSections.length > 0) {
         lines.push('')
-        lines.push(`   🔄 Lazy Sections (${cacheAnalysis.lazyRenders.length}):`)
+        lines.push(`   🔄 Deferred Sections (${cacheAnalysis.deferredSections.length}):`)
         lines.push('   ┌───────────────────────────────────────────────────────────')
-        
-        const sorted = [...cacheAnalysis.lazyRenders].sort((a, b) => b.duration - a.duration)
-        
-        for (const render of sorted.slice(0, 15)) {
-            const speedIcon = render.duration < 100 ? '🟢' : render.duration < 500 ? '🟡' : '🔴'
-            let cacheIcon = '  '
-            let cacheText = ''
-            if (render.cacheStatus) {
-                cacheText = render.cacheStatus
-                if (render.cacheStatus === 'HIT') cacheIcon = '💾'
-                else if (render.cacheStatus === 'MISS') cacheIcon = '❌'
-                else if (render.cacheStatus === 'STALE') cacheIcon = '⏳'
-                else if (render.cacheStatus === 'DYNAMIC') cacheIcon = '🔄'
-            } else if (render.cached) {
-                cacheIcon = '💾'
-                cacheText = 'cached'
-            }
-            const name = render.sectionName.length > 26 ? render.sectionName.substring(0, 23) + '...' : render.sectionName.padEnd(26)
-            
-            lines.push(`   │ ${speedIcon} ${name} ${render.duration.toString().padStart(5)}ms ${cacheIcon} ${cacheText}`)
+
+        const sorted = [...cacheAnalysis.deferredSections].sort((a, b) => (b.duration ?? -1) - (a.duration ?? -1))
+
+        for (const section of sorted.slice(0, 15)) {
+            const duration = section.duration
+            const speedIcon = duration === null ? '⏳' : duration < 100 ? '🟢' : duration < 500 ? '🟡' : '🔴'
+            const statusIcon = section.resolved ? '✅' : '⏳'
+            const durationText = duration === null ? (section.resolved ? 'n/a' : 'pending').padStart(7) : `${duration.toString().padStart(5)}ms`
+            const name = section.manifestKey.length > 26 ? section.manifestKey.substring(0, 23) + '...' : section.manifestKey.padEnd(26)
+
+            lines.push(`   │ ${speedIcon} ${name} ${durationText} ${statusIcon}`)
         }
-        
-        if (cacheAnalysis.lazyRenders.length > 15) {
-            lines.push(`   │ ... and ${cacheAnalysis.lazyRenders.length - 15} more sections`)
+
+        if (cacheAnalysis.deferredSections.length > 15) {
+            lines.push(`   │ ... and ${cacheAnalysis.deferredSections.length - 15} more sections`)
         }
         lines.push('   └───────────────────────────────────────────────────────────')
-        
-        const fast = cacheAnalysis.lazyRenders.filter(r => r.duration < 100).length
-        const medium = cacheAnalysis.lazyRenders.filter(r => r.duration >= 100 && r.duration < 500).length
-        const slow = cacheAnalysis.lazyRenders.filter(r => r.duration >= 500).length
-        const totalTime = cacheAnalysis.lazyRenders.reduce((sum, r) => sum + r.duration, 0)
-        
+
+        const timed = cacheAnalysis.deferredSections.filter((s): s is DeferredSectionTiming & { duration: number } => s.duration !== null)
+        const fast = timed.filter(s => s.duration < 100).length
+        const medium = timed.filter(s => s.duration >= 100 && s.duration < 500).length
+        const slow = timed.filter(s => s.duration >= 500).length
+        const totalTime = timed.reduce((sum, s) => sum + s.duration, 0)
+
         lines.push(`   📊 Summary: ${fast} fast, ${medium} medium, ${slow} slow │ Total: ${totalTime}ms`)
-        
-        if (cacheAnalysis.lazyRendersUncached > 0) {
-            lines.push(`   ⚠️  ${cacheAnalysis.lazyRendersUncached} uncached - add cache headers!`)
+
+        if (cacheAnalysis.deferredSectionsPending > 0) {
+            lines.push(`   ⚠️  ${cacheAnalysis.deferredSectionsPending} still pending (data-deferred="true") at collection time`)
         }
     }
 
@@ -905,10 +902,13 @@ export function formatLazyRenderAnalysis(cacheAnalysis: CacheAnalysis): string[]
 }
 
 /**
- * Get a summary of loader timings for compact display
+ * Get a summary of loader timings for compact display. See the
+ * `LoaderTiming` doc comment — normally empty in the current runtime.
  */
 export function getLoaderSummary(serverTiming: ServerTimingMetrics): string {
-    if (serverTiming.loaders.length === 0) return 'No timing data'
+    if (serverTiming.loaders.length === 0) {
+        return serverTiming.headerPresent ? 'Server-Timing header present, no parsable entries' : 'No Server-Timing data (not wired into this runtime by default)'
+    }
 
     const count = serverTiming.loaders.length
     const slowest = serverTiming.slowestLoaders[0]

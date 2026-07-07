@@ -35,17 +35,27 @@ The liveness endpoint is critical for test warmup - see SKILL.md for details.
 ## 1. Site URL
 
 **Where to find:**
-- `deno.json` → look for `site` or site name
-- `apps/site.ts` → site configuration
-- Any `.deco.site` URL references
+- `package.json` → `name` field, plus `vite.config.ts` (TanStack Start sites)
+  or `next.config.ts`/`.js` (Next.js sites) for any hardcoded site/host config
+- `src/setup.ts` → `createSiteSetup({ productionOrigins: [...] })` often
+  names the production domain
+- `wrangler.toml`/`wrangler.jsonc` (TanStack + Cloudflare Workers sites) →
+  `name` / route config
+- The site's local dev URL is simply wherever the dev server binds
+  (TanStack/Vite defaults to `http://localhost:5173` unless overridden by
+  the Cloudflare Vite plugin's dev proxy; Next.js defaults to
+  `http://localhost:3000`)
 
 **Search commands:**
 ```bash
-grep -r "deco.site" deno.json apps/
-grep -r "localhost--" .
+grep -rn "productionOrigins\|siteName" src/setup.ts src/app 2>/dev/null
+cat wrangler.toml wrangler.jsonc 2>/dev/null
+grep -n '"dev"' package.json
 ```
 
-**Format:** `https://localhost--{sitename}.deco.site`
+**Format:** `http://localhost:5173` (TanStack Start / Vite) or
+`http://localhost:3000` (Next.js) for local dev; use the real production
+domain from `productionOrigins` for anything beyond localhost.
 
 ---
 
@@ -259,21 +269,27 @@ cat components/minicart/Cart.tsx | head -50
 
 ---
 
-## 10. Deco Observability Headers
+## 10. Deco Observability Signals
 
-The test suite captures these Deco-specific headers for debugging:
+**No `x-deco-section` / `x-deco-page` / `x-deco-route` / `x-deco-platform`
+headers exist in the current runtime.** A repo-wide grep for those header
+names across `packages/live`, `packages/admin`, `packages/tanstack`, and
+`packages/next` returns zero hits — this table described the old Fresh/Deno
+`@deco/deco` runtime and is not applicable to current TanStack Start / Next.js
+sites. Don't write test assertions against these headers; they will never be
+present.
 
-| Header | Source | Purpose |
+What's still real:
+
+| Signal | Source | Purpose |
 |--------|--------|---------|
-| `x-deco-section` | `/deco/render` response | Section component type and title |
-| `x-deco-page` | Page response | Matched page block name |
-| `x-deco-route` | Page response | Matched route template |
-| `x-deco-platform` | All responses | Platform identifier |
-| `server-timing` | `?__d` mode | Loader timings and cache status |
+| `data-manifest-key` (DOM attribute) | `<section>` wrapper rendered by `DecoPageRenderer` (TanStack) or `SectionRenderer`/`DeferredSection` (Next.js) | Identifies which section a DOM node corresponds to |
+| `data-deferred="true"` (DOM attribute) | Same wrapper, present only while the section is still a skeleton/fallback | Tells you a section hasn't resolved yet — absence means it has |
+| `server-timing` | `?__d` debug mode (still real — see `packages/live/src/middleware/decoState.ts`) | Loader timings and cache status for the page-level response |
+| `X-Deco-Cacheable` | Some TanStack server-fn responses (e.g. `loadDeferredSection`) | Whether that response is safe to edge-cache — not a section identifier |
 
-**These are set automatically by the Deco runtime.** If they're missing, ensure you're using a recent version of:
-- `@deco/deco` (runtime)
-- `apps/website/handlers/fresh.ts` (page handler)
+See `SKILL.md`'s "Lazy Section Tracking" section for how to use
+`data-manifest-key`/`data-deferred` in a Playwright test.
 
 ---
 

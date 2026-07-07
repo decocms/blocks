@@ -1,143 +1,139 @@
 # CLAUDE.md
 
-Guidance for AI assistants working with `@decocms/start`.
+Guidance for AI assistants working in this repo.
 
 ## Project Overview
 
-`@decocms/start` is the framework layer for Deco storefronts built on **TanStack Start + React 19 + Cloudflare Workers**. It provides CMS block resolution, admin protocol handlers, section rendering, schema generation, and edge caching infrastructure.
+This is **deco-start**: a Bun workspace monorepo housing the framework layer for [deco.cx](https://deco.cx) storefronts. It used to be a single npm package, `@decocms/start`, published as a tsup-bundled dist tier. That package was reverted at v5.2.2 after tsup bundling caused module-state duplication (two separate module instances of what should have been one singleton — e.g. the CMS registry — existing simultaneously in the same process). This repo is the fix: real package boundaries, plain `.ts` source exports, no bundler in the loop.
 
-**Not a storefront itself** — this is the npm package that storefronts depend on.
+**None of these packages are published yet** (all sit at `0.0.0`). Consuming sites link against a local checkout via `bun link` — see "Local dev / linking a site" below.
 
 ## Migration tooling policy (constitutional)
 
-This repo also hosts the migration scripts + skills that move Deco storefronts from Fresh/Deno to TanStack Start. The work is governed by signed-off architectural decisions (D1–D5) and a strict priority order — see [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc) (always-loaded) and [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) (full record). Defer to the plan when in doubt.
+This repo also hosts the migration scripts + skills that move Deco storefronts from Fresh/Deno to TanStack Start. That work is governed by signed-off architectural decisions (D1–D5) and a strict priority order — see [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc) (always-loaded) and [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) (full record). Defer to the plan when in doubt. This governs the migration *scripts and skills*, not the package split itself.
 
 ## Tech Stack
 
-- Runtime: Cloudflare Workers (Node compat)
-- Framework: TanStack Start / TanStack Router
-- UI: React 19 + React Compiler
-- State: @tanstack/store + @tanstack/react-store
-- Build: Vite
-- Published as: `@decocms/start` on GitHub Packages
+- Package manager / workspace: Bun (`bun install`, `bun run --filter`)
+- Runtime targets: Cloudflare Workers (`@decocms/tanstack`) and Node/RSC (`@decocms/next`)
+- Framework bindings: TanStack Start / TanStack Router, Next.js App Router
+- UI: React 19
+- Build (site-side): Vite (TanStack) — `@decocms/next` has no Vite dependency, it's RSC-native
+- Test runner: Vitest, workspace-root config (`vitest.config.ts`), each package's `test` script runs `vitest run --root ../.. packages/<name>`
 
 ## Common Commands
 
 ```bash
-npm run build        # tsc — compile to dist/
-npm run typecheck    # tsc --noEmit
+bun install
+bun run build        # tsc -> dist/, per package
+bun run typecheck     # tsc --noEmit, per package
+bun run test          # vitest run, per package
+bun run check         # typecheck + lint + lint:unused
 ```
 
-No dev server — this is a library. Consumers run their own `vite dev`.
+No dev server at the repo root — these are libraries. `examples/tanstack-smoke` and `examples/next-smoke` are real, runnable consumers (`cd examples/<name> && bun run dev`).
 
-## Architecture
+## Architecture: five packages, one-way dependency graph
 
 ```
-src/
-├── admin/           # Admin protocol: meta, decofile, invoke, render, schema, CORS, setup
-├── cms/             # Block loading, page resolution, section registry
-├── hooks/           # DecoPageRenderer, LiveControls, LazySection, SectionErrorFallback
-├── middleware/       # Observability, deco state, liveness probe
-├── sdk/             # Worker entry, caching, useScript, signal, clx, analytics, redirects, sitemap
-├── matchers/        # PostHog, built-in feature flag matchers
-├── types/           # FnContext, App, Section, SectionProps, widgets
-└── index.ts         # Barrel export
-scripts/
-├── generate-blocks.ts   # Scans site src/ for sections/loaders -> blocks.gen.ts
-└── generate-schema.ts   # Extracts TypeScript props -> JSON Schema (meta.gen.json)
+packages/
+├── runtime/    @decocms/live   — CMS core. Zero deco-package deps.
+├── admin/      @decocms/admin     — admin protocol + createAdminSetup.  depends on: runtime
+├── cli/        @decocms/cli       — codegen + migration scripts.       depends on: runtime
+├── tanstack/   @decocms/tanstack  — TanStack Start + CF Workers binding. depends on: runtime, admin, cli
+└── next/       @decocms/next      — Next.js App Router binding.        depends on: runtime, admin
+examples/
+├── tanstack-smoke/   real TanStack Start app consuming runtime+admin+tanstack
+└── next-smoke/       real Next.js app consuming runtime+admin+next
+.agents/skills/
+├── deco-to-tanstack-migration/   Fresh/Preact/Deno -> TanStack Start (site-code migration)
+├── deco-migrate-script/          the automated 8-phase script backing the above
+└── deco-next-package-migration/  old single-package @decocms/start -> the split, for Next.js sites
 ```
 
-### Package Exports (from package.json)
+**The dependency graph is one-way and load-bearing.** `runtime` never imports from `admin`/`cli`/`tanstack`/`next`. `tanstack` and `next` never import from each other. When splitting a concern between packages, check which side of this graph it belongs on before writing code — a circular need (Phase 1's `createSiteSetup` originally needed both runtime-only and admin-only options) is resolved by splitting the function, not by adding a back-edge.
 
-Every export maps to a source file — no dist indirection:
+No `tsconfig.json` `references` arrays anywhere in `packages/*` — cross-package imports resolve to `.ts` source directly (`moduleResolution: bundler`), which is also what makes the package split's central guarantee ("no package bundles another's compiled output") actually hold. Adding a `references` field back in reintroduces a real TS6305 build-ordering bug that was root-caused and removed early in this repo's history — don't add it back.
 
-| Import path | File |
-|-------------|------|
-| `@decocms/start` | `src/index.ts` |
-| `@decocms/start/admin` | `src/admin/index.ts` |
-| `@decocms/start/cms` | `src/cms/index.ts` |
-| `@decocms/start/hooks` | `src/hooks/index.ts` |
-| `@decocms/start/sdk/workerEntry` | `src/sdk/workerEntry.ts` |
-| `@decocms/start/sdk/cacheHeaders` | `src/sdk/cacheHeaders.ts` |
-| `@decocms/start/sdk/cachedLoader` | `src/sdk/cachedLoader.ts` |
-| `@decocms/start/sdk/useScript` | `src/sdk/useScript.ts` |
-| `@decocms/start/sdk/signal` | `src/sdk/signal.ts` |
-| `@decocms/start/sdk/clx` | `src/sdk/clx.ts` |
-| ... | (see `package.json` exports for full list) |
+### Package Exports
 
-### Three-Layer Architecture
+Every export maps to a source file — no dist indirection. Representative subset (see each package's `package.json` `exports` map for the full list):
 
-| Layer | Package | Responsibility |
-|-------|---------|---------------|
-| **@decocms/start** | This repo | Framework: CMS bridge, admin protocol, worker entry, caching, rendering |
-| **@decocms/apps** | `decocms/apps-start` | Commerce: VTEX/Shopify loaders, types, SDK (useOffer, formatPrice) |
-| **Site repo** | Not published | UI: components, hooks, routes, styles, contexts |
+| Import path | Package | File |
+|---|---|---|
+| `@decocms/live/cms` | runtime | `src/cms/index.ts` |
+| `@decocms/live/setup` | runtime | `src/setup.ts` |
+| `@decocms/live/sdk/*` | runtime | `src/sdk/*.ts` |
+| `@decocms/live/hooks` | runtime | `src/hooks/index.ts` |
+| `@decocms/admin` (root) | admin | `src/admin/index.ts` |
+| `@decocms/admin/setup` | admin | `src/createAdminSetup.ts` |
+| `@decocms/admin/apps/autoconfig` | admin | `src/apps/autoconfig.ts` |
+| `@decocms/tanstack` (root) | tanstack | `src/index.ts` (re-exports routes, hooks, worker entry, router sdk) |
+| `@decocms/tanstack/vite` | tanstack | `src/vite/plugin.js` (plain JS, no `.d.ts` yet) |
+| `@decocms/next` (root) | next | `src/index.ts` |
+| `@decocms/cli/generate-*` | cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
 
 ### Key Boundaries
 
-- `@decocms/start` must NOT contain: Preact references, widget type aliases, site-specific section maps, commerce API calls
-- `@decocms/apps` must NOT contain: UI components (Image, Picture), hook stubs, Preact/Fresh references
-- Site repo must NOT contain: `compat/` directories, Vite aliases beyond `~` -> `src/`
+- `@decocms/live` must NOT import from `admin`/`cli`/`tanstack`/`next`, and must NOT contain framework-specific code (no TanStack Router types, no Next.js types, no Cloudflare-Workers-only APIs at the type level).
+- `@decocms/tanstack` and `@decocms/next` must NOT import from each other.
+- `@decocms/apps` (commerce integrations — separate repo) must NOT contain UI components or framework-binding code.
+- Site repos must NOT contain compat/wrapper directories reimplementing what a package already exports — if something's missing from a package's public surface, that's a gap in the package, not a reason to hand-roll a workaround in every site (see "Known gaps in package exports" below).
 
-## Worker Entry (`src/sdk/workerEntry.ts`)
+## Fast Deploy (KV-first content) — `@decocms/tanstack` only
 
-The outermost Cloudflare Worker wrapper. Request flow:
+Decouples CMS content updates from code deploys: content served from Cloudflare KV (`decofile:current` + `index:revision`) with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on explicit opt-in — requires both `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise.
 
-```
-Request → createDecoWorkerEntry(serverEntry, options)
-  ├─ tryAdminRoute()        ← /live/_meta, /.decofile, /live/previews/*
-  ├─ cache purge check      ← __deco_purge_cache
-  ├─ static asset bypass    ← /assets/*, favicon, sprites
-  ├─ Cloudflare edge cache  ← caches.open() with profile-based TTLs
-  └─ serverEntry.fetch()    ← TanStack Start handles the rest
-```
-
-Admin routes MUST be handled here, NOT inside TanStack's `createServerEntry` — Vite strips custom fetch logic from server entries in production builds.
-
-## Edge Caching (`src/sdk/cacheHeaders.ts`)
-
-Built-in URL-to-profile detection:
-
-| URL Pattern | Profile | Edge TTL |
-|-------------|---------|----------|
-| `/` | static | 1 day |
-| `*/p` | product | 5 min |
-| `/s`, `?q=` | search | 60s |
-| `/cart`, `/checkout` | private | none |
-| Everything else | listing | 2 min |
-
-Cache API ignores `s-maxage` — the worker stores with `max-age` equal to `sMaxAge` as a workaround.
+This is deliberately **not** available in `@decocms/next` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/live/src/cms/blockSource.ts`, `packages/admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
 
 ## Admin Protocol
 
-The admin (admin.deco.cx) communicates with self-hosted storefronts via:
+Communicates with `admin.deco.cx` via:
 
-- `GET /live/_meta` — JSON Schema + manifest (with content-hash ETag)
+- `GET /live/_meta` — JSON Schema + manifest (content-hash ETag)
 - `GET /.decofile` — site content blocks
 - `POST /deco/render` — section/page preview in iframe
 - `POST /deco/invoke` — loader/action execution
 
-Schema is composed at runtime: `generate-schema.ts` produces section schemas, `composeMeta()` in `src/admin/schema.ts` injects page schemas and framework definitions.
+Both bindings expose the same four handlers from `@decocms/admin` (`handleMeta`, `handleDecofileRead`/`handleDecofileReload`, `handleRender`, `handleInvoke`), but wire them up differently:
 
-## Fast Deploy (KV-first content)
+- **TanStack**: admin routes MUST be handled inside `createDecoWorkerEntry` (`@decocms/tanstack`), NOT inside TanStack's `createServerEntry` — Vite strips custom fetch logic from server entries in production builds.
+- **Next.js**: each handler is exported as a one-line Route Handler re-export (`metaGET`, `decofileGET`/`decofilePOST`, `renderGET`/`renderPOST`, `invokeGET`/`invokePOST` from `@decocms/next`) — no single dispatcher, since Next's routing is already file-based. `renderGET`/`renderPOST` can be mounted at more than one path (`/deco/render` and `/live/previews/*`).
 
-Optional path that decouples CMS content updates from code deploys: content is served from Cloudflare KV (`decofile:current` + `index:revision`) with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on an explicit opt-in — requires BOTH `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise. Read path: `src/cms/blockSource.ts`, `src/cms/kvBlockSource.ts`, `src/sdk/kvHydration.ts` (wired in `workerEntry.ts`). Write-through + delta payloads: `src/admin/decofile.ts`. CI: `scripts/{migrate,sync}-blocks-to-kv.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
+Schema is composed at runtime: `@decocms/cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/live/cms`) injects page schemas and framework definitions.
 
-## Migration Guide
+## Request-scoped state: `RequestContext` (client-bundle-safe)
 
-Detailed migration playbook from Fresh/Preact/Deno to TanStack Start/React/Workers is available at `.agents/skills/deco-to-tanstack-migration/` (the canonical location — also surfaced as a Cursor skill via the `.agents/` skills root). Covers:
+`@decocms/live/sdk/requestContext` binds per-request state (request, abort signal, device info, flags) via `AsyncLocalStorage`. The tricky part: `AsyncLocalStorage` comes from `node:async_hooks`, which breaks Next's client webpack bundle if statically imported from anything reachable by a `"use client"` file.
 
-- Import rewrites (Preact → React, @preact/signals → @tanstack/store)
-- Deco framework elimination (@deco/deco/*, $fresh/*)
-- Commerce type migration
-- Platform hook implementation (useCart, useUser, useWishlist)
-- Vite configuration
-- 18 documented gotchas
+Fixed via conditional package exports on `@decocms/live/sdk/requestContextStorage` — `workerd`/`node`/`default` resolve to the real `AsyncLocalStorage`-backed implementation, `browser` resolves to a no-op stub with the identical shape (`{ run, getStore }`). **Condition order matters and is a real footgun**: `workerd`/`node` must be listed *before* `browser` in the exports map, because Cloudflare Workers builds activate a condition set that includes `browser` too (`["workerd", "worker", "browser"]`) — if `browser` came first, a real Workers production deploy would silently get the no-op stub instead of the real backend, breaking cookies/abort-signal/device-detection with no build error. This is exactly the kind of dual-instance-state bug the whole package split exists to eliminate — if you touch this file, verify the condition order empirically (Node's own `--conditions` flag, or a clean-room reproduction of `PACKAGE_TARGET_RESOLVE`), don't just eyeball it.
+
+There's a permanent regression test for a related-but-distinct historical bug at `packages/live/src/cms/layoutCacheRace.test.ts`: `resolveDecoPage`'s layout-section cache (Header/Footer) returns a shared object to every concurrent caller, and mutating `.index` on it in place (rather than cloning first) let one request's flat position overwrite another's — this shipped in `@decocms/start@6.12.1` and caused a same-day production rollback on two live sites before being fixed in 6.12.2. If you ever see this test fail, do not "fix" it by relaxing the assertion — it's asserting exactly the invariant that broke production once already.
+
+## Known gaps in package exports (documented, not yet fixed)
+
+A few symbols have real, intended-for-external-use implementations that aren't reachable from any package's public barrel or `exports` map. Sites currently work around this with local shim files rather than patching the package (tracked, not yet resolved):
+
+- `@decocms/tanstack`: `deferredSectionLoader` (in `src/routes/cmsRoute.ts`, exported from the internal `src/routes/index.ts` barrel but not the root), `getRequestCookieHeader`/`forwardResponseCookies` (`src/sdk/cookiePassthrough.ts`), `createInvokeFn` (`src/sdk/createInvoke.ts`).
+- `@decocms/cli`: `./scripts/generate-sections` and `./scripts/generate-loaders` have no `exports` map entry (only `generate-blocks`/`generate-schema`/`generate-invoke` do), even though the script files exist. Consumers reference them by literal filesystem path.
+
+If you're the one wiring up a new site and hit one of these, the fix belongs in the package (add the export), not another copy-pasted local shim — check this list first.
+
+## Migration Skills
+
+Three, each with a distinct scope:
+
+1. **`deco-to-tanstack-migration`** (`.agents/skills/`) — the site-code migration playbook, Fresh/Preact/Deno → TanStack Start/React/Workers. Import rewrites, Deco-framework elimination, commerce type migration, platform hooks (useCart/useUser/useWishlist), Vite config, documented gotchas.
+2. **`deco-migrate-script`** — the automated script backing (1): 8 phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap → compile), invoked via `@decocms/cli`'s `scripts/migrate.ts`.
+3. **`deco-next-package-migration`** — a different migration: moving a site *off the old single-package `@decocms/start`* (the abandoned `/next`, `/core`, `/node` tiers specifically) *onto the current split*, for sites building on `@decocms/next`. Has its own import-mapping reference and worked `setup.ts`/admin-routes templates, proven end-to-end against a real production Next.js site.
+
+Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework* (Fresh → TanStack), the third migrates a site's *package dependency* on an already-TanStack-or-Next site.
 
 ## Important Constraints
 
-1. **No compat layers** — replace imports, don't wrap them
-2. **AsyncLocalStorage** — `src/cms/loader.ts` uses it; must use namespace import (`import * as asyncHooks`) to avoid breaking Vite client builds
-3. **Preview shell** — must include `data-theme="light"` for DaisyUI v4 color variables
-4. **Base64 encoding** — `toBase64()` must produce padded output matching `btoa()` — admin uses `btoa()` for definition refs
-5. **ETag** — content-based DJB2 hash, not string length
+1. **No compat layers in a package** — if a site needs a symbol a package should export, add the export; don't let sites accumulate local reimplementations (see "Known gaps" above).
+2. **`AsyncLocalStorage`** — see the `RequestContext` section above. Never add a bare `node:async_hooks` import to any file reachable from a `"use client"` boundary; route through the existing conditional-exports pattern.
+3. **Preview shell** — must include `data-theme="light"` for DaisyUI v4 color variables.
+4. **Base64 encoding** — `toBase64()` must produce padded output matching `btoa()` — admin uses `btoa()` for definition refs.
+5. **ETag** — content-based DJB2 hash, not string length.
+6. **Dependency graph direction** — see "Key Boundaries" above; this is enforced by convention, not tooling, so review new imports across package boundaries carefully.

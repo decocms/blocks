@@ -8,16 +8,16 @@
 
 **Two places this can break**:
 
-1. **`src/server/invoke.gen.ts` missing or stale**. This is the TanStack RPC path. Each action must call `forwardResponseCookies()` after awaiting the underlying VTEX call. The helper uses `Headers.getSetCookie()` (not `entries()`!) to read the un-collapsed list and writes each value to TanStack's response via `setResponseHeader("set-cookie", [...])`. If the file doesn't exist, the site falls back to the `/deco/invoke/...` proxy.
+1. **`src/server/invoke.gen.ts` missing or stale**. This is the TanStack RPC path. Each action must call `forwardResponseCookies()` after awaiting the underlying VTEX call. The helper uses `Headers.getSetCookie()` (not `entries()`!) to read the un-collapsed list and writes each value to TanStack's response via `setResponseHeader("set-cookie", [...])`. If the file doesn't exist, the site falls back to the `/deco/invoke/...` proxy. If you hand-wrote a cookie-mutating action in the site's `src/server/invoke.ts` composition file instead of going through the generator (see `generator.md`'s "Site-Local Composition"), it needs the same `forwardResponseCookies()` call — it's easy to miss because `.agents/skills/deco-to-tanstack-migration/references/server-functions/README.md`, which documents that hand-written pattern, doesn't mention it.
 
-2. **`/deco/invoke/...` HTTP proxy** (`~/runtime.ts` pattern). The framework's admin handler (`@decocms/start/src/admin/invoke.ts`) used to iterate `RequestContext.responseHeaders.entries()` which collapses Set-Cookie. Fixed in @decocms/start ≥ 5.0.0 by switching to `getSetCookie()` + a `forwardCtxHeadersTo()` helper applied on both single and batch paths.
+2. **`/deco/invoke/...` HTTP proxy** (`~/runtime.ts` pattern). The framework's admin handler — now `packages/admin/src/admin/invoke.ts` (published as part of `@decocms/admin`; this file lived at `@decocms/start/src/admin/invoke.ts` before the package split) — used to iterate `RequestContext.responseHeaders.entries()` which collapses Set-Cookie. Fixed by switching to `getSetCookie()` + a `forwardCtxHeadersTo()` helper applied on both single and batch paths (`packages/admin/src/admin/invoke.ts` — search the file to confirm both handlers call it on your checkout).
 
 **Diagnosis**: Open DevTools → Network → response to the cart action. You should see **multiple distinct** `Set-Cookie:` rows. If you see a single `Set-Cookie: foo=1, bar=2; Path=/, baz=3` line, that's the collapse bug.
 
 **Fix**:
-1. Upgrade `@decocms/start` to the version with `forwardCtxHeadersTo` in `src/admin/invoke.ts` (search the file — both single and batch handlers should call it).
-2. Run `bunx tsx node_modules/@decocms/start/scripts/generate-invoke.ts` to regenerate `src/server/invoke.gen.ts`. Verify it has `function forwardResponseCookies()` and that every emitted handler calls it.
-3. Make sure `useCart` (and other VTEX hooks) imports `invoke` from `~/server/invoke.gen` (or a barrel re-export of it), not from `~/runtime`.
+1. Upgrade `@decocms/admin` to a version with `forwardCtxHeadersTo` in `src/admin/invoke.ts` (search the file — both single and batch handlers should call it).
+2. Run `bunx tsx node_modules/@decocms/cli/scripts/generate-invoke.ts` to regenerate `src/server/invoke.gen.ts`. Verify it has `function forwardResponseCookies()` and that every emitted handler calls it.
+3. Make sure `useCart` (and other VTEX hooks) imports `invoke` from `~/server/invoke` — the hand-written composition file that merges `vtexActions` from `invoke.gen.ts` (see `architecture.md`'s "Layer 3.5") — not from `~/runtime`.
 4. The migration script (`scripts/migrate.ts` bootstrap) runs `generate-invoke.ts` automatically on freshly-migrated sites — if a site was migrated before that, run the generator manually.
 
 **Client-side workaround** (defense-in-depth, removable): some sites manually `document.cookie = "checkout.vtex.com__orderFormId=..."` inside `useCart`. That only patches one cookie of many. With the server-side fix in place, the workaround is harmless but no longer load-bearing — see `~/conductor/workspaces/miess-01-tanstack/newport-beach/src/hooks/useCart.ts` for an example.
@@ -30,7 +30,7 @@
 
 **Fix**: 
 1. Verify `invoke.gen.ts` exists in `src/server/`
-2. Verify imports point to `~/server/invoke.gen`, not `@decocms/apps/vtex/invoke`
+2. Verify component/hook imports point to `~/server/invoke` (the hand-written composition file — see `architecture.md`'s "Layer 3.5"), not directly to `@decocms/apps/vtex/invoke` or `~/server/invoke.gen`
 3. Re-run `npm run generate:invoke`
 4. Restart the dev server (Vite caches transforms)
 
@@ -84,9 +84,9 @@ If you see the raw code, the compiler didn't transform it. Possible causes:
 
 **Fix**: Use `--apps-dir`:
 ```bash
-npx tsx .../generate-invoke.ts --apps-dir ../apps-start
+npx tsx node_modules/@decocms/cli/scripts/generate-invoke.ts --apps-dir ../apps-start
 # or
-npx tsx .../generate-invoke.ts --apps-dir node_modules/@decocms/apps
+npx tsx node_modules/@decocms/cli/scripts/generate-invoke.ts --apps-dir node_modules/@decocms/apps
 ```
 
 ## Generator Fails: "Could not find 'export const invoke'"

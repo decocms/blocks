@@ -18,8 +18,8 @@
     }],
     "@semantic-release/release-notes-generator",
     ["@semantic-release/exec", {
-      "prepareCmd": "npm version ${nextRelease.version} --no-git-tag-version",
-      "publishCmd": "npm publish --access public"
+      "prepareCmd": "VERSION=${nextRelease.version} node scripts/sync-versions.mjs",
+      "publishCmd": "for dir in packages/*/; do (cd \"$dir\" && npm publish --access public); done"
     }],
     "@semantic-release/github"
   ]

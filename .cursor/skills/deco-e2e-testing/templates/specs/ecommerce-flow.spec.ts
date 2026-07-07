@@ -17,7 +17,12 @@ const SITE_CONFIG = {
     // Deco framework endpoints
     livenessPath: '/deco/_liveness',
 
-    // Debug mode - ALWAYS enabled to get Server-Timing headers with loader info
+    // Debug mode - forces full OTel trace sampling for the request
+    // (packages/tanstack/src/sdk/workerEntry.ts). NOT a guarantee of
+    // per-loader Server-Timing data — see metrics-collector.ts's
+    // LoaderTiming doc comment; that's normally empty in the current
+    // runtime regardless of this param. Still worth always sending: it's
+    // harmless, and future runtimes may wire loader-level timing to it.
     debugParam: '?__d',
 
     // Selectors - REPLACE THESE
@@ -287,7 +292,7 @@ test.describe('E-commerce User Journey - {{SITE_NAME}}', () => {
                 totalPages: metrics.length,
                 avgTTFB: Math.round(metrics.reduce((s, m) => s + (m.performance.TTFB || 0), 0) / metrics.length),
                 avgFCP: Math.round(metrics.reduce((s, m) => s + (m.performance.FCP || 0), 0) / metrics.length),
-                totalLazyRenders: metrics.reduce((s, m) => s + m.cacheAnalysis.lazyRenders.length, 0),
+                totalDeferredSections: metrics.reduce((s, m) => s + m.cacheAnalysis.deferredSections.length, 0),
                 totalLoaders: metrics.reduce((s, m) => s + m.serverTiming.loaders.length, 0),
                 cacheHits: metrics.reduce((s, m) => s + m.serverTiming.cacheStats.hit, 0),
                 cacheMisses: metrics.reduce((s, m) => s + m.serverTiming.cacheStats.miss, 0),
@@ -295,7 +300,7 @@ test.describe('E-commerce User Journey - {{SITE_NAME}}', () => {
                     name: m.pageName,
                     ttfb: m.performance.TTFB,
                     fcp: m.performance.FCP,
-                    lazyRenders: m.cacheAnalysis.lazyRenders.length,
+                    deferredSections: m.cacheAnalysis.deferredSections.length,
                     loaders: m.serverTiming.loaders.length,
                     serverTime: m.serverTiming.totalServerTime,
                 })),
@@ -333,9 +338,9 @@ test.describe('E-commerce User Journey - {{SITE_NAME}}', () => {
         collector.startMeasurement()
         await actions.goto('/')
 
-        console.log('   📜 Scrolling to trigger lazy renders (full)...')
+        console.log('   📜 Scrolling to trigger deferred sections (full)...')
         const homeRendersTriggered = await collector.scrollPage({ full: true, maxTime: 20000 })
-        console.log(`   📜 Triggered ${homeRendersTriggered} lazy renders`)
+        console.log(`   📜 Resolved ${homeRendersTriggered} deferred section(s)`)
 
         const homeCold = await collector.collectPageMetrics('Homepage Cold')
         metrics.push(homeCold)
@@ -369,7 +374,7 @@ test.describe('E-commerce User Journey - {{SITE_NAME}}', () => {
 
         console.log('   📜 Scrolling PLP...')
         const plpRendersTriggered = await collector.scrollPage({ full: false })
-        console.log(`   📜 Triggered ${plpRendersTriggered} lazy renders`)
+        console.log(`   📜 Resolved ${plpRendersTriggered} deferred section(s)`)
 
         const plpCold = await collector.collectPageMetrics('PLP Cold')
         metrics.push(plpCold)
@@ -407,7 +412,7 @@ test.describe('E-commerce User Journey - {{SITE_NAME}}', () => {
 
         console.log('   📜 Scrolling PDP...')
         const pdpRendersTriggered = await collector.scrollPage({ full: false })
-        console.log(`   📜 Triggered ${pdpRendersTriggered} lazy renders`)
+        console.log(`   📜 Resolved ${pdpRendersTriggered} deferred section(s)`)
 
         const pdpCold = await collector.collectPageMetrics('PDP Cold')
         metrics.push(pdpCold)
@@ -508,10 +513,6 @@ test.describe('E-commerce User Journey - {{SITE_NAME}}', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function logMetrics(m: PageMetrics) {
-    if (m.decoHeaders?.page || m.decoHeaders?.route) {
-        console.log(`   📦 Block: ${m.decoHeaders.page || 'unknown'} │ Route: ${m.decoHeaders.route || 'unknown'}`)
-    }
-    
     console.log('')
     const ttfbIcon = (m.performance.TTFB || 0) < 500 ? '🟢' : (m.performance.TTFB || 0) < 800 ? '🟡' : '🔴'
     const fcpIcon = (m.performance.FCP || 0) < 1000 ? '🟢' : (m.performance.FCP || 0) < 1800 ? '🟡' : '🔴'
@@ -547,10 +548,10 @@ function logCacheImprovement(name: string, cold: PageMetrics, warm: PageMetrics)
     console.log(`   │ TTFB:   ${cold.performance.TTFB?.toFixed(0)}ms → ${warm.performance.TTFB?.toFixed(0)}ms  (${ttfbDiff > 0 ? '-' : '+'}${Math.abs(ttfbDiff).toFixed(0)}ms / ${ttfbPercent}%)`)
     console.log(`   │ Server: ${cold.serverTiming.totalServerTime.toFixed(0)}ms → ${warm.serverTiming.totalServerTime.toFixed(0)}ms  (${serverDiff > 0 ? '-' : '+'}${Math.abs(serverDiff).toFixed(0)}ms / ${serverPercent}%)`)
 
-    const coldLazy = cold.cacheAnalysis.lazyRenders.length
-    const warmLazyCached = warm.cacheAnalysis.lazyRendersCached
-    if (coldLazy > 0) {
-        console.log(`   │ Lazy:   ${coldLazy} renders → ${warmLazyCached} cached on reload`)
+    const coldDeferred = cold.cacheAnalysis.deferredSections.length
+    const warmResolved = warm.cacheAnalysis.deferredSectionsResolved
+    if (coldDeferred > 0) {
+        console.log(`   │ Deferred: ${coldDeferred} section(s) → ${warmResolved} resolved on reload`)
     }
 }
 
@@ -569,7 +570,7 @@ function printSummaryTable(metrics: PageMetrics[]) {
         const fcpIcon = fcpVal < 1000 ? '🟢' : fcpVal < 1800 ? '🟡' : '🔴'
         const ttfb = `${ttfbIcon} ${formatMs(m.performance.TTFB)}`
         const fcp = `${fcpIcon} ${formatMs(m.performance.FCP)}`
-        const lazy = `${m.cacheAnalysis.lazyRenders.length}`.padStart(6)
+        const lazy = `${m.cacheAnalysis.deferredSections.length}`.padStart(6)
         console.log(`   │ ${name} │ ${ttfb} │  ${fcp} │ ${lazy} │`)
     }
 
@@ -592,19 +593,19 @@ function printCacheAnalysis(metrics: PageMetrics[]) {
     }
 
     console.log('')
-    console.log('   🔄 Lazy Render (/deco/render) Summary:')
+    console.log('   🔄 Deferred Section Summary (data-manifest-key / data-deferred):')
     console.log('   ─────────────────────────────────────────────────────────────')
     for (const m of metrics) {
         if (m.pageName === 'Add to Cart') continue
-        if (m.cacheAnalysis.lazyRenders.length === 0) continue
+        if (m.cacheAnalysis.deferredSections.length === 0) continue
 
         const name = m.pageName.padEnd(18)
-        const total = m.cacheAnalysis.lazyRenders.length
-        const cached = m.cacheAnalysis.lazyRendersCached
-        const uncached = m.cacheAnalysis.lazyRendersUncached
-        const icon = uncached === 0 ? '✅' : uncached < total / 2 ? '⚠️' : '❌'
+        const total = m.cacheAnalysis.deferredSections.length
+        const resolved = m.cacheAnalysis.deferredSectionsResolved
+        const pending = m.cacheAnalysis.deferredSectionsPending
+        const icon = pending === 0 ? '✅' : pending < total / 2 ? '⚠️' : '❌'
 
-        console.log(`   │ ${icon} ${name} ${total} renders (${cached} cached, ${uncached} uncached)`)
+        console.log(`   │ ${icon} ${name} ${total} section(s) (${resolved} resolved, ${pending} pending)`)
     }
 
     console.log('')

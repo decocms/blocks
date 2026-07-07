@@ -1,11 +1,11 @@
 ---
 name: deco-edge-caching
-description: Configure edge caching for Deco storefronts on Cloudflare Workers using createDecoWorkerEntry, cacheHeaders, detectCacheProfile, and routeCacheDefaults from @decocms/start. Use when setting up worker-entry caching, tuning Cache-Control headers, adding cache profiles for commerce page types (PDP, PLP, search), configuring staleTime for TanStack Router routes, debugging cache HITs/MISSes, or implementing cache purge APIs.
+description: Configure edge caching for Deco storefronts on Cloudflare Workers using createDecoWorkerEntry (@decocms/tanstack), and cacheHeaders, detectCacheProfile, routeCacheDefaults (@decocms/live/sdk/cacheHeaders). Use when setting up worker-entry caching, tuning Cache-Control headers, adding cache profiles for commerce page types (PDP, PLP, search), configuring staleTime for TanStack Router routes, debugging cache HITs/MISSes, or implementing cache purge APIs.
 ---
 
 # Deco Edge Caching
 
-Complete caching infrastructure for Deco storefronts on Cloudflare Workers, provided by `@decocms/start/sdk`.
+Complete caching infrastructure for Deco storefronts on Cloudflare Workers, provided by `@decocms/tanstack` (worker-entry) and `@decocms/live/sdk` (cache headers, profiles, loader cache).
 
 ## Architecture Overview
 
@@ -58,7 +58,7 @@ The **worker-entry** is the authority for edge caching. Routes declare intent vi
 // src/worker-entry.ts
 import "./setup";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
-import { createDecoWorkerEntry } from "@decocms/start/sdk/workerEntry";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
 
 const serverEntry = createServerEntry({
   async fetch(request) {
@@ -91,7 +91,7 @@ export default createDecoWorkerEntry(serverEntry, {
 
 ```ts
 import { createFileRoute } from "@tanstack/react-router";
-import { cacheHeaders, routeCacheDefaults } from "@decocms/start/sdk/cacheHeaders";
+import { cacheHeaders, routeCacheDefaults } from "@decocms/live/sdk/cacheHeaders";
 
 export const Route = createFileRoute("/")({
   ...routeCacheDefaults("static"),
@@ -118,7 +118,7 @@ The worker-entry overrides the route's Cache-Control with the correct profile fo
 
 ```ts
 // In setup.ts or worker-entry.ts
-import { registerCachePattern } from "@decocms/start/sdk/cacheHeaders";
+import { registerCachePattern } from "@decocms/live/sdk/cacheHeaders";
 
 registerCachePattern({
   test: (pathname) => pathname.startsWith("/blog"),
@@ -171,7 +171,7 @@ curl -X POST "https://site.com/_cache/purge" \
 In `setup.ts`, wrap commerce loaders with `createCachedLoader`:
 
 ```ts
-import { createCachedLoader } from "@decocms/start/sdk/cachedLoader";
+import { createCachedLoader } from "@decocms/live/sdk/cachedLoader";
 
 const cachedPLP = createCachedLoader("vtex/plp", vtexPLP, {
   policy: "stale-while-revalidate",
@@ -205,7 +205,7 @@ For sites with known institutional/static pages that would otherwise get the con
 
 ```ts
 // setup.ts
-import { registerCachePattern } from "@decocms/start/sdk/cacheHeaders";
+import { registerCachePattern } from "@decocms/live/sdk/cacheHeaders";
 
 // Institutional pages — content changes rarely, promote to 24h edge TTL
 registerCachePattern({
@@ -309,12 +309,12 @@ When migrating to TanStack Workers, compare cache metrics:
 
 ```ts
 // Headers and profiles
-import { cacheHeaders, routeCacheDefaults, detectCacheProfile } from "@decocms/start/sdk/cacheHeaders";
-import { getCacheProfileConfig, registerCachePattern } from "@decocms/start/sdk/cacheHeaders";
+import { cacheHeaders, routeCacheDefaults, detectCacheProfile } from "@decocms/live/sdk/cacheHeaders";
+import { getCacheProfile, registerCachePattern } from "@decocms/live/sdk/cacheHeaders";
 
-// Worker entry factory
-import { createDecoWorkerEntry } from "@decocms/start/sdk/workerEntry";
+// Worker entry factory (root import only — @decocms/tanstack has no ./sdk/* subpaths)
+import { createDecoWorkerEntry } from "@decocms/tanstack";
 
 // Loader cache
-import { createCachedLoader, clearLoaderCache } from "@decocms/start/sdk/cachedLoader";
+import { createCachedLoader, clearLoaderCache } from "@decocms/live/sdk/cachedLoader";
 ```

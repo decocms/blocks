@@ -1,9 +1,9 @@
 ---
 name: deco-migrate-script
-description: Automated migration script that converts Deco storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Runs 8 phases (analyze, scaffold, transform, cleanup, report, verify, bootstrap, compile). Use when running the migration script, debugging its output, extending it with new transforms, or understanding what it does. Located at scripts/migrate.ts in @decocms/start.
+description: Automated migration script that converts Deco storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Runs 8 phases (analyze, scaffold, transform, cleanup, report, verify, bootstrap, compile). Use when running the migration script, debugging its output, extending it with new transforms, or understanding what it does. Located at packages/cli/scripts/migrate.ts in @decocms/cli.
 globs:
-  - "scripts/migrate.ts"
-  - "scripts/migrate/**/*"
+  - "packages/cli/scripts/migrate.ts"
+  - "packages/cli/scripts/migrate/**/*"
 ---
 
 # Deco Migration Script
@@ -13,11 +13,11 @@ Automated TypeScript script that converts a Deco storefront from Fresh/Preact/De
 ## Quick Start
 
 ```bash
-# From the NEW site root (already has @decocms/start installed):
-npx tsx node_modules/@decocms/start/scripts/migrate.ts --source /path/to/old-site
+# From the NEW site root (already has @decocms/cli linked/installed):
+npx tsx node_modules/@decocms/cli/scripts/migrate.ts --source /path/to/old-site
 
 # Dry run first:
-npx tsx node_modules/@decocms/start/scripts/migrate.ts --source /path/to/old-site --dry-run --verbose
+npx tsx node_modules/@decocms/cli/scripts/migrate.ts --source /path/to/old-site --dry-run --verbose
 ```
 
 ### Options
@@ -64,8 +64,8 @@ When the file is absent the baked-in casaevideo defaults apply, so existing migr
 ## Architecture
 
 ```
-scripts/migrate.ts              ← Entry point, runs all phases
-scripts/migrate/
+packages/cli/scripts/migrate.ts              ← Entry point, runs all phases
+packages/cli/scripts/migrate/
 ├── types.ts                    ← MigrationContext, FileRecord, DetectedPattern
 ├── colors.ts                   ← Terminal output formatting
 ├── phase-analyze.ts            ← Phase 1: scan source, detect patterns
@@ -160,9 +160,9 @@ Applies 6 transforms in sequence to every source file:
 preact/hooks     → react
 preact/compat    → react
 preact           → react
-@preact/signals  → @decocms/start/sdk/signal
-@deco/deco/hooks → @decocms/start/sdk/useScript
-@deco/deco/blocks→ @decocms/start/types
+@preact/signals  → @decocms/live/sdk/signal
+@deco/deco/hooks → @decocms/live/sdk/useScript
+@deco/deco/blocks→ @decocms/live/types
 apps/commerce/*  → @decocms/apps/commerce/*
 apps/website/*   → ~/components/ui/* or @decocms/apps/*
 site/*           → ~/*
@@ -250,7 +250,7 @@ bg-black bg-opacity-20 → bg-black/20
 **Deletes root files:**
 - `deno.json`, `fresh.gen.ts`, `main.ts`, `dev.ts`, `tailwind.config.ts`, `runtime.ts`, `constants.ts`
 
-**Deletes SDK files** (now in @decocms/start or @decocms/apps):
+**Deletes SDK files** (now in @decocms/live or @decocms/apps):
 - `sdk/clx.ts`, `sdk/useId.ts`, `sdk/useOffer.ts`, `sdk/useVariantPossiblities.ts`, `sdk/usePlatform.tsx`
 
 **Moves:**
@@ -264,7 +264,7 @@ Generates `MIGRATION_REPORT.md` with:
 - Manual review items with severity
 - Always-check section (FormEmail, Slider, Theme, DaisyUI, Tailwind)
 - Known issues (z-index stacking, opacity modifiers)
-- Framework findings (patterns to consolidate into @decocms/start)
+- Framework findings (patterns to consolidate into @decocms/live)
 - Next steps
 
 ### Phase 6: Verify
@@ -294,8 +294,8 @@ Generates `MIGRATION_REPORT.md` with:
 
 Runs automatically after all phases (skipped in `--dry-run`):
 1. `bun install`
-2. `bunx tsx node_modules/@decocms/start/scripts/generate-blocks.ts`
-3. `bunx tsx node_modules/@decocms/start/scripts/generate-invoke.ts` — emits `src/server/invoke.gen.ts` (top-level `createServerFn` declarations for every VTEX action, plus the `forwardResponseCookies()` Set-Cookie bridge). Without this step the site falls back to the `/deco/invoke/...` proxy and the cart breaks at `/checkout` after addItemToCart. See `.cursor/skills/deco-server-functions-invoke/troubleshooting.md` ("Cart 'forgets' items between requests") for the failure mode.
+2. `bunx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts`
+3. `bunx tsx node_modules/@decocms/cli/scripts/generate-invoke.ts` — emits `src/server/invoke.gen.ts` (top-level `createServerFn` declarations for every VTEX action, plus the `forwardResponseCookies()` Set-Cookie bridge). Without this step the site falls back to the `/deco/invoke/...` proxy and the cart breaks at `/checkout` after addItemToCart. See `.cursor/skills/deco-server-functions-invoke/troubleshooting.md` ("Cart 'forgets' items between requests") for the failure mode.
 4. `bunx tsr generate`
 
 ### Phase 8: Compile
@@ -374,7 +374,7 @@ Platform affects: commerce type imports, loader registration, setup.ts template,
 
 ### Adding a New Transform
 
-1. Create `scripts/migrate/transforms/my-transform.ts`:
+1. Create `packages/cli/scripts/migrate/transforms/my-transform.ts`:
 
 ```typescript
 import type { TransformResult } from "../types";
@@ -407,7 +407,7 @@ const transforms = [imports, jsx, freshApis, deadCode, denoIsms, tailwind, myTra
 
 ### Adding a New Template
 
-1. Create `scripts/migrate/templates/my-file.ts`:
+1. Create `packages/cli/scripts/migrate/templates/my-file.ts`:
 
 ```typescript
 import type { MigrationContext } from "../types";
@@ -495,13 +495,13 @@ script leaves behind on existing-but-pre-framework-helpers sites:
 
 ```bash
 # Read-only audit (default)
-npx -p @decocms/start deco-post-cleanup
+npx -p @decocms/cli deco-post-cleanup
 
 # Auto-fix the safe rules (dead-lib-shims, dead-runtime-shim, local-widgets-types)
-npx -p @decocms/start deco-post-cleanup --fix
+npx -p @decocms/cli deco-post-cleanup --fix
 
 # CI gate: auto-fix safe rules, exit 2 if any warnings remain
-npx -p @decocms/start deco-post-cleanup --fix --strict
+npx -p @decocms/cli deco-post-cleanup --fix --strict
 ```
 
 The audit covers 7 rules (delete dead lib shims, drop obsolete inline
@@ -522,5 +522,5 @@ detection logic mirrors the canonical checklist at
 shim files have valid TypeScript signatures. The audit's pattern
 matches surface what compilation cannot.
 
-Source: `scripts/migrate-post-cleanup.ts` + `scripts/migrate/post-cleanup/`.
-Tests: `scripts/migrate/post-cleanup/runner.test.ts`.
+Source: `packages/cli/scripts/migrate-post-cleanup.ts` + `packages/cli/scripts/migrate/post-cleanup/`.
+Tests: `packages/cli/scripts/migrate/post-cleanup/runner.test.ts`.

@@ -165,17 +165,26 @@ Centralize:
 ## Quick Audit Commands
 
 ```bash
-# Find unsafe prop access (no optional chaining)
-grep -rn "props\.\w\+\." sections/ | grep -v "props\.\w\+?\."
+# Find unsafe prop access (no optional chaining) — sections live under src/sections/
+# (or wherever the site registers them via createSiteSetup's `sections` map)
+grep -rn "props\.\w\+\." src/sections/ | grep -v "props\.\w\+?\."
 
-# Find direct URL construction without try-catch
-grep -rn "new URL" islands/ | grep -v "try"
+# Find direct URL construction without try-catch. There's no islands/ directory
+# anymore — interactive code is ordinary React components anywhere under src/
+# (client components in Next's App Router, marked "use client" where required;
+# no separate directory boundary like Fresh's islands/)
+grep -rn "new URL" src/ | grep -v "try"
 
-# Find http:// in content
-grep -r "http://" .deco/blocks/*.json | grep -v "https://"
+# Find http:// in local CMS content — check .deco/blocks/*.json first (the
+# common on-disk location on real sites), then src/setup.ts's inline `blocks`
+# object for sites using that simpler pattern instead. A fast-deploy site's
+# live production content can additionally live only in Cloudflare KV, not
+# checked into the repo, and won't show up in either.
+grep -rn "http://" .deco/blocks/*.json 2>/dev/null | grep -v "https://"
+grep -n "http://" src/setup.ts | grep -v "https://"
 
-# Find 404 responses
-grep -r "status: 404" loaders/ sections/
+# Find 404 responses in custom loaders/sections
+grep -rn "status: 404" src/loaders/ src/sections/ 2>/dev/null
 ```
 
 ## Common Bug Patterns

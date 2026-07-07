@@ -22,7 +22,17 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, v7]
+  # Manual escape hatch to verify what a release WOULD do — especially for the
+  # v7 line, which publishes 5 brand-new npm packages that have never been
+  # published before. Run this from the Actions tab (pick the branch) before
+  # trusting a real push-triggered release on v7 for the first time.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — compute and log the release, but don't publish, tag, or open a GitHub release"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -49,16 +59,51 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # main publishes the single legacy @decocms/start package (v*.*.* tags).
+      # v7 publishes the 5 split @decocms/* packages under an entirely
+      # separate, non-colliding tag namespace (live-v*.*.*) and version
+      # lineage — they're unrelated npm packages that happen to live in the
+      # same repo, so they get their own semantic-release config rather than
+      # sharing main's `branches` array. This swap is transient — it edits
+      # the CI runner's checkout only, never committed back.
+      #
+      # GOTCHA (costly to relearn): the branch must NOT be named like a
+      # semver range (e.g. "7.x") — semantic-release auto-classifies any
+      # `N.x`-shaped branch NAME as a "maintenance" branch (regardless of how
+      # you write it in `branches` config; classification runs on the
+      # resolved branch name, not the config-side glob). Maintenance branches
+      # are structurally required to have a LOWER version than a companion
+      # "release"-type branch — the opposite of what we want (v7 should be
+      # newer than legacy main). No config trick escapes this; it's why the
+      # branch here is "v7", not "7.x".
+      - name: Select release config for this branch
+        if: github.ref_name == 'v7'
+        run: cp .releaserc.v7.json .releaserc.json
+
+      # GOTCHA: semantic-release's --dry-run ONLY skips its own native git-tag
+      # creation step (lib/index.js: `if (options.dryRun) { skip tag } else {
+      # tag, push, ... }`). It calls `plugins.prepare(context)` and
+      # `plugins.publish(context)` UNCONDITIONALLY either way, and
+      # @semantic-release/exec's prepare/publish hooks don't check dry-run
+      # themselves — they just run prepareCmd/publishCmd as configured. So a
+      # naive exec-based publishCmd WOULD attempt a real `npm publish` even
+      # during a "dry run". .releaserc.v7.json's publishCmd checks $DRY_RUN
+      # itself to guard against this — verified empirically (confirmed real
+      # publish was never reached only because npm auth wasn't configured;
+      # this DRY_RUN check is the actual, reliable guard).
       - name: Release
-        run: bunx semantic-release
+        run: ./node_modules/.bin/semantic-release${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && ' --dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'true' || 'false' }}
 
       # Caller workflows in storefront repos pin to a moveable major tag (`@v2`),
       # GitHub Actions convention. After every release we fast-forward that major
       # tag to the latest exact tag in the same series. Idempotent: if no new
       # release happened, this just re-points to the existing latest, which is a
-      # no-op force-push.
+      # no-op force-push. main-only: it walks v*.*.* tags specifically (the
+      # legacy @decocms/start line); v7's live-v*.*.* tags don't match that
+      # glob, so this has nothing to do there.
       #
       # Why not a separate workflow on `push: tags`? GitHub suppresses workflow
       # triggers caused by the auto-issued `GITHUB_TOKEN` (anti-recursion guard),
@@ -66,6 +111,7 @@ jobs:
       # listener would never fire. Inlining keeps the lifecycle visible in one
       # job log.
       - name: Advance moveable major tag
+        if: github.ref_name == 'main' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         run: |
           git fetch --tags --force
           # Filter out prerelease tags (-rc.N, -next.N, -beta.N, -alpha.N) — the

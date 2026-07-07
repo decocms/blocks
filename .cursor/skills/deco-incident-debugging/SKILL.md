@@ -51,30 +51,52 @@ See `headless-mode.md` for full autonomous workflow, input/output formats, and i
 
 ## Learnings Database
 
-We have documented learnings from past incidents in `learnings/`. These contain:
+**Status: `learnings/` does not exist yet in this repo.** There is no seeded
+knowledge base to search — do not `grep learnings/` and treat a silent/empty
+result as "no known issue." Until the folder is created and seeded, use these
+two real sources instead:
 
-- **Problem**: What went wrong
-- **Symptoms**: Observable indicators
-- **Root Cause**: Why it happened (with code examples)
-- **Solution**: How to fix it (with code examples)
-- **How to Debug**: Commands and techniques to diagnose
-- **Impact**: What happens if unfixed
+- **`CHANGELOG.md`** (repo root) — the human-curated ledger of behavior
+  changes, several of which are incident-driven fixes. Example: the
+  "Unreleased — Admin async (⚡) toggle is the source of truth for deferral"
+  entry documents a real regression (issue #266, sections silently rendering
+  client-side) and its fix/migration path.
+- **`git log`** — search commit history for prior fixes to the same area,
+  e.g. `git log --oneline --grep="fix" -i -- <path>` or
+  `git log --oneline -- <affected-file>`. Example: commit `a3f9b9c
+  test(cms): add regression test for the layout-cache index-corruption race`
+  is a real past incident with a regression test you can read for the
+  root-cause pattern.
 
-### Current Learnings Categories
+```bash
+# Search past incident-driven changes
+grep -ri "SYMPTOM_KEYWORD" CHANGELOG.md
+git log --oneline --grep="fix\|regression\|incident" -i -20
+git log --oneline -20 -- <affected-file-or-dir>
+```
 
-| Category | Learnings | Key Issues |
-|----------|-----------|------------|
-| `cache-strategy` | 2 | Missing cache, cookie blocking edge cache |
-| `loader-optimization` | 2 | N+1 overfetching, lazy section issues |
-| `external-css` | 1 | Lazy sections missing styles |
-| `block-config` | 1 | Dangling block references |
-| `rich-text` | 1 | Hardcoded domain URLs |
-| `ui-bug` | 1 | Invisible clickable areas |
-| `responsive` | 1 | Breakpoint inconsistencies |
-| `retry-logic` | 1 | Off-by-one retry attempts |
-| `safari-bug` | 1 | Image flash on navigation |
-| `vtex-routing` | 1 | myvtex vs vtexcommercestable domain |
-| `migration` | 1 | Deno 1 to Deno 2 migration |
+### If you want to seed `learnings/` for future incidents
+
+The workflow below (Phase 5, "Document New Learning") still assumes a place
+to write novel findings. If none exists, create it with this structure before
+relying on it:
+
+```
+learnings/
+  cache-strategy/
+  loader-optimization/
+  block-config/
+  ui-bug/
+  vtex-integration/
+  migration/
+  <filename>.md   # [keyword]-[brief-description].md, using the template
+                   # in Phase 5 / triage-workflow.md Step 6
+```
+
+Seed it opportunistically — turn each future Phase 5 write-up into a real
+file instead of a one-off chat response, and it will compound. Until then,
+treat every category table below as illustrative of the *kind* of pattern to
+look for, not as a literal file that exists.
 
 ## Incident Response Workflow
 
@@ -103,27 +125,32 @@ We have documented learnings from past incidents in `learnings/`. These contain:
 
 ### Phase 2: Pattern Matching (< 3 minutes)
 
-**Search learnings for known patterns:**
+**Search for known patterns.** If `learnings/` has been seeded (see above),
+search it first; either way, fall back to `CHANGELOG.md` and `git log`:
 
 ```bash
-# Search by symptom keywords
-grep -ri "SYMPTOM_KEYWORD" learnings/
+# If learnings/ exists and has content:
+grep -ri "SYMPTOM_KEYWORD" learnings/ 2>/dev/null
+
+# Always available — search real past fixes:
+grep -ri "SYMPTOM_KEYWORD" CHANGELOG.md
+git log --oneline --grep="SYMPTOM_KEYWORD" -i -20
 
 # Examples:
-grep -ri "429" learnings/           # Rate limiting
-grep -ri "cache" learnings/         # Cache issues
-grep -ri "slow" learnings/          # Performance
-grep -ri "not found" learnings/     # Missing resources
-grep -ri "cookie" learnings/        # Cookie/session issues
-grep -ri "vtex" learnings/          # VTEX integration
-grep -ri "lazy" learnings/          # Lazy loading issues
+grep -ri "429" CHANGELOG.md           # Rate limiting
+grep -ri "cache" CHANGELOG.md         # Cache issues
+grep -ri "slow" CHANGELOG.md          # Performance
+grep -ri "not found" CHANGELOG.md     # Missing resources
+grep -ri "cookie" CHANGELOG.md        # Cookie/session issues
+grep -ri "vtex" CHANGELOG.md          # VTEX integration
+grep -ri "lazy" CHANGELOG.md          # Lazy loading / deferral issues
 ```
 
 ### Phase 3: Known Issue? Apply Fix Immediately
 
-If symptom matches a learning:
+If symptom matches a learning (or a past CHANGELOG/git entry):
 
-1. **Read the full learning file**
+1. **Read the full learning file / CHANGELOG entry / commit**
 2. **Verify root cause matches** the current symptoms
 3. **Apply the documented solution**
 4. **Verify the fix works**
@@ -141,15 +168,18 @@ MONITOR_SUMMARY({ sitename: "SITE", hostname: "HOSTNAME" })
 MONITOR_TOP_PATHS({ ... })
 MONITOR_STATUS_CODES({ ... })
 
-# Check for TypeScript errors
-deno check --unstable-tsgo --allow-import main.ts
+# Check for TypeScript errors (per-package; see README.md/CLAUDE.md)
+bun run typecheck
 
 # Check for recent changes
 git log --oneline -20
 git diff HEAD~5
 
-# Check block validation
-deno run -A https://deco.cx/validate -report validation-report.json
+# .deco/blocks/*.json is still a real convention in this codebase (synced to
+# KV via sync-blocks-to-kv.ts / generate-blocks.ts). There is no
+# `deco.cx/validate`-style schema validator anymore. The closest check is
+# running the blocks generator, which fails loudly on malformed JSON:
+npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts
 ```
 
 ### Phase 5: Document New Learning
@@ -199,12 +229,14 @@ If this is a novel issue, create a new learning:
 
 **Quick Check**:
 ```bash
-grep -ri "rate limit\|429\|overfetch" learnings/
+grep -ri "rate limit\|429\|overfetch" learnings/ CHANGELOG.md 2>/dev/null
 ```
 
-**Likely Learnings**:
-- `loader-overfetching-n-plus-problem.md` - Fetching too much data
-- `cache-strategy-standardization-loaders.md` - Missing cache causing repeated calls
+**Where to look** (until `learnings/` is seeded, no filenames are guaranteed
+to exist — search `CHANGELOG.md` / `git log` for prior cache- or
+loader-related fixes instead):
+- Loaders missing `export const cache` causing repeated upstream calls
+- N+1 / overfetching patterns in loaders
 
 **Immediate Actions**:
 1. Check if loaders have `export const cache`
@@ -217,17 +249,18 @@ grep -ri "rate limit\|429\|overfetch" learnings/
 
 **Quick Check**:
 ```bash
-grep -ri "slow\|cache\|lazy\|performance" learnings/
+grep -ri "slow\|cache\|lazy\|performance" learnings/ CHANGELOG.md 2>/dev/null
 ```
 
-**Likely Learnings**:
-- `cache-strategy-standardization-loaders.md` - Missing cache
-- `lazy-sections-external-css-loading.md` - CSS not loading for lazy sections
-- `vtex-cookies-prevent-edge-caching.md` - Edge cache blocked
+**Where to look**: the "Unreleased — Admin async (⚡) toggle" entry in
+`CHANGELOG.md` documents a real deferral/rendering behavior change relevant
+to slow-page investigations (position-based auto-deferral, `foldThreshold`).
+Also check cache hit rates and lazy-section cache headers directly.
 
 **Immediate Actions**:
 1. Check cache hit rates with CDN metrics
-2. Verify lazy sections have proper cache headers
+2. Verify lazy sections have proper cache headers (see the async ⚡ /
+   `foldThreshold` behavior in `CHANGELOG.md`)
 3. Check for sync loaders blocking render
 
 ### Missing Content / Blank Sections
@@ -236,15 +269,17 @@ grep -ri "slow\|cache\|lazy\|performance" learnings/
 
 **Quick Check**:
 ```bash
-grep -ri "dangling\|missing\|not found\|blank" learnings/
+grep -ri "dangling\|missing\|not found\|blank" learnings/ CHANGELOG.md 2>/dev/null
 ```
 
-**Likely Learnings**:
-- `dangling-block-references.md` - Block config points to deleted component
-- `duplicate-sections-masked-by-broken-loaders.md` - Loader errors hidden by duplicates
+**Where to look**: block config pointing at a deleted component, or a loader
+error masked by duplicate sections. Search `git log` for past fixes touching
+`.deco/blocks/` or the affected section.
 
 **Immediate Actions**:
-1. Run block validation: `deno run -A https://deco.cx/validate`
+1. Sanity-check `.deco/blocks/*.json` by regenerating:
+   `npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts`
+   (fails loudly on malformed JSON; there is no full schema validator)
 2. Check browser console for loader errors
 3. Verify component files exist
 
@@ -254,12 +289,12 @@ grep -ri "dangling\|missing\|not found\|blank" learnings/
 
 **Quick Check**:
 ```bash
-grep -ri "vtex" learnings/
+grep -ri "vtex" learnings/ CHANGELOG.md 2>/dev/null
 ```
 
-**Likely Learnings**:
-- `vtex-domain-routing-myvtex-vs-vtexcommercestable.md` - Wrong domain
-- `vtex-cookies-prevent-edge-caching.md` - Cookie issues
+**Where to look**: wrong VTEX domain (myvtex vs vtexcommercestable), or
+cookies blocking edge caching. Search `git log` / `CHANGELOG.md` for past
+VTEX-related fixes.
 
 **Immediate Actions**:
 1. Check VTEX domain configuration
@@ -272,14 +307,13 @@ grep -ri "vtex" learnings/
 
 **Quick Check**:
 ```bash
-grep -ri "invisible\|css\|style\|responsive\|safari" learnings/
+grep -ri "invisible\|css\|style\|responsive\|safari" learnings/ CHANGELOG.md 2>/dev/null
 ```
 
-**Likely Learnings**:
-- `invisible-clickable-areas-from-empty-links.md` - Empty links covering content
-- `responsive-breakpoint-consistency.md` - Mobile/desktop inconsistencies
-- `safari-image-flash-fix.md` - Safari-specific image issues
-- `lazy-sections-external-css-loading.md` - Missing styles
+**Where to look**: empty links covering clickable content, mobile/desktop
+breakpoint inconsistencies, Safari-specific image flashing, or missing
+styles on lazy-loaded sections. Search `git log` for past fixes to the
+affected component.
 
 **Immediate Actions**:
 1. Check browser dev tools for overlapping elements
@@ -326,11 +360,12 @@ MONITOR_STATUS_CODES({ ... })
 ### Code Investigation
 
 ```bash
-# Type errors
-deno check --unstable-tsgo --allow-import main.ts
+# Type errors (per-package tsc --noEmit; see README.md/CLAUDE.md)
+bun run typecheck
 
-# Block validation
-deno run -A https://deco.cx/validate
+# .deco/blocks/*.json sanity check — there is no schema validator anymore
+# (deco.cx/validate has no current equivalent); this fails on malformed JSON:
+npx tsx node_modules/@decocms/cli/scripts/generate-blocks.ts
 
 # Find missing cache
 grep -L "export const cache" loaders/**/*.ts
@@ -340,7 +375,7 @@ git log --oneline -20
 git diff HEAD~5
 
 # Find files with errors
-deno check --unstable-tsgo --allow-import main.ts 2>&1 | grep "error:" | sed 's/:.*//g' | sort | uniq -c | sort -rn
+bun run typecheck 2>&1 | grep "error TS" | sed 's/:.*//g' | sort | uniq -c | sort -rn
 ```
 
 ## Escalation Criteria
@@ -365,7 +400,9 @@ deno check --unstable-tsgo --allow-import main.ts 2>&1 | grep "error:" | sed 's/
 
 After resolving the incident:
 
-- [ ] Document root cause in learnings/ if novel
+- [ ] Document root cause in `learnings/` if novel (create the folder with
+      the structure above if it doesn't exist yet) — and/or add a
+      `CHANGELOG.md` entry if it's a user-visible behavior change
 - [ ] Create PR with fix
 - [ ] Update affected checklists if pattern is common
 - [ ] Share learning with team

@@ -1,11 +1,15 @@
 ---
 name: deco-cms-route-config
-description: Configure CMS-driven routes in @decocms/start using cmsRouteConfig, cmsHomeRouteConfig, and admin routes. Covers the catch-all route ($.tsx), homepage route (index.tsx), admin protocol routes (meta, render, invoke), ignoreSearchParams for variant selection, staleTime/gcTime configuration, cache headers, and head/SEO setup. Use when creating a new Deco site, migrating routes from Fresh, or debugging route-level caching issues.
+description: Configure CMS-driven routes in @decocms/tanstack using cmsRouteConfig, cmsHomeRouteConfig, and admin routes. Covers the catch-all route ($.tsx), homepage route (index.tsx), admin protocol routes (meta, render, invoke), ignoreSearchParams for variant selection, staleTime/gcTime configuration, cache headers, and head/SEO setup. Use when creating a new Deco site, migrating routes from Fresh, or debugging route-level caching issues.
 ---
 
-# CMS Route Configuration in @decocms/start
+# CMS Route Configuration in @decocms/tanstack
 
-Reusable route configuration factories that live in `@decocms/start/routes`. Sites use thin wrappers that delegate to these factories, keeping route files small and consistent across all Deco sites.
+Reusable route configuration factories that live in `@decocms/tanstack`. Sites use thin wrappers that delegate to these factories, keeping route files small and consistent across all Deco sites.
+
+**Import split (two packages, different export-map shapes):**
+- **Runtime functions and components** — `cmsRouteConfig`, `cmsHomeRouteConfig`, `decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`, `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `DecoPageRenderer`, `CmsPage`, `NotFoundPage` — import from `@decocms/tanstack` (package root only; `packages/tanstack/package.json`'s `exports` map has just `.`, `./vite`, `./daemon` — there is no `./routes`, `./hooks`, or `./cms` subpath).
+- **Types and SEO/section primitives** — `ResolvedSection`, `DeferredSection`, `PageSeo`, `registerSeoSections`, `extractSeoFromProps`, `extractSeoFromSections`, `resolvePageSeoBlock` — import from `@decocms/live/cms`, a separate package.
 
 ## When to Use This Skill
 
@@ -21,7 +25,7 @@ Reusable route configuration factories that live in `@decocms/start/routes`. Sit
 ## Route Architecture
 
 ```
-Site Routes (thin wrappers)          Framework (@decocms/start/routes)
+Site Routes (thin wrappers)          Framework (@decocms/tanstack)
 ─────────────────────────           ──────────────────────────────────
 src/routes/$.tsx          ───────→  cmsRouteConfig()
 src/routes/index.tsx      ───────→  cmsHomeRouteConfig()
@@ -42,9 +46,13 @@ The catch-all route handles all CMS-managed pages (PDP, PLP, institutional pages
 ```typescript
 // src/routes/$.tsx
 import { createFileRoute } from "@tanstack/react-router";
-import { cmsRouteConfig, loadDeferredSection } from "@decocms/start/routes";
-import { DecoPageRenderer } from "@decocms/start/hooks";
-import type { ResolvedSection, DeferredSection } from "@decocms/start/cms";
+import {
+  cmsRouteConfig,
+  loadDeferredSection,
+  DecoPageRenderer,
+  NotFoundPage,
+} from "@decocms/tanstack";
+import type { ResolvedSection, DeferredSection } from "@decocms/live/cms";
 
 const routeConfig = cmsRouteConfig({
   siteName: "My Store",
@@ -171,9 +179,12 @@ Hardcoded to `/` path — no params, no deps.
 ```typescript
 // src/routes/index.tsx
 import { createFileRoute } from "@tanstack/react-router";
-import { cmsHomeRouteConfig, loadDeferredSection } from "@decocms/start/routes";
-import { DecoPageRenderer } from "@decocms/start/hooks";
-import type { ResolvedSection, DeferredSection } from "@decocms/start/cms";
+import {
+  cmsHomeRouteConfig,
+  loadDeferredSection,
+  DecoPageRenderer,
+} from "@decocms/tanstack";
+import type { ResolvedSection, DeferredSection } from "@decocms/live/cms";
 
 export const Route = createFileRoute("/")({
   ...cmsHomeRouteConfig({
@@ -226,7 +237,7 @@ These routes enable the Deco CMS admin (admin.deco.cx) to communicate with the s
 ```typescript
 // src/routes/deco/meta.ts
 import { createFileRoute } from "@tanstack/react-router";
-import { decoMetaRoute } from "@decocms/start/routes";
+import { decoMetaRoute } from "@decocms/tanstack";
 
 export const Route = createFileRoute("/deco/meta")({
   ...decoMetaRoute,
@@ -238,7 +249,7 @@ export const Route = createFileRoute("/deco/meta")({
 ```typescript
 // src/routes/deco/render.ts
 import { createFileRoute } from "@tanstack/react-router";
-import { decoRenderRoute } from "@decocms/start/routes";
+import { decoRenderRoute } from "@decocms/tanstack";
 
 export const Route = createFileRoute("/deco/render")({
   ...decoRenderRoute,
@@ -250,7 +261,7 @@ export const Route = createFileRoute("/deco/render")({
 ```typescript
 // src/routes/deco/invoke.$.ts
 import { createFileRoute } from "@tanstack/react-router";
-import { decoInvokeRoute } from "@decocms/start/routes";
+import { decoInvokeRoute } from "@decocms/tanstack";
 
 export const Route = createFileRoute("/deco/invoke/$")({
   ...decoInvokeRoute,
@@ -275,49 +286,62 @@ TanStack Router injects internal properties (`id`, `path`) that conflict if the 
 
 ## Framework Exports
 
+`@decocms/tanstack` has a single flat root import — verify against `packages/tanstack/package.json`'s `exports` map (`.`, `./vite`, `./daemon` only) and `packages/tanstack/src/index.ts` (the root barrel):
+
 ```typescript
-// @decocms/start/routes
+// @decocms/tanstack
 export {
   cmsRouteConfig,        // Catch-all CMS route config factory (includes full SEO head)
   cmsHomeRouteConfig,    // Homepage route config factory (includes full SEO head)
   loadCmsPage,           // Server function for CMS page resolution
   loadCmsHomePage,       // Server function for homepage resolution
   loadDeferredSection,   // Server function for on-scroll section loading
-  type CmsRouteOptions,
-  type PageSeo,          // SEO data type extracted from sections
-  type Device,           // Device type: "mobile" | "tablet" | "desktop"
-  CmsPage,              // Generic CMS page component
-  NotFoundPage,         // Generic 404 component
-  decoMetaRoute,        // Admin meta route config
-  decoRenderRoute,      // Admin render route config
-  decoInvokeRoute,      // Admin invoke route config
+  CmsPage,               // Generic CMS page component
+  NotFoundPage,          // Generic 404 component
+  decoMetaRoute,         // Admin meta route config
+  decoRenderRoute,       // Admin render route config
+  decoInvokeRoute,       // Admin invoke route config
+  withSiteGlobals,       // Site-wide global sections merge helper
+  DecoPageRenderer,      // Section-list renderer (+ deferred-section loading)
+  DecoRootLayout,
+  NavigationProgress,
+  PreviewProviders,
+  SectionList,
+  SectionRenderer,
+  StableOutlet,
+  createDecoWorkerEntry,
+  setupTanstackFastDeploy,
+  createDecoRouter,
+  decoParseSearch,
+  decoStringifySearch,
+  type CreateDecoRouterOptions,
 };
+```
 
-// @decocms/start/cms
+**Not exported from the `@decocms/tanstack` root** (they exist in `packages/tanstack/src/routes/index.ts`'s internal barrel, but that path isn't part of the public `exports` map, so it isn't importable from site code): `CmsRouteOptions`, `Device`, `CmsPagePendingFallback`, `deferredSectionLoader`, `setSectionChunkMap`, `SiteGlobalsLoaderData`. If you need the `Device` type, import it from `@decocms/live/sdk/useDevice` instead (a valid subpath in `packages/live/package.json`'s `exports` map).
+
+```typescript
+// @decocms/live/cms
 export {
   registerSeoSections,    // Register section keys that contribute page SEO (secondary source)
   extractSeoFromProps,    // Extract SEO fields from any section's props
   extractSeoFromSections, // Extract SEO from registered sections (used internally)
   resolvePageSeoBlock,    // Resolve page.seo CMS block eagerly (used internally)
+  resolveDecoPage,
+  runSectionLoaders,
+  runSingleSectionLoader,
   type PageSeo,           // { title, description, canonical, image, noIndexing, jsonLDs, type }
-  // ... all existing exports
+  type ResolvedSection,
+  type DeferredSection,
+  // ... all existing exports — see packages/live/src/cms/index.ts
 };
-```
-
-Add to `package.json` exports:
-```json
-{
-  "exports": {
-    "./routes": "./src/routes/index.ts"
-  }
-}
 ```
 
 ---
 
 ## Common Errors
 
-### `Cannot find module '@decocms/start/routes'`
+### `Cannot find module '@decocms/tanstack'` or `'@decocms/live/cms'`
 
 TypeScript server needs restart after adding new exports to `package.json`. In VSCode/Cursor:
 - Cmd+Shift+P → "TypeScript: Restart TS Server"
@@ -377,7 +401,7 @@ export const Route = createRootRoute({
 
 ## SEO Architecture
 
-SEO in @decocms/start works across four layers:
+SEO in @decocms/tanstack works across four layers:
 
 ### 1. CMS `page.seo` Block (primary source)
 
@@ -405,7 +429,7 @@ In `cmsRoute.ts`, the seoSection is enriched by its section loader, then:
 Sections in `page.sections` that also contribute SEO metadata register themselves in `setup.ts`:
 
 ```typescript
-import { registerSeoSections } from "@decocms/start/cms";
+import { registerSeoSections } from "@decocms/live/cms";
 
 registerSeoSections([
   "site/sections/SEOPDP.tsx",     // Product structured data + meta
@@ -515,5 +539,4 @@ Setting 5s staleTime allows rapid interactions (variant clicks, back/forward) to
 | `deco-variant-selection-perf` | Variant selection optimization using replaceState |
 | `deco-cms-layout-caching` | Layout section caching in CMS resolve |
 | `deco-edge-caching` | Cloudflare edge caching with workerEntry |
-| `deco-tanstack-storefront-patterns` | General storefront patterns |
-| `deco-start-architecture` | Full @decocms/start architecture reference |
+| `.agents/skills/deco-to-tanstack-migration` | Fresh → TanStack Start migration playbook (broader architecture map, phase-based) |

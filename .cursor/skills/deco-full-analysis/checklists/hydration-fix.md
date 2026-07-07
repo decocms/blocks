@@ -2,6 +2,12 @@
 
 9 learnings from real Deco sites. Check these during analysis.
 
+> Post-split note: no more Preact/`$fresh/runtime.ts`/`islands/` — sites are React 19
+> on TanStack Start or Next.js. See `.agents/skills/deco-to-tanstack-migration/references/hydration-fixes.md`
+> in this repo for a much deeper, already-current reference (flash-of-white, `useDevice()`
+> mismatches in eager sections, scroll restoration, `suppressHydrationWarning`, etc.) — it's
+> worth checking directly rather than just this summary checklist.
+
 ## SDK & Script Race Conditions
 
 ### 1. SDK Initialization Guard
@@ -49,11 +55,22 @@ await waitFor(() => window.htmx !== undefined);
 // Bad: Crashes on SSR
 const width = window.innerWidth;
 
-// Good: Check for browser
-import { IS_BROWSER } from "$fresh/runtime.ts";
+// Good: Check for browser — $fresh/runtime.ts's IS_BROWSER doesn't exist anymore;
+// use a plain typeof check (verified: this is the exact replacement the CLI's
+// codemod applies — see .agents/skills/deco-to-tanstack-migration/references/codemod-commands.md)
+const IS_BROWSER = typeof window !== "undefined";
 
 const width = IS_BROWSER ? window.innerWidth : 1024;
 ```
+
+Also watch for `useDevice()` used inside **eager** sections (Header, Footer, Theme,
+or anything in `alwaysEager` in `setup.ts`) — `@decocms/start` shell-renders eager
+sections in a React root without `__root.tsx`'s providers, so `useDevice()` falls
+back to its context default server-side while the client gets the real value,
+producing a structural mismatch. Prefer the `device` prop injected by the section's
+own server loader (via the `withDevice()` mixin from `@decocms/live/cms`) over
+calling `useDevice()` directly in eager sections. See item 13 in the
+`hydration-fixes.md` reference above for the full pattern and fixes.
 
 ## Unique IDs
 
@@ -131,8 +148,8 @@ function repairHtml(html: string): string {
 **Check**: Are heavy drawers rendered on mount?
 
 ```typescript
-// Good: Lazy render minicart/menu
-import { createPortal } from "preact/compat";
+// Good: Lazy render minicart/menu — React 19, not Preact
+import { createPortal } from "react-dom";
 
 function Minicart() {
   const [show, setShow] = useState(false);
@@ -169,15 +186,21 @@ function Header() {
 ## Quick Audit Commands
 
 ```bash
-# Find direct window/document access
-grep -rn "window\." islands/ | grep -v "IS_BROWSER"
-grep -rn "document\." islands/ | grep -v "IS_BROWSER"
+# Find direct window/document access — no islands/ directory anymore, so scan
+# all of src/ (interactive code isn't confined to a separate top-level folder)
+grep -rn "window\." src/ | grep -v "typeof window"
+grep -rn "document\." src/ | grep -v "typeof window"
 
 # Find dangerouslySetInnerHTML usage
-grep -r "dangerouslySetInnerHTML" sections/ islands/
+grep -rn "dangerouslySetInnerHTML" src/sections/ src/components/
 
 # Find Math.random in components (ID generation)
-grep -r "Math.random" sections/ islands/ components/
+grep -rn "Math.random" src/sections/ src/components/
+
+# Find useDevice() calls, then cross-check against alwaysEager in setup.ts —
+# useDevice() in an eager section is a likely hydration-mismatch source (see above)
+grep -rn "useDevice" src/sections/
+grep -n "alwaysEager" -A 10 src/setup.ts
 ```
 
 ## Common Hydration Issues
@@ -185,7 +208,8 @@ grep -r "Math.random" sections/ islands/ components/
 | Symptom | Likely Cause | Fix |
 |---------|--------------|-----|
 | "Text content mismatch" | Date/time formatting | Use consistent timezone |
-| "Expected server HTML" | `useDevice()` for layout | Use CSS media queries |
+| "Expected server HTML" / structural mismatch | `useDevice()` in an eager section (Header/Footer/Theme/`alwaysEager`) | Use the `device` prop from `withDevice()` loader mixin, or CSS media queries instead of a JS branch |
 | "Hydration failed" | Random IDs | Use deterministic IDs |
-| White flash | Script race condition | Add SDK initialization guard |
+| White flash on F5 | `React.lazy`/`Suspense` for above-the-fold sections | Register the section with `registerSectionsSync` (see `hydration-fixes.md` §1) |
 | Missing styles | CSS-in-JS during SSR | Use Tailwind or static CSS |
+| `A tree hydrated but some attributes... didn't match` for `__DECO_STATE` | `process.env.*` read differently on server vs client | Add a Vite `define` entry (see `hydration-fixes.md` §2) |
