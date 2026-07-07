@@ -57,6 +57,12 @@ export interface GenerateBlocksResult {
   outFile: string;
   /** True when the blocks dir was missing and an empty barrel was emitted. */
   empty: boolean;
+  /**
+   * The merged decofile map that was written to `jsonFile`. Returned so callers
+   * (the dev Vite plugin) can seed an in-memory cache and apply cheap deltas to
+   * it without re-reading the whole `.deco/blocks` directory on every edit.
+   */
+  blocks: Record<string, unknown>;
 }
 
 export async function generateBlocks(
@@ -74,7 +80,7 @@ export async function generateBlocks(
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(jsonFile, "{}");
     fs.writeFileSync(outFile, TS_STUB);
-    return { count: 0, collisions: 0, jsonFile, outFile, empty: true };
+    return { count: 0, collisions: 0, jsonFile, outFile, empty: true, blocks: {} };
   }
 
   const files = fs.readdirSync(blocksDir).filter((f) => f.endsWith(".json"));
@@ -143,7 +149,9 @@ export async function generateBlocks(
   // which would cascade module invalidation to the route tree and crash
   // TanStack Router during dev hot-reload.
   let existingTs: string | undefined;
-  try { existingTs = fs.readFileSync(outFile, "utf-8"); } catch {}
+  try {
+    existingTs = fs.readFileSync(outFile, "utf-8");
+  } catch {}
   if (existingTs !== TS_STUB) {
     fs.writeFileSync(outFile, TS_STUB);
   }
@@ -161,7 +169,73 @@ export async function generateBlocks(
     jsonFile,
     outFile,
     empty: false,
+    blocks,
   };
+}
+
+export interface ReadBlockDeltaOptions {
+  blocksDir: string;
+  /**
+   * Changed block files as basenames within `blocksDir` (e.g.
+   * `pages-Home%2520(principal)-287364.json`), each tagged with whether the
+   * event was a delete.
+   */
+  files: Array<{ name: string; isDelete: boolean }>;
+  /** Suppress per-file read warnings. Defaults to false. */
+  silent?: boolean;
+}
+
+/**
+ * Read ONLY the changed block files and return a delta map keyed by decofile
+ * key: `{ [key]: value }` for upserts, `{ [key]: null }` for deletes. The map
+ * is meant to be wrapped as `{ blocks: <delta> }` and POSTed to `/.decofile`,
+ * which applies it over the in-memory snapshot (see `applyDelta` in
+ * `src/admin/decofile.ts`).
+ *
+ * This is the incremental counterpart to `generateBlocks`. `generateBlocks`
+ * re-reads and re-merges the ENTIRE `.deco/blocks` directory and re-stringifies
+ * the whole snapshot — O(whole decofile), tens of MB of synchronous fs + JSON
+ * work that blocks the Node/Vite event loop for seconds on large sites (a CMS
+ * toggle that writes one 1 MB block file would otherwise re-process a 10 MB+
+ * decofile). `readBlockDelta` touches only the files that actually changed, so
+ * the dev watcher's hot path is O(changed files).
+ *
+ * Key derivation matches `generateBlocks` (`singleDecodeBlockName`). The
+ * cross-file collision dedupe that `generateBlocks` runs (see
+ * `lib/blocks-dedupe.ts`) is intentionally skipped here — the just-written
+ * file is treated as current truth ("newest write wins"), which is what a CMS
+ * editor expects. The full restart-time bootstrap regen reconciles any
+ * lingering collision via the dedupe logic.
+ */
+export function readBlockDelta(options: ReadBlockDeltaOptions): Record<string, unknown | null> {
+  const blocksDir = path.resolve(options.blocksDir);
+  const silent = options.silent ?? false;
+  const delta: Record<string, unknown | null> = {};
+
+  for (const { name, isDelete } of options.files) {
+    if (!name.endsWith(".json")) continue;
+    const key = singleDecodeBlockName(name);
+
+    if (isDelete) {
+      delta[key] = null;
+      continue;
+    }
+
+    const fp = path.join(blocksDir, name);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(fp, "utf-8"));
+    } catch (e) {
+      // File vanished mid-event or is a partial write in progress — skip it.
+      // A later watcher event (or the restart bootstrap) picks up the settled
+      // content, so dropping it here never permanently loses an update.
+      if (!silent) console.warn(`Failed to read changed block ${name}:`, e);
+      continue;
+    }
+    delta[key] = parsed;
+  }
+
+  return delta;
 }
 
 // ---------------------------------------------------------------------------
