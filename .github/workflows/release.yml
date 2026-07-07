@@ -78,6 +78,7 @@ jobs:
         run: bunx semantic-release${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && ' --dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEBUG: semantic-release:*
 
       # Caller workflows in storefront repos pin to a moveable major tag (`@v2`),
       # GitHub Actions convention. After every release we fast-forward that major
