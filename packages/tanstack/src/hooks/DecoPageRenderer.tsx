@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { Await, ClientOnly } from "@tanstack/react-router";
-import type { SectionOptions } from "@decocms/blocks/cms";
+import type { SectionOptions } from "@decocms/blocks/cms/client";
 import {
   getResolvedComponent,
   getSectionOptions,
@@ -17,7 +17,10 @@ import {
   getSyncComponent,
   preloadSectionModule,
   setResolvedComponent,
-} from "@decocms/blocks/cms";
+} from "@decocms/blocks/cms/client";
+// Type-only: erased at compile time, so importing from the full barrel here
+// doesn't drag resolve.ts's runtime code (and its node:async_hooks chain)
+// into this component's client bundle.
 import type { DeferredSection, ResolvedSection } from "@decocms/blocks/cms";
 import { type Device, DeviceProvider } from "@decocms/blocks/sdk/useDevice";
 

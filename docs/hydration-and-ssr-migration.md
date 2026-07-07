@@ -416,6 +416,8 @@ No separate server function request = no cross-request I/O issue.
 
 **Proper fix:** In `DecoPageRenderer`, for eager sections without sync registration, create a `syncThenable` from the server-resolved component module instead of using bare `React.lazy`:
 
+`getResolvedComponent` here should come from `@decocms/blocks/cms/client`, not the full `@decocms/blocks/cms` barrel — `DecoPageRenderer` is client-bundled (uses `useState`/`useEffect`/`Suspense`/`lazy`), and the full barrel transitively imports `node:async_hooks`, which fails a Turbopack production build. See `packages/blocks/src/cms/client.ts` in deco-start for the exact client-safe export surface.
+
 ```tsx
 // If the component was resolved on the server, pre-populate the lazy cache
 // with a syncThenable so hydration doesn't trigger Suspense

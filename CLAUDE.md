@@ -61,17 +61,18 @@ Every export maps to a source file — no dist indirection. Representative subse
 
 | Import path | Package | File |
 |---|---|---|
-| `@decocms/blocks/cms` | runtime | `src/cms/index.ts` |
-| `@decocms/blocks/setup` | runtime | `src/setup.ts` |
-| `@decocms/blocks/sdk/*` | runtime | `src/sdk/*.ts` |
-| `@decocms/blocks/hooks` | runtime | `src/hooks/index.ts` |
-| `@decocms/blocks-admin` (root) | admin | `src/admin/index.ts` |
-| `@decocms/blocks-admin/setup` | admin | `src/createAdminSetup.ts` |
-| `@decocms/blocks-admin/apps/autoconfig` | admin | `src/apps/autoconfig.ts` |
+| `@decocms/blocks/cms` | blocks | `src/cms/index.ts` — full barrel: resolver, loader, registry. Server-only (transitively imports `node:async_hooks` via `loader.ts`/`resolve.ts`) — bundling it for a browser target fails (Turbopack rejects outright; webpack has historically let it through uncaught). |
+| `@decocms/blocks/cms/client` | blocks | `src/cms/client.ts` — client-safe subset: section registry lookups (`getResolvedComponent`, `registerSection`, etc.), `sectionMixins`, `schema`. Use this from Client Components / browser-bundled code; use `@decocms/blocks/cms` from server-only code. Verified via a real esbuild browser-target bundle in `src/cms/client.browserBundle.test.ts`, not just `tsc` — that's the only way this class of bug reliably surfaces. |
+| `@decocms/blocks/setup` | blocks | `src/setup.ts` |
+| `@decocms/blocks/sdk/*` | blocks | `src/sdk/*.ts` |
+| `@decocms/blocks/hooks` | blocks | `src/hooks/index.ts` |
+| `@decocms/blocks-admin` (root) | blocks-admin | `src/admin/index.ts` |
+| `@decocms/blocks-admin/setup` | blocks-admin | `src/createAdminSetup.ts` |
+| `@decocms/blocks-admin/apps/autoconfig` | blocks-admin | `src/apps/autoconfig.ts` |
 | `@decocms/tanstack` (root) | tanstack | `src/index.ts` (re-exports routes, hooks, worker entry, router sdk) |
 | `@decocms/tanstack/vite` | tanstack | `src/vite/plugin.js` (plain JS, no `.d.ts` yet) |
-| `@decocms/nextjs` (root) | next | `src/index.ts` |
-| `@decocms/blocks-cli/generate-*` | cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
+| `@decocms/nextjs` (root) | nextjs | `src/index.ts` |
+| `@decocms/blocks-cli/generate-*` | blocks-cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
 
 ### Key Boundaries
 
