@@ -902,6 +902,8 @@ function generateMeta(): MetaResponse {
   const appLoaderCache = new Map<string, {
     propsSchema: any;
     outputTypeName: string | null;
+    title: string | null;
+    hidden: boolean;
   }>();
 
   const installedNs = detectInstalledAppNamespaces();
@@ -918,8 +920,22 @@ function generateMeta(): MetaResponse {
         const sourceFile = getSourceFile(project, absSourceFile, sourceFileCache);
 
         // Skip files without a default export (barrel files, utility modules)
-        const hasDefaultExport = sourceFile.getDefaultExportSymbol() != null;
-        if (!hasDefaultExport) continue;
+        const defaultSym = sourceFile.getDefaultExportSymbol();
+        if (defaultSym == null) continue;
+
+        // A loader may control how it appears in the admin picker via JSDoc tags
+        // on its default export:
+        //   @title  — overrides the picker label. This is how compat re-export
+        //             aliases (which would otherwise all beautify to the same
+        //             name from their path) disambiguate themselves. Only a
+        //             slash-free title is honored; paths fall back to the key.
+        //   @ignore — hides the loader from the pickers (redundant path aliases)
+        //             while still emitting its definition so pre-existing blocks
+        //             that reference it keep resolving and rendering.
+        const loaderTags = getJsDocTags(defaultSym);
+        const titleTag = loaderTags.title;
+        const title = titleTag && !titleTag.includes("/") ? titleTag : null;
+        const hidden = !!loaderTags.ignore;
 
         // Extract Props (input schema)
         let propsSchema: any = null;
@@ -937,15 +953,15 @@ function generateMeta(): MetaResponse {
         if (!propsSchema) propsSchema = { type: "object", properties: {} };
 
         const outputTypeName = extractLoaderOutputTypeName(sourceFile);
-        cached = { propsSchema, outputTypeName };
+        cached = { propsSchema, outputTypeName, title, hidden };
         appLoaderCache.set(realPath, cached);
       }
 
-      const { propsSchema, outputTypeName } = cached;
+      const { propsSchema, outputTypeName, title, hidden } = cached;
       const loaderDefKey = toBase64(appLoader.cmsKey);
 
       definitions[loaderDefKey] = {
-        title: appLoader.cmsKey,
+        title: title ?? appLoader.cmsKey,
         type: "object",
         required: ["__resolveType", ...(propsSchema?.required || [])],
         properties: {
@@ -958,18 +974,24 @@ function generateMeta(): MetaResponse {
         $ref: `#/definitions/${loaderDefKey}`,
         namespace: appLoader.namespace,
       };
-      loaderRootAnyOf.push({ $ref: `#/definitions/${loaderDefKey}` });
 
-      // Register output type for block-ref resolution in sections
-      if (outputTypeName) {
-        const existing = outputTypeToLoaderKeys.get(outputTypeName) ?? [];
-        existing.push(appLoader.cmsKey);
-        outputTypeToLoaderKeys.set(outputTypeName, existing);
+      // `@ignore`d loaders keep their definition (so existing blocks resolve)
+      // but are withheld from both the root loader union and the per-output-type
+      // pickers, so users can't pick them for new blocks.
+      if (!hidden) {
+        loaderRootAnyOf.push({ $ref: `#/definitions/${loaderDefKey}` });
+
+        // Register output type for block-ref resolution in sections
+        if (outputTypeName) {
+          const existing = outputTypeToLoaderKeys.get(outputTypeName) ?? [];
+          existing.push(appLoader.cmsKey);
+          outputTypeToLoaderKeys.set(outputTypeName, existing);
+        }
       }
 
       const propCount = Object.keys(propsSchema.properties || {}).length;
       console.log(
-        `  ✓ app loader ${appLoader.cmsKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""})`,
+        `  ${hidden ? "·" : "✓"} app loader ${appLoader.cmsKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""}${hidden ? ", hidden" : ""})`,
       );
     } catch (e) {
       console.warn(`  ✗ app loader ${appLoader.cmsKey}: ${(e as Error).message}`);
