@@ -51,6 +51,23 @@
         "vite": "^6.0.0",
       },
     },
+    "packages/apps-commerce": {
+      "name": "@decocms/apps-commerce",
+      "version": "0.0.0",
+      "dependencies": {
+        "@decocms/blocks": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "knip": "^5.86.0",
+        "typescript": "^5.9.0",
+      },
+      "peerDependencies": {
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+      },
+    },
     "packages/blocks": {
       "name": "@decocms/blocks",
       "version": "0.0.0",
@@ -252,6 +269,8 @@
     "@csstools/css-tokenizer": ["@csstools/css-tokenizer@4.0.0", "", {}, "sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA=="],
 
     "@deco-cx/warp-node": ["@deco-cx/warp-node@0.3.23", "", { "dependencies": { "undici": "^6.21.0", "ws": "^8.18.0" } }, "sha512-GMh6Msj62wAvc+YbmIc8FoaIZy/cGUlEwR+FbgDl/08TomJRd3jCV8Tbrb38dIAdHlkmEc5UviLAnx5rfet3OQ=="],
+
+    "@decocms/apps-commerce": ["@decocms/apps-commerce@workspace:packages/apps-commerce"],
 
     "@decocms/blocks": ["@decocms/blocks@workspace:packages/blocks"],
 
