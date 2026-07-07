@@ -5,13 +5,13 @@
   "description": "Deco framework for TanStack Start - CMS bridge, admin protocol, hooks, schema generation",
   "main": "./src/index.ts",
   "bin": {
-    "deco-migrate": "./scripts/migrate.ts",
-    "deco-post-cleanup": "./scripts/migrate-post-cleanup.ts",
-    "deco-htmx-analyze": "./scripts/htmx-analyze.ts",
-    "deco-cf-observability": "./scripts/migrate-to-cf-observability.ts",
-    "deco-audit-observability": "./scripts/audit-observability-config.ts",
-    "deco-migrate-blocks-to-kv": "./scripts/migrate-blocks-to-kv.ts",
-    "deco-sync-blocks-to-kv": "./scripts/sync-blocks-to-kv.ts"
+    "deco-migrate": "./dist/scripts/migrate.js",
+    "deco-post-cleanup": "./dist/scripts/migrate-post-cleanup.js",
+    "deco-htmx-analyze": "./dist/scripts/htmx-analyze.js",
+    "deco-cf-observability": "./dist/scripts/migrate-to-cf-observability.js",
+    "deco-audit-observability": "./dist/scripts/audit-observability-config.js",
+    "deco-migrate-blocks-to-kv": "./dist/scripts/migrate-blocks-to-kv.js",
+    "deco-sync-blocks-to-kv": "./dist/scripts/sync-blocks-to-kv.js"
   },
   "exports": {
     ".": "./src/index.ts",
