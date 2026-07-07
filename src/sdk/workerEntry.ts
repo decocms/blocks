@@ -51,6 +51,7 @@ import {
   withTracing,
 } from "./observability";
 import { _setDebugSampled, _setRequestTraceContext, instrumentWorker, type OtelOptions } from "./otel";
+import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { setRuntimeEnv } from "./otelAdapters";
 import { parseTraceparent } from "./otelHttpTracer";
 import { RequestContext } from "./requestContext";
@@ -425,6 +426,25 @@ export interface DecoWorkerEntryOptions {
    * no-op — no buffers, no flushes, no network calls.
    */
   observability?: OtelOptions | false;
+
+  /**
+   * Default `User-Agent` for OUTBOUND `fetch` calls (loaders, commerce
+   * APIs, proxies). Cloudflare Workers sends no User-Agent at all, and
+   * UA-less requests are blocked by common WAF setups (Cloudflare managed
+   * rules / Bot Fight Mode) on partner origins. The old Deno runtime
+   * implicitly sent `Deno/x.y.z` on every outbound request, so this
+   * restores pre-migration behavior with an identifiable value.
+   *
+   * Applied only when the caller didn't set a User-Agent — app-specific
+   * UAs always win.
+   *
+   * - Pass a string to override the value (e.g. to match a partner's
+   *   existing WAF allowlist during migration).
+   * - Pass `false` to leave `globalThis.fetch` untouched.
+   *
+   * @default `Deco/<version> (+https://deco.cx)` — see DECO_USER_AGENT.
+   */
+  outboundUserAgent?: string | false;
 }
 
 // ---------------------------------------------------------------------------
@@ -698,7 +718,17 @@ export function createDecoWorkerEntry(
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
     cdnCacheControl: cdnCacheControlOpt = "no-store",
     observability: observabilityOpt,
+    outboundUserAgent: outboundUserAgentOpt,
   } = options;
+
+  // Patch global fetch once so every outbound request — apps calling
+  // `fetch` directly, RequestContext.fetch, instrumentedFetch — carries a
+  // User-Agent. Workers sends none by default, which WAFs on partner
+  // origins read as bot traffic. Set-if-absent: callers that set their
+  // own UA are untouched.
+  if (outboundUserAgentOpt !== false) {
+    installDefaultUserAgent(outboundUserAgentOpt);
+  }
 
   // Backfill `regionId` from Cloudflare geo when the consumer's buildSegment
   // doesn't set one. Without this, sites using website/matchers/location.ts
@@ -1299,6 +1329,18 @@ export function createDecoWorkerEntry(
           } catch {
             /* see above — sealed header case already handled */
           }
+        }
+      }
+
+      // Old-runtime parity: deco-cx/deco stamped `x-powered-by: deco@<ver>`
+      // on every response (utils/http.ts defaultHeaders); partner-side logs
+      // and ops tooling use it to identify deco traffic. Set-if-absent so
+      // an upstream origin's own value wins.
+      if (!finalResponse.headers.has("x-powered-by")) {
+        try {
+          finalResponse.headers.set("x-powered-by", DECO_POWERED_BY);
+        } catch {
+          /* sealed headers (cached replay) — identification is best-effort */
         }
       }
 
