@@ -6,7 +6,7 @@ import {
   handleRender,
 } from "@decocms/blocks-admin";
 
-/** For app/live/_meta/route.ts: `export { metaGET as GET } from "@decocms/next"` */
+/** For app/live/_meta/route.ts: `export { metaGET as GET } from "@decocms/nextjs"` */
 export async function metaGET(request: Request): Promise<Response> {
   return handleMeta(request);
 }

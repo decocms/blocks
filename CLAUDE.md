@@ -15,10 +15,10 @@ This repo also hosts the migration scripts + skills that move Deco storefronts f
 ## Tech Stack
 
 - Package manager / workspace: Bun (`bun install`, `bun run --filter`)
-- Runtime targets: Cloudflare Workers (`@decocms/tanstack`) and Node/RSC (`@decocms/next`)
+- Runtime targets: Cloudflare Workers (`@decocms/tanstack`) and Node/RSC (`@decocms/nextjs`)
 - Framework bindings: TanStack Start / TanStack Router, Next.js App Router
 - UI: React 19
-- Build (site-side): Vite (TanStack) — `@decocms/next` has no Vite dependency, it's RSC-native
+- Build (site-side): Vite (TanStack) — `@decocms/nextjs` has no Vite dependency, it's RSC-native
 - Test runner: Vitest, workspace-root config (`vitest.config.ts`), each package's `test` script runs `vitest run --root ../.. packages/<name>`
 
 ## Common Commands
@@ -31,7 +31,7 @@ bun run test          # vitest run, per package
 bun run check         # typecheck + lint + lint:unused
 ```
 
-No dev server at the repo root — these are libraries. `examples/tanstack-smoke` and `examples/next-smoke` are real, runnable consumers (`cd examples/<name> && bun run dev`).
+No dev server at the repo root — these are libraries. `examples/tanstack-smoke` and `examples/nextjs-smoke` are real, runnable consumers (`cd examples/<name> && bun run dev`).
 
 ## Architecture: five packages, one-way dependency graph
 
@@ -41,7 +41,7 @@ packages/
 ├── admin/      @decocms/blocks-admin     — admin protocol + createAdminSetup.  depends on: runtime
 ├── cli/        @decocms/blocks-cli       — codegen + migration scripts.       depends on: runtime
 ├── tanstack/   @decocms/tanstack  — TanStack Start + CF Workers binding. depends on: runtime, admin, cli
-└── next/       @decocms/next      — Next.js App Router binding.        depends on: runtime, admin
+└── next/       @decocms/nextjs      — Next.js App Router binding.        depends on: runtime, admin
 examples/
 ├── tanstack-smoke/   real TanStack Start app consuming runtime+admin+tanstack
 └── next-smoke/       real Next.js app consuming runtime+admin+next
@@ -70,13 +70,13 @@ Every export maps to a source file — no dist indirection. Representative subse
 | `@decocms/blocks-admin/apps/autoconfig` | admin | `src/apps/autoconfig.ts` |
 | `@decocms/tanstack` (root) | tanstack | `src/index.ts` (re-exports routes, hooks, worker entry, router sdk) |
 | `@decocms/tanstack/vite` | tanstack | `src/vite/plugin.js` (plain JS, no `.d.ts` yet) |
-| `@decocms/next` (root) | next | `src/index.ts` |
+| `@decocms/nextjs` (root) | next | `src/index.ts` |
 | `@decocms/blocks-cli/generate-*` | cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
 
 ### Key Boundaries
 
 - `@decocms/blocks` must NOT import from `admin`/`cli`/`tanstack`/`next`, and must NOT contain framework-specific code (no TanStack Router types, no Next.js types, no Cloudflare-Workers-only APIs at the type level).
-- `@decocms/tanstack` and `@decocms/next` must NOT import from each other.
+- `@decocms/tanstack` and `@decocms/nextjs` must NOT import from each other.
 - `@decocms/apps` (commerce integrations — separate repo) must NOT contain UI components or framework-binding code.
 - Site repos must NOT contain compat/wrapper directories reimplementing what a package already exports — if something's missing from a package's public surface, that's a gap in the package, not a reason to hand-roll a workaround in every site (see "Known gaps in package exports" below).
 
@@ -84,7 +84,7 @@ Every export maps to a source file — no dist indirection. Representative subse
 
 Decouples CMS content updates from code deploys: content served from Cloudflare KV (`decofile:current` + `index:revision`) with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on explicit opt-in — requires both `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise.
 
-This is deliberately **not** available in `@decocms/next` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/blocks/src/cms/blockSource.ts`, `packages/blocks-admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
+This is deliberately **not** available in `@decocms/nextjs` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/blocks/src/cms/blockSource.ts`, `packages/blocks-admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
 
 ## Admin Protocol
 
@@ -98,7 +98,7 @@ Communicates with `admin.deco.cx` via:
 Both bindings expose the same four handlers from `@decocms/blocks-admin` (`handleMeta`, `handleDecofileRead`/`handleDecofileReload`, `handleRender`, `handleInvoke`), but wire them up differently:
 
 - **TanStack**: admin routes MUST be handled inside `createDecoWorkerEntry` (`@decocms/tanstack`), NOT inside TanStack's `createServerEntry` — Vite strips custom fetch logic from server entries in production builds.
-- **Next.js**: each handler is exported as a one-line Route Handler re-export (`metaGET`, `decofileGET`/`decofilePOST`, `renderGET`/`renderPOST`, `invokeGET`/`invokePOST` from `@decocms/next`) — no single dispatcher, since Next's routing is already file-based. `renderGET`/`renderPOST` can be mounted at more than one path (`/deco/render` and `/live/previews/*`).
+- **Next.js**: each handler is exported as a one-line Route Handler re-export (`metaGET`, `decofileGET`/`decofilePOST`, `renderGET`/`renderPOST`, `invokeGET`/`invokePOST` from `@decocms/nextjs`) — no single dispatcher, since Next's routing is already file-based. `renderGET`/`renderPOST` can be mounted at more than one path (`/deco/render` and `/live/previews/*`).
 
 Schema is composed at runtime: `@decocms/blocks-cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/blocks/cms`) injects page schemas and framework definitions.
 
@@ -125,7 +125,7 @@ Three, each with a distinct scope:
 
 1. **`deco-to-tanstack-migration`** (`.agents/skills/`) — the site-code migration playbook, Fresh/Preact/Deno → TanStack Start/React/Workers. Import rewrites, Deco-framework elimination, commerce type migration, platform hooks (useCart/useUser/useWishlist), Vite config, documented gotchas.
 2. **`deco-migrate-script`** — the automated script backing (1): 8 phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap → compile), invoked via `@decocms/blocks-cli`'s `scripts/migrate.ts`.
-3. **`deco-next-package-migration`** — a different migration: moving a site *off the old single-package `@decocms/start`* (the abandoned `/next`, `/core`, `/node` tiers specifically) *onto the current split*, for sites building on `@decocms/next`. Has its own import-mapping reference and worked `setup.ts`/admin-routes templates, proven end-to-end against a real production Next.js site.
+3. **`deco-next-package-migration`** — a different migration: moving a site *off the old single-package `@decocms/start`* (the abandoned `/next`, `/core`, `/node` tiers specifically) *onto the current split*, for sites building on `@decocms/nextjs`. Has its own import-mapping reference and worked `setup.ts`/admin-routes templates, proven end-to-end against a real production Next.js site.
 
 Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework* (Fresh → TanStack), the third migrates a site's *package dependency* on an already-TanStack-or-Next site.
 

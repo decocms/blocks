@@ -1,4 +1,4 @@
-import { DecoRootLayout } from "@decocms/next";
+import { DecoRootLayout } from "@decocms/nextjs";
 import "../setup";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

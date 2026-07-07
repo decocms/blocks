@@ -1,6 +1,6 @@
-# CDP Connection Guide (Node/RSC — `@decocms/next`)
+# CDP Connection Guide (Node/RSC — `@decocms/nextjs`)
 
-> This file covers **Node/RSC (`@decocms/next`) sites only**. Cloudflare
+> This file covers **Node/RSC (`@decocms/nextjs`) sites only**. Cloudflare
 > Workers (`@decocms/tanstack`) sites have no equivalent production
 > connection flow — there's no long-running process to attach to. See
 > Part 1 of `SKILL.md` for the Workers diagnostic path (tail-worker +
@@ -10,7 +10,7 @@ How to connect to a Node process's built-in inspector for memory debugging.
 
 ## Prerequisites
 
-- Network access to the Node process's inspector port (default `9229`) — how you get that access depends on your hosting/orchestration layer (see "Reaching the port" below). deco-start does not prescribe a specific host for `@decocms/next`.
+- Network access to the Node process's inspector port (default `9229`) — how you get that access depends on your hosting/orchestration layer (see "Reaching the port" below). deco-start does not prescribe a specific host for `@decocms/nextjs`.
 - Python 3 with `websockets` package (`pip3 install websockets`)
 - The Node process must be started with the inspector enabled, or have it enabled at runtime (see Step 1)
 
@@ -58,7 +58,7 @@ ssh -L 9229:127.0.0.1:9229 <host>
 ```
 
 There is no `kubectl port-forward` step here — this repo makes no
-Kubernetes assumption for `@decocms/next` sites. Replace this step with
+Kubernetes assumption for `@decocms/nextjs` sites. Replace this step with
 whatever your deployment target's actual port-forwarding mechanism is.
 
 ## Step 3: Get WebSocket URL

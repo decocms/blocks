@@ -1,4 +1,4 @@
-import { createDecoPage } from "@decocms/next";
+import { createDecoPage } from "@decocms/nextjs";
 
 // The plan brief's literal sketch was
 // `export const { generateMetadata, default } = createDecoPage(...)` —

@@ -1,5 +1,5 @@
 {
-  "name": "next-smoke-fixture",
+  "name": "nextjs-smoke-fixture",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
   "dependencies": {
     "@decocms/blocks": "workspace:*",
     "@decocms/blocks-admin": "workspace:*",
-    "@decocms/next": "workspace:*",
+    "@decocms/nextjs": "workspace:*",
     "next": "^15.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

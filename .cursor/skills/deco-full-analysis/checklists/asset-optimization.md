@@ -205,7 +205,7 @@ No more `_middleware.ts` (that's a Fresh routing convention). Verified against
   Separately, `setCSPHeaders()` in `@decocms/blocks/sdk/csp` sets `frame-ancestors`
   (only) so the Deco admin can iframe-embed the storefront for live preview —
   that's a different, narrower concern than general script/asset hardening.
-- **Next.js sites**: no built-in CSP helper found in `@decocms/next`. Use Next's
+- **Next.js sites**: no built-in CSP helper found in `@decocms/nextjs`. Use Next's
   standard `middleware.ts` at the project root, or `headers()` in `next.config.js`.
 
 ```typescript
@@ -247,7 +247,7 @@ verified here and shouldn't be guessed at.
 
 The specific `/live/invoke/...` endpoint from item 15's example is **not verified**
 to exist in the current runtime — a search of `@decocms/blocks`, `@decocms/blocks-admin`,
-`@decocms/next`, and `@decocms/tanstack` found no `live/invoke` route. Server-side
+`@decocms/nextjs`, and `@decocms/tanstack` found no `live/invoke` route. Server-side
 data fetching in the current architecture goes through section loaders /
 `COMMERCE_LOADERS` function calls (see `cache-strategy.md`), not an HTTP invoke
 endpoint called from within another loader. The underlying principle — avoid

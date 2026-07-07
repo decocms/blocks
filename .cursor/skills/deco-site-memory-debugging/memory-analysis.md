@@ -1,6 +1,6 @@
-# Memory Analysis Procedures (Node/RSC — `@decocms/next`)
+# Memory Analysis Procedures (Node/RSC — `@decocms/nextjs`)
 
-> This file covers **Node/RSC (`@decocms/next`) sites only**. For
+> This file covers **Node/RSC (`@decocms/nextjs`) sites only**. For
 > Cloudflare Workers (`@decocms/tanstack`) sites, see Part 1 of `SKILL.md`
 > — there is no live CDP session against a production Workers isolate, so
 > these step-by-step procedures don't apply there; the tail-worker /

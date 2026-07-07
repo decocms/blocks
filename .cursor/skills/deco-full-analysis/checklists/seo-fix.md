@@ -158,8 +158,8 @@ const hasFilters = url.searchParams.has('filter') ||
 ### 10. Language Attribute
 **Check**: Is the `lang` attribute correct?
 
-There's no framework config file for this anymore. Both `@decocms/next`'s
-`DecoRootLayout` (`packages/next/src/DecoRootLayout.tsx`) and `@decocms/tanstack`'s
+There's no framework config file for this anymore. Both `@decocms/nextjs`'s
+`DecoRootLayout` (`packages/nextjs/src/DecoRootLayout.tsx`) and `@decocms/tanstack`'s
 `DecoRootLayout` (`packages/tanstack/src/hooks/DecoRootLayout.tsx`) render
 `<html lang={lang} ...>` from a `lang` prop that **defaults to `"en"`** if the site
 doesn't pass one. Check that the site explicitly passes the right value where it

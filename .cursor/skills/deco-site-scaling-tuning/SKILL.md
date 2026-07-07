@@ -1,6 +1,6 @@
 ---
 name: deco-site-scaling-tuning
-description: LEGACY. Discover optimal autoscaling parameters for a Deno/Fresh Deco site running on Knative/Kubernetes, by analyzing Prometheus metrics. Correlates CPU, concurrency, and latency to find the right scaling target and method. Does NOT apply to current @decocms/tanstack (Cloudflare Workers) or @decocms/next (Node) sites.
+description: LEGACY. Discover optimal autoscaling parameters for a Deno/Fresh Deco site running on Knative/Kubernetes, by analyzing Prometheus metrics. Correlates CPU, concurrency, and latency to find the right scaling target and method. Does NOT apply to current @decocms/tanstack (Cloudflare Workers) or @decocms/nextjs (Node) sites.
 ---
 
 # Deco Site Scaling Tuning
@@ -11,7 +11,7 @@ description: LEGACY. Discover optimal autoscaling parameters for a Deno/Fresh De
 > to sites still deployed as Deno processes in Kubernetes pods behind
 > Knative — it does **not** apply to current deco-start sites built on
 > `@decocms/tanstack` (Cloudflare Workers, deployed via `wrangler deploy`)
-> or `@decocms/next` (Node/RSC).
+> or `@decocms/nextjs` (Node/RSC).
 >
 > **Why there's no current equivalent.** Cloudflare Workers has no pod,
 > revision, or autoscaler concept to tune in the first place: each request
@@ -25,7 +25,7 @@ description: LEGACY. Discover optimal autoscaling parameters for a Deno/Fresh De
 > tail-worker error-capture path (`exceededCpu`/`exceededMemory` outcomes),
 > not a scaling-parameter tuning problem.
 >
-> If you're looking at a current `@decocms/tanstack` or `@decocms/next`
+> If you're looking at a current `@decocms/tanstack` or `@decocms/nextjs`
 > site and traffic/latency/cost seems off, this skill's `kubectl`/Prometheus
 > commands will simply fail (no cluster, no namespace, no Knative CRDs) —
 > that is expected. Use `docs/observability.md` and

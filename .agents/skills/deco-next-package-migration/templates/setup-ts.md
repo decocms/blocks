@@ -130,7 +130,7 @@ export function ensureSetup(): Promise<void> {
  * already consume this function need no changes.
  *
  * Built directly on @decocms/blocks's resolveDecoPage rather than
- * @decocms/next's createDecoPage helper: createDecoPage assumes a
+ * @decocms/nextjs's createDecoPage helper: createDecoPage assumes a
  * generic single-page-per-URL model, while a site with its own SEO
  * merging (e.g. store-config fallback title/description) or curated
  * block overrides may not fit that generic helper — kept as the site's
@@ -140,7 +140,7 @@ export function ensureSetup(): Promise<void> {
  * Crucially, `resolveDecoPage` only resolves the CMS block tree — it does
  * NOT run the registered section loaders (verified against
  * `packages/tanstack/src/routes/cmsRoute.ts` and
- * `packages/next/src/createDecoPage.tsx`: both leave that to their own
+ * `packages/nextjs/src/createDecoPage.tsx`: both leave that to their own
  * callers). Without an explicit `runSectionLoaders` call here, any
  * loaders registered in `ensureSetup` above would never run, and
  * `_server` (or whatever key the site's loaders populate) would never be

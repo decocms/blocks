@@ -29,7 +29,7 @@ export type CacheStatus = 'HIT' | 'STALE-HIT' | 'STALE-ERROR' | 'MISS' | 'BYPASS
  * Individual loader timing parsed from a `Server-Timing` header entry.
  *
  * IMPORTANT — read before assuming this is populated: as of 2026-07, no
- * call site in `packages/tanstack` or `packages/next` ever calls
+ * call site in `packages/tanstack` or `packages/nextjs` ever calls
  * `state.timings.start(...)` / `.record(...)` (the `ServerTimings` API in
  * `packages/blocks/src/sdk/serverTimings.ts` that actually feeds the
  * `Server-Timing` HTTP header via `applyServerTiming()`). `buildDecoState`

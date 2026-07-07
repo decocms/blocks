@@ -17,12 +17,12 @@
  * </LazySection>
  * ```
  *
- * `"use client"` added by Phase 2 Task 9 (@decocms/next's next-smoke
+ * `"use client"` added by Phase 2 Task 9 (@decocms/nextjs's next-smoke
  * fixture): this file uses `useEffect`/`useRef`/`useState`, which Next's App
  * Router statically rejects in any file reachable from a Server Component's
  * module graph unless the file itself declares the client boundary. Neither
  * `@decocms/tanstack` (Vite, no RSC directive enforcement) nor this
- * package's Vitest/jsdom unit tests caught this — `@decocms/next` is the
+ * package's Vitest/jsdom unit tests caught this — `@decocms/nextjs` is the
  * first consumer to go through Next's real RSC-aware webpack build.
  */
 

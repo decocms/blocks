@@ -81,11 +81,11 @@ scripts/
 > round-tripped every lazy section through `/deco/render` and stamped the
 > response with `x-deco-section` / `x-deco-page` / `x-deco-route` headers. A
 > grep of the current `packages/blocks`, `packages/blocks-admin`, `packages/tanstack`,
-> and `packages/next` source (2026-07) for
+> and `packages/nextjs` source (2026-07) for
 > `x-deco-section|x-deco-page|x-deco-route|x-deco-platform` returns **zero
 > hits**. `/deco/render` still exists (`packages/blocks-admin/src/admin/render.ts`,
 > wired via `decoRenderRoute` in `packages/tanstack/src/routes/adminRoutes.ts`
-> and the Next.js route handlers in `packages/next`) but it is now the
+> and the Next.js route handlers in `packages/nextjs`) but it is now the
 > **admin visual-editor preview endpoint only** — it renders a section/page to
 > an HTML string for the CMS iframe and sets no identifying headers at all
 > (just `Content-Type`). It is never hit during normal storefront browsing.
@@ -99,7 +99,7 @@ rendering concern, not a per-section HTTP fetch with identifying headers.
   network request happens at all** — the component code is already in the
   bundle; this only delays mounting it.
 - `packages/tanstack/src/hooks/DecoPageRenderer.tsx` (TanStack Start) and
-  `packages/next/src/DeferredSection.tsx` / `SectionRenderer.tsx` (Next.js App
+  `packages/nextjs/src/DeferredSection.tsx` / `SectionRenderer.tsx` (Next.js App
   Router) render each section inside a wrapper that carries
   **`data-manifest-key={section.key}`** (the section's identifier, e.g.
   `site/sections/Hero.tsx`) and, while the section is still a skeleton,
@@ -114,7 +114,7 @@ rendering concern, not a per-section HTTP fetch with identifying headers.
   its POST body carries `{ component, pagePath, pageUrl, index }`, but the
   request goes to TanStack's internal server-fn RPC path, not `/deco/render`,
   and there's no response header naming the section either.
-- On Next.js, `DeferredSectionBoundary` (`packages/next/src/DeferredSection.tsx`)
+- On Next.js, `DeferredSectionBoundary` (`packages/nextjs/src/DeferredSection.tsx`)
   is RSC-native: it `await`s a promise inside an async Server Component under
   `<Suspense>`. The resolved section is streamed as part of the same HTTP
   response — there is no separate observable request per section at all.
@@ -459,7 +459,7 @@ source is:
   data-deferred={...}>` and streams deferred sections via SSR Suspense/Await.
 - `packages/tanstack/src/routes/cmsRoute.ts` — the deprecated
   `loadDeferredSection` POST server-fn fallback used for SPA navigation.
-- `packages/next/src/DeferredSection.tsx` and `packages/next/src/SectionRenderer.tsx`
+- `packages/nextjs/src/DeferredSection.tsx` and `packages/nextjs/src/SectionRenderer.tsx`
   — Next.js App Router's RSC-native equivalents, same `data-manifest-key`
   convention.
 - `packages/blocks-admin/src/admin/render.ts` — the current `/deco/render` handler.

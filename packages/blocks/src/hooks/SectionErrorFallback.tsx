@@ -1,6 +1,6 @@
 "use client";
 
-// `"use client"` added by Phase 2 Task 9 (@decocms/next's next-smoke
+// `"use client"` added by Phase 2 Task 9 (@decocms/nextjs's next-smoke
 // fixture): `SectionErrorBoundary` is a class component with
 // `componentDidCatch`/`getDerivedStateFromError` — error boundaries require
 // a Client Component in Next's App Router. `SectionRenderer.tsx` wraps

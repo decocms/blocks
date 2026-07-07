@@ -14,7 +14,7 @@ None of these packages are published yet (all sit at `0.0.0`). Consuming sites l
 ├──────────────────────────────────────────────────────────┤
 │   @decocms/apps  (commerce integrations)                  │  ← VTEX, Shopify, Magento, ...
 ├──────────────────┬───────────────────┬────────────────────┤
-│  @decocms/tanstack │  @decocms/next    │  (future bindings) │  ← Framework bindings
+│  @decocms/tanstack │  @decocms/nextjs    │  (future bindings) │  ← Framework bindings
 ├──────────────────┴───────────────────┴────────────────────┤
 │   @decocms/blocks-admin        (admin protocol, site bootstrap)   │
 ├──────────────────────────────────────────────────────────┤
@@ -29,11 +29,11 @@ None of these packages are published yet (all sit at `0.0.0`). Consuming sites l
 | **`@decocms/blocks-admin`** | Admin protocol (`/live/_meta`, `/.decofile`, `/deco/render`, `/deco/invoke`) and the admin half of site setup (`createAdminSetup`: meta schema, preview shell, commerce-loader wiring). | `runtime` |
 | **`@decocms/blocks-cli`** | Codegen (`generate-blocks`, `generate-schema`, `generate-invoke`, `generate-sections`, `generate-loaders`) and the Fresh/Preact/Deno → TanStack migration scripts. | `runtime` |
 | **`@decocms/tanstack`** | Production TanStack Start + Cloudflare Workers binding: `cmsRouteConfig`, `DecoPageRenderer`, `createDecoWorkerEntry`, the Vite plugin, fast-deploy (KV-backed content). | `runtime`, `admin`, `cli` |
-| **`@decocms/next`** | Next.js App Router binding: `createDecoPage`, `DecoRootLayout`, `SectionRenderer`/`ClientOnlySection`/`DeferredSectionBoundary`, and admin Route Handlers. RSC-native — no Vite, no Cloudflare-specific code. | `runtime`, `admin` |
+| **`@decocms/nextjs`** | Next.js App Router binding: `createDecoPage`, `DecoRootLayout`, `SectionRenderer`/`ClientOnlySection`/`DeferredSectionBoundary`, and admin Route Handlers. RSC-native — no Vite, no Cloudflare-specific code. | `runtime`, `admin` |
 
 Every export maps straight to a `.ts` source file — no package bundles another's source, which is the actual fix for the module-state-duplication bug that caused the v5.2.2 revert of the old single-package, tsup-bundled `@decocms/start`.
 
-Working examples of both bindings: [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/next-smoke`](./examples/next-smoke).
+Working examples of both bindings: [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/nextjs-smoke`](./examples/nextjs-smoke).
 
 ---
 
@@ -152,7 +152,7 @@ createAdminSetup({ meta: () => Promise.resolve({}) });
 ### `src/app/layout.tsx`
 
 ```tsx
-import { DecoRootLayout } from "@decocms/next";
+import { DecoRootLayout } from "@decocms/nextjs";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -168,7 +168,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 ### `src/app/[[...slug]]/page.tsx`
 
 ```ts
-import { createDecoPage } from "@decocms/next";
+import { createDecoPage } from "@decocms/nextjs";
 
 export const { generateMetadata, default: Page } = createDecoPage({ siteName: "my-store" });
 ```
@@ -176,10 +176,10 @@ export const { generateMetadata, default: Page } = createDecoPage({ siteName: "m
 ### `src/app/deco/render/route.ts`, `.decofile/route.ts`, `live/meta/route.ts`
 
 ```ts
-export { renderGET as GET, renderPOST as POST } from "@decocms/next";
+export { renderGET as GET, renderPOST as POST } from "@decocms/nextjs";
 ```
 
-Swap `renderGET`/`renderPOST` for `decofileGET`/`decofilePOST` or `metaGET` as appropriate — see [`examples/next-smoke`](./examples/next-smoke) for the full route wiring, including the Next.js routing quirks (dot-prefixed segments stay literal, `_`-prefixed segments need `%5F`).
+Swap `renderGET`/`renderPOST` for `decofileGET`/`decofilePOST` or `metaGET` as appropriate — see [`examples/nextjs-smoke`](./examples/nextjs-smoke) for the full route wiring, including the Next.js routing quirks (dot-prefixed segments stay literal, `_`-prefixed segments need `%5F`).
 
 ---
 
@@ -198,7 +198,7 @@ These are Agent Skills — usable from Claude Code, Cursor, Codex, or any tool t
 |---|---|
 | `@decocms/blocks`, `@decocms/blocks-admin` | `react ^19.0.0`, `react-dom ^19.0.0` |
 | `@decocms/tanstack` | + `@tanstack/react-start >=1.0.0`, `@tanstack/store >=0.7.0`, `@tanstack/react-query >=5.0.0`, `vite >=6.0.0` |
-| `@decocms/next` | + `next >=15.0.0` |
+| `@decocms/nextjs` | + `next >=15.0.0` |
 
 OpenTelemetry is optional but recommended: `@microlabs/otel-cf-workers >=1.0.0-rc.0`, `@opentelemetry/api >=1.9.0`.
 
@@ -213,7 +213,7 @@ bun run test        # per-package vitest
 bun run check       # typecheck + lint + unused-exports
 ```
 
-This is a monorepo of libraries — there's no dev server here. `examples/tanstack-smoke` and `examples/next-smoke` are minimal real consumers you can `bun run dev` directly.
+This is a monorepo of libraries — there's no dev server here. `examples/tanstack-smoke` and `examples/nextjs-smoke` are minimal real consumers you can `bun run dev` directly.
 
 **Linking into a real site** (until packages are published):
 

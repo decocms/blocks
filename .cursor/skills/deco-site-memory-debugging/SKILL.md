@@ -1,6 +1,6 @@
 ---
 name: deco-site-memory-debugging
-description: Debug memory issues on current deco-start sites. Cloudflare Workers (@decocms/tanstack) sites are diagnosed via the tail-worker exceededMemory/exceededCpu capture in ClickHouse plus wrangler tail/dev — there is no live production process to attach to. Node/RSC (@decocms/next) sites use Node's own --inspect CDP flow (process.memoryUsage(), forced GC, heap snapshots).
+description: Debug memory issues on current deco-start sites. Cloudflare Workers (@decocms/tanstack) sites are diagnosed via the tail-worker exceededMemory/exceededCpu capture in ClickHouse plus wrangler tail/dev — there is no live production process to attach to. Node/RSC (@decocms/nextjs) sites use Node's own --inspect CDP flow (process.memoryUsage(), forced GC, heap snapshots).
 ---
 
 # Deco Site Memory Debugging
@@ -10,7 +10,7 @@ Two runtime targets, two different diagnostic stories — pick the section that 
 | Site built on... | Runtime | Diagnostic path |
 |---|---|---|
 | `@decocms/tanstack` | Cloudflare Workers (`wrangler deploy`) | No persistent process to attach a debugger to. Diagnose via tail-worker-captured `exceededMemory`/`exceededCpu` outcomes in ClickHouse, `wrangler tail`, and local repro under `wrangler dev`. See **Part 1** below. |
-| `@decocms/next` | Node/RSC | Real CDP flow via `node --inspect` — same underlying methodology as the old Deno flow (force GC, heap snapshot, Response-leak detection), different API surface. See **Part 2** below, `cdp-connection.md`, `memory-analysis.md`. |
+| `@decocms/nextjs` | Node/RSC | Real CDP flow via `node --inspect` — same underlying methodology as the old Deno flow (force GC, heap snapshot, Response-leak detection), different API surface. See **Part 2** below, `cdp-connection.md`, `memory-analysis.md`. |
 
 > **Superseded content.** This skill previously assumed Deno-on-Kubernetes
 > (`Deno.memoryUsage()`, CDP over `kubectl port-forward` into a pod's port
@@ -18,7 +18,7 @@ Two runtime targets, two different diagnostic stories — pick the section that 
 > exist for current deco-start sites — neither Cloudflare Workers nor
 > Node/RSC exposes `Deno.memoryUsage()` or lives in a `kubectl`-managed
 > pod. `cdp-connection.md` and `memory-analysis.md` are now written for
-> **Node/RSC (`@decocms/next`)** specifically; if you're debugging a
+> **Node/RSC (`@decocms/nextjs`)** specifically; if you're debugging a
 > legacy Deno/Fresh/Knative site outside this package split, pull the
 > Deno-flow version of this skill from git history instead of following
 > the current files.
@@ -40,7 +40,7 @@ Cloudflare Workers (@decocms/tanstack) — Part 1, no live debugger:
   3. REPRO LOCALLY        → wrangler dev, attach via chrome://inspect (Chrome-shaped CDP)
   4. FIX AT THE CODE LEVEL → no --max-old-space-size knob exists on Workers; reduce actual allocations
 
-Node/RSC (@decocms/next) — Part 2, real CDP flow:
+Node/RSC (@decocms/nextjs) — Part 2, real CDP flow:
   1. CONNECT INSPECTOR    → node --inspect / kill -USR1 <pid>
   2. GET WS URL           → curl http://127.0.0.1:9229/json/list
   3. CONNECT CDP          → WebSocket to the debuggerUrl
@@ -133,7 +133,7 @@ Deno methodology targeted:
   limit, not a tunable V8 flag on Workers — there is no "lower the GC
   threshold" fix here. The only fix is reducing what's actually allocated.
 
-## Part 2: Node/RSC (`@decocms/next`)
+## Part 2: Node/RSC (`@decocms/nextjs`)
 
 If the site's Node process runs as a normal long-lived server (not
 serverless/edge), the old Deno flow's underlying methodology still holds —
@@ -144,7 +144,7 @@ both rewritten for Node's inspector and `process.memoryUsage()` instead of
 Deno's.
 
 This repo does not prescribe a hosting/orchestration layer for
-`@decocms/next` sites — if the Node process runs inside a container or
+`@decocms/nextjs` sites — if the Node process runs inside a container or
 orchestrator, forward its inspector port (9229 by default) the way that
 infra provides today (`docker exec` + published port, an SSH tunnel, or
 your PaaS's own port-forwarding CLI). There is no `kubectl`-specific step

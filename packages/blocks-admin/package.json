@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --root ../.. packages/blocks-admin",
+    "test": "vitest run --root ../.. packages/blocks-admin/",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
   },

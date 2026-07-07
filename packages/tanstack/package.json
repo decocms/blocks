@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --root ../.. packages/tanstack",
+    "test": "vitest run --root ../.. packages/tanstack/",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
   },

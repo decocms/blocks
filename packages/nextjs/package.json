@@ -1,5 +1,5 @@
 {
-  "name": "@decocms/next",
+  "name": "@decocms/nextjs",
   "version": "0.0.0",
   "type": "module",
   "description": "Deco framework binding for Next.js App Router",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --root ../.. packages/next",
+    "test": "vitest run --root ../.. packages/nextjs/",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
   },

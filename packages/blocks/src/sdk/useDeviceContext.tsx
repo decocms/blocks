@@ -18,10 +18,10 @@
  * because `sectionMixins.ts` is pulled in by `cms/index.ts`, which
  * `createSiteSetup()` (runtime/setup.ts) imports, and a site's `setup.ts` is
  * typically imported for its side effects from `app/layout.tsx` (a Server
- * Component under `@decocms/next`), the *whole* `useDevice.ts` file used to
+ * Component under `@decocms/nextjs`), the *whole* `useDevice.ts` file used to
  * ride along into the server compilation graph — including the
  * `createContext`/`useContext` calls now isolated in this file, which had no
- * "use client" directive of their own. `@decocms/next`'s next-smoke fixture
+ * "use client" directive of their own. `@decocms/nextjs`'s next-smoke fixture
  * (this plan's Task 9) is the first consumer to hit Next's real RSC
  * compiler, so this split was never needed before.
  *

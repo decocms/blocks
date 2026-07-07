@@ -1,16 +1,16 @@
 # Admin Routes Template
 
-Worked example derived directly from faststore-fila's `src/sdk/deco/adminRoute.ts` and the App Router route files that mount it. The old `@decocms/start/next` tier exported one function, `createDecoAdminRouteHandlers`, that returned `{ GET, POST, PATCH, DELETE }` from a single internal dispatcher routing on `req.url`. `@decocms/next` has no equivalent single dispatcher — it exports one function per admin concern instead, so the site's wrapper becomes a set of thin per-concern re-exports.
+Worked example derived directly from faststore-fila's `src/sdk/deco/adminRoute.ts` and the App Router route files that mount it. The old `@decocms/start/next` tier exported one function, `createDecoAdminRouteHandlers`, that returned `{ GET, POST, PATCH, DELETE }` from a single internal dispatcher routing on `req.url`. `@decocms/nextjs` has no equivalent single dispatcher — it exports one function per admin concern instead, so the site's wrapper becomes a set of thin per-concern re-exports.
 
 ## The wrapper: `src/sdk/deco/adminRoute.ts`
 
 ```typescript
 /**
- * Per-route wrappers around @decocms/next's admin Route Handlers.
+ * Per-route wrappers around @decocms/nextjs's admin Route Handlers.
  * Each runs ensureSetup() first (so the block registry is populated
  * before handling the request), then delegates. Replaces the single
  * dispatcher `createDecoAdminRouteHandlers` provided — that function has
- * no equivalent on the current package split; @decocms/next's handlers
+ * no equivalent on the current package split; @decocms/nextjs's handlers
  * are already split one per concern instead of URL-sniffed from one
  * function.
  */
@@ -21,7 +21,7 @@ import {
   metaGET as metaGETImpl,
   renderGET as renderGETImpl,
   renderPOST as renderPOSTImpl,
-} from '@decocms/next'
+} from '@decocms/nextjs'
 
 import { ensureSetup } from './setup'
 
@@ -87,7 +87,7 @@ export const dynamic = 'force-dynamic'
 export { renderGET as GET, renderPOST as POST } from 'src/sdk/deco/adminRoute'
 ```
 
-`renderGET`/`renderPOST` have a second real mount point beyond `/deco/render`: `/live/previews/*` (an optional catchall) is the path `@decocms/next`'s own `renderGET` doc comment calls out as its preview-mode route. Mount the same two functions there too — a future migrator should not assume render handlers live at exactly one URL:
+`renderGET`/`renderPOST` have a second real mount point beyond `/deco/render`: `/live/previews/*` (an optional catchall) is the path `@decocms/nextjs`'s own `renderGET` doc comment calls out as its preview-mode route. Mount the same two functions there too — a future migrator should not assume render handlers live at exactly one URL:
 
 ```typescript
 // src/app/live/previews/[[...path]]/route.ts
@@ -97,7 +97,7 @@ export { renderGET as GET, renderPOST as POST } from 'src/sdk/deco/adminRoute'
 
 ## Routes with no package equivalent
 
-The old dispatcher also served routes that have **no** `@decocms/blocks-admin`/`@decocms/next` equivalent — these were deliberately scoped out of the current package split (live-editing dev tunnel), not omitted by oversight. Delete them or replace with a simple non-daemon stub:
+The old dispatcher also served routes that have **no** `@decocms/blocks-admin`/`@decocms/nextjs` equivalent — these were deliberately scoped out of the current package split (live-editing dev tunnel), not omitted by oversight. Delete them or replace with a simple non-daemon stub:
 
 ```typescript
 // src/app/%5Fwatch/route.ts — DELETE. This served an SSE channel
