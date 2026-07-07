@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Deco admin protocol: /live/_meta, /.decofile, /deco/invoke, /deco/render, plus admin-facing site setup and commerce-app auto-configuration",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/decocms/blocks.git",
+    "directory": "packages/blocks-admin"
+  },
   "main": "./src/admin/index.ts",
   "exports": {
     ".": "./src/admin/index.ts",
