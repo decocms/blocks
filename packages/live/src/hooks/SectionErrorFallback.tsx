@@ -5,7 +5,7 @@
 // `componentDidCatch`/`getDerivedStateFromError` — error boundaries require
 // a Client Component in Next's App Router. `SectionRenderer.tsx` wraps
 // every rendered section in this boundary, so without the directive, any
-// Server Component that ends up importing `@decocms/runtime/hooks`
+// Server Component that ends up importing `@decocms/live/hooks`
 // transitively fails Next's build. Server Component children passed via
 // `props.children` still render fine — passing already-rendered Server
 // Component output into a Client Component's `children` is a supported RSC

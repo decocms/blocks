@@ -1,5 +1,5 @@
-export type { PageSeo } from "@decocms/runtime/cms";
-export type { Device } from "@decocms/runtime/sdk/useDevice";
+export type { PageSeo } from "@decocms/live/cms";
+export type { Device } from "@decocms/live/sdk/useDevice";
 export {
   decoInvokeRoute,
   decoMetaRoute,

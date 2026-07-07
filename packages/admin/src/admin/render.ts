@@ -9,7 +9,7 @@ import {
   resolveValue,
   WELL_KNOWN_TYPES,
   runSingleSectionLoader,
-} from "@decocms/runtime/cms";
+} from "@decocms/live/cms";
 import { buildHtmlShell } from "../sdk/htmlShell";
 import { LIVE_CONTROLS_SCRIPT } from "./liveControls";
 import { getPreviewWrapper } from "./setup";

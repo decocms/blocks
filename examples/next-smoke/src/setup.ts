@@ -1,4 +1,4 @@
-import { createSiteSetup } from "@decocms/runtime/setup";
+import { createSiteSetup } from "@decocms/live/setup";
 import { createAdminSetup } from "@decocms/admin/setup";
 
 // Unlike the Vite-based tanstack-smoke fixture (which passes
@@ -14,7 +14,7 @@ import { createAdminSetup } from "@decocms/admin/setup";
 // registry lookup, prop passthrough — renders actual content end-to-end
 // under Next's real build, not just that the package compiles. A page
 // block must use a `pages-` key prefix (see `getAllPages` in
-// packages/runtime/src/cms/loader.ts) and a section must be registered
+// packages/live/src/cms/loader.ts) and a section must be registered
 // through `registerSections` (the async-loader form) — `resolveDecoPage`'s
 // resolution pipeline does not read `registerSectionsSync`'s registry.
 createSiteSetup({

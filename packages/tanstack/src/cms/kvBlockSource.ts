@@ -17,7 +17,7 @@ import {
   computeRevision,
   KV_KEYS,
   type KVNamespace,
-} from "@decocms/runtime/cms";
+} from "@decocms/live/cms";
 
 export class KVBlockSource implements BlockSource {
   constructor(private readonly kv: KVNamespace) {}

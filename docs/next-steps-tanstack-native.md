@@ -1,6 +1,6 @@
 # Proximos Passos — TanStack Native Patterns
 
-> O que falta implementar em `@decocms/runtime`/`@decocms/tanstack` para usar o potencial completo do TanStack Router/Start.
+> O que falta implementar em `@decocms/live`/`@decocms/tanstack` para usar o potencial completo do TanStack Router/Start.
 > Ordenado por impacto e prioridade.
 
 ---
@@ -33,7 +33,7 @@
 **Solucao**: Usar `<ClientOnly>` do TanStack Router para wrapping automatico.
 
 **Arquivos**:
-- `packages/runtime/src/cms/registry.ts` — adicionar opcao `clientOnly` em `registerSection()` e `registerSectionsSync()`
+- `packages/live/src/cms/registry.ts` — adicionar opcao `clientOnly` em `registerSection()` e `registerSectionsSync()`
 - `packages/tanstack/src/hooks/DecoPageRenderer.tsx` — wrapping automatico com `<ClientOnly>` quando section marcada
 
 ```tsx
@@ -65,7 +65,7 @@ if (sectionOptions?.clientOnly) {
 
 **Solucao**: Deprecar `useScript(fn)`, adicionar `inlineScript(str)` que aceita string constante.
 
-**Arquivo**: `packages/runtime/src/sdk/useScript.ts`
+**Arquivo**: `packages/live/src/sdk/useScript.ts`
 
 ```tsx
 /** @deprecated fn.toString() differs SSR vs client. Use inlineScript(str) instead. */
@@ -95,7 +95,7 @@ export function inlineScript(js: string) {
 
 **Solucao**: Re-exportar `useHydrated` do TanStack Router como parte do SDK.
 
-**Arquivo**: `packages/runtime/src/sdk/useHydrated.ts` (novo)
+**Arquivo**: `packages/live/src/sdk/useHydrated.ts` (novo)
 
 ```tsx
 export { useHydrated } from "@tanstack/react-router";
@@ -167,7 +167,7 @@ const router = createRouter({
 
 **Solucao**: Criar versao isomorfica com `createIsomorphicFn`.
 
-**Arquivo**: `packages/runtime/src/sdk/useDevice.ts`
+**Arquivo**: `packages/live/src/sdk/useDevice.ts`
 
 ```tsx
 import { createIsomorphicFn } from "@tanstack/react-start";

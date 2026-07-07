@@ -34,8 +34,8 @@ import {
   resolveDecoPage,
   runSectionLoaders,
   runSingleSectionLoader,
-} from "@decocms/runtime/cms";
-import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/runtime/matchers/override";
+} from "@decocms/live/cms";
+import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/live/matchers/override";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -44,7 +44,7 @@ import {
   edgeCacheConfig,
   getCacheProfile,
   serverFnPagePath,
-} from "@decocms/runtime/sdk/cacheHeaders";
+} from "@decocms/live/sdk/cacheHeaders";
 import { buildHtmlShell } from "@decocms/admin/sdk/htmlShell";
 import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import {
@@ -54,19 +54,19 @@ import {
   recordRequestMetric,
   setSpanAttribute,
   withTracing,
-} from "@decocms/runtime/sdk/observability";
+} from "@decocms/live/sdk/observability";
 import {
   _setDebugSampled,
   _setRequestTraceContext,
   instrumentWorker,
   type OtelOptions,
-} from "@decocms/runtime/sdk/otel";
-import { setRuntimeEnv } from "@decocms/runtime/sdk/otelAdapters";
-import { parseTraceparent } from "@decocms/runtime/sdk/otelHttpTracer";
-import { RequestContext } from "@decocms/runtime/sdk/requestContext";
-import { cleanPathForCacheKey } from "@decocms/runtime/sdk/urlUtils";
-import { type Device, isMobileUA } from "@decocms/runtime/sdk/useDevice";
-import { isDevMode } from "@decocms/runtime/sdk/env";
+} from "@decocms/live/sdk/otel";
+import { setRuntimeEnv } from "@decocms/live/sdk/otelAdapters";
+import { parseTraceparent } from "@decocms/live/sdk/otelHttpTracer";
+import { RequestContext } from "@decocms/live/sdk/requestContext";
+import { cleanPathForCacheKey } from "@decocms/live/sdk/urlUtils";
+import { type Device, isMobileUA } from "@decocms/live/sdk/useDevice";
+import { isDevMode } from "@decocms/live/sdk/env";
 
 /**
  * Build-time identifier injected by `decoVitePlugin()` (see

@@ -18,14 +18,14 @@ None of these packages are published yet (all sit at `0.0.0`). Consuming sites l
 ├──────────────────┴───────────────────┴────────────────────┤
 │   @decocms/admin        (admin protocol, site bootstrap)   │
 ├──────────────────────────────────────────────────────────┤
-│   @decocms/runtime       (CMS core — zero framework deps)  │
+│   @decocms/live       (CMS core — zero framework deps)  │
 └──────────────────────────────────────────────────────────┘
                     ↑ codegen: @decocms/cli
 ```
 
 | Package | Responsibility | Depends on |
 |---|---|---|
-| **`@decocms/runtime`** | Framework-agnostic CMS core: block loading, page/section resolution, the section registry, matchers, request context. Zero deco-package dependencies. | — |
+| **`@decocms/live`** | Framework-agnostic CMS core: block loading, page/section resolution, the section registry, matchers, request context. Zero deco-package dependencies. | — |
 | **`@decocms/admin`** | Admin protocol (`/live/_meta`, `/.decofile`, `/deco/render`, `/deco/invoke`) and the admin half of site setup (`createAdminSetup`: meta schema, preview shell, commerce-loader wiring). | `runtime` |
 | **`@decocms/cli`** | Codegen (`generate-blocks`, `generate-schema`, `generate-invoke`, `generate-sections`, `generate-loaders`) and the Fresh/Preact/Deno → TanStack migration scripts. | `runtime` |
 | **`@decocms/tanstack`** | Production TanStack Start + Cloudflare Workers binding: `cmsRouteConfig`, `DecoPageRenderer`, `createDecoWorkerEntry`, the Vite plugin, fast-deploy (KV-backed content). | `runtime`, `admin`, `cli` |
@@ -47,7 +47,7 @@ Working examples of both bindings: [`examples/tanstack-smoke`](./examples/tansta
   "type": "module",
   "scripts": { "dev": "vite dev", "build": "vite build", "deploy": "wrangler deploy" },
   "dependencies": {
-    "@decocms/runtime": "*",
+    "@decocms/live": "*",
     "@decocms/admin": "*",
     "@decocms/tanstack": "*",
     "@decocms/apps": "^1.11.0",
@@ -78,7 +78,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: { "~": "/src" },
-    dedupe: ["react", "react-dom", "@decocms/runtime", "@decocms/admin", "@decocms/tanstack", "@decocms/apps"],
+    dedupe: ["react", "react-dom", "@decocms/live", "@decocms/admin", "@decocms/tanstack", "@decocms/apps"],
   },
 });
 ```
@@ -86,9 +86,9 @@ export default defineConfig({
 ### `src/setup.ts`
 
 ```ts
-import { createSiteSetup } from "@decocms/runtime/setup";
+import { createSiteSetup } from "@decocms/live/setup";
 import { createAdminSetup } from "@decocms/admin/setup";
-import { applySectionConventions } from "@decocms/runtime/cms";
+import { applySectionConventions } from "@decocms/live/cms";
 import { setupTanstackFastDeploy } from "@decocms/tanstack";
 
 import blocks from "./server/cms/blocks.gen";
@@ -138,7 +138,7 @@ export const Route = createFileRoute("/$")(cmsRouteConfig({ siteName: "my-store"
 ### `src/setup.ts`
 
 ```ts
-import { createSiteSetup } from "@decocms/runtime/setup";
+import { createSiteSetup } from "@decocms/live/setup";
 import { createAdminSetup } from "@decocms/admin/setup";
 
 createSiteSetup({
@@ -196,7 +196,7 @@ These are Agent Skills — usable from Claude Code, Cursor, Codex, or any tool t
 
 | Package | Peer deps |
 |---|---|
-| `@decocms/runtime`, `@decocms/admin` | `react ^19.0.0`, `react-dom ^19.0.0` |
+| `@decocms/live`, `@decocms/admin` | `react ^19.0.0`, `react-dom ^19.0.0` |
 | `@decocms/tanstack` | + `@tanstack/react-start >=1.0.0`, `@tanstack/store >=0.7.0`, `@tanstack/react-query >=5.0.0`, `vite >=6.0.0` |
 | `@decocms/next` | + `next >=15.0.0` |
 
@@ -218,12 +218,12 @@ This is a monorepo of libraries — there's no dev server here. `examples/tansta
 **Linking into a real site** (until packages are published):
 
 ```bash
-cd packages/runtime && bun link
+cd packages/live && bun link
 cd packages/admin && bun link
 cd packages/tanstack && bun link   # or packages/next
 ```
 
-Then in the site repo: `bun link @decocms/runtime @decocms/admin @decocms/tanstack && bun install`. Full walkthrough in the `deco-next-package-migration` skill.
+Then in the site repo: `bun link @decocms/live @decocms/admin @decocms/tanstack && bun install`. Full walkthrough in the `deco-next-package-migration` skill.
 
 Contributing? See [`CLAUDE.md`](./CLAUDE.md) for architectural decisions, [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) for the append-only history of the migration tooling, and the `docs/` folder for fast-deploy, observability, and RUM guides.
 

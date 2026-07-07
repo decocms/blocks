@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { computeRevision, KV_KEYS } from "@decocms/runtime/cms";
+import { computeRevision, KV_KEYS } from "@decocms/live/cms";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import { buildSnapshot, verifySnapshotInKv, writeSnapshotToKv } from "./lib/kv-snapshot";
 import {

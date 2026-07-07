@@ -42,17 +42,17 @@ import {
   resolveDeferredSectionFull,
   runSectionLoaders,
   runSingleSectionLoader,
-} from "@decocms/runtime/cms";
-import type { DeferredSection, MatcherContext, PageSeo, ResolvedSection } from "@decocms/runtime/cms";
-import { withTracing } from "@decocms/runtime/middleware/observability";
+} from "@decocms/live/cms";
+import type { DeferredSection, MatcherContext, PageSeo, ResolvedSection } from "@decocms/live/cms";
+import { withTracing } from "@decocms/live/middleware/observability";
 import {
   type CacheProfileName,
   cacheHeaders,
   detectCacheProfile,
   routeCacheDefaults,
-} from "@decocms/runtime/sdk/cacheHeaders";
-import { normalizeUrlsInObject } from "@decocms/runtime/sdk/normalizeUrls";
-import { type Device, detectDevice } from "@decocms/runtime/sdk/useDevice";
+} from "@decocms/live/sdk/cacheHeaders";
+import { normalizeUrlsInObject } from "@decocms/live/sdk/normalizeUrls";
+import { type Device, detectDevice } from "@decocms/live/sdk/useDevice";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
 

@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { registerSectionsSync } from "@decocms/runtime/cms";
+import { registerSectionsSync } from "@decocms/live/cms";
 import { DecoPageRenderer } from "./DecoPageRenderer";
 
 function Hero({ label }: { label?: string }) {

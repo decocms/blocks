@@ -14,7 +14,7 @@
  * ```
  */
 import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/admin";
-import { withTracing } from "@decocms/runtime/sdk/observability";
+import { withTracing } from "@decocms/live/sdk/observability";
 
 function invokeAttrs(request: Request): Record<string, string | boolean> {
   const url = new URL(request.url);

@@ -4,7 +4,7 @@ const { onChangeListeners } = vi.hoisted(() => ({
   onChangeListeners: [] as Array<() => void>,
 }));
 
-vi.mock("@decocms/runtime/cms", () => ({
+vi.mock("@decocms/live/cms", () => ({
   loadBlocks: vi.fn(),
   onChange: vi.fn((listener: () => void) => {
     onChangeListeners.push(listener);
@@ -12,7 +12,7 @@ vi.mock("@decocms/runtime/cms", () => ({
   resolvePageSections: vi.fn(),
 }));
 
-import { loadBlocks, resolvePageSections } from "@decocms/runtime/cms";
+import { loadBlocks, resolvePageSections } from "@decocms/live/cms";
 import {
   __resetSiteGlobalsCache,
   dedupeGlobals,

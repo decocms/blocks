@@ -11,7 +11,7 @@
  * that calls a client-only hook, even if the actual call site is never
  * invoked along that particular path.
  *
- * That's exactly what happened here: `packages/runtime/src/cms/sectionMixins.ts`
+ * That's exactly what happened here: `packages/live/src/cms/sectionMixins.ts`
  * imports only the plain, hook-free `detectDevice()` from `useDevice.ts` for
  * its `withDevice()`/`withMobile()` section-loader mixins — a 100%
  * server-side call path (loaders receive a `Request`, never render). But
@@ -28,7 +28,7 @@
  * `detectDevice`, `isMobileUA`, `checkMobile/Tablet/Desktop`, and the
  * `Device` type stay in `useDevice.ts` (no directive, safe to import from
  * server-only code); `useDevice.ts` re-exports `DeviceContext`/`useDevice`/
- * `DeviceProvider` from here so the public `@decocms/runtime/sdk/useDevice`
+ * `DeviceProvider` from here so the public `@decocms/live/sdk/useDevice`
  * entry point (and every existing consumer, e.g.
  * `packages/tanstack/src/hooks/DecoPageRenderer.tsx`) is unchanged.
  */

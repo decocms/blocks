@@ -6,7 +6,7 @@
 > real, current, on-disk convention on most real sites (confirmed: faststore-fila,
 > casaevideo-tanstack, bagaggio-tanstack) — that's where page/section CMS content,
 > including any `seo` block, actually lives locally, loaded via `@decocms/cli`'s
-> `generate-blocks.ts`/`sync-blocks-to-kv.ts` or `@decocms/runtime/cms`'s
+> `generate-blocks.ts`/`sync-blocks-to-kv.ts` or `@decocms/live/cms`'s
 > `loadDecofileDirectory`. A smaller number of sites (minimal fixtures like
 > `examples/tanstack-smoke`) instead pass an inline `blocks` object straight to
 > `createSiteSetup({ blocks: {...} })` in `src/setup.ts` — check which pattern a given

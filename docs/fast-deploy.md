@@ -30,7 +30,7 @@ KV DOWN / not migrated     serve the bundled blocks.gen snapshot (no behavior ch
 | `decofile:current` | full decofile JSON (the blocks map) | runtime source of truth |
 | `index:revision` | DJB2 hex hash of the snapshot | polled for change detection |
 
-`index:revision` **must** equal `computeRevision(blocks)` (`packages/runtime/src/cms/blockSource.ts`,
+`index:revision` **must** equal `computeRevision(blocks)` (`packages/live/src/cms/blockSource.ts`,
 DJB2 over `JSON.stringify`) — the runtime, the write-through path, and the CI
 scripts all use that one function so a hydrating isolate computes a matching
 revision and the poller doesn't loop. The original plan's `block:<name>` /
@@ -60,7 +60,7 @@ DECO_FAST_DEPLOY = "1"
 
 ## Read path (runtime)
 
-- `packages/runtime/src/cms/blockSource.ts` — `BlockSource` interface, `BundledBlockSource`,
+- `packages/live/src/cms/blockSource.ts` — `BlockSource` interface, `BundledBlockSource`,
   `computeRevision`, `KV_KEYS`, minimal `KVNamespace` type. (Generic/framework-agnostic — lives in `runtime`.)
 - `packages/tanstack/src/cms/kvBlockSource.ts` — `KVBlockSource` reads the two keys. (Cloudflare-KV-specific — lives in `tanstack`, not `runtime`, since fast-deploy is a `@decocms/tanstack`-only feature.)
 - `packages/tanstack/src/sdk/kvHydration.ts` — `ensureBlocksHydrated(env, ctx)` (cold start),

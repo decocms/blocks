@@ -133,12 +133,12 @@ export function LoadingFallback() {
 **Check**: Are there unnecessary PageInclude wrappers?
 
 The `$`-prefix shorthand (`"$Header-Block"`) is stale — verified against
-`packages/runtime/src/cms/resolve.ts`: named-block references now resolve by
+`packages/live/src/cms/resolve.ts`: named-block references now resolve by
 using the block's plain name directly as `__resolveType` (e.g.
 `{"__resolveType": "Header - 01"}` resolves to whatever block is named
 `"Header - 01"` in the CMS content — no `$` prefix). Whether `website/sections/PageInclude.tsx`
 itself still exists is **not verified** here — it would come from `@decocms/apps`
-(a separate repo not vendored in this monorepo), not from `@decocms/runtime`.
+(a separate repo not vendored in this monorepo), not from `@decocms/live`.
 
 ```json
 // Bad: Extra resolution overhead
@@ -195,14 +195,14 @@ Audit all imports and replace:
 **Check**: Are CSP headers configured?
 
 No more `_middleware.ts` (that's a Fresh routing convention). Verified against
-`packages/tanstack/src/sdk/workerEntry.ts` and `packages/runtime/src/sdk/csp.ts`:
+`packages/tanstack/src/sdk/workerEntry.ts` and `packages/live/src/sdk/csp.ts`:
 
 - **TanStack Start / Cloudflare Workers sites**: `createDecoWorkerEntry()` takes a
   `csp?: string[] | false` option — an array of directive strings joined with `"; "`.
   Note this sets `Content-Security-Policy-**Report-Only**`, not an enforcing
   `Content-Security-Policy` header (the framework's own default security headers
   don't include CSP at all — "it's site-specific", per that file's comment).
-  Separately, `setCSPHeaders()` in `@decocms/runtime/sdk/csp` sets `frame-ancestors`
+  Separately, `setCSPHeaders()` in `@decocms/live/sdk/csp` sets `frame-ancestors`
   (only) so the Deco admin can iframe-embed the storefront for live preview —
   that's a different, narrower concern than general script/asset hardening.
 - **Next.js sites**: no built-in CSP helper found in `@decocms/next`. Use Next's
@@ -246,7 +246,7 @@ verified here and shouldn't be guessed at.
 **Check**: Are loaders using absolute URLs?
 
 The specific `/live/invoke/...` endpoint from item 15's example is **not verified**
-to exist in the current runtime — a search of `@decocms/runtime`, `@decocms/admin`,
+to exist in the current runtime — a search of `@decocms/live`, `@decocms/admin`,
 `@decocms/next`, and `@decocms/tanstack` found no `live/invoke` route. Server-side
 data fetching in the current architecture goes through section loaders /
 `COMMERCE_LOADERS` function calls (see `cache-strategy.md`), not an HTTP invoke

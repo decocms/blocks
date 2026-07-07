@@ -3,9 +3,9 @@ import {
   getSection,
   getSectionOptions,
   getSyncComponent,
-} from "@decocms/runtime/cms";
-import type { ResolvedSection } from "@decocms/runtime/cms";
-import { SectionErrorBoundary } from "@decocms/runtime/hooks";
+} from "@decocms/live/cms";
+import type { ResolvedSection } from "@decocms/live/cms";
+import { SectionErrorBoundary } from "@decocms/live/hooks";
 import { ClientOnlySection } from "./ClientOnlySection";
 
 interface SectionRendererProps {

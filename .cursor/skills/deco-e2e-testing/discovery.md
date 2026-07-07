@@ -273,7 +273,7 @@ cat components/minicart/Cart.tsx | head -50
 
 **No `x-deco-section` / `x-deco-page` / `x-deco-route` / `x-deco-platform`
 headers exist in the current runtime.** A repo-wide grep for those header
-names across `packages/runtime`, `packages/admin`, `packages/tanstack`, and
+names across `packages/live`, `packages/admin`, `packages/tanstack`, and
 `packages/next` returns zero hits — this table described the old Fresh/Deno
 `@deco/deco` runtime and is not applicable to current TanStack Start / Next.js
 sites. Don't write test assertions against these headers; they will never be
@@ -285,7 +285,7 @@ What's still real:
 |--------|--------|---------|
 | `data-manifest-key` (DOM attribute) | `<section>` wrapper rendered by `DecoPageRenderer` (TanStack) or `SectionRenderer`/`DeferredSection` (Next.js) | Identifies which section a DOM node corresponds to |
 | `data-deferred="true"` (DOM attribute) | Same wrapper, present only while the section is still a skeleton/fallback | Tells you a section hasn't resolved yet — absence means it has |
-| `server-timing` | `?__d` debug mode (still real — see `packages/runtime/src/middleware/decoState.ts`) | Loader timings and cache status for the page-level response |
+| `server-timing` | `?__d` debug mode (still real — see `packages/live/src/middleware/decoState.ts`) | Loader timings and cache status for the page-level response |
 | `X-Deco-Cacheable` | Some TanStack server-fn responses (e.g. `loadDeferredSection`) | Whether that response is safe to edge-cache — not a section identifier |
 
 See `SKILL.md`'s "Lazy Section Tracking" section for how to use

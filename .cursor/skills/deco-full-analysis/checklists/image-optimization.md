@@ -45,9 +45,9 @@
 The Fresh-era pattern of appending a `Link` header from inside a section's
 `ctx.response` doesn't carry over: modern section loaders are plain
 `(props, req) => enrichedProps` functions (see `SectionLoaderFn` in
-`packages/runtime/src/cms/sectionLoaders.ts`) with no `ctx.response` handle to
+`packages/live/src/cms/sectionLoaders.ts`) with no `ctx.response` handle to
 append headers to. **Not fully verified** — I didn't find an equivalent
-per-section response-header hook in `@decocms/runtime`/`@decocms/next`/`@decocms/tanstack`.
+per-section response-header hook in `@decocms/live`/`@decocms/next`/`@decocms/tanstack`.
 The safer modern approach is a `<link rel="preload">` tag rendered in the page
 `<head>` (Next: the route's `generateMetadata`/root layout; TanStack: `__root.tsx`
 head config) rather than a response header — verify against the specific site's

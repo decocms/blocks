@@ -8,6 +8,6 @@ import { decoVitePlugin } from "@decocms/tanstack/vite";
 export default defineConfig({
   plugins: [tanstackStart(), react(), decoVitePlugin()],
   resolve: {
-    dedupe: ["react", "react-dom", "@decocms/runtime", "@decocms/admin", "@decocms/tanstack"],
+    dedupe: ["react", "react-dom", "@decocms/live", "@decocms/admin", "@decocms/tanstack"],
   },
 });

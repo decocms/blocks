@@ -16,7 +16,7 @@
     "lint:unused": "knip"
   },
   "dependencies": {
-    "@decocms/runtime": "workspace:*",
+    "@decocms/live": "workspace:*",
     "@decocms/admin": "workspace:*",
     "@decocms/cli": "workspace:*",
     "@deco-cx/warp-node": "^0.3.16",

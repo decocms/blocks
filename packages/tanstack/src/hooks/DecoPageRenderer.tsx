@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { Await, ClientOnly } from "@tanstack/react-router";
-import type { SectionOptions } from "@decocms/runtime/cms";
+import type { SectionOptions } from "@decocms/live/cms";
 import {
   getResolvedComponent,
   getSectionOptions,
@@ -17,11 +17,11 @@ import {
   getSyncComponent,
   preloadSectionModule,
   setResolvedComponent,
-} from "@decocms/runtime/cms";
-import type { DeferredSection, ResolvedSection } from "@decocms/runtime/cms";
-import { type Device, DeviceProvider } from "@decocms/runtime/sdk/useDevice";
+} from "@decocms/live/cms";
+import type { DeferredSection, ResolvedSection } from "@decocms/live/cms";
+import { type Device, DeviceProvider } from "@decocms/live/sdk/useDevice";
 
-import { SectionErrorBoundary } from "@decocms/runtime/hooks";
+import { SectionErrorBoundary } from "@decocms/live/hooks";
 
 type LazyComponent = ReturnType<typeof lazy>;
 
@@ -85,7 +85,7 @@ function NestedSectionFallback() {
   return <div className="w-full h-24 bg-base-200 animate-pulse rounded" />;
 }
 
-import { isDevMode } from "@decocms/runtime/sdk/env";
+import { isDevMode } from "@decocms/live/sdk/env";
 
 const isDev = isDevMode();
 

@@ -1,5 +1,5 @@
 {
-  "name": "@decocms/runtime",
+  "name": "@decocms/live",
   "version": "0.0.0",
   "type": "module",
   "description": "Deco framework-agnostic core: CMS block resolution, section registry, matchers, portable SDK utilities",
@@ -68,7 +68,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --root ../.. packages/runtime",
+    "test": "vitest run --root ../.. packages/live",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
   },

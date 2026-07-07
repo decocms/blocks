@@ -2,7 +2,7 @@
 
 7 learnings from real Deco sites. Check these during analysis.
 
-> Verified against `packages/runtime/src/sdk/cachedLoader.ts` (`@decocms/runtime`). The
+> Verified against `packages/live/src/sdk/cachedLoader.ts` (`@decocms/live`). The
 > `cache`/`cacheKey` export pattern below still matches the current `LoaderModule`
 > interface exactly (`cache?: CachePolicy | { maxAge: number }`, `cacheKey?: (props) =>
 > string | null`, where `CachePolicy = "no-store" | "no-cache" | "stale-while-revalidate"`).
@@ -11,7 +11,7 @@
 > note**: `.deco/blocks/*.json` is still a real, current, on-disk convention — most real
 > sites (confirmed: faststore-fila, casaevideo-tanstack, bagaggio-tanstack) load CMS page/
 > section content from a `.deco/blocks/` directory snapshot, either via `@decocms/cli`'s
-> `generate-blocks.ts`/`sync-blocks-to-kv.ts` codegen or `@decocms/runtime/cms`'s
+> `generate-blocks.ts`/`sync-blocks-to-kv.ts` codegen or `@decocms/live/cms`'s
 > `loadDecofileDirectory` helper. Passing an inline `blocks` object directly to
 > `createSiteSetup({ blocks: {...} })` in `src/setup.ts` is a second, simpler pattern used
 > by minimal fixtures (`examples/tanstack-smoke`) — both are valid, check which one a given

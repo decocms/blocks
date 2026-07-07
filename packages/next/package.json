@@ -14,7 +14,7 @@
     "lint:unused": "knip"
   },
   "dependencies": {
-    "@decocms/runtime": "workspace:*",
+    "@decocms/live": "workspace:*",
     "@decocms/admin": "workspace:*"
   },
   "peerDependencies": {

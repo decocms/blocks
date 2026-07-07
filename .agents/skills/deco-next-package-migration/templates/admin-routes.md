@@ -125,7 +125,7 @@ export async function GET() {
 // src/app/%5Fready/route.ts — replace with a site-authored readiness
 // check reading the block registry directly. No shared "readiness"
 // helper ships in the new packages; this logic now lives in the site.
-import { loadBlocks } from '@decocms/runtime/cms'
+import { loadBlocks } from '@decocms/live/cms'
 
 import { ensureSetup } from 'src/sdk/deco/setup'
 

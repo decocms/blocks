@@ -1,6 +1,6 @@
 import { Suspense, type ReactNode } from "react";
-import type { DeferredSection, ResolvedSection } from "@decocms/runtime/cms";
-import { SectionErrorBoundary } from "@decocms/runtime/hooks";
+import type { DeferredSection, ResolvedSection } from "@decocms/live/cms";
+import { SectionErrorBoundary } from "@decocms/live/hooks";
 import { SectionRenderer } from "./SectionRenderer";
 
 interface DeferredSectionBoundaryProps {

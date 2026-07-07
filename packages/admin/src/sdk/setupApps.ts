@@ -24,8 +24,8 @@ import {
   registerSections,
   registerCommerceLoaders,
   unregisterCommerceLoader,
-} from "@decocms/runtime/cms";
-import { RequestContext } from "@decocms/runtime/sdk/requestContext";
+} from "@decocms/live/cms";
+import { RequestContext } from "@decocms/live/sdk/requestContext";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors @decocms/apps/commerce/app-types without importing it

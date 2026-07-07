@@ -1,5 +1,5 @@
-import { djb2Hex } from "@decocms/runtime/sdk/djb2";
-import { composeMeta, type MetaResponse } from "@decocms/runtime/cms";
+import { djb2Hex } from "@decocms/live/sdk/djb2";
+import { composeMeta, type MetaResponse } from "@decocms/live/cms";
 
 // Use globalThis to share meta state across module instances.
 // The daemon middleware imports this module via native import() (outside Vite SSR),

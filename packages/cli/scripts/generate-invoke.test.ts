@@ -128,7 +128,7 @@ describe("generate-invoke.ts — output shape", () => {
     expect(generatedOutput).toContain('from "@tanstack/react-start/server"');
     expect(generatedOutput).toMatch(/getResponseHeaders\s*,?\s*\n?\s*setResponseHeader/);
     expect(generatedOutput).toContain(
-      'import { RequestContext } from "@decocms/runtime/sdk/requestContext"',
+      'import { RequestContext } from "@decocms/live/sdk/requestContext"',
     );
   });
 

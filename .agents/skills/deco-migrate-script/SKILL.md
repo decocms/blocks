@@ -160,9 +160,9 @@ Applies 6 transforms in sequence to every source file:
 preact/hooks     → react
 preact/compat    → react
 preact           → react
-@preact/signals  → @decocms/runtime/sdk/signal
-@deco/deco/hooks → @decocms/runtime/sdk/useScript
-@deco/deco/blocks→ @decocms/runtime/types
+@preact/signals  → @decocms/live/sdk/signal
+@deco/deco/hooks → @decocms/live/sdk/useScript
+@deco/deco/blocks→ @decocms/live/types
 apps/commerce/*  → @decocms/apps/commerce/*
 apps/website/*   → ~/components/ui/* or @decocms/apps/*
 site/*           → ~/*
@@ -250,7 +250,7 @@ bg-black bg-opacity-20 → bg-black/20
 **Deletes root files:**
 - `deno.json`, `fresh.gen.ts`, `main.ts`, `dev.ts`, `tailwind.config.ts`, `runtime.ts`, `constants.ts`
 
-**Deletes SDK files** (now in @decocms/runtime or @decocms/apps):
+**Deletes SDK files** (now in @decocms/live or @decocms/apps):
 - `sdk/clx.ts`, `sdk/useId.ts`, `sdk/useOffer.ts`, `sdk/useVariantPossiblities.ts`, `sdk/usePlatform.tsx`
 
 **Moves:**
@@ -264,7 +264,7 @@ Generates `MIGRATION_REPORT.md` with:
 - Manual review items with severity
 - Always-check section (FormEmail, Slider, Theme, DaisyUI, Tailwind)
 - Known issues (z-index stacking, opacity modifiers)
-- Framework findings (patterns to consolidate into @decocms/runtime)
+- Framework findings (patterns to consolidate into @decocms/live)
 - Next steps
 
 ### Phase 6: Verify

@@ -7,7 +7,7 @@
  * Expected output: `{"inserted":1}` echoed by the ingestor.
  */
 
-import { createOtlpHttpLogAdapter } from "@decocms/runtime/sdk/otelHttpLog";
+import { createOtlpHttpLogAdapter } from "@decocms/live/sdk/otelHttpLog";
 
 async function main() {
   const sink = createOtlpHttpLogAdapter({

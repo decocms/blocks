@@ -29,7 +29,7 @@
     "lint:unused": "knip"
   },
   "dependencies": {
-    "@decocms/runtime": "workspace:*",
+    "@decocms/live": "workspace:*",
     "ts-morph": "^27.0.0",
     "tsx": "^4.19.0"
   },

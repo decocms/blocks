@@ -26,4 +26,4 @@ export {
   registerLoaderSchemas,
   registerMatcherSchema,
   registerMatcherSchemas,
-} from "@decocms/runtime/cms";
+} from "@decocms/live/cms";
