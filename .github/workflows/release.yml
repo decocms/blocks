@@ -22,13 +22,15 @@ name: Release
 
 on:
   push:
-    # v7 restored 2026-07-07: NODE_AUTH_TOKEN is now a granular access
-    # token with "Bypass two-factor authentication" enabled and
-    # read/write access to the decocms org + all packages, so CI can
-    # actually publish. All 5 v7 packages were bootstrapped to 7.0.0 via
-    # a manual local publish first (git tags blocks-v0.0.1/blocks-v7.0.0
-    # already existed as the seed); future commits release normally
-    # through this trigger.
+    # v7 restored 2026-07-07: publishing now goes through npm Trusted
+    # Publishing (OIDC) — each of the 5 v7 packages has this repo's
+    # .github/workflows/release.yml configured as its trusted publisher
+    # on npmjs.com. No stored npm token; the "Release" step's id-token
+    # permission (below) lets `npm publish` exchange a GitHub OIDC token
+    # for a short-lived npm auth token at publish time. All 5 v7 packages
+    # were bootstrapped to 7.0.0 via a manual local publish first (git
+    # tags blocks-v0.0.1/blocks-v7.0.0 already existed as the seed);
+    # future commits release normally through this trigger.
     branches: [main, v7]
   # Manual escape hatch to verify what a release WOULD do — especially for the
   # v7 line, which publishes 5 brand-new npm packages that have never been
@@ -65,6 +67,10 @@ jobs:
           bun-version: 1.3.5
 
       - run: bun install --frozen-lockfile
+
+      # npm Trusted Publishing (OIDC) requires npm >=11.5.1 to perform the
+      # OIDC token exchange. Node 22's bundled npm is older than that.
+      - run: npm install -g npm@latest
 
       # main publishes the single legacy @decocms/start package (v*.*.* tags).
       # v7 publishes the 5 split @decocms/* packages under an entirely
