@@ -52,4 +52,29 @@ describe("createNextSetup", () => {
     const { isLayoutSection } = await import("@decocms/blocks/cms");
     expect(isLayoutSection("site/sections/Footer.tsx")).toBe(true);
   });
+
+  it("clears the memo on a rejected bootstrap so the next call retries", async () => {
+    const meta = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient fetch failure"))
+      .mockResolvedValueOnce({
+        major: 1,
+        version: "test",
+        namespace: "site",
+        site: "test",
+        manifest: { blocks: { sections: {} } },
+        schema: { definitions: {}, root: {} },
+        platform: "test",
+        cloudProvider: "test",
+      });
+    const ensureSetup = createNextSetup({
+      blocksDir: false,
+      sections: { "./sections/Hero.tsx": async () => ({ default: () => null }) },
+      meta,
+    });
+
+    await expect(ensureSetup()).rejects.toThrow("transient fetch failure");
+    await expect(ensureSetup()).resolves.toBeUndefined();
+    expect(meta).toHaveBeenCalledTimes(2);
+  });
 });

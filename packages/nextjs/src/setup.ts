@@ -71,6 +71,13 @@ export interface NextSetupOptions {
   extend?: (blocks: Record<string, unknown>) => void | Promise<void>;
 }
 
+/**
+ * Returns a memoized `ensureSetup` function. A successful bootstrap is
+ * cached for the lifetime of the module (warm serverless instance); a
+ * *rejected* bootstrap is NOT cached — the memo is cleared on failure so
+ * the next call retries from scratch, while the triggering call still
+ * rejects with the original error.
+ */
 export function createNextSetup(options: NextSetupOptions): () => Promise<void> {
   let setupPromise: Promise<void> | null = null;
 
@@ -106,7 +113,14 @@ export function createNextSetup(options: NextSetupOptions): () => Promise<void> 
       }
 
       await options.extend?.(loadBlocks());
-    })();
+    })().catch((error) => {
+      // A failed bootstrap must not poison the warm instance: clear the memo
+      // so the next request retries (transient fs/fetch failures are the
+      // common case in serverless cold starts). The error still propagates
+      // to THIS caller so the triggering request fails loudly.
+      setupPromise = null;
+      throw error;
+    });
     return setupPromise;
   };
 }
