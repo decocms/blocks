@@ -119,6 +119,14 @@ describe("createDecoRouteHandlers", () => {
     expect(res.status).not.toBe(404);
   });
 
+  it("405s POST /live/_meta with Allow: GET (the PRE-rewrite URL form)", async () => {
+    const { POST } = createDecoRouteHandlers();
+    const res = await POST(new Request("http://x/live/_meta", { method: "POST" }));
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("GET");
+    expect(mocks.handleMeta).not.toHaveBeenCalled();
+  });
+
   it("routes the rewrite-source /live/previews/* path straight through to handleRender with the prefix intact", async () => {
     const { GET } = createDecoRouteHandlers();
     const res = await GET(new Request("http://x/live/previews/pages-Home-123?props=x"));

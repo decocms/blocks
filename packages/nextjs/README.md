@@ -74,7 +74,7 @@ previews) for both the rewritten public URLs (`/.decofile`, `/live/_meta`,
 ```ts
 // src/app/deco/[[...deco]]/route.ts
 import { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";
-import { ensureSetup } from "../../deco/setup";
+import { ensureSetup } from "../../../deco/setup";
 
 export const dynamic = "force-dynamic";
 
