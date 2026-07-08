@@ -3,6 +3,12 @@ dist/
 *.gen.ts
 *.gen.json
 
+# apps-*/manifest.gen.ts is an exception: apps-start's own convention commits
+# it to source control (its own header says so — "updated via: npm run
+# generate:manifests", not a per-checkout build artifact like routeTree.gen.ts
+# below). Scoped narrowly so other packages' *.gen.ts stay ignored.
+!packages/apps-*/src/manifest.gen.ts
+
 .notes/
 
 # Lockfiles — bun is canonical, prevent accidental drift
