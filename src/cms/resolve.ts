@@ -709,7 +709,7 @@ function stickyMatcherMeta(rule: Record<string, unknown> | undefined): StickyMet
  * Evaluate a variant's rule, applying sticky persistence for A/B matchers.
  *
  * For a sticky matcher: reuse the decision already recorded this request; else
- * honor the `deco_flags` cookie when its fingerprint still matches the current
+ * honor the `deco_segment` cookie when its fingerprint still matches the current
  * `traffic`; else roll fresh. Every decision is recorded on `ctx.flags` (when
  * present) so the caller can persist the cookie and split the cache. Non-sticky
  * rules fall through to the plain matcher.
@@ -719,7 +719,10 @@ function evaluateVariantRule(
   ctx: MatcherContext,
 ): boolean {
   const meta = stickyMatcherMeta(rule);
-  if (!meta) return evaluateMatcher(rule, ctx);
+  // Admin preview forces variants via x-deco-matchers-override; defer to
+  // evaluateMatcher so a forced decision wins. Sticky persistence is a
+  // production concern (previews aren't cached), so skipping it here is fine.
+  if (!meta || hasMatchersOverride(ctx)) return evaluateMatcher(rule, ctx);
 
   // Reuse a decision already made this request so every resolve pass (page,
   // shallow section-key, deferred) selects the same variant.

@@ -21,6 +21,7 @@ vi.mock("./registry", () => ({
   getSection: vi.fn(),
 }));
 
+import { DECO_MATCHERS_OVERRIDE_PARAM } from "../matchers/override";
 import { type StoredFlag, serializeSegmentCookie } from "../sdk/flags";
 import type { MatcherContext } from "./resolve";
 import { resolveValue } from "./resolve";
@@ -94,5 +95,23 @@ describe("sticky A/B multivariate resolution", () => {
     // No `flags` array on the context -> nothing to record, but still resolves.
     const result = await resolveValue(FLAG, undefined, { cookies: {} });
     expect(result).toBe("VARIANT_1");
+  });
+
+  it("honors the admin matchers-override instead of the cookie/roll", async () => {
+    const rand = vi.spyOn(Math, "random");
+    // Admin forces TestHero=0 for preview, but the cookie says test cohort.
+    const c: MatcherContext & { flags: StoredFlag[] } = {
+      cookies: {
+        deco_segment: serializeSegmentCookie([{ name: "TestHero", value: true, pct: 50 }]),
+      },
+      headers: { [DECO_MATCHERS_OVERRIDE_PARAM]: "TestHero=0" },
+      flags: [],
+    };
+
+    const result = await resolveValue(FLAG, undefined, c);
+
+    expect(result).toBe("VARIANT_2"); // override wins over the cookie
+    expect(rand).not.toHaveBeenCalled();
+    expect(c.flags).toEqual([]); // previews don't persist a cohort
   });
 });
