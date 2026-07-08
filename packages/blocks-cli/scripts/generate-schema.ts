@@ -74,6 +74,18 @@ function toBase64(str: string): string {
 }
 
 /**
+ * Definition IDs must be stable across machines: the raw ts-morph path is
+ * absolute (`file:///Users/<user>/...`), which made meta.gen.json differ
+ * per machine and destabilized the /live/_meta ETag. IDs are opaque to the
+ * admin — only internal $ref consistency matters — so relativize to root.
+ */
+export function definitionIdForPath(filePath: string, rootDir: string): string {
+  const cleaned = filePath.replace(/^file:\/+/, "/");
+  const rel = path.relative(rootDir, cleaned).replaceAll("\\", "/");
+  return toBase64(rel.startsWith("..") ? cleaned : rel);
+}
+
+/**
  * Map JSDoc tags to JSON Schema 7 keywords.
  * Supports all 20+ tags from deco-cx/deco.
  */
@@ -1143,7 +1155,7 @@ function generateMeta(): MetaResponse {
 
       const propCount = Object.keys(propsSchema.properties || {}).length;
 
-      const propsDefKey = toBase64(`file:///${filePath.replaceAll("\\", "/")}`) + "@Props";
+      const propsDefKey = definitionIdForPath(filePath, root) + "@Props";
       definitions[propsDefKey] = propsSchema;
 
       const sectionDefKey = toBase64(blockKey);
@@ -1234,7 +1246,7 @@ function generateMeta(): MetaResponse {
 
         const propCount = Object.keys(propsSchema.properties || {}).length;
 
-        const propsDefKey = toBase64(`file:///${filePath.replaceAll("\\", "/")}`) + "@Props";
+        const propsDefKey = definitionIdForPath(filePath, root) + "@Props";
         definitions[propsDefKey] = propsSchema;
 
         const appDefKey = toBase64(blockKey);

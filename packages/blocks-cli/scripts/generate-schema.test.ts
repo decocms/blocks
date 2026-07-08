@@ -1,6 +1,29 @@
 import { Project } from "ts-morph";
 import { describe, expect, it } from "vitest";
-import { WIDGET_TYPE_FORMATS, applyWidgetFormat, typeToJsonSchema } from "./generate-schema";
+import {
+  WIDGET_TYPE_FORMATS,
+  applyWidgetFormat,
+  definitionIdForPath,
+  typeToJsonSchema,
+} from "./generate-schema";
+
+describe("definitionIdForPath", () => {
+  it("is repo-relative, never absolute", () => {
+    const id = definitionIdForPath(
+      "/Users/anyone/code/mysite/src/sections/Hero.tsx",
+      "/Users/anyone/code/mysite",
+    );
+    expect(Buffer.from(id, "base64").toString()).toBe("src/sections/Hero.tsx");
+  });
+
+  it("normalizes file:// prefixes from ts-morph", () => {
+    const id = definitionIdForPath(
+      "file:///Users/anyone/code/mysite/src/sections/Hero.tsx",
+      "/Users/anyone/code/mysite",
+    );
+    expect(Buffer.from(id, "base64").toString()).toBe("src/sections/Hero.tsx");
+  });
+});
 
 describe("applyWidgetFormat", () => {
   it("recovers an unresolved widget alias (empty schema) as string + format", () => {
