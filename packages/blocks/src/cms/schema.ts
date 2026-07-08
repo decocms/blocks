@@ -461,12 +461,7 @@ registerMatcherSchemas([
         matchers: {
           type: "array",
           title: "Matchers",
-          items: {
-            type: "object",
-            required: ["__resolveType"],
-            properties: { __resolveType: { type: "string" } },
-            additionalProperties: true,
-          },
+          items: { $ref: "#/root/matchers" },
         },
       },
     },
@@ -481,11 +476,8 @@ registerMatcherSchemas([
       type: "object",
       properties: {
         matcher: {
-          type: "object",
+          $ref: "#/root/matchers",
           title: "Matcher",
-          required: ["__resolveType"],
-          properties: { __resolveType: { type: "string" } },
-          additionalProperties: true,
         },
       },
     },
