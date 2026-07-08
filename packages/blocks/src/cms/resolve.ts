@@ -7,6 +7,7 @@ import {
 import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
 import { djb2Hex } from "../sdk/djb2";
+import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } from "../sdk/flags";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { findPageByPath, loadBlocks } from "./loader";
@@ -381,6 +382,15 @@ export interface MatcherContext {
   headers?: Record<string, string>;
   request?: Request;
   /**
+   * Sticky A/B flags recorded during resolution. The resolver appends a
+   * {@link StoredFlag} the first time it evaluates each sticky matcher (see
+   * `evaluateVariantRule`), reusing the decision for the rest of the request
+   * so every resolve pass picks the same variant. Read it after resolution to
+   * persist the `deco_flags` cookie and split the edge cache per cohort.
+   * Pass an array in to opt into recording; leave undefined to disable.
+   */
+  flags?: StoredFlag[];
+  /**
    * Client-side (SPA) navigation via TanStack `<Link>`. Disables section
    * deferral: deferral is a streaming-SSR optimization, but a client nav
    * receives the server-fn JSON in one shot, so deferral adds a round-trip +
@@ -651,6 +661,85 @@ export function evaluateMatcher(
 }
 
 // ---------------------------------------------------------------------------
+// Sticky matchers (A/B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Matcher types whose decision must stick per user instead of re-rolling every
+ * request. Mirrors the `sticky = "session"` export on the corresponding
+ * matchers in @decocms/apps (deco-start re-implements matchers inline, so it
+ * declares the set here rather than importing those exports).
+ */
+const STICKY_MATCHER_TYPES = new Set(["website/matchers/random.ts"]);
+
+interface StickyMeta {
+  /** Cohort identity — the named matcher block (e.g. "TestHero"). */
+  name: string;
+  /** Traffic share for the `true` branch. */
+  traffic: number;
+  /** `round(traffic * 100)` — the re-roll fingerprint. */
+  pct: number;
+}
+
+/**
+ * If `rule` points at a sticky matcher, return its cohort identity + traffic;
+ * otherwise `null` (evaluate normally). A rule is either a named matcher block
+ * (`{__resolveType: "TestHero"}`, dereferenced here to read its `traffic`) or
+ * an inline matcher; the block name is the stable cohort key when present.
+ */
+function stickyMatcherMeta(rule: Record<string, unknown> | undefined): StickyMeta | null {
+  const rt = rule?.__resolveType as string | undefined;
+  if (!rt) return null;
+
+  const blocks = loadBlocks();
+  const name = rt;
+  let resolved = rule as Record<string, unknown>;
+  if (blocks[rt]) {
+    resolved = blocks[rt] as Record<string, unknown>;
+  }
+
+  const type = resolved.__resolveType as string | undefined;
+  if (!type || !STICKY_MATCHER_TYPES.has(type)) return null;
+
+  const traffic = typeof resolved.traffic === "number" ? resolved.traffic : 0.5;
+  return { name, traffic, pct: trafficToPct(traffic) };
+}
+
+/**
+ * Evaluate a variant's rule, applying sticky persistence for A/B matchers.
+ *
+ * For a sticky matcher: reuse the decision already recorded this request; else
+ * honor the `deco_segment` cookie when its fingerprint still matches the current
+ * `traffic`; else roll fresh. Every decision is recorded on `ctx.flags` (when
+ * present) so the caller can persist the cookie and split the cache. Non-sticky
+ * rules fall through to the plain matcher.
+ */
+function evaluateVariantRule(
+  rule: Record<string, unknown> | undefined,
+  ctx: MatcherContext,
+): boolean {
+  const meta = stickyMatcherMeta(rule);
+  // Admin preview forces variants via x-deco-matchers-override; defer to
+  // evaluateMatcher so a forced decision wins. Sticky persistence is a
+  // production concern (previews aren't cached), so skipping it here is fine.
+  if (!meta || hasMatchersOverride(ctx)) return evaluateMatcher(rule, ctx);
+
+  // Reuse a decision already made this request so every resolve pass (page,
+  // shallow section-key, deferred) selects the same variant.
+  const already = ctx.flags?.find((f) => f.name === meta.name && f.pct === meta.pct);
+  if (already) return already.value;
+
+  const stored = parseSegmentCookie(ctx.cookies?.[SEGMENT_COOKIE]).find((f) => f.name === meta.name);
+  // pct === -1 marks a classic-deco segment without a fingerprint — honor it
+  // (stay sticky) instead of re-rolling. A stale fingerprint re-rolls.
+  const useStored = stored && (stored.pct === -1 || stored.pct === meta.pct);
+  const value = useStored ? stored.value : Math.random() < meta.traffic;
+
+  ctx.flags?.push({ name: meta.name, value, pct: meta.pct });
+  return value;
+}
+
+// ---------------------------------------------------------------------------
 // Select (partial field picking)
 // ---------------------------------------------------------------------------
 
@@ -742,7 +831,7 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
 
     for (const variant of variants) {
       const rule = variant.rule as Record<string, unknown> | undefined;
-      if (evaluateMatcher(rule, rctx.matcherCtx)) {
+      if (evaluateVariantRule(rule, rctx.matcherCtx)) {
         return internalResolve(variant.value, childCtx);
       }
     }
@@ -1047,7 +1136,7 @@ export async function resolvePageSeoBlock(
       let matched: unknown = null;
       for (const variant of variants) {
         const rule = variant.rule as Record<string, unknown> | undefined;
-        if (evaluateMatcher(rule, rctx.matcherCtx)) {
+        if (evaluateVariantRule(rule, rctx.matcherCtx)) {
           matched = variant.value;
           break;
         }
@@ -1228,7 +1317,7 @@ function resolveFinalSectionKey(section: unknown, matcherCtx?: MatcherContext): 
       let matched: unknown = null;
       for (const variant of variants) {
         const rule = variant.rule as Record<string, unknown> | undefined;
-        if (evaluateMatcher(rule, matcherCtx ?? {})) {
+        if (evaluateVariantRule(rule, matcherCtx ?? {})) {
           matched = variant.value;
           break;
         }
@@ -1281,7 +1370,7 @@ function isCmsDeferralWrapped(section: unknown, matcherCtx?: MatcherContext): bo
       let matched: unknown = null;
       for (const variant of variants) {
         const rule = variant.rule as Record<string, unknown> | undefined;
-        if (evaluateMatcher(rule, matcherCtx ?? {})) {
+        if (evaluateVariantRule(rule, matcherCtx ?? {})) {
           matched = variant.value;
           break;
         }
@@ -1433,7 +1522,7 @@ function resolveSectionShallow(
       let matched: unknown = null;
       for (const variant of variants) {
         const rule = variant.rule as Record<string, unknown> | undefined;
-        if (evaluateMatcher(rule, matcherCtx ?? {})) {
+        if (evaluateVariantRule(rule, matcherCtx ?? {})) {
           matched = variant.value;
           break;
         }
@@ -1492,7 +1581,7 @@ export async function resolveSectionsList(
     const variants = obj.variants as Array<{ value: unknown; rule?: unknown }>;
     for (const variant of variants) {
       const rule = variant.rule as Record<string, unknown> | undefined;
-      if (evaluateMatcher(rule, rctx.matcherCtx)) {
+      if (evaluateVariantRule(rule, rctx.matcherCtx)) {
         return resolveSectionsList(variant.value, rctx, depth + 1);
       }
     }
@@ -1507,7 +1596,7 @@ export async function resolveSectionsList(
     if (!variants?.length) return [];
     for (const variant of variants) {
       const rule = variant.rule as Record<string, unknown> | undefined;
-      if (evaluateMatcher(rule, rctx.matcherCtx)) {
+      if (evaluateVariantRule(rule, rctx.matcherCtx)) {
         return resolveSectionsList(variant.value, rctx, depth + 1);
       }
     }
@@ -1634,10 +1723,14 @@ export async function resolveDecoPage(
     async () => {
       const result = await resolveDecoPageImpl(targetPath, matcherCtx);
       try {
+        // No path label: resolve duration is a per-service latency signal, and
+        // the request path is unbounded cardinality (one histogram series per
+        // URL — product pages, search, facets) that made this the single
+        // biggest series in ClickHouse. Per-route latency lives on the span
+        // below (raw deco.route), which is sampled — the right place for it.
         getMeter()?.histogramRecord?.(
           MetricNames.RESOLVE_DURATION,
-          performance.now() - startedAt,
-          { path: targetPath },
+          (performance.now() - startedAt) / 1000,
         );
       } catch {
         /* observability never fails the request */

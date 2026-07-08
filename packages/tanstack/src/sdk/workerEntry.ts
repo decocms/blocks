@@ -45,6 +45,7 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "@decocms/blocks/sdk/cacheHeaders";
+import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import {
@@ -61,6 +62,7 @@ import {
   instrumentWorker,
   type OtelOptions,
 } from "@decocms/blocks/sdk/otel";
+import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
@@ -434,6 +436,25 @@ export interface DecoWorkerEntryOptions {
    * no-op — no buffers, no flushes, no network calls.
    */
   observability?: OtelOptions | false;
+
+  /**
+   * Default `User-Agent` for OUTBOUND `fetch` calls (loaders, commerce
+   * APIs, proxies). Cloudflare Workers sends no User-Agent at all, and
+   * UA-less requests are blocked by common WAF setups (Cloudflare managed
+   * rules / Bot Fight Mode) on partner origins. The old Deno runtime
+   * implicitly sent `Deno/x.y.z` on every outbound request, so this
+   * restores pre-migration behavior with an identifiable value.
+   *
+   * Applied only when the caller didn't set a User-Agent — app-specific
+   * UAs always win.
+   *
+   * - Pass a string to override the value (e.g. to match a partner's
+   *   existing WAF allowlist during migration).
+   * - Pass `false` to leave `globalThis.fetch` untouched.
+   *
+   * @default `Deco/<version> (+https://deco.cx)` — see DECO_USER_AGENT.
+   */
+  outboundUserAgent?: string | false;
 }
 
 // ---------------------------------------------------------------------------
@@ -707,7 +728,17 @@ export function createDecoWorkerEntry(
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
     cdnCacheControl: cdnCacheControlOpt = "no-store",
     observability: observabilityOpt,
+    outboundUserAgent: outboundUserAgentOpt,
   } = options;
+
+  // Patch global fetch once so every outbound request — apps calling
+  // `fetch` directly, RequestContext.fetch, instrumentedFetch — carries a
+  // User-Agent. Workers sends none by default, which WAFs on partner
+  // origins read as bot traffic. Set-if-absent: callers that set their
+  // own UA are untouched.
+  if (outboundUserAgentOpt !== false) {
+    installDefaultUserAgent(outboundUserAgentOpt);
+  }
 
   // Backfill `regionId` from Cloudflare geo when the consumer's buildSegment
   // doesn't set one. Without this, sites using website/matchers/location.ts
@@ -830,6 +861,25 @@ export function createDecoWorkerEntry(
     return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
   }
 
+  function readRequestCookie(request: Request, name: string): string | undefined {
+    for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
+      const idx = pair.indexOf("=");
+      if (idx <= 0) continue;
+      if (pair.slice(0, idx).trim() !== name) continue;
+      const raw = pair.slice(idx + 1).trim();
+      // Decode once so this matches TanStack's getCookies() used during SSR
+      // (see cms/resolve.ts) — otherwise the worker's cache key and the render
+      // could disagree on the cohort. The deco_segment value is raw base64 (no
+      // percent-escapes), so decoding is a no-op for it and safe in general.
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    return undefined;
+  }
+
   function buildCacheKey(
     request: Request,
     env: Record<string, unknown>,
@@ -902,6 +952,18 @@ export function createDecoWorkerEntry(
       url.pathname.startsWith("/_server/");
     if (!isServerFnPath && secFetchDest === "empty") {
       url.searchParams.set("__fetch", "1");
+    }
+
+    // A/B cohort split: fold the sticky `deco_segment` cookie into the cache
+    // key so each variant keeps its own cached HTML. The cookie carries the
+    // traffic fingerprint (see sdk/flags.ts), so a `traffic` change lands
+    // cohorts in fresh buckets. Empty for non-A/B visitors (no cookie) → they
+    // keep sharing one entry. A freshly-assigned visitor sets the cookie on the
+    // response, which is not a "safe" cookie, so that one response bypasses the
+    // cache and never poisons the shared entry.
+    const flagToken = segmentCacheToken(parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)));
+    if (flagToken) {
+      url.searchParams.set("__abf", flagToken);
     }
 
     if (buildSegment) {
@@ -1311,6 +1373,18 @@ export function createDecoWorkerEntry(
         }
       }
 
+      // Old-runtime parity: deco-cx/deco stamped `x-powered-by: deco@<ver>`
+      // on every response (utils/http.ts defaultHeaders); partner-side logs
+      // and ops tooling use it to identify deco traffic. Set-if-absent so
+      // an upstream origin's own value wins.
+      if (!finalResponse.headers.has("x-powered-by")) {
+        try {
+          finalResponse.headers.set("x-powered-by", DECO_POWERED_BY);
+        } catch {
+          /* sealed headers (cached replay) — identification is best-effort */
+        }
+      }
+
       // Metrics + structured request log. Done after security headers so
       // the recorded status reflects what the client actually receives.
       // Both calls are no-ops when no meter / logger is configured.
@@ -1318,8 +1392,9 @@ export function createDecoWorkerEntry(
       try {
         // Phase 2 / D-11 canonical labels — lift the cache decision +
         // profile + region off the response we just built so dashboards
-        // can answer "cache hit rate per route" from `http_requests_total`
-        // alone, no join to `cache_*_total` required.
+        // can answer "cache hit rate per route" from
+        // `http.server.request.duration` alone, no join to a cache counter
+        // required.
         const xCacheRaw = finalResponse.headers.get("X-Cache");
         const cacheDecision = isCacheDecision(xCacheRaw) ? xCacheRaw : undefined;
         const colo = (request as unknown as { cf?: { colo?: string } }).cf?.colo;

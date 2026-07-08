@@ -27,6 +27,7 @@ import {
   getRequest,
   getRequestHeader,
   getRequestUrl,
+  setCookie,
   setResponseHeader,
 } from "@tanstack/react-start/server";
 import { createElement } from "react";
@@ -44,6 +45,12 @@ import {
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
 import type { DeferredSection, MatcherContext, PageSeo, ResolvedSection } from "@decocms/blocks/cms";
+import {
+  parseSegmentCookie,
+  SEGMENT_COOKIE,
+  serializeSegmentCookie,
+  type StoredFlag,
+} from "@decocms/blocks/sdk/flags";
 import { withTracing } from "@decocms/blocks/middleware/observability";
 import {
   type CacheProfileName,
@@ -78,6 +85,45 @@ export function setSectionChunkMap(map: Record<string, string>): void {
 type PageResult = Awaited<ReturnType<typeof loadCmsPageInternal>>;
 const pageInflight = new Map<string, Promise<PageResult>>();
 
+/** One year — the cohort is sticky; the `pct` fingerprint handles re-rolls. */
+const SEGMENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+/**
+ * Persist sticky A/B decisions recorded during resolution and return them for
+ * the client (analytics).
+ *
+ * Merges the freshly recorded flags over any already in the `deco_segment`
+ * cookie (so navigating to a second A/B page doesn't drop the first page's
+ * cohort), and only re-issues the cookie when the merged value changed.
+ * Setting the cookie also makes the worker skip caching THIS response
+ * (`deco_segment` is not a "safe" cookie), so an unassigned visitor never
+ * poisons the shared entry — their next request carries the cookie and hits
+ * the per-cohort cache entry.
+ *
+ * `encode: (v) => v` keeps the raw base64 intact — @decocms/apps
+ * OneDollarStats reads the cookie with `atob()` directly.
+ */
+function persistFlags(matcherCtx: MatcherContext): StoredFlag[] {
+  const recorded = matcherCtx.flags ?? [];
+  if (!recorded.length) return [];
+
+  const raw = matcherCtx.cookies?.[SEGMENT_COOKIE];
+  const merged = new Map<string, StoredFlag>();
+  for (const f of parseSegmentCookie(raw)) merged.set(f.name, f);
+  for (const f of recorded) merged.set(f.name, f);
+
+  const serialized = serializeSegmentCookie([...merged.values()]);
+  if (serialized !== (raw ?? "")) {
+    setCookie(SEGMENT_COOKIE, serialized, {
+      path: "/",
+      maxAge: SEGMENT_COOKIE_MAX_AGE,
+      sameSite: "lax",
+      encode: (v) => v,
+    });
+  }
+  return recorded;
+}
+
 async function loadCmsPageInternal(fullPath: string) {
   const [basePath] = fullPath.split("?");
   // On client-side navigation getRequestUrl() is the /_serverFn/... endpoint,
@@ -94,9 +140,11 @@ async function loadCmsPageInternal(fullPath: string) {
     cookies: getCookies(),
     request: originRequest,
     isClientNavigation: isClientNavigation(fullPath, serverUrl),
+    flags: [],
   };
   const page = await resolveDecoPage(basePath, matcherCtx);
   if (!page) return null;
+  const flags = persistFlags(matcherCtx);
 
   const request = new Request(urlWithSearch, {
     headers: originRequest.headers,
@@ -144,6 +192,7 @@ async function loadCmsPageInternal(fullPath: string) {
     pagePath: basePath,
     seo,
     device,
+    flags,
     siteGlobals: { rawRefs: globals.rawRefs },
   };
 }
@@ -179,9 +228,11 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
     cookies: getCookies(),
     request,
     isClientNavigation: isClientNavigation("/", serverUrl),
+    flags: [],
   };
   const page = await resolveDecoPage("/", matcherCtx);
   if (!page) return null;
+  const flags = persistFlags(matcherCtx);
   const [enrichedSections, globals] = await Promise.all([
     runSectionLoaders(page.resolvedSections, request),
     resolveSiteGlobals(),
@@ -208,6 +259,7 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
     pageUrl: serverUrl.toString(),
     seo,
     device,
+    flags,
     siteGlobals: { rawRefs: globals.rawRefs },
   };
 });

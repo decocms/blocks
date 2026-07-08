@@ -49,6 +49,7 @@
     "./sdk/djb2": "./src/sdk/djb2.ts",
     "./sdk/encoding": "./src/sdk/encoding.ts",
     "./sdk/env": "./src/sdk/env.ts",
+    "./sdk/flags": "./src/sdk/flags.ts",
     "./sdk/http": "./src/sdk/http.ts",
     "./sdk/instrumentedFetch": "./src/sdk/instrumentedFetch.ts",
     "./sdk/invoke": "./src/sdk/invoke.ts",
