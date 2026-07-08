@@ -1,9 +1,19 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { KV_KEYS, type KVNamespace, getRevision, loadBlocks, setBlocks } from "@decocms/blocks/cms";
 import { handleDecofileReload, setFastDeployKVGetter } from "./decofile";
 
-// In vitest, import.meta.env.DEV is true, so handleDecofileReload skips the
-// auth check (same branch the dev Vite plugin uses) — no token needed here.
+// handleDecofileReload's dev-bypass keys off NODE_ENV === "development" (see
+// decofile.ts), not import.meta.env.DEV. Vitest itself runs with
+// NODE_ENV=test (not "development"), so force it here to preserve this
+// suite's original intent: exercise the reload handler via the same no-auth
+// branch the dev Vite plugin / `next dev` use, without needing a token.
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+beforeAll(() => {
+  process.env.NODE_ENV = "development";
+});
+afterAll(() => {
+  process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+});
 
 // decofile.ts no longer hard-imports getFastDeployKV (that would create a
 // admin → tanstack dependency, which is backwards). Instead the

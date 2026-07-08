@@ -105,14 +105,23 @@ export async function handleDecofileReload(
   // both the reload token and the fast-deploy KV binding.
   const runtimeEnv = env ?? getRuntimeEnv();
 
-  // In dev mode the Vite plugin POSTs new blocks here to hot-reload without
-  // module invalidation (which breaks TanStack Start/Router state). Skip auth
-  // so the plugin can POST from localhost.
-  // Uses import.meta.env.DEV directly (not isDevMode()) because isDevMode()
-  // bypass auth. Vite statically replaces import.meta.env.DEV with `false`
-  // in production builds, so this branch is dead-code-eliminated.
-  const isViteDev = !!(import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
-  if (!isViteDev) {
+  // In dev mode the Vite plugin (tanstack) or `next dev` POSTs new blocks
+  // here to hot-reload without module invalidation (which breaks TanStack
+  // Start/Router state). Skip auth so the plugin can POST from localhost.
+  //
+  // `import.meta.env?.DEV` was a Vite-ism AND a syntax error for CJS
+  // consumers (ts-jest compiles this raw-TS package to CJS, where
+  // `import.meta` cannot be represented at all). It was also always `false`
+  // under Next.js — Turbopack/webpack never define `import.meta.env` — so
+  // this dev-bypass never applied to `next dev` before this change. Checking
+  // NODE_ENV instead widens the bypass to any Node process with
+  // NODE_ENV=development, including `next dev`. That widening is intentional:
+  // dev environments shouldn't need a production reload token, and the check
+  // remains fail-closed (auth required) for any other NODE_ENV value (unset,
+  // "test", "production").
+  const isDevRuntime =
+    typeof process !== "undefined" && process.env.NODE_ENV === "development";
+  if (!isDevRuntime) {
     const authHeader = request.headers.get("Authorization") || "";
     const expectedToken =
       (runtimeEnv?.DECO_RELEASE_RELOAD_TOKEN as string | undefined) ??
