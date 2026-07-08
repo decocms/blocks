@@ -320,10 +320,11 @@ export function statusClassFor(status: number): string {
 }
 
 /**
- * Optional dimensions stamped on `http_requests_total` /
- * `http_request_duration_ms` / `http_request_errors_total`. All fields
- * are optional — callers pass what they have, the framework fills in
- * the rest from defaults.
+ * Optional dimensions stamped on `http.server.request.duration` (semconv).
+ * Request count and error rate are derived from the histogram's `count` and
+ * a `http.response.status_code` filter — the old separate `_total` /
+ * `_errors_total` counters were removed. All fields are optional — callers
+ * pass what they have, the framework fills in the rest from defaults.
  *
  * Cardinality discipline: every field here is bounded. `route_pattern`
  * comes from the TanStack router (a closed set), `outcome` is the CF
@@ -507,9 +508,10 @@ export function recordCacheMetric(
 }
 
 /**
- * Labels for `commerce_request_duration_ms`. Owned by the framework so
- * apps-start (and any future provider package) can register operation
- * strings without owning the histogram declaration. Phase 2 (D-11).
+ * Labels for the outbound commerce sample recorded on
+ * `http.client.request.duration`. Owned by the framework so apps-start (and
+ * any future provider package) can register operation strings without owning
+ * the histogram declaration. Phase 2 (D-11).
  */
 export interface CommerceMetricLabels {
   /** `vtex`, `shopify`, `wake`, ... — small closed set. */
@@ -523,10 +525,10 @@ export interface CommerceMetricLabels {
 }
 
 /**
- * Record a commerce / outbound-fetch duration sample. No-op when no
- * meter is configured. The metric name is constant
- * (`commerce_request_duration_ms`) — providers vary by the `provider`
- * label, not by name, so dashboards aggregate cleanly across the fleet.
+ * Record a commerce / outbound-fetch duration sample. No-op when no meter is
+ * configured. Emitted on the canonical `http.client.request.duration` metric
+ * (semconv) — providers vary by the `provider`/`operation` labels, not by
+ * name, so dashboards aggregate cleanly across the fleet.
  */
 export function recordCommerceMetric(
   durationMs: number,
