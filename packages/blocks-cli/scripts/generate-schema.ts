@@ -839,14 +839,22 @@ function generateMeta(): MetaResponse {
   }
 
   // ---------------------------------------------------------------------------
-  // App loaders pass: walk @decocms/apps/*/loaders/ directories and register
-  // each .ts file as a CMS loader. CMS keys are derived from the file path
-  // (e.g. "vtex/loaders/intelligentSearch/productList.ts").
+  // App loaders pass: walk each @decocms/apps-<namespace> package's src/loaders/
+  // directory and register each .ts file as a CMS loader. CMS keys are derived
+  // from the file path (e.g. "vtex/loaders/intelligentSearch/productList.ts") —
+  // this key format is a CMS decofile convention, independent of the npm
+  // package layout, so it stays "<namespace>/loaders/..." even though the
+  // namespace now maps to its own "@decocms/apps-<namespace>" package rather
+  // than a subdirectory of one monolithic "@decocms/apps" package.
   //
   // Only apps installed in src/apps/ are scanned. An app bridge file that
-  // re-exports from "@decocms/apps/{namespace}/mod" signals the namespace.
+  // re-exports from "@decocms/apps-{namespace}/mod" signals the namespace.
   // ---------------------------------------------------------------------------
-  const appsPkgDir = path.resolve(root, "node_modules/@decocms/apps");
+
+  /** Absolute path to the installed @decocms/apps-<namespace> package, if present. */
+  function getAppPkgDir(namespace: string): string {
+    return path.resolve(root, `node_modules/@decocms/apps-${namespace}`);
+  }
 
   /** Detect installed app namespaces from src/apps/ bridge files. */
   function detectInstalledAppNamespaces(): Set<string> {
@@ -855,7 +863,7 @@ function generateMeta(): MetaResponse {
     if (!fs.existsSync(siteAppsDir)) return namespaces;
 
     const appFiles = findTsxFiles(siteAppsDir);
-    const re = /["']@decocms\/apps\/([^/]+)\/mod["']/;
+    const re = /["']@decocms\/apps-([^/]+)\/mod["']/;
     for (const filePath of appFiles) {
       try {
         const content = fs.readFileSync(filePath, "utf-8");
@@ -869,13 +877,13 @@ function generateMeta(): MetaResponse {
   // Discover app loader files via filesystem walk (scoped to installed apps)
   function discoverAppLoaders(): Array<{ cmsKey: string; sourceFile: string; namespace: string }> {
     const result: Array<{ cmsKey: string; sourceFile: string; namespace: string }> = [];
-    if (!fs.existsSync(appsPkgDir)) return result;
 
     const installed = detectInstalledAppNamespaces();
     if (installed.size === 0) return result;
 
     for (const namespace of installed) {
-      const loadersDir = path.join(appsPkgDir, namespace, "loaders");
+      const pkgDir = getAppPkgDir(namespace);
+      const loadersDir = path.join(pkgDir, "src", "loaders");
       if (!fs.existsSync(loadersDir)) continue;
 
       const files = fs.readdirSync(loadersDir, { recursive: true }) as string[];
@@ -888,7 +896,9 @@ function generateMeta(): MetaResponse {
         if (rel.includes("__tests__") || rel.includes("__test__") || rel.endsWith(".test.ts")) continue;
 
         const cmsKey = `${namespace}/loaders/${rel.replace(/\\/g, "/")}`;
-        const sourceFile = `${namespace}/loaders/${rel.replace(/\\/g, "/")}`;
+        // Absolute — each namespace now resolves against its own package dir,
+        // not a single shared "appsPkgDir" (see absSourceFile below).
+        const sourceFile = path.join(loadersDir, rel);
         result.push({ cmsKey, sourceFile, namespace });
       }
     }
@@ -908,9 +918,9 @@ function generateMeta(): MetaResponse {
 
   const installedNs = detectInstalledAppNamespaces();
   console.log(`Installed app namespaces: ${[...installedNs].join(", ") || "(none)"}`);
-  console.log(`Scanning app loaders from @decocms/apps (${appLoaders.length} files)...`);
+  console.log(`Scanning app loaders from ${[...installedNs].map((ns) => `@decocms/apps-${ns}`).join(", ") || "(none)"} (${appLoaders.length} files)...`);
   for (const appLoader of appLoaders) {
-    const absSourceFile = path.resolve(appsPkgDir, appLoader.sourceFile);
+    const absSourceFile = appLoader.sourceFile;
 
     try {
       // Resolve the real path to de-duplicate re-exports pointing to the same file
