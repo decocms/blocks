@@ -38,7 +38,7 @@ Split by platform/concern, migrated from `apps-start`'s current directory struct
 
 All 9 migrate in one pass (not phased by usage) — most of the work is mechanical file relocation + import rewriting, not new logic, so there's little marginal cost to doing the platforms with no current in-house consumer (Shopify, Magento, Algolia, Salesforce) alongside VTEX.
 
-**Dependency rule** (extends the existing one-way graph already documented in `CLAUDE.md`): every `apps-*` package may depend on `@decocms/blocks` / `@decocms/blocks-admin` / `@decocms/tanstack`, never the reverse. `apps-*` packages do not depend on each other.
+**Dependency rule** (extends the existing one-way graph already documented in `CLAUDE.md`): every `apps-*` package may depend on `@decocms/blocks` / `@decocms/blocks-admin` / `@decocms/tanstack`, never the reverse. `apps-*` packages generally do not depend on each other, with one accepted exception found during implementation: a **type-only** dependency on another `apps-*` package for a genuinely shared type (e.g. `apps-vtex` and `apps-blog` both import `Secret`/`ImageWidget` types from `apps-website`) is fine — it's erased at compile time and doesn't create a runtime cycle, as verified per-case in the implementation plan's Global Constraints. Runtime dependencies between `apps-*` packages remain disallowed.
 
 ## Content redistribution (not a straight file move)
 
