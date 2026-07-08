@@ -70,7 +70,12 @@ jobs:
 
       # npm Trusted Publishing (OIDC) requires npm >=11.5.1 to perform the
       # OIDC token exchange. Node 22's bundled npm is older than that.
-      - run: npm install -g npm@latest
+      # Pinned to the 11.x major, NOT @latest: npm 12.0.0 (released
+      # 2026-07-08T21:06Z) ships with a broken libnpmpublish provenance path
+      # ("Cannot find module 'sigstore'"), which killed two release runs the
+      # evening it came out. Bump deliberately after verifying `npm publish`
+      # works on the new major.
+      - run: npm install -g npm@11
 
       # main publishes the single legacy @decocms/start package (v*.*.* tags).
       # v7 publishes the 5 split @decocms/* packages under an entirely
