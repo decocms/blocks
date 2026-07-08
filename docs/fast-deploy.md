@@ -95,8 +95,19 @@ the caller may retry. Cache purge is a **separate** `POST /_cache/purge` call.
   `--all` always writes. Writes the full snapshot, bumps the revision, and
   optionally `POST`s `/_cache/purge` for changed page paths.
 
-Both use the KV REST API (no Worker binding at sync time) — env `CF_ACCOUNT_ID`,
-`CF_KV_NAMESPACE_ID`, `CF_API_TOKEN`. Running `deco-sync-blocks-to-kv` (rather than a
+Both use the KV REST API (no Worker binding at sync time — bindings only exist in the
+Workers runtime, not in CI). Config resolves from env with wrangler-friendly fallbacks:
+`CF_ACCOUNT_ID` (← `CLOUDFLARE_ACCOUNT_ID`), `CF_API_TOKEN` (← `CLOUDFLARE_API_TOKEN`),
+`CF_KV_NAMESPACE_ID` (← the `DECO_KV` binding id in `./wrangler.{jsonc,json,toml}`).
+Inside **Cloudflare Workers Builds** all three resolve automatically (the build env
+carries wrangler's credentials — the default build token includes Workers KV Storage:
+Edit — and the checkout has the wrangler config), so a site's deploy command is just:
+
+```
+npx wrangler deploy && npx deco-sync-blocks-to-kv --write --all
+```
+
+Running `deco-sync-blocks-to-kv` (rather than a
 re-implementation in another language) is **required for correctness**: the runtime
 recomputes the revision as `djb2Hex(JSON.stringify(blocks))` on `setBlocks()` and the poll
 compares against KV's `index:revision`, so the writer must produce a byte-identical

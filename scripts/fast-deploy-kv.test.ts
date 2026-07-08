@@ -1,6 +1,10 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { computeRevision, KV_KEYS } from "../src/cms/blockSource";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
+import { kvNamespaceIdFromToml, kvNamespaceIdFromWrangler } from "./lib/wrangler-config";
 import { buildSnapshot, verifySnapshotInKv, writeSnapshotToKv } from "./lib/kv-snapshot";
 import {
   changedBlockFiles,
@@ -15,10 +19,83 @@ describe("kvConfigFromEnv", () => {
     ).toEqual({ accountId: "a", namespaceId: "n", token: "t" });
   });
 
-  it("throws listing all missing vars", () => {
+  it("falls back to wrangler's standard CLOUDFLARE_* vars (CF Workers Builds)", () => {
+    expect(
+      kvConfigFromEnv({
+        CLOUDFLARE_ACCOUNT_ID: "a",
+        CF_KV_NAMESPACE_ID: "n",
+        CLOUDFLARE_API_TOKEN: "t",
+      }),
+    ).toEqual({ accountId: "a", namespaceId: "n", token: "t" });
+  });
+
+  it("explicit CF_* wins over CLOUDFLARE_* fallbacks", () => {
+    expect(
+      kvConfigFromEnv({
+        CF_ACCOUNT_ID: "explicit",
+        CLOUDFLARE_ACCOUNT_ID: "fallback",
+        CF_KV_NAMESPACE_ID: "n",
+        CF_API_TOKEN: "explicit-tok",
+        CLOUDFLARE_API_TOKEN: "fallback-tok",
+      }),
+    ).toEqual({ accountId: "explicit", namespaceId: "n", token: "explicit-tok" });
+  });
+
+  it("throws listing all missing vars (with fallback hints)", () => {
     expect(() => kvConfigFromEnv({ CF_ACCOUNT_ID: "a" })).toThrow(
-      /CF_KV_NAMESPACE_ID, CF_API_TOKEN/,
+      /CF_KV_NAMESPACE_ID \(or a DECO_KV binding in wrangler config\), CF_API_TOKEN \(or CLOUDFLARE_API_TOKEN\)/,
     );
+  });
+});
+
+describe("kvNamespaceIdFromToml", () => {
+  it("finds the id of the DECO_KV binding among multiple tables", () => {
+    const toml = [
+      `[[kv_namespaces]]`,
+      `binding = "OTHER"`,
+      `id = "wrong"`,
+      ``,
+      `[[kv_namespaces]]`,
+      `binding = "DECO_KV"`,
+      `id = "right-id"`,
+      ``,
+      `[vars]`,
+      `DECO_FAST_DEPLOY = "1"`,
+    ].join("\n");
+    expect(kvNamespaceIdFromToml(toml, "DECO_KV")).toBe("right-id");
+  });
+
+  it("returns null when the binding is absent", () => {
+    expect(kvNamespaceIdFromToml(`[[kv_namespaces]]\nbinding = "X"\nid = "y"`, "DECO_KV")).toBeNull();
+  });
+});
+
+describe("kvNamespaceIdFromWrangler (jsonc)", () => {
+  it("reads the DECO_KV binding id from wrangler.jsonc", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wrangler-test-"));
+    try {
+      fs.writeFileSync(
+        path.join(dir, "wrangler.jsonc"),
+        `{
+          // site worker config
+          "kv_namespaces": [
+            { "binding": "DECO_KV", "id": "jsonc-id" },
+          ],
+        }`,
+      );
+      expect(kvNamespaceIdFromWrangler(dir)).toBe("jsonc-id");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null when no wrangler config exists", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wrangler-test-"));
+    try {
+      expect(kvNamespaceIdFromWrangler(dir)).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

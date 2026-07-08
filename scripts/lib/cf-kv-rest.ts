@@ -5,13 +5,22 @@
  * KV over the REST API instead. Only the two operations the scripts need —
  * single-key GET and PUT — are implemented.
  *
- * Auth/config via env (read by the scripts, passed to `createKvRestClient`):
- *   - CF_ACCOUNT_ID       Cloudflare account id
- *   - CF_KV_NAMESPACE_ID  target KV namespace id
- *   - CF_API_TOKEN        API token with "Workers KV Storage:Edit"
+ * Auth/config resolution (read by the scripts, passed to `createKvRestClient`),
+ * each with a fallback so the scripts run near-zero-config inside Cloudflare
+ * Workers Builds (whose build env already carries wrangler's standard
+ * credentials, and whose checkout contains the wrangler config):
+ *   - CF_ACCOUNT_ID       falls back to CLOUDFLARE_ACCOUNT_ID (wrangler standard)
+ *   - CF_API_TOKEN        falls back to CLOUDFLARE_API_TOKEN (wrangler standard;
+ *                         the default Workers Builds token includes
+ *                         "Workers KV Storage: Edit")
+ *   - CF_KV_NAMESPACE_ID  falls back to the `DECO_KV` binding id in the repo's
+ *                         wrangler config (single source of truth with the
+ *                         worker's read binding)
  *
  * `fetch` is injectable so the client is unit-testable without network.
  */
+
+import { kvNamespaceIdFromWrangler } from "./wrangler-config";
 
 export interface KvRestConfig {
   accountId: string;
@@ -30,15 +39,25 @@ export interface KvRestClient {
 
 const DEFAULT_BASE = "https://api.cloudflare.com/client/v4";
 
-/** Resolve the three required env vars or throw a clear error. */
-export function kvConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Omit<KvRestConfig, "fetchImpl" | "baseUrl"> {
-  const accountId = env.CF_ACCOUNT_ID;
-  const namespaceId = env.CF_KV_NAMESPACE_ID;
-  const token = env.CF_API_TOKEN;
+/**
+ * Resolve the KV REST config from env, with wrangler-friendly fallbacks:
+ * `CF_*` (explicit, e.g. set by the operator's sync Job) wins; otherwise
+ * wrangler's standard `CLOUDFLARE_*` env vars (present in CF Workers Builds)
+ * and the `DECO_KV` binding id from the wrangler config in `wranglerDir`.
+ * Throws a clear error naming what's still missing.
+ */
+export function kvConfigFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { wranglerDir?: string } = {},
+): Omit<KvRestConfig, "fetchImpl" | "baseUrl"> {
+  const accountId = env.CF_ACCOUNT_ID || env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CF_API_TOKEN || env.CLOUDFLARE_API_TOKEN;
+  const namespaceId = env.CF_KV_NAMESPACE_ID ||
+    (opts.wranglerDir ? kvNamespaceIdFromWrangler(opts.wranglerDir) : null);
   const missing = [
-    !accountId && "CF_ACCOUNT_ID",
-    !namespaceId && "CF_KV_NAMESPACE_ID",
-    !token && "CF_API_TOKEN",
+    !accountId && "CF_ACCOUNT_ID (or CLOUDFLARE_ACCOUNT_ID)",
+    !namespaceId && "CF_KV_NAMESPACE_ID (or a DECO_KV binding in wrangler config)",
+    !token && "CF_API_TOKEN (or CLOUDFLARE_API_TOKEN)",
   ].filter(Boolean);
   if (missing.length) {
     throw new Error(`missing required env var(s): ${missing.join(", ")}`);

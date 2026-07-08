@@ -79,7 +79,7 @@ async function main() {
 
   let client: ReturnType<typeof createKvRestClient>;
   try {
-    client = createKvRestClient(kvConfigFromEnv());
+    client = createKvRestClient(kvConfigFromEnv(process.env, { wranglerDir: process.cwd() }));
   } catch (e) {
     console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(2);

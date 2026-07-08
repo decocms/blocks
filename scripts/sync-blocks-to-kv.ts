@@ -28,7 +28,15 @@
  *   --write               Perform writes (otherwise dry-run, exit 0)
  *   --help, -h            Show this help
  *
- * Env: CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, CF_API_TOKEN (required with --write)
+ * Env (required with --write, each with a fallback for CF Workers Builds):
+ *   CF_ACCOUNT_ID       falls back to CLOUDFLARE_ACCOUNT_ID
+ *   CF_API_TOKEN        falls back to CLOUDFLARE_API_TOKEN (the default Workers
+ *                       Builds token includes "Workers KV Storage: Edit")
+ *   CF_KV_NAMESPACE_ID  falls back to the DECO_KV binding id in
+ *                       ./wrangler.{jsonc,json,toml}
+ * Inside CF Workers Builds all three resolve automatically, so the deploy
+ * command can be just:
+ *   npx wrangler deploy && npx deco-sync-blocks-to-kv --write --all
  *
  * Exit codes: 0 ok / no-op / dry-run; 2 error (bad dir, missing env, verify failed)
  */
@@ -124,7 +132,7 @@ async function main() {
 
   let client: ReturnType<typeof createKvRestClient>;
   try {
-    client = createKvRestClient(kvConfigFromEnv());
+    client = createKvRestClient(kvConfigFromEnv(process.env, { wranglerDir: process.cwd() }));
   } catch (e) {
     console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(2);
