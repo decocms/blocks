@@ -588,14 +588,25 @@ export function decoVitePlugin() {
         env.optimizeDeps.esbuildOptions.jsxImportSource = "react";
       }
 
-      // Force @decocms/tanstack through the SSR transform pipeline so
-      // TanStack Start's compiler can register its createServerFn handlers
+      // Force these packages through the SSR transform pipeline so
+      // TanStack Start's compiler can register their createServerFn handlers
       // (loadDeferredSection in routes/cmsRoute.ts, and loadCmsPage /
-      // loadCmsHomePage alongside it) in the per-environment serverFnsById
-      // manifest. Without this, Vite pre-bundles the package via
-      // optimizeDeps before plugins run, the handler never enters the
-      // manifest, and every POST /_serverFn/* call from the browser returns
-      // HTTP 500 ("Invalid server function ID"). See #197.
+      // loadCmsHomePage alongside it, for @decocms/tanstack) in the
+      // per-environment serverFnsById manifest. Without this, Vite
+      // pre-bundles the package via optimizeDeps before plugins run, the
+      // handler never enters the manifest, and every POST /_serverFn/* call
+      // from the browser returns HTTP 500 ("Invalid server function ID").
+      // See #197.
+      //
+      // @decocms/apps-vtex needs this too: its invoke.ts wraps 18 actions/
+      // loaders via createInvokeFn (packages/tanstack/src/sdk/createInvoke.ts),
+      // each a real `createServerFn(...)` call site. This was missed when
+      // createInvokeFn's export was added to @decocms/tanstack's public
+      // barrel (apps-monorepo-migration Task 7) — worked by accident under
+      // `bun link` (Vite treats symlinked/workspace packages as live source,
+      // skipping optimizeDeps pre-bundling for them) but hard-crashes with
+      // a real npm install: "createServerFn must be assigned to a variable!"
+      // from the Cloudflare Workers runtime's static entry-export scan.
       //
       // @decocms/blocks does NOT need this: despite its
       // validateSection.ts / useScript.ts doc comments mentioning
@@ -607,7 +618,7 @@ export function decoVitePlugin() {
       if (name === "ssr") {
         env.resolve = env.resolve || {};
         const existing = env.resolve.noExternal;
-        const additions = ["@decocms/tanstack"];
+        const additions = ["@decocms/tanstack", "@decocms/apps-vtex"];
         if (existing === true) {
           // Already noExternal everything — nothing to add.
         } else if (Array.isArray(existing)) {
