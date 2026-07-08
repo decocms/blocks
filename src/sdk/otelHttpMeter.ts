@@ -32,6 +32,7 @@
  */
 
 import type { MeterAdapter } from "./observability";
+import { compressJsonPayload, type OtlpCompression } from "./otlpCompression";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +66,11 @@ export interface OtlpHttpMeterOptions {
    * `Content-Type: application/json` is always set and cannot be overridden here.
    */
   headers?: Record<string, string>;
+  /**
+   * Payload compression. `"gzip"` uses the runtime's native `CompressionStream`
+   * and sets `Content-Encoding: gzip`. Defaults to `"none"`.
+   */
+  compression?: OtlpCompression;
   /**
    * Test seam — override fetch for the flush path so unit tests can
    * inspect the OTLP payload without going to the network.
@@ -153,6 +159,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
   const minFlushIntervalMs = options.minFlushIntervalMs ?? 5000;
   const flushTimeoutMs = options.flushTimeoutMs ?? 5000;
   const extraHeaders = options.headers ?? {};
+  const compression: OtlpCompression = options.compression ?? "none";
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.nowMs ?? (() => Date.now());
   const onError = options.onError;
@@ -317,10 +324,16 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), flushTimeoutMs);
     try {
+      const { body, contentEncoding } = await compressJsonPayload(payload, compression);
+      const headers: Record<string, string> = {
+        ...extraHeaders,
+        "Content-Type": "application/json",
+      };
+      if (contentEncoding) headers["Content-Encoding"] = contentEncoding;
       const res = await fetchImpl(endpoint, {
         method: "POST",
-        headers: { ...extraHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        headers,
+        body,
         signal: controller.signal,
       });
       if (!res.ok) {
