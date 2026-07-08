@@ -3,7 +3,7 @@
  *
  * These augment the matchers already handled inline in resolve.ts
  * (always, never, device, random, utm) with the additional matchers
- * that deco supported: cookie, cron, host, pathname, queryString,
+ * that deco supported: cookie, cron, date, host, pathname, queryString,
  * location, userAgent, environment, multi, negate.
  *
  * Register these at startup:
@@ -59,6 +59,28 @@ function cronMatcher(rule: Record<string, unknown>, _ctx: MatcherContext): boole
   }
 
   return true;
+}
+
+// -------------------------------------------------------------------------
+// Date matcher — parity with deco-cx/apps website/matchers/date.ts
+//
+// Unlike cronMatcher's inclusive [start, end] window (>=, <=), date.ts uses
+// strict inequalities: it matches only strictly *between* start and end, so
+// a request landing on the exact boundary instant does not match. Invalid
+// date strings produce NaN comparisons, which are always false — same
+// "reject silently" behavior as the original (no explicit isNaN check
+// needed to match upstream semantics).
+// -------------------------------------------------------------------------
+
+function dateMatcher(rule: Record<string, unknown>, _ctx: MatcherContext): boolean {
+  const start = rule.start as string | undefined;
+  const end = rule.end as string | undefined;
+
+  const now = new Date();
+  const afterStart = start ? now > new Date(start) : true;
+  const beforeEnd = end ? now < new Date(end) : true;
+
+  return afterStart && beforeEnd;
 }
 
 // -------------------------------------------------------------------------
@@ -425,7 +447,7 @@ function negateMatcher(rule: Record<string, unknown>, ctx: MatcherContext): bool
 export function registerBuiltinMatchers(): void {
   registerMatcher("website/matchers/cookie.ts", cookieMatcher);
   registerMatcher("website/matchers/cron.ts", cronMatcher);
-  registerMatcher("website/matchers/date.ts", cronMatcher);
+  registerMatcher("website/matchers/date.ts", dateMatcher);
   registerMatcher("website/matchers/host.ts", hostMatcher);
   registerMatcher("website/matchers/pathname.ts", pathnameMatcher);
   registerMatcher("website/matchers/queryString.ts", queryStringMatcher);

@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatcherContext } from "../cms/resolve";
 import { evaluateMatcher } from "../cms/resolve";
 import { registerBuiltinMatchers } from "./builtins";
 
 const LOCATION_KEY = "website/matchers/location.ts";
+const DATE_KEY = "website/matchers/date.ts";
 
 beforeEach(() => {
   registerBuiltinMatchers();
@@ -247,5 +248,71 @@ describe("locationMatcher — data source fallbacks", () => {
     };
     expect(match({ includeLocations: [{ regionCode: "SP" }] }, ctx)).toBe(true);
     expect(match({ includeLocations: [{ regionCode: "RJ" }] }, ctx)).toBe(false);
+  });
+});
+
+function matchDate(rule: Record<string, unknown>): boolean {
+  return evaluateMatcher({ ...rule, __resolveType: DATE_KEY }, {});
+}
+
+describe("dateMatcher — parity with deco-cx/apps website/matchers/date.ts", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-07T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("matches when neither start nor end is given (vacuously true)", () => {
+    expect(matchDate({})).toBe(true);
+  });
+
+  it("matches when now is after start and no end is given", () => {
+    expect(matchDate({ start: "2026-07-01T00:00:00Z" })).toBe(true);
+  });
+
+  it("does not match when now is before start", () => {
+    expect(matchDate({ start: "2026-08-01T00:00:00Z" })).toBe(false);
+  });
+
+  it("matches when now is before end and no start is given", () => {
+    expect(matchDate({ end: "2026-08-01T00:00:00Z" })).toBe(true);
+  });
+
+  it("does not match when now is after end", () => {
+    expect(matchDate({ end: "2026-06-01T00:00:00Z" })).toBe(false);
+  });
+
+  it("matches when now is strictly between start and end", () => {
+    expect(
+      matchDate({ start: "2026-07-01T00:00:00Z", end: "2026-07-31T00:00:00Z" }),
+    ).toBe(true);
+  });
+
+  it("does not match outside a [start, end] window in either direction", () => {
+    expect(
+      matchDate({ start: "2026-08-01T00:00:00Z", end: "2026-09-01T00:00:00Z" }),
+    ).toBe(false);
+    expect(
+      matchDate({ start: "2026-01-01T00:00:00Z", end: "2026-02-01T00:00:00Z" }),
+    ).toBe(false);
+  });
+
+  it("does not match at the exact start boundary instant (strict >, not >=)", () => {
+    expect(matchDate({ start: "2026-07-07T12:00:00Z" })).toBe(false);
+  });
+
+  it("does not match at the exact end boundary instant (strict <, not <=)", () => {
+    expect(matchDate({ end: "2026-07-07T12:00:00Z" })).toBe(false);
+  });
+
+  it("treats an invalid start date as non-matching (NaN comparison is always false)", () => {
+    expect(matchDate({ start: "not-a-date" })).toBe(false);
+  });
+
+  it("treats an invalid end date as non-matching", () => {
+    expect(matchDate({ end: "not-a-date" })).toBe(false);
   });
 });
