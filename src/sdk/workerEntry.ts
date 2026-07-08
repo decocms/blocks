@@ -40,6 +40,7 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "./cacheHeaders";
+import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "./flags";
 import { buildHtmlShell } from "./htmlShell";
 import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import {
@@ -851,6 +852,25 @@ export function createDecoWorkerEntry(
     return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
   }
 
+  function readRequestCookie(request: Request, name: string): string | undefined {
+    for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
+      const idx = pair.indexOf("=");
+      if (idx <= 0) continue;
+      if (pair.slice(0, idx).trim() !== name) continue;
+      const raw = pair.slice(idx + 1).trim();
+      // Decode once so this matches TanStack's getCookies() used during SSR
+      // (see cms/resolve.ts) — otherwise the worker's cache key and the render
+      // could disagree on the cohort. The deco_segment value is raw base64 (no
+      // percent-escapes), so decoding is a no-op for it and safe in general.
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    return undefined;
+  }
+
   function buildCacheKey(
     request: Request,
     env: Record<string, unknown>,
@@ -923,6 +943,18 @@ export function createDecoWorkerEntry(
       url.pathname.startsWith("/_server/");
     if (!isServerFnPath && secFetchDest === "empty") {
       url.searchParams.set("__fetch", "1");
+    }
+
+    // A/B cohort split: fold the sticky `deco_segment` cookie into the cache
+    // key so each variant keeps its own cached HTML. The cookie carries the
+    // traffic fingerprint (see sdk/flags.ts), so a `traffic` change lands
+    // cohorts in fresh buckets. Empty for non-A/B visitors (no cookie) → they
+    // keep sharing one entry. A freshly-assigned visitor sets the cookie on the
+    // response, which is not a "safe" cookie, so that one response bypasses the
+    // cache and never poisons the shared entry.
+    const flagToken = segmentCacheToken(parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)));
+    if (flagToken) {
+      url.searchParams.set("__abf", flagToken);
     }
 
     if (buildSegment) {
