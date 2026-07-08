@@ -1,11 +1,11 @@
 #!/usr/bin/env tsx
 /**
- * Scans @decocms/apps vtex/invoke.ts and generates a site-local invoke file
+ * Scans @decocms/apps-vtex's invoke.ts and generates a site-local invoke file
  * with top-level createServerFn declarations.
  *
  * TanStack Start's compiler only transforms createServerFn().handler() when
  * the call is at module top-level (assigned to a const). The factory pattern
- * used in @decocms/apps/vtex/invoke.ts causes the "fast path" in the compiler
+ * used in @decocms/apps-vtex/invoke.ts causes the "fast path" in the compiler
  * to skip the .handler() calls because they're inside a function body.
  *
  * This script generates an equivalent file where each server function is a
@@ -16,7 +16,7 @@
  *
  * Env / CLI:
  *   --out-file   override output (default: src/server/invoke.gen.ts)
- *   --apps-dir   override @decocms/apps location (default: auto-resolve from node_modules)
+ *   --apps-dir   override @decocms/apps-vtex location (default: auto-resolve from node_modules)
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -35,19 +35,23 @@ function resolveAppsDir(): string {
   const explicit = arg("apps-dir", "");
   if (explicit) return path.resolve(cwd, explicit);
 
-  // Try common locations
+  // Try common locations. Both point at the directory that contains
+  // invoke.ts directly at its root: the installed @decocms/apps-vtex
+  // package (no more vtex/ nesting — that directory IS the package root
+  // now), or a raw apps-start checkout's vtex/ subdirectory as a legacy
+  // fallback for anyone still developing against the pre-split monorepo.
   const candidates = [
-    path.resolve(cwd, "node_modules/@decocms/apps"),
-    path.resolve(cwd, "../apps-start"),
+    path.resolve(cwd, "node_modules/@decocms/apps-vtex"),
+    path.resolve(cwd, "../apps-start/vtex"),
   ];
   for (const c of candidates) {
-    if (fs.existsSync(path.join(c, "vtex/invoke.ts"))) return c;
+    if (fs.existsSync(path.join(c, "invoke.ts"))) return c;
   }
-  throw new Error("Could not find @decocms/apps. Use --apps-dir to specify its location.");
+  throw new Error("Could not find @decocms/apps-vtex. Use --apps-dir to specify its location.");
 }
 
 const appsDir = resolveAppsDir();
-const invokeFile = path.join(appsDir, "vtex/invoke.ts");
+const invokeFile = path.join(appsDir, "invoke.ts");
 
 if (!fs.existsSync(invokeFile)) {
   console.error(`invoke.ts not found at: ${invokeFile}`);
@@ -60,7 +64,7 @@ if (!fs.existsSync(invokeFile)) {
 
 interface ActionDef {
   name: string;
-  /** The import source for the action function (e.g., "@decocms/apps/vtex/actions/checkout") */
+  /** The import source for the action function (e.g., "@decocms/apps-vtex/actions/checkout") */
   importSource: string;
   /** The imported function name (e.g., "addItemsToCart") */
   importedFn: string;
@@ -85,7 +89,7 @@ for (const imp of sourceFile.getImportDeclarations()) {
     const localName = named.getName();
     const importedName = named.getAliasNode()?.getText() || localName;
     importMap.set(localName, {
-      source: source.startsWith("./") ? `@decocms/apps/vtex/${source.slice(2)}` : source,
+      source: source.startsWith("./") ? `@decocms/apps-vtex/${source.slice(2)}` : source,
       importedName: localName,
     });
   }
@@ -100,7 +104,7 @@ for (const imp of sourceFile.getImportDeclarations()) {
         const localName = named.getName();
         const source = imp.getModuleSpecifierValue();
         typeImportMap.set(localName, {
-          source: source.startsWith("./") ? `@decocms/apps/vtex/${source.slice(2)}` : source,
+          source: source.startsWith("./") ? `@decocms/apps-vtex/${source.slice(2)}` : source,
           importedName: localName,
         });
       }
@@ -111,7 +115,7 @@ for (const imp of sourceFile.getImportDeclarations()) {
     for (const named of imp.getNamedImports()) {
       const localName = named.getName();
       typeImportMap.set(localName, {
-        source: source.startsWith("./") ? `@decocms/apps/vtex/${source.slice(2)}` : source,
+        source: source.startsWith("./") ? `@decocms/apps-vtex/${source.slice(2)}` : source,
         importedName: localName,
       });
     }
@@ -376,7 +380,7 @@ for (const action of actions) {
 
   if (action.importedFn) {
     // Emit the wrapper body verbatim. The arrow function in
-    // @decocms/apps/vtex/invoke.ts is the contract that maps the external
+    // @decocms/apps-vtex/invoke.ts is the contract that maps the external
     // invoke shape (what storefront callers send) to the internal action
     // shape (what vtex/actions/* expects). Most wrappers are direct
     // pass-throughs (`actionFn(data)`) but some adapt the payload
@@ -450,7 +454,7 @@ for (const action of actions) {
 out += `} as const;
 
 // Re-export OrderForm type (commonly imported from invoke by site components)
-export type { OrderForm } from "@decocms/apps/vtex/types";
+export type { OrderForm } from "@decocms/apps-vtex/types";
 
 // ---------------------------------------------------------------------------
 // Default invoke object — import this if you don't need site extensions

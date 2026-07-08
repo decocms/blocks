@@ -1,7 +1,7 @@
 /**
  * Integration test for scripts/generate-invoke.ts.
  *
- * The generator scans a `vtex/invoke.ts` file from @decocms/apps and emits a
+ * The generator scans an `invoke.ts` file from @decocms/apps-vtex and emits a
  * site-local `src/server/invoke.gen.ts` with top-level `createServerFn`
  * declarations. The piece we care most about locking is the Set-Cookie
  * bridge: every handler must call `forwardResponseCookies()` after the
@@ -81,20 +81,17 @@ describe("generate-invoke.ts — output shape", () => {
 
   beforeAll(() => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gen-invoke-"));
-    appsDir = path.join(tmp, "apps");
+    // Mirrors @decocms/apps-vtex's actual layout post-migration: invoke.ts
+    // sits at the package root (no more vtex/ nesting — the old vtex/
+    // directory in apps-start IS this package's root now).
+    appsDir = path.join(tmp, "apps-vtex");
     siteDir = path.join(tmp, "site");
-    fs.mkdirSync(path.join(appsDir, "vtex", "actions"), { recursive: true });
+    fs.mkdirSync(path.join(appsDir, "actions"), { recursive: true });
     fs.mkdirSync(path.join(siteDir, "src", "server"), { recursive: true });
-    fs.writeFileSync(path.join(appsDir, "vtex", "invoke.ts"), FIXTURE_INVOKE_TS);
-    fs.writeFileSync(
-      path.join(appsDir, "vtex", "actions", "checkout.ts"),
-      FIXTURE_ACTIONS_CHECKOUT_TS,
-    );
-    fs.writeFileSync(
-      path.join(appsDir, "vtex", "actions", "session.ts"),
-      FIXTURE_ACTIONS_SESSION_TS,
-    );
-    fs.writeFileSync(path.join(appsDir, "vtex", "types.ts"), FIXTURE_TYPES_TS);
+    fs.writeFileSync(path.join(appsDir, "invoke.ts"), FIXTURE_INVOKE_TS);
+    fs.writeFileSync(path.join(appsDir, "actions", "checkout.ts"), FIXTURE_ACTIONS_CHECKOUT_TS);
+    fs.writeFileSync(path.join(appsDir, "actions", "session.ts"), FIXTURE_ACTIONS_SESSION_TS);
+    fs.writeFileSync(path.join(appsDir, "types.ts"), FIXTURE_TYPES_TS);
     outFile = path.join(siteDir, "src", "server", "invoke.gen.ts");
 
     const result = spawnSync(
