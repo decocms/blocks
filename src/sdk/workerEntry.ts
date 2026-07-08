@@ -1383,8 +1383,9 @@ export function createDecoWorkerEntry(
       try {
         // Phase 2 / D-11 canonical labels — lift the cache decision +
         // profile + region off the response we just built so dashboards
-        // can answer "cache hit rate per route" from `http_requests_total`
-        // alone, no join to `cache_*_total` required.
+        // can answer "cache hit rate per route" from
+        // `http.server.request.duration` alone, no join to a cache counter
+        // required.
         const xCacheRaw = finalResponse.headers.get("X-Cache");
         const cacheDecision = isCacheDecision(xCacheRaw) ? xCacheRaw : undefined;
         const colo = (request as unknown as { cf?: { colo?: string } }).cf?.colo;

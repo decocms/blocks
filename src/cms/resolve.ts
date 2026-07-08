@@ -1723,14 +1723,15 @@ export async function resolveDecoPage(
     async () => {
       const result = await resolveDecoPageImpl(targetPath, matcherCtx);
       try {
-        // No path label: resolve duration is a per-service latency signal, and
-        // the request path is unbounded cardinality (one histogram series per
-        // URL — product pages, search, facets) that made this the single
-        // biggest series in ClickHouse. Per-route latency lives on the span
-        // below (raw deco.route), which is sampled — the right place for it.
+        // Value in seconds (semconv). No path label: resolve duration is a
+        // per-service latency signal, and the request path is unbounded
+        // cardinality (one histogram series per URL — product pages, search,
+        // facets) that made this the single biggest series in ClickHouse.
+        // Per-route latency lives on the span below (raw deco.route), which is
+        // sampled — the right place for it.
         getMeter()?.histogramRecord?.(
           MetricNames.RESOLVE_DURATION,
-          performance.now() - startedAt,
+          (performance.now() - startedAt) / 1000,
         );
       } catch {
         /* observability never fails the request */
