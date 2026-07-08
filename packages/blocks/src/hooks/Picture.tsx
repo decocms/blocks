@@ -1,3 +1,15 @@
+"use client";
+
+// `"use client"` added by @decocms/nextjs's next-smoke fixture build
+// (Picture is reachable from `DecoRootLayout`/`SectionRenderer` via the
+// `hooks/index.ts` barrel, so it is part of the react-server module graph
+// on any Next.js Server Component page even when a given page never
+// renders it): `createContext`/`useContext` are unavailable under React's
+// react-server condition, and Next statically flags any reachable module
+// that imports them without this directive ("You're importing a component
+// that needs createContext...") — same class of fix, same precedent, as
+// `SectionErrorFallback.tsx`'s `"use client"` (class component /
+// componentDidCatch, also client-only).
 import {
 	type ComponentPropsWithoutRef,
 	type Context,
@@ -14,15 +26,10 @@ import { type FitOptions, getOptimizedMediaUrl, getSrcSet } from "./Image";
 // so each source can inject its own <link rel="preload"> with the correct
 // media query for responsive art direction.
 //
-// Created LAZILY (first render), not at module scope: this file has no
-// "use client" directive, so in a react-server graph (a Server Component
-// page, or ANY Next.js route handler — which ignores "use client"
-// entirely) the module evaluates against React's react-server build, where
-// `createContext` does not exist. A module-scope call crashes the whole
-// graph at import time ("createContext is not a function") even if
-// Picture/Source never render. Deferring to render time is safe: renders
-// only ever happen under a full React build (client or SSR), and both
-// components resolve the same memoized context object.
+// Still created LAZILY (first render, not module scope) even under
+// `"use client"`: this keeps a single memoized context object regardless of
+// how many client bundle chunks end up importing this module, rather than
+// relying on module-instance identity across chunks.
 // -------------------------------------------------------------------------
 
 interface PreloadContextValue {

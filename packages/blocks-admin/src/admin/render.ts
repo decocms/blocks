@@ -132,7 +132,6 @@ export async function handleRender(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const resolveChain = url.searchParams.get("resolveChain");
   const propsParam = url.searchParams.get("props");
-  console.log("handleRender", request.url);
 
   const pathPrefix = "/live/previews/";
   const rawPathComponent = url.pathname.startsWith(pathPrefix)

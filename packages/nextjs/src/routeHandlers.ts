@@ -74,7 +74,33 @@ export interface DecoRouteHandlersOptions {
  * export const dynamic = "force-dynamic";
  * export const { GET, POST } = createDecoRouteHandlers({ setup: ensureSetup });
  * ```
+ *
+ * `resolveAction` accepts BOTH the rewrite's public source path (e.g.
+ * `/.decofile`, `/live/_meta`, `/live/previews/*`) AND the rewrite's own
+ * destination path (`/deco/*`) — not just the latter. This is load-bearing:
+ * verified empirically against a real `next build && next start` (both
+ * dev and production servers) that a Next.js App Router route handler
+ * reached via a `next.config.js`-level `rewrites()` entry sees
+ * `request.url` (and `NextRequest.nextUrl.pathname`) as the ORIGINAL,
+ * pre-rewrite path the client requested — rewrites are transparent to the
+ * client and, in this respect, to the handler too. Only a *direct* request
+ * to `/deco/*` (bypassing the rewrite, e.g. `/deco/invoke/*`, which has no
+ * public alias) arrives with a `/deco/`-prefixed pathname. Matching only
+ * the `/deco/*` form (as an earlier version of this dispatcher did) makes
+ * every rewritten protocol URL 404 — the dispatcher never sees a
+ * `/deco/decofile`-shaped path in that case, it sees `/.decofile` verbatim.
  */
+function resolveAction(pathname: string): string {
+  if (pathname.startsWith("/deco/")) return pathname.slice("/deco/".length);
+  if (pathname === "/.decofile") return "decofile";
+  if (pathname === "/live/_meta") return "meta";
+  if (pathname === "/live/previews") return "previews";
+  if (pathname.startsWith("/live/previews/")) {
+    return `previews/${pathname.slice("/live/previews/".length)}`;
+  }
+  return pathname;
+}
+
 export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}): {
   GET(request: Request): Promise<Response>;
   POST(request: Request): Promise<Response>;
@@ -83,7 +109,7 @@ export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}):
     await options.setup?.();
 
     const url = new URL(request.url);
-    const action = url.pathname.replace(/^\/deco\//, "");
+    const action = resolveAction(url.pathname);
 
     if (action === "decofile") {
       return request.method === "POST" ? handleDecofileReload(request) : handleDecofileRead();
@@ -120,9 +146,12 @@ export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}):
       return handleInvoke(request);
     }
     if (action === "previews" || action.startsWith("previews/")) {
-      // handleRender parses the literal "/live/previews/" prefix — rebuild
-      // the pre-rewrite URL (rewrites hand route handlers the DESTINATION
-      // path, so the prefix information is otherwise lost).
+      // handleRender parses the literal "/live/previews/" prefix.
+      // `resolveAction` above already normalizes BOTH a direct
+      // `/deco/previews/*` hit and a rewritten `/live/previews/*` hit down
+      // to this same `action` shape, so rebuilding unconditionally here is
+      // a no-op in the rewrite case (rebuilt === original) and the
+      // necessary reconstruction in the direct-hit case.
       const rest = action === "previews" ? "" : action.slice("previews/".length);
       const rebuilt = new URL(url);
       rebuilt.pathname = `/live/previews/${rest}`;

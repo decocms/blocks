@@ -95,6 +95,38 @@ describe("createDecoRouteHandlers", () => {
     expect(res.status).toBe(404);
   });
 
+  // Regression coverage for the rewrite-source paths, not just their
+  // /deco/* destinations: a Next.js App Router route handler reached via a
+  // next.config.js `rewrites()` entry sees `request.url` as the ORIGINAL,
+  // pre-rewrite path (verified empirically against a real `next build` +
+  // `next start`) — NOT the /deco/* destination the rewrite maps to. Every
+  // test above this one only ever constructs an already-/deco/*-shaped
+  // Request, so it would keep passing even if the dispatcher only matched
+  // that form and 404'd every real rewritten request — which is exactly
+  // the bug these tests catch.
+  it("routes the rewrite-source /.decofile path (not just its /deco/decofile destination)", async () => {
+    const { GET, POST } = createDecoRouteHandlers();
+    await GET(new Request("http://x/.decofile"));
+    expect(mocks.handleDecofileRead).toHaveBeenCalled();
+    await POST(new Request("http://x/.decofile", { method: "POST" }));
+    expect(mocks.handleDecofileReload).toHaveBeenCalled();
+  });
+
+  it("routes the rewrite-source /live/_meta path (not just its /deco/meta destination)", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(new Request("http://x/live/_meta"));
+    expect(mocks.handleMeta).toHaveBeenCalled();
+    expect(res.status).not.toBe(404);
+  });
+
+  it("routes the rewrite-source /live/previews/* path straight through to handleRender with the prefix intact", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(new Request("http://x/live/previews/pages-Home-123?props=x"));
+    expect(await res.text()).toBe("/live/previews/pages-Home-123");
+    const calledUrl = new URL(mocks.handleRender.mock.calls[0][0].url);
+    expect(calledUrl.searchParams.get("props")).toBe("x");
+  });
+
   it("405s GET /deco/invoke/* with Allow: POST (CSRF protection — see comment on the invoke branch)", async () => {
     const { GET } = createDecoRouteHandlers();
     const res = await GET(new Request("http://x/deco/invoke/site/actions/x"));
