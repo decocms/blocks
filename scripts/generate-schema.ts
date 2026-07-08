@@ -153,7 +153,7 @@ function applyJsDocToSchema(schema: any, tags: Record<string, string>): void {
   }
 }
 
-const WIDGET_TYPE_FORMATS: Record<string, string> = {
+export const WIDGET_TYPE_FORMATS: Record<string, string> = {
   ImageWidget: "image-uri",
   VideoWidget: "video-uri",
   HTMLWidget: "html",
@@ -183,7 +183,7 @@ function applyWidgetDetection(schema: any, typeText: string): void {
  * Smart widget format application that handles arrays, nullable types,
  * and union types by applying the format to the correct inner schema.
  */
-function applyWidgetFormat(schema: any, typeHint: string): void {
+export function applyWidgetFormat(schema: any, typeHint: string): void {
   const matchedFormat = Object.entries(WIDGET_TYPE_FORMATS).find(
     ([wt]) => typeHint === wt || typeHint.includes(wt),
   )?.[1];
@@ -205,6 +205,12 @@ function applyWidgetFormat(schema: any, typeHint: string): void {
         variant.format = matchedFormat;
       }
     }
+  } else if (!schema.type && !schema.$ref) {
+    // Widget alias (e.g. `Color`) not resolvable by ts-morph (remote/CDN import)
+    // → it came through as `any`, so typeToJsonSchema returned an empty schema.
+    // Every widget alias is string-based, so recover the intended widget here.
+    schema.type = "string";
+    schema.format = matchedFormat;
   }
 }
 
@@ -262,7 +268,7 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
   return ret.getSymbol()?.getName() ?? ret.getAliasSymbol()?.getName() ?? null;
 }
 
-function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
+export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
   const typeText = type.getText();
   if (visited.has(typeText)) return { type: "object" };
   visited.add(typeText);
@@ -1273,15 +1279,32 @@ function generateMeta(): MetaResponse {
   };
 }
 
-const meta = generateMeta();
-const outPath = path.resolve(process.cwd(), OUT_REL);
-fs.mkdirSync(path.dirname(outPath), { recursive: true });
-fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
+function isMainModule(): boolean {
+  // tsx/node ESM: import.meta.url matches process.argv[1] when invoked directly.
+  // Use a forgiving comparison so it works under both `tsx script.ts` and
+  // `node --import tsx script.ts`. Guarding here keeps the module importable
+  // from tests without triggering a full filesystem scan + write.
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    const entryUrl = new URL(`file://${path.resolve(entry)}`).href;
+    return import.meta.url === entryUrl;
+  } catch {
+    return false;
+  }
+}
 
-const defCount = Object.keys(meta.schema.definitions).length;
-const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
-const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
-const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
-console.log(
-  `\nGenerated schema: ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
-);
+if (isMainModule()) {
+  const meta = generateMeta();
+  const outPath = path.resolve(process.cwd(), OUT_REL);
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
+
+  const defCount = Object.keys(meta.schema.definitions).length;
+  const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
+  const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
+  const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
+  console.log(
+    `\nGenerated schema: ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
+  );
+}
