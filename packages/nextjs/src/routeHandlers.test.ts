@@ -1,3 +1,13 @@
+// @vitest-environment node
+//
+// Route Handlers run server-side with no DOM (same rationale as
+// setup.test.ts in this package). This matters concretely here: jsdom's
+// bundled Request polyfill does not reproduce Node/edge's Request-as-init
+// body-stream forwarding (`new Request(url, existingRequest)`) — under
+// jsdom the body-forwarding test below silently loses the body. Node's
+// native Request (used in this environment, and in the real Next.js
+// runtime) preserves it, which is what the previews-rebuild code path
+// relies on.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -57,9 +67,47 @@ describe("createDecoRouteHandlers", () => {
     expect(calledUrl.searchParams.get("props")).toBe("x");
   });
 
+  it("forwards a POST body through the /deco/previews/* URL rebuild (Request-as-init carries the body stream)", async () => {
+    // Pins the `new Request(rebuilt, request)` semantics documented on the
+    // rebuild line: passing a Request as `init` clones the body stream
+    // without a `duplex` option. A refactor to a plain init object would
+    // throw "duplex option is required" for this POST body.
+    mocks.handleRender.mockImplementationOnce(async (req: Request) => {
+      const body = await req.json();
+      return new Response(JSON.stringify({ pathname: new URL(req.url).pathname, body }));
+    });
+    const { POST } = createDecoRouteHandlers();
+    const res = await POST(
+      new Request("http://x/deco/previews/pages-Home-123", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      }),
+    );
+    const json = await res.json();
+    expect(json.pathname).toBe("/live/previews/pages-Home-123");
+    expect(json.body).toEqual({ hello: "world" });
+  });
+
   it("404s unknown deco paths", async () => {
     const { GET } = createDecoRouteHandlers();
     const res = await GET(new Request("http://x/deco/nope"));
     expect(res.status).toBe(404);
+  });
+
+  it("405s GET /deco/invoke/* with Allow: POST (CSRF protection — see comment on the invoke branch)", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(new Request("http://x/deco/invoke/site/actions/x"));
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("POST");
+    expect(mocks.handleInvoke).not.toHaveBeenCalled();
+  });
+
+  it("405s POST /deco/meta with Allow: GET", async () => {
+    const { POST } = createDecoRouteHandlers();
+    const res = await POST(new Request("http://x/deco/meta", { method: "POST" }));
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("GET");
+    expect(mocks.handleMeta).not.toHaveBeenCalled();
   });
 });
