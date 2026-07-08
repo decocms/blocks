@@ -581,7 +581,14 @@ export function recordLoaderError(name: string) {
   m.counterInc(MetricNames.LOADER_ERRORS, 1, { "deco.loader.name": name });
 }
 
-function normalizePath(path: string): string {
+/**
+ * Collapse dynamic path segments (ids, product slugs) into placeholders so a
+ * path can be used as a bounded metric label. Exported so every metric that
+ * labels by route (`http.server.request.duration`, `deco.cms.resolve.duration`)
+ * shares the exact same normalization — a raw path is unbounded cardinality
+ * (one histogram series per URL) and must never reach a metric attribute.
+ */
+export function normalizePath(path: string): string {
   // Collapse dynamic segments to reduce cardinality
   return path
     .replace(/\/[0-9a-f]{8,}/gi, "/:id")
@@ -615,11 +622,11 @@ export function logRequest(
   // Route through the framework logger so the access log fans out to every
   // configured adapter — local stdout via `defaultLoggerAdapter`, OTLP direct-
   // POST via `otlpLog.adapter` when configured (subject to its
-  // `DECO_OTEL_LOGS_MIN_LEVEL` threshold). 5xx upgrades to `error`; 4xx and
-  // 2xx land on `info`. `request.id` and `trace_id` are stamped by the
-  // logger floor automatically (no need to attach manually here).
-  const level = status >= 500 ? "error" : "info";
-  logger[level](`${request.method} ${displayPath} ${status}`, {
+  // `DECO_OTEL_LOGS_MIN_LEVEL` threshold). Always debug: filtered in prod
+  // (default `warn` minLevel), visible in dev with DECO_OTEL_LOGS_MIN_LEVEL=debug.
+  // 5xx errors are already logged at the throw site with full context; the
+  // access log is just a dev convenience, not a production alert source.
+  logger.debug(`${request.method} ${displayPath} ${status}`, {
     method: request.method,
     path: rawPath,
     status,

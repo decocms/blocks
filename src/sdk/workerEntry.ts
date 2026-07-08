@@ -30,6 +30,7 @@ import { loadBlocks } from "../cms/loader";
 import type { MatcherContext } from "../cms/resolve";
 import { isBot, resolveDecoPage } from "../cms/resolve";
 import { runSectionLoaders, runSingleSectionLoader } from "../cms/sectionLoaders";
+import { DECO_MATCHERS_OVERRIDE_PARAM } from "../matchers/override";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -39,6 +40,7 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "./cacheHeaders";
+import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "./flags";
 import { buildHtmlShell } from "./htmlShell";
 import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import {
@@ -50,6 +52,7 @@ import {
   withTracing,
 } from "./observability";
 import { _setDebugSampled, _setRequestTraceContext, instrumentWorker, type OtelOptions } from "./otel";
+import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { setRuntimeEnv } from "./otelAdapters";
 import { parseTraceparent } from "./otelHttpTracer";
 import { RequestContext } from "./requestContext";
@@ -424,6 +427,25 @@ export interface DecoWorkerEntryOptions {
    * no-op — no buffers, no flushes, no network calls.
    */
   observability?: OtelOptions | false;
+
+  /**
+   * Default `User-Agent` for OUTBOUND `fetch` calls (loaders, commerce
+   * APIs, proxies). Cloudflare Workers sends no User-Agent at all, and
+   * UA-less requests are blocked by common WAF setups (Cloudflare managed
+   * rules / Bot Fight Mode) on partner origins. The old Deno runtime
+   * implicitly sent `Deno/x.y.z` on every outbound request, so this
+   * restores pre-migration behavior with an identifiable value.
+   *
+   * Applied only when the caller didn't set a User-Agent — app-specific
+   * UAs always win.
+   *
+   * - Pass a string to override the value (e.g. to match a partner's
+   *   existing WAF allowlist during migration).
+   * - Pass `false` to leave `globalThis.fetch` untouched.
+   *
+   * @default `Deco/<version> (+https://deco.cx)` — see DECO_USER_AGENT.
+   */
+  outboundUserAgent?: string | false;
 }
 
 // ---------------------------------------------------------------------------
@@ -697,7 +719,17 @@ export function createDecoWorkerEntry(
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
     cdnCacheControl: cdnCacheControlOpt = "no-store",
     observability: observabilityOpt,
+    outboundUserAgent: outboundUserAgentOpt,
   } = options;
+
+  // Patch global fetch once so every outbound request — apps calling
+  // `fetch` directly, RequestContext.fetch, instrumentedFetch — carries a
+  // User-Agent. Workers sends none by default, which WAFs on partner
+  // origins read as bot traffic. Set-if-absent: callers that set their
+  // own UA are untouched.
+  if (outboundUserAgentOpt !== false) {
+    installDefaultUserAgent(outboundUserAgentOpt);
+  }
 
   // Backfill `regionId` from Cloudflare geo when the consumer's buildSegment
   // doesn't set one. Without this, sites using website/matchers/location.ts
@@ -770,6 +802,10 @@ export function createDecoWorkerEntry(
     if (url.searchParams.has("__deco_draft")) return false;
     if (url.searchParams.has("__deco_preview")) return false;
     if (url.searchParams.has("pathTemplate")) return false;
+    // Forced matcher results must never be served from (or stored in) the
+    // shared edge cache.
+    if (url.searchParams.has(DECO_MATCHERS_OVERRIDE_PARAM)) return false;
+    if (request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM)) return false;
     return true;
   }
 
@@ -814,6 +850,25 @@ export function createDecoWorkerEntry(
     const fromEnv = (env[cacheVersionEnv] as string) || "";
     if (fromEnv) return fromEnv;
     return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
+  }
+
+  function readRequestCookie(request: Request, name: string): string | undefined {
+    for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
+      const idx = pair.indexOf("=");
+      if (idx <= 0) continue;
+      if (pair.slice(0, idx).trim() !== name) continue;
+      const raw = pair.slice(idx + 1).trim();
+      // Decode once so this matches TanStack's getCookies() used during SSR
+      // (see cms/resolve.ts) — otherwise the worker's cache key and the render
+      // could disagree on the cohort. The deco_segment value is raw base64 (no
+      // percent-escapes), so decoding is a no-op for it and safe in general.
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    return undefined;
   }
 
   function buildCacheKey(
@@ -888,6 +943,18 @@ export function createDecoWorkerEntry(
       url.pathname.startsWith("/_server/");
     if (!isServerFnPath && secFetchDest === "empty") {
       url.searchParams.set("__fetch", "1");
+    }
+
+    // A/B cohort split: fold the sticky `deco_segment` cookie into the cache
+    // key so each variant keeps its own cached HTML. The cookie carries the
+    // traffic fingerprint (see sdk/flags.ts), so a `traffic` change lands
+    // cohorts in fresh buckets. Empty for non-A/B visitors (no cookie) → they
+    // keep sharing one entry. A freshly-assigned visitor sets the cookie on the
+    // response, which is not a "safe" cookie, so that one response bypasses the
+    // cache and never poisons the shared entry.
+    const flagToken = segmentCacheToken(parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)));
+    if (flagToken) {
+      url.searchParams.set("__abf", flagToken);
     }
 
     if (buildSegment) {
@@ -1228,11 +1295,10 @@ export function createDecoWorkerEntry(
               ? await appMw(request, () => handleRequest(request, env, ctx))
               : await handleRequest(request, env, ctx);
 
-            // logRequest must run inside the span so getSpan() returns the
-            // active root span and the trace-sampling gate in otelHttpLog.ts
-            // (traceFlags & 0x01) correctly reflects whether this trace was
-            // sampled. Outside the span getSpan() is null → gate always drops
-            // INFO logs even at 100% sampling rate.
+            // Access log at debug — no-op in prod (default warn minLevel),
+            // visible in dev with DECO_OTEL_LOGS_MIN_LEVEL=debug.
+            // Must run inside the span so getSpan() returns the active root
+            // span and trace_id is stamped on the log record.
             try {
               logRequest(request, innerResponse.status, performance.now() - startedAt, {
                 ...(identity.requestId ? { "request.id": identity.requestId } : {}),
@@ -1298,6 +1364,18 @@ export function createDecoWorkerEntry(
         }
       }
 
+      // Old-runtime parity: deco-cx/deco stamped `x-powered-by: deco@<ver>`
+      // on every response (utils/http.ts defaultHeaders); partner-side logs
+      // and ops tooling use it to identify deco traffic. Set-if-absent so
+      // an upstream origin's own value wins.
+      if (!finalResponse.headers.has("x-powered-by")) {
+        try {
+          finalResponse.headers.set("x-powered-by", DECO_POWERED_BY);
+        } catch {
+          /* sealed headers (cached replay) — identification is best-effort */
+        }
+      }
+
       // Metrics + structured request log. Done after security headers so
       // the recorded status reflects what the client actually receives.
       // Both calls are no-ops when no meter / logger is configured.
@@ -1313,8 +1391,7 @@ export function createDecoWorkerEntry(
         // NOTE: `request.id` and `trace.id` are intentionally NOT stamped
         // on the metric. They are per-request identifiers and would
         // collapse aggregation (every request → its own histogram data
-        // point). They are stamped on the span (see line 1129) and on
-        // the access log (see logRequest call below); use those for
+        // point). They are stamped on the span; use traces for
         // request-level correlation.
         recordRequestMetric(method, reqUrl.pathname, finalResponse.status, durationMs, {
           ...(cacheDecision ? { cache_decision: cacheDecision } : {}),
@@ -1521,6 +1598,19 @@ export function createDecoWorkerEntry(
         resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
         resp.headers.set("X-Cache", "BYPASS");
         resp.headers.set("X-Cache-Reason", "logged-in");
+        return resp;
+      }
+
+      // Matcher overrides via header don't vary the body-hash cache key —
+      // bypass so forced variants are neither stored nor served from cache.
+      // (QS overrides travel inside the payload's pageUrl, so they already
+      // produce a distinct body hash.)
+      if (request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM)) {
+        const origin = await serverEntry.fetch(request, env, ctx);
+        const resp = new Response(origin.body, origin);
+        resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+        resp.headers.set("X-Cache", "BYPASS");
+        resp.headers.set("X-Cache-Reason", "matchers-override");
         return resp;
       }
 

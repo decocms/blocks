@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 /**
  * Schema Generator for deco admin compatibility.
  *
@@ -153,7 +154,7 @@ function applyJsDocToSchema(schema: any, tags: Record<string, string>): void {
   }
 }
 
-const WIDGET_TYPE_FORMATS: Record<string, string> = {
+export const WIDGET_TYPE_FORMATS: Record<string, string> = {
   ImageWidget: "image-uri",
   VideoWidget: "video-uri",
   HTMLWidget: "html",
@@ -183,7 +184,7 @@ function applyWidgetDetection(schema: any, typeText: string): void {
  * Smart widget format application that handles arrays, nullable types,
  * and union types by applying the format to the correct inner schema.
  */
-function applyWidgetFormat(schema: any, typeHint: string): void {
+export function applyWidgetFormat(schema: any, typeHint: string): void {
   const matchedFormat = Object.entries(WIDGET_TYPE_FORMATS).find(
     ([wt]) => typeHint === wt || typeHint.includes(wt),
   )?.[1];
@@ -205,6 +206,12 @@ function applyWidgetFormat(schema: any, typeHint: string): void {
         variant.format = matchedFormat;
       }
     }
+  } else if (!schema.type && !schema.$ref) {
+    // Widget alias (e.g. `Color`) not resolvable by ts-morph (remote/CDN import)
+    // → it came through as `any`, so typeToJsonSchema returned an empty schema.
+    // Every widget alias is string-based, so recover the intended widget here.
+    schema.type = "string";
+    schema.format = matchedFormat;
   }
 }
 
@@ -262,7 +269,7 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
   return ret.getSymbol()?.getName() ?? ret.getAliasSymbol()?.getName() ?? null;
 }
 
-function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
+export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
   const typeText = type.getText();
   if (visited.has(typeText)) return { type: "object" };
   visited.add(typeText);
@@ -902,6 +909,8 @@ function generateMeta(): MetaResponse {
   const appLoaderCache = new Map<string, {
     propsSchema: any;
     outputTypeName: string | null;
+    title: string | null;
+    hidden: boolean;
   }>();
 
   const installedNs = detectInstalledAppNamespaces();
@@ -918,8 +927,22 @@ function generateMeta(): MetaResponse {
         const sourceFile = getSourceFile(project, absSourceFile, sourceFileCache);
 
         // Skip files without a default export (barrel files, utility modules)
-        const hasDefaultExport = sourceFile.getDefaultExportSymbol() != null;
-        if (!hasDefaultExport) continue;
+        const defaultSym = sourceFile.getDefaultExportSymbol();
+        if (defaultSym == null) continue;
+
+        // A loader may control how it appears in the admin picker via JSDoc tags
+        // on its default export:
+        //   @title  — overrides the picker label. This is how compat re-export
+        //             aliases (which would otherwise all beautify to the same
+        //             name from their path) disambiguate themselves. Only a
+        //             slash-free title is honored; paths fall back to the key.
+        //   @ignore — hides the loader from the pickers (redundant path aliases)
+        //             while still emitting its definition so pre-existing blocks
+        //             that reference it keep resolving and rendering.
+        const loaderTags = getJsDocTags(defaultSym);
+        const titleTag = loaderTags.title;
+        const title = titleTag && !titleTag.includes("/") ? titleTag : null;
+        const hidden = !!loaderTags.ignore;
 
         // Extract Props (input schema)
         let propsSchema: any = null;
@@ -937,15 +960,15 @@ function generateMeta(): MetaResponse {
         if (!propsSchema) propsSchema = { type: "object", properties: {} };
 
         const outputTypeName = extractLoaderOutputTypeName(sourceFile);
-        cached = { propsSchema, outputTypeName };
+        cached = { propsSchema, outputTypeName, title, hidden };
         appLoaderCache.set(realPath, cached);
       }
 
-      const { propsSchema, outputTypeName } = cached;
+      const { propsSchema, outputTypeName, title, hidden } = cached;
       const loaderDefKey = toBase64(appLoader.cmsKey);
 
       definitions[loaderDefKey] = {
-        title: appLoader.cmsKey,
+        title: title ?? appLoader.cmsKey,
         type: "object",
         required: ["__resolveType", ...(propsSchema?.required || [])],
         properties: {
@@ -958,18 +981,24 @@ function generateMeta(): MetaResponse {
         $ref: `#/definitions/${loaderDefKey}`,
         namespace: appLoader.namespace,
       };
-      loaderRootAnyOf.push({ $ref: `#/definitions/${loaderDefKey}` });
 
-      // Register output type for block-ref resolution in sections
-      if (outputTypeName) {
-        const existing = outputTypeToLoaderKeys.get(outputTypeName) ?? [];
-        existing.push(appLoader.cmsKey);
-        outputTypeToLoaderKeys.set(outputTypeName, existing);
+      // `@ignore`d loaders keep their definition (so existing blocks resolve)
+      // but are withheld from both the root loader union and the per-output-type
+      // pickers, so users can't pick them for new blocks.
+      if (!hidden) {
+        loaderRootAnyOf.push({ $ref: `#/definitions/${loaderDefKey}` });
+
+        // Register output type for block-ref resolution in sections
+        if (outputTypeName) {
+          const existing = outputTypeToLoaderKeys.get(outputTypeName) ?? [];
+          existing.push(appLoader.cmsKey);
+          outputTypeToLoaderKeys.set(outputTypeName, existing);
+        }
       }
 
       const propCount = Object.keys(propsSchema.properties || {}).length;
       console.log(
-        `  ✓ app loader ${appLoader.cmsKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""})`,
+        `  ${hidden ? "·" : "✓"} app loader ${appLoader.cmsKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""}${hidden ? ", hidden" : ""})`,
       );
     } catch (e) {
       console.warn(`  ✗ app loader ${appLoader.cmsKey}: ${(e as Error).message}`);
@@ -1251,15 +1280,38 @@ function generateMeta(): MetaResponse {
   };
 }
 
-const meta = generateMeta();
-const outPath = path.resolve(process.cwd(), OUT_REL);
-fs.mkdirSync(path.dirname(outPath), { recursive: true });
-fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
+function isMainModule(): boolean {
+  // True when this file is the process entrypoint (invoked directly), false when
+  // it's imported (e.g. from tests) — the guard keeps the module importable
+  // without triggering a full filesystem scan + write.
+  //
+  // Compare the *realpath* of both sides rather than the raw URL: under tsx /
+  // pnpm the entrypoint is reached through symlinks (pnpm's node_modules,
+  // macOS /tmp → /private/tmp), so argv[1] and import.meta.url spell the same
+  // file differently. A raw string compare would silently return false and skip
+  // generation. realpathSync collapses symlinks so both resolve identically.
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    const entryPath = fs.realpathSync(path.resolve(entry));
+    const selfPath = fs.realpathSync(fileURLToPath(import.meta.url));
+    return entryPath === selfPath;
+  } catch {
+    return false;
+  }
+}
 
-const defCount = Object.keys(meta.schema.definitions).length;
-const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
-const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
-const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
-console.log(
-  `\nGenerated schema: ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
-);
+if (isMainModule()) {
+  const meta = generateMeta();
+  const outPath = path.resolve(process.cwd(), OUT_REL);
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
+
+  const defCount = Object.keys(meta.schema.definitions).length;
+  const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
+  const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
+  const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
+  console.log(
+    `\nGenerated schema: ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
+  );
+}

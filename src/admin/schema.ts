@@ -63,6 +63,8 @@ export interface LoaderConfig {
   key: string;
   title: string;
   namespace: string;
+  description?: string;
+  icon?: string;
   propsSchema: Record<string, any>;
   /** Tags for property matching (e.g., "product-list" enables injection into Product[] props). */
   tags?: string[];
@@ -102,6 +104,8 @@ export interface ActionConfig {
   key: string;
   title: string;
   namespace: string;
+  description?: string;
+  icon?: string;
   propsSchema: Record<string, any>;
 }
 
@@ -131,6 +135,8 @@ function buildActionDefinitions() {
 
     definitions[defKey] = {
       title: action.key,
+      ...(action.description ? { description: action.description } : {}),
+      ...(action.icon ? { icon: action.icon } : {}),
       type: "object",
       required: ["__resolveType", ...(action.propsSchema?.required || [])],
       properties: {
@@ -160,6 +166,8 @@ export interface MatcherConfig {
   key: string;
   title: string;
   namespace: string;
+  description?: string;
+  icon?: string;
   propsSchema?: Record<string, any>;
 }
 
@@ -187,11 +195,25 @@ export function getRegisteredMatchers(): MatcherConfig[] {
 
 // Register built-in matchers that are always available
 registerMatcherSchemas([
-  { key: "website/matchers/always.ts", title: "Always", namespace: "website" },
-  { key: "website/matchers/never.ts", title: "Never", namespace: "website" },
+  {
+    key: "website/matchers/always.ts",
+    title: "Always",
+    description: "Target all users",
+    icon: "eye",
+    namespace: "website",
+  },
+  {
+    key: "website/matchers/never.ts",
+    title: "Never",
+    description: "Hide from all users",
+    icon: "eye-off",
+    namespace: "website",
+  },
   {
     key: "website/matchers/device.ts",
     title: "Device",
+    description: "Target users based on their device type, such as desktop, tablet, or mobile",
+    icon: "device-mobile",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -203,7 +225,9 @@ registerMatcherSchemas([
   },
   {
     key: "website/matchers/date.ts",
-    title: "Date Range",
+    title: "Date and Time",
+    description: "Target users based on specific dates or date ranges, including specific times",
+    icon: "calendar-event",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -215,7 +239,9 @@ registerMatcherSchemas([
   },
   {
     key: "website/matchers/cron.ts",
-    title: "Time Window (Cron)",
+    title: "Cron",
+    description: "Target users with precision using recurring schedules",
+    icon: "refresh",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -228,6 +254,8 @@ registerMatcherSchemas([
   {
     key: "website/matchers/cookie.ts",
     title: "Cookie",
+    description: "Target users that have a specific cookie",
+    icon: "cookie",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -239,7 +267,9 @@ registerMatcherSchemas([
   },
   {
     key: "website/matchers/host.ts",
-    title: "Hostname",
+    title: "Host",
+    description: "Target users based on the domain or subdomain they are accessing your site from",
+    icon: "world-www",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -251,6 +281,8 @@ registerMatcherSchemas([
   {
     key: "website/matchers/pathname.ts",
     title: "Pathname",
+    description: "Target users based on the pathname",
+    icon: "world-www",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -272,6 +304,8 @@ registerMatcherSchemas([
   {
     key: "website/matchers/queryString.ts",
     title: "Query String",
+    description: "Match with a specific querystring",
+    icon: "question-mark",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -283,7 +317,9 @@ registerMatcherSchemas([
   },
   {
     key: "website/matchers/random.ts",
-    title: "Random (A/B Test)",
+    title: "Random",
+    description: "Target a percentage of the total traffic to do an A/B test",
+    icon: "arrow-split",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -300,37 +336,63 @@ registerMatcherSchemas([
   {
     key: "website/matchers/location.ts",
     title: "Location",
+    description:
+      "Target users based on their geographical location, such as country, city, or region",
+    icon: "map-2",
     namespace: "website",
     propsSchema: (() => {
-      const locationOrMapItem = {
+      // `includeLocations`/`excludeLocations` are `(Location | Map)[]` in the
+      // matcher source. Emit the union as an `anyOf` of two branches so the CMS
+      // renders a Location/Map choice instead of merging every field into one
+      // form. The Location branch is exactly {city, regionCode, country}; the
+      // Map branch carries the `@format: map` coordinate picker.
+      const locationBranch = {
         type: "object" as const,
+        title: "Location",
         properties: {
           city: {
             type: "string",
             title: "City",
             examples: ["São Paulo"],
-            description: "Exact city name (case-insensitive) as returned by Cloudflare's cf-ipcity header.",
+            description:
+              "Exact city name (case-insensitive) as returned by Cloudflare's cf-ipcity header.",
           },
           regionCode: {
             type: "string",
             title: "Region Code",
             examples: ["SP", "RJ", "MG", "47"],
             description:
-              "Matches Cloudflare's cf-region-code header. Usually the ISO 3166-2 subdivision code (SP, RJ, MG, …); for some regions Cloudflare returns numeric codes (e.g. 47). Use the same value cf-region-code returns for your audience — full region names like \"São Paulo\" are NOT matched.",
+              'Matches Cloudflare\'s cf-region-code header. Usually the ISO 3166-2 subdivision code (SP, RJ, MG, …); for some regions Cloudflare returns numeric codes (e.g. 47). Use the same value cf-region-code returns for your audience — full region names like "São Paulo" are NOT matched.',
           },
           country: {
             type: "string",
             title: "Country",
             examples: ["BR", "Brasil", "US"],
-            description: "ISO 3166-1 alpha-2 code (BR, US, AR, …) or a full country name (Brasil, United States) — the matcher resolves common aliases.",
+            description:
+              "ISO 3166-1 alpha-2 code (BR, US, AR, …) or a full country name (Brasil, United States) — the matcher resolves common aliases.",
           },
+        },
+      };
+      const mapBranch = {
+        type: "object" as const,
+        title: "Map",
+        properties: {
           coordinates: {
             type: "string",
             title: "Area selection",
+            format: "map",
             examples: ["-23.5505,-46.6333,5000"],
-            description: "\"latitude,longitude,radius_in_meters\" for haversine-radius matching. Set this for the Map mode.",
+            description:
+              '"latitude,longitude,radius_in_meters" for haversine-radius matching. Set this for the Map mode.',
           },
         },
+      };
+      // Mustache title so array items summarise their content instead of
+      // "Item 1". Absent fields render empty; the label is trimmed. Covers both
+      // branches — Location fields and the Map coordinates.
+      const locationOrMapItem = {
+        title: "{{{city}}} {{{regionCode}}} {{{country}}} {{{coordinates}}}",
+        anyOf: [locationBranch, mapBranch],
       };
       return {
         type: "object" as const,
@@ -352,6 +414,8 @@ registerMatcherSchemas([
   {
     key: "website/matchers/userAgent.ts",
     title: "User Agent",
+    description: "Target users based on their web browser or operational system",
+    icon: "world",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -364,6 +428,9 @@ registerMatcherSchemas([
   {
     key: "website/matchers/environment.ts",
     title: "Environment",
+    description:
+      "Target users based from where they are accessing your site (development, testing, or production)",
+    icon: "code",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -378,7 +445,9 @@ registerMatcherSchemas([
   },
   {
     key: "website/matchers/multi.ts",
-    title: "Multi (AND/OR)",
+    title: "Multi",
+    description: "Create more complex conditions by combining multiple matchers",
+    icon: "plus",
     namespace: "website",
     propsSchema: {
       type: "object",
@@ -392,29 +461,23 @@ registerMatcherSchemas([
         matchers: {
           type: "array",
           title: "Matchers",
-          items: {
-            type: "object",
-            required: ["__resolveType"],
-            properties: { __resolveType: { type: "string" } },
-            additionalProperties: true,
-          },
+          items: { $ref: "#/root/matchers" },
         },
       },
     },
   },
   {
     key: "website/matchers/negate.ts",
-    title: "Negate (NOT)",
+    title: "Negates",
+    description: "Create conditions that target users who do not meet certain criteria",
+    icon: "minus",
     namespace: "website",
     propsSchema: {
       type: "object",
       properties: {
         matcher: {
-          type: "object",
+          $ref: "#/root/matchers",
           title: "Matcher",
-          required: ["__resolveType"],
-          properties: { __resolveType: { type: "string" } },
-          additionalProperties: true,
         },
       },
     },
@@ -431,6 +494,8 @@ function buildLoaderDefinitions() {
 
     definitions[defKey] = {
       title: loader.key,
+      ...(loader.description ? { description: loader.description } : {}),
+      ...(loader.icon ? { icon: loader.icon } : {}),
       type: "object",
       required: ["__resolveType", ...(loader.propsSchema?.required || [])],
       properties: {
@@ -466,7 +531,9 @@ function buildMatcherDefinitions() {
   for (const matcher of matcherRegistry) {
     const defKey = toBase64(matcher.key);
     definitions[defKey] = {
-      title: matcher.key,
+      title: matcher.title,
+      ...(matcher.description ? { description: matcher.description } : {}),
+      ...(matcher.icon ? { icon: matcher.icon } : {}),
       type: "object",
       required: ["__resolveType"],
       properties: {
