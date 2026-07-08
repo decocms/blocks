@@ -1,5 +1,6 @@
 import {
 	type ComponentPropsWithoutRef,
+	type Context,
 	createContext,
 	forwardRef,
 	type ReactNode,
@@ -12,13 +13,27 @@ import { type FitOptions, getOptimizedMediaUrl, getSrcSet } from "./Image";
 // Preload context — flows from <Picture preload> to child <Source> elements
 // so each source can inject its own <link rel="preload"> with the correct
 // media query for responsive art direction.
+//
+// Created LAZILY (first render), not at module scope: this file has no
+// "use client" directive, so in a react-server graph (a Server Component
+// page, or ANY Next.js route handler — which ignores "use client"
+// entirely) the module evaluates against React's react-server build, where
+// `createContext` does not exist. A module-scope call crashes the whole
+// graph at import time ("createContext is not a function") even if
+// Picture/Source never render. Deferring to render time is safe: renders
+// only ever happen under a full React build (client or SSR), and both
+// components resolve the same memoized context object.
 // -------------------------------------------------------------------------
 
 interface PreloadContextValue {
 	preload: boolean;
 }
 
-const PreloadContext = createContext<PreloadContextValue>({ preload: false });
+let _preloadContext: Context<PreloadContextValue> | null = null;
+function getPreloadContext(): Context<PreloadContextValue> {
+	_preloadContext ??= createContext<PreloadContextValue>({ preload: false });
+	return _preloadContext;
+}
 
 // -------------------------------------------------------------------------
 // Source — composable <source> with automatic srcSet optimization and
@@ -41,7 +56,7 @@ export const Source = forwardRef<HTMLSourceElement, SourceProps>(function Source
 	{ src, width, height, fetchPriority, fit = "cover", ...rest },
 	ref,
 ) {
-	const { preload } = useContext(PreloadContext);
+	const { preload } = useContext(getPreloadContext());
 
 	const optimizedSrc = getOptimizedMediaUrl({
 		originalSrc: src,
@@ -93,6 +108,7 @@ export const Picture = forwardRef<HTMLPictureElement, PictureProps>(function Pic
 	ref,
 ) {
 	const value = useMemo(() => ({ preload }), [preload]);
+	const PreloadContext = getPreloadContext();
 
 	return (
 		<PreloadContext.Provider value={value}>

@@ -21,44 +21,24 @@
  * ```
  */
 
+import { detectDevice } from "./detectDevice";
 import { RequestContext } from "./requestContext";
 
-export type Device = "mobile" | "tablet" | "desktop";
+// The pure UA-parsing half (`Device`, `MOBILE_RE`, `TABLET_RE`,
+// `isMobileUA`, `detectDevice`) lives in `./detectDevice` — a leaf with no
+// React and no RequestContext — and is re-exported below for backward
+// compatibility. Modules that can land in a Next.js route-handler graph
+// (`cms/sectionMixins.ts`, `sdk/requestContext.ts`) MUST import that leaf
+// directly, not this file: this file also re-exports the `"use client"`
+// context half, which crashes route handlers (see ./detectDevice's doc
+// comment for the vendored-RSC-React mechanics).
+export { type Device, detectDevice, isMobileUA, MOBILE_RE, TABLET_RE } from "./detectDevice";
 
 // `DeviceContext`, the `useDevice()` hook, and `DeviceProvider` live in
 // `./useDeviceContext` (a `"use client"` file) and are re-exported below for
 // full backward compatibility with this module's public API — see that
-// file's doc comment for why the split exists. Everything that stays in
-// *this* file is a plain, hook-free function, safe to import from
-// server-only code (e.g. `cms/sectionMixins.ts`'s `withDevice()`/
-// `withMobile()` loader mixins) without dragging a client-only hook/context
-// boundary into a Server Component's module graph.
+// file's doc comment for why the split exists.
 export { DeviceContext, useDevice, DeviceProvider } from "./useDeviceContext";
-
-// Android phones include "Mobile" in their UA; Android tablets do not.
-// Check TABLET_RE first so `android(?!.*mobile)` captures tablets before
-// the MOBILE_RE `android.*mobile` branch matches phones.
-export const MOBILE_RE = /mobile|android.*mobile|iphone|ipod|webos|blackberry|opera mini|iemobile/i;
-export const TABLET_RE = /ipad|tablet|kindle|silk|playbook|android(?!.*mobile)/i;
-
-/**
- * Simple mobile-or-not check (mobile + tablet = true).
- * Use this for cache key splitting or any context where you
- * only need a mobile/desktop binary decision.
- */
-export function isMobileUA(userAgent: string): boolean {
-  return MOBILE_RE.test(userAgent) || TABLET_RE.test(userAgent);
-}
-
-/**
- * Detect device type from a User-Agent string.
- * Pure function — no side effects, works anywhere.
- */
-export function detectDevice(userAgent: string): Device {
-  if (TABLET_RE.test(userAgent)) return "tablet";
-  if (MOBILE_RE.test(userAgent)) return "mobile";
-  return "desktop";
-}
 
 /**
  * Resolve the current device from the ambient runtime (RequestContext on the
@@ -66,7 +46,7 @@ export function detectDevice(userAgent: string): Device {
  * Used both by the plain `check*()` helpers below and by `useDevice()`/
  * `DeviceProvider` in `./useDeviceContext`.
  */
-export function resolveDeviceFromRuntime(): Device {
+export function resolveDeviceFromRuntime(): ReturnType<typeof detectDevice> {
   // Server: use RequestContext UA header
   if (typeof document === "undefined") {
     const ctx = RequestContext.current;

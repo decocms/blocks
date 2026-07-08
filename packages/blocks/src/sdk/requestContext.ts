@@ -87,7 +87,7 @@ export interface RequestContextData {
 // Storage
 // -------------------------------------------------------------------------
 
-import { isMobileUA } from "./useDevice";
+import { isMobileUA } from "./detectDevice";
 
 const BOT_RE =
   /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|linkedinbot|twitterbot|whatsapp|telegram|googlebot|yandex|baidu|duckduck/i;

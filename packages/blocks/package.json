@@ -46,6 +46,7 @@
     "./sdk/cookie": "./src/sdk/cookie.ts",
     "./sdk/crypto": "./src/sdk/crypto.ts",
     "./sdk/csp": "./src/sdk/csp.ts",
+    "./sdk/detectDevice": "./src/sdk/detectDevice.ts",
     "./sdk/djb2": "./src/sdk/djb2.ts",
     "./sdk/encoding": "./src/sdk/encoding.ts",
     "./sdk/env": "./src/sdk/env.ts",
