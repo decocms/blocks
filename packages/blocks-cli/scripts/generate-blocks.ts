@@ -77,39 +77,65 @@ export async function generateBlocks(
     if (!silent) {
       console.warn(`Blocks directory not found: ${blocksDir} — generating empty barrel.`);
     }
-    fs.mkdirSync(path.dirname(outFile), { recursive: true });
-    fs.writeFileSync(jsonFile, "{}");
-    fs.writeFileSync(outFile, TS_STUB);
+    await fs.promises.mkdir(path.dirname(outFile), { recursive: true });
+    await fs.promises.writeFile(jsonFile, "{}");
+    await fs.promises.writeFile(outFile, TS_STUB);
     return { count: 0, collisions: 0, jsonFile, outFile, empty: true, blocks: {} };
   }
 
-  const files = fs.readdirSync(blocksDir).filter((f) => f.endsWith(".json"));
+  const files = (await fs.promises.readdir(blocksDir)).filter((f) => f.endsWith(".json"));
 
   // Read each file into a Candidate, then let the dedupe lib pick the winner
   // per decoded key and report any collisions. See `lib/blocks-dedupe.ts` for
   // the priority order and the rationale behind it (TL;DR: never use file size,
   // don't trust mtime alone in CI clones).
+  //
+  // Reads run as bounded-concurrency async I/O (not a synchronous
+  // readFileSync/statSync loop) so this whole-directory scan yields the event
+  // loop between batches. On dev cold-start the Vite plugin fires this
+  // fire-and-forget alongside Vite's own startup; a synchronous scan of a few
+  // hundred `.deco/blocks` files blocked the loop long enough to delay `ready`
+  // by ~1s (materially worse under a CPU quota, e.g. a sandbox pod). Batched to
+  // keep the open-fd count bounded (avoid EMFILE on large decofiles).
   const candidatesWithKeys: Array<{ candidate: Candidate; key: string }> = [];
-  for (const file of files) {
-    const { name, passes } = decodeBlockNameWithPasses(file);
-    const fp = path.join(blocksDir, file);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(fs.readFileSync(fp, "utf-8"));
-    } catch (e) {
-      if (!silent) console.warn(`Failed to parse ${file}:`, e);
-      continue;
+  const READ_BATCH = 64;
+  for (let i = 0; i < files.length; i += READ_BATCH) {
+    const batch = await Promise.all(
+      files.slice(i, i + READ_BATCH).map(async (file) => {
+        const fp = path.join(blocksDir, file);
+        try {
+          const [raw, stat] = await Promise.all([
+            fs.promises.readFile(fp, "utf-8"),
+            fs.promises.stat(fp),
+          ]);
+          return { file, raw, mtimeMs: stat.mtimeMs };
+        } catch (e) {
+          if (!silent) console.warn(`Failed to read ${file}:`, e);
+          return null;
+        }
+      }),
+    );
+    for (const entry of batch) {
+      if (!entry) continue;
+      const { name, passes } = decodeBlockNameWithPasses(entry.file);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(entry.raw);
+      } catch (e) {
+        if (!silent) console.warn(`Failed to parse ${entry.file}:`, e);
+        continue;
+      }
+      candidatesWithKeys.push({
+        key: name,
+        candidate: {
+          file: entry.file,
+          passes,
+          mtimeMs: entry.mtimeMs,
+          hasPath: blockHasPath(parsed),
+          parsed,
+        },
+      });
     }
-    candidatesWithKeys.push({
-      key: name,
-      candidate: {
-        file,
-        passes,
-        mtimeMs: fs.statSync(fp).mtimeMs,
-        hasPath: blockHasPath(parsed),
-        parsed,
-      },
-    });
   }
 
   const { winners, collisions } = mergeCandidates(candidatesWithKeys);
@@ -138,11 +164,11 @@ export async function generateBlocks(
     blocks[singleDecodeBlockName(c.file)] = c.parsed;
   }
 
-  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  await fs.promises.mkdir(path.dirname(outFile), { recursive: true });
 
   // 1. Compact JSON — the real data (no pretty-printing to save ~40% size)
   const jsonStr = JSON.stringify(blocks);
-  fs.writeFileSync(jsonFile, jsonStr);
+  await fs.promises.writeFile(jsonFile, jsonStr);
 
   // 2. Thin TS wrapper — just for TypeScript tooling and as a Vite load target.
   // Only write if content differs to avoid triggering Vite's file watcher,
@@ -150,10 +176,10 @@ export async function generateBlocks(
   // TanStack Router during dev hot-reload.
   let existingTs: string | undefined;
   try {
-    existingTs = fs.readFileSync(outFile, "utf-8");
+    existingTs = await fs.promises.readFile(outFile, "utf-8");
   } catch {}
   if (existingTs !== TS_STUB) {
-    fs.writeFileSync(outFile, TS_STUB);
+    await fs.promises.writeFile(outFile, TS_STUB);
   }
 
   if (!silent) {
