@@ -11,7 +11,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./routeHandlers": "./src/routeHandlers.ts"
+    "./routeHandlers": "./src/routeHandlers.ts",
+    "./setup": "./src/setup.ts"
   },
   "scripts": {
     "build": "tsc",
