@@ -123,7 +123,7 @@ function fnv1a(str: string): number {
 
 /**
  * Hop-by-hop headers per RFC 7230 §6.1 — must not be forwarded through
- * proxies. Plus `host`, which we always rewrite to the target origin.
+ * proxies.
  */
 const HOP_BY_HOP_HEADERS = new Set([
 	"connection",
@@ -276,10 +276,17 @@ export function tagBucket(
  * Proxy a request to the fallback origin with full hostname rewriting.
  *
  * Rewrites:
- * 1. URL hostname → fallback origin
+ * 1. URL hostname → fallback origin (the connection target)
  * 2. Set-Cookie Domain → real hostname
  * 3. Body text: fallback hostname → real hostname (for Fresh partial URLs)
  * 4. Location header → real hostname
+ *
+ * **The original `Host` header is preserved.** Fallback origins are shared
+ * entry points (e.g. the EKS ingress load balancer) that route to the site
+ * by `Host` — sending `Host: <fallbackOrigin>` instead returns the origin's
+ * 404 page. This mirrors the original cf-dispatch gateway, which forwarded
+ * the incoming headers (Host included) untouched. `x-forwarded-host` is
+ * still set for upstreams that read it.
  *
  * **`redirect: "manual"` is critical.** The request body is forwarded as a
  * stream (`duplex: "half"`) and is consumed by this first fetch. If the
@@ -297,16 +304,19 @@ export async function proxyToFallback(
 	const target = new URL(url.toString());
 	target.hostname = fallbackOrigin;
 
-	// Strip hop-by-hop headers + Host before forwarding. Without this the
+	// Strip hop-by-hop headers before forwarding. Without this the
 	// upstream may close the connection (Connection: close) or get confused
 	// by Transfer-Encoding/Upgrade meant for the original CF↔client hop.
 	const headers = new Headers();
 	for (const [key, value] of request.headers.entries()) {
 		const lk = key.toLowerCase();
-		if (lk === "host") continue;
 		if (HOP_BY_HOP_HEADERS.has(lk)) continue;
 		headers.set(key, value);
 	}
+	// Keep the site's hostname as Host — the fallback origin routes by it
+	// (see docstring). Set explicitly rather than trusting the incoming
+	// value so a mangled upstream Host can't leak through.
+	headers.set("host", url.hostname);
 	headers.set("x-forwarded-host", url.hostname);
 
 	const init: RequestInit = {

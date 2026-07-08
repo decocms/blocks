@@ -62,7 +62,7 @@ describe("proxyToFallback", () => {
     expect(init.redirect).toBe("manual");
   });
 
-  it("strips hop-by-hop headers + host before forwarding", async () => {
+  it("strips hop-by-hop headers, preserving the original host", async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 204 }));
 
     const request = new Request(`https://${REAL_HOST}/foo`, {
@@ -82,7 +82,9 @@ describe("proxyToFallback", () => {
 
     const [, init] = fetchSpy.mock.calls[0];
     const fwd = init.headers as Headers;
-    expect(fwd.get("host")).toBeNull();
+    // Host stays on the site's hostname — shared fallback origins (e.g. the
+    // EKS ingress LB) route by Host; sending the LB's own host 404s.
+    expect(fwd.get("host")).toBe(REAL_HOST);
     expect(fwd.get("connection")).toBeNull();
     expect(fwd.get("keep-alive")).toBeNull();
     expect(fwd.get("transfer-encoding")).toBeNull();
