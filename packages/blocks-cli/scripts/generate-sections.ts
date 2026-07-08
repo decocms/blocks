@@ -17,6 +17,12 @@
  * CLI:
  *   --sections-dir  override input  (default: src/sections)
  *   --out-file      override output (default: src/server/cms/sections.gen.ts)
+ *   --registry      also emit `sectionImports` — a lazy section-import map
+ *                   keyed glob-style (`./sections/...`), the Next.js/webpack
+ *                   equivalent of Vite's `import.meta.glob("./sections/**\/*.tsx")`.
+ *                   Built from every scanned section file, not just the ones
+ *                   carrying convention exports. Off by default so existing
+ *                   Vite sites regenerating sections.gen.ts in CI see zero diff.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -30,6 +36,7 @@ function arg(name: string, fallback: string): string {
 
 const sectionsDir = path.resolve(process.cwd(), arg("sections-dir", "src/sections"));
 const outFile = path.resolve(process.cwd(), arg("out-file", "src/server/cms/sections.gen.ts"));
+const EMIT_REGISTRY = args.includes("--registry");
 
 interface SectionMeta {
   eager?: boolean;
@@ -226,6 +233,25 @@ if (allFallbacks.length > 0) {
   lines.push("export const loadingFallbacks: Record<string, React.ComponentType<any>> = {};");
 }
 lines.push("");
+
+// Lazy section-import registry — opt-in via --registry, built from every
+// scanned section file (not just convention-carrying `entries`).
+if (EMIT_REGISTRY) {
+  lines.push("");
+  lines.push("/**");
+  lines.push(" * Lazy section registry — the Next.js/webpack equivalent of Vite's");
+  lines.push(' * `import.meta.glob("./sections/**/*.tsx")`. Keys use the glob-style');
+  lines.push(" * `./sections/...` form so this map drops straight into");
+  lines.push(" * `createSiteSetup({ sections })` / `createNextSetup({ sections })`.");
+  lines.push(" */");
+  lines.push("export const sectionImports: Record<string, () => Promise<any>> = {");
+  for (const filePath of sectionFiles) {
+    const rel = path.relative(sectionsDir, filePath).replace(/\\/g, "/");
+    const importPath = relativeImportPath(outFile, filePath);
+    lines.push(`  "./sections/${rel}": () => import("${importPath}"),`);
+  }
+  lines.push("};");
+}
 
 fs.mkdirSync(path.dirname(outFile), { recursive: true });
 fs.writeFileSync(outFile, lines.join("\n"));

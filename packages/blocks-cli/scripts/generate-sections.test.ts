@@ -69,3 +69,75 @@ describe("generate-sections walkDir exclusions", () => {
     expect(generated).not.toContain("sections.gen.ts");
   });
 });
+
+describe("generate-sections --registry", () => {
+  let tmpDir: string;
+  let sectionsDir: string;
+  let outFile: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-sections-registry-"));
+    sectionsDir = path.join(tmpDir, "sections");
+    outFile = path.join(tmpDir, "out", "sections.gen.ts");
+    fs.mkdirSync(path.join(sectionsDir, "Nested"), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function expectedImportPath(filePath: string): string {
+    let rel = path.relative(path.dirname(outFile), filePath).replace(/\\/g, "/");
+    if (!rel.startsWith(".")) rel = `./${rel}`;
+    return rel.replace(/\.tsx?$/, "");
+  }
+
+  it("emits sectionImports keyed glob-style with relative dynamic imports, built from all scanned section files (not just convention-carrying ones)", () => {
+    const heroPath = path.join(sectionsDir, "Hero.tsx");
+    const promoPath = path.join(sectionsDir, "Nested", "Promo.tsx");
+    fs.writeFileSync(
+      heroPath,
+      "export const sync = true\nexport default function Hero() { return null }\n",
+    );
+    // No convention exports — regression guard: without --registry this file
+    // never makes it into `entries`, so the registry must be built from the
+    // raw `sectionFiles` walk, not from `entries`.
+    fs.writeFileSync(
+      promoPath,
+      "export default function Promo() { return null }\n",
+    );
+
+    const { code } = runGenerator([
+      "--sections-dir", sectionsDir,
+      "--out-file", outFile,
+      "--registry",
+    ]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    expect(generated).toContain("export const sectionImports");
+    expect(generated).toContain(
+      `"./sections/Hero.tsx": () => import("${expectedImportPath(heroPath)}")`,
+    );
+    expect(generated).toContain(
+      `"./sections/Nested/Promo.tsx": () => import("${expectedImportPath(promoPath)}")`,
+    );
+  });
+
+  it("does not emit sectionImports without the --registry flag", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "Hero.tsx"),
+      "export const sync = true\nexport default function Hero() { return null }\n",
+    );
+    fs.writeFileSync(
+      path.join(sectionsDir, "Nested", "Promo.tsx"),
+      "export default function Promo() { return null }\n",
+    );
+
+    const { code } = runGenerator(["--sections-dir", sectionsDir, "--out-file", outFile]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    expect(generated).not.toContain("sectionImports");
+  });
+});
