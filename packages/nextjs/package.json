@@ -12,7 +12,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./routeHandlers": "./src/routeHandlers.ts",
-    "./setup": "./src/setup.ts"
+    "./setup": "./src/setup.ts",
+    "./config": {
+      "types": "./src/config.d.cts",
+      "default": "./src/config.cjs"
+    }
   },
   "scripts": {
     "build": "tsc",
