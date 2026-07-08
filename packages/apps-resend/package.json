@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Deco app: Resend transactional email integration",
   "repository": { "type": "git", "url": "https://github.com/decocms/blocks.git", "directory": "packages/apps-resend" },
+  "files": ["src", "tsconfig.json"],
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",

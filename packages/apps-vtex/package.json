@@ -8,6 +8,7 @@
     "url": "https://github.com/decocms/blocks.git",
     "directory": "packages/apps-vtex"
   },
+  "files": ["src", "tsconfig.json"],
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
