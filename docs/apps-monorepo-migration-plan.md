@@ -43,6 +43,15 @@
   | `sdk/createInvoke` (`createInvokeFn`) | **Real gap** — not on any new package's public surface yet. Task 7 adds `createInvokeFn` to `@decocms/tanstack`'s exports properly (the site-level compat shim reimplemented it verbatim as a stopgap; this migration does the real fix instead). | |
   | `apps` | **Confirmed** (Task 1): `@decocms/blocks-admin/apps/autoconfig`. `apps-start`'s `registry.ts` doc comment describes `@decocms/start`'s `autoconfigApps()` consuming `APP_REGISTRY`; `packages/blocks-admin/src/apps/autoconfig.ts` exports an equivalent `autoconfigApps(blocks, registry)` with matching signature/purpose (its own doc comment even shows the old call site: `import { autoconfigApps } from "@decocms/start/apps/autoconfig"`). Matches the mapping already documented in this repo's `CLAUDE.md` "Package Exports" table. | |
 
+- **Registry redesign (decided mid-Task-2, after implementation surfaced a real conflict):** `apps-start`'s `registry.ts` was a single static `APP_REGISTRY` array whose entries dynamically imported every platform's `mod.ts` as sibling relative paths (`./shopify/mod`, `./vtex/mod`, etc.) — only possible because every platform lived in one package. Split by platform, no single `apps-*` package can hold that array without depending on every other `apps-*` package, violating the one-way/no-apps-to-apps rule. **Resolution:** `@decocms/apps-commerce/registry` keeps only the shared `AppRegistryEntry`/`AppRegistry` **types** (no runtime array). Each platform package that has a registrable app (`apps-vtex`, `apps-shopify`, `apps-resend`, `apps-blog` — the 4 apps-start's registry actually covered) exports its **own** single-entry registry from its own `./registry` subpath (e.g. `@decocms/apps-vtex/registry` exports `VTEX_REGISTRY_ENTRY: AppRegistryEntry`, pointing `module: () => import("./mod")` at its own sibling `mod.ts` — a same-package relative import, no cross-package edge at all). Sites compose their own array by importing only the platform entries they actually use:
+  ```ts
+  import { autoconfigApps } from "@decocms/blocks-admin/apps/autoconfig";
+  import { VTEX_REGISTRY_ENTRY } from "@decocms/apps-vtex/registry";
+  import { RESEND_REGISTRY_ENTRY } from "@decocms/apps-resend/registry";
+  await autoconfigApps(generatedBlocks, [VTEX_REGISTRY_ENTRY, RESEND_REGISTRY_ENTRY]);
+  ```
+  This applies to Tasks 7 (vtex), 8 (shopify), 12 (resend), 13 (blog) — each adds a `registry.ts` exporting its own entry with the same metadata (`blockKey`, `displayName`, `category`, `description`) apps-start's original array had for that platform (see the git history of `packages/apps-commerce/src/registry.ts` for the exact per-platform values once Task 2 lands). apps-magento/algolia/salesforce/website did not have entries in apps-start's original registry — no registry.ts needed for those unless a later requirement adds one.
+
 - Verification bar for every migration task: `bun install` clean, `bun run typecheck` clean (whole workspace, not just the new package), `bun run test` clean (whole workspace), then a final end-to-end pass (Task 14) against a real site.
 - BSD sed's `\b` word boundary silently fails in some contexts (hit this twice already this session) — use `perl -pi -e` for bulk import rewrites, or a pattern that doesn't rely on `\b`, and always verify with a final grep that zero old-name references remain.
 
@@ -198,7 +207,7 @@ git commit -m "feat(scripts): add apps-start import-rewrite tool for the monorep
 - Modify: none outside the new package yet (Task 3 handles the UI component split-out)
 
 **Interfaces:**
-- Produces: `@decocms/apps-commerce` — `commerce/types`, `app-types`, `resolve`, `manifest-utils`, `utils/*`, `sdk/*`, plus `registry.ts` (relocated from apps-start's repo root — it's the cross-cutting app catalogue every platform package's `mod.ts` conceptually plugs into, so it belongs with the shared/foundational package, not any one platform).
+- Produces: `@decocms/apps-commerce` — `commerce/types`, `app-types`, `resolve`, `manifest-utils`, `utils/*`, `sdk/*`, plus `registry.ts` relocated from apps-start's repo root but **reduced to types only** (`AppRegistryEntry`, `AppRegistry`) — see the Global Constraints "Registry redesign" note. The static `APP_REGISTRY` array with per-platform entries does NOT move here; each platform package exports its own entry instead (Tasks 7, 8, 12, 13).
 
 - [ ] **Step 1: Move the files**
 
