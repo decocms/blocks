@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 /**
  * Schema Generator for deco admin compatibility.
  *
@@ -1280,15 +1281,21 @@ function generateMeta(): MetaResponse {
 }
 
 function isMainModule(): boolean {
-  // tsx/node ESM: import.meta.url matches process.argv[1] when invoked directly.
-  // Use a forgiving comparison so it works under both `tsx script.ts` and
-  // `node --import tsx script.ts`. Guarding here keeps the module importable
-  // from tests without triggering a full filesystem scan + write.
+  // True when this file is the process entrypoint (invoked directly), false when
+  // it's imported (e.g. from tests) — the guard keeps the module importable
+  // without triggering a full filesystem scan + write.
+  //
+  // Compare the *realpath* of both sides rather than the raw URL: under tsx /
+  // pnpm the entrypoint is reached through symlinks (pnpm's node_modules,
+  // macOS /tmp → /private/tmp), so argv[1] and import.meta.url spell the same
+  // file differently. A raw string compare would silently return false and skip
+  // generation. realpathSync collapses symlinks so both resolve identically.
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    const entryUrl = new URL(`file://${path.resolve(entry)}`).href;
-    return import.meta.url === entryUrl;
+    const entryPath = fs.realpathSync(path.resolve(entry));
+    const selfPath = fs.realpathSync(fileURLToPath(import.meta.url));
+    return entryPath === selfPath;
   } catch {
     return false;
   }
