@@ -449,7 +449,7 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
       }>;
     };
     const rec = payload.resourceLogs[0].scopeLogs[0].logRecords[0];
-    expect(rec.severityText).toBe("error");
+    expect(rec.severityText).toBe("ERROR");
     expect(rec.body.stringValue).toBe("payment failed");
   });
 
@@ -498,7 +498,7 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     const payload = JSON.parse(calls[0].body) as {
       resourceLogs: Array<{ scopeLogs: Array<{ logRecords: Array<{ severityText: string }> }> }>;
     };
-    expect(payload.resourceLogs[0].scopeLogs[0].logRecords[0].severityText).toBe("info");
+    expect(payload.resourceLogs[0].scopeLogs[0].logRecords[0].severityText).toBe("INFO");
   });
 
   it("otlpLogsEnabled=false disables the channel even when env is set", async () => {

@@ -217,7 +217,7 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
         timeUnixNano: t,
         observedTimeUnixNano: t,
         severityNumber: SEVERITY_NUMBER[level],
-        severityText: level,
+        severityText: level.toUpperCase(),
         body: msg,
         attributes: attrs ? { ...attrs } : {},
         traceId: spanCtx?.traceId ?? "",

@@ -754,7 +754,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
         try {
           warnDirect(
             JSON.stringify({
-              level: "warn",
+              level: "WARN",
               msg: "otlp error-log exporter",
               kind,
               error: err instanceof Error ? err.message : String(err),
@@ -819,7 +819,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
         try {
           warnDirect(
             JSON.stringify({
-              level: "warn",
+              level: "WARN",
               msg: "otlp metrics exporter",
               kind,
               error: err instanceof Error ? err.message : String(err),
@@ -891,7 +891,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
         try {
           warnDirect(
             JSON.stringify({
-              level: "warn",
+              level: "WARN",
               msg: "otlp traces exporter",
               kind,
               error: err instanceof Error ? err.message : String(err),
@@ -928,7 +928,7 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   try {
     warnDirect(
       JSON.stringify({
-        level: "info",
+        level: "INFO",
         msg: "observability booted",
         service: serviceName,
         analyticsEngine: aeEnabled,

@@ -52,7 +52,7 @@ export interface LoggerAdapter {
 export const defaultLoggerAdapter: LoggerAdapter = {
   log(level, msg, attrs) {
     const payload: Record<string, unknown> = {
-      level,
+      level: level.toUpperCase(),
       msg,
       timestamp: new Date().toISOString(),
     };

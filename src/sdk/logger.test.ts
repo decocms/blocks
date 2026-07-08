@@ -36,7 +36,7 @@ describe("defaultLoggerAdapter", () => {
     expect(logSpy).toHaveBeenCalledOnce();
     const arg = logSpy.mock.calls[0]?.[0] as string;
     const parsed = JSON.parse(arg);
-    expect(parsed).toMatchObject({ level: "info", msg: "hello", foo: 1 });
+    expect(parsed).toMatchObject({ level: "INFO", msg: "hello", foo: 1 });
     expect(typeof parsed.timestamp).toBe("string");
   });
 
