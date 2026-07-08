@@ -28,3 +28,5 @@ export {
   decoStringifySearch,
 } from "./sdk/router";
 export type { CreateDecoRouterOptions } from "./sdk/router";
+export { createInvokeFn } from "./sdk/createInvoke";
+export type { InvokeFnOpts } from "./sdk/createInvoke";
