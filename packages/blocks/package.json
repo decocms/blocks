@@ -24,6 +24,7 @@
     "./flags/audience": "./src/flags/audience.ts",
     "./flags/everyone": "./src/flags/everyone.ts",
     "./flags/flag": "./src/flags/flag.ts",
+    "./flags/types": "./src/flags/types.ts",
     "./flags/multivariate": "./src/flags/multivariate.ts",
     "./flags/multivariate/image": "./src/flags/multivariate/image.ts",
     "./flags/multivariate/message": "./src/flags/multivariate/message.ts",
