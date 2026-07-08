@@ -68,7 +68,7 @@ packages/
   apps-resend/       src/{index,mod,client,types}.ts, actions/send.ts
   apps-blog/         src/{index,mod,types,commerceLoaders}.ts, loaders/, core/
   apps-website/      src/{index,mod,client,types}.ts, components/, loaders/ (matchers/ and flags/ deliberately absent — see Tasks 4-5)
-  blocks/src/matchers/builtins.ts   (Task 4 adds date + site)
+  blocks/src/matchers/builtins.ts   (Task 4 adds date; site deliberately skipped, see Task 4)
   blocks/src/flags/                 (Task 5, new)
   blocks/src/hooks/                 (Task 3 adds JsonLd, Image, Picture)
 ```
@@ -354,7 +354,7 @@ git commit -m "feat(blocks): add JsonLd/Image/Picture to hooks (moved from apps-
 
 ---
 
-### Task 4: Port `date`/`site` matchers into `blocks/matchers/builtins.ts`; delete the 13 duplicates
+### Task 4: Port `date` matcher into `blocks/matchers/builtins.ts` (`site` evaluated and skipped — see below)
 
 **Files:**
 - Modify: `packages/blocks/src/matchers/builtins.ts` (add `date` and `site` matcher functions + registration)
@@ -390,6 +390,10 @@ git commit -m "feat(blocks): port date + site matchers from apps-start (closes t
 ```
 
 This closes the matcher-parity gap identified during design — after this, `apps-website`'s own `matchers/` directory (13 remaining files, all now duplicates) gets deleted in Task 6, not carried into the new package.
+
+**`site` matcher deliberately skipped (decided mid-Task-4):** apps-start's `site.ts` matches against `MatchContext.siteId` — a numeric "deco website ID," meaningful only in a multi-tenant setup where one CMS/admin account manages multiple distinct sites and a block needs to know which one it's currently rendering for. Grepped the whole monorepo: `MatcherContext` (`packages/blocks/src/cms/resolve.ts`) has no site-identity field at all, and single-tenant is this framework's entire model (one deployment = one site) — there is no multi-site concept anywhere for `siteId` to distinguish between. Porting this matcher would mean inventing a `MatcherContext.siteId` field with no real source of truth to populate it from, for a feature no current or planned site can use. Not carried forward — if genuine multi-tenancy is ever added to the framework, this matcher (and the `MatcherContext` field it needs) can be revisited then, with a real design for where `siteId` comes from.
+
+A real, useful side-effect found while implementing `date`: `builtins.ts` already had a pre-existing bug where the `"website/matchers/date.ts"` `__resolveType` string was mis-registered pointing at `cronMatcher`'s inclusive (`>=`/`<=`) window logic instead of `date.ts`'s actual strict (`>`/`<`) semantics — fixed as part of this task.
 
 ---
 
