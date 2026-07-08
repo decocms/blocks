@@ -641,7 +641,23 @@ Fix remaining `sdk/createInvoke` references by hand: `import { createInvokeFn } 
 }
 ```
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 5: Add `packages/apps-vtex/src/registry.ts`** (per the Global Constraints "Registry redesign" note — this package's own single-entry registry, replacing the old `apps-commerce`-hosted array entry for VTEX):
+
+```ts
+import type { AppRegistryEntry } from "@decocms/apps-commerce/registry";
+
+export const VTEX_REGISTRY_ENTRY: AppRegistryEntry = {
+  blockKey: "deco-vtex",
+  module: () => import("./mod"),
+  displayName: "VTEX",
+  category: "commerce",
+  description: "VTEX IO commerce integration",
+};
+```
+
+Add `"./registry": "./src/registry.ts"` to `package.json`'s `exports` map, and `"@decocms/apps-commerce": "workspace:*"` to `dependencies` if not already present (it should already be there from Step 4's `package.json` content above).
+
+- [ ] **Step 6: Verify**
 
 ```bash
 bun install
@@ -649,7 +665,7 @@ cd packages/apps-vtex && bun run typecheck && bun run test
 cd ../.. && bun run typecheck  # whole workspace
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add packages/apps-vtex packages/tanstack
@@ -731,7 +747,23 @@ Fix any remaining matches by hand per the Global Constraints mapping table (same
 
 - [ ] **Step 4: Add `tsconfig.json`** (copy `packages/blocks-admin/tsconfig.json`, adjust `include` if needed — same shape as every other package)
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 5: Add `packages/apps-shopify/src/registry.ts`** (per the Global Constraints "Registry redesign" note):
+
+```ts
+import type { AppRegistryEntry } from "@decocms/apps-commerce/registry";
+
+export const SHOPIFY_REGISTRY_ENTRY: AppRegistryEntry = {
+  blockKey: "deco-shopify",
+  module: () => import("./mod"),
+  displayName: "Shopify",
+  category: "commerce",
+  description: "Shopify Storefront API commerce integration",
+};
+```
+
+Add `"./registry": "./src/registry.ts"` to `package.json`'s `exports` map.
+
+- [ ] **Step 6: Verify**
 
 ```bash
 bun install
@@ -739,7 +771,7 @@ cd packages/apps-shopify && bun run typecheck && bun run test
 cd ../.. && bun run typecheck  # whole workspace
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add packages/apps-shopify
@@ -1039,7 +1071,8 @@ grep -rn "@decocms/start" packages/apps-resend
     "lint:unused": "knip"
   },
   "dependencies": {
-    "@decocms/blocks": "workspace:*"
+    "@decocms/blocks": "workspace:*",
+    "@decocms/apps-commerce": "workspace:*"
   },
   "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" },
   "devDependencies": {
@@ -1052,9 +1085,27 @@ grep -rn "@decocms/start" packages/apps-resend
 }
 ```
 
+Note: `@decocms/apps-commerce` is added here solely for the `AppRegistryEntry` **type** import in Step 5 below (type-only, erased at compile time — does not pull `apps-commerce`'s runtime code into this package's bundle) — not because resend has any actual commerce-type dependency, which it still doesn't.
+
 - [ ] **Step 4: Add `tsconfig.json`** (copy `packages/blocks-admin/tsconfig.json`)
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 5: Add `packages/apps-resend/src/registry.ts`** (per the Global Constraints "Registry redesign" note):
+
+```ts
+import type { AppRegistryEntry } from "@decocms/apps-commerce/registry";
+
+export const RESEND_REGISTRY_ENTRY: AppRegistryEntry = {
+  blockKey: "deco-resend",
+  module: () => import("./mod"),
+  displayName: "Resend",
+  category: "email",
+  description: "Transactional email via Resend",
+};
+```
+
+Add `"./registry": "./src/registry.ts"` to `package.json`'s `exports` map.
+
+- [ ] **Step 6: Verify**
 
 ```bash
 bun install
@@ -1062,7 +1113,7 @@ cd packages/apps-resend && bun run typecheck && bun run test
 cd ../.. && bun run typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add packages/apps-resend
@@ -1135,7 +1186,23 @@ grep -rn "@decocms/start" packages/apps-blog
 
 - [ ] **Step 4: Add `tsconfig.json`** (copy `packages/blocks-admin/tsconfig.json`)
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 5: Add `packages/apps-blog/src/registry.ts`** (per the Global Constraints "Registry redesign" note):
+
+```ts
+import type { AppRegistryEntry } from "@decocms/apps-commerce/registry";
+
+export const BLOG_REGISTRY_ENTRY: AppRegistryEntry = {
+  blockKey: "deco-blog",
+  module: () => import("./mod"),
+  displayName: "Blog",
+  category: "content",
+  description: "Blog posts, categories, and authors from CMS collections",
+};
+```
+
+Add `"./registry": "./src/registry.ts"` to `package.json`'s `exports` map.
+
+- [ ] **Step 6: Verify**
 
 ```bash
 bun install
@@ -1143,7 +1210,7 @@ cd packages/apps-blog && bun run typecheck && bun run test
 cd ../.. && bun run typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add packages/apps-blog
