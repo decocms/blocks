@@ -17,16 +17,34 @@
  * Env / CLI:
  *   --out-file   override output (default: src/server/invoke.gen.ts)
  *   --apps-dir   override @decocms/apps location (default: auto-resolve from node_modules)
+ *   --exclude    comma-separated extra action names to NOT expose (beyond the
+ *                built-in default denylist of generic MasterData CRUD actions)
+ *   --allow      comma-separated action names to RE-ALLOW despite the default
+ *                denylist (escape hatch — prefer a purpose-built wrapper)
  */
 import fs from "node:fs";
 import path from "node:path";
 import { Project, type PropertyAssignment, SyntaxKind } from "ts-morph";
+import { type InvokePolicyOptions, isInternalAction } from "../src/admin/invokePolicy";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
   const idx = args.indexOf(`--${name}`);
   return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
 }
+
+function list(name: string): string[] {
+  return arg(name, "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+// Invoke-exposure policy. Generic MasterData CRUD is denied by default;
+// --exclude adds to that, --allow re-opens specific actions. Same policy the
+// runtime registrar (src/sdk/setupApps.ts) applies, so an action can't be
+// gated on one exposure surface but left open on the other.
+const policy: InvokePolicyOptions = {
+  deny: list("exclude"),
+  allow: list("allow"),
+};
 
 const cwd = process.cwd();
 const outFile = path.resolve(cwd, arg("out-file", "src/server/invoke.gen.ts"));
@@ -126,6 +144,7 @@ if (!invokeVar) {
 }
 
 const actions: ActionDef[] = [];
+const skippedInternal: string[] = [];
 const invokeInit = invokeVar.getInitializer();
 if (!invokeInit) {
   console.error("invoke variable has no initializer");
@@ -162,6 +181,14 @@ for (const prop of actionsObj.getProperties()) {
   if (prop.getKind() !== SyntaxKind.PropertyAssignment) continue;
   const pa = prop as PropertyAssignment;
   const name = pa.getName();
+
+  // Default-deny internal actions: never emit a createServerFn const for them,
+  // so TanStack's compiler never mints a POST /_serverFn/<hash> route.
+  if (isInternalAction(name, policy)) {
+    skippedInternal.push(name);
+    continue;
+  }
+
   const initText = pa.getInitializer()!.getText();
 
   // Check if it uses createInvokeFn with unwrap
@@ -467,3 +494,8 @@ export const invoke = {
 fs.mkdirSync(path.dirname(outFile), { recursive: true });
 fs.writeFileSync(outFile, out);
 console.log(`Generated ${actions.length} server functions → ${path.relative(cwd, outFile)}`);
+if (skippedInternal.length > 0) {
+  console.log(
+    `🔒 Not exposed (internal/denied — no _serverFn route): ${skippedInternal.join(", ")}`,
+  );
+}

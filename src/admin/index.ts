@@ -9,6 +9,11 @@ export {
   setInvokeActions,
   setInvokeLoaders,
 } from "./invoke";
+export {
+  DEFAULT_INTERNAL_ACTIONS,
+  type InvokePolicyOptions,
+  isInternalAction,
+} from "./invokePolicy";
 export { LIVE_CONTROLS_SCRIPT } from "./liveControls";
 export { handleMeta, setMetaData } from "./meta";
 export { handleRender, setPreviewWrapper, setRenderShell } from "./render";
