@@ -588,37 +588,27 @@ export function decoVitePlugin() {
         env.optimizeDeps.esbuildOptions.jsxImportSource = "react";
       }
 
-      // Force these packages through the SSR transform pipeline so
-      // TanStack Start's compiler can register their createServerFn handlers
+      // Force @decocms/tanstack through the SSR transform pipeline so
+      // TanStack Start's compiler can register its createServerFn handlers
       // (loadDeferredSection in routes/cmsRoute.ts, and loadCmsPage /
-      // loadCmsHomePage alongside it, for @decocms/tanstack) in the
-      // per-environment serverFnsById manifest. Without this, Vite
-      // pre-bundles the package via optimizeDeps before plugins run, the
-      // handler never enters the manifest, and every POST /_serverFn/* call
-      // from the browser returns HTTP 500 ("Invalid server function ID").
-      // See #197.
+      // loadCmsHomePage alongside it) in the per-environment serverFnsById
+      // manifest. Without this, Vite pre-bundles the package via
+      // optimizeDeps before plugins run, the handler never enters the
+      // manifest, and every POST /_serverFn/* call from the browser returns
+      // HTTP 500 ("Invalid server function ID"). See #197.
       //
-      // @decocms/apps-vtex needs this too: its invoke.ts wraps 18 actions/
-      // loaders via createInvokeFn (packages/tanstack/src/sdk/createInvoke.ts),
-      // each a real `createServerFn(...)` call site. This was missed when
-      // createInvokeFn's export was added to @decocms/tanstack's public
-      // barrel (apps-monorepo-migration Task 7) — worked by accident under
-      // `bun link` (Vite treats symlinked/workspace packages as live source,
-      // skipping optimizeDeps pre-bundling for them) but hard-crashes with
-      // a real npm install: "createServerFn must be assigned to a variable!"
-      // from the Cloudflare Workers runtime's static entry-export scan.
-      //
-      // @decocms/blocks does NOT need this: despite its
-      // validateSection.ts / useScript.ts doc comments mentioning
-      // `createServerFn`, neither file (nor anything else in runtime)
-      // actually calls it — those are a JSDoc usage example for a site's
-      // own server-fn file and a deprecation-message suggestion,
-      // respectively. Only add a package here once it has a real
-      // `createServerFn(...)` call site.
+      // @decocms/apps-vtex does NOT need this: its invoke.ts has zero real
+      // createServerFn call sites reachable by any site (it's a
+      // codegen-time-only template that blocks-cli's generate-invoke.ts
+      // statically parses, never imports, to emit each site's own
+      // src/server/invoke.gen.ts with real top-level createServerFn consts;
+      // createInvokeFn itself is a non-functional type-only marker for that
+      // template, see sdk/createInvoke.ts's doc comment). Only add a
+      // package here once it has a real `createServerFn(...)` call site.
       if (name === "ssr") {
         env.resolve = env.resolve || {};
         const existing = env.resolve.noExternal;
-        const additions = ["@decocms/tanstack", "@decocms/apps-vtex"];
+        const additions = ["@decocms/tanstack"];
         if (existing === true) {
           // Already noExternal everything — nothing to add.
         } else if (Array.isArray(existing)) {
@@ -628,6 +618,34 @@ export function decoVitePlugin() {
         } else {
           env.resolve.noExternal = additions;
         }
+
+        // The noExternal setting above only controls whether Vite's SSR
+        // *output* inlines vs. externalizes this package — it does NOT
+        // stop Vite's dev-server-startup dependency optimizer (esbuild via
+        // `optimizeDeps`) from pre-bundling it. Some Cloudflare Workers
+        // targets (via @cloudflare/vite-plugin) already force
+        // `resolve.noExternal = true` unconditionally for this same "ssr"
+        // environment before this hook even runs, making the block above a
+        // complete no-op there — yet the crash below still happened,
+        // proving pre-bundling (not noExternal) was always the real cause.
+        //
+        // Confirmed via direct diagnostic instrumentation of
+        // @tanstack/start-plugin-core: once esbuild pre-bundles this
+        // package into a single node_modules/.vite/deps_ssr/*.js chunk,
+        // Cloudflare's separate worker-export static-analysis pass
+        // (getWorkerEntryExportTypes, a distinct pipeline stage from
+        // Vite's own SSR transform — see workers/runner-worker in the
+        // stack trace) throws "createServerFn must be assigned to a
+        // variable!" on this package's own legitimate, already-top-level
+        // createServerFn calls (loadCmsPage / loadCmsHomePage /
+        // loadDeferredSection) — apparently that scan doesn't recognize
+        // esbuild-bundled `var X = createServerFn(...)` output the same
+        // way it recognizes the original, unbundled source. Excluding this
+        // package from `optimizeDeps` entirely routes it through Vite's
+        // normal plugin pipeline (where TanStack Start's compiler
+        // transforms it correctly) instead of esbuild's pre-bundler.
+        env.optimizeDeps = env.optimizeDeps || {};
+        env.optimizeDeps.exclude = [...new Set([...(env.optimizeDeps.exclude || []), "@decocms/tanstack"])];
       }
     },
 

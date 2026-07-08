@@ -24,7 +24,7 @@
  *   1. Add an entry below with the input/output types and the action call,
  *   2. From a site repo: `npm run generate:invoke`.
  */
-import { createInvokeFn } from "@decocms/tanstack";
+import { createInvokeFn } from "@decocms/tanstack/sdk/createInvoke";
 import {
 	addCouponToCart,
 	addItemsToCart,
