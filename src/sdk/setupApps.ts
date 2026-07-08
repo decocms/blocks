@@ -20,6 +20,10 @@
  */
 
 import { clearInvokeHandlers, registerInvokeHandlers } from "../admin/invoke";
+import {
+  type InvokePolicyOptions,
+  isInternalAction,
+} from "../admin/invokePolicy";
 import { registerSections } from "../cms/registry";
 import {
   registerCommerceLoaders,
@@ -190,6 +194,7 @@ function registerAppCommerceHandlers(
  */
 export async function setupApps(
   apps: Array<AppDefinitionWithHandlers | AppDefinition>,
+  policy: InvokePolicyOptions = {},
 ): Promise<void> {
   if (typeof document !== "undefined") return; // server-only
 
@@ -198,6 +203,21 @@ export async function setupApps(
   clearInvokeHandlers();
   clearAppCommerceLoaders();
 
+  // Drop internal/denied actions (e.g. generic MasterData CRUD) from a
+  // handlers record before it reaches either registry. Same policy the
+  // build-time _serverFn generator applies, so an action can't be closed on
+  // one exposure surface but left open on the other.
+  const gate = (
+    handlers: Record<string, (props: any, req: Request) => Promise<any>>,
+  ) => {
+    const kept: typeof handlers = {};
+    for (const [key, handler] of Object.entries(handlers)) {
+      if (isInternalAction(key, policy)) continue;
+      kept[key] = handler;
+    }
+    return kept;
+  };
+
   for (const app of flattenDependencies(apps as AppDefinition[])) {
     const appWithHandlers = app as AppDefinitionWithHandlers;
 
@@ -205,8 +225,9 @@ export async function setupApps(
     //    These also go into the commerce-loaders map so the CMS resolve path
     //    (src/cms/resolve.ts) can dispatch to them by __resolveType.
     if (appWithHandlers.handlers) {
-      registerInvokeHandlers(appWithHandlers.handlers);
-      registerAppCommerceHandlers(appWithHandlers.handlers);
+      const handlers = gate(appWithHandlers.handlers);
+      registerInvokeHandlers(handlers);
+      registerAppCommerceHandlers(handlers);
     }
 
     // 2. Flatten manifest modules → individual invoke handlers.
@@ -231,6 +252,9 @@ export async function setupApps(
           const key = fnName === "default"
             ? moduleKey
             : `${moduleKey}/${fnName}`;
+          // Default-deny internal actions (generic MasterData CRUD, etc.):
+          // never register them, so `POST /deco/invoke/${key}` stays 404.
+          if (isInternalAction(key, policy)) continue;
           const handler = (props: any, req: Request) =>
             (fn as Function)(props, req);
           registerInvokeHandlers({

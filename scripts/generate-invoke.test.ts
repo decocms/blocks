@@ -29,6 +29,7 @@ const FIXTURE_INVOKE_TS = `\
 import { createInvokeFn } from "@decocms/start/sdk/createInvoke";
 import { getOrCreateCart, simulateCart } from "./actions/checkout";
 import { createSession } from "./actions/session";
+import { searchDocuments, createDocument } from "./actions/masterData";
 import type { OrderForm } from "./types";
 
 export const invoke = {
@@ -49,6 +50,16 @@ export const invoke = {
 			createSession: createInvokeFn(
 				(data: Record<string, any>) => createSession({ data }),
 			),
+
+			// Generic MasterData CRUD — admin-credentialed, caller-parameterized.
+			// These MUST be denied by default (never emitted) so no
+			// POST /_serverFn/<hash> route is minted for them.
+			searchDocuments: createInvokeFn(
+				(data: { entity: string; filter: string }) => searchDocuments(data),
+			),
+			createDocument: createInvokeFn(
+				(data: { entity: string; data: Record<string, any> }) => createDocument(data),
+			),
 		},
 	},
 } as const;
@@ -64,6 +75,10 @@ export async function simulateCart(_data: any): Promise<any> { return null; }
 const FIXTURE_ACTIONS_SESSION_TS = `\
 export interface CreateSessionProps { data: Record<string, any>; }
 export async function createSession(_props: CreateSessionProps): Promise<any> { return null; }
+`;
+const FIXTURE_ACTIONS_MASTERDATA_TS = `\
+export async function searchDocuments(_data: any): Promise<any> { return null; }
+export async function createDocument(_data: any): Promise<any> { return null; }
 `;
 const FIXTURE_TYPES_TS = `export type OrderForm = unknown;\n`;
 
@@ -93,6 +108,10 @@ describe("generate-invoke.ts — output shape", () => {
     fs.writeFileSync(
       path.join(appsDir, "vtex", "actions", "session.ts"),
       FIXTURE_ACTIONS_SESSION_TS,
+    );
+    fs.writeFileSync(
+      path.join(appsDir, "vtex", "actions", "masterData.ts"),
+      FIXTURE_ACTIONS_MASTERDATA_TS,
     );
     fs.writeFileSync(path.join(appsDir, "vtex", "types.ts"), FIXTURE_TYPES_TS);
     outFile = path.join(siteDir, "src", "server", "invoke.gen.ts");
@@ -172,6 +191,25 @@ describe("generate-invoke.ts — output shape", () => {
     expect(orderedCalls.length).toBe(3);
   });
 
+  it("denies generic MasterData CRUD by default (no createServerFn emitted)", () => {
+    // The exposure hole: searchDocuments/createDocument run with admin
+    // credentials and a caller-controlled entity + _where filter. They must
+    // never be emitted as top-level consts, so TanStack's compiler never
+    // mints a POST /_serverFn/<hash> route for them.
+    expect(generatedOutput).not.toContain("$searchDocuments");
+    expect(generatedOutput).not.toContain("$createDocument");
+    expect(generatedOutput).not.toMatch(/\bsearchDocuments\(data\)/);
+    expect(generatedOutput).not.toMatch(/\bcreateDocument\(data\)/);
+    // And they must be absent from the exported actions map.
+    expect(generatedOutput).not.toMatch(/^\s*searchDocuments:/m);
+    expect(generatedOutput).not.toMatch(/^\s*createDocument:/m);
+
+    // Safe actions are unaffected — only the denylisted ones are dropped.
+    expect(generatedOutput).toContain("$getOrCreateCart");
+    expect(generatedOutput).toContain("$simulateCart");
+    expect(generatedOutput).toContain("$createSession");
+  });
+
   it("preserves adapting wrappers verbatim (does not collapse to actionFn(data))", () => {
     // Regression for the createSession-shape wrapper: the generator
     // previously hard-coded `${importedFn}(data)` in every handler,
@@ -191,5 +229,69 @@ describe("generate-invoke.ts — output shape", () => {
     // future refactor that breaks pass-throughs would be just as bad.
     expect(generatedOutput).toContain("const result = await getOrCreateCart(data);");
     expect(generatedOutput).toContain("const result = await simulateCart(data);");
+  });
+});
+
+describe("generate-invoke.ts — --allow escape hatch", () => {
+  let output: string;
+  let status: number | null;
+  let appsDir: string;
+
+  beforeAll(() => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gen-invoke-allow-"));
+    appsDir = path.join(tmp, "apps");
+    const siteDir = path.join(tmp, "site");
+    fs.mkdirSync(path.join(appsDir, "vtex", "actions"), { recursive: true });
+    fs.mkdirSync(path.join(siteDir, "src", "server"), { recursive: true });
+    fs.writeFileSync(path.join(appsDir, "vtex", "invoke.ts"), FIXTURE_INVOKE_TS);
+    fs.writeFileSync(
+      path.join(appsDir, "vtex", "actions", "checkout.ts"),
+      FIXTURE_ACTIONS_CHECKOUT_TS,
+    );
+    fs.writeFileSync(
+      path.join(appsDir, "vtex", "actions", "session.ts"),
+      FIXTURE_ACTIONS_SESSION_TS,
+    );
+    fs.writeFileSync(
+      path.join(appsDir, "vtex", "actions", "masterData.ts"),
+      FIXTURE_ACTIONS_MASTERDATA_TS,
+    );
+    fs.writeFileSync(path.join(appsDir, "vtex", "types.ts"), FIXTURE_TYPES_TS);
+    const outFile = path.join(siteDir, "src", "server", "invoke.gen.ts");
+
+    const result = spawnSync(
+      "npx",
+      [
+        "tsx",
+        GENERATOR,
+        "--apps-dir",
+        appsDir,
+        "--out-file",
+        outFile,
+        "--allow",
+        "searchDocuments",
+      ],
+      { cwd: siteDir, encoding: "utf8" },
+    );
+    status = result.status;
+    output = fs.readFileSync(outFile, "utf8");
+  }, 30_000);
+
+  afterAll(() => {
+    try {
+      fs.rmSync(path.dirname(appsDir), { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  });
+
+  it("re-allows exactly the named action, keeping others denied", () => {
+    expect(status).toBe(0);
+    // Explicitly allowed → emitted again.
+    expect(output).toContain("$searchDocuments");
+    expect(output).toContain("const result = await searchDocuments(data);");
+    // Still denied — --allow was surgical, not a blanket off switch.
+    expect(output).not.toContain("$createDocument");
+    expect(output).not.toMatch(/\bcreateDocument\(data\)/);
   });
 });

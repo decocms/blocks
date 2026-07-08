@@ -400,13 +400,18 @@ export const vtexActions = {} as const;
 import { createServerFn } from "@tanstack/react-start";
 import { getOrCreateCart, addItemsToCart, updateCartItems, addCouponToCart, simulateCart, getSellersByRegion, setShippingPostalCode, updateOrderFormAttachment } from "@decocms/apps/vtex/actions/checkout";
 import { createSession, editSession } from "@decocms/apps/vtex/actions/session";
-import { createDocument, getDocument, patchDocument, searchDocuments, uploadAttachment } from "@decocms/apps/vtex/actions/masterData";
+// Generic MasterData CRUD (createDocument / getDocument / patchDocument /
+// searchDocuments / uploadAttachment) is intentionally NOT scaffolded here.
+// It runs with the store's admin appKey/appToken and takes a caller-controlled
+// entity + _where filter, so it is denied by default (see
+// @decocms/start/admin/invokePolicy). The real generator, generate-invoke.ts,
+// enforces the same denylist when it overwrites this file post-migration;
+// this scaffold matches it so a failed/skipped generator run can't fail open.
 import { subscribe } from "@decocms/apps/vtex/actions/newsletter";
 import { notifyMe } from "@decocms/apps/vtex/actions/misc";
 import type { OrderForm } from "@decocms/apps/vtex/types";
 import type { SimulationItem, RegionResult } from "@decocms/apps/vtex/actions/checkout";
 import type { SessionData } from "@decocms/apps/vtex/actions/session";
-import type { CreateDocumentResult, UploadAttachmentOpts } from "@decocms/apps/vtex/actions/masterData";
 import type { SubscribeProps } from "@decocms/apps/vtex/actions/newsletter";
 import type { NotifyMeProps } from "@decocms/apps/vtex/actions/misc";
 
@@ -487,35 +492,8 @@ const $editSession = createServerFn({ method: "POST" })
     return unwrapResult(result);
   });
 
-const $createDocument = createServerFn({ method: "POST" })
-  .inputValidator((data: { entity: string; data: Record<string, any> }) => data)
-  .handler(async ({ data }): Promise<any> => {
-    return createDocument(data);
-  });
-
-const $getDocument = createServerFn({ method: "POST" })
-  .inputValidator((data: { entity: string; documentId: string }) => data)
-  .handler(async ({ data }): Promise<any> => {
-    return getDocument(data);
-  });
-
-const $patchDocument = createServerFn({ method: "POST" })
-  .inputValidator((data: { entity: string; documentId: string; data: Record<string, any> }) => data)
-  .handler(async ({ data }): Promise<any> => {
-    return patchDocument(data);
-  });
-
-const $searchDocuments = createServerFn({ method: "POST" })
-  .inputValidator((data: { entity: string; filter: string }) => data)
-  .handler(async ({ data }): Promise<any> => {
-    return searchDocuments(data);
-  });
-
-const $uploadAttachment = createServerFn({ method: "POST" })
-  .inputValidator((data: UploadAttachmentOpts) => data)
-  .handler(async ({ data }): Promise<any> => {
-    return uploadAttachment(data);
-  });
+// MasterData CRUD server functions intentionally omitted — see the import
+// comment above. They are denied by default in @decocms/start/admin/invokePolicy.
 
 const $subscribe = createServerFn({ method: "POST" })
   .inputValidator((data: SubscribeProps) => data)
@@ -540,11 +518,6 @@ export const vtexActions = {
   updateOrderFormAttachment: $updateOrderFormAttachment as unknown as (ctx: { data: { orderFormId: string; attachment: string; body: Record<string, unknown> } }) => Promise<OrderForm>,
   createSession: $createSession,
   editSession: $editSession as unknown as (ctx: { data: { public: Record<string, { value: string }> } }) => Promise<SessionData>,
-  createDocument: $createDocument as unknown as (ctx: { data: { entity: string; data: Record<string, any> } }) => Promise<CreateDocumentResult>,
-  getDocument: $getDocument,
-  patchDocument: $patchDocument as unknown as (ctx: { data: { entity: string; documentId: string; data: Record<string, any> } }) => Promise<void>,
-  searchDocuments: $searchDocuments,
-  uploadAttachment: $uploadAttachment as unknown as (ctx: { data: UploadAttachmentOpts }) => Promise<{ ok: true }>,
   subscribe: $subscribe as unknown as (ctx: { data: SubscribeProps }) => Promise<void>,
   notifyMe: $notifyMe as unknown as (ctx: { data: NotifyMeProps }) => Promise<void>,
 } as const;

@@ -15,6 +15,7 @@
  *   await autoconfigApps(generatedBlocks, APP_REGISTRY);
  */
 
+import type { InvokePolicyOptions } from "../admin/invokePolicy";
 import { onChange } from "../cms/loader";
 import { resolveSecret } from "../sdk/crypto";
 import {
@@ -111,17 +112,21 @@ async function configureAllApps(
  * @param blocks   Decofile blocks (from blocks.gen or loadBlocks()).
  * @param registry List of installable apps — typically
  *                 `import { APP_REGISTRY } from "@decocms/apps/registry"`.
+ * @param policy   Optional invoke-exposure policy. The generic MasterData CRUD
+ *                 actions are denied by default; pass `allow`/`deny` here only
+ *                 to override that (see InvokePolicyOptions).
  */
 export async function autoconfigApps(
   blocks: Record<string, unknown>,
   registry: AppRegistry,
+  policy: InvokePolicyOptions = {},
 ): Promise<void> {
   if (typeof document !== "undefined") return; // server-only
   if (!registry || registry.length === 0) return;
 
   const apps = await configureAllApps(blocks, registry);
   if (apps.length > 0) {
-    await setupApps(apps);
+    await setupApps(apps, policy);
   }
 
   // Re-configure on admin hot-reload
@@ -129,7 +134,7 @@ export async function autoconfigApps(
     if (typeof document !== "undefined") return;
     const updatedApps = await configureAllApps(newBlocks, registry);
     if (updatedApps.length > 0) {
-      await setupApps(updatedApps);
+      await setupApps(updatedApps, policy);
     }
   });
 }
