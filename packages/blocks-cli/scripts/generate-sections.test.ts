@@ -16,6 +16,7 @@ import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve(__dirname, "generate-sections.ts");
@@ -140,4 +141,58 @@ describe("generate-sections --registry", () => {
     const generated = fs.readFileSync(outFile, "utf-8");
     expect(generated).not.toContain("sectionImports");
   });
+
+  it("emits a doc comment that does not self-terminate early, and the resulting file is importable (regression: a literal `**/` inside the emitted /** */ comment used to close it prematurely, leaving prose as bare statements and making every --registry output invalid TypeScript)", () => {
+    const heroPath = path.join(sectionsDir, "Hero.tsx");
+    fs.writeFileSync(
+      heroPath,
+      "export const sync = true\nexport default function Hero() { return null }\n",
+    );
+
+    const { code } = runGenerator([
+      "--sections-dir", sectionsDir,
+      "--out-file", outFile,
+      "--registry",
+    ]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+
+    // Pin the regression directly: the doc comment's body (everything
+    // between the opening `/**` and its own closing `*/`) must contain
+    // exactly one `*/` — the intended closing marker itself, at the very
+    // end. A premature `*/` embedded in the prose (e.g. from a literal
+    // `**/*.tsx` glob pattern) would close the block comment early and
+    // leave the rest of the doc text as bare top-level statements.
+    const docCommentStart = generated.indexOf("/**\n * Lazy section registry");
+    const exportStart = generated.indexOf("export const sectionImports");
+    expect(docCommentStart).toBeGreaterThan(-1);
+    expect(exportStart).toBeGreaterThan(docCommentStart);
+    const docComment = generated.slice(docCommentStart + "/**".length, exportStart);
+    const closeMarkerCount = (docComment.match(/\*\//g) ?? []).length;
+    expect(closeMarkerCount).toBe(1);
+    expect(docComment.trimEnd().endsWith("*/")).toBe(true);
+
+    // Strongest available check: actually import the generated file through
+    // tsx (esbuild) and confirm it parses/executes as valid TS/ESM and
+    // exports `sectionImports`. A premature `*/` would leave trailing prose
+    // as bare top-level statements, which fails to parse. `tsx -e` evaluates
+    // its argument as CommonJS (named exports of a dynamic `import()` come
+    // back CJS-interop-wrapped), so write a real `.mjs` file instead and run
+    // that — mirrors the check used to hand-verify this fix.
+    const checkerFile = path.join(tmpDir, "check-import.mjs");
+    fs.writeFileSync(
+      checkerFile,
+      [
+        `import { pathToFileURL } from "node:url";`,
+        `const m = await import(${JSON.stringify(pathToFileURL(outFile).href)});`,
+        `if (typeof m.sectionImports !== "object" || m.sectionImports === null) {`,
+        `  throw new Error("sectionImports missing or not an object");`,
+        `}`,
+      ].join("\n"),
+    );
+
+    const importResult = cp.spawnSync("npx", ["tsx", checkerFile], { encoding: "utf8" });
+    expect(importResult.status, importResult.stderr).toBe(0);
+  }, 30_000);
 });

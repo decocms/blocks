@@ -240,9 +240,9 @@ if (EMIT_REGISTRY) {
   lines.push("");
   lines.push("/**");
   lines.push(" * Lazy section registry — the Next.js/webpack equivalent of Vite's");
-  lines.push(' * `import.meta.glob("./sections/**/*.tsx")`. Keys use the glob-style');
-  lines.push(" * `./sections/...` form so this map drops straight into");
-  lines.push(" * `createSiteSetup({ sections })` / `createNextSetup({ sections })`.");
+  lines.push(" * `import.meta.glob` scan over every file under ./sections, recursively.");
+  lines.push(" * Keys use the glob-style `./sections/...` form so this map drops");
+  lines.push(" * straight into `createSiteSetup({ sections })` / `createNextSetup({ sections })`.");
   lines.push(" */");
   lines.push("export const sectionImports: Record<string, () => Promise<any>> = {");
   for (const filePath of sectionFiles) {
