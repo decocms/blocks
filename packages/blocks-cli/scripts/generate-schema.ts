@@ -31,6 +31,7 @@ import {
   SyntaxKind,
   type Type,
 } from "ts-morph";
+import { isExcludedCodegenFile } from "./lib/codegenExclusions";
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -734,6 +735,7 @@ function findTsxFiles(dir: string): string[] {
   const results: string[] = [];
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (isExcludedCodegenFile(entry.name)) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) results.push(...findTsxFiles(full));
     else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) results.push(full);

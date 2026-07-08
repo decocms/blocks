@@ -20,6 +20,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { isExcludedCodegenFile } from "./lib/codegenExclusions";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -92,7 +93,10 @@ function walkDir(dir: string, base: string = dir): string[] {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...walkDir(fullPath, base));
-    } else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) {
+    } else if (
+      (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) &&
+      !isExcludedCodegenFile(entry.name)
+    ) {
       results.push(fullPath);
     }
   }
