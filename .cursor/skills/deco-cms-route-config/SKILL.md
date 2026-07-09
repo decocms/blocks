@@ -8,7 +8,7 @@ description: Configure CMS-driven routes in @decocms/tanstack using cmsRouteConf
 Reusable route configuration factories that live in `@decocms/tanstack`. Sites use thin wrappers that delegate to these factories, keeping route files small and consistent across all Deco sites.
 
 **Import split (two packages, different export-map shapes):**
-- **Runtime functions and components** — `cmsRouteConfig`, `cmsHomeRouteConfig`, `decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`, `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `DecoPageRenderer`, `CmsPage`, `NotFoundPage` — import from `@decocms/tanstack` (package root only; `packages/tanstack/package.json`'s `exports` map has just `.`, `./vite`, `./daemon` — there is no `./routes`, `./hooks`, or `./cms` subpath).
+- **Runtime functions and components** — `cmsRouteConfig`, `cmsHomeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig`, `decoInvokeRouteConfig` (admin-route factories, 7.10.0+; the former `decoMetaRoute`/`decoRenderRoute`/`decoInvokeRoute` literal exports were removed — see the footgun note below), `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `DecoPageRenderer`, `CmsPage`, `NotFoundPage` — import from `@decocms/tanstack` (package root only; `packages/tanstack/package.json`'s `exports` map has just `.`, `./vite`, `./daemon` — there is no `./routes`, `./hooks`, or `./cms` subpath).
 - **Types and SEO/section primitives** — `ResolvedSection`, `DeferredSection`, `PageSeo`, `registerSeoSections`, `extractSeoFromProps`, `extractSeoFromSections`, `resolvePageSeoBlock` — import from `@decocms/blocks/cms`, a separate package.
 
 ## When to Use This Skill
@@ -29,9 +29,9 @@ Site Routes (thin wrappers)          Framework (@decocms/tanstack)
 ─────────────────────────           ──────────────────────────────────
 src/routes/$.tsx          ───────→  cmsRouteConfig()
 src/routes/index.tsx      ───────→  cmsHomeRouteConfig()
-src/routes/deco/meta.ts   ───────→  decoMetaRoute
-src/routes/deco/render.ts ───────→  decoRenderRoute
-src/routes/deco/invoke.$.ts ─────→  decoInvokeRoute
+src/routes/deco/meta.ts   ───────→  decoMetaRouteConfig()
+src/routes/deco/render.ts ───────→  decoRenderRouteConfig()
+src/routes/deco/invoke.$.ts ─────→  decoInvokeRouteConfig()
 src/routes/__root.tsx     ×         Site-specific (fonts, theme, CSS)
 ```
 
@@ -237,11 +237,9 @@ These routes enable the Deco CMS admin (admin.deco.cx) to communicate with the s
 ```typescript
 // src/routes/deco/meta.ts
 import { createFileRoute } from "@tanstack/react-router";
-import { decoMetaRoute } from "@decocms/tanstack";
+import { decoMetaRouteConfig } from "@decocms/tanstack";
 
-export const Route = createFileRoute("/deco/meta")({
-  ...decoMetaRoute,
-});
+export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
 ```
 
 ### Render Route — Section Preview
@@ -249,11 +247,9 @@ export const Route = createFileRoute("/deco/meta")({
 ```typescript
 // src/routes/deco/render.ts
 import { createFileRoute } from "@tanstack/react-router";
-import { decoRenderRoute } from "@decocms/tanstack";
+import { decoRenderRouteConfig } from "@decocms/tanstack";
 
-export const Route = createFileRoute("/deco/render")({
-  ...decoRenderRoute,
-});
+export const Route = createFileRoute("/deco/render")(decoRenderRouteConfig());
 ```
 
 ### Invoke Route — Loader/Action Execution
@@ -261,26 +257,33 @@ export const Route = createFileRoute("/deco/render")({
 ```typescript
 // src/routes/deco/invoke.$.ts
 import { createFileRoute } from "@tanstack/react-router";
-import { decoInvokeRoute } from "@decocms/tanstack";
+import { decoInvokeRouteConfig } from "@decocms/tanstack";
 
-export const Route = createFileRoute("/deco/invoke/$")({
-  ...decoInvokeRoute,
-});
+export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRouteConfig());
 ```
 
-### Important: Use Spread Operator
+### Important: Factories Only — Never Share a Config Object (dev-HMR footgun)
 
-Always use `{ ...frameworkRoute }` — NOT `createFileRoute("/path")(frameworkRoute)`:
+From 7.10.0 the admin routes are exported ONLY as the `*RouteConfig()` factories. On ≤7.9.0 the exports were module-scope literals (`decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`) instead — removed because passing one directly to `createFileRoute` bricked dev HMR:
 
 ```typescript
-// BAD — "Route cannot have both an 'id' and a 'path' option"
+// BAD (≤7.9.0 pattern; the import no longer exists from 7.10.0) — bricks
+// dev HMR: router-core's update() mutates the SHARED literal (Object.assign
+// injects id/path); the first execution pollutes it, and any HMR partial
+// re-execution of this file then throws
+// "Route cannot have both an 'id' and a 'path' option" — every route 500s
+// until the dev server restarts.
 export const Route = createFileRoute("/deco/meta")(decoMetaRoute);
 
-// GOOD — spread into new object
+// GOOD — factory returns a fresh object per call (7.10.0+)
+export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
+
+// Historical: stuck on ≤7.9.0 (only the literals exist there)? Spread the
+// literal into a new object:
 export const Route = createFileRoute("/deco/meta")({ ...decoMetaRoute });
 ```
 
-TanStack Router injects internal properties (`id`, `path`) that conflict if the config object already has them.
+The same rule applies to any route options you build yourself: never let two `createFileRoute` calls (or two executions of the same file) share one options object.
 
 ---
 
@@ -298,9 +301,9 @@ export {
   loadDeferredSection,   // Server function for on-scroll section loading
   CmsPage,               // Generic CMS page component
   NotFoundPage,          // Generic 404 component
-  decoMetaRoute,         // Admin meta route config
-  decoRenderRoute,       // Admin render route config
-  decoInvokeRoute,       // Admin invoke route config
+  decoMetaRouteConfig,   // Admin meta route config factory (7.10.0+)
+  decoRenderRouteConfig, // Admin render route config factory (7.10.0+)
+  decoInvokeRouteConfig, // Admin invoke route config factory (7.10.0+)
   withSiteGlobals,       // Site-wide global sections merge helper
   DecoPageRenderer,      // Section-list renderer (+ deferred-section loading)
   DecoRootLayout,
@@ -318,7 +321,7 @@ export {
 };
 ```
 
-**Not exported from the `@decocms/tanstack` root** (they exist in `packages/tanstack/src/routes/index.ts`'s internal barrel, but that path isn't part of the public `exports` map, so it isn't importable from site code): `CmsRouteOptions`, `Device`, `CmsPagePendingFallback`, `deferredSectionLoader`, `setSectionChunkMap`, `SiteGlobalsLoaderData`. If you need the `Device` type, import it from `@decocms/blocks/sdk/useDevice` instead (a valid subpath in `packages/blocks/package.json`'s `exports` map).
+**Not exported from the `@decocms/tanstack` root** (they exist in `packages/tanstack/src/routes/index.ts`'s internal barrel, but that path isn't part of the public `exports` map, so it isn't importable from site code): `CmsRouteOptions`, `Device`, `CmsPagePendingFallback`, `deferredSectionLoader`, `setSectionChunkMap`, `SiteGlobalsLoaderData`. If you need the `Device` type, import it from `@decocms/blocks/sdk/useDevice` instead (a valid subpath in `packages/blocks/package.json`'s `exports` map). The pre-7.10.0 admin-route literals (`decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`) were removed entirely — only the factories exist.
 
 ```typescript
 // @decocms/blocks/cms
@@ -349,7 +352,7 @@ TypeScript server needs restart after adding new exports to `package.json`. In V
 
 ### `Route cannot have both an 'id' and a 'path' option`
 
-Use spread: `{ ...decoMetaRoute }` instead of direct assignment.
+A route file passed a shared config object by reference (e.g. the ≤7.9.0 pattern `createFileRoute("/deco/meta")(decoMetaRoute)`) and dev HMR re-executed it against the now-mutated object. Use the factory (`decoMetaRouteConfig()`, the only exported form since 7.10.0); on ≤7.9.0 spread the literal: `{ ...decoMetaRoute }`. Restart the dev server once after fixing — the polluted module stays cached until then.
 
 ### `Property 'resolvedSections' does not exist on type 'never'`
 

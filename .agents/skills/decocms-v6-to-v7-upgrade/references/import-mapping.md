@@ -54,7 +54,7 @@ Same subpath, new package root:
 
 | Old | New |
 |---|---|
-| `@decocms/start/routes` → `cmsRouteConfig`, `cmsHomeRouteConfig`, `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `decoInvokeRoute`, `decoMetaRoute`, `decoRenderRoute`, `withSiteGlobals` | `@decocms/tanstack` (root) |
+| `@decocms/start/routes` → `cmsRouteConfig`, `cmsHomeRouteConfig`, `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `decoInvokeRoute`, `decoMetaRoute`, `decoRenderRoute`, `withSiteGlobals` | `@decocms/tanstack` (root). The admin-route literals map to the `decoMetaRouteConfig()`/`decoRenderRouteConfig()`/`decoInvokeRouteConfig()` factories — from 7.10.0 only the factories exist (a shared literal passed by reference, `createFileRoute(...)(decoMetaRoute)`, let router-core's mutating `update()` pollute it and brick dev HMR). Historical: on ≤7.9.0 only the literals exist — spread them (`{ ...decoMetaRoute }`) |
 | `@decocms/start/routes` → `deferredSectionLoader` | `@decocms/tanstack/sdk/deferredSectionLoader` (public since 7.7.0; on 7.6.x, local shim wrapping `loadDeferredSection` — see SKILL.md) |
 | `@decocms/start/sdk/router` → `createDecoRouter` | `@decocms/tanstack` (root) |
 | `@decocms/start/sdk/workerEntry` → `createDecoWorkerEntry` | `@decocms/tanstack` (root) |

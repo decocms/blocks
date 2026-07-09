@@ -1,9 +1,9 @@
 export type { PageSeo } from "@decocms/blocks/cms";
 export type { Device } from "@decocms/blocks/sdk/useDevice";
 export {
-  decoInvokeRoute,
-  decoMetaRoute,
-  decoRenderRoute,
+  decoInvokeRouteConfig,
+  decoMetaRouteConfig,
+  decoRenderRouteConfig,
 } from "./adminRoutes";
 export {
   CmsPagePendingFallback,

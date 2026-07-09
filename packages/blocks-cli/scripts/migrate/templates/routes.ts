@@ -210,26 +210,34 @@ function NotFoundPage() {
 `;
 }
 
+// The deco admin routes use the `*RouteConfig()` factories — the only form
+// @decocms/tanstack exports since 7.10.0. The pre-7.10.0 module-scope
+// literals (decoMetaRoute/decoRenderRoute/decoInvokeRoute) were removed:
+// passed by reference, router-core's update() mutated the shared object
+// (injecting id/path), and any dev-HMR re-execution of the route file then
+// threw "Route cannot have both an 'id' and a 'path' option", 500ing every
+// route until dev restart.
+
 function generateDecoMeta(): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { decoMetaRoute } from "@decocms/tanstack";
+import { decoMetaRouteConfig } from "@decocms/tanstack";
 
-export const Route = createFileRoute("/deco/meta")(decoMetaRoute);
+export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
 `;
 }
 
 function generateDecoInvoke(): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { decoInvokeRoute } from "@decocms/tanstack";
+import { decoInvokeRouteConfig } from "@decocms/tanstack";
 
-export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRoute);
+export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRouteConfig());
 `;
 }
 
 function generateDecoRender(): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { decoRenderRoute } from "@decocms/tanstack";
+import { decoRenderRouteConfig } from "@decocms/tanstack";
 
-export const Route = createFileRoute("/deco/render")(decoRenderRoute);
+export const Route = createFileRoute("/deco/render")(decoRenderRouteConfig());
 `;
 }
