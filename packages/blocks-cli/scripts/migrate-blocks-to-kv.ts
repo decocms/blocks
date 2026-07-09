@@ -4,19 +4,21 @@
  * bundled decofile so the worker can serve content KV-first.
  *
  * Reads `.deco/blocks/*.json` (the same merge the block generator does),
- * writes `decofile:current` + `index:revision` to the site's KV namespace via
- * the REST API, then reads both keys back to verify. Run ONCE per site before
+ * writes `decofile:<id>` + `index:revision:<id>` (keyed by deployment id) to
+ * the site's KV namespace via the REST API, then reads both keys back to
+ * verify. Run ONCE per site to seed the first deployment's content before
  * flipping it to KV-first (i.e. before adding the `DECO_KV` binding +
  * deploying the fast-deploy framework version).
  *
  * Usage (from the site root):
  *   # dry-run (default): reads blocks, prints what would be written, no writes
  *   CF_ACCOUNT_ID=... CF_KV_NAMESPACE_ID=... CF_API_TOKEN=... \
- *     npx -p @decocms/start deco-migrate-blocks-to-kv
+ *     npx -p @decocms/start deco-migrate-blocks-to-kv --deployment-id "$COMMIT_SHA"
  *   # apply:
- *   ... npx -p @decocms/start deco-migrate-blocks-to-kv --write
+ *   ... npx -p @decocms/start deco-migrate-blocks-to-kv --deployment-id "$COMMIT_SHA" --write
  *
  * Options:
+ *   --deployment-id <id> Deployment id (git commit sha) to key the write under (required to write)
  *   --blocks-dir <dir>   Input blocks dir (default: .deco/blocks)
  *   --write              Perform the KV writes (otherwise dry-run, exit 0)
  *   --help, -h           Show this help
@@ -24,7 +26,7 @@
  * Env:
  *   CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, CF_API_TOKEN  (required with --write)
  *
- * Exit codes: 0 ok / dry-run; 2 error (bad dir, missing env, verify failed)
+ * Exit codes: 0 ok / dry-run; 2 error (bad dir, missing env/args, verify failed)
  */
 
 import * as path from "node:path";
@@ -41,6 +43,7 @@ function parseArgs(argv: string[]) {
   return {
     help: has("--help") || has("-h"),
     write: has("--write"),
+    deploymentId: val("--deployment-id", ""),
     blocksDir: val("--blocks-dir", ".deco/blocks"),
   };
 }
@@ -49,10 +52,15 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
     console.log(
-      "Usage: deco-migrate-blocks-to-kv [--blocks-dir .deco/blocks] [--write]\n" +
+      "Usage: deco-migrate-blocks-to-kv --deployment-id <sha> [--blocks-dir .deco/blocks] [--write]\n" +
         "Env: CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, CF_API_TOKEN",
     );
     process.exit(0);
+  }
+
+  if (!opts.deploymentId && opts.write) {
+    console.error("error: --deployment-id <sha> is required to write to KV.");
+    process.exit(2);
   }
 
   const blocksDir = path.resolve(process.cwd(), opts.blocksDir);
@@ -79,15 +87,15 @@ async function main() {
 
   let client: ReturnType<typeof createKvRestClient>;
   try {
-    client = createKvRestClient(kvConfigFromEnv());
+    client = createKvRestClient(kvConfigFromEnv(process.env, { wranglerDir: process.cwd() }));
   } catch (e) {
     console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(2);
   }
 
   try {
-    await writeSnapshotToKv(client, snap);
-    const verify = await verifySnapshotInKv(client, snap.revision);
+    await writeSnapshotToKv(client, snap, opts.deploymentId);
+    const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId);
     if (!verify.ok) {
       console.error(`error: KV verify failed — ${verify.reason}`);
       process.exit(2);
@@ -97,7 +105,7 @@ async function main() {
     process.exit(2);
   }
 
-  console.log(`\nwrote + verified decofile:current (rev ${snap.revision}) → KV.`);
+  console.log(`\nwrote + verified decofile:${opts.deploymentId} (rev ${snap.revision}) → KV.`);
   console.log("Next: add the DECO_KV binding in wrangler.toml and deploy the fast-deploy build.");
 }
 

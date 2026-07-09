@@ -1,4 +1,11 @@
-import { KV_KEYS, getRevision, loadBlocks, setBlocks } from "@decocms/blocks/cms";
+import {
+  getDeploymentId,
+  getRevision,
+  loadBlocks,
+  revisionKey,
+  setBlocks,
+  snapshotKey,
+} from "@decocms/blocks/cms";
 import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
 import { getRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { invalidateMetaCache } from "./meta";
@@ -80,19 +87,24 @@ function applyDelta(
 }
 
 /**
- * Write the current in-memory decofile snapshot to KV so other isolates pick
- * it up on their next revision poll. No-op (returns false) when fast-deploy is
- * disabled. The revision stored MUST equal the runtime's `getRevision()` so
- * pollers don't see a permanent mismatch.
+ * Write the current in-memory decofile snapshot to KV so other isolates of the
+ * SAME deployment pick it up on their next revision poll. No-op (returns false)
+ * when fast-deploy is disabled or no deployment id resolves. Writes this
+ * worker's OWN keyed entry (`decofile:<id>`) — it is the live version, so no
+ * `index:live` lookup is needed. The revision stored MUST equal the runtime's
+ * `getRevision()` so pollers don't see a permanent mismatch.
  */
 async function writeSnapshotToKV(env: Record<string, unknown> | undefined): Promise<boolean> {
   const kv = env ? getFastDeployKV(env) : null;
-  if (!kv) return false;
+  if (!kv || !env) return false;
+
+  const deploymentId = getDeploymentId(env);
+  if (!deploymentId) return false;
 
   const blocks = loadBlocks();
   const revision = getRevision();
-  await kv.put(KV_KEYS.SNAPSHOT, JSON.stringify(blocks));
-  if (revision) await kv.put(KV_KEYS.REVISION, revision);
+  await kv.put(snapshotKey(deploymentId), JSON.stringify(blocks));
+  if (revision) await kv.put(revisionKey(deploymentId), revision);
   return true;
 }
 
