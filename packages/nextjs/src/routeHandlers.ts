@@ -16,6 +16,7 @@
  * component code.
  */
 import {
+  corsHeaders,
   handleDecofileRead,
   handleDecofileReload,
   handleInvoke,
@@ -23,34 +24,65 @@ import {
   handleRender,
 } from "@decocms/blocks-admin";
 
+/**
+ * Stamp the admin CORS headers onto a handler response. The Studio is a
+ * cross-origin browser client (decocms.com / admin.deco.cx fetching the
+ * site's /live/_meta, /.decofile, ...), and its ETag flow sends
+ * `If-None-Match` — a non-simple header, so requests preflight. On
+ * TanStack this stamping lives in workerEntry/adminRoutes; on Next.js it
+ * lives HERE, since these handlers/dispatcher are the only admin surface.
+ * Response headers can be immutable (e.g. a cached/replayed body) — fall
+ * back to cloning.
+ */
+function withCors(request: Request, response: Response): Response {
+  const cors = corsHeaders(request);
+  try {
+    for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+    return response;
+  } catch {
+    const headers = new Headers(response.headers);
+    for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+}
+
+/** Answer a CORS preflight for the admin protocol. */
+function preflight(request: Request): Response {
+  return new Response(null, { status: 204, headers: corsHeaders(request) });
+}
+
 /** For app/live/_meta/route.ts: `export { metaGET as GET } from "@decocms/nextjs/routeHandlers"` */
 export async function metaGET(request: Request): Promise<Response> {
-  return handleMeta(request);
+  return withCors(request, handleMeta(request));
 }
 
 /** For app/.decofile/route.ts (or an equivalent rewritten path — Next.js route
  * segments can't literally start with a dot; see Task 9's fixture for the
  * rewrite-rule workaround). */
-export async function decofileGET(): Promise<Response> {
-  return handleDecofileRead();
+export async function decofileGET(request: Request): Promise<Response> {
+  return withCors(request, await handleDecofileRead());
 }
 
 export async function decofilePOST(request: Request): Promise<Response> {
-  return handleDecofileReload(request);
+  return withCors(request, await handleDecofileReload(request));
 }
 
 /** For app/deco/invoke/[...key]/route.ts */
 export async function invokePOST(request: Request): Promise<Response> {
-  return handleInvoke(request);
+  return withCors(request, await handleInvoke(request));
 }
 
 /** For app/live/previews/[...path]/route.ts */
 export async function renderGET(request: Request): Promise<Response> {
-  return handleRender(request);
+  return withCors(request, await handleRender(request));
 }
 
 export async function renderPOST(request: Request): Promise<Response> {
-  return handleRender(request);
+  return withCors(request, await handleRender(request));
 }
 
 export interface DecoRouteHandlersOptions {
@@ -72,7 +104,7 @@ export interface DecoRouteHandlersOptions {
  * import { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";
  * import { ensureSetup } from "../../../deco/setup";
  * export const dynamic = "force-dynamic";
- * export const { GET, POST } = createDecoRouteHandlers({ setup: ensureSetup });
+ * export const { GET, POST, OPTIONS } = createDecoRouteHandlers({ setup: ensureSetup });
  * ```
  *
  * `resolveAction` accepts BOTH the rewrite's public source path (e.g.
@@ -104,8 +136,14 @@ function resolveAction(pathname: string): string {
 export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}): {
   GET(request: Request): Promise<Response>;
   POST(request: Request): Promise<Response>;
+  OPTIONS(request: Request): Promise<Response>;
 } {
   async function dispatch(request: Request): Promise<Response> {
+    // CORS preflight: Studio fetches cross-origin and its ETag flow sends
+    // If-None-Match (non-simple header), so browsers preflight every meta
+    // request. Answer before setup — preflights carry no work and must not
+    // pay (or fail on) the site bootstrap.
+    if (request.method === "OPTIONS") return preflight(request);
     await options.setup?.();
 
     const url = new URL(request.url);
@@ -170,5 +208,9 @@ export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}):
     });
   }
 
-  return { GET: dispatch, POST: dispatch };
+  async function dispatchWithCors(request: Request): Promise<Response> {
+    return withCors(request, await dispatch(request));
+  }
+
+  return { GET: dispatchWithCors, POST: dispatchWithCors, OPTIONS: dispatchWithCors };
 }

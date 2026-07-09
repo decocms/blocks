@@ -78,7 +78,7 @@ import { ensureSetup } from "../../../deco/setup";
 
 export const dynamic = "force-dynamic";
 
-export const { GET, POST } = createDecoRouteHandlers({ setup: ensureSetup });
+export const { GET, POST, OPTIONS } = createDecoRouteHandlers({ setup: ensureSetup });
 ```
 
 `dynamic = "force-dynamic"` is required — this route must never be

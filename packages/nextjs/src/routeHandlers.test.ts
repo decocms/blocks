@@ -17,6 +17,14 @@ const mocks = vi.hoisted(() => ({
   handleMeta: vi.fn(() => new Response("meta")),
   handleRender: vi.fn(async (req: Request) => new Response(new URL(req.url).pathname)),
   setMetaData: vi.fn(),
+  // Real corsHeaders shape (mirrors blocks-admin/src/admin/cors.ts) so the
+  // CORS assertions below test genuine header propagation, not a stub echo.
+  corsHeaders: vi.fn((req: Request) => ({
+    "Access-Control-Allow-Origin": req.headers.get("origin") || "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, If-None-Match",
+    "Access-Control-Allow-Credentials": "true",
+  })),
 }));
 vi.mock("@decocms/blocks-admin", () => mocks);
 
@@ -149,5 +157,55 @@ describe("createDecoRouteHandlers", () => {
     expect(res.status).toBe(405);
     expect(res.headers.get("Allow")).toBe("GET");
     expect(mocks.handleMeta).not.toHaveBeenCalled();
+  });
+});
+
+describe("createDecoRouteHandlers — CORS (Studio is a cross-origin browser client)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("answers OPTIONS preflight with 204 + CORS headers, without running setup", async () => {
+    const setup = vi.fn(async () => {});
+    const { OPTIONS } = createDecoRouteHandlers({ setup });
+    const res = await OPTIONS(
+      new Request("http://x/live/_meta", {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://decocms.com",
+          "access-control-request-method": "GET",
+          "access-control-request-headers": "if-none-match",
+        },
+      }),
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://decocms.com");
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain("If-None-Match");
+    expect(setup).not.toHaveBeenCalled();
+  });
+
+  it("stamps CORS headers on successful responses (meta via pre-rewrite URL)", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(
+      new Request("http://x/live/_meta", { headers: { origin: "https://admin.deco.cx" } }),
+    );
+    expect(await res.text()).toBe("meta");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://admin.deco.cx");
+  });
+
+  it("stamps CORS headers on method-gate 405s too", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(
+      new Request("http://x/deco/invoke/site/actions/x", {
+        headers: { origin: "https://decocms.com" },
+      }),
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://decocms.com");
+  });
+
+  it("named exports carry CORS as well (metaGET)", async () => {
+    const res = await metaGET(
+      new Request("http://x/live/_meta", { headers: { origin: "https://decocms.com" } }),
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://decocms.com");
   });
 });
