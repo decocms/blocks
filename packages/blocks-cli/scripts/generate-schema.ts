@@ -20,8 +20,12 @@ import { fileURLToPath } from "node:url";
  *   --loaders     Loaders directory  (default: "src/loaders")
  *   --apps        Apps directory     (default: "src/apps")
  *   --skip-apps   Skip app schema generation
- *   --out         Output file        (default: "src/server/admin/meta.gen.json")
+ *   --out         Output file        (default: ".deco/meta.gen.json")
  *   --platform    Platform name      (default: "cloudflare")
+ *
+ * If no `--out` is passed and the OLD default (src/server/admin/meta.gen.json)
+ * still exists on disk, a one-line legacy warning is printed to stderr and the
+ * NEW default is written anyway — see lib/legacyArtifact.ts.
  */
 import {
   type Symbol as MorphSymbol,
@@ -32,6 +36,7 @@ import {
   type Type,
 } from "ts-morph";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
+import { warnLegacyArtifact } from "./lib/legacyArtifact";
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -49,8 +54,14 @@ const SECTIONS_REL = arg("sections", "src/sections");
 const LOADERS_REL = arg("loaders", "src/loaders");
 const APPS_REL = arg("apps", "src/apps");
 const SKIP_APPS = argv.includes("--skip-apps");
-const OUT_REL = arg("out", "src/server/admin/meta.gen.json");
+const OUT_FILE_EXPLICIT = argv.includes("--out");
+const NEW_DEFAULT_OUT_REL = ".deco/meta.gen.json";
+const OLD_DEFAULT_OUT_REL = "src/server/admin/meta.gen.json";
+const OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
 const PLATFORM = arg("platform", "cloudflare");
+if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_REL))) {
+  warnLegacyArtifact(OLD_DEFAULT_OUT_REL, NEW_DEFAULT_OUT_REL);
+}
 
 // ---------------------------------------------------------------------------
 // Interfaces

@@ -34,13 +34,18 @@
  * CLI:
  *   --loaders-dir         override loaders input  (default: src/loaders)
  *   --actions-dir         override actions input  (default: src/actions)
- *   --out-file            override output         (default: src/server/cms/loaders.gen.ts)
+ *   --out-file            override output         (default: .deco/loaders.gen.ts)
  *   --exclude             comma-separated list of loader keys to skip (they have custom wiring)
  *   --prune-by-decofile   only emit entries whose key appears as `__resolveType` in any JSON
  *   --decofile-dir        @deprecated alias for --prune-by-decofile
+ *
+ * If no `--out-file` is passed and the OLD default (src/server/cms/loaders.gen.ts)
+ * still exists on disk, a one-line legacy warning is printed to stderr and the
+ * NEW default is written anyway — see lib/legacyArtifact.ts.
  */
 import fs from "node:fs";
 import path from "node:path";
+import { warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -50,7 +55,13 @@ function arg(name: string, fallback: string): string {
 
 const loadersDir = path.resolve(process.cwd(), arg("loaders-dir", "src/loaders"));
 const actionsDir = path.resolve(process.cwd(), arg("actions-dir", "src/actions"));
-const outFile = path.resolve(process.cwd(), arg("out-file", "src/server/cms/loaders.gen.ts"));
+const OUT_FILE_EXPLICIT = args.includes("--out-file");
+const NEW_DEFAULT_OUT_FILE = ".deco/loaders.gen.ts";
+const OLD_DEFAULT_OUT_FILE = "src/server/cms/loaders.gen.ts";
+const outFile = path.resolve(process.cwd(), arg("out-file", NEW_DEFAULT_OUT_FILE));
+if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE))) {
+  warnLegacyArtifact(OLD_DEFAULT_OUT_FILE, NEW_DEFAULT_OUT_FILE);
+}
 const excludeRaw = arg("exclude", "");
 const excludeSet = new Set(excludeRaw.split(",").map((s) => s.trim()).filter(Boolean));
 

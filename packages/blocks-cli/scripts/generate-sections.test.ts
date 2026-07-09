@@ -21,8 +21,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve(__dirname, "generate-sections.ts");
 
-function runGenerator(args: string[]): { stdout: string; stderr: string; code: number } {
-  const r = cp.spawnSync("npx", ["tsx", SCRIPT, ...args], { encoding: "utf8" });
+function runGenerator(
+  args: string[],
+  opts: { cwd?: string } = {},
+): { stdout: string; stderr: string; code: number } {
+  const r = cp.spawnSync("npx", ["tsx", SCRIPT, ...args], { encoding: "utf8", cwd: opts.cwd });
   return { stdout: r.stdout || "", stderr: r.stderr || "", code: r.status ?? 0 };
 }
 
@@ -68,6 +71,66 @@ describe("generate-sections walkDir exclusions", () => {
     expect(generated).not.toContain("Hero.test.tsx");
     expect(generated).not.toContain("Hero.stories.tsx");
     expect(generated).not.toContain("sections.gen.ts");
+  });
+});
+
+describe("generate-sections default output path (.deco/)", () => {
+  let tmpDir: string;
+  let sectionsDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-sections-defaults-"));
+    sectionsDir = path.join(tmpDir, "src", "sections");
+    fs.mkdirSync(sectionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sectionsDir, "Hero.tsx"),
+      "export const eager = true;\nexport default function Hero() { return null; }\n",
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("writes to .deco/sections.gen.ts when no --out-file flag is passed", () => {
+    const { code, stderr } = runGenerator([], { cwd: tmpDir });
+    expect(code).toBe(0);
+
+    const newDefault = path.join(tmpDir, ".deco", "sections.gen.ts");
+    expect(fs.existsSync(newDefault)).toBe(true);
+    expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
+    // No legacy file present, so no warning is expected.
+    expect(stderr).not.toContain("Generator default output moved");
+  });
+
+  it("warns once to stderr naming both paths when the OLD default file exists and no --out-file is passed, but still writes the NEW default", () => {
+    const oldDefaultDir = path.join(tmpDir, "src", "server", "cms");
+    fs.mkdirSync(oldDefaultDir, { recursive: true });
+    fs.writeFileSync(path.join(oldDefaultDir, "sections.gen.ts"), "// stale\n");
+
+    const { code, stderr } = runGenerator([], { cwd: tmpDir });
+    expect(code).toBe(0);
+
+    expect(stderr).toContain("src/server/cms/sections.gen.ts");
+    expect(stderr).toContain(".deco/sections.gen.ts");
+    expect(stderr).toContain("Move the file and update its importers");
+
+    const newDefault = path.join(tmpDir, ".deco", "sections.gen.ts");
+    expect(fs.existsSync(newDefault)).toBe(true);
+    expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
+  });
+
+  it("does not warn when an explicit --out-file is passed, even if the OLD default file exists", () => {
+    const oldDefaultDir = path.join(tmpDir, "src", "server", "cms");
+    fs.mkdirSync(oldDefaultDir, { recursive: true });
+    fs.writeFileSync(path.join(oldDefaultDir, "sections.gen.ts"), "// stale\n");
+
+    const explicitOut = path.join(tmpDir, "custom", "sections.gen.ts");
+    const { code, stderr } = runGenerator(["--out-file", explicitOut], { cwd: tmpDir });
+    expect(code).toBe(0);
+
+    expect(stderr).not.toContain("Generator default output moved");
+    expect(fs.existsSync(explicitOut)).toBe(true);
   });
 });
 

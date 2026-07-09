@@ -99,8 +99,8 @@ import { setInvokeLoaders } from "@decocms/start/admin";${isVtex ? `
 import { createInstrumentedFetch } from "@decocms/start/sdk/instrumentedFetch";
 import { initVtexFromBlocks, setVtexFetch } from "@decocms/apps/vtex";` : ""}${hasLocationMatcher ? `
 import { registerLocationMatcher } from "./matchers/location";` : ""}
-import { blocks as generatedBlocks } from "./server/cms/blocks.gen";
-import { sectionMeta, syncComponents, loadingFallbacks } from "./server/cms/sections.gen";
+import { blocks as generatedBlocks } from "../.deco/blocks.gen";
+import { sectionMeta, syncComponents, loadingFallbacks } from "../.deco/sections.gen";
 import { PreviewProviders } from "@decocms/start/hooks";
 // @ts-ignore Vite ?url import
 import appCss from "./styles/app.css?url";
@@ -112,7 +112,7 @@ import "./setup/section-loaders";
 createSiteSetup({
   sections: import.meta.glob("./sections/**/*.tsx") as Record<string, () => Promise<any>>,
   blocks: generatedBlocks,
-  meta: () => import("./server/admin/meta.gen.json").then((m) => m.default),
+  meta: () => import("../.deco/meta.gen.json").then((m) => m.default),
   css: appCss,
   fonts: [${fontEntries}],
   productionOrigins: [

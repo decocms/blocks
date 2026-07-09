@@ -15,12 +15,15 @@
  * @example site's `src/deco/setup.ts`
  * ```ts
  * import { createNextSetup } from "@decocms/nextjs/setup";
- * import { sectionImports, sectionMeta, syncComponents } from "./sections.gen";
+ * // Generators default to `.deco/`; `deco/*` is a tsconfig path alias for
+ * // `.deco/*` (see the package README) since `src/deco/setup.ts` isn't
+ * // adjacent to the site-root `.deco/` directory.
+ * import { sectionImports, sectionMeta, syncComponents } from "deco/sections.gen";
  *
  * export const ensureSetup = createNextSetup({
  *   sections: sectionImports,
  *   conventions: { meta: sectionMeta, syncComponents },
- *   meta: () => import("./meta.gen.json").then((m) => m.default),
+ *   meta: () => import("deco/meta.gen.json").then((m) => m.default),
  * });
  * ```
  */
@@ -46,10 +49,10 @@ export interface NextSetupOptions {
    */
   sections: Record<string, () => Promise<any>>;
 
-  /** `{ meta: sectionMeta, syncComponents, loadingFallbacks }` from sections.gen.ts. */
+  /** `{ meta: sectionMeta, syncComponents, loadingFallbacks }` from sections.gen.ts (`.deco/sections.gen.ts` by default). */
   conventions?: Omit<ApplySectionConventionsInput, "sectionGlob">;
 
-  /** Lazy admin meta schema: `() => import("./meta.gen.json").then(m => m.default)`. */
+  /** Lazy admin meta schema: `() => import("deco/meta.gen.json").then(m => m.default)` (`.deco/meta.gen.json` by default). */
   meta?: () => Promise<unknown>;
 
   /** Admin preview shell (CSS/font URLs) — see blocks-admin setRenderShell. */

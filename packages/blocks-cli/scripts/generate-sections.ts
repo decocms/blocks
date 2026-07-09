@@ -16,17 +16,22 @@
  *
  * CLI:
  *   --sections-dir  override input  (default: src/sections)
- *   --out-file      override output (default: src/server/cms/sections.gen.ts)
+ *   --out-file      override output (default: .deco/sections.gen.ts)
  *   --registry      also emit `sectionImports` — a lazy section-import map
  *                   keyed glob-style (`./sections/...`), the Next.js/webpack
  *                   equivalent of Vite's `import.meta.glob("./sections/**\/*.tsx")`.
  *                   Built from every scanned section file, not just the ones
  *                   carrying convention exports. Off by default so existing
  *                   Vite sites regenerating sections.gen.ts in CI see zero diff.
+ *
+ * If no `--out-file` is passed and the OLD default (src/server/cms/sections.gen.ts)
+ * still exists on disk, a one-line legacy warning is printed to stderr and the
+ * NEW default is written anyway — see lib/legacyArtifact.ts.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
+import { warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -35,7 +40,13 @@ function arg(name: string, fallback: string): string {
 }
 
 const sectionsDir = path.resolve(process.cwd(), arg("sections-dir", "src/sections"));
-const outFile = path.resolve(process.cwd(), arg("out-file", "src/server/cms/sections.gen.ts"));
+const OUT_FILE_EXPLICIT = args.includes("--out-file");
+const NEW_DEFAULT_OUT_FILE = ".deco/sections.gen.ts";
+const OLD_DEFAULT_OUT_FILE = "src/server/cms/sections.gen.ts";
+const outFile = path.resolve(process.cwd(), arg("out-file", NEW_DEFAULT_OUT_FILE));
+if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE))) {
+  warnLegacyArtifact(OLD_DEFAULT_OUT_FILE, NEW_DEFAULT_OUT_FILE);
+}
 const EMIT_REGISTRY = args.includes("--registry");
 
 interface SectionMeta {

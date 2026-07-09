@@ -110,15 +110,33 @@ they're safe to import from anywhere, including a route file.
 
 ## 3. `src/deco/setup.ts` — `createNextSetup`
 
+The codegen artifacts (`sections.gen.ts`, `meta.gen.json`) are generated into
+`.deco/` at the site root — the same default `@decocms/blocks-cli`'s
+generators use everywhere else (framework artifacts live in the framework's
+folder, not scattered across `src/`). `src/deco/setup.ts` isn't adjacent to
+`.deco/`, so import it through a `deco/*` tsconfig path alias instead of a
+relative path:
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "paths": {
+      "deco/*": [".deco/*"]
+    }
+  }
+}
+```
+
 ```ts
 // src/deco/setup.ts
 import { createNextSetup } from "@decocms/nextjs/setup";
-import { sectionImports, sectionMeta, syncComponents, loadingFallbacks } from "./sections.gen";
+import { sectionImports, sectionMeta, syncComponents, loadingFallbacks } from "deco/sections.gen";
 
 export const ensureSetup = createNextSetup({
   sections: sectionImports,
   conventions: { meta: sectionMeta, syncComponents, loadingFallbacks },
-  meta: () => import("./meta.gen.json").then((m) => m.default),
+  meta: () => import("deco/meta.gen.json").then((m) => m.default),
 });
 ```
 
@@ -158,7 +176,7 @@ Two call sites need `ensureSetup()`:
 | `blocks` | Extra/override blocks, merged **over** the directory's blocks. |
 | `sections` | The lazy section registry — `sectionImports` from `generate-sections --registry` (see below). |
 | `conventions` | `{ meta, syncComponents, loadingFallbacks }` from `sections.gen.ts` — wires the `export const sync/layout/seo/cache/eager/clientOnly` conventions (see below). |
-| `meta` | Lazy admin meta schema loader: `() => import("./meta.gen.json").then(m => m.default)`. Wire this even with a trivial schema — without it, `/deco/meta` (and its `/live/_meta` alias) 503s with `"Schema not initialized"`. |
+| `meta` | Lazy admin meta schema loader: `() => import("deco/meta.gen.json").then(m => m.default)`. Wire this even with a trivial schema — without it, `/deco/meta` (and its `/live/_meta` alias) 503s with `"Schema not initialized"`. |
 | `renderShell` | Admin preview shell config (`{ css, fonts }`). |
 | `previewWrapper` | Admin preview wrapper component. |
 | `productionOrigins`, `customMatchers`, `onResolveError`, `onDanglingReference` | Passed through to `createSiteSetup`. |
@@ -174,23 +192,29 @@ depending on script-merge order. Use these names instead:
 ```json
 {
   "scripts": {
-    "generate:deco-meta": "tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts --out src/deco/meta.gen.json",
-    "generate:deco-sections": "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts --registry --out-file src/deco/sections.gen.ts"
+    "generate:deco-meta": "tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
+    "generate:deco-sections": "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts --registry"
   }
 }
 ```
 
+Neither script needs an `--out`/`--out-file` flag — both generators default
+to `.deco/`, which is exactly where `src/deco/setup.ts` reads them from via
+the `deco/*` path alias (see above). Only pass `--out`/`--out-file` if your
+site has a reason to put the artifact somewhere else.
+
 - `generate:deco-meta` runs `blocks-cli`'s `generate-schema.ts`, which scans
   `src/sections/`, `src/loaders/`, and `src/apps/` for `Props` interfaces
-  and emits the JSON Schema the admin's `/deco/meta` endpoint serves
-  (`meta.gen.json`).
+  and emits the JSON Schema the admin's `/deco/meta` endpoint serves, to
+  `.deco/meta.gen.json` by default.
 - `generate:deco-sections` runs `generate-sections.ts` **with `--registry`**
   — the flag that additionally emits `sectionImports`, the Next.js/webpack
   equivalent of Vite's `import.meta.glob("./sections/**/*.tsx")` (Next has
   no `import.meta.glob` or Vite plugin, so this is generated instead of
   computed at build time). Without `--registry` you only get
   `sectionMeta`/`syncComponents`/`loadingFallbacks`, not the lazy loader map
-  `setup.ts` needs for its `sections` option.
+  `setup.ts` needs for its `sections` option. Defaults to
+  `.deco/sections.gen.ts`.
 
 Run both any time `src/sections/` changes (wire into a `predev`/`prebuild`
 step, or a watch script, as your site prefers).

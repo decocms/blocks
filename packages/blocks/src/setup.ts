@@ -35,7 +35,8 @@ export interface SiteSetupOptions {
 
 	/**
 	 * Generated blocks object — import and pass directly:
-	 * `import { blocks } from "./server/cms/blocks.gen";`
+	 * `import { blocks } from "../.deco/blocks.gen";` (`.deco/blocks.gen.ts`
+	 * is `generate-blocks.ts`'s default output location).
 	 */
 	blocks: Record<string, unknown>;
 

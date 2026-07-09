@@ -200,7 +200,7 @@ function unknownHandlerMessage(key: string): string {
     `Unknown handler: ${key}. ` +
     `Check that the ${kind} exists in ${dir} (file path must match the key — ` +
     `keys like "site/loaders/foo" resolve to ${dir}foo.ts) and that it is ` +
-    `included in src/server/cms/loaders.gen.ts. Regenerate with \`${cliHint}\` ` +
+    `included in .deco/loaders.gen.ts. Regenerate with \`${cliHint}\` ` +
     `or wire it manually via ${setupHint} in setup.ts. If you previously ran ` +
     `the generator with --decofile-dir / --prune-by-decofile, drop the flag ` +
     `to register code-driven loaders as well.`

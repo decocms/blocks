@@ -14,7 +14,7 @@
  *   — V8's JSON parser is 2-10x faster than the JS parser for large data.
  *
  * meta.gen handling:
- *   The admin schema bundle (`server/admin/meta.gen.json`) is server-only;
+ *   The admin schema bundle (`.deco/meta.gen.json`) is server-only;
  *   the client receives pre-resolved blocks via the SSR payload. Stubbing
  *   it on the client cuts a typically-large module out of the browser bundle.
  *   Match is done by substring on the import id, so any path style works.
@@ -209,7 +209,7 @@ export function decoVitePlugin() {
       // below) so we don't depend on the consumer's TS loader.
       const cwd = process.cwd();
       const blocksDir = path.resolve(cwd, ".deco/blocks");
-      const outFile = path.resolve(cwd, "src/server/cms/blocks.gen.ts");
+      const outFile = path.resolve(cwd, ".deco/blocks.gen.ts");
       const jsonFile = outFile.replace(/\.ts$/, ".json");
 
       // Lazily load the block generator module (generateBlocks for the cold-start
@@ -376,8 +376,10 @@ export function decoVitePlugin() {
       // --- meta.gen.json auto-regeneration ---
       // When section/loader/app source files change (types, JSDoc, Props),
       // re-run generate-schema.ts so meta.gen.json stays in sync during dev.
+      // No --out is passed to the generator below, so it writes to its own
+      // default (.deco/meta.gen.json) — this constant must track that default.
       const schemaWatchDirs = ["src"];
-      const schemaOutFile = path.resolve(cwd, "src/server/admin/meta.gen.json");
+      const schemaOutFile = path.resolve(cwd, ".deco/meta.gen.json");
 
       // Resolve the site name once from vite define or env.
       const definedSite = server.config.define?.["process.env.DECO_SITE_NAME"];

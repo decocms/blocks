@@ -64,7 +64,7 @@ export function generateCommerceLoaders(ctx: MigrationContext): string {
     }
 
     // Always import siteLoaders — the generate:loaders script creates this file
-    lines.push(`import { siteLoaders } from "../server/cms/loaders.gen";`);
+    lines.push(`import { siteLoaders } from "../../.deco/loaders.gen";`);
     lines.push(``);
 
     lines.push(`const DOMAIN_RE = /;\\s*domain=[^;]*/gi;`);

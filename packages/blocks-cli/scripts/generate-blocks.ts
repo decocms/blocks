@@ -14,7 +14,14 @@
  *
  * Env / CLI:
  *   --blocks-dir  override input  (default: .deco/blocks)
- *   --out-file    override output (default: src/server/cms/blocks.gen.ts)
+ *   --out-file    override output (default: .deco/blocks.gen.ts, with a sibling
+ *                 .deco/blocks.gen.json — the .json path is always derived from
+ *                 --out-file by swapping its extension, so passing --out-file
+ *                 moves both artifacts together)
+ *
+ * If no `--out-file` is passed and the OLD default (src/server/cms/blocks.gen.ts)
+ * still exists on disk, a one-line legacy warning is printed to stderr and the
+ * NEW default is written anyway — see lib/legacyArtifact.ts.
  *
  * Programmatic:
  *   import { generateBlocks } from "@decocms/blocks-cli/generate-blocks";
@@ -33,6 +40,7 @@ import {
   mergeCandidates,
   singleDecodeBlockName,
 } from "./lib/blocks-dedupe";
+import { warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const TS_STUB = [
   "// Auto-generated — thin wrapper around blocks.gen.json.",
@@ -291,7 +299,13 @@ if (isMainModule()) {
   };
 
   const blocksDir = path.resolve(process.cwd(), arg("blocks-dir", ".deco/blocks"));
-  const outFile = path.resolve(process.cwd(), arg("out-file", "src/server/cms/blocks.gen.ts"));
+  const OUT_FILE_EXPLICIT = args.includes("--out-file");
+  const NEW_DEFAULT_OUT_FILE = ".deco/blocks.gen.ts";
+  const OLD_DEFAULT_OUT_FILE = "src/server/cms/blocks.gen.ts";
+  const outFile = path.resolve(process.cwd(), arg("out-file", NEW_DEFAULT_OUT_FILE));
+  if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE))) {
+    warnLegacyArtifact(OLD_DEFAULT_OUT_FILE, NEW_DEFAULT_OUT_FILE);
+  }
 
   generateBlocks({ blocksDir, outFile }).catch((err) => {
     console.error(err);

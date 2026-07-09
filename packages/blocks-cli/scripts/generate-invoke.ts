@@ -11,6 +11,16 @@
  * This script generates an equivalent file where each server function is a
  * top-level const, which the compiler can correctly transform into RPC stubs.
  *
+ * Unlike the other four generators (generate-blocks, generate-loaders,
+ * generate-sections, generate-schema), this one's default output stays under
+ * `src/`, not `.deco/`. The other four emit inert framework artifacts (data
+ * snapshots / metadata) that the framework loads at runtime — those belong
+ * next to the rest of the framework's own generated state. This file emits
+ * actual app server-function code (`createServerFn().handler()` calls) that
+ * TanStack Start's own build-time compiler transforms into RPC stubs; it's
+ * compiled and shipped as part of the site's application code, so it lives
+ * in `src/` alongside the code it's compiled with, not in `.deco/`.
+ *
  * Usage (from site root):
  *   npx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts
  *
