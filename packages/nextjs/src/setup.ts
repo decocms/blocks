@@ -12,20 +12,30 @@
  * an admin request actually arrives... and because @decocms/blocks-admin
  * is a heavier graph than the CMS core.
  *
- * @example site's `src/deco/setup.ts`
+ * @example site's `src/deco/setup.ts` — recommended wiring: the static-import
+ * blocks manifest (`generate-blocks-manifest`) as the block source, so the
+ * bundler's module graph owns CMS content (dev hot-reload on block edits, no
+ * `outputFileTracingIncludes` for `.deco/blocks` in deploys).
  * ```ts
  * import { createNextSetup } from "@decocms/nextjs/setup";
  * // Generators default to `.deco/`; `deco/*` is a tsconfig path alias for
  * // `.deco/*` (see the package README) since `src/deco/setup.ts` isn't
  * // adjacent to the site-root `.deco/` directory.
+ * import blocks from "deco/blocksManifest.gen";
  * import { sectionImports, sectionMeta, syncComponents } from "deco/sections.gen";
  *
  * export const ensureSetup = createNextSetup({
+ *   blocks,
+ *   blocksDir: false, // manifest IS the directory — skip the runtime fs read
  *   sections: sectionImports,
  *   conventions: { meta: sectionMeta, syncComponents },
  *   meta: () => import("deco/meta.gen.json").then((m) => m.default),
  * });
  * ```
+ * With `blocksDir: false` + `blocks`, this bootstrap is pure — no filesystem
+ * access. Sites that skip the manifest can instead rely on the default
+ * `blocksDir: ".deco/blocks"` runtime read (no dev reload on content edits;
+ * deploys must ship the directory alongside the server bundle).
  */
 import type { ApplySectionConventionsInput } from "@decocms/blocks/cms";
 import { applySectionConventions, loadBlocks } from "@decocms/blocks/cms";
@@ -34,13 +44,21 @@ import { createSiteSetup, type SiteSetupOptions } from "@decocms/blocks/setup";
 
 export interface NextSetupOptions {
   /**
-   * Directory of decofile JSON snapshots, relative to the site root.
-   * Pass `false` to skip filesystem loading (blocks come from `blocks`).
+   * Directory of decofile JSON snapshots, relative to the site root, read
+   * at bootstrap time with a plain fs scan. Pass `false` to skip filesystem
+   * loading entirely (blocks come from `blocks`) — with `blocks` set this
+   * makes the bootstrap pure, which is the recommended manifest wiring (see
+   * the module-level example).
    * @default ".deco/blocks"
    */
   blocksDir?: string | false;
 
-  /** Extra/override blocks, merged OVER the directory's blocks. */
+  /**
+   * Extra/override blocks, merged OVER the directory's blocks. Pass the
+   * default export of a generated static-import manifest
+   * (`generate-blocks-manifest` → `.deco/blocksManifest.gen.ts`) together
+   * with `blocksDir: false` to make the manifest the sole block source.
+   */
   blocks?: Record<string, unknown>;
 
   /**
@@ -80,6 +98,17 @@ export interface NextSetupOptions {
  * *rejected* bootstrap is NOT cached — the memo is cleared on failure so
  * the next call retries from scratch, while the triggering call still
  * rejects with the original error.
+ *
+ * "Lifetime of the module" is exactly what makes the static-import manifest
+ * hot-reload in `next dev`: the site's setup module imports
+ * `blocksManifest.gen.ts`, which statically imports every block JSON, so
+ * editing one invalidates the server module graph up through the setup
+ * module. Next re-evaluates it, `createNextSetup` runs again with the fresh
+ * JSON, and this memo is rebuilt from scratch — that module-graph reset IS
+ * the designed dev reload mechanism for CMS content (measured at ~120–165ms
+ * per edit on a 500-block site). With the default `blocksDir` fs read
+ * instead, nothing imports the JSON, so edits invalidate nothing and dev
+ * serves stale content until a full restart.
  */
 export function createNextSetup(options: NextSetupOptions): () => Promise<void> {
   let setupPromise: Promise<void> | null = null;

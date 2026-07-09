@@ -10,10 +10,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cms from "@decocms/blocks/cms";
 import { listRegisteredSections, loadBlocks, setBlocks } from "@decocms/blocks/cms";
+import * as loadDecofileDirectoryModule from "@decocms/blocks/cms/loadDecofileDirectory";
 import { getProductionOrigins } from "@decocms/blocks/sdk/normalizeUrls";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mirrors routeHandlers.test.ts in this same package: @decocms/blocks-admin
 // is mocked (rather than exercised for real) because it's a heavier graph
@@ -127,11 +128,27 @@ describe("createNextSetup", () => {
       });
     });
 
+    it("manifest wiring (blocks + blocksDir: false) is pure — no filesystem read", async () => {
+      // The documented static-import-manifest path: the site passes the
+      // manifest's default export as `blocks` and disables the directory
+      // scan. Bootstrap must never touch the fs — same namespace-spy
+      // technique as the setResolveErrorHandler spies below.
+      const loadDirSpy = vi.spyOn(loadDecofileDirectoryModule, "loadDecofileDirectory");
+
+      const ensureSetup = createNextSetup({
+        blocksDir: false,
+        blocks: { "pages-Home%20(principal)-287364": { path: "/" } },
+        sections: {},
+      });
+      await ensureSetup();
+
+      expect(loadDirSpy).not.toHaveBeenCalled();
+      expect(loadBlocks()["pages-Home%20(principal)-287364"]).toEqual({ path: "/" });
+      loadDirSpy.mockRestore();
+    });
+
     it("options.blocks wins over blocksDir on an overlapping key (merge precedence)", async () => {
-      fs.writeFileSync(
-        path.join(tmpDir, "shared.json"),
-        JSON.stringify({ source: "dir" }),
-      );
+      fs.writeFileSync(path.join(tmpDir, "shared.json"), JSON.stringify({ source: "dir" }));
 
       const ensureSetup = createNextSetup({
         blocksDir: tmpDir,
@@ -158,9 +175,7 @@ describe("createNextSetup", () => {
     });
     await ensureSetup();
 
-    expect(adminMocks.setMetaData).toHaveBeenCalledWith(
-      await meta.mock.results[0]!.value,
-    );
+    expect(adminMocks.setMetaData).toHaveBeenCalledWith(await meta.mock.results[0]!.value);
     expect(adminMocks.setRenderShell).toHaveBeenCalledWith(renderShell);
     expect(adminMocks.setPreviewWrapper).toHaveBeenCalledWith(PreviewWrapper);
   });
