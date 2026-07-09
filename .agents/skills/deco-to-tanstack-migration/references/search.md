@@ -307,7 +307,7 @@ loader: async (ctx) => {
 ### 3. Does the CMS page exist?
 ```bash
 # Check blocks.gen.ts has the search page
-grep '"path": "/s"' src/server/cms/blocks.gen.ts
+grep '"path": "/s"' .deco/blocks.gen.ts
 # If missing, regenerate:
 npm run generate:blocks
 ```
@@ -396,4 +396,4 @@ TanStack Router's `search` is a plain `Record<string, string>` — it **cannot r
 | `deco-start/src/cms/resolve.ts` | Framework | `__pageUrl`/`__pagePath` injection into loaders |
 | `apps-start/vtex/inline-loaders/productListingPage.ts` | Commerce | VTEX IS API call, URL param reading |
 | `.deco/blocks/pages-search-*.json` | CMS | Page definition for `/s` route |
-| `src/server/cms/blocks.gen.ts` | Build | Compiled CMS blocks (must include search page) |
+| `.deco/blocks.gen.ts` | Build | Compiled CMS blocks (must include search page) |

@@ -7,8 +7,8 @@ Annotated template based on espacosmart-storefront (100+ sections, VTEX, async r
 // 1. CMS BLOCKS & META
 // ==========================================================================
 
-import blocksJson from "./server/cms/blocks.gen.ts";
-import metaData from "./server/admin/meta.gen.json";
+import blocksJson from "../.deco/blocks.gen.ts";
+import metaData from "../.deco/meta.gen.json";
 import { setBlocks } from "@decocms/start/cms/loader";
 import { setMetaData, setInvokeLoaders, setRenderShell } from "@decocms/start/admin";
 import { registerSections, registerSectionsSync, setResolvedComponent } from "@decocms/start/cms/registry";
