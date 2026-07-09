@@ -758,10 +758,17 @@ function findTsxFiles(dir: string): string[] {
   const results: string[] = [];
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (isExcludedCodegenFile(entry.name)) continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) results.push(...findTsxFiles(full));
-    else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) results.push(full);
+    if (entry.isDirectory()) {
+      // The exclusion predicate targets generated/test *files* — a directory
+      // named e.g. `foo.gen.ts` is a real path segment and must still be walked.
+      results.push(...findTsxFiles(full));
+    } else if (
+      !isExcludedCodegenFile(entry.name) &&
+      (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts"))
+    ) {
+      results.push(full);
+    }
   }
   return results;
 }
