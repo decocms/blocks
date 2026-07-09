@@ -975,6 +975,13 @@ export function upgradeSectionRenderer(ctx: MigrationContext) {
     //    (RenderSection is a distinct component from tanstack's
     //    SectionRenderer — it lives in @decocms/blocks/hooks, not
     //    @decocms/tanstack.)
+    //
+    //    HANDOFF MARKER: the "@decocms/start/hooks" specifier this matches
+    //    is written earlier in the same migration run by
+    //    transforms/jsx.ts (the `.Component`/`.props` → `<SectionRenderer>`
+    //    rewrite), which deliberately emits that pre-split package path as
+    //    a same-run handoff to this function. If the transform/cleanup
+    //    phase order ever changes, this match target must move with it.
     const sectionRendererImport =
       /import\s*\{([^}]*)\bSectionRenderer\b([^}]*)\}\s*from\s*["']@decocms\/start\/hooks["']/g;
     const newContent = result.replace(sectionRendererImport, (_m, before, after) => {

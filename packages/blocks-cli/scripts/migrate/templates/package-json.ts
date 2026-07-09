@@ -100,6 +100,12 @@ export function generatePackageJson(ctx: MigrationContext): string {
   // published in lockstep from the same monorepo release, so a single
   // version lookup covers all of them (mirrors how consumer sites bump
   // "@decocms/blocks/blocks-admin/nextjs ranges" together).
+  //
+  // If this ever stops being true (e.g. a package starts shipping
+  // independent version bumps), every `${frameworkVersion}` usage below
+  // (in `dependencies` and `devDependencies`) needs to become its own
+  // `getLatestVersion("<package>", "<fallback>")` call instead of sharing
+  // this one lookup.
   const frameworkVersion = getLatestVersion("@decocms/blocks", "7.5.1");
 
   const platformPackage: Partial<Record<typeof ctx.platform, string>> = {

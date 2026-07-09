@@ -257,6 +257,14 @@ export function transformJsx(content: string): TransformResult {
   // In TanStack Start, nested sections have Component as a string key, not a function.
   // SectionRenderer from @decocms/start/hooks handles the lazy registry lookup.
   //
+  // HANDOFF MARKER: "@decocms/start/hooks" below is intentionally the
+  // pre-split package path, not the real current one — it's a same-run
+  // handoff to phase-cleanup.ts's upgradeSectionRenderer(), which runs
+  // later in the same migration and rewrites this exact import specifier
+  // to `import { RenderSection } from "@decocms/blocks/hooks"`. If this
+  // transform's run order relative to the cleanup phase ever changes, that
+  // rewrite target must move with it.
+  //
   // Gate on ANY variant of the .Component/.props pattern (simple, extra props, or multi-line).
   const sectionPatternGate = /\.\s*Component[\s\n]+\{\.\.\.(\w+)\.props\}/;
   if (sectionPatternGate.test(result)) {
