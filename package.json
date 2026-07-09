@@ -20,11 +20,11 @@
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist .cache .wrangler/state node_modules/.vite && bun install"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.6",
+    "@biomejs/biome": "^2.5.3",
     "@semantic-release/exec": "^7.1.0",
     "semantic-release": "^25.0.5",
-    "typescript": "^5.9.0",
-    "vitest": "^4.1.0",
-    "jsdom": "^29.0.0"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "jsdom": "^29.1.1"
   }
 }
