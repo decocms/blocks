@@ -130,7 +130,9 @@ a **separate** `POST /_cache/purge` call.
     `--since`; `--all` always writes. Optionally `POST`s `/_cache/purge`.
 
 Both use the KV REST API (no Worker binding at sync time) — env `CF_ACCOUNT_ID`,
-`CF_KV_NAMESPACE_ID`, `CF_API_TOKEN`. Running `deco-sync-blocks-to-kv` (rather than a
+`CF_KV_NAMESPACE_ID`, `CF_API_TOKEN` (the first two/token also accept the
+`CLOUDFLARE_*` names + a `wrangler.jsonc` namespace lookup; see build commands
+below). Running `deco-sync-blocks-to-kv` (rather than a
 re-implementation in another language) is **required for correctness**: the runtime
 recomputes the revision as `djb2Hex(JSON.stringify(blocks))` on `setBlocks()` and the poll
 compares against KV's `index:revision:<id>`, so the writer must produce a byte-identical
@@ -153,14 +155,18 @@ wrangler deploy --var DECO_DEPLOYMENT_ID:"$WORKERS_CI_COMMIT_SHA" \
        --set-live --deployment-id "$WORKERS_CI_COMMIT_SHA"
 ```
 
-KV creds in Workers Builds come from the CI env (`CLOUDFLARE_ACCOUNT_ID`,
-`CLOUDFLARE_API_TOKEN`; the default build token includes *Workers KV Storage:
-Edit*) — map them to `CF_ACCOUNT_ID`/`CF_API_TOKEN` and set `CF_KV_NAMESPACE_ID`
-to the site's namespace. Use the commit-sha var your builder exposes
-(`WORKERS_CI_COMMIT_SHA` in Cloudflare Workers Builds). The `--var
-DECO_DEPLOYMENT_ID` at deploy tells the running worker which key to read; if
-omitted it falls back to `BUILD_HASH` / `__DECO_BUILD_HASH__` (also the commit
-sha), so the build-time seed is still found.
+**No extra KV env wiring is needed in Workers Builds.** `deco-sync-blocks-to-kv`
+resolves its credentials from what CF already injects: `CF_ACCOUNT_ID`/
+`CF_API_TOKEN` fall back to `CLOUDFLARE_ACCOUNT_ID`/`CLOUDFLARE_API_TOKEN` (the
+default build token includes *Workers KV Storage: Edit*), and the namespace id
+is read from the site's `wrangler.jsonc` `DECO_KV` binding when
+`CF_KV_NAMESPACE_ID` is unset. Explicit `CF_*` still wins (e.g. the operator's
+k8s sync Job passes them directly). Use the commit-sha var your builder exposes
+(`WORKERS_CI_COMMIT_SHA` in Cloudflare Workers Builds).
+
+The `--var DECO_DEPLOYMENT_ID` at deploy tells the running worker which key to
+read; if omitted it falls back to `BUILD_HASH` / `__DECO_BUILD_HASH__` (also the
+commit sha), so the build-time seed is still found.
 
 ## Cross-repo contracts (implemented elsewhere)
 

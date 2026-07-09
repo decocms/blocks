@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   computeRevision,
@@ -7,6 +10,7 @@ import {
   snapshotKey,
 } from "@decocms/blocks/cms";
 import { createKvRestClient, type KvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
+import { kvNamespaceIdFromToml, kvNamespaceIdFromWrangler } from "./lib/wrangler-config";
 import {
   buildSnapshot,
   recordAndGcDeployment,
@@ -52,10 +56,83 @@ describe("kvConfigFromEnv", () => {
     ).toEqual({ accountId: "a", namespaceId: "n", token: "t" });
   });
 
-  it("throws listing all missing vars", () => {
-    expect(() => kvConfigFromEnv({ CF_ACCOUNT_ID: "a" })).toThrow(
-      /CF_KV_NAMESPACE_ID, CF_API_TOKEN/,
+  it("falls back to the CLOUDFLARE_* names CF Workers Builds injects", () => {
+    expect(
+      kvConfigFromEnv({
+        CLOUDFLARE_ACCOUNT_ID: "a",
+        CLOUDFLARE_API_TOKEN: "t",
+        CF_KV_NAMESPACE_ID: "n",
+      }),
+    ).toEqual({ accountId: "a", namespaceId: "n", token: "t" });
+  });
+
+  it("prefers explicit CF_* over CLOUDFLARE_*", () => {
+    expect(
+      kvConfigFromEnv({
+        CF_ACCOUNT_ID: "cf",
+        CLOUDFLARE_ACCOUNT_ID: "cloudflare",
+        CF_API_TOKEN: "t",
+        CF_KV_NAMESPACE_ID: "n",
+      }).accountId,
+    ).toBe("cf");
+  });
+
+  it("reads the namespace id from wrangler config when CF_KV_NAMESPACE_ID is unset", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wrangler-"));
+    fs.writeFileSync(
+      path.join(dir, "wrangler.jsonc"),
+      JSON.stringify({ kv_namespaces: [{ binding: "DECO_KV", id: "ns-from-config" }] }),
     );
+    expect(
+      kvConfigFromEnv({ CF_ACCOUNT_ID: "a", CF_API_TOKEN: "t" }, { wranglerDir: dir }),
+    ).toEqual({ accountId: "a", namespaceId: "ns-from-config", token: "t" });
+  });
+
+  it("throws listing all missing config", () => {
+    expect(() => kvConfigFromEnv({ CF_ACCOUNT_ID: "a" })).toThrow(
+      /CF_KV_NAMESPACE_ID.*CF_API_TOKEN/,
+    );
+  });
+});
+
+describe("kvNamespaceIdFromWrangler / kvNamespaceIdFromToml", () => {
+  it("reads the DECO_KV id from wrangler.jsonc (with comments + trailing comma)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wrangler-"));
+    fs.writeFileSync(
+      path.join(dir, "wrangler.jsonc"),
+      `{
+        // deco fast-deploy
+        "kv_namespaces": [
+          { "binding": "OTHER", "id": "nope" },
+          { "binding": "DECO_KV", "id": "abc123" },
+        ],
+      }`,
+    );
+    expect(kvNamespaceIdFromWrangler(dir)).toBe("abc123");
+  });
+
+  it("returns null when no wrangler config is present", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wrangler-"));
+    expect(kvNamespaceIdFromWrangler(dir)).toBeNull();
+  });
+
+  it("parses [[kv_namespaces]] blocks from wrangler.toml", () => {
+    const toml = `
+name = "my-site"
+
+[[kv_namespaces]]
+binding = "OTHER"
+id = "nope"
+
+[[kv_namespaces]]
+binding = "DECO_KV"
+id = "toml-id"
+
+[vars]
+DECO_FAST_DEPLOY = "1"
+`;
+    expect(kvNamespaceIdFromToml(toml)).toBe("toml-id");
+    expect(kvNamespaceIdFromToml(toml, "MISSING")).toBeNull();
   });
 });
 
