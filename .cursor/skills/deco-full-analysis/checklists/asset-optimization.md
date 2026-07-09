@@ -32,9 +32,11 @@ function ChatButton() {
 **Check**: Do scripts load on pages where they're not used?
 
 ```typescript
-// Good: Only load on relevant pages
-const isCheckout = ctx.url.pathname.startsWith('/checkout');
-const isPDP = ctx.url.pathname.includes('/p');
+// Good: Only load on relevant pages (ctx.url was Fresh's per-request context;
+// use the request URL directly — e.g. Next's `usePathname()`/route segment, or
+// TanStack's `useRouterState({ select: s => s.location.pathname })`)
+const isCheckout = pathname.startsWith('/checkout');
+const isPDP = pathname.includes('/p');
 
 return (
   <>
@@ -46,7 +48,9 @@ return (
 
 ### 3. Script Localization
 **Check**: Are external scripts hosted locally?
-- Localize frequently used scripts to `/static`
+- Localize frequently used scripts to `public/` (Fresh's `/static` convention
+  doesn't apply — both Next.js and Vite/TanStack Start serve the `public/`
+  directory at the site root)
 - Improves reliability and performance
 - Works offline
 
@@ -54,9 +58,12 @@ return (
 // Before: External
 <script src="https://unpkg.com/htmx.org@1.9.10" />
 
-// After: Local
-<script src="/static/htmx-1.9.10.js" />
+// After: Local — file at public/htmx-1.9.10.js
+<script src="/htmx-1.9.10.js" />
 ```
+
+(HTMX itself is also no longer relevant — these sites are React, not HTMX — but
+the localization principle applies to any third-party script.)
 
 ### 4. GTM Implementation
 **Check**: Does GTM have noscript fallback?
@@ -125,34 +132,50 @@ export function LoadingFallback() {
 ### 9. Block Flattening
 **Check**: Are there unnecessary PageInclude wrappers?
 
+The `$`-prefix shorthand (`"$Header-Block"`) is stale — verified against
+`packages/blocks/src/cms/resolve.ts`: named-block references now resolve by
+using the block's plain name directly as `__resolveType` (e.g.
+`{"__resolveType": "Header - 01"}` resolves to whatever block is named
+`"Header - 01"` in the CMS content — no `$` prefix). Whether `website/sections/PageInclude.tsx`
+itself still exists is **not verified** here — it would come from `@decocms/apps`
+(a separate repo not vendored in this monorepo), not from `@decocms/blocks`.
+
 ```json
 // Bad: Extra resolution overhead
 {
   "__resolveType": "website/sections/PageInclude.tsx",
-  "page": { "__resolveType": "Header-Block" }
+  "page": { "__resolveType": "Header - 01" }
 }
 
-// Good: Direct reference
+// Good: Direct reference to the named block
 {
-  "__resolveType": "$Header-Block"
+  "__resolveType": "Header - 01"
 }
 ```
 
 ## Migration
 
 ### 10. Standard Library Migration
-**Check**: Are there `deco-sites/std` imports?
+**Check**: Are there `deco-sites/std` or `apps/website` imports?
+
+Both of these are stale now, not just `deco-sites/std`. Verified against
+`packages/blocks-cli/scripts/migrate/templates/ui-components.ts` and
+`.agents/skills/deco-to-tanstack-migration/references/commerce/README.md`: UI
+components (`Image`, `Picture`, `Seo`, `Theme`, etc.) are **site-local** —
+generated into `src/components/ui/` — not imported from an `apps/` package path.
 
 ```typescript
-// Bad: Legacy
+// Bad: Legacy (Fresh/Deno CDN import paths)
 import { Image } from "deco-sites/std/components/Image.tsx";
-
-// Good: Modern
 import { Image } from "apps/website/components/Image.tsx";
+
+// Good: Modern — site-local wrapper (re-exports from @decocms/apps/commerce/components/Image)
+import { Image } from "~/components/ui/Image";
 ```
 
 Audit all imports and replace:
-- `deco-sites/std` → `apps/`
+- `deco-sites/std` / `apps/website/components/*` → `~/components/ui/*` (site-local)
+- `apps/commerce/types.ts`, `apps/commerce/utils/*` → `@decocms/apps/commerce/*` (npm package, still shared)
 
 ## Layout Stability
 
@@ -171,16 +194,31 @@ Audit all imports and replace:
 ### 12. CSP Hardening
 **Check**: Are CSP headers configured?
 
+No more `_middleware.ts` (that's a Fresh routing convention). Verified against
+`packages/tanstack/src/sdk/workerEntry.ts` and `packages/blocks/src/sdk/csp.ts`:
+
+- **TanStack Start / Cloudflare Workers sites**: `createDecoWorkerEntry()` takes a
+  `csp?: string[] | false` option — an array of directive strings joined with `"; "`.
+  Note this sets `Content-Security-Policy-**Report-Only**`, not an enforcing
+  `Content-Security-Policy` header (the framework's own default security headers
+  don't include CSP at all — "it's site-specific", per that file's comment).
+  Separately, `setCSPHeaders()` in `@decocms/blocks/sdk/csp` sets `frame-ancestors`
+  (only) so the Deco admin can iframe-embed the storefront for live preview —
+  that's a different, narrower concern than general script/asset hardening.
+- **Next.js sites**: no built-in CSP helper found in `@decocms/nextjs`. Use Next's
+  standard `middleware.ts` at the project root, or `headers()` in `next.config.js`.
+
 ```typescript
-// In _middleware.ts
-const cspHeader = [
+// TanStack: passed to createDecoWorkerEntry({ csp: [...] })
+const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com",
   "worker-src 'self'",
   "frame-ancestors 'self'",
-].join("; ");
-
-response.headers.set("Content-Security-Policy", cspHeader);
+];
+// → becomes the Content-Security-Policy-Report-Only header, not an enforcing one.
+// If you need it enforcing, that's a gap to raise with the site, not something
+// the current csp option gives you.
 ```
 
 ### 13. Service Worker Strategy
@@ -194,45 +232,46 @@ defaultStrategy: "NetworkOnly"
 defaultStrategy: "CacheFirst"
 ```
 
-## Deno Configuration
+## Build Tooling
 
-### 14. Deno Native Optimization
-**Check**: Is `nodeModulesDir` enabled unnecessarily?
-
-```json
-// deno.json - disable if not needed
-{
-  "nodeModulesDir": false  // Faster startup, less disk
-}
-```
+### 14. Deno Native Optimization — no longer applicable
+There is no `deno.json` and no Deno runtime on TanStack/Next sites — they're
+standard npm/pnpm/bun projects built with Vite (TanStack) or webpack/Turbopack
+(Next), so `node_modules` always exists and `nodeModulesDir` has no equivalent
+knob to check. Drop this item; if there's a comparable "unnecessary
+dependency-resolution overhead" concern for Vite or Next specifically, it wasn't
+verified here and shouldn't be guessed at.
 
 ### 15. Relative Path Invocation
 **Check**: Are loaders using absolute URLs?
 
-```typescript
-// Bad: Cross-domain overhead
-fetch("https://mysite.com/live/invoke/...");
-
-// Good: Relative path
-fetch("/live/invoke/...");
-```
+The specific `/live/invoke/...` endpoint from item 15's example is **not verified**
+to exist in the current runtime — a search of `@decocms/blocks`, `@decocms/blocks-admin`,
+`@decocms/nextjs`, and `@decocms/tanstack` found no `live/invoke` route. Server-side
+data fetching in the current architecture goes through section loaders /
+`COMMERCE_LOADERS` function calls (see `cache-strategy.md`), not an HTTP invoke
+endpoint called from within another loader. The underlying principle — avoid
+absolute same-origin URLs for server-to-server or client-to-server calls within
+the app — is still generically good advice; just don't cite `/live/invoke` as if
+it's a real current endpoint without checking the specific site.
 
 ## Quick Audit Commands
 
 ```bash
-# Find deco-sites/std imports
-grep -r "deco-sites/std" sections/ loaders/ components/
+# Find stale legacy import paths
+grep -rn "deco-sites/std\|from \"apps/" src/
 
 # Find third-party scripts
-grep -r '<script src="http' sections/ components/
+grep -rn '<script src="http' src/sections/ src/components/
 
 # Find sections without LoadingFallback
-for f in sections/**/*.tsx; do
+for f in src/sections/**/*.tsx; do
   grep -q "LoadingFallback" "$f" || echo "Missing fallback: $f"
 done
 
-# Check CSP headers
-grep -r "Content-Security-Policy" routes/ _middleware.ts
+# Check CSP / security header config — TanStack: the createDecoWorkerEntry() call
+# (commonly in the site's worker/server entry file); Next: middleware.ts / next.config.js
+grep -rn "csp\|Content-Security-Policy" src/ next.config.* middleware.ts 2>/dev/null
 ```
 
 ## Asset Audit Table

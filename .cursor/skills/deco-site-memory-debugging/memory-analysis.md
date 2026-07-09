@@ -1,6 +1,19 @@
-# Memory Analysis Procedures
+# Memory Analysis Procedures (Node/RSC — `@decocms/nextjs`)
 
-Step-by-step procedures for analyzing memory in Deno pods via CDP.
+> This file covers **Node/RSC (`@decocms/nextjs`) sites only**. For
+> Cloudflare Workers (`@decocms/tanstack`) sites, see Part 1 of `SKILL.md`
+> — there is no live CDP session against a production Workers isolate, so
+> these step-by-step procedures don't apply there; the tail-worker /
+> ClickHouse query plus code-level review of the same failure classes is
+> the available substitute.
+
+Step-by-step procedures for analyzing memory in Node processes via CDP.
+The underlying methodology (force GC first, then escalate to object/
+snapshot inspection only if memory is really retained) is unchanged from
+the old Deno-flow version of this skill — only the connection layer and
+two API-shape details differ. See `cdp-connection.md` for how `ws` is
+established and for `evaluate`/`query_objects`/`call_on` helper
+definitions.
 
 ## Procedure 1: Quick Memory Check
 
@@ -8,7 +21,7 @@ Step-by-step procedures for analyzing memory in Deno pods via CDP.
 
 ```python
 # 1. Get memory BEFORE GC
-mem_before = await evaluate(ws, "JSON.stringify(Deno.memoryUsage())")
+mem_before = await evaluate(ws, "JSON.stringify(process.memoryUsage())")
 
 # 2. Force GC
 await send_cmd(ws, "HeapProfiler.collectGarbage")
@@ -16,23 +29,23 @@ await asyncio.sleep(0.5)
 await send_cmd(ws, "HeapProfiler.collectGarbage")  # twice for thoroughness
 
 # 3. Get memory AFTER GC
-mem_after = await evaluate(ws, "JSON.stringify(Deno.memoryUsage())")
+mem_after = await evaluate(ws, "JSON.stringify(process.memoryUsage())")
 ```
 
 **Interpretation:**
-- RSS drops >30%? → Lazy GC, not a leak. **Recommend reducing `--max-old-space-size`.**
+- RSS drops >30%? → Lazy GC, not a leak. **Recommend reducing `NODE_OPTIONS=--max-old-space-size`.**
 - RSS drops <10%? → Real retained memory. Continue to Procedure 2.
 
 **Recommendation for lazy GC:**
-If most memory is reclaimable by GC, the pod doesn't have a leak — V8 is just being lazy about collecting garbage. Reduce the max old space size so GC triggers more frequently:
+If most memory is reclaimable by GC, the process doesn't have a leak — V8 is just being lazy about collecting garbage. Reduce the max old space size so GC triggers more frequently:
 
 ```bash
-# In the deployment or Deno flags:
---v8-flags=--max-old-space-size=512
+# In the process's environment or start command:
+NODE_OPTIONS=--max-old-space-size=512 node server.js
 # or even 256 for small sites
 ```
 
-This keeps RSS predictable without affecting performance. V8's incremental GC is fast (typically <10ms pauses) so more frequent runs have negligible impact on request latency.
+This keeps RSS predictable without affecting performance. V8's incremental GC is fast (typically <10ms pauses) so more frequent runs have negligible impact on request latency. Unlike on Cloudflare Workers (no configurable ceiling — see Part 1 of `SKILL.md`), this flag is real and effective on Node.
 
 ## Procedure 2: Object Leak Detection
 
@@ -64,7 +77,7 @@ if resp_id:
 **Interpretation:**
 - `notUsed` < 5? → Normal (in-flight requests)
 - `notUsed` > 50? → **Response body leak.** Bodies are fetched but never consumed (`.text()`, `.json()`, `.arrayBuffer()`, or `.body.cancel()`).
-- Check the URLs to identify which code path is leaking
+- Check the URLs to identify which code path is leaking (commonly a commerce-app fetch helper in `src/customizations/src/graphql/*/resolvers/`)
 
 ### Check Request Objects
 
@@ -85,7 +98,7 @@ if req_id:
 
 **Interpretation:**
 - Hundreds of Request objects to the same host → possible fetch loop or unbounded cache
-- `localhost` requests → SSR self-fetches (normal for Fresh)
+- `localhost` requests → RSC self-fetches / internal route handlers (normal for Next.js App Router server actions)
 
 ## Procedure 3: ArrayBuffer Analysis
 
@@ -131,12 +144,11 @@ if ab_id:
     }""")
 ```
 
-**Known ArrayBuffer patterns:**
-- **~304 MB static buffer** — V8/ICU internal data. Always present. Ignore it.
+**Known ArrayBuffer patterns (Node/RSC target — no ~304 MB static V8/ICU buffer here; that was a Deno-specific baseline, not present in stock Node):**
 - **`resourceMetrics` JSON buffers (0.3-0.6 MB each)** — OpenTelemetry export batches accumulating. Minor but grows over time.
-- **Large JSON buffers (>1 MB)** — ProductListingPage or similar API responses. If appearing in PAIRS, might indicate response body read + original buffer both retained.
-- **`data:application/json;base64,...`** — Source maps. Normal, proportional to loaded modules.
-- **`<!DOCTYPE html>...`** — Rendered HTML pages. If many, SSR cache might be unbounded.
+- **Large JSON buffers (>1 MB)** — ProductListingPage or similar commerce API responses. If appearing in PAIRS, might indicate response body read + original buffer both retained.
+- **`data:application/json;base64,...`** — Source maps. Normal, proportional to loaded modules (bigger for dev builds; production builds should have these disabled or externalized).
+- **`<!DOCTYPE html>...`** — Rendered HTML / RSC payload strings. If many, SSR/RSC render cache might be unbounded.
 
 ## Procedure 4: Heap Snapshot
 
@@ -165,7 +177,19 @@ for _ in range(200000):
 snapshot = json.loads("".join(chunks))
 ```
 
-**Parsing the snapshot:**
+Alternative for Node without going through CDP manually: the built-in
+`v8` module can write a snapshot to disk directly from inside the process
+(useful if you can execute code in-process, e.g. via a debug-only admin
+route gated to non-production):
+
+```js
+import { writeHeapSnapshot } from "node:v8";
+const path = writeHeapSnapshot(); // writes a .heapsnapshot file, returns its path
+```
+
+That file opens directly in Chrome DevTools' Memory panel (`chrome://inspect` → Memory → Load) without needing a live CDP connection at all — useful when you can get filesystem access to the running container but not a network path to port 9229.
+
+**Parsing the snapshot (via CDP path):**
 
 ```python
 snap_meta = snapshot.get("snapshot", {})
@@ -173,8 +197,11 @@ node_count = snap_meta.get("node_count", 0)
 nodes = snapshot.get("nodes", [])
 strings = snapshot.get("strings", [])
 
-# Infer field count (node_fields may be empty in Deno)
-field_count = len(nodes) // node_count  # typically 6 or 7
+# Node's snapshot format has a populated `snapshot.meta.node_fields` array
+# (unlike Deno's, which was sometimes empty) — prefer reading field count
+# from it when present, falling back to the same inference as before:
+node_fields = snap_meta.get("meta", {}).get("node_fields", [])
+field_count = len(node_fields) if node_fields else len(nodes) // node_count
 
 # V8 node type indices (standard order):
 # 0=hidden, 1=array, 2=string, 3=object, 4=code,
@@ -192,7 +219,7 @@ for i in range(0, node_count * field_count, field_count):
 ```
 
 **What to look for in the snapshot:**
-- `string` type >100 MB → HTML pages or JSON cached in memory
+- `string` type >100 MB → HTML/RSC payload strings or JSON cached in memory
 - `native` (type 8) → ArrayBuffers (cross-reference with Procedure 3)
 - `closure` count very high → possible listener/callback leak
 - `object` with specific names → identify which data structures hold memory
@@ -205,23 +232,27 @@ for i in range(0, node_count * field_count, field_count):
 fds = await evaluate(ws, """
 (async () => {
     try {
-        let count = 0;
+        const fs = require('fs/promises');
+        const entries = await fs.readdir('/proc/self/fd');
         const types = {socket: 0, pipe: 0, file: 0, other: 0};
-        for await (const entry of Deno.readDir('/proc/self/fd')) {
-            count++;
+        for (const entry of entries) {
             try {
-                const link = await Deno.readLink('/proc/self/fd/' + entry.name);
+                const link = await fs.readlink('/proc/self/fd/' + entry);
                 if (link.startsWith('socket:')) types.socket++;
                 else if (link.startsWith('pipe:')) types.pipe++;
                 else if (link.startsWith('/')) types.file++;
                 else types.other++;
             } catch(e) { types.other++; }
         }
-        return JSON.stringify({count, types});
+        return JSON.stringify({count: entries.length, types});
     } catch(e) { return JSON.stringify({error: e.message}); }
 })()
 """)
 ```
+
+No permission system to work around here (unlike Deno's `--allow-read`
+gate) — `/proc/self/fd` is available to any Node process on Linux with no
+extra flags. On non-Linux hosts, fall back to `process._getActiveHandles().length`.
 
 - 50-100 FDs → normal
 - 500+ FDs → possible connection leak or file handle leak
@@ -249,49 +280,33 @@ if map_id:
     }""")
 ```
 
-### Deno Module Cache Size
-
-```python
-cache_info = await evaluate(ws, """
-(async () => {
-    const denoDir = Deno.env.get('DENO_DIR') || '/app/deco/deno_dir';
-    let count = 0, totalSize = 0;
-    async function walk(dir, depth) {
-        if (depth > 3) return;
-        try {
-            for await (const entry of Deno.readDir(dir)) {
-                if (entry.isDirectory) await walk(dir + '/' + entry.name, depth + 1);
-                else {
-                    count++;
-                    try {
-                        const s = await Deno.stat(dir + '/' + entry.name);
-                        totalSize += s.size;
-                    } catch(e) {}
-                }
-            }
-        } catch(e) {}
-    }
-    await walk(denoDir, 0);
-    return JSON.stringify({denoDir, files: count, sizeMB: totalSize/1024/1024});
-})()
-""")
-```
-
-### Deno Version
+### Node Version and Process Info
 
 ```python
 ver = await evaluate(ws, """
 JSON.stringify({
-    deno: Deno.version,
-    pid: Deno.pid,
-    hostname: Deno.hostname(),
+    node: process.version,
+    pid: process.pid,
+    platform: process.platform,
+    uptimeSec: process.uptime(),
 })
 """)
 ```
 
-## Procedure 6: LRU Cache Inspection
+There is no Node equivalent of Deno's on-disk `DENO_DIR` module-cache walk
+— Node resolves modules from `node_modules` on disk but doesn't maintain a
+separate compiled-module cache directory in the same sense, so that check
+from the old Deno-flow doc has no replacement here and should be skipped
+entirely for Node/RSC sites.
 
-**Important context:** Deco's LRU cache stores `true` (a boolean) as the value — it's a metadata index for the filesystem cache, NOT storing response bodies in memory. The `calculatedSize` is the sum of tracked Content-Length values (metadata tracking), not actual memory consumption.
+## Procedure 6: LRU / In-Memory Cache Inspection
+
+Same generic technique as before — walk `globalThis` (or known module
+singletons) looking for objects shaped like an LRU cache. Deco's own
+LRU cache (used in the commerce-fetch layer) stores `true` as the value —
+a metadata index for tracking, NOT the response bodies themselves — so a
+high `calculatedSize` there reflects tracked `Content-Length` totals, not
+actual retained memory:
 
 ```python
 lru = await evaluate(ws, """
@@ -332,31 +347,41 @@ lru = await evaluate(ws, """
 - `max` = maximum number of entries
 - `maxSize` = maximum calculatedSize before eviction
 
-## Summary: What's Normal vs What's a Leak
+If a cache here has no `max`/`maxSize` at all (a plain unbounded `Map`
+someone reached for instead of an LRU), that's the leak — flag it for a
+real eviction policy rather than tuning GC around it.
+
+## Summary: What's Normal vs What's a Leak (Node/RSC target)
 
 | Metric | Normal Range | Concern Threshold |
 |--------|-------------|-------------------|
-| RSS after GC | 500-1500 MB | >2 GB or growing continuously |
+| RSS after GC | 300-1000 MB | >1.5 GB or growing continuously |
 | Heap used | 100-300 MB | >500 MB after GC |
 | Response objects (bodyUsed=false) | <10 | >50 |
-| ArrayBuffers (excl. static 304MB) | <100 MB | >500 MB |
+| ArrayBuffers | <100 MB | >500 MB |
 | Open FDs | 50-100 | >500 |
 | Promises | 1000-5000 | >50000 |
 | RSS drop after GC | 10-50% | If <5%, memory is truly retained |
 
+Baselines are lower than the old Deno-flow doc's numbers because there's
+no ~304 MB static V8/ICU buffer baked in and Node's module system doesn't
+carry the same on-disk module-cache overhead Deno did — treat these as a
+starting point, not an exact transplant from the old thresholds.
+
 ## Typical Healthy Memory Profile (after GC)
 
-For a large Deco/Fresh site (e.g., fila-store, farmrio):
+For a mid-size Next.js/RSC storefront:
 
 ```
-RSS:       ~1500 MB
-├── Heap:  ~150 MB (JS objects)
-├── External: ~350 MB (ArrayBuffers, ~304MB is static V8)
-└── Native: ~1000 MB (Deno runtime + JIT + modules)
-    ├── V8 JIT compiled code: ~300-500 MB
-    ├── Deno Rust runtime: ~200-300 MB
-    ├── Module cache (on disk): ~100-200 MB
-    └── Libraries + thread stacks: ~100 MB
+RSS:       ~600-900 MB
+├── Heap:  ~150-250 MB (JS objects)
+├── External: ~50-150 MB (ArrayBuffers/Buffers)
+└── Native: ~300-500 MB (Node runtime + libuv + JIT + modules)
+    ├── V8 JIT compiled code: ~150-300 MB
+    ├── Node/libuv runtime: ~100-150 MB
+    └── Libraries + thread stacks: ~50-100 MB
 ```
 
-The ~1 GB native gap is expected for apps loading thousands of modules. It's stable and does not grow over time.
+The native gap is expected for apps loading many modules. It's stable and
+should not grow continuously over time — if it does, suspect a native
+addon or a large number of long-lived closures rather than the JS heap.

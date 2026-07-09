@@ -36,9 +36,10 @@ For files with multiple kinds (Middleware, IsomorphicFn, etc.), it does a full A
 
 ## Why createInvokeFn Fails
 
-The original `@decocms/start/sdk/createInvoke.ts`:
+The factory lives at `packages/tanstack/src/sdk/createInvoke.ts` in this monorepo (moved there from the old single-package `@decocms/start` when the framework split into `runtime`/`admin`/`cli`/`tanstack`/`next` — see the root `README.md`). It is **not** re-exported from `@decocms/tanstack`'s public surface today: `packages/tanstack/src/index.ts` doesn't list it, and `packages/tanstack/package.json`'s `exports` map only declares `.`, `./vite`, and `./daemon` — no `./sdk/createInvoke` subpath. So `createInvokeFn` is effectively dead code from any external consumer's point of view; it exists mainly as the documented *shape* of the factory pattern (see below) and as what `generate-invoke.ts`'s test fixture imitates when constructing a fixture `invoke.ts` (`packages/blocks-cli/scripts/generate-invoke.test.ts`). If you're relying on `createInvokeFn` being importable from `@decocms/tanstack`, verify the export exists before depending on it — as of this writing it does not.
 
 ```typescript
+// packages/tanstack/src/sdk/createInvoke.ts (not publicly exported)
 import { createServerFn } from "@tanstack/react-start";
 
 export function createInvokeFn(action, opts) {

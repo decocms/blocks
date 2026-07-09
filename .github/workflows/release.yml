@@ -22,7 +22,26 @@ name: Release
 
 on:
   push:
+    # main releases the 14 lockstep @decocms/* packages under blocks-v*.*.*
+    # tags (.releaserc.json). Publishing goes through npm Trusted Publishing
+    # (OIDC) — each package has this workflow configured as its trusted
+    # publisher on npmjs.com; the "Release" step's id-token permission lets
+    # `npm publish` exchange a GitHub OIDC token for a short-lived npm auth
+    # token at publish time. No stored npm token.
+    #
+    # History: this line developed on the `v7` branch (tag seed blocks-v7.0.0
+    # via a manual bootstrap publish) until PR #315 merged it into main; the
+    # legacy single-package @decocms/start line (v*.*.* tags) is retired —
+    # its tags remain in the repo but nothing releases or advances them.
     branches: [main]
+  # Manual escape hatch to verify what a release WOULD do without publishing,
+  # tagging, or opening a GitHub release. Run from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — compute and log the release, but don't publish, tag, or open a GitHub release"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -49,36 +68,29 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # npm Trusted Publishing (OIDC) requires npm >=11.5.1 to perform the
+      # OIDC token exchange. Node 22's bundled npm is older than that.
+      # Pinned to the 11.x major, NOT @latest: npm 12.0.0 (released
+      # 2026-07-08T21:06Z) ships with a broken libnpmpublish provenance path
+      # ("Cannot find module 'sigstore'"), which killed two release runs the
+      # evening it came out. Bump deliberately after verifying `npm publish`
+      # works on the new major.
+      - run: npm install -g npm@11
+
+      # GOTCHA: semantic-release's --dry-run ONLY skips its own native git-tag
+      # creation step (lib/index.js: `if (options.dryRun) { skip tag } else {
+      # tag, push, ... }`). It calls `plugins.prepare(context)` and
+      # `plugins.publish(context)` UNCONDITIONALLY either way, and
+      # @semantic-release/exec's prepare/publish hooks don't check dry-run
+      # themselves — they just run prepareCmd/publishCmd as configured. So a
+      # naive exec-based publishCmd WOULD attempt a real `npm publish` even
+      # during a "dry run". .releaserc.json's publishCmd checks $DRY_RUN
+      # itself to guard against this — verified empirically (confirmed real
+      # publish was never reached only because npm auth wasn't configured;
+      # this DRY_RUN check is the actual, reliable guard).
       - name: Release
-        run: bunx semantic-release
+        run: ./node_modules/.bin/semantic-release${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && ' --dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'true' || 'false' }}
 
-      # Caller workflows in storefront repos pin to a moveable major tag (`@v2`),
-      # GitHub Actions convention. After every release we fast-forward that major
-      # tag to the latest exact tag in the same series. Idempotent: if no new
-      # release happened, this just re-points to the existing latest, which is a
-      # no-op force-push.
-      #
-      # Why not a separate workflow on `push: tags`? GitHub suppresses workflow
-      # triggers caused by the auto-issued `GITHUB_TOKEN` (anti-recursion guard),
-      # and `@semantic-release/git` pushes tags using exactly that token, so a
-      # listener would never fire. Inlining keeps the lifecycle visible in one
-      # job log.
-      - name: Advance moveable major tag
-        run: |
-          git fetch --tags --force
-          # Filter out prerelease tags (-rc.N, -next.N, -beta.N, -alpha.N) — the
-          # `v*.*.*` glob matches both `v5.3.0` and `v5.3.0-rc.2`, and we never
-          # want the moveable major to land on a prerelease.
-          LATEST=$(git tag -l 'v*.*.*' --sort=-v:refname | grep -vE '\-(rc|next|beta|alpha)\.' | head -n 1)
-          if [ -z "$LATEST" ]; then
-            echo "::notice::no stable v*.*.* tags yet; nothing to advance"
-            exit 0
-          fi
-          MAJOR=$(echo "$LATEST" | sed -E 's/^(v[0-9]+).*/\1/')
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$MAJOR" "$LATEST"
-          git push origin "$MAJOR" --force
-          echo "::notice::Moved $MAJOR -> $LATEST"

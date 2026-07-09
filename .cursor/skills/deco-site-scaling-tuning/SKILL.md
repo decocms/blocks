@@ -1,9 +1,37 @@
 ---
 name: deco-site-scaling-tuning
-description: Discover optimal autoscaling parameters for a Deco site by analyzing Prometheus metrics. Correlates CPU, concurrency, and latency to find the right scaling target and method.
+description: LEGACY. Discover optimal autoscaling parameters for a Deno/Fresh Deco site running on Knative/Kubernetes, by analyzing Prometheus metrics. Correlates CPU, concurrency, and latency to find the right scaling target and method. Does NOT apply to current @decocms/tanstack (Cloudflare Workers) or @decocms/nextjs (Node) sites.
 ---
 
 # Deco Site Scaling Tuning
+
+> **LEGACY — Deno-on-Kubernetes/Knative only.** This skill tunes Knative's
+> Knative Pod Autoscaler (KPA) / HorizontalPodAutoscaler (HPA) via
+> `kubectl`, `Prometheus`, and a per-pod `state` secret. It applies **only**
+> to sites still deployed as Deno processes in Kubernetes pods behind
+> Knative — it does **not** apply to current deco-start sites built on
+> `@decocms/tanstack` (Cloudflare Workers, deployed via `wrangler deploy`)
+> or `@decocms/nextjs` (Node/RSC).
+>
+> **Why there's no current equivalent.** Cloudflare Workers has no pod,
+> revision, or autoscaler concept to tune in the first place: each request
+> is served by an isolate the platform spins up and tears down on its own,
+> with no "target CPU/concurrency per pod" knob, no KPA panic mode, and no
+> `kubectl get pods` to inspect. There is nothing in the Workers or Node/RSC
+> stack that plays the role this skill's methodology (find the CPU/
+> concurrency inflection point, pick a scaling target) was built for — the
+> closest current concern, per-request CPU/memory limit exhaustion, is a
+> capacity/correctness problem handled via `docs/observability.md`'s
+> tail-worker error-capture path (`exceededCpu`/`exceededMemory` outcomes),
+> not a scaling-parameter tuning problem.
+>
+> If you're looking at a current `@decocms/tanstack` or `@decocms/nextjs`
+> site and traffic/latency/cost seems off, this skill's `kubectl`/Prometheus
+> commands will simply fail (no cluster, no namespace, no Knative CRDs) —
+> that is expected. Use `docs/observability.md` and
+> `docs/tail-worker-recipe.md` instead. Only use this skill if you are
+> specifically debugging one of the remaining Deno/Kubernetes-hosted Deco
+> sites outside this package split.
 
 Analyze a site's Prometheus metrics to discover the optimal autoscaling parameters. This skill helps you find the CPU/concurrency threshold where latency degrades and recommends scaling configuration accordingly.
 

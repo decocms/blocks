@@ -3,9 +3,31 @@ dist/
 *.gen.ts
 *.gen.json
 
+# apps-*/manifest.gen.ts is an exception: apps-start's own convention commits
+# it to source control (its own header says so — "updated via: npm run
+# generate:manifests", not a per-checkout build artifact like routeTree.gen.ts
+# below). Scoped narrowly so other packages' *.gen.ts stay ignored.
+!packages/apps-*/src/manifest.gen.ts
+
+# Same story, one specific file: apps-start hand-authors this as a simplified
+# type-stub replacement for real GraphQL codegen output (its own header says
+# so), not a build artifact — confirmed the ONLY non-manifest *.gen.ts file
+# across the whole apps-start source tree (checked every platform). Caught
+# late: Task 8 (apps-shopify) committed without it, since it fell outside the
+# manifest.gen.ts-only carve-out above and `git add` silently skipped it,
+# breaking the package on a clean checkout.
+!packages/apps-shopify/src/utils/storefront/storefront.graphql.gen.ts
+
 .notes/
 
 # Lockfiles — bun is canonical, prevent accidental drift
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+
+# Next.js build output (examples/nextjs-smoke)
+.next/
+*.tsbuildinfo
+
+# npm auth tokens — never commit credentials
+.npmrc

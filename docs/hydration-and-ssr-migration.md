@@ -1,6 +1,6 @@
 # Hydration & SSR — Migration to TanStack Native Patterns
 
-> Migration guide for `@decocms/start` to adopt TanStack Router/Start native SSR, hydration, and deferred data patterns. Eliminates custom server function workarounds and aligns with the framework's execution model.
+> Migration guide for `@decocms/tanstack` to adopt TanStack Router/Start native SSR, hydration, and deferred data patterns. Eliminates custom server function workarounds and aligns with the framework's execution model.
 
 ---
 
@@ -234,7 +234,7 @@ const fetchSecurely = createServerFn().handler(() => {
 loader: () => fetchSecurely() // isomorphic call
 ```
 
-**Implication for `@decocms/start`:** The `loadCmsPage` server function is correct — it's called from the loader and executes server-side. But CMS section loaders that access server-only resources (KV, D1) must also be wrapped in server functions.
+**Implication for `@decocms/tanstack`:** The `loadCmsPage` server function is correct — it's called from the loader and executes server-side. But CMS section loaders that access server-only resources (KV, D1) must also be wrapped in server functions.
 
 ---
 
@@ -415,6 +415,8 @@ No separate server function request = no cross-request I/O issue.
 **Quick fix:** Warning in dev mode when an eager section isn't sync-registered.
 
 **Proper fix:** In `DecoPageRenderer`, for eager sections without sync registration, create a `syncThenable` from the server-resolved component module instead of using bare `React.lazy`:
+
+`getResolvedComponent` here should come from `@decocms/blocks/cms/client`, not the full `@decocms/blocks/cms` barrel — `DecoPageRenderer` is client-bundled (uses `useState`/`useEffect`/`Suspense`/`lazy`), and the full barrel transitively imports `node:async_hooks`, which fails a Turbopack production build. See `packages/blocks/src/cms/client.ts` in deco-start for the exact client-safe export surface.
 
 ```tsx
 // If the component was resolved on the server, pre-populate the lazy cache

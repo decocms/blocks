@@ -2,6 +2,20 @@
 
 10 learnings from real Deco sites. Check these during analysis.
 
+> **Correction to an earlier version of this note**: `.deco/blocks/*.json` is still a
+> real, current, on-disk convention on most real sites (confirmed: faststore-fila,
+> casaevideo-tanstack, bagaggio-tanstack) — that's where page/section CMS content,
+> including any `seo` block, actually lives locally, loaded via `@decocms/blocks-cli`'s
+> `generate-blocks.ts`/`sync-blocks-to-kv.ts` or `@decocms/blocks/cms`'s
+> `loadDecofileDirectory`. A smaller number of sites (minimal fixtures like
+> `examples/tanstack-smoke`) instead pass an inline `blocks` object straight to
+> `createSiteSetup({ blocks: {...} })` in `src/setup.ts` — check which pattern a given
+> site uses before auditing. Either way, a fast-deploy site's *live production* content
+> can additionally live only in Cloudflare KV (not checked into the repo at all — see
+> `packages/blocks-admin/src/admin/decofile.ts`'s `handleDecofileRead`), so audit commands
+> below that grep local files should be treated as "nothing wrong in what's checked
+> in," not "verified against production."
+
 ## Structured Data (JSON-LD)
 
 ### 1. Safe JSON-LD Embedding
@@ -77,8 +91,9 @@ const faqSchema = {
 **Check**: Is only one SEO section active per page?
 
 ```bash
-# Find pages with multiple SEO sections
-grep -l "SEO" .deco/blocks/pages-*.json | xargs grep -c "SEO"
+# Find pages with multiple SEO blocks in whatever local CMS content exists
+# (dev fixtures in src/setup.ts — production content lives in the remote decofile)
+grep -c '"__resolveType":.*Seo' src/setup.ts
 ```
 
 Multiple SEO sections = duplicate meta tags = SEO penalty.
@@ -143,26 +158,30 @@ const hasFilters = url.searchParams.has('filter') ||
 ### 10. Language Attribute
 **Check**: Is the `lang` attribute correct?
 
-```typescript
-// In fresh.config.ts
-export default defineConfig({
-  lang: "pt-BR", // or "en-US", etc.
-});
+There's no framework config file for this anymore. Both `@decocms/nextjs`'s
+`DecoRootLayout` (`packages/nextjs/src/DecoRootLayout.tsx`) and `@decocms/tanstack`'s
+`DecoRootLayout` (`packages/tanstack/src/hooks/DecoRootLayout.tsx`) render
+`<html lang={lang} ...>` from a `lang` prop that **defaults to `"en"`** if the site
+doesn't pass one. Check that the site explicitly passes the right value where it
+renders `<DecoRootLayout>` (its root layout / `__root.tsx`):
+
+```tsx
+<DecoRootLayout lang="pt-BR" /* ... */>
 ```
+
+A site that never sets `lang` is silently serving `lang="en"` regardless of actual
+content language.
 
 ## Quick Audit Commands
 
 ```bash
-# Check for pages without SEO section
-for f in .deco/blocks/pages-*.json; do
-  grep -q '"seo"' "$f" || echo "Missing SEO: $f"
-done
+# Check local CMS fixture content in setup.ts for pages missing an `seo` field
+# (only covers dev fixtures checked into the repo — production page content lives
+# in the remote decofile behind @decocms/blocks-admin and isn't visible to this grep)
+grep -n '"seo"' src/setup.ts
 
-# Find duplicate meta descriptions in page
-grep -c '"description"' .deco/blocks/pages-*.json | grep -v ':1$'
-
-# Check for unescaped JSON-LD
-grep -r "JSON.stringify" sections/ | grep -v "replace"
+# Check for unescaped JSON-LD in section components
+grep -rn "JSON.stringify" src/sections/ | grep -v "replace"
 ```
 
 ## SEO Audit Table

@@ -1,6 +1,6 @@
 # Observability
 
-`@decocms/start` ships a thin, opinionated observability layer for Deco storefronts on Cloudflare Workers. Three signals — spans, logs, and metrics — flow to the same downstream (stats-lake / ClickStack) along two complementary transport paths:
+`@decocms/blocks` (the shared otel/observability SDK) plus `@decocms/tanstack` (the Cloudflare Workers wiring) ship a thin, opinionated observability layer for Deco storefronts on Cloudflare Workers. Three signals — spans, logs, and metrics — flow to the same downstream (stats-lake / ClickStack) along two complementary transport paths:
 
 1. **CF Destinations (head-sampled, indirect):** spans + info/warn logs are captured by Cloudflare's managed pipeline at `head_sampling_rate` and pushed to `deco-otel-ingest`.
 2. **Direct POST (un-sampled, in-Worker):** metrics (no CF Destinations support) and error logs (`level: "error"`, bypassing head sampling for 100% capture) are batched in-isolate and POSTed directly to `deco-otel-ingest` via `ctx.waitUntil`.
@@ -87,7 +87,7 @@ This makes it possible to filter traces by cache decision directly in ClickStack
 
 `status_class` is the canonical `2xx`/.../`5xx`/`unknown` bucket. Dashboards aggregate by `status_class` for SLO panels and by `status` for incident drill-down.
 
-`commerce_request_duration_ms` owned by the framework (Phase 2 / D-11) so every site emits it as soon as `@decocms/start` is bumped, regardless of `@decocms/apps` version. Apps register operation strings via `recordCommerceMetric`; the framework owns the cardinality contract.
+`commerce_request_duration_ms` owned by the framework (Phase 2 / D-11) so every site emits it as soon as `@decocms/blocks` is bumped, regardless of `@decocms/apps` version. Apps register operation strings via `recordCommerceMetric`; the framework owns the cardinality contract.
 
 ### Metrics: AE vs OTLP (the two-meter split)
 
@@ -113,7 +113,7 @@ CF Destinations does **not** support OTLP metrics natively (only traces + logs).
 
 - `service.name` — the value passed to `instrumentWorker`, or `env.DECO_SITE_NAME`, or `"deco-site"`
 - `service.version` — `env.CF_VERSION_METADATA?.id` (omitted when the binding isn't present)
-- `deco.runtime.version` — `@decocms/start` build-time constant
+- `deco.runtime.version` — `@decocms/blocks` build-time constant
 - `deployment.environment` — `env.DECO_ENV_NAME` or `"production"`
 - `deco.apps.version` — optional, passed via `OtelOptions.decoAppsVersion`
 
@@ -172,8 +172,8 @@ The `version_metadata` binding is what makes `service.version` show up on spans 
 
 ```ts
 // src/worker-entry.ts
-import { createDecoWorkerEntry } from "@decocms/start/sdk/workerEntry";
-import { instrumentWorker } from "@decocms/start/sdk/otel";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { instrumentWorker } from "@decocms/blocks/sdk/otel";
 import serverEntry from "./server";
 
 const handler = createDecoWorkerEntry(serverEntry, options);
@@ -226,7 +226,7 @@ For commerce clients (VTEX, Shopify), `createInstrumentedFetch` injects the W3C 
 For any other outbound `fetch` issued during a request, inject a `traceparent` header manually so upstream services that participate in OTel can join your trace:
 
 ```ts
-import { injectTraceContext } from "@decocms/start/sdk/observability";
+import { injectTraceContext } from "@decocms/blocks/sdk/observability";
 
 async function tracedFetch(url: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
@@ -239,7 +239,7 @@ async function tracedFetch(url: string, init?: RequestInit) {
 
 ### Per-call operation names on outbound fetches
 
-`createInstrumentedFetch(name)` from `@decocms/start/sdk/instrumentedFetch` produces spans named `${name}.fetch` by default. For commerce calls where operators want to query by SEMANTIC endpoint (`vtex.intelligent-search.product_search`, `vtex.checkout.orderForm`) rather than by URL, supply an `operation` per call or wire a URL-derived router on the integration:
+`createInstrumentedFetch(name)` from `@decocms/blocks/sdk/instrumentedFetch` produces spans named `${name}.fetch` by default. For commerce calls where operators want to query by SEMANTIC endpoint (`vtex.intelligent-search.product_search`, `vtex.checkout.orderForm`) rather than by URL, supply an `operation` per call or wire a URL-derived router on the integration:
 
 ```ts
 const vtexFetch = createInstrumentedFetch({
@@ -340,8 +340,8 @@ A site's `wrangler.jsonc` can drift away from the canonical block above
 between migrations. The audit catches that drift in CI:
 
 ```bash
-npx -p @decocms/start deco-audit-observability        # exits 1 on findings
-npx -p @decocms/start deco-audit-observability --json # machine-readable
+npx -p @decocms/blocks-cli deco-audit-observability        # exits 1 on findings
+npx -p @decocms/blocks-cli deco-audit-observability --json # machine-readable
 ```
 
 Rule set (each rule maps 1:1 to a `deco-cf-observability --write …` fix

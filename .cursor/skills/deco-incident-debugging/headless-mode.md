@@ -39,8 +39,10 @@ The incident management system should provide a structured input:
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  PHASE 2: LEARNINGS SCAN (parallel)                             │
-│  - Search learnings/ by extracted keywords                      │
-│  - Match alert_type to learning categories                      │
+│  - Search learnings/ by extracted keywords (if the folder       │
+│    exists — it does not as of this writing; see below)          │
+│  - Fall back to CHANGELOG.md and git log for the same keywords  │
+│  - Match alert_type to learning/CHANGELOG categories             │
 │  - Score matches by symptom similarity                          │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -117,15 +119,22 @@ const KEYWORD_PATTERNS = [
 
 ## Phase 2: Learnings Scan
 
+**`learnings/` does not exist in this repo as of this writing** — do not
+assume it's populated. Check for it first; if absent (or empty), search
+`CHANGELOG.md` and `git log` instead, which document real past fixes.
+
 **Parallel search strategy:**
 
 ```bash
-# Run these searches in parallel
+# Check whether learnings/ exists and has content
+LEARNINGS_DIR=$( [ -d learnings ] && [ -n "$(ls -A learnings 2>/dev/null)" ] && echo learnings )
+
+# Run these searches in parallel — learnings/ if present, always CHANGELOG.md + git log
 SEARCHES=(
-  "grep -ri '${KEYWORD_1}' learnings/"
-  "grep -ri '${KEYWORD_2}' learnings/"
-  "grep -ri '${ALERT_CATEGORY}' learnings/"
-  "grep -ri '${ERROR_CODE}' learnings/"
+  "grep -ri '${KEYWORD_1}' ${LEARNINGS_DIR:-CHANGELOG.md}"
+  "grep -ri '${KEYWORD_2}' CHANGELOG.md"
+  "git log --oneline --grep='${ALERT_CATEGORY}' -i -30"
+  "git log --oneline --grep='${ERROR_CODE}' -i -30"
 )
 
 # Execute all and collect results
@@ -203,6 +212,12 @@ git diff HEAD~10 -- .deco/blocks/
 
 **Pattern matching rules:**
 
+`learning_match` below is aspirational: it names the *pattern*, not a file
+that exists. `learnings/` is empty/absent in this repo. Until a matching
+file is actually seeded, treat `learning_match` as `null` and instead point
+the diagnosis at `CHANGELOG.md` / `git log --grep` for the same keywords —
+see Phase 2.
+
 ```yaml
 rules:
   - name: "Rate Limit - Missing Cache"
@@ -212,7 +227,7 @@ rules:
       - top_errors_contain: "429"
     diagnosis: "Loaders missing cache configuration causing API overload"
     confidence: high
-    learning_match: cache-strategy-standardization-loaders.md
+    learning_match: null  # pattern: cache-strategy — check CHANGELOG.md/git log
 
   - name: "Rate Limit - Overfetching"
     conditions:
@@ -221,7 +236,7 @@ rules:
       - top_paths_contain: "/live/invoke"
     diagnosis: "Loaders fetching more data than needed"
     confidence: high
-    learning_match: loader-overfetching-n-plus-problem.md
+    learning_match: null  # pattern: loader-overfetching — check CHANGELOG.md/git log
 
   - name: "Latency - Edge Cache Blocked"
     conditions:
@@ -231,15 +246,15 @@ rules:
       - headers_contain: "set-cookie"
     diagnosis: "VTEX cookies preventing edge caching of lazy sections"
     confidence: high
-    learning_match: vtex-cookies-prevent-edge-caching.md
+    learning_match: null  # pattern: vtex-cookies-edge-cache — check CHANGELOG.md/git log
 
   - name: "Error Spike - Dangling Reference"
     conditions:
       - alert_type: error_spike
       - error_logs_contain: "dangling reference"
-    diagnosis: "Block configuration references deleted component"
+    diagnosis: "Block configuration references deleted component in .deco/blocks/*.json"
     confidence: very_high
-    learning_match: dangling-block-references.md
+    learning_match: null  # pattern: dangling-block-reference — check CHANGELOG.md/git log
 
   - name: "Error Spike - Type Error"
     conditions:
@@ -257,7 +272,7 @@ rules:
       - paths_contain: "/live/invoke"
     diagnosis: "Slow API responses or missing loader optimization"
     confidence: medium
-    learning_match: loader-overfetching-n-plus-problem.md
+    learning_match: null  # pattern: loader-overfetching — check CHANGELOG.md/git log
 ```
 
 **Confidence levels:**
@@ -271,7 +286,12 @@ rules:
 
 ## Phase 5: Output Report
 
-**Structured output format:**
+**Structured output format** (schema example — `matched_learning` below
+shows the shape the field *would* have once `learnings/` is seeded; as of
+this writing it does not exist, so real output should set
+`"matched_learning": null` and instead cite the `CHANGELOG.md` entry or
+commit SHA that matched, e.g. `"matched_source": "CHANGELOG.md#unreleased"`
+or `"matched_source": "git:a3f9b9c"`):
 
 ```json
 {
@@ -439,8 +459,8 @@ Loaders missing cache configuration causing repeated API calls
 • 429 errors: 1,234 in last 30min
 • Top uncached: /live/invoke/vtex/loaders/productList
 
-*Matched Learning:*
-`cache-strategy-standardization-loaders.md`
+*Matched Source:*
+`CHANGELOG.md` / `git log` (no `learnings/` file exists yet for this pattern)
 
 *Proposed Fix:*
 Add `export const cache = 'stale-while-revalidate'` to productList.ts
@@ -455,7 +475,7 @@ Add `export const cache = 'stale-while-revalidate'` to productList.ts
 ```yaml
 auto_fix_criteria:
   - confidence: very_high OR high
-  - learning_match: exists
+  - learning_match: exists OR matched_source (CHANGELOG.md/git) exists
   - code_change: defined
   - risk_level: low  # No DB changes, no auth changes
   - rollback: possible  # Git-based deployment
@@ -463,8 +483,11 @@ auto_fix_criteria:
 auto_fix_workflow:
   1. Create branch: fix/incident-{id}
   2. Apply code changes from solution
-  3. Run type check: deno check --unstable-tsgo
-  4. Run block validation: deno run -A https://deco.cx/validate
+  3. Run type check: bun run typecheck
+  4. Sanity-check .deco/blocks/*.json: run the blocks generator (no schema
+     validator exists anymore — deco.cx/validate has no current
+     equivalent — this only catches malformed JSON, not semantic errors):
+     npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts
   5. If checks pass:
      - Create PR with investigation report
      - Request auto-merge if enabled

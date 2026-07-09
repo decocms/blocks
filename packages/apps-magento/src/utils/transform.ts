@@ -1,0 +1,283 @@
+/**
+ * Magento product transform helpers — maps the REST/GraphQL payloads
+ * into schema.org `Product` / `Offer` / `Seo` shapes that
+ * `@decocms/apps-commerce` consumers expect.
+ *
+ * Subset of `deco-cx/apps/magento/utils/transform.ts` — only the
+ * functions the PDP loader needs (toProduct, toOffer, toImages, toURL,
+ * toBreadcrumbList, toSeo). The GraphQL-side helpers (toProductGraphQL,
+ * toAggOfferGraphQL, toProductListingPageGraphQL, …) and the Granado-
+ * specific helpers (toReviewAmasty, toLiveloPoints) are intentionally
+ * excluded — they land in separate follow-up PRs alongside the loaders
+ * that consume them.
+ *
+ * Behavior is pinned by `__tests__/transform.test.ts`. Every change to
+ * this file should ship a regression test.
+ */
+
+import type {
+	ImageObject,
+	ListItem,
+	Offer,
+	Product,
+	PropertyValue,
+	Seo,
+	UnitPriceSpecification,
+} from "@decocms/apps-commerce/types";
+import type { CustomAttribute, MagentoCategory, MagentoProduct } from "./client/types";
+import { IN_STOCK, OUT_OF_STOCK } from "./constants";
+
+// ---------------------------------------------------------------------------
+// Product → schema.org Product
+// ---------------------------------------------------------------------------
+
+export const toProduct = ({
+	product,
+	options,
+}: {
+	product: MagentoProduct;
+	options: {
+		currencyCode?: string;
+		imagesUrl?: string;
+		maxInstallments: number;
+		minInstallmentValue: number;
+	};
+}): Product => {
+	const offers = toOffer(product, options.minInstallmentValue, options.maxInstallments);
+	const sku = product.sku;
+	const productID = product.id.toString();
+	const productPrice = product.price_info;
+
+	const additionalProperty: PropertyValue[] = product.custom_attributes?.map((attr) => ({
+		"@type": "PropertyValue",
+		name: attr.attribute_code,
+		value: String(attr.value),
+	}));
+
+	return {
+		"@type": "Product",
+		productID,
+		sku,
+		url: product.url,
+		name: product.name,
+		gtin: sku,
+		isVariantOf: {
+			"@type": "ProductGroup",
+			productGroupID: productID,
+			url: product.url,
+			name: product.name,
+			model: "",
+			additionalProperty: additionalProperty,
+			hasVariant: [
+				{
+					"@type": "Product",
+					productID,
+					sku,
+					url: product.url,
+					name: product.name,
+					gtin: sku,
+					offers: {
+						"@type": "AggregateOffer",
+						// biome-ignore lint/style/noNonNullAssertion: matches prod fallback to price
+						highPrice: productPrice?.max_price ?? product.price!,
+						// biome-ignore lint/style/noNonNullAssertion: matches prod fallback to price
+						lowPrice: productPrice?.minimal_price ?? product.price!,
+						offerCount: offers.length,
+						offers: offers,
+					},
+				},
+			],
+		},
+		additionalProperty: additionalProperty,
+		image: toImages(product, options.imagesUrl ?? ""),
+		offers: {
+			"@type": "AggregateOffer",
+			// biome-ignore lint/style/noNonNullAssertion: matches prod fallback to price
+			highPrice: productPrice?.max_price ?? product.price!,
+			// biome-ignore lint/style/noNonNullAssertion: matches prod fallback to price
+			lowPrice: productPrice?.minimal_price ?? product.price!,
+			offerCount: offers.length,
+			offers: offers,
+		},
+	};
+};
+
+// ---------------------------------------------------------------------------
+// Product → Offer[]
+// ---------------------------------------------------------------------------
+
+export const toOffer = (
+	{ price_info, extension_attributes, sku, currency_code }: MagentoProduct,
+	minInstallmentValue: number,
+	maxInstallments: number,
+): Offer[] => {
+	if (!price_info) {
+		return [];
+	}
+	const { final_price, max_price, max_regular_price } = price_info;
+	const { stock_item } = extension_attributes;
+	const inStock = stock_item?.is_in_stock;
+	const qtyStock = stock_item?.qty ?? 0;
+
+	return [
+		{
+			"@type": "Offer",
+			availability: inStock ? IN_STOCK : OUT_OF_STOCK,
+			inventoryLevel: {
+				value: inStock ? qtyStock || 999 : 0,
+			},
+			itemCondition: "https://schema.org/NewCondition",
+			price: final_price,
+			priceCurrency: currency_code,
+			priceSpecification: [
+				{
+					"@type": "UnitPriceSpecification",
+					priceType: "https://schema.org/ListPrice",
+					price: max_price ?? max_regular_price,
+				},
+				{
+					"@type": "UnitPriceSpecification",
+					priceType: "https://schema.org/SalePrice",
+					price: final_price,
+				},
+				...calculateInstallments(final_price, minInstallmentValue, maxInstallments),
+			],
+			sku: sku,
+		},
+	];
+};
+
+/**
+ * Build the installment ladder for a sale price. `À vista` is always
+ * the first entry, then 2x..Nx where N is bounded by
+ * `min(floor(finalPrice/minInstallmentValue), maxInstallments)`.
+ * Each entry is a `UnitPriceSpecification` so storefront UIs render
+ * "10x de R$ 12,50 sem juros" without further math.
+ */
+const calculateInstallments = (
+	finalPrice: number,
+	minInstallmentValue: number,
+	maxInstallments: number,
+): UnitPriceSpecification[] => {
+	const possibleInstallmentsCount = Math.floor(finalPrice / minInstallmentValue) || 1;
+	const actualInstallmentsCount = Array.from(
+		{ length: Math.min(possibleInstallmentsCount, maxInstallments) },
+		(_v, i) => +(finalPrice / (i + 1)).toFixed(2),
+	);
+
+	return actualInstallmentsCount.map<UnitPriceSpecification>((value, i) => {
+		const [description, billingIncrement] = !i
+			? ["À vista", finalPrice]
+			: [`${i + 1}x sem juros`, value];
+		return {
+			"@type": "UnitPriceSpecification",
+			priceType: "https://schema.org/SalePrice",
+			priceComponentType: "https://schema.org/Installment",
+			description,
+			billingDuration: i + 1,
+			billingIncrement,
+			price: finalPrice,
+		};
+	});
+};
+
+// ---------------------------------------------------------------------------
+// Product → ImageObject[]
+// ---------------------------------------------------------------------------
+
+export const toImages = (product: MagentoProduct, imageUrl: string): ImageObject[] | undefined => {
+	if (imageUrl) {
+		return product.media_gallery_entries?.map((img) => ({
+			"@type": "ImageObject" as const,
+			encodingFormat: "image",
+			alternateName: `${img.file}`,
+			url: `${toURL(imageUrl)}${img.file}`,
+			disabled: img.disabled || false,
+		}));
+	}
+
+	return product.images?.map((img) => ({
+		"@type": "ImageObject" as const,
+		encodingFormat: "image",
+		alternateName: `${img.label}`,
+		disabled: img.disabled || false,
+		url: `${img.url}`,
+	}));
+};
+
+/**
+ * Protocol-relative URLs (`//cdn.magento.example/...`) come back from
+ * some Magento installations. Promote to https so the browser doesn't
+ * try to inherit a non-https scheme.
+ */
+export const toURL = (src: string): string => (src.startsWith("//") ? `https:${src}` : src);
+
+// ---------------------------------------------------------------------------
+// Categories → ListItem[] (breadcrumb)
+// ---------------------------------------------------------------------------
+
+export const toBreadcrumbList = (
+	categories: (MagentoCategory | null)[],
+	isBreadcrumbProductName: boolean,
+	product: Product,
+	url: URL,
+): ListItem<string>[] => {
+	if (isBreadcrumbProductName && categories?.length === 0) {
+		return [
+			{
+				"@type": "ListItem",
+				name: product.name,
+				position: 1,
+				item: new URL(`/${product.name}`, url).href,
+			},
+		];
+	}
+
+	const itemListElement = categories
+		.map((category) => {
+			if (!category || !category.name || !category.position) {
+				return null;
+			}
+			return {
+				"@type": "ListItem",
+				name: category.name,
+				position: category.position,
+				item: new URL(`/${category.name}`, url).href,
+			};
+		})
+		.filter(Boolean) as ListItem<string>[];
+
+	return itemListElement;
+};
+
+// ---------------------------------------------------------------------------
+// Custom attributes → Seo
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `Seo` block from a product's custom_attributes. Magento
+ * exposes title/meta_title/meta_description as separate attribute_code
+ * entries; this maps them with explicit fallback (meta_title wins over
+ * title; description is meta_description only — there's no fallback
+ * field in the legacy code).
+ */
+export const toSeo = (customAttributes: CustomAttribute[], productURL: string): Seo => {
+	const findAttribute = (attrCode: string): string => {
+		const attribute = customAttributes.find((attr) => attr.attribute_code === attrCode);
+		if (!attribute) return "";
+		if (Array.isArray(attribute.value)) {
+			return attribute.value.join(", ");
+		}
+		return attribute.value;
+	};
+
+	const title = findAttribute("title");
+	const metaTitle = findAttribute("meta_title");
+	const metaDescription = findAttribute("meta_description");
+
+	return {
+		title: metaTitle || title || "",
+		description: metaDescription || "",
+		canonical: productURL,
+	};
+};

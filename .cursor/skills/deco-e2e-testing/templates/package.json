@@ -8,11 +8,12 @@
     "test:headed": "HEADED=true npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "install-browsers": "npx playwright install chromium",
-    "baseline:save": "deno run -A scripts/baseline.ts save",
-    "baseline:compare": "deno run -A scripts/baseline.ts compare",
-    "baseline:list": "deno run -A scripts/baseline.ts list"
+    "baseline:save": "npx tsx scripts/baseline.ts save",
+    "baseline:compare": "npx tsx scripts/baseline.ts compare",
+    "baseline:list": "npx tsx scripts/baseline.ts list"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0"
+    "@playwright/test": "^1.40.0",
+    "tsx": "^4.19.0"
   }
 }

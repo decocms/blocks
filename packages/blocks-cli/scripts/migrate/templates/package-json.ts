@@ -1,0 +1,197 @@
+import { execSync } from "node:child_process";
+import type { MigrationContext } from "../types";
+
+/**
+ * Fleet-wide canonical bun version. Bumped here propagates to all newly
+ * migrated sites via the `packageManager` field AND the
+ * `lockfile-check.yml` workflow's `bun-version` input. See
+ * MIGRATION_TOOLING_PLAN.md for the bun-canonical decision.
+ *
+ * Exported because the lockfile-check workflow template reads it
+ * directly to keep both files in lockstep.
+ */
+export const CANONICAL_BUN_VERSION = "1.3.5";
+
+/**
+ * Get the latest published version of an npm package.
+ * Falls back to the provided default if the lookup fails.
+ */
+function getLatestVersion(pkg: string, fallback: string): string {
+  try {
+    const version = execSync(`npm view ${pkg} version`, {
+      encoding: "utf-8",
+      timeout: 10000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    return version || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Extract npm dependencies from deno.json import map.
+ * Entries like `"fuse.js": "npm:fuse.js@7.0.0"` become `"fuse.js": "^7.0.0"`.
+ */
+function extractNpmDeps(importMap: Record<string, string>): Record<string, string> {
+  const deps: Record<string, string> = {};
+  const SKIP_KEYS = new Set([
+    "daisyui", "preact-render-to-string", "simple-git", "fast-json-patch",
+    "postcss", "cssnano", "partytown",
+  ]);
+  for (const [key, value] of Object.entries(importMap)) {
+    // Skip framework deps we handle ourselves
+    if (key.startsWith("preact") || key.startsWith("@preact/")) continue;
+    if (key.startsWith("@deco/")) continue;
+    if (key.startsWith("@biomejs/")) continue;
+    if (key.startsWith("firebase/")) continue;
+    if (SKIP_KEYS.has(key)) continue;
+
+    // npm: protocol — direct npm import
+    if (value.startsWith("npm:")) {
+      const raw = value.slice(4);
+      const atIdx = raw.lastIndexOf("@");
+      if (atIdx <= 0) {
+        deps[raw] = "*";
+      } else {
+        const name = raw.slice(0, atIdx);
+        let version = raw.slice(atIdx + 1);
+        if (/^[~^>=<]/.test(version)) {
+          deps[name] = version;
+        } else {
+          deps[name] = `^${version}`;
+        }
+      }
+      continue;
+    }
+
+    // esm.sh URLs — extract package name and version
+    const esmMatch = value.match(/esm\.sh\/(@?[^@?]+)@([^?/]+)/);
+    if (esmMatch) {
+      const [, name, version] = esmMatch;
+      if (name.startsWith("preact") || name.startsWith("@preact/")) continue;
+      deps[name] = `^${version}`;
+      continue;
+    }
+  }
+  return deps;
+}
+
+export function generatePackageJson(ctx: MigrationContext): string {
+  const extractedDeps = {
+    ...extractNpmDeps(ctx.importMap),
+    ...ctx.discoveredNpmDeps,
+  };
+
+  // Consolidate firebase/* split imports into single package
+  const hasFirebase = Object.keys(ctx.importMap).some((k) => k.startsWith("firebase"));
+  if (hasFirebase && !extractedDeps["firebase"]) {
+    extractedDeps["firebase"] = "^12.10.0";
+  }
+  // Remove wildcard versions
+  for (const [k, v] of Object.entries(extractedDeps)) {
+    if (v === "^*" || v === "*") extractedDeps[k] = "latest";
+  }
+
+  const siteDeps = extractedDeps;
+
+  // @decocms/blocks, @decocms/blocks-admin, @decocms/blocks-cli,
+  // @decocms/tanstack, and the @decocms/apps-* platform packages are
+  // published in lockstep from the same monorepo release, so a single
+  // version lookup covers all of them (mirrors how consumer sites bump
+  // "@decocms/blocks/blocks-admin/nextjs ranges" together).
+  //
+  // If this ever stops being true (e.g. a package starts shipping
+  // independent version bumps), every `${frameworkVersion}` usage below
+  // (in `dependencies` and `devDependencies`) needs to become its own
+  // `getLatestVersion("<package>", "<fallback>")` call instead of sharing
+  // this one lookup.
+  const frameworkVersion = getLatestVersion("@decocms/blocks", "7.5.1");
+
+  const platformPackage: Partial<Record<typeof ctx.platform, string>> = {
+    vtex: "@decocms/apps-vtex",
+    shopify: "@decocms/apps-shopify",
+    magento: "@decocms/apps-magento",
+  };
+  const platformDep = platformPackage[ctx.platform];
+
+  const pkg = {
+    name: ctx.siteName,
+    version: "0.1.0",
+    type: "module",
+    description: `${ctx.siteName} storefront powered by TanStack Start`,
+    scripts: {
+      dev: "vite dev",
+      "dev:clean":
+        "rm -rf node_modules/.vite .wrangler/state .tanstack && vite dev",
+      "generate:blocks":
+        "tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts",
+      "generate:routes": "tsr generate",
+      "generate:schema": `tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts --site ${ctx.siteName}`,
+      "generate:invoke":
+        "tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts",
+      "generate:sections":
+        "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts",
+      "generate:loaders": `tsx node_modules/@decocms/blocks-cli/scripts/generate-loaders.ts --exclude vtex/loaders,vtex/actions,loaders/vtex-auth-loader,loaders/reviews/productReviews,loaders/product/buyTogether,loaders/search/productListPageCollection,loaders/search/intelligenseSearch,loaders/Layouts/ProductCard`,
+      build:
+        "npm run generate:blocks && npm run generate:sections && npm run generate:loaders && npm run generate:schema && npm run generate:invoke && tsr generate && vite build",
+      preview: "vite preview",
+      // Deploy is owned by Cloudflare Workers Builds (D6.3); the
+      // repo<->worker connection is configured per-worker in the CF
+      // dashboard. Local devs use plain `wrangler` against the
+      // committed wrangler.jsonc.
+      deploy: "wrangler deploy",
+      types: "wrangler types",
+      typecheck: "tsc --noEmit",
+      format: 'prettier --write "src/**/*.{ts,tsx}"',
+      "format:check": 'prettier --check "src/**/*.{ts,tsx}"',
+      knip: "knip",
+      clean:
+        "rm -rf node_modules .cache dist .wrangler/state node_modules/.vite && bun install",
+      "tailwind:lint":
+        "tsx scripts/tailwind-lint.ts",
+      "tailwind:fix":
+        "tsx scripts/tailwind-lint.ts --fix",
+    },
+    author: "deco.cx",
+    license: "MIT",
+    packageManager: `bun@${CANONICAL_BUN_VERSION}`,
+    dependencies: {
+      "@decocms/blocks": `^${frameworkVersion}`,
+      "@decocms/blocks-admin": `^${frameworkVersion}`,
+      "@decocms/tanstack": `^${frameworkVersion}`,
+      "@decocms/apps-commerce": `^${frameworkVersion}`,
+      ...(platformDep ? { [platformDep]: `^${frameworkVersion}` } : {}),
+      "@tanstack/react-query": "5.90.21",
+      "@tanstack/react-router": "1.166.7",
+      "@tanstack/react-start": "1.166.8",
+      "@tanstack/react-store": "0.9.2",
+      "@tanstack/store": "0.9.2",
+      "colorjs.io": "^0.6.1",
+      react: "^19.2.4",
+      "react-dom": "^19.2.4",
+      ...siteDeps,
+    },
+    devDependencies: {
+      "@cloudflare/vite-plugin": "^1.27.0",
+      "@decocms/blocks-cli": `^${frameworkVersion}`,
+      "@tailwindcss/vite": "^4.2.1",
+      "@tanstack/router-cli": "1.166.7",
+      "@types/react": "^19.2.14",
+      "@types/react-dom": "^19.2.3",
+      "@vitejs/plugin-react": "^5.1.4",
+      "babel-plugin-react-compiler": "^1.0.0",
+      "daisyui": "^5.5.19",
+      knip: "^5.61.2",
+      prettier: "^3.5.3",
+      tailwindcss: "^4.2.1",
+      "ts-morph": "^27.0.2",
+      tsx: "^4.19.4",
+      typescript: "^5.9.3",
+      vite: "^7.3.1",
+      wrangler: "^4.72.0",
+    },
+  };
+
+  return JSON.stringify(pkg, null, 2) + "\n";
+}

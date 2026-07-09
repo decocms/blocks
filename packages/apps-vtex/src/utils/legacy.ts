@@ -1,0 +1,139 @@
+import type { Seo } from "@decocms/apps-commerce/types";
+import { vtexFetch } from "../client";
+import type { WrappedSegment } from "./segment";
+import { slugify } from "./slugify";
+import type { PageType } from "./types";
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+export const toSegmentParams = ({ payload: segment }: WrappedSegment) =>
+	Object.fromEntries(
+		Object.entries({
+			utmi_campaign: segment.utmi_campaign ?? undefined,
+			utm_campaign: segment.utm_campaign ?? undefined,
+			utm_source: segment.utm_source ?? undefined,
+			sc: segment.channel ?? undefined,
+		}).filter(([_, v]) => v !== undefined),
+	);
+
+const PAGE_TYPE_TO_MAP_PARAM = {
+	Brand: "b",
+	Category: "c",
+	Department: "c",
+	SubCategory: "c",
+	Collection: "productClusterIds",
+	Cluster: "productClusterIds",
+	Search: "ft",
+	FullText: "ft",
+	Product: "p",
+	NotFound: null,
+};
+
+const segmentsFromTerm = (term: string) => term.split("/").filter(Boolean);
+
+export const getValidTypesFromPageTypes = (pagetypes: PageType[]) => {
+	return pagetypes.filter((type) => PAGE_TYPE_TO_MAP_PARAM[type.pageType]);
+};
+
+export const pageTypesFromPathname = async (term: string): Promise<PageType[]> => {
+	const segments = segmentsFromTerm(term);
+
+	return await Promise.all(
+		segments.map((_, index) =>
+			vtexFetch<PageType>(
+				`/api/catalog_system/pub/portal/pagetype/${segments.slice(0, index + 1).join("/")}`,
+			),
+		),
+	);
+};
+
+export const getMapAndTerm = (pageTypes: PageType[]) => {
+	const term = pageTypes
+		.map((type, index) =>
+			type.url ? segmentsFromTerm(new URL(`http://${type.url}`).pathname)[index] : null,
+		)
+		.filter(Boolean)
+		.join("/");
+
+	const map = pageTypes
+		.map((type) => PAGE_TYPE_TO_MAP_PARAM[type.pageType])
+		.filter(Boolean)
+		.join(",");
+
+	if (map === "ft" && term === "s") {
+		return ["", ""];
+	}
+
+	return [map, term];
+};
+
+export const pageTypesToBreadcrumbList = (pages: PageType[], baseUrl: string) => {
+	const filteredPages = pages.filter(
+		({ pageType }) =>
+			pageType === "Category" || pageType === "Department" || pageType === "SubCategory",
+	);
+
+	return filteredPages.map((page, index) => {
+		const position = index + 1;
+		const slug = filteredPages.slice(0, position).map((x) => slugify(x.name!));
+
+		return {
+			"@type": "ListItem" as const,
+			name: page.name!,
+			item: new URL(`/${slug.join("/")}`, baseUrl).href,
+			position,
+		};
+	});
+};
+
+export const pageTypesToSeo = (
+	pages: PageType[],
+	baseUrl: string,
+	currentPage?: number,
+): Seo | null => {
+	const current = pages.at(-1);
+	const url = new URL(baseUrl);
+	const fullTextSearch = url.searchParams.get("q");
+	const hasMapTermOrSkuId = !!(url.searchParams.get("map") || url.searchParams.get("skuId"));
+
+	if (
+		(!current || current.pageType === "Search" || current.pageType === "FullText") &&
+		fullTextSearch
+	) {
+		return {
+			title: capitalize(fullTextSearch),
+			description: capitalize(fullTextSearch),
+			canonical: url.href,
+			noIndexing: hasMapTermOrSkuId,
+		};
+	}
+
+	if (!current) {
+		return null;
+	}
+
+	return {
+		title: current.title || current.name || "",
+		description: current.metaTagDescription!,
+		noIndexing: hasMapTermOrSkuId,
+		canonical: toCanonical(
+			new URL(
+				current.url && current.pageType !== "Collection"
+					? current.url.replace(/^[^/]*\//, "/").toLowerCase()
+					: url,
+				url,
+			),
+			currentPage,
+		),
+	};
+};
+
+function toCanonical(url: URL, page?: number) {
+	if (typeof page === "number") {
+		url.searchParams.set("page", `${page}`);
+	}
+
+	return url.href;
+}
+
+export { isFilterParam } from "./intelligentSearch";

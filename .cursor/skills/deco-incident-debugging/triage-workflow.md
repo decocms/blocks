@@ -17,32 +17,44 @@ INCIDENT BRIEF:
 
 ## Step 1: Symptom Keyword Search (60 seconds)
 
-**Extract keywords from the error/behavior and search learnings:**
+**`learnings/` does not exist in this repo yet** — there's no seeded
+knowledge base. Search `learnings/` opportunistically (it may exist by the
+time you read this, if someone seeded it per `SKILL.md`), but always fall
+back to `CHANGELOG.md` and `git log`, which document real past fixes:
 
 | Symptom Type | Keywords to Search | Command |
 |--------------|-------------------|---------|
-| Rate limits | 429, rate limit, too many requests | `grep -ri "429\|rate limit" learnings/` |
-| Slow pages | slow, cache, ttfb, performance | `grep -ri "slow\|cache\|ttfb" learnings/` |
-| Missing content | blank, missing, not found, null | `grep -ri "missing\|not found\|blank" learnings/` |
-| Errors | error, exception, failed | `grep -ri "error\|failed\|exception" learnings/` |
-| VTEX | vtex, cart, checkout, product | `grep -ri "vtex" learnings/` |
-| Visual | css, style, invisible, layout | `grep -ri "css\|style\|invisible" learnings/` |
-| Safari | safari, webkit, ios | `grep -ri "safari\|webkit" learnings/` |
-| Images | image, flash, loading, lcp | `grep -ri "image\|flash\|lcp" learnings/` |
-| Lazy | lazy, defer, render | `grep -ri "lazy\|defer\|render" learnings/` |
+| Rate limits | 429, rate limit, too many requests | `grep -ri "429\|rate limit" learnings/ CHANGELOG.md 2>/dev/null` |
+| Slow pages | slow, cache, ttfb, performance, defer | `grep -ri "slow\|cache\|ttfb\|defer" learnings/ CHANGELOG.md 2>/dev/null` |
+| Missing content | blank, missing, not found, null | `grep -ri "missing\|not found\|blank" learnings/ CHANGELOG.md 2>/dev/null` |
+| Errors | error, exception, failed | `grep -ri "error\|failed\|exception" learnings/ CHANGELOG.md 2>/dev/null` |
+| VTEX | vtex, cart, checkout, product | `grep -ri "vtex" learnings/ CHANGELOG.md 2>/dev/null` |
+| Visual | css, style, invisible, layout | `grep -ri "css\|style\|invisible" learnings/ CHANGELOG.md 2>/dev/null` |
+| Safari | safari, webkit, ios | `grep -ri "safari\|webkit" learnings/ CHANGELOG.md 2>/dev/null` |
+| Images | image, flash, loading, lcp | `grep -ri "image\|flash\|lcp" learnings/ CHANGELOG.md 2>/dev/null` |
+| Lazy | lazy, defer, render | `grep -ri "lazy\|defer\|render" learnings/ CHANGELOG.md 2>/dev/null` |
 
-**If match found**: Read the learning file and jump to Step 4.
+If `CHANGELOG.md` doesn't turn up anything, widen to commit history:
+
+```bash
+git log --oneline --grep="SYMPTOM_KEYWORD" -i -30
+git log --oneline -20 -- <affected-path>
+```
+
+**If match found**: Read the learning file / CHANGELOG entry / commit and
+jump to Step 4.
 
 ## Step 2: Category-Based Search (60 seconds)
 
-**If keyword search didn't find exact match, search by category:**
+**If keyword search didn't find an exact match, and `learnings/` exists and
+has content, browse it by category:**
 
 ```bash
-# List all learnings
-ls learnings/
+# List all learnings (skip if the folder doesn't exist)
+ls learnings/ 2>/dev/null
 
 # Read category headers
-head -20 learnings/*.md | grep -A 2 "## Category"
+head -20 learnings/*.md 2>/dev/null | grep -A 2 "## Category"
 ```
 
 | Category | When to Check |
@@ -56,6 +68,8 @@ head -20 learnings/*.md | grep -A 2 "## Category"
 | `safari-bug` | Safari-only issues |
 | `vtex-routing` | VTEX API errors, wrong responses |
 | `migration` | Post-migration issues |
+
+If `learnings/` is empty or missing, skip straight to Step 3.
 
 ## Step 3: Quick Diagnostics (2 minutes)
 
@@ -115,11 +129,13 @@ MONITOR_CACHE_STATUS({ ...baseParams })
 ### 3c. Code Issues
 
 ```bash
-# Type errors (fast check)
-deno check --unstable-tsgo --allow-import main.ts 2>&1 | head -50
+# Type errors (fast check; per-package tsc --noEmit, see README.md/CLAUDE.md)
+bun run typecheck 2>&1 | head -50
 
-# Block validation
-deno run -A https://deco.cx/validate 2>&1 | grep -E "❌|⚠️|error"
+# .deco/blocks/*.json sanity check — no schema validator exists anymore
+# (deco.cx/validate has no current equivalent); this fails loudly on
+# malformed JSON in .deco/blocks/:
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts 2>&1 | grep -iE "error|fail"
 
 # Recent changes
 git log --oneline -10
@@ -127,30 +143,32 @@ git log --oneline -10
 
 **Look for**:
 - New TypeScript errors after deployment
-- Invalid block configurations
+- Malformed `.deco/blocks/*.json` (generator throws, or blocks silently drop)
 - Recent commits touching affected areas
 
-## Step 4: Apply Known Fix (if learning matched)
+## Step 4: Apply Known Fix (if learning/CHANGELOG/commit matched)
 
-**Read the full learning file:**
+**Read the full source:**
 
 ```bash
-cat learnings/[MATCHED_FILE].md
+cat learnings/[MATCHED_FILE].md 2>/dev/null   # if learnings/ exists
+# otherwise re-read the matched CHANGELOG.md section, or:
+git show <matched-commit-sha>
 ```
 
 **Verify match:**
-- [ ] Symptoms in learning match current symptoms
+- [ ] Symptoms in the learning/entry/commit match current symptoms
 - [ ] Root cause explanation makes sense for this case
 - [ ] Solution is applicable to this site
 
 **Apply solution:**
-1. Follow the code examples in the learning
+1. Follow the code examples in the learning/commit
 2. Test the fix locally if possible
 3. Deploy with confidence
 
 ## Step 5: Unknown Issue - Deep Dive
 
-**If no learning matches, gather comprehensive data:**
+**If nothing matched, gather comprehensive data:**
 
 ### 5a. Full Error Context
 
@@ -205,12 +223,19 @@ curl -s "https://SITE.com/live/invoke/site/loaders/[LOADER]" | jq '.'
 
 ## Step 6: Document Novel Issue
 
-**If this is a new pattern, create a learning:**
+**If this is a new pattern, create a learning.** `learnings/` doesn't exist
+in this repo yet — create the folder (and a category subfolder, see
+`SKILL.md`) the first time you write one:
 
 ```bash
-# Create new learning file
+# Create new learning file (creates learnings/ if it doesn't exist yet)
+mkdir -p learnings
 touch learnings/[descriptive-name].md
 ```
+
+If the issue is a user-visible behavior change, also consider adding an
+entry to `CHANGELOG.md` — that's the one incident-learnings surface that's
+guaranteed to be read.
 
 **Template:**
 
@@ -267,41 +292,41 @@ touch learnings/[descriptive-name].md
 START: What is the primary symptom?
 │
 ├─► Rate Limit / 429
-│   └─► Check: loader-overfetching, cache-strategy learnings
+│   └─► Check: learnings/ (if seeded), CHANGELOG.md, git log for cache/loader fixes
 │       ├─► Match? Apply fix
 │       └─► No match? Check for missing cache exports, N+1 queries
 │
 ├─► Slow Page / High Latency
-│   └─► Check: cache-strategy, lazy-sections, vtex-cookies learnings
+│   └─► Check: learnings/ (if seeded), CHANGELOG.md (async ⚡/foldThreshold entry), git log
 │       ├─► Match? Apply fix
 │       └─► No match? Run MONITOR_CACHE_STATUS, check for uncached loaders
 │
 ├─► Missing Content / Blank Areas
-│   └─► Check: dangling-block, duplicate-sections learnings
+│   └─► Check: learnings/ (if seeded), git log for .deco/blocks/ or section fixes
 │       ├─► Match? Apply fix
-│       └─► No match? Run block validation, check browser console
+│       └─► No match? Regenerate .deco/blocks/ (generate-blocks.ts), check browser console
 │
 ├─► Visual / UI Bug
-│   └─► Check: invisible-clickable, responsive, safari, lazy-css learnings
+│   └─► Check: learnings/ (if seeded), git log for the affected component
 │       ├─► Match? Apply fix
 │       └─► No match? Inspect DOM, check CSS loading order
 │
 ├─► VTEX Error
-│   └─► Check: vtex-domain, vtex-cookies learnings
+│   └─► Check: learnings/ (if seeded), CHANGELOG.md, git log for VTEX fixes
 │       ├─► Match? Apply fix
 │       └─► No match? Check VTEX status, verify credentials
 │
 └─► Unknown Error
     └─► Run full diagnostics (Step 3a-3c)
-        └─► Create new learning when resolved
+        └─► Create new learning when resolved (see Step 6)
 ```
 
 ## Speed Tips
 
-1. **Parallel searches**: Run multiple grep commands at once
+1. **Parallel searches**: Run multiple grep commands at once, across `learnings/` (if it exists), `CHANGELOG.md`, and `git log`
 2. **Use exact error text**: Copy-paste errors for precise matching
 3. **Check recent deploys first**: Most incidents follow deployments
-4. **Trust the learnings**: If symptoms match, the fix likely works
+4. **Trust matched sources**: If symptoms match a learning, CHANGELOG entry, or past commit, the fix likely works
 5. **Don't over-investigate**: If you find a match, apply it and verify
 
 ## Common Pitfalls

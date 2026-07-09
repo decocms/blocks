@@ -1,18 +1,17 @@
 import { defineConfig } from "vitest/config";
 
-// Two test suites, one runner:
-// - `src/**` runs in jsdom (React rendering, hooks, browser globals).
-// - `scripts/**` runs in node (filesystem, migration script logic).
-// vitest applies env-per-file via the `environmentMatchGlobs` map.
+// Each package supplies its own environment via environmentMatchGlobs —
+// packages/blocks-cli's scripts/** run in node (filesystem, migration logic),
+// every other package's src/** runs in jsdom (React rendering, hooks).
 export default defineConfig({
   test: {
     environment: "jsdom",
     environmentMatchGlobs: [
-      ["scripts/**", "node"],
+      ["packages/blocks-cli/scripts/**", "node"],
     ],
     include: [
-      "src/**/*.test.{ts,tsx,js}",
-      "scripts/**/*.test.ts",
+      "packages/*/src/**/*.test.{ts,tsx,js}",
+      "packages/blocks-cli/scripts/**/*.test.ts",
     ],
     globals: true,
   },

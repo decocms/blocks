@@ -34,12 +34,19 @@ npx playwright install
 
 ### Extremely slow first request (10s+ TTFB)
 
-**Cause:** Deco/Fresh lazily loads imports on the first request after server start. This means the first request triggers all module loading, causing artificially high latency that doesn't reflect real-world performance.
+**Cause:** Dev servers (Vite for TanStack Start, Next.js's dev server) lazily
+compile/transform modules on the first request after start — the first
+request triggers on-demand compilation of the route graph, causing
+artificially high latency that doesn't reflect real-world performance. (This
+is the modern equivalent of the old Fresh/Deno "lazy import" cold start —
+same symptom, different mechanism, since neither TanStack nor Next.js sites
+run on Deno/Fresh anymore.)
 
 **Symptoms:**
 - First test shows TTFB of 10-30+ seconds
 - Subsequent tests are much faster
-- Only happens right after `deno task dev`
+- Only happens right after starting the dev server (`npm run dev` /
+  `bun run dev`)
 - "No products loaded" if test times out during warmup
 
 **Fix:** Add server warmup in `test.beforeAll`:
@@ -76,11 +83,12 @@ test.beforeAll(async () => {
 
 **Diagnosis:**
 ```bash
-# Check if server is running
-curl -v http://localhost:8000/deco/_liveness
+# Check if server is running (default dev ports: TanStack Start/Vite = 5173, Next.js = 3000)
+curl -v http://localhost:5173/deco/_liveness   # TanStack Start
+curl -v http://localhost:3000/deco/_liveness   # Next.js
 
 # Check server logs for errors
-deno task dev
+npm run dev   # or: bun run dev
 ```
 
 **Fix:** Increase liveness retry count and timeout:
@@ -125,13 +133,16 @@ await fetch(`${baseUrl}/?__d`, {
 **Diagnosis:**
 ```bash
 # Check if site is accessible
-curl -I https://localhost--yoursite.deco.site
+curl -I http://localhost:5173   # TanStack Start (Vite)
+curl -I http://localhost:3000   # Next.js
 
 # Check if dev server is running
-deno task dev
+npm run dev   # or: bun run dev
 ```
 
-**Fix:** Start the dev server and ensure tunnel is active.
+**Fix:** Start the dev server (`npm run dev` / `bun run dev`, per the site's
+`package.json`) and, if the site is only reachable through a tunnel (e.g. for
+mobile device testing or a hosted preview), ensure the tunnel is active.
 
 ### Products not loading on PLP
 
@@ -381,26 +392,29 @@ await page.waitForTimeout(3000)
 **Cause:** When tests are stopped with Ctrl+C or fail midway, the dev server process may not be properly terminated.
 
 **Symptoms:**
-- Next test run fails because port 8000 is already in use
-- Multiple `deno` processes running in background
+- Next test run fails because the dev port is already in use (default:
+  `5173` for TanStack Start/Vite, `3000` for Next.js)
+- Multiple `vite`/`next dev` processes running in background
 - "Address already in use" errors
 
 **Check for lingering processes:**
 ```bash
-# Find processes on port 8000
-lsof -i :8000
+# Find processes on the dev port
+lsof -i :5173   # TanStack Start (Vite)
+lsof -i :3000   # Next.js
 
-# Find deno processes
-ps aux | grep deno
+# Find lingering dev-server processes
+ps aux | grep -E "vite|next dev"
 ```
 
 **Kill lingering processes:**
 ```bash
 # Kill by port
-kill $(lsof -t -i :8000)
+kill $(lsof -t -i :5173)   # or :3000 for Next.js
 
-# Or kill all deno processes (careful!)
-pkill -f "deno task dev"
+# Or kill all matching dev processes (careful!)
+pkill -f "vite dev"
+pkill -f "next dev"
 ```
 
 **Prevention:** The run-e2e.ts script handles cleanup automatically via:
@@ -414,33 +428,57 @@ If cleanup still fails, check that the script is using the latest version with s
 
 ## Lazy Section Issues
 
+> **Note:** current TanStack Start / Next.js sites don't fetch sections via
+> `/deco/render` while browsing (that endpoint is now admin-preview-only —
+> see SKILL.md's "Lazy Section Tracking" section). Lazy/deferred sections are
+> tracked via the `data-manifest-key` / `data-deferred` DOM attributes
+> instead. The issues below are reframed around that mechanism.
+
 ### Lazy sections "hanging" or not loading
 
-**Cause:** Lazy sections (`/deco/render` requests) can hang if they are triggered too quickly before the previous one completes, or if the server is overloaded.
+**Cause:** A deferred section's `IntersectionObserver` fires but its
+resolution (SSR-streamed `Await`, or the deprecated
+`loadDeferredSection` server-fn fallback used during SPA navigation) never
+completes — e.g. a slow upstream loader, or the section's promise rejecting
+without a caught error boundary.
 
 **Symptoms:**
-- Test times out waiting for footer
-- Some sections never appear
-- Console shows "Waiting for pending render..."
+- Test times out waiting for footer / a specific section
+- Some sections keep `data-deferred="true"` indefinitely
+- Console shows a `[CMS] Deferred section cache miss` warning (from
+  `packages/tanstack/src/routes/cmsRoute.ts`) if the SPA-nav fallback can't
+  find cached raw props
 
-**Fix:** Use the strict queue approach in `scrollPage`:
+**Fix:** Poll for `data-deferred` disappearing per section rather than
+waiting on a network response, and cap the wait:
 
 ```typescript
-// STRICT: Never scroll while there's a pending request
-if (this.pendingLazyRenders > 0) {
-    console.log(`Waiting for ${this.pendingLazyRenders} pending render...`)
-    await this.waitForPendingRenders(8000)
-}
+// Never assume all sections resolve — cap the wait per section.
+await page.waitForFunction(
+    (key) => {
+        const el = document.querySelector(`[data-manifest-key="${key}"]`)
+        return el && !el.hasAttribute('data-deferred')
+    },
+    manifestKey,
+    { timeout: 8000 },
+).catch(() => console.log(`Section ${manifestKey} still deferred after 8s`))
 ```
 
 ### Lazy section names showing as "Unknown Section"
 
-**Cause:** The section name extraction couldn't find a meaningful identifier.
+**Cause:** The element you're inspecting doesn't have a `data-manifest-key`
+attribute, or you're looking at a nested element instead of the `<section>`
+wrapper that carries it.
 
 **Fixes:**
-1. Ensure your Deco runtime sends `x-deco-section` header (see SKILL.md)
-2. Check that sections have `__resolveType` or title props
-3. The metrics collector falls back through: x-deco-section header → props parsing → sectionId → resolveChain → renderSalt
+1. Query the wrapper element directly: `[data-manifest-key]`, not a child.
+2. `data-manifest-key` is the section's registry key (e.g.
+   `site/sections/Hero.tsx`) — see `DecoPageRenderer.tsx` (TanStack) or
+   `SectionRenderer.tsx`/`DeferredSection.tsx` (Next.js) for exactly how it's
+   derived from `section.key` / `deferred.key`.
+3. There is no header-based fallback anymore (`x-deco-section` doesn't
+   exist) — if `data-manifest-key` is missing, the section markup itself is
+   the problem, not a missing header.
 
 ### Too many lazy sections slowing down tests
 
@@ -539,9 +577,10 @@ private withDebug(path: string): string {
 
 ```typescript
 const metrics = await collector.collectPageMetrics('Page Name')
-// metrics.cacheAnalysis contains all lazy render and cache data
-// metrics.serverTiming contains all loader timings
-// metrics.decoHeaders contains page block and route info
+// metrics.cacheAnalysis contains deferred-section (data-manifest-key /
+// data-deferred) and page-cache data
+// metrics.serverTiming contains loader timings (usually empty — see
+// metrics-collector.ts's LoaderTiming doc comment)
 ```
 
 ---
