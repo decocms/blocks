@@ -21,6 +21,16 @@
  * compiled and shipped as part of the site's application code, so it lives
  * in `src/` alongside the code it's compiled with, not in `.deco/`.
  *
+ * This is empirically load-bearing, not taste (tested 2026-07-08 on a real
+ * site): with the file moved to `.deco/invoke.gen.ts`, the CLIENT half of
+ * the Start compiler works fine (stubs generated, IDs re-derived from the
+ * new path), but the SERVER half cannot resolve the split module back to an
+ * executable handler — every `/_serverFn/...` call returns an unhandled 500
+ * with no logged stack, i.e. every cart/session/MasterData action dies.
+ * Same site, file back under `src/`: identical RPC probe returns 200 with a
+ * real VTEX orderForm. Do not move this default without re-running that
+ * round-trip test end to end.
+ *
  * Usage (from site root):
  *   npx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts
  *
