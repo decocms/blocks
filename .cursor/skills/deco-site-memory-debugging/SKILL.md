@@ -1,6 +1,6 @@
 ---
 name: deco-site-memory-debugging
-description: Debug memory issues on current deco-start sites. Cloudflare Workers (@decocms/tanstack) sites are diagnosed via the tail-worker exceededMemory/exceededCpu capture in ClickHouse plus wrangler tail/dev — there is no live production process to attach to. Node/RSC (@decocms/nextjs) sites use Node's own --inspect CDP flow (process.memoryUsage(), forced GC, heap snapshots).
+description: Debug memory issues on current blocks sites. Cloudflare Workers (@decocms/tanstack) sites are diagnosed via the tail-worker exceededMemory/exceededCpu capture in ClickHouse plus wrangler tail/dev — there is no live production process to attach to. Node/RSC (@decocms/nextjs) sites use Node's own --inspect CDP flow (process.memoryUsage(), forced GC, heap snapshots).
 ---
 
 # Deco Site Memory Debugging
@@ -15,7 +15,7 @@ Two runtime targets, two different diagnostic stories — pick the section that 
 > **Superseded content.** This skill previously assumed Deno-on-Kubernetes
 > (`Deno.memoryUsage()`, CDP over `kubectl port-forward` into a pod's port
 > 9229, Deno-specific V8 inspector quirks). That deployment model does not
-> exist for current deco-start sites — neither Cloudflare Workers nor
+> exist for current blocks sites — neither Cloudflare Workers nor
 > Node/RSC exposes `Deno.memoryUsage()` or lives in a `kubectl`-managed
 > pod. `cdp-connection.md` and `memory-analysis.md` are now written for
 > **Node/RSC (`@decocms/nextjs`)** specifically; if you're debugging a
@@ -148,7 +148,7 @@ This repo does not prescribe a hosting/orchestration layer for
 orchestrator, forward its inspector port (9229 by default) the way that
 infra provides today (`docker exec` + published port, an SSH tunnel, or
 your PaaS's own port-forwarding CLI). There is no `kubectl`-specific step
-here because deco-start itself makes no Kubernetes assumption for the
+here because blocks itself makes no Kubernetes assumption for the
 Node/RSC target.
 
 ## Key Concept: GC is Lazy (Node/RSC target)

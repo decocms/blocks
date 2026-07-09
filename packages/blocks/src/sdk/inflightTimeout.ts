@@ -42,7 +42,7 @@ export function withInflightTimeout<T>(
     timer = setTimeout(() => {
       reject(
         new Error(
-          `[deco-start] inflight cache entry "${label}" timed out after ${ms}ms`,
+          `[blocks] inflight cache entry "${label}" timed out after ${ms}ms`,
         ),
       );
     }, ms);

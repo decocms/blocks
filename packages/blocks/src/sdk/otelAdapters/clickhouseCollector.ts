@@ -60,6 +60,6 @@ export function createClickhouseCollectorAdapter(_options: ClickhouseCollectorOp
       "Until then, use Cloudflare-native observability " +
       "(observability.{logs,traces} in wrangler.jsonc) plus the Workers " +
       "Analytics Engine meter wired by instrumentWorker(). Track progress " +
-      "at https://github.com/decocms/deco-start/issues.",
+      "at https://github.com/decocms/blocks/issues.",
   );
 }

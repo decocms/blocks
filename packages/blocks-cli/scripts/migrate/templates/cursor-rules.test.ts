@@ -14,12 +14,12 @@ describe("generateMigrationPolicyPointerRule", () => {
 		expect(body).toContain("`acme`");
 	});
 
-	it("links to the canonical rule and plan in decocms/deco-start", () => {
+	it("links to the canonical rule and plan in decocms/blocks", () => {
 		expect(body).toContain(
-			"https://github.com/decocms/deco-start/blob/main/.cursor/rules/migration-tooling-policy.mdc",
+			"https://github.com/decocms/blocks/blob/main/.cursor/rules/migration-tooling-policy.mdc",
 		);
 		expect(body).toContain(
-			"https://github.com/decocms/deco-start/blob/main/MIGRATION_TOOLING_PLAN.md",
+			"https://github.com/decocms/blocks/blob/main/MIGRATION_TOOLING_PLAN.md",
 		);
 	});
 
@@ -38,7 +38,7 @@ describe("generateMigrationPolicyPointerRule", () => {
 
 	it("does NOT restate the canonical rule body verbatim (pointer, not a copy)", () => {
 		// Length budget: pointer must stay short to discourage drift.
-		// The canonical rule in decocms/deco-start is ~110 lines / 4–5 KB;
+		// The canonical rule in decocms/blocks is ~110 lines / 4–5 KB;
 		// the pointer must be substantially smaller than a copy.
 		expect(body.length).toBeLessThan(3000);
 	});

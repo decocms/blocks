@@ -43,7 +43,7 @@ types.ts                         →    @decocms/start/types
 
 ## What @decocms/start Provides
 
-The `deco-start` package (`@decocms/start`) IS the TanStack equivalent of `website/`:
+The blocks framework's `@decocms/start` package IS the TanStack equivalent of `website/`:
 
 | Capability | website/ | @decocms/start |
 |-----------|----------|----------------|

@@ -14,7 +14,7 @@ name: regen-blocks (central)
 #     contents: write
 #   jobs:
 #     regen:
-#       uses: decocms/deco-start/.github/workflows/regen-blocks.yml@v2
+#       uses: decocms/blocks/.github/workflows/regen-blocks.yml@v2
 #       secrets: inherit
 
 on:

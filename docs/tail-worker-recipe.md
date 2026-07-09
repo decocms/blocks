@@ -97,7 +97,7 @@ feat(observability): adopt deco-otel-tail + drop logs sampling to 1%
   errors are covered by the direct-POST + tail channels.
 
 Implements Strategy B (D-8) for this site. See
-decocms/deco-start/docs/observability.md, "Error capture — three-channel
+decocms/blocks/docs/observability.md, "Error capture — three-channel
 model" for the coverage matrix.
 ```
 
@@ -140,7 +140,7 @@ Open per-site PRs in batches of 10–20 to keep CI load manageable and to
 make it easy to roll back a batch if a regression sneaks in. The change
 is mechanically identical across all sites, so a single shared template
 can be used. Track adoption state in a fleet-rollout issue on
-[`decocms/deco-start`](https://github.com/decocms/deco-start/issues) so
+[`decocms/blocks`](https://github.com/decocms/blocks/issues) so
 it's a single source of truth for who's onboarded.
 
 ## When NOT to use this recipe

@@ -2,7 +2,7 @@
  * Cursor rule scaffolding for migrated sites.
  *
  * The canonical migration tooling policy (D1–D5, priorities, process)
- * lives in `decocms/deco-start`. We don't duplicate it into every site
+ * lives in `decocms/blocks`. We don't duplicate it into every site
  * — that would drift the moment the canonical changes. Instead the
  * migration scaffolds a tiny pointer rule, marked `alwaysApply: true`,
  * that loads on every agent session inside the migrated site and tells
@@ -35,11 +35,11 @@ alwaysApply: true
 ## Where to read
 
 - **Rule (always-applied) — full text:**
-  https://github.com/decocms/deco-start/blob/main/.cursor/rules/migration-tooling-policy.mdc
+  https://github.com/decocms/blocks/blob/main/.cursor/rules/migration-tooling-policy.mdc
 - **Plan (living tracker, decisions + waves):**
-  https://github.com/decocms/deco-start/blob/main/MIGRATION_TOOLING_PLAN.md
+  https://github.com/decocms/blocks/blob/main/MIGRATION_TOOLING_PLAN.md
 - **Migration skill (phase playbook):**
-  https://github.com/decocms/deco-start/blob/main/.agents/skills/deco-to-tanstack-migration/SKILL.md
+  https://github.com/decocms/blocks/blob/main/.agents/skills/deco-to-tanstack-migration/SKILL.md
 
 ## What you need to know in this site
 

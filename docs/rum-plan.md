@@ -185,7 +185,7 @@ document gets a follow-up PR turning answers into TODOs.
 ## Files this plan would touch (Tier 1)
 
 ```
-deco-start/
+blocks/
 ├── src/sdk/rum.ts                  # NEW — browser-side instrumentation
 ├── src/sdk/rum.server.ts           # NEW — /__deco/rum handler
 ├── src/admin/setup.ts              # ROUTE — mount /__deco/rum

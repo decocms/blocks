@@ -269,4 +269,4 @@ if (isDev) return { staleTime: 5_000, gcTime: 30_000 };
 | `deco-cms-layout-caching` | Cache layout sections (Header/Footer) to avoid redundant API calls |
 | `deco-api-call-dedup` | In-flight deduplication for VTEX API calls |
 | `deco-cms-route-config` | CMS route configuration in `@decocms/start` |
-| `deco-tanstack-storefront-patterns` | General patterns for deco-start storefronts |
+| `deco-tanstack-storefront-patterns` | General patterns for blocks storefronts |

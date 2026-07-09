@@ -14,7 +14,7 @@ Two real sources document past incidents/fixes in this repo:
 1. **`CHANGELOG.md`** (repo root) — human-curated, includes at least one
    behavior-change entry that reads like an incident writeup: "Unreleased —
    Admin async (⚡) toggle is the source of truth for deferral" (fixes
-   [#266](https://github.com/decocms/deco-start/issues/266) — sections were
+   [#266](https://github.com/decocms/blocks/issues/266) — sections were
    silently rendering client-side due to position-based auto-deferral).
 2. **`git log`** — commit messages tagged `fix(...)` are past incident
    fixes. Example: `a3f9b9c test(cms): add regression test for the

@@ -262,7 +262,7 @@ need it.
 - `apps-start/vtex/hooks/createUseCart.ts` /
   `createUseUser.ts` / `createUseWishlist.ts` — the platform factories
   themselves; each docstring is the authoritative API reference.
-- `deco-start/src/sdk/useSuggestions.ts` — the
+- `blocks/src/sdk/useSuggestions.ts` — the
   `createUseSuggestions` factory (framework layer, platform-agnostic).
 - `references/platform-hooks/README.md` — historical reference for the
   pre-W12 manual approach (kept for sites that haven't migrated yet).
