@@ -14,7 +14,8 @@
     "./vite": "./src/vite/plugin.js",
     "./daemon": "./src/daemon/index.ts",
     "./sdk/createInvoke": "./src/sdk/createInvoke.ts",
-    "./sdk/cookiePassthrough": "./src/sdk/cookiePassthrough.ts"
+    "./sdk/cookiePassthrough": "./src/sdk/cookiePassthrough.ts",
+    "./sdk/deferredSectionLoader": "./src/sdk/deferredSectionLoader.ts"
   },
   "scripts": {
     "build": "tsc",
