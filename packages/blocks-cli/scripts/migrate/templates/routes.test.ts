@@ -13,12 +13,13 @@ function makeCtx(platform: MigrationContext["platform"]): MigrationContext {
 
 /**
  * Regression guard: the scaffolded deco admin route files must use the
- * dev-HMR-safe `*RouteConfig()` factories, never the shared module-scope
- * literals passed by reference. router-core's `update()` mutates the options
- * object it receives (injects id/path); a shared literal gets polluted on
- * first execution, and any dev-HMR re-execution of the route file then throws
+ * dev-HMR-safe `*RouteConfig()` factories — the only form @decocms/tanstack
+ * exports since 7.10.0 — never the removed pre-7.10.0 module-scope literals
+ * passed by reference. router-core's `update()` mutates the options object it
+ * receives (injects id/path); a shared literal got polluted on first
+ * execution, and any dev-HMR re-execution of the route file then threw
  * "Route cannot have both an 'id' and a 'path' option", 500ing every route
- * until the dev server restarts.
+ * until the dev server restarted.
  */
 describe("scaffolded deco admin routes use HMR-safe factories", () => {
   const routeCases = [

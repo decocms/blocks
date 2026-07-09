@@ -1,12 +1,9 @@
 /**
  * Admin Route Helpers
  *
- * Pre-built server handler configs for the Deco admin protocol routes.
- * Sites use these in their `createFileRoute` definitions to avoid
+ * Pre-built server handler config factories for the Deco admin protocol
+ * routes. Sites call these in their `createFileRoute` definitions to avoid
  * repeating the same CORS + handler boilerplate.
- *
- * Prefer the `*RouteConfig()` factories — they return a FRESH options
- * object per call, which is required for dev-HMR safety (see below).
  *
  * @example Site's `src/routes/deco/meta.ts`:
  * ```ts
@@ -16,19 +13,20 @@
  * export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
  * ```
  *
- * ## Why factories? (dev-HMR footgun with the shared literals)
+ * ## Why factories and not shared config objects? (dev-HMR footgun)
  *
  * TanStack router-core's `BaseRoute.update()` MUTATES the options object it
  * receives (`Object.assign(this.options, options)` — injecting `id` and
- * `path`). If a site passes one of the module-scope literals below by
- * reference (`createFileRoute("/deco/meta")(decoMetaRoute)`), the first
- * execution pollutes the shared literal. On any dev-server HMR partial
- * re-execution the route file re-runs against the still-cached, now-polluted
- * literal and the route constructor throws
- * `Route cannot have both an 'id' and a 'path' option` — every route 500s
- * until the dev server restarts. The factories (or spreading the literal:
- * `({ ...decoMetaRoute })`) hand each `createFileRoute` call its own object,
- * so the mutation is harmless.
+ * `path`). Before 7.10.0 this module exported the configs as module-scope
+ * LITERALS (`decoMetaRoute` / `decoRenderRoute` / `decoInvokeRoute`); a site
+ * passing one by reference (`createFileRoute("/deco/meta")(decoMetaRoute)`)
+ * polluted the shared literal on first execution, and any dev-server HMR
+ * partial re-execution then re-ran the route file against the still-cached,
+ * now-polluted literal — the route constructor threw
+ * `Route cannot have both an 'id' and a 'path' option` and every route 500ed
+ * until the dev server restarted. The factories hand each `createFileRoute`
+ * call its own fresh object, so the mutation is harmless. The base configs
+ * below are module-private and deliberately NOT exported.
  */
 import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/blocks-admin";
 import { withTracing } from "@decocms/blocks/sdk/observability";
@@ -71,15 +69,15 @@ function optionsHandler(ctx: { request: Request }): Response {
   });
 }
 
-/**
- * Route config literal for `/deco/meta` — serves JSON Schema + manifest.
- *
- * FOOTGUN: never pass this by reference (`createFileRoute(...)(decoMetaRoute)`) —
- * router-core's `update()` mutates it (injects `id`/`path`) and dev HMR then
- * bricks every route until restart. Spread it (`{ ...decoMetaRoute }`) or use
- * {@link decoMetaRouteConfig} instead.
- */
-export const decoMetaRoute = {
+// ---------------------------------------------------------------------------
+// Base configs — module-PRIVATE. Never export these: router-core's update()
+// mutates whatever object createFileRoute is handed (injects id/path), so a
+// shared exported literal bricks dev HMR (see module doc above). Sites get
+// fresh copies via the *RouteConfig() factories below.
+// ---------------------------------------------------------------------------
+
+/** Base config for `/deco/meta` — serves JSON Schema + manifest. */
+const decoMetaRoute = {
   server: {
     handlers: {
       GET: withCors(({ request }) =>
@@ -90,15 +88,8 @@ export const decoMetaRoute = {
   },
 };
 
-/**
- * Route config literal for `/deco/render` — section/page preview in iframe.
- *
- * FOOTGUN: never pass this by reference (`createFileRoute(...)(decoRenderRoute)`) —
- * router-core's `update()` mutates it (injects `id`/`path`) and dev HMR then
- * bricks every route until restart. Spread it (`{ ...decoRenderRoute }`) or use
- * {@link decoRenderRouteConfig} instead.
- */
-export const decoRenderRoute = {
+/** Base config for `/deco/render` — section/page preview in iframe. */
+const decoRenderRoute = {
   server: {
     handlers: {
       GET: withCors(({ request }) =>
@@ -120,15 +111,8 @@ export const decoRenderRoute = {
   },
 };
 
-/**
- * Route config literal for `/deco/invoke/$` — loader/action execution.
- *
- * FOOTGUN: never pass this by reference (`createFileRoute(...)(decoInvokeRoute)`) —
- * router-core's `update()` mutates it (injects `id`/`path`) and dev HMR then
- * bricks every route until restart. Spread it (`{ ...decoInvokeRoute }`) or use
- * {@link decoInvokeRouteConfig} instead.
- */
-export const decoInvokeRoute = {
+/** Base config for `/deco/invoke/$` — loader/action execution. */
+const decoInvokeRoute = {
   server: {
     handlers: {
       GET: withCors(({ request }) =>
@@ -148,7 +132,7 @@ export const decoInvokeRoute = {
 // Mirrors the `cmsRouteConfig()` / `cmsHomeRouteConfig()` convention in
 // cmsRoute.ts: a function returning a fresh options object, so router-core's
 // mutating `update()` can never pollute shared module state across HMR
-// re-executions. Prefer these over the literals above in site route files.
+// re-executions.
 
 /**
  * Returns a fresh route config for `/deco/meta` — serves JSON Schema + manifest.

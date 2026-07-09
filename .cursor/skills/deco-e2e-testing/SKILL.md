@@ -84,7 +84,7 @@ scripts/
 > and `packages/nextjs` source (2026-07) for
 > `x-deco-section|x-deco-page|x-deco-route|x-deco-platform` returns **zero
 > hits**. `/deco/render` still exists (`packages/blocks-admin/src/admin/render.ts`,
-> wired via `decoRenderRoute` in `packages/tanstack/src/routes/adminRoutes.ts`
+> wired via `decoRenderRouteConfig()` in `packages/tanstack/src/routes/adminRoutes.ts`
 > and the Next.js route handlers in `packages/nextjs`) but it is now the
 > **admin visual-editor preview endpoint only** — it renders a section/page to
 > an HTML string for the CMS iframe and sets no identifying headers at all

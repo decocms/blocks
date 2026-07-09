@@ -8,7 +8,7 @@ description: Configure CMS-driven routes in @decocms/tanstack using cmsRouteConf
 Reusable route configuration factories that live in `@decocms/tanstack`. Sites use thin wrappers that delegate to these factories, keeping route files small and consistent across all Deco sites.
 
 **Import split (two packages, different export-map shapes):**
-- **Runtime functions and components** — `cmsRouteConfig`, `cmsHomeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig`, `decoInvokeRouteConfig` (7.9.1+ factories; the `decoMetaRoute`/`decoRenderRoute`/`decoInvokeRoute` literals remain for back-compat), `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `DecoPageRenderer`, `CmsPage`, `NotFoundPage` — import from `@decocms/tanstack` (package root only; `packages/tanstack/package.json`'s `exports` map has just `.`, `./vite`, `./daemon` — there is no `./routes`, `./hooks`, or `./cms` subpath).
+- **Runtime functions and components** — `cmsRouteConfig`, `cmsHomeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig`, `decoInvokeRouteConfig` (admin-route factories, 7.10.0+; the former `decoMetaRoute`/`decoRenderRoute`/`decoInvokeRoute` literal exports were removed — see the footgun note below), `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `DecoPageRenderer`, `CmsPage`, `NotFoundPage` — import from `@decocms/tanstack` (package root only; `packages/tanstack/package.json`'s `exports` map has just `.`, `./vite`, `./daemon` — there is no `./routes`, `./hooks`, or `./cms` subpath).
 - **Types and SEO/section primitives** — `ResolvedSection`, `DeferredSection`, `PageSeo`, `registerSeoSections`, `extractSeoFromProps`, `extractSeoFromSections`, `resolvePageSeoBlock` — import from `@decocms/blocks/cms`, a separate package.
 
 ## When to Use This Skill
@@ -262,24 +262,28 @@ import { decoInvokeRouteConfig } from "@decocms/tanstack";
 export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRouteConfig());
 ```
 
-### Important: Never Pass the Shared Literals by Reference (dev-HMR footgun)
+### Important: Factories Only — Never Share a Config Object (dev-HMR footgun)
 
-`@decocms/tanstack` also exports module-scope literals (`decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`, kept for back-compat). Never hand one directly to `createFileRoute`:
+From 7.10.0 the admin routes are exported ONLY as the `*RouteConfig()` factories. On ≤7.9.0 the exports were module-scope literals (`decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`) instead — removed because passing one directly to `createFileRoute` bricked dev HMR:
 
 ```typescript
-// BAD — bricks dev HMR: router-core's update() mutates the SHARED literal
-// (Object.assign injects id/path); the first execution pollutes it, and any
-// HMR partial re-execution of this file then throws
+// BAD (≤7.9.0 pattern; the import no longer exists from 7.10.0) — bricks
+// dev HMR: router-core's update() mutates the SHARED literal (Object.assign
+// injects id/path); the first execution pollutes it, and any HMR partial
+// re-execution of this file then throws
 // "Route cannot have both an 'id' and a 'path' option" — every route 500s
 // until the dev server restarts.
 export const Route = createFileRoute("/deco/meta")(decoMetaRoute);
 
-// GOOD — factory returns a fresh object per call (7.9.1+)
+// GOOD — factory returns a fresh object per call (7.10.0+)
 export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
 
-// ALSO FINE — spread the literal into a new object (works on any version)
+// Historical: stuck on ≤7.9.0 (only the literals exist there)? Spread the
+// literal into a new object:
 export const Route = createFileRoute("/deco/meta")({ ...decoMetaRoute });
 ```
+
+The same rule applies to any route options you build yourself: never let two `createFileRoute` calls (or two executions of the same file) share one options object.
 
 ---
 
@@ -297,12 +301,9 @@ export {
   loadDeferredSection,   // Server function for on-scroll section loading
   CmsPage,               // Generic CMS page component
   NotFoundPage,          // Generic 404 component
-  decoMetaRouteConfig,   // Admin meta route config factory (7.9.1+, preferred)
-  decoRenderRouteConfig, // Admin render route config factory (7.9.1+, preferred)
-  decoInvokeRouteConfig, // Admin invoke route config factory (7.9.1+, preferred)
-  decoMetaRoute,         // Admin meta route config literal (back-compat — spread it, never pass by reference)
-  decoRenderRoute,       // Admin render route config literal (back-compat)
-  decoInvokeRoute,       // Admin invoke route config literal (back-compat)
+  decoMetaRouteConfig,   // Admin meta route config factory (7.10.0+)
+  decoRenderRouteConfig, // Admin render route config factory (7.10.0+)
+  decoInvokeRouteConfig, // Admin invoke route config factory (7.10.0+)
   withSiteGlobals,       // Site-wide global sections merge helper
   DecoPageRenderer,      // Section-list renderer (+ deferred-section loading)
   DecoRootLayout,
@@ -320,7 +321,7 @@ export {
 };
 ```
 
-**Not exported from the `@decocms/tanstack` root** (they exist in `packages/tanstack/src/routes/index.ts`'s internal barrel, but that path isn't part of the public `exports` map, so it isn't importable from site code): `CmsRouteOptions`, `Device`, `CmsPagePendingFallback`, `deferredSectionLoader`, `setSectionChunkMap`, `SiteGlobalsLoaderData`. If you need the `Device` type, import it from `@decocms/blocks/sdk/useDevice` instead (a valid subpath in `packages/blocks/package.json`'s `exports` map).
+**Not exported from the `@decocms/tanstack` root** (they exist in `packages/tanstack/src/routes/index.ts`'s internal barrel, but that path isn't part of the public `exports` map, so it isn't importable from site code): `CmsRouteOptions`, `Device`, `CmsPagePendingFallback`, `deferredSectionLoader`, `setSectionChunkMap`, `SiteGlobalsLoaderData`. If you need the `Device` type, import it from `@decocms/blocks/sdk/useDevice` instead (a valid subpath in `packages/blocks/package.json`'s `exports` map). The pre-7.10.0 admin-route literals (`decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute`) were removed entirely — only the factories exist.
 
 ```typescript
 // @decocms/blocks/cms
@@ -351,7 +352,7 @@ TypeScript server needs restart after adding new exports to `package.json`. In V
 
 ### `Route cannot have both an 'id' and a 'path' option`
 
-A route file passed a shared config literal by reference (e.g. `createFileRoute("/deco/meta")(decoMetaRoute)`) and dev HMR re-executed it against the now-mutated literal. Use the factory (`decoMetaRouteConfig()`, 7.9.1+) or spread: `{ ...decoMetaRoute }`. Restart the dev server once after fixing — the polluted module stays cached until then.
+A route file passed a shared config object by reference (e.g. the ≤7.9.0 pattern `createFileRoute("/deco/meta")(decoMetaRoute)`) and dev HMR re-executed it against the now-mutated object. Use the factory (`decoMetaRouteConfig()`, the only exported form since 7.10.0); on ≤7.9.0 spread the literal: `{ ...decoMetaRoute }`. Restart the dev server once after fixing — the polluted module stays cached until then.
 
 ### `Property 'resolvedSections' does not exist on type 'never'`
 

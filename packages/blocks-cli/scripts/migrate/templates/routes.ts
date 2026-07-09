@@ -210,12 +210,13 @@ function NotFoundPage() {
 `;
 }
 
-// The deco admin routes use the `*RouteConfig()` factories, NEVER the shared
-// `decoMetaRoute`/`decoRenderRoute`/`decoInvokeRoute` literals passed by
-// reference: router-core's update() mutates the options object it receives
-// (injects id/path), so a shared literal gets polluted on first execution and
-// any dev-HMR re-execution of the route file then throws "Route cannot have
-// both an 'id' and a 'path' option", 500ing every route until dev restart.
+// The deco admin routes use the `*RouteConfig()` factories — the only form
+// @decocms/tanstack exports since 7.10.0. The pre-7.10.0 module-scope
+// literals (decoMetaRoute/decoRenderRoute/decoInvokeRoute) were removed:
+// passed by reference, router-core's update() mutated the shared object
+// (injecting id/path), and any dev-HMR re-execution of the route file then
+// threw "Route cannot have both an 'id' and a 'path' option", 500ing every
+// route until dev restart.
 
 function generateDecoMeta(): string {
   return `import { createFileRoute } from "@tanstack/react-router";
