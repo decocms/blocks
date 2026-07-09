@@ -85,7 +85,23 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   [/^"apps\/vtex\/types(?:\.ts)?"$/, `"@decocms/apps-vtex/types"`],
   [/^"apps\/vtex\/mod(?:\.ts)?"$/, `"~/types/vtex-app"`],
   // Apps — Shopify (hooks, utils, actions, loaders)
-  [/^"apps\/shopify\/hooks\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/hooks/$1"`],
+  // Shopify hooks were never a real package export — not in the pre-split
+  // @decocms/apps monolith, not in @decocms/apps-shopify today (it ships
+  // no src/hooks/ dir and no ./hooks/* export; verified via `git log
+  // --diff-filter=A -- '**/shopify/hooks/**'` returning nothing across all
+  // history). The legacy migration reference
+  // (.agents/skills/deco-to-tanstack-migration/references/platform-hooks/README.md)
+  // confirms Shopify's useCart/useUser/useWishlist were always meant to be
+  // site-local no-op stubs, and templates/hooks.ts's generateHooks() still
+  // scaffolds them at src/hooks/use{Cart,User,Wishlist}.ts for every
+  // non-VTEX platform (shopify included). Mirror the VTEX rule shape below:
+  // route the three known hook names to the scaffolded local files, same as
+  // "apps/vtex/hooks/useUser" → "~/hooks/useUser" above. Do NOT reintroduce
+  // a generic "apps/shopify/hooks/$1" → "@decocms/apps-shopify/hooks/$1"
+  // fallback — that target has never existed.
+  [/^"apps\/shopify\/hooks\/useUser(?:\.ts)?"$/, `"~/hooks/useUser"`],
+  [/^"apps\/shopify\/hooks\/useCart(?:\.ts)?"$/, `"~/hooks/useCart"`],
+  [/^"apps\/shopify\/hooks\/useWishlist(?:\.ts)?"$/, `"~/hooks/useWishlist"`],
   [/^"apps\/shopify\/utils\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/utils/$1"`],
   [/^"apps\/shopify\/actions\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/actions/$1"`],
   [/^"apps\/shopify\/loaders\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/loaders/$1"`],
