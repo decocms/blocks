@@ -194,8 +194,14 @@ for (let i = 0; i < nonSyncFallbacks.length; i++) {
 lines.push("");
 
 // Metadata map
+// Keep this emitted interface in sync with SectionMetaEntry in
+// @decocms/blocks/cms (applySectionConventions.ts) — every convention the
+// scanner can set on an entry must be declared here, or the generated file
+// fails the site's typecheck (excess-property error) and sites end up
+// hand-patching a file that the next regeneration wipes.
 lines.push("export interface SectionMetaEntry {");
 lines.push("  eager?: boolean;");
+lines.push("  neverDefer?: boolean;");
 lines.push("  cache?: string;");
 lines.push("  layout?: boolean;");
 lines.push("  sync?: boolean;");

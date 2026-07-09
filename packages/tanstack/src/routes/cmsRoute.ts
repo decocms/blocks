@@ -341,35 +341,6 @@ export const loadDeferredSection = createServerFn({ method: "POST" })
   });
 
 // ---------------------------------------------------------------------------
-// Pre-wrapped deferred section loader for IntersectionObserver-based rendering
-// ---------------------------------------------------------------------------
-
-/**
- * Convenience wrapper around `loadDeferredSection` that matches the
- * `loadDeferredSectionFn` prop signature of `DecoPageRenderer`.
- *
- * Pass this directly to `<DecoPageRenderer loadDeferredSectionFn={deferredSectionLoader} />`
- * to enable IntersectionObserver-based lazy loading of deferred sections.
- */
-export const deferredSectionLoader = async ({
-  component,
-  rawProps,
-  pagePath,
-  pageUrl,
-  index,
-}: {
-  component: string;
-  rawProps?: Record<string, unknown>;
-  pagePath: string;
-  pageUrl?: string;
-  index?: number;
-}): Promise<ResolvedSection | null> => {
-  return loadDeferredSection({
-    data: { component, rawProps, pagePath, pageUrl, index },
-  });
-};
-
-// ---------------------------------------------------------------------------
 // Default pending component — shown during SPA navigation while loader runs
 // ---------------------------------------------------------------------------
 

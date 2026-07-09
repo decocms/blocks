@@ -281,6 +281,75 @@ describe("generate-sections --registry", () => {
   }, 30_000);
 });
 
+describe("generate-sections neverDefer convention", () => {
+  // Regression: the scanner recognized `export const neverDefer = true` and
+  // emitted `neverDefer: true` on the section's sectionMeta entry, but the
+  // SectionMetaEntry interface the SAME file declares omitted the field —
+  // so every generated file containing a neverDefer section failed the
+  // site's typecheck (TS2353 excess property), and sites hand-patched the
+  // interface only to have the next regeneration wipe the patch (miess's
+  // .deco/sections.gen.ts carried exactly that TODO). The emitted interface
+  // must match SectionMetaEntry in @decocms/blocks/cms.
+  let tmpDir: string;
+  let sectionsDir: string;
+  let outFile: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-sections-neverdefer-"));
+    sectionsDir = path.join(tmpDir, "sections");
+    outFile = path.join(tmpDir, "out", "sections.gen.ts");
+    fs.mkdirSync(sectionsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("declares neverDefer on the emitted SectionMetaEntry interface and the generated file typechecks + imports", () => {
+    // Mirrors miess's src/sections/Product/SearchResult.tsx.
+    fs.writeFileSync(
+      path.join(sectionsDir, "SearchResult.tsx"),
+      "export const neverDefer = true;\nexport default function SearchResult() { return null; }\n",
+    );
+
+    const { code } = runGenerator(["--sections-dir", sectionsDir, "--out-file", outFile]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    // Entry carries the convention…
+    expect(generated).toMatch(/"site\/sections\/SearchResult\.tsx": \{ neverDefer: true \}/);
+    // …and the interface declares the field (optional boolean, matching
+    // SectionMetaEntry in @decocms/blocks/cms/applySectionConventions.ts).
+    expect(generated).toContain("neverDefer?: boolean;");
+
+    // The actual failure mode was a TYPECHECK error (excess property on the
+    // Record<string, SectionMetaEntry> literal), which a runtime import
+    // through tsx/esbuild would never catch — so run tsc on the output.
+    const tscResult = cp.spawnSync(
+      "npx",
+      ["tsc", "--noEmit", "--strict", "--skipLibCheck", outFile],
+      { encoding: "utf8" },
+    );
+    expect(tscResult.status, tscResult.stdout + tscResult.stderr).toBe(0);
+
+    // And keep the importability guarantee from the earlier template
+    // regression: the file must load as valid TS/ESM with the expected
+    // exports.
+    const checkerFile = path.join(tmpDir, "check-import.mjs");
+    fs.writeFileSync(
+      checkerFile,
+      [
+        `const m = await import(${JSON.stringify(pathToFileURL(outFile).href)});`,
+        `if (m.sectionMeta?.["site/sections/SearchResult.tsx"]?.neverDefer !== true) {`,
+        `  throw new Error("neverDefer entry missing from sectionMeta");`,
+        `}`,
+      ].join("\n"),
+    );
+    const importResult = cp.spawnSync("npx", ["tsx", checkerFile], { encoding: "utf8" });
+    expect(importResult.status, importResult.stderr).toBe(0);
+  }, 60_000);
+});
+
 describe("generate-sections output hygiene (non-registry)", () => {
   let tmpDir: string;
   let sectionsDir: string;

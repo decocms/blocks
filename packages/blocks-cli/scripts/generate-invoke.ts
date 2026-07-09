@@ -55,17 +55,26 @@ function resolveAppsDir(): string {
   const explicit = arg("apps-dir", "");
   if (explicit) return path.resolve(cwd, explicit);
 
-  // Try common locations. Both point at the directory that contains
-  // invoke.ts directly at its root: the installed @decocms/apps-vtex
-  // package (no more vtex/ nesting — that directory IS the package root
-  // now), or a raw apps-start checkout's vtex/ subdirectory as a legacy
-  // fallback for anyone still developing against the pre-split monorepo.
-  const candidates = [
+  // Try common locations: the installed @decocms/apps-vtex package first,
+  // then a raw apps-start checkout's vtex/ subdirectory as a legacy fallback
+  // for anyone still developing against the pre-split monorepo.
+  //
+  // For each root, invoke.ts may sit directly at the root (legacy dev
+  // checkouts) or under src/ — the published @decocms/apps-vtex tarball
+  // ships its sources under src/ (`"files": ["src"]`, `"main":
+  // "./src/index.ts"`), so on any site with npm-installed 7.x packages the
+  // file lives at node_modules/@decocms/apps-vtex/src/invoke.ts. The src/
+  // nesting doesn't affect the emitted imports: relative `./actions/*`
+  // specifiers are rewritten to `@decocms/apps-vtex/actions/*`, which the
+  // package's exports map points back into src/.
+  const roots = [
     path.resolve(cwd, "node_modules/@decocms/apps-vtex"),
     path.resolve(cwd, "../apps-start/vtex"),
   ];
-  for (const c of candidates) {
-    if (fs.existsSync(path.join(c, "invoke.ts"))) return c;
+  for (const root of roots) {
+    for (const c of [root, path.join(root, "src")]) {
+      if (fs.existsSync(path.join(c, "invoke.ts"))) return c;
+    }
   }
   throw new Error("Could not find @decocms/apps-vtex. Use --apps-dir to specify its location.");
 }
