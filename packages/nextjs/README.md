@@ -131,14 +131,58 @@ relative path:
 ```ts
 // src/deco/setup.ts
 import { createNextSetup } from "@decocms/nextjs/setup";
+import blocks from "deco/blocksManifest.gen"; // .deco/blocksManifest.gen.ts — see below
 import { sectionImports, sectionMeta, syncComponents, loadingFallbacks } from "deco/sections.gen";
 
 export const ensureSetup = createNextSetup({
+  blocks,
+  blocksDir: false, // the manifest replaces the runtime fs read
   sections: sectionImports,
   conventions: { meta: sectionMeta, syncComponents, loadingFallbacks },
   meta: () => import("deco/meta.gen.json").then((m) => m.default),
 });
 ```
+
+### Recommended block source: the static-import manifest
+
+`generate-blocks-manifest` (from `@decocms/blocks-cli`) emits
+`.deco/blocksManifest.gen.ts` — a module that **statically imports** every
+`.deco/blocks/*.json` file (raw on-disk filename in the specifier; keys are
+the filename minus `.json`, verbatim, exactly like
+`loadDecofileDirectory`). Passing its default export as `blocks` with
+`blocksDir: false` (as in the snippet above) makes the manifest the sole
+block source and the bootstrap pure — no filesystem access.
+
+Why this is the recommended wiring over the default `blocksDir` runtime
+read:
+
+- **CMS content hot-reloads in `next dev`.** The block JSONs are part of
+  Next's module graph, so editing one (Studio daemon write, sync, manual
+  edit) invalidates the server module graph, re-evaluates the setup module,
+  and rebuilds `createNextSetup`'s memo with the fresh content —
+  ~120–165ms per edit, measured on a 500-block site. The runtime fs read is
+  invisible to the bundler: edits invalidate nothing and dev serves stale
+  content until a restart.
+- **Deploys need no `outputFileTracingIncludes` hack** — the JSON is
+  bundled into the build output instead of read from disk at runtime.
+
+Trade-offs to know about:
+
+- **Content is baked at build time** in production. Studio's
+  `POST /.decofile` still overrides the in-memory snapshot at runtime
+  (live preview/publish keeps working on a warm instance); the baked
+  manifest is the cold-start baseline.
+- **Adding or removing a block *file* requires re-running the generator**
+  (content edits to existing files do not). Wire it into the site's
+  `generate` chain — see the scripts section below.
+
+If you skip the manifest, the default `blocksDir: ".deco/blocks"` runtime
+read still works — just without dev reload, and your deploy must ship the
+directory alongside the server bundle.
+
+Keep the manifest out of any client-reachable import graph (import it only
+from the server-side setup module) so 5MB of CMS JSON never lands in a
+client bundle.
 
 `createNextSetup` returns a **memoized** `ensureSetup()` function — a
 successful bootstrap is cached for the life of the warm serverless
@@ -172,8 +216,8 @@ Two call sites need `ensureSetup()`:
 
 | Option | Purpose |
 | --- | --- |
-| `blocksDir` | Directory of decofile JSON snapshots (`.deco/blocks` by default). Pass `false` to skip filesystem loading entirely (e.g. when all content comes from `blocks`). |
-| `blocks` | Extra/override blocks, merged **over** the directory's blocks. |
+| `blocksDir` | Directory of decofile JSON snapshots (`.deco/blocks` by default), read with a plain fs scan at bootstrap. Pass `false` to skip filesystem loading entirely — the recommended setting when `blocks` carries the static-import manifest (see above). |
+| `blocks` | Extra/override blocks, merged **over** the directory's blocks. Pass the manifest's default export here (with `blocksDir: false`) to make it the sole block source. |
 | `sections` | The lazy section registry — `sectionImports` from `generate-sections --registry` (see below). |
 | `conventions` | `{ meta, syncComponents, loadingFallbacks }` from `sections.gen.ts` — wires the `export const sync/layout/seo/cache/eager/clientOnly` conventions (see below). |
 | `meta` | Lazy admin meta schema loader: `() => import("deco/meta.gen.json").then(m => m.default)`. Wire this even with a trivial schema — without it, `/deco/meta` (and its `/live/_meta` alias) 503s with `"Schema not initialized"`. |
@@ -184,7 +228,7 @@ Two call sites need `ensureSetup()`:
 
 ## 4. `package.json` scripts — non-colliding names
 
-Add two codegen scripts. **Do not name either of these `generate:schema`** —
+Add three codegen scripts. **Do not name any of these `generate:schema`** —
 FastStore sites already own that script name for their own commerce-schema
 codegen, and a collision silently shadows one of the two generators
 depending on script-merge order. Use these names instead:
@@ -193,7 +237,8 @@ depending on script-merge order. Use these names instead:
 {
   "scripts": {
     "generate:deco-meta": "tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
-    "generate:deco-sections": "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts --registry"
+    "generate:deco-sections": "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts --registry",
+    "generate:deco-blocks": "tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks-manifest.ts"
   }
 }
 ```
@@ -215,9 +260,17 @@ site has a reason to put the artifact somewhere else.
   `sectionMeta`/`syncComponents`/`loadingFallbacks`, not the lazy loader map
   `setup.ts` needs for its `sections` option. Defaults to
   `.deco/sections.gen.ts`.
+- `generate:deco-blocks` runs `generate-blocks-manifest.ts`, which emits the
+  static-import blocks manifest (see the recommended-block-source section
+  above) to `.deco/blocksManifest.gen.ts` by default. Regeneration is
+  idempotent — an unchanged block set rewrites nothing, so no-op runs never
+  tickle Next's file watcher.
 
-Run both any time `src/sections/` changes (wire into a `predev`/`prebuild`
-step, or a watch script, as your site prefers).
+Run the first two any time `src/sections/` changes, and
+`generate:deco-blocks` any time a block file is **added or removed** in
+`.deco/blocks/` (content edits to existing files don't need it — the static
+imports pick those up by themselves). Simplest is to wire all three into a
+`predev`/`prebuild` `generate` chain.
 
 ## 5. `src/sections/` — the entry-file convention
 

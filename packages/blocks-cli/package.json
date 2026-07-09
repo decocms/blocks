@@ -20,6 +20,7 @@
   },
   "exports": {
     "./generate-blocks": "./scripts/generate-blocks.ts",
+    "./generate-blocks-manifest": "./scripts/generate-blocks-manifest.ts",
     "./generate-schema": "./scripts/generate-schema.ts",
     "./generate-invoke": "./scripts/generate-invoke.ts",
     "./migrate": "./scripts/migrate.ts",

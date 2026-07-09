@@ -205,6 +205,16 @@ export function decoVitePlugin() {
       // runtime without any module invalidation (which breaks TanStack
       // Start/Router state).
       //
+      // NOTE: @decocms/nextjs takes the opposite approach — a generated
+      // static-import manifest (blocks-cli's generate-blocks-manifest.ts,
+      // wired as `createNextSetup({ blocks, blocksDir: false })`) that makes
+      // the bundler's own module-graph invalidation the content-reload
+      // mechanism. That design is deliberately NOT used here: a spike on
+      // TanStack Start 1.166 × @cloudflare/vite-plugin showed ANY SSR module
+      // invalidation bricks the router (the pre-existing upstream bug called
+      // out above), so this plugin's no-invalidation delta machinery below
+      // stays the TanStack dev-reload path until that's fixed upstream.
+      //
       // Generator is loaded lazily via tsImport (same pattern as the daemon
       // below) so we don't depend on the consumer's TS loader.
       const cwd = process.cwd();
