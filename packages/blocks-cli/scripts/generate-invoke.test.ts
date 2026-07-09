@@ -190,3 +190,81 @@ describe("generate-invoke.ts — output shape", () => {
     expect(generatedOutput).toContain("const result = await simulateCart(data);");
   });
 });
+
+describe("generate-invoke.ts — default --apps-dir resolution", () => {
+  // Regression for the published-tarball layout: @decocms/apps-vtex 7.x
+  // ships its sources under src/ (`"files": ["src"]`), so invoke.ts lives
+  // at node_modules/@decocms/apps-vtex/src/invoke.ts — NOT at the package
+  // root. The old default only probed the root, never resolved on a site
+  // with npm-installed packages, and forced sites to pass
+  // `--apps-dir node_modules/@decocms/apps-vtex/src` by hand (granadobr's
+  // migration workaround). The default must probe <pkg>/invoke.ts first,
+  // then <pkg>/src/invoke.ts.
+
+  function makeSite(layout: "root" | "src"): { siteDir: string; cleanup: () => void } {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gen-invoke-default-"));
+    const siteDir = path.join(tmp, "site");
+    const pkgDir = path.join(siteDir, "node_modules", "@decocms", "apps-vtex");
+    const appsDir = layout === "src" ? path.join(pkgDir, "src") : pkgDir;
+    fs.mkdirSync(path.join(appsDir, "actions"), { recursive: true });
+    fs.writeFileSync(path.join(appsDir, "invoke.ts"), FIXTURE_INVOKE_TS);
+    fs.writeFileSync(path.join(appsDir, "actions", "checkout.ts"), FIXTURE_ACTIONS_CHECKOUT_TS);
+    fs.writeFileSync(path.join(appsDir, "actions", "session.ts"), FIXTURE_ACTIONS_SESSION_TS);
+    fs.writeFileSync(path.join(appsDir, "types.ts"), FIXTURE_TYPES_TS);
+    return { siteDir, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+  }
+
+  it("resolves the published layout (node_modules/@decocms/apps-vtex/src/invoke.ts) without --apps-dir", () => {
+    const { siteDir, cleanup } = makeSite("src");
+    try {
+      const outFile = path.join(siteDir, "src", "server", "invoke.gen.ts");
+      const result = spawnSync("npx", ["tsx", GENERATOR, "--out-file", outFile], {
+        cwd: siteDir,
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const generated = fs.readFileSync(outFile, "utf8");
+      // Relative `./actions/*` imports must still be rewritten to package
+      // subpaths — the exports map points them back into src/, so the src/
+      // nesting must not leak into the emitted specifiers.
+      expect(generated).toContain('from "@decocms/apps-vtex/actions/checkout"');
+      expect(generated).not.toContain("apps-vtex/src/");
+      expect(generated).toContain("export const vtexActions");
+    } finally {
+      cleanup();
+    }
+  }, 30_000);
+
+  it("still resolves invoke.ts at the package root (legacy dev-checkout layout) without --apps-dir", () => {
+    const { siteDir, cleanup } = makeSite("root");
+    try {
+      const outFile = path.join(siteDir, "src", "server", "invoke.gen.ts");
+      const result = spawnSync("npx", ["tsx", GENERATOR, "--out-file", outFile], {
+        cwd: siteDir,
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const generated = fs.readFileSync(outFile, "utf8");
+      expect(generated).toContain('from "@decocms/apps-vtex/actions/checkout"');
+      expect(generated).toContain("export const vtexActions");
+    } finally {
+      cleanup();
+    }
+  }, 30_000);
+
+  it("fails with a clear error when @decocms/apps-vtex cannot be found", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gen-invoke-missing-"));
+    try {
+      const outFile = path.join(tmp, "src", "server", "invoke.gen.ts");
+      const result = spawnSync("npx", ["tsx", GENERATOR, "--out-file", outFile], {
+        cwd: tmp,
+        encoding: "utf8",
+      });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Could not find @decocms/apps-vtex");
+      expect(result.stderr).toContain("--apps-dir");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
