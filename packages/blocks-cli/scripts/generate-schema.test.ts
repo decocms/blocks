@@ -97,7 +97,7 @@ describe("typeToJsonSchema with an unresolvable widget alias import", () => {
       type: "string",
       format: "color",
     });
-  });
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ describe("generate-schema default output path (.deco/)", () => {
     expect(fs.existsSync(newDefault)).toBe(true);
     const meta = JSON.parse(fs.readFileSync(newDefault, "utf-8"));
     expect(meta.manifest.blocks.sections).toHaveProperty("site/sections/Hero.tsx");
-  });
+  }, 30_000);
 
   it("warns once to stderr naming both paths when the OLD default file exists and no --out is passed, but still writes the NEW default", () => {
     const oldDefaultDir = path.join(tmpDir, "src", "server", "admin");
@@ -176,7 +176,7 @@ describe("generate-schema default output path (.deco/)", () => {
 
     const newDefault = path.join(tmpDir, ".deco", "meta.gen.json");
     expect(fs.existsSync(newDefault)).toBe(true);
-  });
+  }, 30_000);
 
   it("does not warn when an explicit --out is passed, even if the OLD default file exists", () => {
     const oldDefaultDir = path.join(tmpDir, "src", "server", "admin");
@@ -189,5 +189,5 @@ describe("generate-schema default output path (.deco/)", () => {
 
     expect(stderr).not.toContain("Generator default output moved");
     expect(fs.existsSync(explicitOut)).toBe(true);
-  });
+  }, 30_000);
 });

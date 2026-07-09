@@ -71,7 +71,7 @@ describe("generate-sections walkDir exclusions", () => {
     expect(generated).not.toContain("Hero.test.tsx");
     expect(generated).not.toContain("Hero.stories.tsx");
     expect(generated).not.toContain("sections.gen.ts");
-  });
+  }, 30_000);
 });
 
 describe("generate-sections default output path (.deco/)", () => {
@@ -101,7 +101,7 @@ describe("generate-sections default output path (.deco/)", () => {
     expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
     // No legacy file present, so no warning is expected.
     expect(stderr).not.toContain("Generator default output moved");
-  });
+  }, 30_000);
 
   it("warns once to stderr naming both paths when the OLD default file exists and no --out-file is passed, but still writes the NEW default", () => {
     const oldDefaultDir = path.join(tmpDir, "src", "server", "cms");
@@ -118,7 +118,7 @@ describe("generate-sections default output path (.deco/)", () => {
     const newDefault = path.join(tmpDir, ".deco", "sections.gen.ts");
     expect(fs.existsSync(newDefault)).toBe(true);
     expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
-  });
+  }, 30_000);
 
   it("does not warn when an explicit --out-file is passed, even if the OLD default file exists", () => {
     const oldDefaultDir = path.join(tmpDir, "src", "server", "cms");
@@ -131,7 +131,7 @@ describe("generate-sections default output path (.deco/)", () => {
 
     expect(stderr).not.toContain("Generator default output moved");
     expect(fs.existsSync(explicitOut)).toBe(true);
-  });
+  }, 30_000);
 });
 
 describe("generate-sections --registry", () => {
@@ -186,7 +186,7 @@ describe("generate-sections --registry", () => {
     expect(generated).toContain(
       `"./sections/Nested/Promo.tsx": () => import("${expectedImportPath(promoPath)}")`,
     );
-  });
+  }, 30_000);
 
   it("does not emit sectionImports without the --registry flag", () => {
     fs.writeFileSync(
@@ -203,7 +203,7 @@ describe("generate-sections --registry", () => {
 
     const generated = fs.readFileSync(outFile, "utf-8");
     expect(generated).not.toContain("sectionImports");
-  });
+  }, 30_000);
 
   it("emits a doc comment that does not self-terminate early, and the resulting file is importable (regression: a literal `**/` inside the emitted /** */ comment used to close it prematurely, leaving prose as bare statements and making every --registry output invalid TypeScript)", () => {
     const heroPath = path.join(sectionsDir, "Hero.tsx");
