@@ -19,6 +19,7 @@ import vtexSuggestions from "./loaders/intelligentSearch/suggestions";
 import vtexRelatedProducts from "./loaders/legacy/relatedProductsLoader";
 import vtexProductList from "./loaders/productListFull";
 import vtexWorkflowProducts from "./loaders/workflow/products";
+import { registerVtexSchemas } from "./schemas";
 import { VALID_IS_SORTS } from "./utils/intelligentSearch";
 
 export type CommerceLoaderFn = (props: any) => Promise<any>;
@@ -85,6 +86,11 @@ function extractCollectionName(result: any, collectionId: string): string | null
 export function createVtexCommerceLoaders(
 	options?: VtexCommerceLoadersOptions,
 ): Record<string, CommerceLoaderFn> {
+	// Real props schemas for the admin meta. The stub registration that
+	// registerCommerceLoaders() later performs for this returned map never
+	// overwrites these (real-over-stub precedence in the schema registry).
+	registerVtexSchemas();
+
 	const profiles = {
 		listing: options?.cacheProfiles?.listing ?? "listing",
 		product: options?.cacheProfiles?.product ?? "product",

@@ -284,6 +284,23 @@ const REACT_INTERNAL_PROPS = new Set([
   "_store",
 ]);
 
+// Platform types injected at runtime, never configured through the CMS form.
+// Collapsed to a hidden object in typeToJsonSchema (guarded by "is it really
+// the lib declaration" so same-named site types still expand).
+const RUNTIME_INJECTED_TYPES = new Set([
+  "URL",
+  "URLSearchParams",
+  "Request",
+  "Response",
+  "Headers",
+  "AbortSignal",
+  "ReadableStream",
+  "WritableStream",
+  "Blob",
+  "File",
+  "FormData",
+]);
+
 interface GenerationContext {
   outputTypeToLoaderKeys: Map<string, string[]>;
 }
@@ -409,6 +426,18 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
     }
 
     if (type.isObject() || type.isInterface()) {
+      // Runtime-injected platform types (loader `url: URL`, `req: Request`, …)
+      // are not CMS-configurable — hide instead of expanding the whole DOM
+      // interface into the form. Only collapse the real lib types: a site
+      // interface merely NAMED `Request` should still be expanded.
+      const symName = type.getSymbol()?.getName();
+      if (symName && RUNTIME_INJECTED_TYPES.has(symName)) {
+        const declFile = type.getSymbol()?.getDeclarations()?.[0]?.getSourceFile().getFilePath();
+        if (declFile?.includes("typescript/lib/") || declFile?.includes("@types/")) {
+          return { type: "object", hide: "true" };
+        }
+      }
+
       // Record<K,V> → { type: "object", additionalProperties: V-schema }
       const stringIdx = type.getStringIndexType();
       const numberIdx = type.getNumberIndexType();
@@ -434,6 +463,12 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         const decl = prop.getValueDeclaration() ?? prop.getDeclarations()[0];
         if (!decl) continue;
         const propType = prop.getTypeAtLocation(decl);
+
+        // Methods (e.g. URL#toString on platform-ish objects) aren't data —
+        // a pure function type has no place in a props form.
+        if (propType.getCallSignatures().length > 0 && propType.getProperties().length === 0) {
+          continue;
+        }
 
         const tags = getJsDocTags(prop);
         if (tags.ignore) continue;
@@ -527,7 +562,9 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         if (!schema.title) schema.title = name.charAt(0).toUpperCase() + name.slice(1);
 
         properties[name] = schema;
-        if (!prop.isOptional()) required.push(name);
+        // A hidden prop (runtime-injected type, ReactNode, @hide) can never be
+        // filled in by the CMS user — requiring it would deadlock the form.
+        if (!prop.isOptional() && schema.hide !== "true") required.push(name);
       }
 
       const result: any = { type: "object", properties };
@@ -548,7 +585,7 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
   }
 }
 
-function getJsDocTags(symbol: MorphSymbol): Record<string, string> {
+export function getJsDocTags(symbol: MorphSymbol): Record<string, string> {
   const tags: Record<string, string> = {};
   for (const decl of symbol.getDeclarations()) {
     const jsDocs = Node.isJSDocable(decl) ? decl.getJsDocs() : [];

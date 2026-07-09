@@ -9,6 +9,14 @@ dist/
 # below). Scoped narrowly so other packages' *.gen.ts stay ignored.
 !packages/apps-*/src/manifest.gen.ts
 
+# apps-*/schemas.gen.ts is the same kind of committed artifact: real props
+# schemas for the app's loaders/actions, extracted from TS types at
+# build/publish time by blocks-cli's generate-app-schemas.ts ("bun run
+# generate:schemas" from the app package). It must ship in the package —
+# types are erased at runtime, so a clean checkout can't regenerate it on
+# import — and it's what registerAppSchemas() feeds the admin meta.
+!packages/apps-*/src/schemas.gen.ts
+
 # Same story, one specific file: apps-start hand-authors this as a simplified
 # type-stub replacement for real GraphQL codegen output (its own header says
 # so), not a build artifact — confirmed the ONLY non-manifest *.gen.ts file

@@ -68,6 +68,12 @@ export interface LoaderConfig {
   propsSchema: Record<string, any>;
   /** Tags for property matching (e.g., "product-list" enables injection into Product[] props). */
   tags?: string[];
+  /**
+   * Auto-registered placeholder with no real props (see registerCommerceLoaders).
+   * A stub never overwrites a real schema for the same key, regardless of
+   * registration order.
+   */
+  isStub?: boolean;
 }
 
 const loaderRegistry: LoaderConfig[] = [];
@@ -76,6 +82,7 @@ const loaderRegistry: LoaderConfig[] = [];
 export function registerLoaderSchema(config: LoaderConfig) {
   const idx = loaderRegistry.findIndex((l) => l.key === config.key);
   if (idx >= 0) {
+    if (config.isStub && !loaderRegistry[idx].isStub) return;
     loaderRegistry[idx] = config;
   } else {
     loaderRegistry.push(config);
@@ -107,6 +114,8 @@ export interface ActionConfig {
   description?: string;
   icon?: string;
   propsSchema: Record<string, any>;
+  /** Auto-registered placeholder — never overwrites a real schema. See LoaderConfig.isStub. */
+  isStub?: boolean;
 }
 
 const actionRegistry: ActionConfig[] = [];
@@ -115,6 +124,7 @@ const actionRegistry: ActionConfig[] = [];
 export function registerActionSchema(config: ActionConfig) {
   const idx = actionRegistry.findIndex((a) => a.key === config.key);
   if (idx >= 0) {
+    if (config.isStub && !actionRegistry[idx].isStub) return;
     actionRegistry[idx] = config;
   } else {
     actionRegistry.push(config);
@@ -126,6 +136,74 @@ export function registerActionSchemas(configs: ActionConfig[]) {
   for (const config of configs) registerActionSchema(config);
 }
 
+// ---------------------------------------------------------------------------
+// App block schemas — real props generated at app build time
+// ---------------------------------------------------------------------------
+
+/**
+ * Loader keys matching these substrings return product lists — the admin uses
+ * the "product-list" tag to offer them as loader pickers on Product[] props.
+ */
+export function inferLoaderTags(key: string): string[] {
+  if (
+    key.includes("productList") ||
+    key.includes("ProductList") ||
+    key.includes("ProductShelf") ||
+    key.includes("SearchResult")
+  ) {
+    return ["product-list"];
+  }
+  return [];
+}
+
+/**
+ * Props schema of a single loader/action as emitted by blocks-cli's
+ * generate-app-schemas.ts into an app package's src/schemas.gen.ts.
+ * Same shape generate-schema.ts produces for site loaders.
+ */
+export interface BlockPropsSchema {
+  type?: "object";
+  title?: string;
+  description?: string;
+  properties?: Record<string, any>;
+  required?: string[];
+  additionalProperties?: boolean;
+  /** Any other JSON Schema keyword or JSDoc passthrough tag (nullable, …). */
+  [keyword: string]: any;
+}
+
+export interface AppSchemas {
+  namespace: string;
+  loaders?: Record<string, BlockPropsSchema>;
+  actions?: Record<string, BlockPropsSchema>;
+}
+
+/**
+ * Register the real loader/action props schemas an app package generated at
+ * build time (src/schemas.gen.ts). These take precedence over the
+ * `__resolveType`-only stubs auto-registered by registerCommerceLoaders(),
+ * regardless of which side registers first.
+ */
+export function registerAppSchemas(app: AppSchemas): void {
+  const loaderConfigs: LoaderConfig[] = Object.entries(app.loaders ?? {}).map(([key, schema]) => ({
+    key,
+    title: schema.title || key,
+    namespace: app.namespace,
+    ...(schema.description ? { description: schema.description } : {}),
+    propsSchema: schema,
+    tags: inferLoaderTags(key),
+  }));
+  const actionConfigs: ActionConfig[] = Object.entries(app.actions ?? {}).map(([key, schema]) => ({
+    key,
+    title: schema.title || key,
+    namespace: app.namespace,
+    ...(schema.description ? { description: schema.description } : {}),
+    propsSchema: schema,
+  }));
+  registerLoaderSchemas(loaderConfigs);
+  registerActionSchemas(actionConfigs);
+}
+
 function buildActionDefinitions() {
   const definitions: Record<string, any> = {};
   const manifestBlocks: Record<string, any> = {};
@@ -134,7 +212,7 @@ function buildActionDefinitions() {
     const defKey = toBase64(action.key);
 
     definitions[defKey] = {
-      title: action.key,
+      title: action.title || action.key,
       ...(action.description ? { description: action.description } : {}),
       ...(action.icon ? { icon: action.icon } : {}),
       type: "object",
@@ -147,6 +225,9 @@ function buildActionDefinitions() {
         },
         ...(action.propsSchema?.properties || {}),
       },
+      // Preserved so the admin can tell "props unknown — edit as JSON" (stub)
+      // apart from "takes no input" (real schema without the flag).
+      ...(action.propsSchema?.additionalProperties === true ? { additionalProperties: true } : {}),
     };
 
     manifestBlocks[action.key] = {
@@ -493,7 +574,7 @@ function buildLoaderDefinitions() {
     const defKey = toBase64(loader.key);
 
     definitions[defKey] = {
-      title: loader.key,
+      title: loader.title || loader.key,
       ...(loader.description ? { description: loader.description } : {}),
       ...(loader.icon ? { icon: loader.icon } : {}),
       type: "object",
@@ -506,6 +587,9 @@ function buildLoaderDefinitions() {
         },
         ...(loader.propsSchema?.properties || {}),
       },
+      // Preserved so the admin can tell "props unknown — edit as JSON" (stub)
+      // apart from "takes no input" (real schema without the flag).
+      ...(loader.propsSchema?.additionalProperties === true ? { additionalProperties: true } : {}),
     };
 
     manifestBlocks[loader.key] = {
@@ -544,6 +628,7 @@ function buildMatcherDefinitions() {
         },
         ...(matcher.propsSchema?.properties || {}),
       },
+      ...(matcher.propsSchema?.additionalProperties === true ? { additionalProperties: true } : {}),
     };
     manifestBlocks[matcher.key] = {
       $ref: `#/definitions/${defKey}`,
