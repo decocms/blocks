@@ -70,12 +70,18 @@ function buildSearchParams(
 export interface LegacyPDPOptions {
 	slug: string;
 	skuId?: string;
-	baseUrl: string;
+	/** Base URL for building canonical/absolute links. Defaults to the page URL. */
+	baseUrl?: string;
 	priceCurrency?: string;
 	includeOriginalAttributes?: string[];
 	preferDescription?: boolean;
 	/** When true, pages with ?skuId are still indexable */
 	indexingSkus?: boolean;
+	/**
+	 * Injected by the framework resolver into every commerce loader — not user-configurable.
+	 * @hide true
+	 */
+	__pageUrl?: string;
 }
 
 /**
@@ -90,12 +96,18 @@ export async function legacyProductDetailsPage(
 	const {
 		slug,
 		skuId,
-		baseUrl,
 		priceCurrency = "BRL",
 		includeOriginalAttributes,
 		preferDescription,
 		indexingSkus,
 	} = opts;
+
+	// Ported from deco-cx, where baseUrl came from `req.url`. Here the resolver
+	// injects __pageUrl into every commerce loader instead.
+	const baseUrl = opts.baseUrl ?? opts.__pageUrl;
+	if (!baseUrl) {
+		throw new Error("legacyProductDetailsPage requires baseUrl or __pageUrl");
+	}
 
 	const lowercaseSlug = slug.toLowerCase();
 	const qs = buildSearchParams({});
@@ -156,8 +168,14 @@ export type LegacyProductListQuery =
 
 export interface LegacyProductListOptions {
 	query: LegacyProductListQuery;
-	baseUrl: string;
+	/** Base URL for building canonical/absolute links. Defaults to the page URL. */
+	baseUrl?: string;
 	priceCurrency?: string;
+	/**
+	 * Injected by the framework resolver into every commerce loader — not user-configurable.
+	 * @hide true
+	 */
+	__pageUrl?: string;
 }
 
 function isCollectionQuery(
@@ -233,7 +251,15 @@ function queryToSearchParams(
  * Ported from: vtex/loaders/legacy/productList.ts
  */
 export async function legacyProductList(opts: LegacyProductListOptions): Promise<Product[] | null> {
-	const { query, baseUrl, priceCurrency = "BRL" } = opts;
+	const { query, priceCurrency = "BRL" } = opts;
+
+	// Ported from deco-cx, where baseUrl came from `req.url`. Here the resolver
+	// injects __pageUrl into every commerce loader instead.
+	const baseUrl = opts.baseUrl ?? opts.__pageUrl;
+	if (!baseUrl) {
+		throw new Error("legacyProductList requires baseUrl or __pageUrl");
+	}
+
 	const searchArgs = queryToSearchParams(query);
 	const qs = buildSearchParams(searchArgs);
 
@@ -315,8 +341,8 @@ const getTermFallback = (url: URL, isPage: boolean, hasFilters: boolean) => {
 };
 
 export interface LegacyPLPOptions {
-	/** URL of the page being rendered (used for filter links, pagination, etc.) */
-	url: URL;
+	/** URL of the page being rendered (used for filter links, pagination, etc.). Defaults to __pageUrl. */
+	url?: URL;
 	/** Override the search term (path). Defaults to url.pathname */
 	term?: string;
 	/** Items per page */
@@ -334,14 +360,19 @@ export interface LegacyPLPOptions {
 	map?: string;
 	/** Filter behavior: dynamic (default) or static */
 	filters?: "dynamic" | "static";
-	/** Base URL for building canonical/absolute links */
-	baseUrl: string;
+	/** Base URL for building canonical/absolute links. Defaults to the page URL origin. */
+	baseUrl?: string;
 	priceCurrency?: string;
 	/** Use collection name as page title */
 	useCollectionName?: boolean;
 	/** Ignore case when checking if a facet is selected */
 	ignoreCaseSelected?: boolean;
 	includeOriginalAttributes?: string[];
+	/**
+	 * Injected by the framework resolver into every commerce loader — not user-configurable.
+	 * @hide true
+	 */
+	__pageUrl?: string;
 }
 
 /**
@@ -355,14 +386,20 @@ export async function legacyProductListingPage(
 	opts: LegacyPLPOptions,
 ): Promise<ProductListingPage | null> {
 	const {
-		url,
-		baseUrl,
 		priceCurrency = "BRL",
 		filters: filtersBehavior = "dynamic",
 		ignoreCaseSelected,
 		useCollectionName,
 		includeOriginalAttributes,
 	} = opts;
+
+	// Ported from deco-cx, where the URL came from `req`. Here the resolver
+	// injects __pageUrl into every commerce loader instead.
+	const url = opts.url ?? (opts.__pageUrl ? new URL(opts.__pageUrl) : undefined);
+	if (!url) {
+		throw new Error("legacyProductListingPage requires url or __pageUrl");
+	}
+	const baseUrl = opts.baseUrl ?? url.origin;
 
 	const currentPageOffset = opts.pageOffset ?? 1;
 	const countFromSearchParams = url.searchParams.get("PS");

@@ -545,6 +545,8 @@ const s22: BlockPropsSchema = {
 		},
 		"baseUrl": {
 			"type": "string",
+			"nullable": true,
+			"description": "Base URL for building canonical/absolute links. Defaults to the page URL.",
 			"title": "BaseUrl"
 		},
 		"priceCurrency": {
@@ -573,8 +575,7 @@ const s22: BlockPropsSchema = {
 		}
 	},
 	"required": [
-		"slug",
-		"baseUrl"
+		"slug"
 	]
 };
 const s23: BlockPropsSchema = {
@@ -723,6 +724,8 @@ const s23: BlockPropsSchema = {
 		},
 		"baseUrl": {
 			"type": "string",
+			"nullable": true,
+			"description": "Base URL for building canonical/absolute links. Defaults to the page URL.",
 			"title": "BaseUrl"
 		},
 		"priceCurrency": {
@@ -732,8 +735,7 @@ const s23: BlockPropsSchema = {
 		}
 	},
 	"required": [
-		"query",
-		"baseUrl"
+		"query"
 	]
 };
 const s24: BlockPropsSchema = {
@@ -743,7 +745,8 @@ const s24: BlockPropsSchema = {
 		"url": {
 			"type": "object",
 			"hide": "true",
-			"description": "URL of the page being rendered (used for filter links, pagination, etc.)",
+			"nullable": true,
+			"description": "URL of the page being rendered (used for filter links, pagination, etc.). Defaults to __pageUrl.",
 			"title": "Url"
 		},
 		"term": {
@@ -817,7 +820,8 @@ const s24: BlockPropsSchema = {
 		},
 		"baseUrl": {
 			"type": "string",
-			"description": "Base URL for building canonical/absolute links",
+			"nullable": true,
+			"description": "Base URL for building canonical/absolute links. Defaults to the page URL origin.",
 			"title": "BaseUrl"
 		},
 		"priceCurrency": {
@@ -845,10 +849,7 @@ const s24: BlockPropsSchema = {
 			"nullable": true,
 			"title": "IncludeOriginalAttributes"
 		}
-	},
-	"required": [
-		"baseUrl"
-	]
+	}
 };
 const s25: BlockPropsSchema = {
 	"description": "Fetch legacy autocomplete/search suggestions.",
@@ -881,6 +882,8 @@ const s26: BlockPropsSchema = {
 		},
 		"baseUrl": {
 			"type": "string",
+			"nullable": true,
+			"description": "Base URL for building canonical/absolute links. Defaults to the page URL.",
 			"title": "BaseUrl"
 		},
 		"priceCurrency": {
@@ -909,8 +912,7 @@ const s26: BlockPropsSchema = {
 		}
 	},
 	"required": [
-		"slug",
-		"baseUrl"
+		"slug"
 	]
 };
 const s27: BlockPropsSchema = {
@@ -1058,6 +1060,8 @@ const s27: BlockPropsSchema = {
 		},
 		"baseUrl": {
 			"type": "string",
+			"nullable": true,
+			"description": "Base URL for building canonical/absolute links. Defaults to the page URL.",
 			"title": "BaseUrl"
 		},
 		"priceCurrency": {
@@ -1067,8 +1071,7 @@ const s27: BlockPropsSchema = {
 		}
 	},
 	"required": [
-		"query",
-		"baseUrl"
+		"query"
 	]
 };
 const s28: BlockPropsSchema = {
@@ -1077,7 +1080,8 @@ const s28: BlockPropsSchema = {
 		"url": {
 			"type": "object",
 			"hide": "true",
-			"description": "URL of the page being rendered (used for filter links, pagination, etc.)",
+			"nullable": true,
+			"description": "URL of the page being rendered (used for filter links, pagination, etc.). Defaults to __pageUrl.",
 			"title": "Url"
 		},
 		"term": {
@@ -1151,7 +1155,8 @@ const s28: BlockPropsSchema = {
 		},
 		"baseUrl": {
 			"type": "string",
-			"description": "Base URL for building canonical/absolute links",
+			"nullable": true,
+			"description": "Base URL for building canonical/absolute links. Defaults to the page URL origin.",
 			"title": "BaseUrl"
 		},
 		"priceCurrency": {
@@ -1179,10 +1184,7 @@ const s28: BlockPropsSchema = {
 			"nullable": true,
 			"title": "IncludeOriginalAttributes"
 		}
-	},
-	"required": [
-		"baseUrl"
-	]
+	}
 };
 const s29: BlockPropsSchema = {
 	"type": "object",
