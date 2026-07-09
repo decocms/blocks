@@ -224,6 +224,22 @@ export function decoVitePlugin() {
             tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url),
           )
           .then((mod) => {
+            if (typeof mod.generateBlocks !== "function") {
+              // tsx 4.22.0–4.22.4 has a loader-hook state bug (fixed upstream
+              // in 4.22.5, "isolate hook state per async module.register()
+              // registration"): inside a Vite dev-server process, tsImport
+              // resolves correctly but returns an EMPTY module namespace —
+              // no rejection, no missing-module error. blocks-cli floors its
+              // tsx dependency at ^4.22.5, but a site's own lockfile can pin
+              // a broken copy that hoists above it. Fail with an actionable
+              // message instead of the bare "generateBlocks is not a
+              // function" this used to surface as.
+              throw new Error(
+                "tsImport(@decocms/blocks-cli/generate-blocks) returned an empty module namespace. " +
+                  "This is the tsx 4.22.0–4.22.4 loader-hook bug — check `node -e \"console.log(require('tsx/package.json').version)\"` " +
+                  "and upgrade tsx to >=4.22.5 (e.g. `bun update tsx` or pin a newer tsx in devDependencies).",
+              );
+            }
             genModule = mod;
             return mod;
           });
