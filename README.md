@@ -1,4 +1,4 @@
-# deco-start
+# blocks
 
 Framework layer for [deco.cx](https://deco.cx) storefronts — a Bun workspace monorepo of five packages, split out of the single `@decocms/start` package to give each concern real package boundaries instead of bundled dist tiers.
 

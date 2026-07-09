@@ -226,7 +226,7 @@ JSON consumers can read structured guidance from `meta.fixHints`:
 Symbols not in the table get the generic guidance ("repoint to
 `@decocms/apps/vtex/...` or `apps/commerce/utils/...`") — when you find
 a new one worth pinning down, add it to `STUB_FIX_HINTS` in
-[`scripts/migrate/post-cleanup/rules.ts`](https://github.com/decocms/deco-start/blob/main/scripts/migrate/post-cleanup/rules.ts).
+[`scripts/migrate/post-cleanup/rules.ts`](https://github.com/decocms/blocks/blob/main/scripts/migrate/post-cleanup/rules.ts).
 
 ### Recipe: expanding 1-arg `toProduct(p)` call sites
 

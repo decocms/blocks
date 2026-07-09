@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repo.
 
 ## Project Overview
 
-This is **deco-start**: a Bun workspace monorepo housing the framework layer for [deco.cx](https://deco.cx) storefronts. It used to be a single npm package, `@decocms/start`, published as a tsup-bundled dist tier. That package was reverted at v5.2.2 after tsup bundling caused module-state duplication (two separate module instances of what should have been one singleton — e.g. the CMS registry — existing simultaneously in the same process). This repo is the fix: real package boundaries, plain `.ts` source exports, no bundler in the loop.
+This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo housing the framework layer for [deco.cx](https://deco.cx) storefronts. It used to be a single npm package, `@decocms/start`, published as a tsup-bundled dist tier. That package was reverted at v5.2.2 after tsup bundling caused module-state duplication (two separate module instances of what should have been one singleton — e.g. the CMS registry — existing simultaneously in the same process). This repo is the fix: real package boundaries, plain `.ts` source exports, no bundler in the loop.
 
 **None of these packages are published yet** (all sit at `0.0.0`). Consuming sites link against a local checkout via `bun link` — see "Local dev / linking a site" below.
 

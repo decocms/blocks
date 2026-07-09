@@ -12,7 +12,7 @@ After import rewrites, always test: build → dev → visit pages → test inter
 
 ```bash
 cd apps-start && npm link
-cd ../deco-start && npm link
+cd ../blocks && npm link
 cd ../my-store && npm link @decocms/apps @decocms/start
 ```
 
@@ -190,11 +190,11 @@ GitHub Packages' npm registry (`npm.pkg.github.com`) requires authentication eve
 ```json
 {
   "@decocms/apps": "github:decocms/apps-start",
-  "@decocms/start": "github:decocms/deco-start#main"
+  "@decocms/start": "github:decocms/blocks#main"
 }
 ```
 
-**Important**: The repo name in the `github:` URL must match the actual GitHub repo name, not the npm package name. `@decocms/start` is published from repo `decocms/deco-start`, NOT `decocms/start`.
+**Important**: The repo name in the `github:` URL must match the actual GitHub repo name, not the npm package name. `@decocms/start` was published from repo `decocms/deco-start` (now `decocms/blocks`), NOT `decocms/start`.
 
 **Workaround B (recommended for production)**: Publish to npmjs.com instead. Only npm's public registry supports truly zero-auth public package installation.
 
@@ -209,7 +209,7 @@ Or in project `.npmrc` with an env var (for CI):
 //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
-**Tradeoff with `github:` syntax**: No semver resolution — `npm update` is meaningless. Pin to a tag for stability: `github:decocms/deco-start#v0.14.2`. Without a tag, you get HEAD of the default branch.
+**Tradeoff with `github:` syntax**: No semver resolution — `npm update` is meaningless. Pin to a tag for stability: `github:decocms/blocks#v0.14.2`. Without a tag, you get HEAD of the default branch.
 
 
 ## 46. Deploy / Wrangler Config (interim, D6.3 in flight)
@@ -241,7 +241,7 @@ When the D6.3 replacement lands, expect:
   and CF auto-opens a PR to fix it).
 
 Until then, do NOT scaffold caller stubs that reference
-`decocms/deco-start/.github/workflows/*.yml@vN` — those workflows are
+`decocms/blocks/.github/workflows/*.yml@vN` — those workflows are
 gone.
 
 

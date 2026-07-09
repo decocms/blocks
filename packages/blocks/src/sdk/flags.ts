@@ -18,7 +18,7 @@
  * `btoa(encodeURIComponent(JSON.stringify({ active, inactiveDrawn, pct })))`.
  * - `active` — flag names the visitor was assigned to (`true` branch).
  * - `inactiveDrawn` — flag names drawn but not matched (`false` branch).
- * - `pct` — `{ name: round(traffic*100) }`, a deco-start extension (analytics
+ * - `pct` — `{ name: round(traffic*100) }`, a blocks extension (analytics
  *   ignores unknown fields) used as the re-roll fingerprint: when the operator
  *   changes `traffic` and redeploys, the fingerprint no longer matches and the
  *   visitor is re-rolled once, then re-sticks — same self-healing scheme as
@@ -47,7 +47,7 @@ export interface StoredFlag {
 interface DecoSegment {
   active?: string[];
   inactiveDrawn?: string[];
-  /** deco-start extension: per-flag traffic fingerprint. Ignored by analytics. */
+  /** blocks extension: per-flag traffic fingerprint. Ignored by analytics. */
   pct?: Record<string, number>;
 }
 

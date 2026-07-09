@@ -331,7 +331,7 @@ function hasForceEagerParam(ctx?: MatcherContext): boolean {
  * they CAN hydrate and resolve deferred sections. SPA navigations (TanStack
  * `<Link>` → `/_serverFn`) also send `empty` but set `isClientNavigation`, and
  * are excluded here so page-SEO commerce loaders stay off for humans
- * (decocms/deco-start#286); their sections already render eagerly via the
+ * (decocms/blocks#286); their sections already render eagerly via the
  * `!isClientNav` branch of the `useAsync` gate.
  *
  * Like {@link hasForceEagerParam}, this must stay in lock-step with the edge
@@ -395,7 +395,7 @@ export interface MatcherContext {
    * deferral: deferral is a streaming-SSR optimization, but a client nav
    * receives the server-fn JSON in one shot, so deferral adds a round-trip +
    * skeleton with no benefit (and breaks loaders that need per-request app
-   * context — see decocms/deco-start#277). Set by the route loaders.
+   * context — see decocms/blocks#277). Set by the route loaders.
    */
   isClientNavigation?: boolean;
 }
@@ -667,7 +667,7 @@ export function evaluateMatcher(
 /**
  * Matcher types whose decision must stick per user instead of re-rolling every
  * request. Mirrors the `sticky = "session"` export on the corresponding
- * matchers in @decocms/apps (deco-start re-implements matchers inline, so it
+ * matchers in @decocms/apps (blocks re-implements matchers inline, so it
  * declares the set here rather than importing those exports).
  */
 const STICKY_MATCHER_TYPES = new Set(["website/matchers/random.ts"]);

@@ -1,11 +1,11 @@
 ---
 name: run-migration
-description: Run the deco-start migration script against a target site workspace. Resets the target to its Fresh/Deno state (origin/main), then runs the local migration script. Use for testing migration on real sites.
+description: Run the blocks migration script against a target site workspace. Resets the target to its Fresh/Deno state (origin/main), then runs the local migration script. Use for testing migration on real sites.
 ---
 
 # Run Deco Migration
 
-Runs the migration script from the local `@decocms/start` repo against a target site.
+Runs the migration script from the local `blocks` repo against a target site.
 
 ## How to use
 
@@ -26,7 +26,7 @@ Runs the migration script from the local `@decocms/start` repo against a target 
    rm -rf node_modules package-lock.json
    ```
 
-4. **Run the migration script from local deco-start:**
+4. **Run the migration script from local blocks:**
    ```bash
    cd <target-dir>
    npx tsx /Users/jonasjesus/conductor/workspaces/deco-start/london/scripts/migrate.ts --verbose

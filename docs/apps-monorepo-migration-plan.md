@@ -553,7 +553,7 @@ git commit -m "feat(apps-website): migrate website/ from apps-start (matchers/fl
 grep -n "createInvokeFn" packages/tanstack/src/sdk/createInvoke.ts
 ```
 
-Read the file — it exists in `packages/tanstack/src/sdk/createInvoke.ts` already (per Global Constraints: "lives at `deco-start/packages/tanstack/src/sdk/createInvoke.ts` but isn't exported from `@decocms/tanstack`'s `package.json` `exports` map or root barrel" — confirmed via `casaevideo-tanstack`'s shim README). Add it to `packages/tanstack/src/index.ts`'s barrel export and confirm `packages/tanstack/package.json`'s `exports` map already covers the root `.` path (it should, per existing pattern).
+Read the file — it exists in `packages/tanstack/src/sdk/createInvoke.ts` already (per Global Constraints: "lives at `blocks/packages/tanstack/src/sdk/createInvoke.ts` but isn't exported from `@decocms/tanstack`'s `package.json` `exports` map or root barrel" — confirmed via `casaevideo-tanstack`'s shim README). Add it to `packages/tanstack/src/index.ts`'s barrel export and confirm `packages/tanstack/package.json`'s `exports` map already covers the root `.` path (it should, per existing pattern).
 
 - [ ] **Step 2: Move the vtex files**
 
@@ -1228,7 +1228,7 @@ git commit -m "feat(apps-blog): migrate blog/ from apps-start"
 **Interfaces:**
 - Consumes: `@decocms/apps-vtex` end-to-end, exercising real VTEX API calls through the newly-migrated code path.
 
-- [ ] **Step 1: Whole-workspace verification in deco-start first**
+- [ ] **Step 1: Whole-workspace verification in blocks first**
 
 ```bash
 cd ~/code/deco-start

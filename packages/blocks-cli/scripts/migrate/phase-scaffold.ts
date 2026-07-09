@@ -159,7 +159,7 @@ export function scaffold(ctx: MigrationContext): void {
   }
 
   // Migration tooling policy pointer rule (D1–D5 + priorities).
-  // The canonical rule lives in decocms/deco-start; this is a tiny
+  // The canonical rule lives in decocms/blocks; this is a tiny
   // pointer that loads on every Cursor session in the migrated site
   // so agents working on the site know where the policy is and what
   // it means here. See MIGRATION_TOOLING_PLAN.md (Wave 12-H).

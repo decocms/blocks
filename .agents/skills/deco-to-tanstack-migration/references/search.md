@@ -392,8 +392,8 @@ TanStack Router's `search` is a plain `Record<string, string>` — it **cannot r
 |------|-------|---------|
 | `src/components/search/SearchBar.tsx` | Browser | Search input, form submit, suggestion links |
 | `src/routes/$.tsx` | Router | Catch-all route with `cmsRouteConfig` |
-| `deco-start/src/routes/cmsRoute.ts` | Framework | `loaderDeps`, `loadCmsPage`, URL construction |
-| `deco-start/src/cms/resolve.ts` | Framework | `__pageUrl`/`__pagePath` injection into loaders |
+| `blocks/src/routes/cmsRoute.ts` | Framework | `loaderDeps`, `loadCmsPage`, URL construction |
+| `blocks/src/cms/resolve.ts` | Framework | `__pageUrl`/`__pagePath` injection into loaders |
 | `apps-start/vtex/inline-loaders/productListingPage.ts` | Commerce | VTEX IS API call, URL param reading |
 | `.deco/blocks/pages-search-*.json` | CMS | Page definition for `/s` route |
 | `.deco/blocks.gen.ts` | Build | Compiled CMS blocks (must include search page) |

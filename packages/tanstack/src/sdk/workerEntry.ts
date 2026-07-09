@@ -122,7 +122,7 @@ function appendResourceHints(resp: Response): void {
 
 /**
  * Minimal ExecutionContext interface compatible with Cloudflare Workers.
- * Defined here so deco-start doesn't need @cloudflare/workers-types.
+ * Defined here so blocks doesn't need @cloudflare/workers-types.
  */
 interface WorkerExecutionContext {
   waitUntil(promise: Promise<unknown>): void;

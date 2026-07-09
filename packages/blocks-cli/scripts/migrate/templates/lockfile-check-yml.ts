@@ -7,7 +7,7 @@
  *
  * Lives in the site repo (per-site, not centralised) because per
  * D6.3 we are NOT scaffolding caller stubs that pull in
- * `decocms/deco-start@vN` reusable workflows. The check is small
+ * `decocms/blocks@vN` reusable workflows. The check is small
  * enough that copy-paste-per-site is the right tradeoff.
  *
  * Bun version pinning matches the `packageManager` field in the

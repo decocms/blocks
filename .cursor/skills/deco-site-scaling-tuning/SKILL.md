@@ -9,7 +9,7 @@ description: LEGACY. Discover optimal autoscaling parameters for a Deno/Fresh De
 > Knative Pod Autoscaler (KPA) / HorizontalPodAutoscaler (HPA) via
 > `kubectl`, `Prometheus`, and a per-pod `state` secret. It applies **only**
 > to sites still deployed as Deno processes in Kubernetes pods behind
-> Knative — it does **not** apply to current deco-start sites built on
+> Knative — it does **not** apply to current blocks sites built on
 > `@decocms/tanstack` (Cloudflare Workers, deployed via `wrangler deploy`)
 > or `@decocms/nextjs` (Node/RSC).
 >

@@ -4,7 +4,7 @@ Some Deco storefronts on the Fresh stack picked up htmx as their
 interactivity model — `hx-get`, `hx-post`, `hx-target`, `hx-swap`,
 `hx-on:click`, etc. The TanStack Start / React stack does **not**
 ship an htmx runtime, and per **D2** in the
-[migration tooling policy](https://github.com/decocms/deco-start/blob/main/.cursor/rules/migration-tooling-policy.mdc)
+[migration tooling policy](https://github.com/decocms/blocks/blob/main/.cursor/rules/migration-tooling-policy.mdc)
 we don't add one — every `hx-*` attribute gets rewritten to a React
 equivalent on migration. There is no half-measure adapter package.
 
@@ -66,7 +66,7 @@ attached as an event handler, with no fetch involved.
 > migration script's `transforms` pipeline now runs
 > `htmx-on-event-rename`, which mechanically rewrites
 > `hx-on:click={…}` → `onClick={…}` (and every other standard DOM
-> event in the [STANDARD_EVENT_MAP](https://github.com/decocms/deco-start/blob/main/scripts/migrate/transforms/htmx-on-events.ts)
+> event in the [STANDARD_EVENT_MAP](https://github.com/decocms/blocks/blob/main/scripts/migrate/transforms/htmx-on-events.ts)
 > table) for both colon and dash variants. Handler bodies are
 > preserved verbatim; if the body references Fresh-only globals
 > (`useScript(…)`, `globalThis.window.STOREFRONT`, `STOREFRONT.…`),

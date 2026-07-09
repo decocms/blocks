@@ -10,7 +10,7 @@ How to connect to a Node process's built-in inspector for memory debugging.
 
 ## Prerequisites
 
-- Network access to the Node process's inspector port (default `9229`) — how you get that access depends on your hosting/orchestration layer (see "Reaching the port" below). deco-start does not prescribe a specific host for `@decocms/nextjs`.
+- Network access to the Node process's inspector port (default `9229`) — how you get that access depends on your hosting/orchestration layer (see "Reaching the port" below). blocks does not prescribe a specific host for `@decocms/nextjs`.
 - Python 3 with `websockets` package (`pip3 install websockets`)
 - The Node process must be started with the inspector enabled, or have it enabled at runtime (see Step 1)
 

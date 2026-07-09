@@ -5,7 +5,7 @@ Patterns and fixes discovered while porting and running `espacosmart-storefront`
 
 ## When to Use This Reference
 
-- Debugging runtime errors in a deco-start storefront
+- Debugging runtime errors in a blocks storefront
 - Porting sections that use nested sections (`{ Component, props }`)
 - Configuring dev mode vs production cache behavior
 - Fixing Cloudflare Worker / miniflare errors
@@ -24,7 +24,7 @@ Using `<section.Component {...section.props} />` in React treats the string as a
 
 ### Solution (two layers)
 
-**Engine (`deco-start/src/cms/resolve.ts`)** — `normalizeNestedSections`:
+**Engine (`blocks/src/cms/resolve.ts`)** — `normalizeNestedSections`:
 After resolving top-level section props, recursively walks all props and converts any nested section (objects with `__resolveType` pointing to a registered section) from:
 ```
 { __resolveType: "site/sections/X.tsx", ...props }
@@ -36,7 +36,7 @@ to:
 
 This preserves the same `{ Component, props }` shape as Fresh.
 
-**Renderer (`deco-start/src/hooks/DecoPageRenderer.tsx`)** — `SectionRenderer` / `SectionList`:
+**Renderer (`blocks/src/hooks/DecoPageRenderer.tsx`)** — `SectionRenderer` / `SectionList`:
 Components that accept nested sections import from `@decocms/start/hooks`:
 
 ```typescript

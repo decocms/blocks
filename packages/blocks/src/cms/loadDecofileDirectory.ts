@@ -18,7 +18,7 @@ import { join } from "node:path";
  * passes the on-disk filename through.
  *
  * Replaces the abandoned @decocms/start/node tier's loadAllDecofileBlocks,
- * which no longer exists on any reachable deco-start version — ported
+ * which no longer exists on any reachable blocks version — ported
  * fresh rather than resurrected. Namespace-imported node:fs/promises to
  * match this codebase's existing pattern for Node-only code that must not
  * break Vite/webpack client bundle analysis (see cms/loader.ts's
