@@ -1,6 +1,8 @@
-# CODEOWNERS for decocms/deco-start
+# CODEOWNERS for decocms/blocks
 #
-# Workflows under `.github/workflows/` decide how this package is built,
-# released, and what blocks regeneration sites can trigger. Only the
-# platform team approves changes.
-.github/workflows/                   @vibe-dex
+# Release-critical paths: these decide how the 14 lockstep packages are
+# built, versioned, and published (and what blocks regeneration sites can
+# trigger). Only the owners below approve changes.
+.github/workflows/                   @vibe-dex @tlgimenes
+/.releaserc.json                     @vibe-dex @tlgimenes
+/scripts/sync-versions.mjs           @vibe-dex @tlgimenes
