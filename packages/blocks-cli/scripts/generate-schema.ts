@@ -40,6 +40,17 @@ import { warnLegacyArtifact } from "./lib/legacyArtifact";
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
+//
+// Guarded by isMainModule() (defined below — hoisted, so it's callable up
+// here) so that importing this module for its pure exports
+// (definitionIdForPath, applyWidgetFormat, typeToJsonSchema — see
+// generate-schema.test.ts) never reads argv or touches the filesystem.
+// Without the guard, every import used to run an `fs.existsSync` check
+// against the *importing process's* cwd and could print a legacy-artifact
+// warning to stderr as an import-time side effect, unrelated to whatever
+// the test actually wanted to exercise. generateMeta() (below) and the
+// final write are themselves only reached inside `if (isMainModule())`, so
+// these vars only need real values in that same case.
 // ---------------------------------------------------------------------------
 const argv = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -47,20 +58,33 @@ function arg(name: string, fallback: string): string {
   return idx !== -1 && argv[idx + 1] ? argv[idx + 1] : fallback;
 }
 
-const SITE_NAMESPACE = arg("namespace", "site");
-const SITE_NAME = arg("site", "storefront");
-const FRAMEWORK_VERSION = arg("version", "1.0.0");
-const SECTIONS_REL = arg("sections", "src/sections");
-const LOADERS_REL = arg("loaders", "src/loaders");
-const APPS_REL = arg("apps", "src/apps");
-const SKIP_APPS = argv.includes("--skip-apps");
-const OUT_FILE_EXPLICIT = argv.includes("--out");
 const NEW_DEFAULT_OUT_REL = ".deco/meta.gen.json";
 const OLD_DEFAULT_OUT_REL = "src/server/admin/meta.gen.json";
-const OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
-const PLATFORM = arg("platform", "cloudflare");
-if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_REL))) {
-  warnLegacyArtifact(OLD_DEFAULT_OUT_REL, NEW_DEFAULT_OUT_REL);
+
+let SITE_NAMESPACE = "site";
+let SITE_NAME = "storefront";
+let FRAMEWORK_VERSION = "1.0.0";
+let SECTIONS_REL = "src/sections";
+let LOADERS_REL = "src/loaders";
+let APPS_REL = "src/apps";
+let SKIP_APPS = false;
+let OUT_REL = NEW_DEFAULT_OUT_REL;
+let PLATFORM = "cloudflare";
+
+if (isMainModule()) {
+  SITE_NAMESPACE = arg("namespace", SITE_NAMESPACE);
+  SITE_NAME = arg("site", SITE_NAME);
+  FRAMEWORK_VERSION = arg("version", FRAMEWORK_VERSION);
+  SECTIONS_REL = arg("sections", SECTIONS_REL);
+  LOADERS_REL = arg("loaders", LOADERS_REL);
+  APPS_REL = arg("apps", APPS_REL);
+  SKIP_APPS = argv.includes("--skip-apps");
+  const outFileExplicit = argv.includes("--out");
+  OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
+  PLATFORM = arg("platform", PLATFORM);
+  if (!outFileExplicit && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_REL))) {
+    warnLegacyArtifact(OLD_DEFAULT_OUT_REL, NEW_DEFAULT_OUT_REL);
+  }
 }
 
 // ---------------------------------------------------------------------------
