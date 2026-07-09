@@ -30,7 +30,7 @@ export class KVBlockSource implements BlockSource {
   constructor(
     private readonly kv: KVNamespace,
     /** Deployment id (git commit sha) this source is scoped to. */
-    private readonly deploymentId: string,
+    deploymentId: string,
   ) {
     this.snapshotKey = snapshotKey(deploymentId);
     this.revisionKey = revisionKey(deploymentId);
