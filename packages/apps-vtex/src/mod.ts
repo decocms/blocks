@@ -20,6 +20,7 @@ import type { Secret } from "@decocms/apps-website/mod";
 import { configureVtex, type VtexConfig } from "./client";
 import manifest from "./manifest.gen";
 import { extractVtexContext, propagateISCookies, vtexCacheControl } from "./middleware";
+import { registerVtexSchemas } from "./schemas";
 
 // -------------------------------------------------------------------------
 // CMS Props (mirrors deco-cx/apps/vtex/mod.ts)
@@ -117,6 +118,10 @@ export async function configure(
 	resolveSecret: ResolveSecretFn,
 ): Promise<AppDefinition<VtexState> | null> {
 	if (!block?.account) return null;
+
+	// Real props schemas for the admin meta — must be in place before
+	// setupApps() auto-registers the __resolveType-only stubs.
+	registerVtexSchemas();
 
 	const appKey = await resolveSecret(block.appKey, "VTEX_APP_KEY");
 	const appToken = await resolveSecret(block.appToken, "VTEX_APP_TOKEN");

@@ -1,5 +1,6 @@
 import {
   type ActionConfig,
+  inferLoaderTags,
   type LoaderConfig,
   registerActionSchemas,
   registerLoaderSchemas,
@@ -456,6 +457,9 @@ export function registerCommerceLoaders(loaders: Record<string, CommerceLoader>)
 
   // Auto-register loader + action schemas for the admin manifest.
   // Separate actions (keys containing "/actions/") from loaders.
+  // These are stub registrations (isStub) — a real schema for the same key
+  // (registered via registerAppSchemas from an app's schemas.gen.ts) always
+  // wins, no matter which side registers first.
   const loaderConfigs: LoaderConfig[] = [];
   const actionConfigs: ActionConfig[] = [];
 
@@ -464,7 +468,7 @@ export function registerCommerceLoaders(loaders: Record<string, CommerceLoader>)
     const schema = { type: "object" as const, additionalProperties: true };
 
     if (key.includes("/actions/")) {
-      actionConfigs.push({ key, title: key, namespace, propsSchema: schema });
+      actionConfigs.push({ key, title: key, namespace, propsSchema: schema, isStub: true });
     } else {
       loaderConfigs.push({
         key,
@@ -472,24 +476,13 @@ export function registerCommerceLoaders(loaders: Record<string, CommerceLoader>)
         namespace,
         propsSchema: schema,
         tags: inferLoaderTags(key),
+        isStub: true,
       });
     }
   }
 
   registerLoaderSchemas(loaderConfigs);
   registerActionSchemas(actionConfigs);
-}
-
-function inferLoaderTags(key: string): string[] {
-  if (
-    key.includes("productList") ||
-    key.includes("ProductList") ||
-    key.includes("ProductShelf") ||
-    key.includes("SearchResult")
-  ) {
-    return ["product-list"];
-  }
-  return [];
 }
 
 /** Delete a single commerce loader by key. No-op if key is absent. */

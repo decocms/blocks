@@ -100,13 +100,22 @@ export {
 } from "./sectionMixins";
 export type { ApplySectionConventionsInput, SectionMetaEntry } from "./applySectionConventions";
 export { applySectionConventions } from "./applySectionConventions";
-export type { ActionConfig, LoaderConfig, MatcherConfig, MetaResponse } from "./schema";
+export type {
+  ActionConfig,
+  AppSchemas,
+  BlockPropsSchema,
+  LoaderConfig,
+  MatcherConfig,
+  MetaResponse,
+} from "./schema";
 export {
   composeMeta,
   getRegisteredLoaders,
   getRegisteredMatchers,
+  inferLoaderTags,
   registerActionSchema,
   registerActionSchemas,
+  registerAppSchemas,
   registerLoaderSchema,
   registerLoaderSchemas,
   registerMatcherSchema,

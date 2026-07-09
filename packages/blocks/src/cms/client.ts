@@ -51,13 +51,22 @@ export {
 } from "./registry";
 export type { SectionLoaderFn } from "./sectionLoaders";
 export { compose, withDevice, withMobile, withSearchParam, withSectionLoader } from "./sectionMixins";
-export type { ActionConfig, LoaderConfig, MatcherConfig, MetaResponse } from "./schema";
+export type {
+  ActionConfig,
+  AppSchemas,
+  BlockPropsSchema,
+  LoaderConfig,
+  MatcherConfig,
+  MetaResponse,
+} from "./schema";
 export {
   composeMeta,
   getRegisteredLoaders,
   getRegisteredMatchers,
+  inferLoaderTags,
   registerActionSchema,
   registerActionSchemas,
+  registerAppSchemas,
   registerLoaderSchema,
   registerLoaderSchemas,
   registerMatcherSchema,

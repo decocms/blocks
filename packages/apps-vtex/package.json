@@ -14,6 +14,7 @@
     ".": "./src/index.ts",
     "./commerceLoaders": "./src/commerceLoaders.ts",
     "./mod": "./src/mod.ts",
+    "./schemas": "./src/schemas.ts",
     "./client": "./src/client.ts",
     "./types": "./src/types.ts",
     "./actions": "./src/actions/index.ts",
@@ -41,6 +42,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "generate:schemas": "bun ../blocks-cli/scripts/generate-app-schemas.ts",
     "test": "vitest run --root ../.. packages/apps-vtex/",
     "typecheck": "tsc --noEmit",
     "lint:unused": "knip"
