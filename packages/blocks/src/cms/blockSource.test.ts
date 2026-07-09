@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   BundledBlockSource,
   computeRevision,
-  KV_KEYS,
+  DEPLOYMENTS_KEY,
   type KVNamespace,
+  LIVE_KEY,
+  revisionKey,
+  snapshotKey,
 } from "./blockSource";
 import { djb2Hex } from "../sdk/djb2";
 
@@ -37,10 +40,15 @@ describe("BundledBlockSource", () => {
   });
 });
 
-describe("KV_KEYS", () => {
-  it("exposes the snapshot and revision key contract", () => {
-    expect(KV_KEYS.SNAPSHOT).toBe("decofile:current");
-    expect(KV_KEYS.REVISION).toBe("index:revision");
+describe("KV key layout (per deployment)", () => {
+  it("keys the snapshot and revision by deployment id", () => {
+    expect(snapshotKey("abc123")).toBe("decofile:abc123");
+    expect(revisionKey("abc123")).toBe("index:revision:abc123");
+  });
+
+  it("exposes stable pointer/bookkeeping keys", () => {
+    expect(LIVE_KEY).toBe("index:live");
+    expect(DEPLOYMENTS_KEY).toBe("index:deployments");
   });
 });
 
@@ -59,9 +67,10 @@ describe("KVNamespace structural type", () => {
       },
     };
 
-    await kv.put(KV_KEYS.REVISION, "abc");
-    await expect(kv.get(KV_KEYS.REVISION)).resolves.toBe("abc");
-    await kv.delete(KV_KEYS.REVISION);
-    await expect(kv.get(KV_KEYS.REVISION)).resolves.toBeNull();
+    const key = revisionKey("abc123");
+    await kv.put(key, "abc");
+    await expect(kv.get(key)).resolves.toBe("abc");
+    await kv.delete(key);
+    await expect(kv.get(key)).resolves.toBeNull();
   });
 });

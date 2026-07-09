@@ -2,8 +2,8 @@
  * Minimal Cloudflare KV REST API client for CI.
  *
  * CI has no Worker KV binding, so the fast-deploy sync/migrate scripts write to
- * KV over the REST API instead. Only the two operations the scripts need —
- * single-key GET and PUT — are implemented.
+ * KV over the REST API instead. Only the operations the scripts need — single-key
+ * GET/PUT/DELETE plus prefix LIST (for per-deployment GC) — are implemented.
  *
  * Auth/config via env (read by the scripts, passed to `createKvRestClient`):
  *   - CF_ACCOUNT_ID       Cloudflare account id
@@ -26,6 +26,9 @@ export interface KvRestConfig {
 export interface KvRestClient {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+  /** List key names, optionally filtered by prefix. Follows pagination. */
+  list(prefix?: string): Promise<string[]>;
 }
 
 const DEFAULT_BASE = "https://api.cloudflare.com/client/v4";
@@ -73,6 +76,39 @@ export function createKvRestClient(config: KvRestConfig): KvRestClient {
       if (!res.ok) {
         throw new Error(`KV PUT ${key} failed: ${res.status} ${await res.text()}`);
       }
+    },
+
+    async delete(key) {
+      const res = await fetchImpl(`${root}/values/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
+      // 404 is fine — the key is already gone (idempotent delete).
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`KV DELETE ${key} failed: ${res.status} ${await res.text()}`);
+      }
+    },
+
+    async list(prefix) {
+      const names: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const qs = new URLSearchParams();
+        if (prefix) qs.set("prefix", prefix);
+        if (cursor) qs.set("cursor", cursor);
+        const suffix = qs.toString() ? `?${qs.toString()}` : "";
+        const res = await fetchImpl(`${root}/keys${suffix}`, { headers: authHeaders });
+        if (!res.ok) {
+          throw new Error(`KV LIST ${prefix ?? ""} failed: ${res.status} ${await res.text()}`);
+        }
+        const body = (await res.json()) as {
+          result?: Array<{ name: string }>;
+          result_info?: { cursor?: string };
+        };
+        for (const k of body.result ?? []) names.push(k.name);
+        cursor = body.result_info?.cursor || undefined;
+      } while (cursor);
+      return names;
     },
   };
 }

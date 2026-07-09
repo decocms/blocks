@@ -37,8 +37,8 @@ export interface BlockSnapshot {
  * - `BundledBlockSource` — the build-time `blocks.gen` snapshot (fallback /
  *   local dev). A no-op here because `setup.ts` already loads it via
  *   `setBlocks()` at module init.
- * - `KVBlockSource` (PR2) — reads `decofile:current` + `index:revision` from a
- *   Cloudflare KV namespace.
+ * - `KVBlockSource` — reads `decofile:<id>` + `index:revision:<id>` (keyed by
+ *   deployment id) from a Cloudflare KV namespace.
  */
 export interface BlockSource {
   /**
@@ -111,14 +111,81 @@ export interface KVNamespace {
 }
 
 // ---------------------------------------------------------------------------
-// KV key names — shared by the runtime reader (PR2), the write-through path
-// (PR3), and the CI sync/migrate scripts (PR4). Single source of truth so the
-// contract can't drift between read and write sides.
+// KV key layout — keyed by DEPLOYMENT ID so every code deployment reads its own
+// content snapshot (deploy isolation, cheap rollback, build-time content sync).
+//
+// The deployment id is the git commit sha (see `getDeploymentId` below).
+// Shared by the runtime reader (`kvBlockSource.ts`), the write-through path
+// (`admin/decofile.ts`), and the CI sync/migrate scripts, so the contract can't
+// drift between read and write sides.
+//
+//   decofile:<id>          full decofile JSON for deployment <id>
+//   index:revision:<id>    DJB2 hex revision of that snapshot (polled)
+//   index:live             pointer to the currently-live <id> (set post-deploy)
+//   index:deployments      JSON [{id, ts}] (newest last) — GC bookkeeping
 // ---------------------------------------------------------------------------
 
-export const KV_KEYS = {
-  /** Full decofile JSON (the blocks map). */
-  SNAPSHOT: "decofile:current",
-  /** DJB2 hex revision of the snapshot — polled for change detection. */
-  REVISION: "index:revision",
-} as const;
+/** KV key holding the full decofile JSON for deployment `id`. */
+export function snapshotKey(id: string): string {
+  return `decofile:${id}`;
+}
+
+/** KV key holding the DJB2 hex revision of deployment `id`'s snapshot. */
+export function revisionKey(id: string): string {
+  return `index:revision:${id}`;
+}
+
+/** Pointer key naming the currently-live deployment id. Written by a code
+ * deploy AFTER the new version has activated (so a rolling deploy never points
+ * live at a version that isn't serving yet). */
+export const LIVE_KEY = "index:live";
+
+/** Bookkeeping key: JSON array of `{ id, ts }` (newest last) tracking known
+ * deployment snapshots so the sync script can GC all but the last N. */
+export const DEPLOYMENTS_KEY = "index:deployments";
+
+// ---------------------------------------------------------------------------
+// Deployment id resolution
+//
+// Which snapshot key does THIS running worker read/write? The deployment id.
+// Kept here (framework-agnostic) alongside the key builders it feeds, so the
+// runtime read path (`@decocms/tanstack` kvHydration) and the write-through
+// path (`@decocms/blocks-admin` decofile) resolve it identically — no drift.
+// ---------------------------------------------------------------------------
+
+/** Deploy-time var naming this version's content snapshot key. Set by the
+ * deploy command (`wrangler deploy --var DECO_DEPLOYMENT_ID:<sha>`). */
+export const DEPLOYMENT_ID_ENV = "DECO_DEPLOYMENT_ID";
+
+/** Fallback var (cache-key version) — the same commit sha, already threaded by
+ * some sites via `--var BUILD_HASH:<sha>`. */
+export const BUILD_HASH_ENV = "BUILD_HASH";
+
+// Build-time constant injected by the tanstack `decoVitePlugin()` (git
+// rev-parse / WORKERS_CI_COMMIT_SHA) as the last-resort deployment id. Declared
+// here with a `typeof` guard so it's inert where the define isn't applied
+// (e.g. the Next.js build, or this package's own tsc output).
+declare const __DECO_BUILD_HASH__: string | undefined;
+
+/**
+ * Resolve this worker's deployment id — the key its content is stored under
+ * (`decofile:<id>`). Priority:
+ *   1. `env.DECO_DEPLOYMENT_ID` — set by the deploy command (authoritative).
+ *   2. `env.BUILD_HASH` — the cache-key version var; the same commit sha.
+ *   3. `__DECO_BUILD_HASH__` — build-time constant (the commit the bundle, and
+ *      thus the build-time content sync, was produced from).
+ * Returns `null` when none resolves — the caller then serves the bundled
+ * snapshot (never another deployment's content).
+ */
+export function getDeploymentId(env: Record<string, unknown>): string | null {
+  const fromDeploymentVar = env[DEPLOYMENT_ID_ENV];
+  if (typeof fromDeploymentVar === "string" && fromDeploymentVar) {
+    return fromDeploymentVar;
+  }
+  const fromBuildHash = env[BUILD_HASH_ENV];
+  if (typeof fromBuildHash === "string" && fromBuildHash) return fromBuildHash;
+  if (typeof __DECO_BUILD_HASH__ !== "undefined" && __DECO_BUILD_HASH__) {
+    return __DECO_BUILD_HASH__;
+  }
+  return null;
+}

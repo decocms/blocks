@@ -1,6 +1,16 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { KV_KEYS, type KVNamespace, getRevision, loadBlocks, setBlocks } from "@decocms/blocks/cms";
+import {
+  getRevision,
+  type KVNamespace,
+  loadBlocks,
+  revisionKey,
+  setBlocks,
+  snapshotKey,
+} from "@decocms/blocks/cms";
 import { handleDecofileReload, setFastDeployKVGetter } from "./decofile";
+
+/** Deployment id the write-through keys its snapshot under. */
+const ID = "sha-cafebabe";
 
 // handleDecofileReload's dev-bypass keys off NODE_ENV === "development" (see
 // decofile.ts), not import.meta.env.DEV. Vitest itself runs with
@@ -95,18 +105,18 @@ describe("handleDecofileReload — delta payloads", () => {
 });
 
 describe("handleDecofileReload — KV write-through", () => {
-  it("writes the snapshot + revision to KV when DECO_KV is bound", async () => {
+  it("writes the snapshot + revision to this deployment's keyed entry", async () => {
     const { kv, store } = makeKV();
     const res = await reload(
       { blocks: { "pages-x": { path: "/x" } } },
-      { DECO_KV: kv, DECO_FAST_DEPLOY: "1" },
+      { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID },
     );
     const json = (await res.json()) as { kvWritten: boolean; revision: string };
 
     expect(json.kvWritten).toBe(true);
-    expect(store.get(KV_KEYS.SNAPSHOT)).toBe(JSON.stringify(loadBlocks()));
-    expect(store.get(KV_KEYS.REVISION)).toBe(getRevision());
-    expect(store.get(KV_KEYS.REVISION)).toBe(json.revision);
+    expect(store.get(snapshotKey(ID))).toBe(JSON.stringify(loadBlocks()));
+    expect(store.get(revisionKey(ID))).toBe(getRevision());
+    expect(store.get(revisionKey(ID))).toBe(json.revision);
   });
 
   it("reports kvWritten=false when no KV binding is present", async () => {
@@ -123,9 +133,21 @@ describe("handleDecofileReload — KV write-through", () => {
     expect(store.size).toBe(0); // nothing written to KV
   });
 
+  it("reports kvWritten=false when no deployment id resolves", async () => {
+    const { kv, store } = makeKV();
+    const res = await reload(
+      { blocks: { "pages-x": { path: "/x" } } },
+      { DECO_KV: kv, DECO_FAST_DEPLOY: "1" }, // no DECO_DEPLOYMENT_ID
+    );
+    const json = (await res.json()) as { kvWritten: boolean };
+    expect(json.kvWritten).toBe(false);
+    expect(store.size).toBe(0);
+  });
+
   it("does not fail the request when the KV write throws", async () => {
     const env = {
       DECO_FAST_DEPLOY: "1",
+      DECO_DEPLOYMENT_ID: ID,
       DECO_KV: {
         get: () => Promise.resolve(null),
         put: () => Promise.reject(new Error("KV down")),

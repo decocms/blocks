@@ -24,12 +24,12 @@
  * `DecofileProvider` pattern from the deco-cx/deco Fresh runtime.
  */
 
-import { getRevision, setBlocks } from "@decocms/blocks/cms";
+import { getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
 import { KVBlockSource } from "../cms/kvBlockSource";
 import type { KVNamespace } from "@decocms/blocks/cms";
 import { setSpanAttribute } from "@decocms/blocks/sdk/observability";
 
-/** How often (ms) an isolate re-probes `index:revision`. */
+/** How often (ms) an isolate re-probes its `index:revision:<id>`. */
 export const POLL_INTERVAL_MS = 10_000;
 
 /** KV binding name expected on the Worker `env`. */
@@ -38,6 +38,11 @@ export const KV_BINDING = "DECO_KV";
 /** Opt-in env var — set to "1" (or "true") to enable fast-deploy. The DECO_KV
  * binding must also be present. */
 export const FAST_DEPLOY_ENV = "DECO_FAST_DEPLOY";
+
+// Deployment-id resolution lives in `@decocms/blocks/cms` (next to the key
+// builders it feeds) so the runtime read path and the admin write-through
+// resolve it identically. Re-exported for the existing call sites/tests.
+export { getDeploymentId };
 
 // globalThis-backed state so all Vite server-function split-module copies share
 // the same hydration flags (same pattern as `loader.ts`).
@@ -105,9 +110,18 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
   const kv = getKV(env);
   if (!kv) return Promise.resolve();
 
+  // No resolvable deployment id ⇒ keep the bundled snapshot (this build's own
+  // content). Never read another deployment's key.
+  const deploymentId = getDeploymentId(env);
+  if (!deploymentId) {
+    setSpanAttribute("deco.block.source", "bundled");
+    G.__deco!.kvHydrated = true;
+    return Promise.resolve();
+  }
+
   const load = (async () => {
     try {
-      const snapshot = await new KVBlockSource(kv).loadSnapshot();
+      const snapshot = await new KVBlockSource(kv, deploymentId).loadSnapshot();
       if (snapshot) {
         setBlocks(snapshot.blocks);
         setSpanAttribute("deco.block.source", "kv");
@@ -144,16 +158,19 @@ export function maybePollRevision(env: Env, ctx?: ExecutionContextLike): void {
   const kv = getKV(env);
   if (!kv) return;
 
-  const poll = pollRevisionOnce(kv);
+  const deploymentId = getDeploymentId(env);
+  if (!deploymentId) return; // bundled-only; nothing to poll
+
+  const poll = pollRevisionOnce(kv, deploymentId);
   // Prefer waitUntil so the work outlives the response; fall back to a
   // fire-and-forget promise (dev / tests) with its rejection swallowed.
   if (ctx?.waitUntil) ctx.waitUntil(poll);
   else void poll.catch(() => {});
 }
 
-async function pollRevisionOnce(kv: KVNamespace): Promise<void> {
+async function pollRevisionOnce(kv: KVNamespace, deploymentId: string): Promise<void> {
   try {
-    const source = new KVBlockSource(kv);
+    const source = new KVBlockSource(kv, deploymentId);
     const remoteRevision = await source.getRevision();
     if (!remoteRevision || remoteRevision === getRevision()) return;
 

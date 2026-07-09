@@ -1,13 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { computeRevision, getRevision, KV_KEYS, type KVNamespace, loadBlocks, setBlocks } from "@decocms/blocks/cms";
+import {
+  computeRevision,
+  getRevision,
+  type KVNamespace,
+  loadBlocks,
+  revisionKey,
+  setBlocks,
+  snapshotKey,
+} from "@decocms/blocks/cms";
 import {
   __resetKvHydrationStateForTests,
   ensureBlocksHydrated,
+  getDeploymentId,
   isFastDeployEnabled,
   maybePollRevision,
 } from "./kvHydration";
 
 const BUNDLED = { Site: { name: "bundled" } };
+
+/** Deployment id used across the hydration tests. */
+const ID = "sha-deadbeef";
+const SNAP = snapshotKey(ID);
+const REV = revisionKey(ID);
 
 /** KV stub that counts get() calls so we can assert throttling / single-load. */
 function makeKV(initial: Record<string, string> = {}) {
@@ -32,11 +46,16 @@ function makeKV(initial: Record<string, string> = {}) {
 
 function snapshotEnv(blocks: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   const { kv, ...rest } = makeKV({
-    [KV_KEYS.SNAPSHOT]: JSON.stringify(blocks),
-    [KV_KEYS.REVISION]: computeRevision(blocks),
+    [SNAP]: JSON.stringify(blocks),
+    [REV]: computeRevision(blocks),
   });
-  // DECO_FAST_DEPLOY="1" is the explicit opt-in required alongside the binding.
-  return { env: { DECO_KV: kv, DECO_FAST_DEPLOY: "1", ...extra }, kv, ...rest };
+  // DECO_FAST_DEPLOY="1" is the explicit opt-in required alongside the binding;
+  // DECO_DEPLOYMENT_ID scopes the read to this deployment's keyed snapshot.
+  return {
+    env: { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID, ...extra },
+    kv,
+    ...rest,
+  };
 }
 
 /** Collects ctx.waitUntil promises so tests can await background polls. */
@@ -110,10 +129,19 @@ describe("ensureBlocksHydrated", () => {
     expect(getCalls()).toBe(2);
   });
 
-  it("keeps the bundled snapshot when the snapshot key is absent", async () => {
-    const { kv } = makeKV({ [KV_KEYS.REVISION]: "r" }); // no SNAPSHOT
-    await ensureBlocksHydrated({ DECO_KV: kv });
+  it("keeps the bundled snapshot when this deployment's snapshot key is absent", async () => {
+    const { kv } = makeKV({ [REV]: "r" }); // revision present, but no SNAPSHOT
+    await ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID });
     expect(loadBlocks()).toEqual(BUNDLED);
+  });
+
+  it("keeps bundled (never touches KV) when no deployment id resolves", async () => {
+    const kvBlocks = { Site: { name: "from-kv" } };
+    const { kv, getCalls } = makeKV({ [SNAP]: JSON.stringify(kvBlocks) });
+    // Fast-deploy enabled + bound, but no DECO_DEPLOYMENT_ID / BUILD_HASH.
+    await ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1" });
+    expect(loadBlocks()).toEqual(BUNDLED);
+    expect(getCalls()).toBe(0);
   });
 
   it("falls back to bundled (and does not throw) when KV errors", async () => {
@@ -123,8 +151,24 @@ describe("ensureBlocksHydrated", () => {
       delete: () => Promise.resolve(),
     };
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    await expect(ensureBlocksHydrated({ DECO_KV: kv })).resolves.toBeUndefined();
+    await expect(
+      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
+    ).resolves.toBeUndefined();
     expect(loadBlocks()).toEqual(BUNDLED);
+  });
+});
+
+describe("getDeploymentId", () => {
+  it("prefers DECO_DEPLOYMENT_ID", () => {
+    expect(getDeploymentId({ DECO_DEPLOYMENT_ID: "a", BUILD_HASH: "b" })).toBe("a");
+  });
+
+  it("falls back to BUILD_HASH", () => {
+    expect(getDeploymentId({ BUILD_HASH: "b" })).toBe("b");
+  });
+
+  it("is null when nothing resolves", () => {
+    expect(getDeploymentId({})).toBeNull();
   });
 });
 
@@ -145,8 +189,8 @@ describe("maybePollRevision", () => {
 
     // Simulate a publish from another isolate: KV now holds v2.
     const updated = { Site: { name: "v2" }, "pages-x": { path: "/x" } };
-    store.set(KV_KEYS.SNAPSHOT, JSON.stringify(updated));
-    store.set(KV_KEYS.REVISION, computeRevision(updated));
+    store.set(SNAP, JSON.stringify(updated));
+    store.set(REV, computeRevision(updated));
 
     const { ctx, settle } = makeCtx();
     maybePollRevision(env, ctx);

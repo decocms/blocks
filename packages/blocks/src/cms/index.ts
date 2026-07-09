@@ -1,5 +1,15 @@
 export type { BlockSnapshot, BlockSource, KVNamespace } from "./blockSource";
-export { BundledBlockSource, computeRevision, KV_KEYS } from "./blockSource";
+export {
+  BUILD_HASH_ENV,
+  BundledBlockSource,
+  computeRevision,
+  DEPLOYMENT_ID_ENV,
+  DEPLOYMENTS_KEY,
+  getDeploymentId,
+  LIVE_KEY,
+  revisionKey,
+  snapshotKey,
+} from "./blockSource";
 export type { DecoPage, Resolvable } from "./loader";
 export {
   findPageByPath,
