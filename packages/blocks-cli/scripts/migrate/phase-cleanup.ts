@@ -963,7 +963,7 @@ function convertDirectComponentCalls(src: string, onFix: (msg: string) => void):
  * Also converts direct `<section.Component {...props}/>` patterns to use
  * RenderSection for robustness.
  */
-function upgradeSectionRenderer(ctx: MigrationContext) {
+export function upgradeSectionRenderer(ctx: MigrationContext) {
   rewriteFilesRecursive(ctx, path.join(ctx.sourceDir, "src"), (content, relPath) => {
     if (!relPath.endsWith(".tsx") && !relPath.endsWith(".ts")) return null;
 
@@ -1001,8 +1001,16 @@ function upgradeSectionRenderer(ctx: MigrationContext) {
       log(ctx, `  ${msg}: src/${relPath}`);
     });
 
-    // 4. Add RenderSection import if we introduced usages but no import exists
-    if (changed && result.includes("<RenderSection") && !result.includes("RenderSection")) {
+    // 4. Add RenderSection import if we introduced usages but no import exists.
+    //    Must check for the actual import statement, not just the substring
+    //    "RenderSection" — every `<RenderSection` JSX usage also contains that
+    //    substring, so a naive `!result.includes("RenderSection")` check is
+    //    always false once step 2/3 above have run and this never fires.
+    const hasRenderSectionImport =
+      /import\s*\{[^}]*\bRenderSection\b[^}]*\}\s*from\s*["']@decocms\/blocks\/hooks["']/.test(
+        result,
+      );
+    if (changed && result.includes("<RenderSection") && !hasRenderSectionImport) {
       result = `import { RenderSection } from "@decocms/blocks/hooks";\n` + result;
     }
 

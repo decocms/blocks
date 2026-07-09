@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeImportedLibShims } from "./phase-cleanup";
+import { upgradeSectionRenderer, writeImportedLibShims } from "./phase-cleanup";
 import type { MigrationContext } from "./types";
 
 /**
@@ -137,5 +137,74 @@ describe("writeImportedLibShims (integration)", () => {
     } finally {
       fs.rmSync(empty, { recursive: true, force: true });
     }
+  });
+});
+
+describe("upgradeSectionRenderer (integration)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "render-section-test-"));
+    fs.mkdirSync(path.join(tmpDir, "src", "components"), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it(
+    "adds the missing RenderSection import when a .Component call is " +
+      "converted to JSX usage and no import exists yet (regression: the " +
+      "inner check used to always be false)",
+    () => {
+      const file = path.join(tmpDir, "src", "components", "Nested.tsx");
+      fs.writeFileSync(
+        file,
+        `export function Nested({ block }: { block: any }) {\n` +
+          `  return <block.Component {...block?.props} />;\n` +
+          `}\n`,
+      );
+
+      upgradeSectionRenderer(makeCtx(tmpDir));
+
+      const result = fs.readFileSync(file, "utf-8");
+      expect(result).toContain(
+        `import { RenderSection } from "@decocms/blocks/hooks";`,
+      );
+      expect(result).toContain(`<RenderSection section={block} />`);
+      // Import must appear before its first usage.
+      expect(result.indexOf("import { RenderSection }")).toBeLessThan(
+        result.indexOf("<RenderSection"),
+      );
+    },
+  );
+
+  it("does not duplicate the import when one already exists", () => {
+    const file = path.join(tmpDir, "src", "components", "Nested.tsx");
+    fs.writeFileSync(
+      file,
+      `import { RenderSection } from "@decocms/blocks/hooks";\n\n` +
+        `export function Nested({ block }: { block: any }) {\n` +
+        `  return <block.Component {...block?.props} />;\n` +
+        `}\n`,
+    );
+
+    upgradeSectionRenderer(makeCtx(tmpDir));
+
+    const result = fs.readFileSync(file, "utf-8");
+    const importCount = (
+      result.match(/import\s*\{\s*RenderSection\s*\}\s*from/g) ?? []
+    ).length;
+    expect(importCount).toBe(1);
+  });
+
+  it("does not touch files with no SectionRenderer/.Component usage", () => {
+    const file = path.join(tmpDir, "src", "components", "Plain.tsx");
+    const original = `export const Plain = () => <div>hi</div>;\n`;
+    fs.writeFileSync(file, original);
+
+    upgradeSectionRenderer(makeCtx(tmpDir));
+
+    expect(fs.readFileSync(file, "utf-8")).toBe(original);
   });
 });
