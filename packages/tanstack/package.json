@@ -13,7 +13,8 @@
     ".": "./src/index.ts",
     "./vite": "./src/vite/plugin.js",
     "./daemon": "./src/daemon/index.ts",
-    "./sdk/createInvoke": "./src/sdk/createInvoke.ts"
+    "./sdk/createInvoke": "./src/sdk/createInvoke.ts",
+    "./sdk/cookiePassthrough": "./src/sdk/cookiePassthrough.ts"
   },
   "scripts": {
     "build": "tsc",

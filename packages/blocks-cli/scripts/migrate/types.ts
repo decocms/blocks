@@ -122,7 +122,7 @@ export interface LoaderInfo {
   hasCache: boolean;
   /** Has export const cacheKey */
   hasCacheKey: boolean;
-  /** Maps to a known @decocms/apps equivalent */
+  /** Maps to a known @decocms/apps-* equivalent */
   appsEquivalent: string | null;
   /** Is a custom loader that needs dynamic import in commerce-loaders */
   isCustom: boolean;

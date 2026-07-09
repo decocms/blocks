@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type { MigrationContext, LoaderInfo, Platform } from "../types";
 import { log } from "../types";
 
-/** Well-known loaders that map directly to @decocms/apps equivalents */
+/** Well-known loaders that map directly to @decocms/apps-* equivalents */
 const APPS_EQUIVALENTS: Record<string, string> = {
   "loaders/availableIcons.ts": "", // deleted
   "loaders/icons.ts": "", // deleted

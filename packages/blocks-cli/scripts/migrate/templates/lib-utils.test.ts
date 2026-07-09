@@ -99,7 +99,7 @@ describe("D3 — generated stubs throw at runtime", () => {
   it("vtex-transform.toProduct throws and points at the canonical path", () => {
     const src = LIB_TEMPLATES["src/lib/vtex-transform.ts"];
     expect(src).toMatch(/throw new Error/);
-    expect(src).toMatch(/@decocms\/apps\/vtex\/utils\/transform/);
+    expect(src).toMatch(/@decocms\/apps-vtex\/utils\/transform/);
     expect(src).toMatch(/\[deco-migrate\]/);
   });
 
@@ -117,7 +117,7 @@ describe("D3 — generated stubs throw at runtime", () => {
     const src = LIB_TEMPLATES["src/lib/vtex-segment.ts"];
     expect(src).toMatch(/getSegmentFromBag[\s\S]*?throw new Error/);
     expect(src).toMatch(/withSegmentCookie[\s\S]*?throw new Error/);
-    expect(src).toMatch(/@decocms\/apps\/vtex\/utils\/segment/);
+    expect(src).toMatch(/@decocms\/apps-vtex\/utils\/segment/);
   });
 
   it("non-stub helpers stay implemented (negative check — no throw)", () => {

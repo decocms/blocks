@@ -467,23 +467,30 @@ function findAttachedLeadingComments(content: string, openIdx: number): number {
  *
  * 1. Legacy inline proxy (pre-Wave 15-A migration template) — defines
  *    `createNestedInvokeProxy` plus `invoke` and `Runtime` constants.
- *    The whole 40-50 LOC body duplicates `@decocms/start/sdk`'s `invoke`.
+ *    The whole 40-50 LOC body duplicates `@decocms/blocks/sdk/invoke`'s
+ *    `invoke`.
  *
  * 2. Simple re-export shim — the file only re-exports `invoke` /
  *    `createNestedInvokeProxy` (no inline proxy body, but also not yet
- *    pointing at `@decocms/start/sdk`).
+ *    pointing at `@decocms/blocks/sdk/invoke`).
  *
- * Both should be replaced with `import { invoke } from "@decocms/start/sdk"`
- * at every callsite, and the file deleted. The Wave 15-A migration template
+ * Both should be replaced with `import { invoke } from "@decocms/blocks/sdk/invoke"`
+ * at every callsite, and the file deleted. The current migration template
  * scaffolds a thin re-export form that's also acceptable (re-exports
- * `invoke` from `@decocms/start/sdk` and rebuilds `Runtime = { invoke }`);
- * we explicitly skip it via the "imports invoke from @decocms/start/sdk
+ * `invoke` from `@decocms/blocks/sdk/invoke` and rebuilds `Runtime = { invoke }`);
+ * we explicitly skip it via the "imports invoke from @decocms/blocks/sdk
  * AND no inline proxy" check below.
+ *
+ * Sites migrated before the 7.x package split may still import from the
+ * retired `@decocms/start/sdk` — that package no longer exists for 7.x
+ * consumers, so this is intentionally NOT treated as "already fixed"; it
+ * falls through to the flag-and-rewrite path below like any other stale
+ * shim.
  */
 const INLINE_PROXY_RE =
   /(?:function|const)\s+createNestedInvokeProxy\b|new\s+Proxy\s*\(\s*Object\.assign\s*\(\s*async\s*\(\s*props/;
 const FRAMEWORK_INVOKE_IMPORT_RE =
-  /import\s+\{[^}]*\binvoke\b[^}]*\}\s+from\s+['"]@decocms\/start(?:\/sdk)?['"]/;
+  /import\s+\{[^}]*\binvoke\b[^}]*\}\s+from\s+['"]@decocms\/blocks\/sdk(?:\/invoke)?['"]/;
 
 const ALLOWED_RUNTIME_EXPORTS = new Set(["invoke", "createNestedInvokeProxy", "Runtime"]);
 
@@ -501,7 +508,7 @@ const ruleDeadRuntimeShim: Rule = {
     const onlyKnownInvokeExports =
       exports.length > 0 && exports.every((e) => ALLOWED_RUNTIME_EXPORTS.has(e));
 
-    // Wave 15-A canonical template: re-exports invoke from @decocms/start/sdk
+    // Current canonical template: re-exports invoke from @decocms/blocks/sdk/invoke
     // and exposes `Runtime = { invoke }` for legacy callers. No inline proxy
     // body. This is the desired shape — skip.
     if (reExportsFromFramework && !hasInlineProxy) return [];
@@ -523,11 +530,11 @@ const ruleDeadRuntimeShim: Rule = {
         severity: "info",
         file: "src/runtime.ts",
         message: safeToAutoFix
-          ? `${flavor} [${exportSummary}] — replace with @decocms/start/sdk`
+          ? `${flavor} [${exportSummary}] — replace with @decocms/blocks/sdk/invoke`
           : `${flavor} [${exportSummary}] — manual review: file mixes the runtime proxy with site-specific exports`,
         fix: safeToAutoFix
-          ? 'rg -l "from \\"~/runtime\\"" src/ | xargs sed -i \'\' \'s|from "~/runtime"|from "@decocms/start/sdk"|g\' && rm src/runtime.ts'
-          : "Move the inline `createNestedInvokeProxy` body to call @decocms/start/sdk's `invoke`; relocate site-specific helpers to a dedicated module before deleting src/runtime.ts",
+          ? 'rg -l "from \\"~/runtime\\"" src/ | xargs sed -i \'\' \'s|from "~/runtime"|from "@decocms/blocks/sdk/invoke"|g\' && rm src/runtime.ts'
+          : "Move the inline `createNestedInvokeProxy` body to call @decocms/blocks/sdk/invoke's `invoke`; relocate site-specific helpers to a dedicated module before deleting src/runtime.ts",
         meta: {
           hasInlineProxy,
           exports,
@@ -542,13 +549,13 @@ const ruleDeadRuntimeShim: Rule = {
     // a runtime.ts that mixes the proxy with site-specific helpers.
     const safe = findings.every((f) => f.meta?.safeToAutoFix !== false);
     if (!safe) return [];
-    const updated = rewriteImportSpec(ctx, writer, "~/runtime", "@decocms/start/sdk");
+    const updated = rewriteImportSpec(ctx, writer, "~/runtime", "@decocms/blocks/sdk/invoke");
     writer.deleteFile(`${ctx.siteDir}/src/runtime.ts`);
     return [
       {
         file: "src/runtime.ts",
         kind: "rewrite-imports+delete",
-        detail: `rewrote ${updated.length} import(s) → @decocms/start/sdk and deleted src/runtime.ts`,
+        detail: `rewrote ${updated.length} import(s) → @decocms/blocks/sdk/invoke and deleted src/runtime.ts`,
       },
     ];
   },
@@ -573,7 +580,7 @@ const ruleSiteLocalGlobals: Rule = {
         /(?:export\s+)?(?:function|const)\s+(?:withSiteGlobals|cmsRouteWithGlobals)\b/.test(
           content,
         );
-      const reExportsFromFramework = /from\s+['"]@decocms\/start\/routes['"]/.test(content);
+      const reExportsFromFramework = /from\s+['"]@decocms\/tanstack['"]/.test(content);
       if (!definesWrapper || reExportsFromFramework) continue;
       const rel = abs.slice(siteDir.length + 1);
       const lineCount = content.split("\n").length;
@@ -581,8 +588,8 @@ const ruleSiteLocalGlobals: Rule = {
         rule: "site-local-with-globals",
         severity: "warning",
         file: rel,
-        message: `Local wrapper (~${lineCount} LOC) — framework now exports withSiteGlobals from @decocms/start/routes`,
-        fix: "delete the local wrapper and import { withSiteGlobals } from '@decocms/start/routes'",
+        message: `Local wrapper (~${lineCount} LOC) — framework now exports withSiteGlobals from @decocms/tanstack`,
+        fix: "delete the local wrapper and import { withSiteGlobals } from '@decocms/tanstack'",
         meta: { lineCount },
       });
     }
@@ -623,7 +630,7 @@ export const STUB_FIX_HINTS: Record<string, FixHint> = {
   // src/lib/vtex-transform
   toProduct: {
     kind: "swap",
-    canonical: "@decocms/apps/vtex/utils/transform",
+    canonical: "@decocms/apps-vtex/utils/transform",
     note:
       "canonical signature is `toProduct(product, sku, level, options)`; " +
       "1-arg call sites need to expand args first — see skill § 5",
@@ -633,12 +640,12 @@ export const STUB_FIX_HINTS: Record<string, FixHint> = {
     kind: "refactor",
     note:
       "read cookies via `request.headers.get('cookie')` then call " +
-      "`buildSegmentFromCookies()` from '@decocms/apps/vtex/utils/segment'. " +
+      "`buildSegmentFromCookies()` from '@decocms/apps-vtex/utils/segment'. " +
       "The bag-based lookup mechanism does not exist on TanStack Start.",
   },
   withSegmentCookie: {
     kind: "swap",
-    canonical: "@decocms/apps/vtex/utils/segment",
+    canonical: "@decocms/apps-vtex/utils/segment",
     note:
       "canonical signature is `withSegmentCookie(segment, headers?)`; " +
       "if you currently pass only headers, also pass a segment object",
@@ -686,12 +693,12 @@ export function buildVtexShimFixMessage(stubsBySim: Map<string, string[]>): stri
   const parts: string[] = [...known];
   if (unknown.length > 0) {
     parts.push(
-      `${unknown.join(", ")} → repoint to '@decocms/apps/vtex/...' or 'apps/commerce/utils/...'`,
+      `${unknown.join(", ")} → repoint to '@decocms/apps-vtex/...' or 'apps/commerce/utils/...'`,
     );
   }
   return parts.length > 0
     ? parts.join(" | ")
-    : "Repoint imports to '@decocms/apps/vtex/...' or 'apps/commerce/utils/...'";
+    : "Repoint imports to '@decocms/apps-vtex/...' or 'apps/commerce/utils/...'";
 }
 
 /**
@@ -885,8 +892,8 @@ const ruleLocalWidgetsTypes: Rule = {
         rule: "local-widgets-types",
         severity: "info",
         file: "src/types/widgets.ts",
-        message: `Local file shadows @decocms/start/types/widgets (used in ${importCount} place(s))`,
-        fix: 'rewrite imports to "@decocms/start/types/widgets" and rm src/types/widgets.ts',
+        message: `Local file shadows @decocms/blocks/types/widgets (used in ${importCount} place(s))`,
+        fix: 'rewrite imports to "@decocms/blocks/types/widgets" and rm src/types/widgets.ts',
         meta: { importCount },
       },
     ];
@@ -897,14 +904,14 @@ const ruleLocalWidgetsTypes: Rule = {
       ctx,
       writer,
       "~/types/widgets",
-      "@decocms/start/types/widgets",
+      "@decocms/blocks/types/widgets",
     );
     writer.deleteFile(`${ctx.siteDir}/src/types/widgets.ts`);
     return [
       {
         file: "src/types/widgets.ts",
         kind: "rewrite-imports+delete",
-        detail: `rewrote ${updated.length} import(s) → @decocms/start/types/widgets and deleted src/types/widgets.ts`,
+        detail: `rewrote ${updated.length} import(s) → @decocms/blocks/types/widgets and deleted src/types/widgets.ts`,
       },
     ];
   },
@@ -949,7 +956,7 @@ const ruleFrameworkTodos: Rule = {
 
 /**
  * Registry of files we expect sites to NOT carry locally because the
- * canonical implementation already lives in `@decocms/start` (or a
+ * canonical implementation already lives in `@decocms/blocks` (or a
  * sibling apps package).
  *
  * Two flavours:
@@ -1000,7 +1007,7 @@ interface FrameworkDuplicate {
 /**
  * Add an entry here when:
  *  - 1+ migrated sites carry their own copy of code that already
- *    exists in `@decocms/start` (or a sibling apps package), AND
+ *    exists in `@decocms/blocks` (or a sibling apps package), AND
  *  - the canonical version is at least feature-equivalent.
  *
  * Per D4 in the migration tooling policy, the framework promotion
@@ -1011,18 +1018,18 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
   {
     id: "clx",
     sitePath: "src/sdk/clx.ts",
-    canonicalImport: "@decocms/start/sdk/clx",
+    canonicalImport: "@decocms/blocks/sdk/clx",
     contentSignature: [
       /export\s+const\s+clx\s*=/,
       /args\.filter\(Boolean\)\.join/,
     ],
     safeToAutoFix: true,
-    description: "src/sdk/clx.ts duplicates @decocms/start/sdk/clx",
+    description: "src/sdk/clx.ts duplicates @decocms/blocks/sdk/clx",
   },
   {
     id: "use-send-event",
     sitePath: "src/sdk/useSendEvent.ts",
-    canonicalImport: "@decocms/start/sdk/analytics",
+    canonicalImport: "@decocms/blocks/sdk/analytics",
     contentSignature: [
       /export\s+(?:const|function)\s+useSendEvent/,
       /data-event/,
@@ -1034,12 +1041,12 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
       "Replacing 1:1 weakens type-safety. Either widen the framework export (preferred), or " +
       "rewrite call sites to drop the generic. Manual review required.",
     description:
-      "src/sdk/useSendEvent.ts overlaps with @decocms/start/sdk/analytics → useSendEvent",
+      "src/sdk/useSendEvent.ts overlaps with @decocms/blocks/sdk/analytics → useSendEvent",
   },
   {
     id: "location-matcher",
     sitePath: "src/matchers/location.ts",
-    canonicalImport: "@decocms/start/matchers/builtins",
+    canonicalImport: "@decocms/blocks/matchers/builtins",
     contentSignature: [
       /registerMatcher\(\s*['"]website\/matchers\/location\.ts['"]/,
       /__cf_geo/,
@@ -1051,12 +1058,12 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
       "verify country-name lookup parity (resolveCountryCode vs site's inline table) and " +
       "swap setup.ts's customMatchers entry to call registerBuiltinMatchers().",
     description:
-      "src/matchers/location.ts overlaps with @decocms/start/matchers/builtins → registerBuiltinMatchers()",
+      "src/matchers/location.ts overlaps with @decocms/blocks/matchers/builtins → registerBuiltinMatchers()",
   },
   {
     id: "url-relative",
     sitePath: "src/sdk/url.ts",
-    canonicalImport: "@decocms/apps/commerce/sdk/url",
+    canonicalImport: "@decocms/apps-commerce/sdk/url",
     // Fingerprint: site fork carries a positional `removeIdSku?: boolean`
     // flag + hardcoded VTEX-specific keys (`idsku`, `skuId`). Canonical
     // apps export uses an options object — `{ stripSearchParams: string[] }`
@@ -1068,7 +1075,7 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
     ],
     safeToAutoFix: false,
     reason:
-      "rewrite imports to '@decocms/apps/commerce/sdk/url'. " +
+      "rewrite imports to '@decocms/apps-commerce/sdk/url'. " +
       "Each call site using the boolean form `relative(url, true)` becomes " +
       "`relative(url, { stripSearchParams: [\"idsku\", \"skuId\"] })`. " +
       "1-arg calls are unchanged. Then delete src/sdk/url.ts. " +
@@ -1076,12 +1083,12 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
       "transformation (positional bool → options object), not pure import " +
       "rewrite.",
     description:
-      "src/sdk/url.ts overlaps with @decocms/apps/commerce/sdk/url → relative() (extended in @decocms/apps@1.9+)",
+      "src/sdk/url.ts overlaps with @decocms/apps-commerce/sdk/url → relative()",
   },
   {
     id: "use-suggestions",
     sitePath: "src/sdk/useSuggestions.ts",
-    canonicalImport: "@decocms/start/sdk/useSuggestions",
+    canonicalImport: "@decocms/blocks/sdk/useSuggestions",
     // Fingerprint: hand-rolled hook with the module-level signal +
     // serial-queue + latestQuery cancel pattern. Both casaevideo and
     // baggagio independently invented this exact shape. Sites that
@@ -1102,7 +1109,7 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
       "the per-site type parameter and onError wiring need site-specific " +
       "decisions. See references/platform-hooks-factories.md § useSuggestions.",
     description:
-      "src/sdk/useSuggestions.ts duplicates @decocms/start/sdk/useSuggestions → createUseSuggestions() (added in @decocms/start@2.25+)",
+      "src/sdk/useSuggestions.ts duplicates @decocms/blocks/sdk/useSuggestions → createUseSuggestions()",
   },
 ];
 
@@ -1175,7 +1182,7 @@ function stripExt(path: string): string {
 
 /**
  * Per D2 in the migration tooling policy, every `hx-*` attribute is
- * rewritten on migration; nothing in `@decocms/start` ships an htmx
+ * rewritten on migration; nothing in `@decocms/blocks` ships an htmx
  * runtime. This rule is the verification gate: a migrated site is
  * "rewrite-complete" when there are zero `hx-*` attributes left in
  * `src/`.
@@ -1427,7 +1434,7 @@ function satisfiesRange(version: string, range: string): boolean | null {
  * package name. Bun's lockfile format embeds the version inside the
  * package descriptor array, e.g.:
  *
- *   "@decocms/start": ["@decocms/start@2.1.1", ...]
+ *   "@decocms/blocks": ["@decocms/blocks@7.5.1", ...]
  *
  * We scan all such occurrences (a single package may appear multiple
  * times if the dep tree pulled different versions).
@@ -1583,7 +1590,7 @@ const rulePackageManagerMissing: Rule = {
 /* ------------------------------------------------------------------ */
 
 /**
- * Every VTEX storefront on @decocms/start needs a reverse proxy for
+ * Every VTEX storefront on @decocms/tanstack needs a reverse proxy for
  * `/checkout/*`, `/account/*`, `/api/*`, `/files/*`, etc. — those paths
  * must hit the VTEX origin (not TanStack Start) so the user lands on
  * the real checkout UI carrying their VTEX session cookies.
@@ -1614,11 +1621,14 @@ const ruleVtexProxyHandlerMissing: Rule = {
   title: "VTEX worker-entry missing the checkout/API proxy handler",
   run({ siteDir, fs }: RuleContext): Finding[] {
     // Only run when the site is actually VTEX. The cheapest signal is
-    // any import from `@decocms/apps/vtex/...` in src/ — every VTEX
+    // any import from `@decocms/apps-vtex/...` in src/ — every VTEX
     // site has at least one (commerceLoaders, hooks, types, etc.).
+    // Also matches the pre-7.x `@decocms/apps/vtex/...` monolith path,
+    // since sites migrated before the package split still carry it.
+    const VTEX_IMPORT_RE = /@decocms\/apps-vtex|@decocms\/apps\/vtex/;
     const srcFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
     const isVtex = srcFiles.some((abs) =>
-      fs.readText(abs).includes("@decocms/apps/vtex"),
+      VTEX_IMPORT_RE.test(fs.readText(abs)),
     );
     if (!isVtex) return [];
 
@@ -1642,6 +1652,7 @@ const ruleVtexProxyHandlerMissing: Rule = {
     // either is a strong signal the proxy block exists; absence of
     // both means it was dropped.
     const hasProxyImport =
+      /from\s+["']@decocms\/apps-vtex\/utils\/proxy["']/.test(content) ||
       /from\s+["']@decocms\/apps\/vtex\/utils\/proxy["']/.test(content);
     // Match both long form (`proxyHandler: async (...) => ...`) and
     // object-shorthand wiring (`{ proxyHandler }`, `{ proxyHandler, admin }`).
@@ -1659,7 +1670,7 @@ const ruleVtexProxyHandlerMissing: Rule = {
         file: "src/worker-entry.ts",
         message: hasProxyImport
           ? "imports proxy helpers but no `proxyHandler:` is wired into createDecoWorkerEntry — /checkout requests will fall through to TanStack and render the SPA shell"
-          : "no `@decocms/apps/vtex/utils/proxy` import — VTEX /checkout, /account, /api won't be proxied to the origin",
+          : "no `@decocms/apps-vtex/utils/proxy` import — VTEX /checkout, /account, /api won't be proxied to the origin",
         fix: "Add `proxyHandler` to createDecoWorkerEntry; see scripts/migrate/templates/server-entry.ts (generateVtexWorkerEntry) for the canonical block",
       },
     ];

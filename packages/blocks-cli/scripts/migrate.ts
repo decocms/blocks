@@ -4,10 +4,10 @@
  * Migration Script: Fresh/Deno/Preact → TanStack Start/React/Cloudflare Workers
  *
  * Converts a Deco storefront from the old Fresh/Deno stack to the new TanStack Start stack.
- * Part of the @decocms/start framework — run from a site's root directory.
+ * Ships as part of @decocms/blocks-cli — run from a site's root directory.
  *
  * Usage (from your Fresh site directory):
- *   npx -p @decocms/start deco-migrate [options]
+ *   npx -p @decocms/blocks-cli deco-migrate [options]
  *
  * Options:
  *   --source <dir>    Source directory (default: current directory)
@@ -102,10 +102,10 @@ function parseArgs(args: string[]): {
 
 function showHelp() {
   console.log(`
-  @decocms/start — Migration Script: Fresh/Deno → TanStack Start
+  @decocms/blocks-cli — Migration Script: Fresh/Deno → TanStack Start
 
   Usage:
-    npx -p @decocms/start deco-migrate [options]
+    npx -p @decocms/blocks-cli deco-migrate [options]
 
   Options:
     --source <dir>        Source directory (default: .)
@@ -119,10 +119,10 @@ function showHelp() {
     --help, -h            Show this help message
 
   Examples:
-    npx -p @decocms/start deco-migrate --dry-run --verbose
-    npx -p @decocms/start deco-migrate --source ./my-site
-    npx -p @decocms/start deco-migrate --strict --with-build
-    npx -p @decocms/start deco-migrate
+    npx -p @decocms/blocks-cli deco-migrate --dry-run --verbose
+    npx -p @decocms/blocks-cli deco-migrate --source ./my-site
+    npx -p @decocms/blocks-cli deco-migrate --strict --with-build
+    npx -p @decocms/blocks-cli deco-migrate
   `);
 }
 
@@ -136,7 +136,7 @@ async function main() {
 
   const sourceDir = path.resolve(opts.source);
 
-  banner("@decocms/start — Migrate: Fresh/Deno → TanStack Start");
+  banner("@decocms/blocks-cli — Migrate: Fresh/Deno → TanStack Start");
   stat("Source", sourceDir);
   stat("Mode", opts.dryRun ? yellow("DRY RUN") : green("EXECUTE"));
   stat("Verbose", opts.verbose ? "yes" : "no");
@@ -254,7 +254,7 @@ function bootstrap(ctx: { sourceDir: string }) {
   // matching `packageManager` field that pins the version.
   const pm = "bun";
   if (!run(`${pm} install`, "Install dependencies", true)) return;
-  run("bunx tsx node_modules/@decocms/start/scripts/generate-blocks.ts", "Generate CMS blocks");
+  run("bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts", "Generate CMS blocks");
   // generate-invoke emits src/server/invoke.gen.ts with top-level
   // createServerFn declarations + the forwardResponseCookies bridge that
   // propagates VTEX Set-Cookie headers (orderFormId, segment, sc…) to the
@@ -265,7 +265,7 @@ function bootstrap(ctx: { sourceDir: string }) {
   // running the generator gives every freshly-migrated site the canonical
   // RPC path so VTEX hooks (useCart, useUser, useWishlist) work end-to-end.
   run(
-    "bunx tsx node_modules/@decocms/start/scripts/generate-invoke.ts",
+    "bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts",
     "Generate VTEX invoke server functions",
   );
   run("bunx tsr generate", "Generate TanStack routes");

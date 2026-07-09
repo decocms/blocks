@@ -1,7 +1,14 @@
 import type { MigrationContext } from "../types";
 
+const PLATFORM_PACKAGE: Partial<Record<MigrationContext["platform"], string>> = {
+  vtex: "@decocms/apps-vtex",
+  shopify: "@decocms/apps-shopify",
+  magento: "@decocms/apps-magento",
+};
+
 export function generateViteConfig(ctx: MigrationContext): string {
   const isVtex = ctx.platform === "vtex";
+  const platformDep = PLATFORM_PACKAGE[ctx.platform];
 
   const vtexAccount = ctx.vtexAccount || ctx.siteName.replace(/-migrated$/, "").replace(/-storefront$/, "");
 
@@ -29,7 +36,7 @@ const VTEX_ORIGIN = \`https://\${VTEX_ACCOUNT}.\${VTEX_ENVIRONMENT}.\${VTEX_DOMA
 
   return `import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import { decoVitePlugin } from "@decocms/start/vite";
+import { decoVitePlugin } from "@decocms/tanstack/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
@@ -80,8 +87,10 @@ export default defineConfig({
   },
   resolve: {
     dedupe: [
-      "@decocms/start",
-      "@decocms/apps",
+      "@decocms/blocks",
+      "@decocms/blocks-admin",
+      "@decocms/tanstack",
+      "@decocms/apps-commerce",${platformDep ? `\n      "${platformDep}",` : ""}
       "@tanstack/react-start",
       "@tanstack/react-router",
       "@tanstack/react-start-server",

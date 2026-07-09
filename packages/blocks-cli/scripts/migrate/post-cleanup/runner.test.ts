@@ -242,10 +242,10 @@ describe("rule: dead-runtime-shim", () => {
 
   it("does NOT flag the Wave 15-A canonical re-export shape", () => {
     // The migration template now scaffolds a thin re-export from
-    // @decocms/start/sdk plus a Runtime alias. No inline proxy body.
+    // @decocms/blocks/sdk/invoke plus a Runtime alias. No inline proxy body.
     const fs = makeFs({
       "/site/src/runtime.ts":
-        'import { invoke } from "@decocms/start/sdk";\nexport { invoke };\nexport const Runtime = { invoke };\n',
+        'import { invoke } from "@decocms/blocks/sdk/invoke";\nexport { invoke };\nexport const Runtime = { invoke };\n',
     });
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "dead-runtime-shim")!;
@@ -330,7 +330,7 @@ describe("rule: site-local-with-globals", () => {
   it("does not flag a re-export from the framework", () => {
     const fs = makeFs({
       "/site/src/server/routes/withSiteGlobals.ts":
-        'export { withSiteGlobals } from "@decocms/start/routes";\n',
+        'export { withSiteGlobals } from "@decocms/tanstack";\n',
     });
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "site-local-with-globals")!;
@@ -492,12 +492,12 @@ describe("rule: vtex-shim-regression — per-symbol fix hints", () => {
     const r = report.rules.find((r) => r.rule === "vtex-shim-regression")!;
     expect(r.findings).toHaveLength(1);
     const f = r.findings[0];
-    expect(f.fix).toContain("toProduct → @decocms/apps/vtex/utils/transform");
+    expect(f.fix).toContain("toProduct → @decocms/apps-vtex/utils/transform");
     expect(f.fix).toContain("1:1 import swap");
     expect(f.meta?.fixHints).toEqual({
       toProduct: {
         kind: "swap",
-        canonical: "@decocms/apps/vtex/utils/transform",
+        canonical: "@decocms/apps-vtex/utils/transform",
         note: expect.stringContaining("canonical signature"),
       },
     });
@@ -537,7 +537,7 @@ describe("rule: vtex-shim-regression — per-symbol fix hints", () => {
     const r = report.rules.find((r) => r.rule === "vtex-shim-regression")!;
     const f = r.findings[0];
     expect(f.fix).toContain("getSegmentFromBag → call-site refactor");
-    expect(f.fix).toContain("toProduct → @decocms/apps/vtex/utils/transform");
+    expect(f.fix).toContain("toProduct → @decocms/apps-vtex/utils/transform");
     // Joined with " | " for visual separation.
     expect(f.fix).toContain(" | ");
     expect(Object.keys(f.meta?.fixHints as object)).toEqual(
@@ -555,7 +555,7 @@ describe("rule: vtex-shim-regression — per-symbol fix hints", () => {
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "vtex-shim-regression")!;
     const f = r.findings[0];
-    expect(f.fix).toContain("unknownStub → repoint to '@decocms/apps/vtex/...");
+    expect(f.fix).toContain("unknownStub → repoint to '@decocms/apps-vtex/...");
     // No fixHints in meta when no symbols match the table.
     expect(f.meta?.fixHints).toBeUndefined();
   });
@@ -573,7 +573,7 @@ describe("rule: vtex-shim-regression — per-symbol fix hints", () => {
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "vtex-shim-regression")!;
     const f = r.findings[0];
-    expect(f.fix).toContain("toProduct → @decocms/apps/vtex/utils/transform");
+    expect(f.fix).toContain("toProduct → @decocms/apps-vtex/utils/transform");
     expect(f.fix).toContain("unknownStub → repoint");
     // Only the known symbol shows up in fixHints.
     expect(f.meta?.fixHints).toEqual({
@@ -665,6 +665,30 @@ export default createDecoWorkerEntry(serverEntry, {
     expect(r.findings).toEqual([]);
   });
 
+  it("recognizes the current @decocms/apps-vtex package name (post-7.x split)", () => {
+    // Sites migrated with the current scaffolder emit `@decocms/apps-vtex`,
+    // not the retired `@decocms/apps/vtex` monolith path. Both the isVtex
+    // signal and the proxy-import detection must recognize the new form.
+    const currentWorkerEntry = `
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { shouldProxyToVtex, createVtexCheckoutProxy } from "@decocms/apps-vtex/utils/proxy";
+const proxy = createVtexCheckoutProxy({ account: "x", checkoutOrigin: "x.vtexcommercestable.com.br" });
+export default createDecoWorkerEntry(serverEntry, {
+  proxyHandler: async (req, url) => {
+    if (!shouldProxyToVtex(url.pathname)) return null;
+    return proxy(req, url);
+  },
+});
+`;
+    const fs = makeFs({
+      "/site/src/commerceLoaders.ts": 'import {} from "@decocms/apps-vtex/mod";',
+      "/site/src/worker-entry.ts": currentWorkerEntry,
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "vtex-proxy-handler-missing")!;
+    expect(r.findings).toEqual([]);
+  });
+
   it("flags VTEX site missing src/worker-entry.ts entirely", () => {
     const fs = makeFs({
       "/site/src/commerceLoaders.ts": "import {} from \"@decocms/apps/vtex/mod\";",
@@ -687,7 +711,7 @@ export default createDecoWorkerEntry(serverEntry, { admin: {} });
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "vtex-proxy-handler-missing")!;
     expect(r.findings).toHaveLength(1);
-    expect(r.findings[0].message).toContain("no `@decocms/apps/vtex/utils/proxy` import");
+    expect(r.findings[0].message).toContain("no `@decocms/apps-vtex/utils/proxy` import");
   });
 
   it("does not flag VTEX site using object-shorthand proxyHandler wiring", () => {
@@ -821,8 +845,8 @@ describe("runAudit — fix mode", () => {
     expect(r.fixes).toHaveLength(1);
     expect(r.fixes![0].detail).toMatch(/rewrote 2 import/);
     expect("/site/src/runtime.ts" in store).toBe(false);
-    expect(store["/site/src/sections/A.tsx"]).toContain('"@decocms/start/sdk"');
-    expect(store["/site/src/sections/B.tsx"]).toContain("'@decocms/start/sdk'");
+    expect(store["/site/src/sections/A.tsx"]).toContain('"@decocms/blocks/sdk/invoke"');
+    expect(store["/site/src/sections/B.tsx"]).toContain("'@decocms/blocks/sdk/invoke'");
     expect(store["/site/src/sections/C.tsx"]).toContain('"~/something-else"');
     expect(log.filter((e) => e.kind === "delete")).toHaveLength(1);
     expect(log.filter((e) => e.kind === "write")).toHaveLength(2);
@@ -841,8 +865,8 @@ describe("runAudit — fix mode", () => {
     expect(r.fixes).toHaveLength(1);
     expect(r.fixes![0].detail).toMatch(/rewrote 2 import/);
     expect("/site/src/types/widgets.ts" in store).toBe(false);
-    expect(store["/site/src/sections/A.tsx"]).toContain('"@decocms/start/types/widgets"');
-    expect(store["/site/src/sections/B.tsx"]).toContain("'@decocms/start/types/widgets'");
+    expect(store["/site/src/sections/A.tsx"]).toContain('"@decocms/blocks/types/widgets"');
+    expect(store["/site/src/sections/B.tsx"]).toContain("'@decocms/blocks/types/widgets'");
   });
 
   it("fix mode is a no-op for rules without applyFix (e.g. framework-todos)", () => {
@@ -865,7 +889,7 @@ describe("runAudit — fix mode", () => {
         'import type { ImageWidget } from "~/types/widgets";\nimport thing from "~/types/widgets-extra";\n',
     });
     runAudit(SITE, fs, { writer });
-    expect(store["/site/src/sections/A.tsx"]).toContain('"@decocms/start/types/widgets"');
+    expect(store["/site/src/sections/A.tsx"]).toContain('"@decocms/blocks/types/widgets"');
     expect(store["/site/src/sections/A.tsx"]).toContain('"~/types/widgets-extra"');
   });
 });
@@ -887,10 +911,10 @@ describe("runAudit — fix mode — vtex-shim-regression swap cases", () => {
     expect(r.fixes).toHaveLength(1);
     expect(r.fixes![0].file).toBe("src/loaders/search.ts");
     expect(r.fixes![0].kind).toBe("rewrite-imports");
-    expect(r.fixes![0].detail).toContain("@decocms/apps/vtex/utils/transform");
+    expect(r.fixes![0].detail).toContain("@decocms/apps-vtex/utils/transform");
     expect(r.fixes![0].detail).toContain("toProduct");
     expect(store["/site/src/loaders/search.ts"]).toContain(
-      '"@decocms/apps/vtex/utils/transform"',
+      '"@decocms/apps-vtex/utils/transform"',
     );
     expect(store["/site/src/loaders/search.ts"]).not.toContain('"~/lib/vtex-transform"');
   });
@@ -907,9 +931,9 @@ describe("runAudit — fix mode — vtex-shim-regression swap cases", () => {
     const report = runAudit(SITE, fs, { writer });
     const r = report.rules.find((r) => r.rule === "vtex-shim-regression")!;
     expect(r.fixes).toHaveLength(1);
-    expect(r.fixes![0].detail).toContain("@decocms/apps/vtex/utils/segment");
+    expect(r.fixes![0].detail).toContain("@decocms/apps-vtex/utils/segment");
     expect(store["/site/src/loaders/x.ts"]).toContain(
-      '"@decocms/apps/vtex/utils/segment"',
+      '"@decocms/apps-vtex/utils/segment"',
     );
   });
 
@@ -964,10 +988,10 @@ describe("runAudit — fix mode — vtex-shim-regression swap cases", () => {
     const r = report.rules.find((r) => r.rule === "vtex-shim-regression")!;
     expect(r.fixes!.length).toBe(2);
     expect(store["/site/src/loaders/A.ts"]).toContain(
-      '"@decocms/apps/vtex/utils/transform"',
+      '"@decocms/apps-vtex/utils/transform"',
     );
     expect(store["/site/src/loaders/B.ts"]).toContain(
-      "'@decocms/apps/vtex/utils/transform'",
+      "'@decocms/apps-vtex/utils/transform'",
     );
   });
 
@@ -983,7 +1007,7 @@ describe("runAudit — fix mode — vtex-shim-regression swap cases", () => {
     });
     runAudit(SITE, fs, { writer });
     expect(store["/site/src/loaders/x.ts"]).toContain(
-      'import { toProduct as toP } from "@decocms/apps/vtex/utils/transform"',
+      'import { toProduct as toP } from "@decocms/apps-vtex/utils/transform"',
     );
   });
 });
@@ -1296,7 +1320,7 @@ describe("rule: local-framework-duplicate", () => {
     expect(r.findings[0].message).toContain("pure dup");
     expect(r.findings[0].meta?.id).toBe("clx");
     expect(r.findings[0].meta?.safeToAutoFix).toBe(true);
-    expect(r.findings[0].meta?.canonicalImport).toBe("@decocms/start/sdk/clx");
+    expect(r.findings[0].meta?.canonicalImport).toBe("@decocms/blocks/sdk/clx");
   });
 
   it("flags src/sdk/clx.ts when site adds a clsx alias (signature still matches)", () => {
@@ -1328,7 +1352,7 @@ describe("rule: local-framework-duplicate", () => {
   it("flags src/sdk/useSendEvent.ts as warn-only (typing regression risk)", () => {
     const fs = makeFs({
       "/site/src/sdk/useSendEvent.ts":
-        'import { AnalyticsEvent } from "@decocms/apps/commerce/types";\n' +
+        'import { AnalyticsEvent } from "@decocms/apps-commerce/types";\n' +
         "export const useSendEvent = <E extends AnalyticsEvent>(\n" +
         "  { event, on }: { event: E; on: 'click' | 'view' | 'change' },\n" +
         ") => ({\n" +
@@ -1367,7 +1391,7 @@ describe("rule: local-framework-duplicate", () => {
     expect(r.findings[0].meta?.id).toBe("url-relative");
     expect(r.findings[0].meta?.safeToAutoFix).toBe(false);
     expect(r.findings[0].meta?.canonicalImport).toBe(
-      "@decocms/apps/commerce/sdk/url",
+      "@decocms/apps-commerce/sdk/url",
     );
     expect(r.findings[0].fix).toContain("stripSearchParams");
   });
@@ -1393,7 +1417,7 @@ describe("rule: local-framework-duplicate", () => {
     expect(r.findings[0].meta?.id).toBe("use-suggestions");
     expect(r.findings[0].meta?.safeToAutoFix).toBe(false);
     expect(r.findings[0].meta?.canonicalImport).toBe(
-      "@decocms/start/sdk/useSuggestions",
+      "@decocms/blocks/sdk/useSuggestions",
     );
     expect(r.findings[0].fix).toContain("createUseSuggestions");
   });
@@ -1404,7 +1428,7 @@ describe("rule: local-framework-duplicate", () => {
     // strings. The rule's signature must NOT fire on the shim.
     const fs = makeFs({
       "/site/src/sdk/useSuggestions.ts":
-        'import { createUseSuggestions } from "@decocms/start/sdk/useSuggestions";\n' +
+        'import { createUseSuggestions } from "@decocms/blocks/sdk/useSuggestions";\n' +
         'import * as Sentry from "@sentry/react";\n' +
         "export const { useSuggestions } = createUseSuggestions({\n" +
         "  onError: (err) => Sentry.captureException(err),\n" +
@@ -1437,7 +1461,7 @@ describe("rule: local-framework-duplicate", () => {
   it("flags src/matchers/location.ts as warn-only (behaviour-superset opportunity)", () => {
     const fs = makeFs({
       "/site/src/matchers/location.ts":
-        'import { registerMatcher } from "@decocms/start/cms";\n' +
+        'import { registerMatcher } from "@decocms/blocks/cms";\n' +
         "export function registerLocationMatcher(): void {\n" +
         '  registerMatcher("website/matchers/location.ts", (rule, ctx) => {\n' +
         "    const cookies = ctx.cookies ?? {};\n" +
@@ -1457,7 +1481,7 @@ describe("rule: local-framework-duplicate", () => {
   it("emits zero findings on a clean tree (no duplicates present)", () => {
     const fs = makeFs({
       "/site/src/sections/Hello.tsx":
-        'import { clx } from "@decocms/start/sdk/clx";\nexport default () => <div className={clx("a")}>x</div>;\n',
+        'import { clx } from "@decocms/blocks/sdk/clx";\nexport default () => <div className={clx("a")}>x</div>;\n',
     });
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "local-framework-duplicate")!;
@@ -1485,7 +1509,7 @@ describe("rule: local-framework-duplicate", () => {
       "/site/src/components/B.tsx":
         'import { clx } from "~/sdk/clx";\nimport React from "react";\nexport default () => clx("y");\n',
       "/site/src/components/Unrelated.tsx":
-        'import { clx } from "@decocms/start/sdk/clx";\nexport default () => clx("z");\n',
+        'import { clx } from "@decocms/blocks/sdk/clx";\nexport default () => clx("z");\n',
     });
     const report = runAudit(SITE, fs, { writer });
     const r = report.rules.find((r) => r.rule === "local-framework-duplicate")!;
@@ -1497,14 +1521,14 @@ describe("rule: local-framework-duplicate", () => {
     expect(store["/site/src/sdk/clx.ts"]).toBeUndefined();
     // Importers rewritten
     expect(store["/site/src/components/A.tsx"]).toContain(
-      'from "@decocms/start/sdk/clx"',
+      'from "@decocms/blocks/sdk/clx"',
     );
     expect(store["/site/src/components/B.tsx"]).toContain(
-      'from "@decocms/start/sdk/clx"',
+      'from "@decocms/blocks/sdk/clx"',
     );
     // Already-canonical import untouched
     expect(store["/site/src/components/Unrelated.tsx"]).toContain(
-      'from "@decocms/start/sdk/clx"',
+      'from "@decocms/blocks/sdk/clx"',
     );
     expect(store["/site/src/components/Unrelated.tsx"]).not.toMatch(/~\/sdk\/clx/);
   });
@@ -1512,12 +1536,12 @@ describe("rule: local-framework-duplicate", () => {
   it("auto-fix is a no-op for warn-only entries (does NOT delete partial-overlap files)", () => {
     const { fs, writer, store } = makeMutableFs({
       "/site/src/sdk/useSendEvent.ts":
-        'import { AnalyticsEvent } from "@decocms/apps/commerce/types";\n' +
+        'import { AnalyticsEvent } from "@decocms/apps-commerce/types";\n' +
         "export const useSendEvent = <E extends AnalyticsEvent>() => ({\n" +
         '  "data-event": encodeURIComponent("x"),\n' +
         "});\n",
       "/site/src/matchers/location.ts":
-        'import { registerMatcher } from "@decocms/start/cms";\n' +
+        'import { registerMatcher } from "@decocms/blocks/cms";\n' +
         'registerMatcher("website/matchers/location.ts", () => Boolean(__cf_geo_country));\n',
     });
     const report = runAudit(SITE, fs, { writer });

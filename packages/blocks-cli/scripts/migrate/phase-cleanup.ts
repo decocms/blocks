@@ -971,12 +971,15 @@ function upgradeSectionRenderer(ctx: MigrationContext) {
     let changed = false;
 
     // 1. Replace `import { SectionRenderer } from "@decocms/start/hooks"`
-    //    with `import { RenderSection } from "@decocms/start/hooks"`
+    //    with `import { RenderSection } from "@decocms/blocks/hooks"`
+    //    (RenderSection is a distinct component from tanstack's
+    //    SectionRenderer — it lives in @decocms/blocks/hooks, not
+    //    @decocms/tanstack.)
     const sectionRendererImport =
       /import\s*\{([^}]*)\bSectionRenderer\b([^}]*)\}\s*from\s*["']@decocms\/start\/hooks["']/g;
     const newContent = result.replace(sectionRendererImport, (_m, before, after) => {
       changed = true;
-      return `import {${before}RenderSection${after}} from "@decocms/start/hooks"`;
+      return `import {${before}RenderSection${after}} from "@decocms/blocks/hooks"`;
     });
     if (newContent !== result) {
       result = newContent;
@@ -1000,7 +1003,7 @@ function upgradeSectionRenderer(ctx: MigrationContext) {
 
     // 4. Add RenderSection import if we introduced usages but no import exists
     if (changed && result.includes("<RenderSection") && !result.includes("RenderSection")) {
-      result = `import { RenderSection } from "@decocms/start/hooks";\n` + result;
+      result = `import { RenderSection } from "@decocms/blocks/hooks";\n` + result;
     }
 
     if (!changed) return null;
@@ -1013,16 +1016,18 @@ function upgradeSectionRenderer(ctx: MigrationContext) {
  *
  * Historical context:
  * Earlier versions of this script rewrote `@decocms/apps/vtex/utils/*` imports
- * to local `~/lib/vtex-*` shims because those modules did not exist yet in
- * `@decocms/apps`. They now do (apps-start exports `./vtex/utils/*` and
- * `./vtex/client` directly), so any further rewrite would actively REGRESS
- * working direct imports back into NO-OP shims and silently break runtime
- * behavior on every migrated site.
+ * (the pre-split Fresh/Deno site's original import shape) to local
+ * `~/lib/vtex-*` shims because those modules did not exist yet as
+ * directly-importable subpaths. They now do — the post-7.x split
+ * `@decocms/apps-vtex` package exports `./utils/*` and `./client`
+ * directly — so any further rewrite would actively REGRESS working direct
+ * imports back into NO-OP shims and silently break runtime behavior on
+ * every migrated site.
  *
  * Scope kept here:
  * - `@decocms/apps/vtex/loaders/intelligentSearch/*` → inline stubs
- *   (loaders moved under `inline-loaders/` in apps-start; this is still a
- *    real path-mismatch fixup)
+ *   (loaders moved under `inline-loaders/` in `@decocms/apps-vtex`; this
+ *    is still a real path-mismatch fixup)
  * - `LabelledFuzzy` type + `mapLabelledFuzzyToFuzzy` helper inlined when
  *   `intelligentSearch/productListingPage` is imported
  * - `createHttpClient<Type>(...)` → `createHttpClient(...)` (Proxy handles types)
@@ -1034,12 +1039,13 @@ function upgradeSectionRenderer(ctx: MigrationContext) {
  * What was removed:
  * The four `@decocms/apps/vtex/utils/* → ~/lib/vtex-*` rewrites that the
  * first-pass `transforms/imports.ts` (lines 50-52) already produces in the
- * correct, direct form. See discovery notes in MIGRATION_TOOLING_PLAN.md.
+ * correct, direct `@decocms/apps-vtex/utils/*` form. See discovery notes
+ * in MIGRATION_TOOLING_PLAN.md.
  */
 function rewriteVtexUtilImports(ctx: MigrationContext) {
   // Intentionally empty — see docstring. First-pass `transforms/imports.ts`
   // already maps `apps/vtex/utils/*` and `apps/vtex/client` directly to the
-  // `@decocms/apps` equivalents; rewriting them again here would dead-shim them.
+  // `@decocms/apps-vtex` equivalents; rewriting them again here would dead-shim them.
   const importRewrites: Array<{ pattern: RegExp; replacement: string; desc: string }> = [];
 
   rewriteFilesRecursive(ctx, path.join(ctx.sourceDir, "src"), (content, relPath) => {
@@ -1117,12 +1123,12 @@ function rewriteVtexUtilImports(ctx: MigrationContext) {
       log(ctx, `  Replaced inline getISCookiesFromBag stub → ~/lib/vtex-intelligent-search: src/${relPath}`);
     }
 
-    // Rewrite ~/utils/retry → @decocms/start/sdk/retry
+    // Rewrite ~/utils/retry → @decocms/blocks/sdk/retry
     const retryImport = /from\s+["']~\/utils\/retry["']/g;
     if (retryImport.test(result)) {
-      result = result.replace(retryImport, 'from "@decocms/start/sdk/retry"');
+      result = result.replace(retryImport, 'from "@decocms/blocks/sdk/retry"');
       changed = true;
-      log(ctx, `  Rewrote retry import → @decocms/start/sdk/retry: src/${relPath}`);
+      log(ctx, `  Rewrote retry import → @decocms/blocks/sdk/retry: src/${relPath}`);
     }
 
     // Rewrite type-only imports from productListingPage (Props type)
@@ -1301,7 +1307,7 @@ function moveRootConstantsToSrc(ctx: MigrationContext) {
  * with broken imports.
  *
  * New stack: the canonical Minicart contract + VTEX transform live in
- * `@decocms/apps/vtex/inline-loaders/minicart`. We replace the loader with a
+ * `@decocms/apps-vtex/inline-loaders/minicart`. We replace the loader with a
  * thin VTEX-only re-export. Sites on Shopify/VNDA/Wake/Linx/Nuvemshop are
  * not currently in production on the new stack — when one is, swap this for
  * a runtime dispatcher again or add a platform-flagged rewrite.
@@ -1325,19 +1331,19 @@ function rewriteMinicartLoader(ctx: MigrationContext) {
 //
 // The legacy site shipped per-platform loaders behind a \`usePlatform()\`
 // switch (vnda, wake, linx, shopify, nuvemshop). The canonical minicart
-// contract now lives in \`@decocms/apps\`. Until a non-VTEX customer comes
+// contract now lives in \`@decocms/apps-vtex\`. Until a non-VTEX customer comes
 // online on the new stack, we re-export the framework loader directly.
 // TODO: when adding another platform, replace this with a runtime
 // dispatcher and import the matching framework loader.
-export { default } from "@decocms/apps/vtex/inline-loaders/minicart";
-export type { MinicartProps } from "@decocms/apps/vtex/inline-loaders/minicart";
+export { default } from "@decocms/apps-vtex/inline-loaders/minicart";
+export type { MinicartProps } from "@decocms/apps-vtex/inline-loaders/minicart";
 `;
 
     if (ctx.dryRun) {
       log(ctx, `[DRY] Would rewrite: ${path.relative(ctx.sourceDir, filePath)} (VTEX-only re-export)`);
     } else {
       fs.writeFileSync(filePath, newContent);
-      log(ctx, `Rewrote: ${path.relative(ctx.sourceDir, filePath)} (VTEX-only re-export of @decocms/apps/vtex/inline-loaders/minicart)`);
+      log(ctx, `Rewrote: ${path.relative(ctx.sourceDir, filePath)} (VTEX-only re-export of @decocms/apps-vtex/inline-loaders/minicart)`);
     }
   }
 }
@@ -1422,7 +1428,7 @@ export function cleanup(ctx: MigrationContext): void {
 
   // 5. Override contexts/device.tsx with SSR-safe useSyncExternalStore version.
   // The transform phase copies and transforms the source file (createContext-based),
-  // but @decocms/start shell-renders sections without a Device.Provider, so we
+  // but @decocms/tanstack shell-renders sections without a Device.Provider, so we
   // must replace it with a standalone implementation.
   console.log("  Overriding contexts/device.tsx...");
   overrideDeviceContext(ctx);
@@ -1452,7 +1458,7 @@ export function cleanup(ctx: MigrationContext): void {
 
   // 11. Rewrite VTEX utility imports to use ~/lib/ wrappers
   //    The old stack imports from apps/vtex/utils/* which get rewritten to
-  //    @decocms/apps/vtex/utils/* — but the signatures are incompatible
+  //    @decocms/apps-vtex/utils/* — but the signatures are incompatible
   //    and some types (VTEXCommerceStable) don't exist. Replace with
   //    simplified ~/lib/ wrappers generated during scaffold.
   console.log("  Rewriting VTEX utility imports → ~/lib/ wrappers...");
@@ -1467,7 +1473,7 @@ export function cleanup(ctx: MigrationContext): void {
   // 11b. Rewrite legacy multi-platform minicart loader → VTEX-only re-export.
   //    `sdk/cart/` is deleted by DIRS_TO_DELETE, leaving loaders/minicart.ts
   //    with broken imports. Replace it with a thin re-export of the
-  //    framework's @decocms/apps/vtex/inline-loaders/minicart loader.
+  //    framework's @decocms/apps-vtex/inline-loaders/minicart loader.
   console.log("  Rewriting loaders/minicart.ts → VTEX-only re-export...");
   rewriteMinicartLoader(ctx);
 

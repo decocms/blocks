@@ -20,7 +20,7 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   [/^"@preact\/signals"$/, `"~/sdk/signal"`],
 
   // Deco framework — hooks need splitting (useDevice, useScript, useSection)
-  [/^"@deco\/deco\/hooks"$/, `"@decocms/start/sdk/useScript"`],
+  [/^"@deco\/deco\/hooks"$/, `"@decocms/blocks/sdk/useScript"`],
   [/^"@deco\/deco\/blocks"$/, `"~/types/deco"`],
   [/^"@deco\/deco\/o11y"$/, null], // logger — use console.log/warn/error instead
   [/^"@deco\/deco\/web"$/, null], // runtime.ts is rewritten
@@ -32,66 +32,66 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   // Widget aliases (ImageWidget, HTMLWidget, ...) are framework-owned —
   // every site has the same type set, and the schema generator detects
   // them via type-text matching, not module identity. Re-export from
-  // @decocms/start/types/widgets so we don't keep a duplicated 8-line
+  // @decocms/blocks/types/widgets so we don't keep a duplicated 8-line
   // file in every site.
-  [/^"apps\/admin\/widgets\.ts"$/, `"@decocms/start/types/widgets"`],
+  [/^"apps\/admin\/widgets\.ts"$/, `"@decocms/blocks/types/widgets"`],
   [/^"apps\/website\/components\/Image\.tsx"$/, `"~/components/ui/Image"`],
   [/^"apps\/website\/components\/Picture\.tsx"$/, `"~/components/ui/Picture"`],
   [/^"apps\/website\/components\/Video\.tsx"$/, `"~/components/ui/Video"`],
   [/^"apps\/website\/components\/Theme\.tsx"$/, `"~/components/ui/Theme"`],
   [/^"apps\/website\/components\/_seo\/[^"]+?"$/, null], // SEO preview — framework-only, remove
   [/^"apps\/website\/components\/([^"]+?)(?:\.tsx?)?"$/, `"~/components/ui/$1"`],
-  [/^"apps\/commerce\/types\.ts"$/, `"@decocms/apps/commerce/types"`],
+  [/^"apps\/commerce\/types\.ts"$/, `"@decocms/apps-commerce/types"`],
   [/^"apps\/commerce\/mod\.ts"$/, `"~/types/commerce-app"`],
-  [/^"apps\/commerce\/types"$/, `"@decocms/apps/commerce/types"`],
+  [/^"apps\/commerce\/types"$/, `"@decocms/apps-commerce/types"`],
 
-  // Apps — VTEX hooks: useUser/useCart/useWishlist → local hooks (react-query based @decocms/apps hooks crash Workers SSR)
+  // Apps — VTEX hooks: useUser/useCart/useWishlist → local hooks (react-query based @decocms/apps-vtex hooks crash Workers SSR)
   [/^"apps\/vtex\/hooks\/useUser(?:\.ts)?"$/, `"~/hooks/useUser"`],
   [/^"apps\/vtex\/hooks\/useCart(?:\.ts)?"$/, `"~/hooks/useCart"`],
   [/^"apps\/vtex\/hooks\/useWishlist(?:\.ts)?"$/, `"~/hooks/useWishlist"`],
-  [/^"apps\/vtex\/hooks\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/vtex/hooks/$1"`],
-  // Specific VTEX utils that moved to different paths in @decocms/apps
+  [/^"apps\/vtex\/hooks\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-vtex/hooks/$1"`],
+  // Specific VTEX utils that moved to different paths in @decocms/apps-vtex
   // fetchVTEX (generic fetchSafe + QS sanitization) lives at vtex/utils/fetch in apps-start.
-  [/^"apps\/vtex\/utils\/fetchVTEX(?:\.ts)?"$/, `"@decocms/apps/vtex/utils/fetch"`],
-  [/^"apps\/vtex\/utils\/client(?:\.ts)?"$/, `"@decocms/apps/vtex/client"`],
-  [/^"apps\/vtex\/utils\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/vtex/utils/$1"`],
-  [/^"apps\/vtex\/actions\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/vtex/actions/$1"`],
+  [/^"apps\/vtex\/utils\/fetchVTEX(?:\.ts)?"$/, `"@decocms/apps-vtex/utils/fetch"`],
+  [/^"apps\/vtex\/utils\/client(?:\.ts)?"$/, `"@decocms/apps-vtex/client"`],
+  [/^"apps\/vtex\/utils\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-vtex/utils/$1"`],
+  [/^"apps\/vtex\/actions\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-vtex/actions/$1"`],
   // Tier B loader path rewrites (apps-start has no `intelligentSearch/`, `legacy/<file>`, or `paths/` subdirs).
   // Intelligent Search loaders moved to inline-loaders/.
   [
     /^"apps\/vtex\/loaders\/intelligentSearch\/productList(?:\.ts)?"$/,
-    `"@decocms/apps/vtex/inline-loaders/productList"`,
+    `"@decocms/apps-vtex/inline-loaders/productList"`,
   ],
   [
     /^"apps\/vtex\/loaders\/intelligentSearch\/productListingPage(?:\.ts)?"$/,
-    `"@decocms/apps/vtex/inline-loaders/productListingPage"`,
+    `"@decocms/apps-vtex/inline-loaders/productListingPage"`,
   ],
   [
     /^"apps\/vtex\/loaders\/intelligentSearch\/productDetailsPage(?:\.ts)?"$/,
-    `"@decocms/apps/vtex/inline-loaders/productDetailsPage"`,
+    `"@decocms/apps-vtex/inline-loaders/productDetailsPage"`,
   ],
   [
     /^"apps\/vtex\/loaders\/intelligentSearch\/suggestions(?:\.ts)?"$/,
-    `"@decocms/apps/vtex/inline-loaders/suggestions"`,
+    `"@decocms/apps-vtex/inline-loaders/suggestions"`,
   ],
   // Legacy product loaders are consolidated into a single file (named exports).
   [
     /^"apps\/vtex\/loaders\/legacy\/(?:productList|productListingPage|productDetailsPage|search|category)(?:\.ts)?"$/,
-    `"@decocms/apps/vtex/loaders/legacy"`,
+    `"@decocms/apps-vtex/loaders/legacy"`,
   ],
   // Path-default loaders (sitemap seeds) don't exist in TanStack Start — paths resolve at request time.
   [/^"apps\/vtex\/loaders\/paths\/(?:[^"]+)(?:\.ts)?"$/, null],
-  [/^"apps\/vtex\/loaders\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/vtex/loaders/$1"`],
-  [/^"apps\/vtex\/types(?:\.ts)?"$/, `"@decocms/apps/vtex/types"`],
+  [/^"apps\/vtex\/loaders\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-vtex/loaders/$1"`],
+  [/^"apps\/vtex\/types(?:\.ts)?"$/, `"@decocms/apps-vtex/types"`],
   [/^"apps\/vtex\/mod(?:\.ts)?"$/, `"~/types/vtex-app"`],
   // Apps — Shopify (hooks, utils, actions, loaders)
-  [/^"apps\/shopify\/hooks\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/shopify/hooks/$1"`],
-  [/^"apps\/shopify\/utils\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/shopify/utils/$1"`],
-  [/^"apps\/shopify\/actions\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/shopify/actions/$1"`],
-  [/^"apps\/shopify\/loaders\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/shopify/loaders/$1"`],
+  [/^"apps\/shopify\/hooks\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/hooks/$1"`],
+  [/^"apps\/shopify\/utils\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/utils/$1"`],
+  [/^"apps\/shopify\/actions\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/actions/$1"`],
+  [/^"apps\/shopify\/loaders\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-shopify/loaders/$1"`],
   // Apps — commerce (types, SDK, utils)
-  [/^"apps\/commerce\/sdk\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/commerce/sdk/$1"`],
-  [/^"apps\/commerce\/utils\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps/commerce/utils/$1"`],
+  [/^"apps\/commerce\/sdk\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-commerce/sdk/$1"`],
+  [/^"apps\/commerce\/utils\/([^"]+?)(?:\.ts)?"$/, `"@decocms/apps-commerce/utils/$1"`],
 
   // Apps — shared utils (STALE, fetchSafe, createHttpClient, etc.)
   [/^"apps\/utils\/fetch(?:\.ts)?"$/, `"~/lib/fetch-utils"`],
@@ -116,7 +116,7 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   [/^"@std\/crypto"$/, null], // Use globalThis.crypto instead
 
   // site/sdk/* → framework equivalents (before the catch-all site/ → ~/ rule)
-  [/^"site\/sdk\/clx(?:\.tsx?)?.*"$/, `"@decocms/start/sdk/clx"`],
+  [/^"site\/sdk\/clx(?:\.tsx?)?.*"$/, `"@decocms/blocks/sdk/clx"`],
   [/^"site\/sdk\/useId(?:\.tsx?)?.*"$/, `"react"`],
   // useOffer and useVariantPossiblities kept as site files (~/sdk/)
   [/^"site\/sdk\/usePlatform(?:\.tsx?)?.*"$/, null],
@@ -127,10 +127,10 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   [/^"~\/account\.json"$/, `"~/constants/account"`],
 
   // $store/ → ~/ (common Deno import map alias for project root)
-  [/^"\$store\/sdk\/clx(?:\.tsx?)?.*"$/, `"@decocms/start/sdk/clx"`],
+  [/^"\$store\/sdk\/clx(?:\.tsx?)?.*"$/, `"@decocms/blocks/sdk/clx"`],
   [/^"\$store\/sdk\/useId(?:\.tsx?)?.*"$/, `"react"`],
   // useOffer and useVariantPossiblities kept as site files (~/sdk/)
-  [/^"\$store\/sdk\/format(?:\.tsx?)?.*"$/, `"@decocms/apps/commerce/sdk/formatPrice"`],
+  [/^"\$store\/sdk\/format(?:\.tsx?)?.*"$/, `"@decocms/apps-commerce/sdk/formatPrice"`],
   [/^"\$store\/sdk\/usePlatform(?:\.tsx?)?.*"$/, null],
   // islands → components (must be before $store catch-all)
   [/^"\$store\/islands\/ui\/([^"]+?)(?:\.tsx?)?"$/, `"~/components/ui/$1"`],
@@ -141,10 +141,10 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   [/^"\$home\/(.+)"$/, `"~/$1"`],
 
   // site/ → ~/
-  [/^"site\/sdk\/clx(?:\.tsx?)?.*"$/, `"@decocms/start/sdk/clx"`],
+  [/^"site\/sdk\/clx(?:\.tsx?)?.*"$/, `"@decocms/blocks/sdk/clx"`],
   [/^"site\/sdk\/useId(?:\.tsx?)?.*"$/, `"react"`],
   // useOffer and useVariantPossiblities kept as site files (~/sdk/)
-  [/^"site\/sdk\/format(?:\.tsx?)?.*"$/, `"@decocms/apps/commerce/sdk/formatPrice"`],
+  [/^"site\/sdk\/format(?:\.tsx?)?.*"$/, `"@decocms/apps-commerce/sdk/formatPrice"`],
   [/^"site\/sdk\/usePlatform(?:\.tsx?)?.*"$/, null],
   // islands → components (must be before site/ catch-all)
   [/^"site\/islands\/ui\/([^"]+?)(?:\.tsx?)?"$/, `"~/components/ui/$1"`],
@@ -155,10 +155,16 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   [/^"~\/islands\/ui\/([^"]+?)(?:\.tsx?)?"$/, `"~/components/ui/$1"`],
   [/^"~\/islands\/([^"]+?)(?:\.tsx?)?"$/, `"~/components/$1"`],
 
-  // @decocms/apps hooks → local hooks (react-query hooks crash Workers SSR at module eval)
+  // @decocms/apps-vtex hooks → local hooks (react-query hooks crash Workers SSR at module eval)
+  // Pre-7.x monolith path — kept for sites whose Deno import map already
+  // aliased directly to the npm specifier instead of the "apps/vtex/..." form.
   [/^"@decocms\/apps\/vtex\/hooks\/useUser"$/, `"~/hooks/useUser"`],
   [/^"@decocms\/apps\/vtex\/hooks\/useCart"$/, `"~/hooks/useCart"`],
   [/^"@decocms\/apps\/vtex\/hooks\/useWishlist"$/, `"~/hooks/useWishlist"`],
+  // Post-7.x split package path — same rationale, current package name.
+  [/^"@decocms\/apps-vtex\/hooks\/useUser"$/, `"~/hooks/useUser"`],
+  [/^"@decocms\/apps-vtex\/hooks\/useCart"$/, `"~/hooks/useCart"`],
+  [/^"@decocms\/apps-vtex\/hooks\/useWishlist"$/, `"~/hooks/useWishlist"`],
 ];
 
 /**
@@ -167,14 +173,14 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
  * The key is the ending of the import path, the value is the replacement specifier.
  */
 const RELATIVE_SDK_REWRITES: Array<[RegExp, string]> = [
-  // sdk/clx → @decocms/start/sdk/clx (framework utility)
-  [/(?:\.\.\/)*sdk\/clx(?:\.tsx?)?$/, "@decocms/start/sdk/clx"],
+  // sdk/clx → @decocms/blocks/sdk/clx (framework utility)
+  [/(?:\.\.\/)*sdk\/clx(?:\.tsx?)?$/, "@decocms/blocks/sdk/clx"],
   // sdk/useId → react (useId is built-in in React 19)
   [/(?:\.\.\/)*sdk\/useId(?:\.tsx?)?$/, "react"],
   // sdk/useOffer — kept as-is (sites customize offer logic)
   // sdk/useVariantPossiblities — kept as-is (sites customize variant logic)
-  // sdk/format → @decocms/apps/commerce/sdk/formatPrice
-  [/(?:\.\.\/)*sdk\/format(?:\.tsx?)?$/, "@decocms/apps/commerce/sdk/formatPrice"],
+  // sdk/format → @decocms/apps-commerce/sdk/formatPrice
+  [/(?:\.\.\/)*sdk\/format(?:\.tsx?)?$/, "@decocms/apps-commerce/sdk/formatPrice"],
   // sdk/usePlatform → remove entirely
   [/(?:\.\.\/)*sdk\/usePlatform(?:\.tsx?)?$/, ""],
   // static/adminIcons → deleted (icon loaders need rewriting)
@@ -234,16 +240,16 @@ export function transformImports(
   /**
    * Post-process: split @deco/deco/hooks imports.
    * In the old stack, @deco/deco/hooks exported useDevice, useScript, useSection, etc.
-   * In @decocms/start, useDevice is at @decocms/start/sdk/useDevice.
+   * In @decocms/blocks, useDevice is at @decocms/blocks/sdk/useDevice.
    * After import rewriting, we need to split lines like:
-   *   import { useDevice, useScript } from "@decocms/start/sdk/useScript"
+   *   import { useDevice, useScript } from "@decocms/blocks/sdk/useScript"
    * into:
-   *   import { useDevice } from "@decocms/start/sdk/useDevice"
-   *   import { useScript } from "@decocms/start/sdk/useScript"
+   *   import { useDevice } from "@decocms/blocks/sdk/useDevice"
+   *   import { useScript } from "@decocms/blocks/sdk/useScript"
    */
   function splitDecoHooksImports(code: string): string {
     return code.replace(
-      /^(import\s+(?:type\s+)?\{)([^}]*\buseDevice\b[^}]*)(\}\s+from\s+["']@decocms\/start\/sdk\/useScript["'];?)$/gm,
+      /^(import\s+(?:type\s+)?\{)([^}]*\buseDevice\b[^}]*)(\}\s+from\s+["']@decocms\/blocks\/sdk\/useScript["'];?)$/gm,
       (_match, _prefix, importList, _suffix) => {
         const items = importList.split(",").map((s: string) => s.trim()).filter(Boolean);
         const deviceItems = items.filter((s: string) => s.includes("useDevice"));
@@ -251,10 +257,10 @@ export function transformImports(
 
         const lines: string[] = [];
         if (deviceItems.length > 0) {
-          lines.push(`import { ${deviceItems.join(", ")} } from "@decocms/start/sdk/useDevice";`);
+          lines.push(`import { ${deviceItems.join(", ")} } from "@decocms/blocks/sdk/useDevice";`);
         }
         if (otherItems.length > 0) {
-          lines.push(`import { ${otherItems.join(", ")} } from "@decocms/start/sdk/useScript";`);
+          lines.push(`import { ${otherItems.join(", ")} } from "@decocms/blocks/sdk/useScript";`);
         }
         return lines.join("\n");
       },
@@ -356,7 +362,7 @@ export function transformImports(
   if (afterSplit !== result) {
     result = afterSplit;
     changed = true;
-    notes.push("Split useDevice into separate import from @decocms/start/sdk/useDevice");
+    notes.push("Split useDevice into separate import from @decocms/blocks/sdk/useDevice");
   }
 
   // Rewrite dynamic imports: route through rewriteSpecifier so sdk-specific

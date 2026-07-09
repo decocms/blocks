@@ -43,6 +43,12 @@ describe("generateMigrationPolicyPointerRule", () => {
 		expect(body.length).toBeLessThan(3000);
 	});
 
+	it("does not emit the pre-split @decocms/start or @decocms/apps package names", () => {
+		expect(body).not.toContain("@decocms/start");
+		expect(body).not.toContain("@decocms/apps\`");
+		expect(body).toContain("@decocms/blocks-cli");
+	});
+
 	it("is deterministic — same site name, same output", () => {
 		const a = generateMigrationPolicyPointerRule("foo");
 		const b = generateMigrationPolicyPointerRule("foo");

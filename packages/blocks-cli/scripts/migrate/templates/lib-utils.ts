@@ -46,11 +46,11 @@ export function selectImportedLibTemplates(
 //
 // Each thrown message points at the canonical replacement so the fix
 // is mechanical. `deco-post-cleanup --fix` automates the swap.
-const LIB_VTEX_TRANSFORM = `import type { Product } from "@decocms/apps/commerce/types";
+const LIB_VTEX_TRANSFORM = `import type { Product } from "@decocms/apps-commerce/types";
 
 const STUB =
   "[deco-migrate] \`~/lib/vtex-transform.toProduct\` is a generated stub. " +
-  "Replace with: import { toProduct } from '@decocms/apps/vtex/utils/transform' " +
+  "Replace with: import { toProduct } from '@decocms/apps-vtex/utils/transform' " +
   "(canonical signature: \`toProduct(product, sku, level, options)\`). " +
   "Run \`deco-post-cleanup --fix\` or see the deco-to-tanstack-migration skill " +
   "(post-migration-cleanup § 5).";
@@ -119,13 +119,13 @@ const LIB_VTEX_SEGMENT = `// Per the migration tooling policy (D3): both these s
 const STUB_GET_SEGMENT_FROM_BAG =
   "[deco-migrate] \`~/lib/vtex-segment.getSegmentFromBag\` is a generated " +
   "stub. Refactor: read cookies via \`request.headers.get('cookie')\` then " +
-  "call \`buildSegmentFromCookies()\` from '@decocms/apps/vtex/utils/segment'. " +
+  "call \`buildSegmentFromCookies()\` from '@decocms/apps-vtex/utils/segment'. " +
   "The bag-based lookup mechanism does not exist on TanStack Start.";
 
 const STUB_WITH_SEGMENT_COOKIE =
   "[deco-migrate] \`~/lib/vtex-segment.withSegmentCookie\` is a generated " +
   "stub. Replace with: import { withSegmentCookie } from " +
-  "'@decocms/apps/vtex/utils/segment' (canonical signature: " +
+  "'@decocms/apps-vtex/utils/segment' (canonical signature: " +
   "\`withSegmentCookie(segment, headers?)\`). Run \`deco-post-cleanup --fix\` " +
   "or see the deco-to-tanstack-migration skill.";
 

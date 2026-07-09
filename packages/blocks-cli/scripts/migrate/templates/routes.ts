@@ -63,7 +63,7 @@ function generateRoot(ctx: MigrationContext, siteTitle: string, vtexAccount: str
   }
 
   return `import { createRootRoute } from "@tanstack/react-router";
-import { DecoRootLayout } from "@decocms/start/hooks";
+import { DecoRootLayout } from "@decocms/tanstack";
 // @ts-ignore Vite ?url import
 import appCss from "../styles/app.css?url";
 
@@ -107,8 +107,7 @@ function RootLayout() {
 
 function generateIndex(ctx: MigrationContext, siteTitle: string): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { cmsHomeRouteConfig, deferredSectionLoader } from "@decocms/start/routes";
-import { DecoPageRenderer } from "@decocms/start/hooks";
+import { cmsHomeRouteConfig, DecoPageRenderer, loadDeferredSection } from "@decocms/tanstack";
 
 // MIGRATION TODO: customize defaultTitle / defaultDescription / fallback
 // copy below for ${siteTitle}. CMS \`Site.seo\` overrides these once block
@@ -144,7 +143,7 @@ function HomePage() {
       deferredPromises={data.deferredPromises}
       pagePath={data.pagePath}
       pageUrl={data.pageUrl}
-      loadDeferredSectionFn={deferredSectionLoader}
+      loadDeferredSectionFn={loadDeferredSection}
     />
   );
 }
@@ -153,8 +152,7 @@ function HomePage() {
 
 function generateCatchAll(ctx: MigrationContext, siteTitle: string): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { cmsRouteConfig, deferredSectionLoader } from "@decocms/start/routes";
-import { DecoPageRenderer } from "@decocms/start/hooks";
+import { cmsRouteConfig, DecoPageRenderer, loadDeferredSection } from "@decocms/tanstack";
 
 // MIGRATION TODO: customize defaultTitle / defaultDescription for ${siteTitle}
 // (CMS \`Site.seo\` overrides these per-page once block resolution kicks in).
@@ -182,7 +180,7 @@ function CmsPage() {
       deferredPromises={data.deferredPromises}
       pagePath={data.pagePath}
       pageUrl={data.pageUrl}
-      loadDeferredSectionFn={deferredSectionLoader}
+      loadDeferredSectionFn={loadDeferredSection}
     />
   );
 }
@@ -214,7 +212,7 @@ function NotFoundPage() {
 
 function generateDecoMeta(): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { decoMetaRoute } from "@decocms/start/routes";
+import { decoMetaRoute } from "@decocms/tanstack";
 
 export const Route = createFileRoute("/deco/meta")(decoMetaRoute);
 `;
@@ -222,7 +220,7 @@ export const Route = createFileRoute("/deco/meta")(decoMetaRoute);
 
 function generateDecoInvoke(): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { decoInvokeRoute } from "@decocms/start/routes";
+import { decoInvokeRoute } from "@decocms/tanstack";
 
 export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRoute);
 `;
@@ -230,7 +228,7 @@ export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRoute);
 
 function generateDecoRender(): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { decoRenderRoute } from "@decocms/start/routes";
+import { decoRenderRoute } from "@decocms/tanstack";
 
 export const Route = createFileRoute("/deco/render")(decoRenderRoute);
 `;

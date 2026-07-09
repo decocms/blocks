@@ -135,7 +135,7 @@ export function scaffold(ctx: MigrationContext): void {
   // some file actually imports. See `writeImportedLibShims` in phase-cleanup.
 
   // Replace Context-based useDevice with SSR-safe useSyncExternalStore version.
-  // @decocms/start shell-renders sections in a separate React root without
+  // @decocms/tanstack shell-renders sections in a separate React root without
   // Device.Provider, so the old createContext pattern throws during SSR.
   writeFile(ctx, "src/contexts/device.tsx", generateDeviceContext());
 
@@ -312,7 +312,7 @@ export default debounce;
 
 function generateSignalShim(): string {
   return `import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-export { signal, type ReactiveSignal } from "@decocms/start/sdk/signal";
+export { signal, type ReactiveSignal } from "@decocms/blocks/sdk/signal";
 
 /** Run a function immediately. Kept for legacy module-level side effects. */
 export function effect(fn: () => void | (() => void)): () => void {
@@ -535,8 +535,8 @@ function generateLocationMatcher(): string {
  * rules server-side.
  */
 
-import { registerMatcher } from "@decocms/start/cms";
-import type { MatcherContext } from "@decocms/start/cms";
+import { registerMatcher } from "@decocms/blocks/cms";
+import type { MatcherContext } from "@decocms/blocks/cms";
 
 const COUNTRY_NAME_TO_CODE: Record<string, string> = {
   Brasil: "BR",

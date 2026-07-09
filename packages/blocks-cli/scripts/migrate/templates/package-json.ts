@@ -95,9 +95,19 @@ export function generatePackageJson(ctx: MigrationContext): string {
 
   const siteDeps = extractedDeps;
 
-  // Fetch latest versions from npm registry
-  const startVersion = getLatestVersion("@decocms/start", "0.34.0");
-  const appsVersion = getLatestVersion("@decocms/apps", "0.27.0");
+  // @decocms/blocks, @decocms/blocks-admin, @decocms/blocks-cli,
+  // @decocms/tanstack, and the @decocms/apps-* platform packages are
+  // published in lockstep from the same monorepo release, so a single
+  // version lookup covers all of them (mirrors how consumer sites bump
+  // "@decocms/blocks/blocks-admin/nextjs ranges" together).
+  const frameworkVersion = getLatestVersion("@decocms/blocks", "7.5.1");
+
+  const platformPackage: Partial<Record<typeof ctx.platform, string>> = {
+    vtex: "@decocms/apps-vtex",
+    shopify: "@decocms/apps-shopify",
+    magento: "@decocms/apps-magento",
+  };
+  const platformDep = platformPackage[ctx.platform];
 
   const pkg = {
     name: ctx.siteName,
@@ -109,14 +119,14 @@ export function generatePackageJson(ctx: MigrationContext): string {
       "dev:clean":
         "rm -rf node_modules/.vite .wrangler/state .tanstack && vite dev",
       "generate:blocks":
-        "tsx node_modules/@decocms/start/scripts/generate-blocks.ts",
+        "tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts",
       "generate:routes": "tsr generate",
-      "generate:schema": `tsx node_modules/@decocms/start/scripts/generate-schema.ts --site ${ctx.siteName}`,
+      "generate:schema": `tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts --site ${ctx.siteName}`,
       "generate:invoke":
-        "tsx node_modules/@decocms/start/scripts/generate-invoke.ts",
+        "tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts",
       "generate:sections":
-        "tsx node_modules/@decocms/start/scripts/generate-sections.ts",
-      "generate:loaders": `tsx node_modules/@decocms/start/scripts/generate-loaders.ts --exclude vtex/loaders,vtex/actions,loaders/vtex-auth-loader,loaders/reviews/productReviews,loaders/product/buyTogether,loaders/search/productListPageCollection,loaders/search/intelligenseSearch,loaders/Layouts/ProductCard`,
+        "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts",
+      "generate:loaders": `tsx node_modules/@decocms/blocks-cli/scripts/generate-loaders.ts --exclude vtex/loaders,vtex/actions,loaders/vtex-auth-loader,loaders/reviews/productReviews,loaders/product/buyTogether,loaders/search/productListPageCollection,loaders/search/intelligenseSearch,loaders/Layouts/ProductCard`,
       build:
         "npm run generate:blocks && npm run generate:sections && npm run generate:loaders && npm run generate:schema && npm run generate:invoke && tsr generate && vite build",
       preview: "vite preview",
@@ -141,8 +151,11 @@ export function generatePackageJson(ctx: MigrationContext): string {
     license: "MIT",
     packageManager: `bun@${CANONICAL_BUN_VERSION}`,
     dependencies: {
-      "@decocms/apps": `^${appsVersion}`,
-      "@decocms/start": `^${startVersion}`,
+      "@decocms/blocks": `^${frameworkVersion}`,
+      "@decocms/blocks-admin": `^${frameworkVersion}`,
+      "@decocms/tanstack": `^${frameworkVersion}`,
+      "@decocms/apps-commerce": `^${frameworkVersion}`,
+      ...(platformDep ? { [platformDep]: `^${frameworkVersion}` } : {}),
       "@tanstack/react-query": "5.90.21",
       "@tanstack/react-router": "1.166.7",
       "@tanstack/react-start": "1.166.8",
@@ -155,6 +168,7 @@ export function generatePackageJson(ctx: MigrationContext): string {
     },
     devDependencies: {
       "@cloudflare/vite-plugin": "^1.27.0",
+      "@decocms/blocks-cli": `^${frameworkVersion}`,
       "@tailwindcss/vite": "^4.2.1",
       "@tanstack/router-cli": "1.166.7",
       "@types/react": "^19.2.14",

@@ -165,10 +165,10 @@ export function transformFreshApis(content: string): TransformResult {
   if (result.includes("scriptAsDataURI")) {
     // Ensure useScript is imported
     if (
-      !result.includes('"@decocms/start/sdk/useScript"') &&
-      !result.includes("'@decocms/start/sdk/useScript'")
+      !result.includes('"@decocms/blocks/sdk/useScript"') &&
+      !result.includes("'@decocms/blocks/sdk/useScript'")
     ) {
-      result = `import { useScript } from "@decocms/start/sdk/useScript";\n${result}`;
+      result = `import { useScript } from "@decocms/blocks/sdk/useScript";\n${result}`;
     }
 
     // Transform src={scriptAsDataURI(...)} into dangerouslySetInnerHTML={{ __html: useScript(...) }}
@@ -190,7 +190,7 @@ export function transformFreshApis(content: string): TransformResult {
     notes.push("Replaced scriptAsDataURI with useScript + dangerouslySetInnerHTML");
   }
 
-  // allowCorsFor — not available in @decocms/start, remove usage
+  // allowCorsFor — not available in @decocms/blocks, remove usage
   if (result.includes("allowCorsFor")) {
     result = result.replace(
       /^import\s+\{[^}]*\ballowCorsFor\b[^}]*\}\s+from\s+["'][^"']+["'];?\s*\n?/gm,
@@ -204,7 +204,7 @@ export function transformFreshApis(content: string): TransformResult {
 
   // ctx.response.headers → not available, flag
   if (result.includes("ctx.response")) {
-    notes.push("MANUAL: ctx.response usage found — FnContext in @decocms/start does not have response object");
+    notes.push("MANUAL: ctx.response usage found — FnContext in @decocms/blocks does not have response object");
   }
 
   // { crypto } from "@std/crypto" → use globalThis.crypto (Web Crypto API)

@@ -255,7 +255,7 @@ function decideAction(
   if (SDK_DELETE.has(relPath)) {
     return {
       action: "delete",
-      notes: "Use framework equivalent from @decocms/start or @decocms/apps",
+      notes: "Use framework equivalent from @decocms/blocks or @decocms/apps-vtex",
     };
   }
 
@@ -263,13 +263,13 @@ function decideAction(
   if (COMPONENT_DELETE.has(relPath)) {
     return {
       action: "delete",
-      notes: "Scaffolded fresh from @decocms/apps re-exports",
+      notes: "Scaffolded fresh from @decocms/blocks re-exports",
     };
   }
 
   // cart/ directory → delete
   if (relPath.startsWith("sdk/cart/")) {
-    return { action: "delete", notes: "Use @decocms/apps cart hooks" };
+    return { action: "delete", notes: "Use @decocms/apps-vtex cart hooks" };
   }
 
   // Non-platform cleanup is done in analyze() post-processing (needs ctx.platform)

@@ -71,22 +71,22 @@ export function generateSectionLoaders(ctx: MigrationContext): string {
   lines.push(`  withSearchParam,`);
   lines.push(`  withSectionLoader,`);
   lines.push(`  compose,`);
-  lines.push(`} from "@decocms/start/cms";`);
+  lines.push(`} from "@decocms/blocks/cms";`);
 
   if (hasSearchResult) {
-    lines.push(`import { detectDevice } from "@decocms/start/sdk/useDevice";`);
+    lines.push(`import { detectDevice } from "@decocms/blocks/sdk/useDevice";`);
   }
 
   if (isVtex) {
-    lines.push(`import { getVtexConfig } from "@decocms/apps/vtex";`);
+    lines.push(`import { getVtexConfig } from "@decocms/apps-vtex";`);
     if (hasWishlistSection && hasWishlistLoaders) {
-      lines.push(`import { getUser } from "@decocms/apps/vtex/loaders/user";`);
-      lines.push(`import { getVtexCookies } from "@decocms/apps/vtex/utils/cookies";`);
+      lines.push(`import { getUser } from "@decocms/apps-vtex/loaders/user";`);
+      lines.push(`import { getVtexCookies } from "@decocms/apps-vtex/utils/cookies";`);
     }
   }
 
   if (hasAccountSections) {
-    lines.push(`import { vtexAccountLoaders } from "@decocms/apps/vtex/utils/accountLoaders";`);
+    lines.push(`import { vtexAccountLoaders } from "@decocms/apps-vtex/utils/accountLoaders";`);
   }
 
   if (hasProductReviewsLoader && (hasProductReviews || hasSearchResult)) {
@@ -338,7 +338,7 @@ export function generateSectionLoaders(ctx: MigrationContext): string {
   // ---------- Account sections ----------
   if (isVtex && hasAccountSections) {
     entries.push(``);
-    entries.push(`  // Account sections — via @decocms/apps factory`);
+    entries.push(`  // Account sections — via @decocms/apps-vtex factory`);
 
     for (const meta of ctx.sectionMetas) {
       if (!meta.isAccountSection) continue;

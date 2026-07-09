@@ -43,7 +43,7 @@ function generateWorkerEntry(ctx: MigrationContext): string {
  * Cloudflare Worker entry point.
  *
  * Wraps TanStack Start with admin protocol handlers, edge caching, and
- * the @decocms/start observability stack (5.0+, Cloudflare-native):
+ * the @decocms/blocks observability stack (5.0+, Cloudflare-native):
  *   - logs:    console.* -> CF Workers Logs (captured by the platform
  *              when wrangler.jsonc has \`observability.enabled: true\`).
  *              View in the CF dashboard -> Workers & Pages -> <site> ->
@@ -57,27 +57,27 @@ function generateWorkerEntry(ctx: MigrationContext): string {
  *
  * No in-Worker OTLP exporter ships with 5.x — the CF dashboard is the
  * destination. A ClickHouse-collector adapter is scaffolded at
- * @decocms/start/sdk/otelAdapters/clickhouseCollector but throws if
+ * @decocms/blocks/sdk/otelAdapters/clickhouseCollector but throws if
  * called; it'll get a real implementation once the OTel collector
  * gateway lands.
  *
  * To wire wrangler.jsonc with the canonical observability block, run:
- *   npx -p @decocms/start deco-cf-observability --write
+ *   npx -p @decocms/blocks-cli deco-cf-observability --write
  */
 import "./setup";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
-import { createDecoWorkerEntry } from "@decocms/start/sdk/workerEntry";
-import { instrumentWorker } from "@decocms/start/sdk/observability";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { instrumentWorker } from "@decocms/blocks/sdk/observability";
 import {
   handleMeta,
   handleDecofileRead,
   handleDecofileReload,
   handleRender,
   corsHeaders,
-} from "@decocms/start/admin";
+} from "@decocms/blocks-admin";
 ${isCommerce ? `
 // TODO: Uncomment and wire proxy for ${platformLabel}
-// import { shouldProxyTo${capitalize(platformLabel!)}, proxyTo${capitalize(platformLabel!)} } from "@decocms/apps/${platformLabel}/utils/proxy";
+// import { shouldProxyTo${capitalize(platformLabel!)}, proxyTo${capitalize(platformLabel!)} } from "@decocms/apps-${platformLabel}/utils/proxy";
 ` : ""}
 const serverEntry = createServerEntry({ fetch: handler.fetch });
 
@@ -110,23 +110,23 @@ function generateVtexWorkerEntry(ctx: MigrationContext): string {
 
   return `import "./setup";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
-import { createDecoWorkerEntry } from "@decocms/start/sdk/workerEntry";
-import { instrumentWorker } from "@decocms/start/sdk/observability";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { instrumentWorker } from "@decocms/blocks/sdk/observability";
 import {
   handleMeta,
   handleDecofileRead,
   handleDecofileReload,
   handleRender,
   corsHeaders,
-} from "@decocms/start/admin";
-import { shouldProxyToVtex, createVtexCheckoutProxy } from "@decocms/apps/vtex/utils/proxy";
-import { extractVtexContext } from "@decocms/apps/vtex/middleware";
-import { loadRedirects, matchRedirect } from "@decocms/start/sdk/redirects";
-import { withABTesting } from "@decocms/start/sdk/abTesting";
-import { loadBlocks } from "@decocms/start/cms";
+} from "@decocms/blocks-admin";
+import { shouldProxyToVtex, createVtexCheckoutProxy } from "@decocms/apps-vtex/utils/proxy";
+import { extractVtexContext } from "@decocms/apps-vtex/middleware";
+import { loadRedirects, matchRedirect } from "@decocms/blocks/sdk/redirects";
+import { withABTesting } from "@decocms/blocks/sdk/abTesting";
+import { loadBlocks } from "@decocms/blocks/cms";
 
 // ---------------------------------------------------------------------------
-// VTEX checkout proxy — configured via @decocms/apps factory
+// VTEX checkout proxy — configured via @decocms/apps-vtex factory
 // ---------------------------------------------------------------------------
 
 const proxyCheckout = createVtexCheckoutProxy({
@@ -226,7 +226,7 @@ const abTestedWorker = withABTesting(decoWorker, {
 // ---------------------------------------------------------------------------
 // Observability wrap (outermost layer)
 //
-// @decocms/start 5.0+ converged on Cloudflare-native observability:
+// @decocms/blocks 5.0+ converged on Cloudflare-native observability:
 //   - logs:    console.* -> CF Workers Logs (dashboard captures, no
 //              app-side OTLP exporter)
 //   - traces:  @opentelemetry/api global tracer (bridged from
@@ -236,7 +236,7 @@ const abTestedWorker = withABTesting(decoWorker, {
 //              src/sdk/otelAdapters/clickhouseCollector.ts)
 //
 // Wire wrangler.jsonc with the canonical observability block via:
-//   npx -p @decocms/start deco-cf-observability --write
+//   npx -p @decocms/blocks-cli deco-cf-observability --write
 // ---------------------------------------------------------------------------
 export default instrumentWorker(abTestedWorker, {
   serviceName: "${ctx.siteName}",
@@ -246,7 +246,7 @@ export default instrumentWorker(abTestedWorker, {
 
 function generateRouter(): string {
   return `import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createDecoRouter } from "@decocms/start/sdk/router";
+import { createDecoRouter } from "@decocms/tanstack";
 import { routeTree } from "./routeTree.gen";
 import "./setup";
 
@@ -274,16 +274,16 @@ declare module "@tanstack/react-router" {
 
 function generateRuntime(): string {
   return `/**
- * Runtime invoke proxy — re-exports the framework canonical from @decocms/start/sdk.
+ * Runtime invoke proxy — re-exports the framework canonical from @decocms/blocks/sdk/invoke.
  *
  * The implementation (typed RPC over /deco/invoke, dotted-path proxy, .ts
- * suffix fallback) lives in @decocms/start/sdk/invoke. This file exists so
+ * suffix fallback) lives in @decocms/blocks/sdk/invoke. This file exists so
  * existing site code can keep \`import { invoke } from "~/runtime"\` and
  * \`Runtime.invoke\` shapes without churn.
  *
- * Don't reimplement here — extend @decocms/start/sdk/invoke instead.
+ * Don't reimplement here — extend @decocms/blocks/sdk/invoke instead.
  */
-import { invoke } from "@decocms/start/sdk";
+import { invoke } from "@decocms/blocks/sdk/invoke";
 
 export { invoke };
 
@@ -328,14 +328,14 @@ export const invoke = {} as const;
  */
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeader } from "@tanstack/react-start/server";
-import { forwardResponseCookies } from "@decocms/start/sdk/cookiePassthrough";
+import { forwardResponseCookies } from "@decocms/tanstack/sdk/cookiePassthrough";
 import { vtexActions } from "./invoke.gen";
 ${hasVtexAuthLoader ? `import vtexAuthLoader from "../loaders/vtex-auth-loader";\n` : ""}import {
   extractVtexCookiesFromHeader,
   stripCookieDomain,
   performVtexLogout,
   parseVtexAuthJwt,
-} from "@decocms/apps/vtex/utils/authHelpers";
+} from "@decocms/apps-vtex/utils/authHelpers";
 
 export type { OrderForm } from "./invoke.gen";
 
@@ -398,17 +398,17 @@ export const vtexActions = {} as const;
 // Each server function is a top-level const so TanStack Start's compiler
 // can transform createServerFn().handler() into RPC stubs on the client.
 import { createServerFn } from "@tanstack/react-start";
-import { getOrCreateCart, addItemsToCart, updateCartItems, addCouponToCart, simulateCart, getSellersByRegion, setShippingPostalCode, updateOrderFormAttachment } from "@decocms/apps/vtex/actions/checkout";
-import { createSession, editSession } from "@decocms/apps/vtex/actions/session";
-import { createDocument, getDocument, patchDocument, searchDocuments, uploadAttachment } from "@decocms/apps/vtex/actions/masterData";
-import { subscribe } from "@decocms/apps/vtex/actions/newsletter";
-import { notifyMe } from "@decocms/apps/vtex/actions/misc";
-import type { OrderForm } from "@decocms/apps/vtex/types";
-import type { SimulationItem, RegionResult } from "@decocms/apps/vtex/actions/checkout";
-import type { SessionData } from "@decocms/apps/vtex/actions/session";
-import type { CreateDocumentResult, UploadAttachmentOpts } from "@decocms/apps/vtex/actions/masterData";
-import type { SubscribeProps } from "@decocms/apps/vtex/actions/newsletter";
-import type { NotifyMeProps } from "@decocms/apps/vtex/actions/misc";
+import { getOrCreateCart, addItemsToCart, updateCartItems, addCouponToCart, simulateCart, getSellersByRegion, setShippingPostalCode, updateOrderFormAttachment } from "@decocms/apps-vtex/actions/checkout";
+import { createSession, editSession } from "@decocms/apps-vtex/actions/session";
+import { createDocument, getDocument, patchDocument, searchDocuments, uploadAttachment } from "@decocms/apps-vtex/actions/masterData";
+import { subscribe } from "@decocms/apps-vtex/actions/newsletter";
+import { notifyMe } from "@decocms/apps-vtex/actions/misc";
+import type { OrderForm } from "@decocms/apps-vtex/types";
+import type { SimulationItem, RegionResult } from "@decocms/apps-vtex/actions/checkout";
+import type { SessionData } from "@decocms/apps-vtex/actions/session";
+import type { CreateDocumentResult, UploadAttachmentOpts } from "@decocms/apps-vtex/actions/masterData";
+import type { SubscribeProps } from "@decocms/apps-vtex/actions/newsletter";
+import type { NotifyMeProps } from "@decocms/apps-vtex/actions/misc";
 
 function unwrapResult<T>(result: unknown): T {
   if (result && typeof result === "object" && "data" in result) {
@@ -549,7 +549,7 @@ export const vtexActions = {
   notifyMe: $notifyMe as unknown as (ctx: { data: NotifyMeProps }) => Promise<void>,
 } as const;
 
-export type { OrderForm } from "@decocms/apps/vtex/types";
+export type { OrderForm } from "@decocms/apps-vtex/types";
 
 export const invoke = {
   vtex: {

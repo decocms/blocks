@@ -8,7 +8,7 @@ import type { SectionMeta, TransformResult } from "../types";
  * Adds section convention exports (sync, eager, layout, cache)
  * to section files based on metadata extracted during analysis.
  *
- * These exports are read by generate-sections.ts in @decocms/start
+ * These exports are read by generate-sections.ts in @decocms/blocks-cli
  * to build the sections.gen.ts registry.
  *
  * The set of section *names* that get hints applied is configurable

@@ -19,11 +19,11 @@ export function generateHooks(ctx: MigrationContext): Record<string, string> {
 function generateVtexUseCart(): string {
   // The legacy invoke-based useCart hook is now a 5-line factory call —
   // the heavy lifting (singleton state, listener pattern, async actions,
-  // analytics helpers) lives in @decocms/apps/vtex/hooks/createUseCart.
-  return `import { createUseCart } from "@decocms/apps/vtex/hooks/createUseCart";
+  // analytics helpers) lives in @decocms/apps-vtex/hooks/createUseCart.
+  return `import { createUseCart } from "@decocms/apps-vtex/hooks/createUseCart";
 import { invoke } from "~/server/invoke";
 
-export type { OrderForm, OrderFormItem } from "@decocms/apps/vtex/types";
+export type { OrderForm, OrderFormItem } from "@decocms/apps-vtex/types";
 
 export const { useCart, resetCart, itemToAnalyticsItem } = createUseCart({
   invoke,
@@ -70,22 +70,22 @@ export default useCart;
 // VTEX path — these are five-line factory shims. The heavy lifting
 // (singleton state, listener pattern, async actions, signal-shaped
 // accessors, legacy arg-swap conventions) lives in
-// @decocms/apps/vtex/hooks/createUseUser and createUseWishlist.
+// @decocms/apps-vtex/hooks/createUseUser and createUseWishlist.
 function generateVtexUseUser(): string {
-  return `import { createUseUser } from "@decocms/apps/vtex/hooks/createUseUser";
+  return `import { createUseUser } from "@decocms/apps-vtex/hooks/createUseUser";
 import { invoke } from "~/server/invoke";
 
-export type { Person } from "@decocms/apps/vtex/loaders/user";
+export type { Person } from "@decocms/apps-vtex/loaders/user";
 
 export const { useUser, resetUser } = createUseUser({ invoke });
 `;
 }
 
 function generateVtexUseWishlist(): string {
-  return `import { createUseWishlist } from "@decocms/apps/vtex/hooks/createUseWishlist";
+  return `import { createUseWishlist } from "@decocms/apps-vtex/hooks/createUseWishlist";
 import { invoke } from "~/server/invoke";
 
-export type { WishlistItem } from "@decocms/apps/vtex/loaders/wishlist";
+export type { WishlistItem } from "@decocms/apps-vtex/loaders/wishlist";
 
 export const { useWishlist, resetWishlist } = createUseWishlist({ invoke });
 `;
@@ -98,7 +98,7 @@ function generateGenericUseUser(): string {
   return `/**
  * User Hook — wire to invoke.site.loaders for your platform's user API.
  *
- * VTEX sites get a real factory from @decocms/apps/vtex/hooks/createUseUser;
+ * VTEX sites get a real factory from @decocms/apps-vtex/hooks/createUseUser;
  * see migration template hooks.ts for the canonical five-line shim.
  */
 import { signal } from "~/sdk/signal";
@@ -125,7 +125,7 @@ function generateGenericUseWishlist(): string {
   return `/**
  * Wishlist Hook — wire to invoke.site.loaders/actions for your platform.
  *
- * VTEX sites get a real factory from @decocms/apps/vtex/hooks/createUseWishlist;
+ * VTEX sites get a real factory from @decocms/apps-vtex/hooks/createUseWishlist;
  * see migration template hooks.ts for the canonical five-line shim.
  */
 import { signal } from "~/sdk/signal";

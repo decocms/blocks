@@ -37,15 +37,15 @@ export function generateCommerceLoaders(ctx: MigrationContext): string {
   lines.push(` */`);
 
   if (ctx.platform === "vtex") {
-    lines.push(`import { getVtexConfig } from "@decocms/apps/vtex";`);
-    lines.push(`import { createVtexCommerceLoaders, createCachedPDPLoader } from "@decocms/apps/vtex/commerceLoaders";`);
+    lines.push(`import { getVtexConfig } from "@decocms/apps-vtex";`);
+    lines.push(`import { createVtexCommerceLoaders, createCachedPDPLoader } from "@decocms/apps-vtex/commerceLoaders";`);
     if (hasAutocomplete) {
-      lines.push(`import { autocompleteSearch } from "@decocms/apps/vtex/loaders/autocomplete";`);
+      lines.push(`import { autocompleteSearch } from "@decocms/apps-vtex/loaders/autocomplete";`);
     }
-    lines.push(`import { getAddressByPostalCode } from "@decocms/apps/vtex/loaders/address";`);
-    lines.push(`import { createAddressFromRequest, updateAddressFromRequest, deleteAddressFromRequest } from "@decocms/apps/vtex/actions/address";`);
-    lines.push(`import { updateProfileFromRequest, newsletterProfileFromRequest, deletePaymentFromRequest, getPasswordLastUpdate } from "@decocms/apps/vtex/actions/profile";`);
-    lines.push(`import { createCachedLoader } from "@decocms/start/sdk/cachedLoader";`);
+    lines.push(`import { getAddressByPostalCode } from "@decocms/apps-vtex/loaders/address";`);
+    lines.push(`import { createAddressFromRequest, updateAddressFromRequest, deleteAddressFromRequest } from "@decocms/apps-vtex/actions/address";`);
+    lines.push(`import { updateProfileFromRequest, newsletterProfileFromRequest, deletePaymentFromRequest, getPasswordLastUpdate } from "@decocms/apps-vtex/actions/profile";`);
+    lines.push(`import { createCachedLoader } from "@decocms/blocks/sdk/cachedLoader";`);
 
     if (hasVtexAuth) {
       lines.push(`import vtexAuthLoader from "../loaders/vtex-auth-loader";`);
@@ -92,7 +92,7 @@ export function generateCommerceLoaders(ctx: MigrationContext): string {
 
     // Autocomplete aliases
     if (hasAutocomplete) {
-      lines.push(`  // Autocomplete search — from @decocms/apps`);
+      lines.push(`  // Autocomplete search — from @decocms/apps-vtex`);
       lines.push(`  "site/loaders/search/intelligenseSearch.ts": cachedAutocomplete,`);
       lines.push(`  "site/loaders/search/intelligenseSearch": cachedAutocomplete,`);
       lines.push(``);
@@ -109,7 +109,7 @@ export function generateCommerceLoaders(ctx: MigrationContext): string {
     }
 
     // VTEX address CRUD
-    lines.push(`  // VTEX address CRUD — request-aware wrappers from @decocms/apps`);
+    lines.push(`  // VTEX address CRUD — request-aware wrappers from @decocms/apps-vtex`);
     lines.push(`  "vtex/actions/address/createAddress": createAddressFromRequest as any,`);
     lines.push(`  "vtex/actions/address/updateAddress": updateAddressFromRequest as any,`);
     lines.push(`  "vtex/actions/address/deleteAddress": deleteAddressFromRequest as any,`);
@@ -215,7 +215,7 @@ export function generateCommerceLoaders(ctx: MigrationContext): string {
 
     lines.push(``);
     // Profile actions
-    lines.push(`  // Profile actions — request-aware wrappers from @decocms/apps`);
+    lines.push(`  // Profile actions — request-aware wrappers from @decocms/apps-vtex`);
     lines.push(`  "vtex/actions/profile/updateProfile": updateProfileFromRequest as any,`);
     lines.push(`  "vtex/actions/profile/updateProfile.ts": updateProfileFromRequest as any,`);
     lines.push(`  "vtex/actions/profile/newsletterProfile": newsletterProfileFromRequest as any,`);

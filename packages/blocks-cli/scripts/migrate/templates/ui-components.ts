@@ -13,7 +13,7 @@ export function generateUiComponents(_ctx: MigrationContext): Record<string, str
   FACTORS,
   type ImageProps,
   type FitOptions,
-} from "@decocms/apps/commerce/components/Image";
+} from "@decocms/blocks/hooks";
 `;
 
   files["src/components/ui/Picture.tsx"] = `import type { ReactNode } from "react";
@@ -22,7 +22,7 @@ import {
   getSrcSet,
   type FitOptions,
   type ImageProps,
-} from "@decocms/apps/commerce/components/Image";
+} from "@decocms/blocks/hooks";
 
 export interface PictureSourceProps {
   src: string;

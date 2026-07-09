@@ -155,7 +155,7 @@ export function transform(ctx: MigrationContext): void {
     // This file uses Deno-specific APIs (toFileUrl, import.meta.resolve)
     // and the HTMX-driven `useComponent(component, props)` pattern, which
     // do not run on Cloudflare Workers and have no equivalent in
-    // @decocms/start. The whole file must be deleted.
+    // @decocms/blocks. The whole file must be deleted.
     if (
       /sections\/Component\.tsx?$/.test(record.path) ||
       /sections\/Component\.tsx?$/.test(targetPath)

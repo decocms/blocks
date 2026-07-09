@@ -93,15 +93,15 @@ import "./cache-config";
 import {
   registerCommerceLoaders,
   applySectionConventions,
-} from "@decocms/start/cms";
-import { createSiteSetup } from "@decocms/start/setup";
-import { setInvokeLoaders } from "@decocms/start/admin";${isVtex ? `
-import { createInstrumentedFetch } from "@decocms/start/sdk/instrumentedFetch";
-import { initVtexFromBlocks, setVtexFetch } from "@decocms/apps/vtex";` : ""}${hasLocationMatcher ? `
+} from "@decocms/blocks/cms";
+import { createSiteSetup } from "@decocms/blocks/setup";
+import { setInvokeLoaders } from "@decocms/blocks-admin";${isVtex ? `
+import { createInstrumentedFetch } from "@decocms/blocks/sdk/instrumentedFetch";
+import { initVtexFromBlocks, setVtexFetch } from "@decocms/apps-vtex";` : ""}${hasLocationMatcher ? `
 import { registerLocationMatcher } from "./matchers/location";` : ""}
 import { blocks as generatedBlocks } from "../.deco/blocks.gen";
 import { sectionMeta, syncComponents, loadingFallbacks } from "../.deco/sections.gen";
-import { PreviewProviders } from "@decocms/start/hooks";
+import { PreviewProviders } from "@decocms/tanstack";
 // @ts-ignore Vite ?url import
 import appCss from "./styles/app.css?url";
 

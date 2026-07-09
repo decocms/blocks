@@ -5,7 +5,7 @@ export function generateTypeFiles(ctx: MigrationContext): Record<string, string>
 
   // src/types/widgets.ts is no longer generated — the framework owns these
   // string aliases (`ImageWidget`, `HTMLWidget`, …) at
-  // `@decocms/start/types/widgets`, and `transforms/imports.ts` rewrites
+  // `@decocms/blocks/types/widgets`, and `transforms/imports.ts` rewrites
   // `apps/admin/widgets.ts` directly to that path. Schema generation
   // works the same way: the generator matches by type *text*, not module
   // identity (see scripts/generate-schema.ts:WIDGET_TYPE_FORMATS).
@@ -99,7 +99,7 @@ export type AppContext = {
 export type LegacyAppContext = AppContext;
 `;
 
-    files["src/types/vtex-loaders.ts"] = `import type { Product, ProductListingPage } from "@decocms/apps/commerce/types";
+    files["src/types/vtex-loaders.ts"] = `import type { Product, ProductListingPage } from "@decocms/apps-commerce/types";
 
 export interface ProductListProps {
   page: ProductListingPage | null;

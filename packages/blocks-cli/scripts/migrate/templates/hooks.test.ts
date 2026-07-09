@@ -44,12 +44,12 @@ describe("generateHooks (vtex)", () => {
 		const code = files["src/hooks/useCart.ts"];
 		// Imports from the framework factory.
 		expect(code).toContain(
-			'import { createUseCart } from "@decocms/apps/vtex/hooks/createUseCart"',
+			'import { createUseCart } from "@decocms/apps-vtex/hooks/createUseCart"',
 		);
 		expect(code).toContain('import { invoke } from "~/server/invoke"');
-		// Re-exports types from @decocms/apps directly.
+		// Re-exports types from @decocms/apps-vtex directly.
 		expect(code).toContain(
-			'export type { OrderForm, OrderFormItem } from "@decocms/apps/vtex/types"',
+			'export type { OrderForm, OrderFormItem } from "@decocms/apps-vtex/types"',
 		);
 		// Calls the factory with invoke and destructures the public API.
 		expect(code).toContain(
@@ -70,11 +70,11 @@ describe("generateHooks (vtex)", () => {
 	it("useUser is the createUseUser factory shim (no signal-stub boilerplate)", () => {
 		const code = files["src/hooks/useUser.ts"];
 		expect(code).toContain(
-			'import { createUseUser } from "@decocms/apps/vtex/hooks/createUseUser"',
+			'import { createUseUser } from "@decocms/apps-vtex/hooks/createUseUser"',
 		);
 		expect(code).toContain('import { invoke } from "~/server/invoke"');
 		expect(code).toContain(
-			'export type { Person } from "@decocms/apps/vtex/loaders/user"',
+			'export type { Person } from "@decocms/apps-vtex/loaders/user"',
 		);
 		expect(code).toContain("export const { useUser, resetUser } = createUseUser");
 		// Must NOT scaffold the legacy signal stub.
@@ -85,11 +85,11 @@ describe("generateHooks (vtex)", () => {
 	it("useWishlist is the createUseWishlist factory shim", () => {
 		const code = files["src/hooks/useWishlist.ts"];
 		expect(code).toContain(
-			'import { createUseWishlist } from "@decocms/apps/vtex/hooks/createUseWishlist"',
+			'import { createUseWishlist } from "@decocms/apps-vtex/hooks/createUseWishlist"',
 		);
 		expect(code).toContain('import { invoke } from "~/server/invoke"');
 		expect(code).toContain(
-			'export type { WishlistItem } from "@decocms/apps/vtex/loaders/wishlist"',
+			'export type { WishlistItem } from "@decocms/apps-vtex/loaders/wishlist"',
 		);
 		expect(code).toContain(
 			"export const { useWishlist, resetWishlist } = createUseWishlist",

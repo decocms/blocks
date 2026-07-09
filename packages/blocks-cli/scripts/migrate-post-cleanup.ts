@@ -8,8 +8,8 @@
  * but turns it into something CI can actually run.
  *
  * Usage (from a migrated site directory):
- *   npx -p @decocms/start deco-post-cleanup
- *   npx -p @decocms/start deco-post-cleanup --json
+ *   npx -p @decocms/blocks-cli deco-post-cleanup
+ *   npx -p @decocms/blocks-cli deco-post-cleanup --json
  *
  * Options:
  *   --source <dir>   Site directory to audit (default: current directory)
@@ -65,13 +65,13 @@ function parseArgs(args: string[]): CliOpts {
 
 function showHelp() {
   console.log(`
-  @decocms/start — Post-Migration Cleanup Audit
+  @decocms/blocks-cli — Post-Migration Cleanup Audit
 
   Scans a migrated site for dead code and obsolete boilerplate that the
   framework now owns. Read-only — prints findings, does not modify files.
 
   Usage:
-    npx -p @decocms/start deco-post-cleanup [options]
+    npx -p @decocms/blocks-cli deco-post-cleanup [options]
 
   Options:
     --source <dir>   Site directory to audit (default: .)
@@ -88,10 +88,10 @@ function showHelp() {
     --help, -h       Show this help
 
   Examples:
-    npx -p @decocms/start deco-post-cleanup
-    npx -p @decocms/start deco-post-cleanup --source ./my-site --json
-    npx -p @decocms/start deco-post-cleanup --fix
-    npx -p @decocms/start deco-post-cleanup --fix --strict   # fail CI if anything left
+    npx -p @decocms/blocks-cli deco-post-cleanup
+    npx -p @decocms/blocks-cli deco-post-cleanup --source ./my-site --json
+    npx -p @decocms/blocks-cli deco-post-cleanup --fix
+    npx -p @decocms/blocks-cli deco-post-cleanup --fix --strict   # fail CI if anything left
 
   See: .agents/skills/deco-to-tanstack-migration/references/post-migration-cleanup.md
   `);

@@ -35,7 +35,7 @@ const REQUIRED_FILES = [
   "src/hooks/useUser.ts",
   "src/hooks/useWishlist.ts",
   // src/types/widgets.ts intentionally omitted — provided by the
-  // framework at `@decocms/start/types/widgets`; sites no longer
+  // framework at `@decocms/blocks/types/widgets`; sites no longer
   // shadow the file locally.
   "src/types/deco.ts",
   "src/types/commerce-app.ts",
@@ -173,8 +173,9 @@ export const checks: Check[] = [
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
       const required = [
-        "@decocms/start",
-        "@decocms/apps",
+        "@decocms/blocks",
+        "@decocms/tanstack",
+        "@decocms/apps-commerce",
         "react",
         "react-dom",
         "@tanstack/react-start",
@@ -382,7 +383,7 @@ export const checks: Check[] = [
     },
   },
   {
-    name: "No apps/ imports in src/ (should be @decocms/apps or ~/)",
+    name: "No apps/ imports in src/ (should be @decocms/apps-* or ~/)",
     severity: "error",
     fn: (ctx) => {
       const srcDir = path.join(ctx.sourceDir, "src");
@@ -457,7 +458,7 @@ export const checks: Check[] = [
     severity: "warning",
     fn: (ctx) => {
       const typeFiles = [
-        // widgets.ts is provided by @decocms/start/types/widgets, not
+        // widgets.ts is provided by @decocms/blocks/types/widgets, not
         // scaffolded locally.
         "src/types/deco.ts",
         "src/types/commerce-app.ts",
