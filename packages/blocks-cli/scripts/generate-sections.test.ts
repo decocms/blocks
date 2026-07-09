@@ -258,4 +258,71 @@ describe("generate-sections --registry", () => {
     const importResult = cp.spawnSync("npx", ["tsx", checkerFile], { encoding: "utf8" });
     expect(importResult.status, importResult.stderr).toBe(0);
   }, 30_000);
+
+  it("ends with exactly one trailing newline and no doubled blank line before the registry block (output hygiene)", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "Hero.tsx"),
+      "export const sync = true\nexport default function Hero() { return null }\n",
+    );
+
+    const { code } = runGenerator([
+      "--sections-dir", sectionsDir,
+      "--out-file", outFile,
+      "--registry",
+    ]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    expect(generated.endsWith("\n")).toBe(true);
+    expect(generated.endsWith("\n\n")).toBe(false);
+    // No run of 3+ consecutive newlines (i.e. no blank-line pair) anywhere,
+    // in particular right before the registry doc comment.
+    expect(generated).not.toMatch(/\n{3,}/);
+  }, 30_000);
+});
+
+describe("generate-sections output hygiene (non-registry)", () => {
+  let tmpDir: string;
+  let sectionsDir: string;
+  let outFile: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-sections-hygiene-"));
+    sectionsDir = path.join(tmpDir, "sections");
+    outFile = path.join(tmpDir, "out", "sections.gen.ts");
+    fs.mkdirSync(sectionsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("ends with exactly one trailing newline without --registry", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "Hero.tsx"),
+      "export const eager = true;\nexport default function Hero() { return null; }\n",
+    );
+
+    const { code } = runGenerator(["--sections-dir", sectionsDir, "--out-file", outFile]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    expect(generated.endsWith("\n")).toBe(true);
+    expect(generated.endsWith("\n\n")).toBe(false);
+    expect(generated).not.toMatch(/\n{3,}/);
+  }, 30_000);
+
+  it("ends with exactly one trailing newline when the sections dir is missing (empty-output early-exit path)", () => {
+    const missingSectionsDir = path.join(tmpDir, "does-not-exist");
+
+    const { code } = runGenerator([
+      "--sections-dir", missingSectionsDir,
+      "--out-file", outFile,
+    ]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    expect(generated.endsWith("\n")).toBe(true);
+    expect(generated.endsWith("\n\n")).toBe(false);
+  }, 30_000);
 });

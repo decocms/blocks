@@ -248,7 +248,10 @@ lines.push("");
 // Lazy section-import registry — opt-in via --registry, built from every
 // scanned section file (not just convention-carrying `entries`).
 if (EMIT_REGISTRY) {
-  lines.push("");
+  // NOTE: no extra `lines.push("")` here — the loadingFallbacks block above
+  // already pushed a single trailing blank line as its separator. Pushing
+  // another one here doubled the blank line before this comment block in
+  // every site's committed .deco/sections.gen.ts.
   lines.push("/**");
   lines.push(" * Lazy section registry — the Next.js/webpack equivalent of Vite's");
   lines.push(" * `import.meta.glob` scan over every file under ./sections, recursively.");
@@ -265,7 +268,18 @@ if (EMIT_REGISTRY) {
 }
 
 fs.mkdirSync(path.dirname(outFile), { recursive: true });
-fs.writeFileSync(outFile, lines.join("\n"));
+// Output hygiene: several sections above push a trailing "" separator
+// unconditionally (e.g. after the header comment, after the sync/fallback
+// import blocks) — when a following section has nothing to emit (no sync
+// imports, --registry off, etc.) those separators stack into a doubled
+// blank line. Collapse any run of blank lines down to a single one, then
+// normalize to exactly one trailing newline: without --registry, `lines`
+// ends with a pushed "" separator (one trailing "\n" once joined); with
+// --registry, the last pushed line is "};" (no trailing newline at all).
+fs.writeFileSync(
+  outFile,
+  lines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n*$/, "\n"),
+);
 
 console.log(
   `Generated section metadata for ${entries.length} sections → ${path.relative(process.cwd(), outFile)}`,
