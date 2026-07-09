@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { KV_KEYS, type KVNamespace, getRevision, loadBlocks, setBlocks } from "@decocms/blocks/cms";
 import { handleDecofileReload, setFastDeployKVGetter } from "./decofile";
 
@@ -152,5 +152,69 @@ describe("handleDecofileReload — validation", () => {
   it("returns 400 when the body is not an object", async () => {
     const res = await reload([1, 2, 3], {});
     expect(res.status).toBe(400);
+  });
+});
+
+describe("handleDecofileReload — auth gate outside dev (fail-closed)", () => {
+  // These tests deliberately leave the file-level NODE_ENV=development
+  // override and simulate the production posture per-test: the reload
+  // endpoint is DESTRUCTIVE (a posted body fully replaces the in-memory
+  // registry), and the dev bypass predicate changed once already
+  // (import.meta.env.DEV -> NODE_ENV) — this suite pins the fail-closed
+  // side so the next predicate change can't silently open it.
+  const DEV_VALUE = process.env.NODE_ENV;
+
+  function reloadWithAuth(authHeader: string | null, env?: Record<string, unknown>) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authHeader !== null) headers.Authorization = authHeader;
+    const req = new Request("http://x/.decofile", {
+      method: "POST",
+      body: JSON.stringify({ Site: { name: "attacker" } }),
+      headers,
+    });
+    return handleDecofileReload(req, env);
+  }
+
+  beforeEach(() => {
+    process.env.NODE_ENV = "production";
+  });
+  afterEach(() => {
+    process.env.NODE_ENV = DEV_VALUE;
+    delete process.env.DECO_RELEASE_RELOAD_TOKEN;
+  });
+
+  it("401s with no Authorization header and leaves the registry untouched", async () => {
+    const res = await reloadWithAuth(null, {});
+    expect(res.status).toBe(401);
+    expect((loadBlocks().Site as { name: string }).name).toBe("base");
+  });
+
+  it("401s when NO reload token is configured at all (fail-closed, not fail-open)", async () => {
+    const res = await reloadWithAuth("anything", {});
+    expect(res.status).toBe(401);
+    expect((loadBlocks().Site as { name: string }).name).toBe("base");
+  });
+
+  it("401s on a wrong token and leaves the registry untouched", async () => {
+    const res = await reloadWithAuth("wrong-token", {
+      DECO_RELEASE_RELOAD_TOKEN: "right-token",
+    });
+    expect(res.status).toBe(401);
+    expect((loadBlocks().Site as { name: string }).name).toBe("base");
+  });
+
+  it("401s when NODE_ENV is unset (fail-closed by default)", async () => {
+    delete process.env.NODE_ENV;
+    const res = await reloadWithAuth(null, {});
+    expect(res.status).toBe(401);
+    expect((loadBlocks().Site as { name: string }).name).toBe("base");
+  });
+
+  it("accepts the correct token and performs the replacement", async () => {
+    const res = await reloadWithAuth("right-token", {
+      DECO_RELEASE_RELOAD_TOKEN: "right-token",
+    });
+    expect(res.status).toBe(200);
+    expect((loadBlocks().Site as { name: string }).name).toBe("attacker");
   });
 });
