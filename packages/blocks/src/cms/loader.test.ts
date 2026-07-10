@@ -101,6 +101,24 @@ describe("matchPath", () => {
       expect(() => matchPath("/[invalid", "/anything")).not.toThrow();
       expect(matchPath("/[invalid", "/anything")).toBeNull();
     });
+
+    // Node <= 22 has no URLPattern global. The malformed-pattern try/catch
+    // above must NOT absorb that ReferenceError — a missing API has to fail
+    // loudly at first match, not degrade into every CMS page silently
+    // returning null (which renders as sitewide 404s).
+    it("throws a descriptive error when the runtime lacks URLPattern", () => {
+      const g = globalThis as { URLPattern?: unknown };
+      const saved = g.URLPattern;
+      // biome-ignore lint/performance/noDelete: restoring exact global state
+      delete g.URLPattern;
+      try {
+        expect(() => matchPath("/foo/:slug", "/foo/bar")).toThrow(
+          /URLPattern.*Node\.js >= 24/s,
+        );
+      } finally {
+        if (saved !== undefined) g.URLPattern = saved;
+      }
+    });
   });
 });
 

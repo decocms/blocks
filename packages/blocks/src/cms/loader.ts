@@ -223,11 +223,27 @@ declare const URLPattern: {
  *
  * Malformed patterns return `null` instead of throwing — bad CMS data must
  * never take down the worker.
+ *
+ * A MISSING `URLPattern` API, however, throws loudly and immediately: the
+ * try/catch below exists to absorb bad *patterns*, and letting it also
+ * swallow a `ReferenceError` from an old runtime turns "wrong Node version"
+ * into "every CMS page silently 404s" — the worst possible failure mode.
+ * `URLPattern` is native in browsers, workerd, Deno, and Node >= 24 (this
+ * package's `engines` floor). Node 22 and older lack it.
  */
 export function matchPath(
   pattern: string,
   urlPath: string,
 ): Record<string, string> | null {
+  if (typeof URLPattern === "undefined") {
+    throw new Error(
+      "@decocms/blocks: this runtime has no URLPattern Web API, so CMS page " +
+        "paths cannot be matched. URLPattern is native in browsers, " +
+        "Cloudflare workerd, Deno, and Node.js >= 24 — you are most likely " +
+        "running Node <= 22. Upgrade the runtime to Node 24+ (see this " +
+        'package\'s "engines" field).',
+    );
+  }
   let result: MatchPatternResult | null;
   try {
     result = new URLPattern({ pathname: pattern }).exec({ pathname: urlPath });
