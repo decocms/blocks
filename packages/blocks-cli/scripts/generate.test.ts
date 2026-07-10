@@ -139,8 +139,38 @@ function mtime(dir: string, rel: string): number {
   return fs.statSync(path.join(dir, rel)).mtimeMs;
 }
 
-function readCache(dir: string): { schemaVersion: number; generators: Record<string, any> } {
-  return JSON.parse(fs.readFileSync(path.join(dir, ".deco/.cache/generate.json"), "utf8"));
+const DIGESTS = ".deco/generate.digests.json";
+const STAT_MEMO = ".deco/.cache/stat-memo.json";
+
+function readDigests(dir: string): { version: number; generators: Record<string, any> } {
+  return JSON.parse(fs.readFileSync(path.join(dir, DIGESTS), "utf8"));
+}
+
+/** Bump mtime (fresh-clone checkouts have arbitrary mtimes) without touching
+ * content. */
+function touch(abs: string): void {
+  const later = new Date(Date.now() + 5_000);
+  fs.utimesSync(abs, later, later);
+}
+
+/** Every fixture input file, recursively (skipping node_modules/.deco — the
+ * @decocms package.jsons are fingerprinted by version, not by stat). */
+function touchAllInputs(dir: string): number {
+  let touched = 0;
+  const visit = (d: string) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) {
+        if (e.name === "node_modules" || e.name === ".cache") continue;
+        visit(full);
+      } else if (e.isFile() && !e.name.includes(".gen.")) {
+        touch(full);
+        touched++;
+      }
+    }
+  };
+  visit(dir);
+  return touched;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,9 +247,10 @@ describe("orchestrator lifecycle (tanstack-shaped fixture)", () => {
     for (const name of ["blocks", "manifest", "sections", "loaders", "invoke", "schema"]) {
       expect(r.stdout).toMatch(new RegExp(`\\[generate\\] ${name} \\d+ms \\(fresh\\)`));
     }
-    // Cache scaffold: digest file + the .gitignore that keeps it out of git
-    // (sites commit .deco/).
-    const cache = readCache(dir);
+    // Committed tier: one record per generator in .deco/generate.digests.json
+    // (meant to be committed). Local tier: the stat memo under .deco/.cache/,
+    // with the .gitignore that keeps IT out of git (sites commit .deco/).
+    const cache = readDigests(dir);
     expect(Object.keys(cache.generators).sort()).toEqual([
       "blocks",
       "invoke",
@@ -228,7 +259,14 @@ describe("orchestrator lifecycle (tanstack-shaped fixture)", () => {
       "schema",
       "sections",
     ]);
+    expect(fs.existsSync(path.join(dir, STAT_MEMO))).toBe(true);
     expect(fs.readFileSync(path.join(dir, ".deco/.cache/.gitignore"), "utf8").trim()).toBe("*");
+    // Records are machine-independent: content hashes + versions + argv,
+    // never size/mtime.
+    const record = cache.generators.blocks;
+    expect(record.inputs).toMatch(/^[0-9a-f]{64}$/);
+    expect(record.deco).toContain("@decocms/blocks@7.11.0");
+    expect(JSON.stringify(record)).not.toMatch(/mtime/i);
   }, 90_000);
 
   it("second run is fully cached and never invokes the generators", () => {
@@ -307,19 +345,113 @@ describe("orchestrator lifecycle (tanstack-shaped fixture)", () => {
   }, 90_000);
 
   it("--dry-run reports the plan without touching anything", () => {
-    const cacheBefore = fs.readFileSync(path.join(dir, ".deco/.cache/generate.json"), "utf8");
+    const digestsBefore = fs.readFileSync(path.join(dir, DIGESTS), "utf8");
+    const memoBefore = fs.readFileSync(path.join(dir, STAT_MEMO), "utf8");
     const blocksBefore = mtime(dir, ".deco/blocks.gen.json");
     const r = run(["--apps-dir", "fake-apps", "--dry-run"], dir);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("dry run");
     // --exclude was dropped again, so loaders would re-run; the rest is cached.
-    expect(r.stdout).toMatch(/\[generate\] loaders: would run \(inputs changed\)/);
+    expect(r.stdout).toMatch(/\[generate\] loaders: would run \(flags changed\)/);
     expect(r.stdout).toMatch(/\[generate\] blocks: skip — cached/);
-    expect(fs.readFileSync(path.join(dir, ".deco/.cache/generate.json"), "utf8")).toBe(
-      cacheBefore,
-    );
+    expect(fs.readFileSync(path.join(dir, DIGESTS), "utf8")).toBe(digestsBefore);
+    // Not even the stat memo — dry run is strictly read-only.
+    expect(fs.readFileSync(path.join(dir, STAT_MEMO), "utf8")).toBe(memoBefore);
     expect(mtime(dir, ".deco/blocks.gen.json")).toBe(blocksBefore);
   }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Two-tier cache: committed content-hash digests + local stat memo
+// ---------------------------------------------------------------------------
+
+describe("committed digests + stat memo (fresh-clone semantics)", () => {
+  let dir: string;
+  /** Digest-file bytes after the first successful full run — the baseline
+   * every later assertion of determinism/reconciliation compares against. */
+  let baseline: string;
+
+  beforeAll(() => {
+    dir = makeFixture({ withInvoke: true, withManifestArtifact: true });
+  });
+  afterAll(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("serialization is deterministic: two runs produce byte-identical digests", () => {
+    expect(run(["--apps-dir", "fake-apps"], dir).code).toBe(0);
+    baseline = fs.readFileSync(path.join(dir, DIGESTS), "utf8");
+    // Sanity: committed tier lives OUTSIDE the gitignored .deco/.cache/.
+    expect(baseline).toContain('"generators"');
+    const r = run(["--apps-dir", "fake-apps", "--force"], dir);
+    expect(r.code).toBe(0);
+    expect(fs.readFileSync(path.join(dir, DIGESTS), "utf8")).toBe(baseline);
+  }, 180_000);
+
+  it("fresh clone: no local cache + churned mtimes still cache-hits everything", () => {
+    // Simulate `git clone`: the committed digests + artifacts exist, but the
+    // machine-local memo does not, and every checkout mtime is arbitrary.
+    fs.rmSync(path.join(dir, ".deco", ".cache"), { recursive: true, force: true });
+    expect(touchAllInputs(dir)).toBeGreaterThan(5);
+    const blocksBefore = mtime(dir, ".deco/blocks.gen.json");
+    const metaBefore = mtime(dir, ".deco/meta.gen.json");
+    const r = run(["--apps-dir", "fake-apps"], dir);
+    expect(r.code).toBe(0);
+    // Every generator validated by hashing CONTENT (memo was gone), not stats.
+    for (const name of ["blocks", "manifest", "sections", "loaders", "invoke", "schema"]) {
+      expect(r.stdout).toMatch(
+        new RegExp(`\\[generate\\] ${name} \\d+ms \\(cached, content-verified\\)`),
+      );
+    }
+    expect(r.stdout).not.toContain("(fresh)");
+    expect(mtime(dir, ".deco/blocks.gen.json")).toBe(blocksBefore);
+    expect(mtime(dir, ".deco/meta.gen.json")).toBe(metaBefore);
+    // The local tier was rebuilt (with its .gitignore) for the next run.
+    expect(fs.existsSync(path.join(dir, STAT_MEMO))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, ".deco/.cache/.gitignore"), "utf8").trim()).toBe("*");
+  }, 30_000);
+
+  it("warm run validates via the stat memo alone (no content-verified marker)", () => {
+    const r = run(["--apps-dir", "fake-apps"], dir);
+    expect(r.code).toBe(0);
+    for (const name of ["blocks", "manifest", "sections", "loaders", "invoke", "schema"]) {
+      expect(r.stdout).toMatch(new RegExp(`\\[generate\\] ${name} \\d+ms \\(cached\\)`));
+    }
+    expect(r.stdout).not.toContain("content-verified");
+    // Documented limitation (same trade as git's index): a content edit that
+    // preserves BOTH size and mtimeMs would be trusted by the stat memo and
+    // not detected. Not exercised here — engineering it cross-platform is
+    // exactly the pathological case git also accepts.
+  }, 30_000);
+
+  it("content-verified marks only the generators whose inputs were rehashed", () => {
+    touch(path.join(dir, ".deco/blocks/Site.json"));
+    const r = run(["--apps-dir", "fake-apps"], dir);
+    expect(r.code).toBe(0);
+    // blocks + manifest fingerprint .deco/blocks/*.json → they rehashed it.
+    expect(r.stdout).toMatch(/\[generate\] blocks \d+ms \(cached, content-verified\)/);
+    expect(r.stdout).toMatch(/\[generate\] manifest \d+ms \(cached, content-verified\)/);
+    // Everything else came straight from the memo.
+    for (const name of ["sections", "loaders", "invoke", "schema"]) {
+      expect(r.stdout).toMatch(new RegExp(`\\[generate\\] ${name} \\d+ms \\(cached\\)`));
+    }
+  }, 30_000);
+
+  it("a merge-conflicted digests file reconciles by regeneration", () => {
+    // Two branches both regenerated → git leaves conflict markers → the file
+    // no longer parses. The orchestrator must treat that as "no records",
+    // regenerate, and rewrite a valid file — which, with unchanged inputs,
+    // is byte-identical to the pre-conflict baseline.
+    const conflicted = `<<<<<<< ours\n${baseline}=======\n${baseline.replace(/./, "!")}\n>>>>>>> theirs\n`;
+    fs.writeFileSync(path.join(dir, DIGESTS), conflicted);
+    const r = run(["--apps-dir", "fake-apps"], dir);
+    expect(r.code).toBe(0);
+    for (const name of ["blocks", "manifest", "sections", "loaders", "invoke", "schema"]) {
+      expect(r.stdout).toMatch(new RegExp(`\\[generate\\] ${name} \\d+ms \\(fresh\\)`));
+    }
+    expect(fs.readFileSync(path.join(dir, DIGESTS), "utf8")).toBe(baseline);
+    expect(readDigests(dir).version).toBe(2);
+  }, 180_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -345,7 +477,7 @@ describe("crashed generator leaves its digest absent so the next run retries", (
     const r = run(["--apps-dir", "fake-apps", "--skip", "schema"], dir);
     expect(r.code).toBe(1);
     expect(r.stderr).toMatch(/\[generate\] invoke \d+ms FAILED/);
-    const cache = readCache(dir);
+    const cache = readDigests(dir);
     expect(cache.generators.invoke).toBeUndefined();
     // Concurrent stage-1 successes still landed and got cached.
     expect(cache.generators.blocks).toBeDefined();
@@ -366,7 +498,7 @@ describe("crashed generator leaves its digest absent so the next run retries", (
     const r = run(["--apps-dir", "fake-apps", "--skip", "schema"], dir);
     expect(r.code).toBe(0);
     expect(r.stdout).toMatch(/\[generate\] invoke \d+ms \(fresh\)/);
-    expect(readCache(dir).generators.invoke).toBeDefined();
+    expect(readDigests(dir).generators.invoke).toBeDefined();
     expect(fs.existsSync(path.join(dir, "src/server/invoke.gen.ts"))).toBe(true);
   }, 30_000);
 
@@ -375,7 +507,7 @@ describe("crashed generator leaves its digest absent so the next run retries", (
     const r = run(["--apps-dir", "fake-apps", "--force"], dir);
     expect(r.code).toBe(1);
     expect(r.stderr).toMatch(/\[generate\] schema skipped \(stage 1 failed\)/);
-    expect(readCache(dir).generators.schema).toBeUndefined();
+    expect(readDigests(dir).generators.schema).toBeUndefined();
   }, 90_000);
 });
 

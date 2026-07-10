@@ -80,22 +80,38 @@
  * heavyweight (full type-check across src/), so sequencing it second keeps
  * the cheap artifacts landing fast and the log ordering deterministic.
  *
- * ## Incremental cache
+ * ## Incremental cache — two tiers, git-index style
  *
- * `.deco/.cache/generate.json` (never committed — the orchestrator writes a
- * `.deco/.cache/.gitignore` containing `*`, since sites commit `.deco/`).
- * Per generator we store a sha256 digest over:
- *   - CACHE_SCHEMA_VERSION (format changes self-bust),
- *   - the exact resolved argv forwarded to that generator,
- *   - blocks-cli's own package version,
- *   - the resolved versions of every @decocms/* package in the site's
- *     node_modules (a lockstep bump invalidates everything),
- *   - the sorted list of (relative path, size, mtimeMs) for the generator's
- *     input files.
- * Skip = the digest matches AND every recorded output file still exists
- * (a deleted artifact is a miss even on a clean digest). A generator that
- * runs rewrites its digest only AFTER success — a crashed run leaves no
- * entry, so the next run retries. `--force` bypasses all checks.
+ * COMMITTED tier: `.deco/generate.digests.json` — commit it alongside the
+ * generated artifacts it vouches for. One compact record per generator:
+ *   - v:      CACHE_SCHEMA_VERSION (format changes self-bust),
+ *   - args:   the exact argv forwarded to that generator,
+ *   - cli:    blocks-cli's own package version,
+ *   - deco:   the resolved versions of every @decocms/* package in the
+ *             site's node_modules (a lockstep bump invalidates everything),
+ *   - inputs: sha256 over the sorted (relPath, contentSha256) pairs of the
+ *             generator's input set — CONTENT hashes, machine-independent.
+ * Because the record is content-addressed, a FRESH CLONE with unchanged
+ * inputs cache-hits every generator (schema's full ts-morph pass becomes a
+ * content-hash sweep of src/**). Serialization is deterministic (sorted
+ * generator keys, fixed field order, one record per line) so PR diffs stay
+ * small; on a merge conflict, resolve either way and rerun `generate` — it
+ * reconciles by regenerating whatever the chosen records don't vouch for.
+ *
+ * LOCAL tier: `.deco/.cache/stat-memo.json` (never committed — the
+ * orchestrator writes a `.deco/.cache/.gitignore` containing `*`, since
+ * sites commit `.deco/`). Maps (relPath, size, mtimeMs) → contentSha256 so
+ * warm local runs skip rehashing unchanged files. It NEVER influences
+ * correctness — it is purely a rehash-avoidance layer over the committed
+ * tier (like git's index, it trusts size+mtimeMs; a content edit that
+ * preserves both is not detected, same as git). Cached log lines gain a
+ * `content-verified` marker when the hit required actual content hashing
+ * (memo cold / stats moved) rather than pure memo lookups.
+ *
+ * Skip = the record matches AND every output file still exists (a deleted
+ * artifact is a miss even on a clean record). A generator that runs
+ * rewrites its record only AFTER success — a crashed run leaves no record,
+ * so the next run retries. `--force` bypasses all checks.
  *
  * schema's input set is deliberately BROAD: all of src/**\/*.{ts,tsx} +
  * tsconfig.json + the installed @decocms/apps-* packages' src trees (when
@@ -112,9 +128,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
 
-// Bump when the cache file format or digest recipe changes — baked into
-// every digest so old caches self-bust instead of mis-validating.
-export const CACHE_SCHEMA_VERSION = 1;
+// Bump when the digests file format or digest recipe changes — recorded in
+// every digest record so old files self-bust instead of mis-validating.
+export const CACHE_SCHEMA_VERSION = 2;
 
 export const GENERATOR_NAMES = [
   "blocks",
@@ -135,7 +151,12 @@ const NAME_ALIASES: Record<string, GeneratorName> = {
 };
 
 const CACHE_DIR_REL = path.join(".deco", ".cache");
-const CACHE_FILE_REL = path.join(CACHE_DIR_REL, "generate.json");
+/** COMMITTED tier — content-hash digest records, one per generator. */
+const DIGESTS_FILE_REL = path.join(".deco", "generate.digests.json");
+/** LOCAL tier — (size, mtimeMs) → contentSha256 memo, never committed. */
+const STAT_MEMO_FILE_REL = path.join(CACHE_DIR_REL, "stat-memo.json");
+/** Pre-v2 machine-local cache — superseded, deleted on sight. */
+const LEGACY_CACHE_FILE_REL = path.join(CACHE_DIR_REL, "generate.json");
 
 const USAGE = `\
 Usage: tsx node_modules/@decocms/blocks-cli/scripts/generate.ts [options]
@@ -171,8 +192,10 @@ Forwarded to the individual generators:
 Not re-exposed here (use the individual scripts): --out-file/--out overrides,
 schema's --version/--apps, invoke's --out-file. Defaults match the scripts.
 
-Cache: .deco/.cache/generate.json (auto-gitignored). Delete it or pass
---force to rebuild from scratch.
+Cache: .deco/generate.digests.json holds committed, machine-independent
+content-hash records — commit it with the generated artifacts so fresh
+clones cache-hit. .deco/.cache/stat-memo.json (auto-gitignored) only speeds
+up local rehashing. Pass --force (or delete the digests file) to rebuild.
 `;
 
 // ---------------------------------------------------------------------------
@@ -320,10 +343,11 @@ export function parseCliOptions(argv: string[]): CliOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Filesystem helpers (stat-only — digests never read file contents)
+// Filesystem helpers (stat-only — content hashing happens in the hasher,
+// where the stat memo can skip it)
 // ---------------------------------------------------------------------------
 
-/** [relative path, size, mtimeMs] — the unit of input fingerprinting. */
+/** [relative path, size, mtimeMs] — the unit of input enumeration. */
 type InputEntry = [string, number, number];
 
 function statEntry(cwd: string, absPath: string): InputEntry | null {
@@ -659,35 +683,86 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
 }
 
 // ---------------------------------------------------------------------------
-// Cache
+// Committed tier — .deco/generate.digests.json
 // ---------------------------------------------------------------------------
 
-interface CacheEntry {
-  digest: string;
-  outputs: string[];
-}
-interface CacheFile {
-  schemaVersion: number;
-  generators: Partial<Record<GeneratorName, CacheEntry>>;
+/** One committed record per generator. Every field is machine-independent
+ * (content hashes, versions, argv) — never stat data. */
+interface DigestRecord {
+  v: number;
+  args: string[];
+  cli: string;
+  /** Sorted `name@version` pairs of the installed @decocms/* packages. */
+  deco: string;
+  /** sha256 over the sorted [relPath, contentSha256] pairs of the inputs. */
+  inputs: string;
 }
 
-function loadCache(cwd: string): CacheFile {
-  const empty: CacheFile = { schemaVersion: CACHE_SCHEMA_VERSION, generators: {} };
+type DigestMap = Partial<Record<GeneratorName, DigestRecord>>;
+
+const DIGESTS_NOTE =
+  "Generated by @decocms/blocks-cli's generate command - COMMIT this file. " +
+  "It records content hashes of each generator's inputs so a fresh clone " +
+  "with unchanged inputs skips every generator. On merge conflict, resolve " +
+  "either way and rerun generate: it regenerates whatever the kept records " +
+  "do not vouch for and rewrites this file.";
+
+function loadDigests(cwd: string): DigestMap {
   try {
-    const parsed = JSON.parse(
-      fs.readFileSync(path.join(cwd, CACHE_FILE_REL), "utf-8"),
-    ) as CacheFile;
-    if (parsed?.schemaVersion !== CACHE_SCHEMA_VERSION || typeof parsed.generators !== "object") {
-      return empty;
+    const parsed = JSON.parse(fs.readFileSync(path.join(cwd, DIGESTS_FILE_REL), "utf-8")) as {
+      version?: number;
+      generators?: DigestMap;
+    };
+    if (parsed?.version !== CACHE_SCHEMA_VERSION || typeof parsed.generators !== "object") {
+      return {};
     }
-    return { schemaVersion: CACHE_SCHEMA_VERSION, generators: parsed.generators ?? {} };
+    return parsed.generators ?? {};
   } catch {
-    return empty;
+    // Missing file, or unparseable (e.g. a merge conflict left <<<<<<<
+    // markers) — treat as empty; regeneration reconciles and rewrites it.
+    return {};
   }
 }
 
+/** Deterministic, diff-friendly serialization: sorted generator keys, fixed
+ * field order, ONE compact record per line. Two runs over identical state
+ * produce byte-identical files, so conflicts only appear on real drift. */
+function serializeDigests(generators: DigestMap): string {
+  const names = (Object.keys(generators) as GeneratorName[]).sort();
+  const lines = names.map((name) => {
+    const r = generators[name] as DigestRecord;
+    const record = JSON.stringify({
+      v: r.v,
+      args: r.args,
+      cli: r.cli,
+      deco: r.deco,
+      inputs: r.inputs,
+    });
+    return `    ${JSON.stringify(name)}: ${record}`;
+  });
+  return [
+    "{",
+    `  "//": ${JSON.stringify(DIGESTS_NOTE)},`,
+    `  "version": ${CACHE_SCHEMA_VERSION},`,
+    "  \"generators\": {",
+    lines.join(",\n"),
+    "  }",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function saveDigests(cwd: string, generators: DigestMap): void {
+  fs.mkdirSync(path.join(cwd, ".deco"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, DIGESTS_FILE_REL), serializeDigests(generators));
+}
+
+// ---------------------------------------------------------------------------
+// Local tier — .deco/.cache/stat-memo.json (rehash avoidance ONLY)
+// ---------------------------------------------------------------------------
+
 /** mkdir .deco/.cache and drop a `.gitignore` containing `*` — sites commit
- * `.deco/`, and the cache (machine-local mtimes) must never land in git. */
+ * `.deco/`, and the memo (machine-local mtimes) must never land in git. */
 function ensureCacheDir(cwd: string): void {
   const dir = path.join(cwd, CACHE_DIR_REL);
   fs.mkdirSync(dir, { recursive: true });
@@ -695,25 +770,92 @@ function ensureCacheDir(cwd: string): void {
   if (!fs.existsSync(gitignore)) fs.writeFileSync(gitignore, "*\n");
 }
 
-function saveCache(cwd: string, cache: CacheFile): void {
-  ensureCacheDir(cwd);
-  fs.writeFileSync(path.join(cwd, CACHE_FILE_REL), `${JSON.stringify(cache, null, 2)}\n`);
+interface ContentHasher {
+  /** contentSha256 of an enumerated input, via the memo when stats match. */
+  hashEntry(entry: InputEntry): string;
+  /** Whether THIS RUN had to read the file's bytes (memo cold / stats moved).
+   * Sticky for the whole run, so every generator sharing that input reports
+   * `content-verified`, not just whichever one hashed it first. */
+  wasRehashed(relPath: string): boolean;
+  /** Persist the memo (skipped when nothing was rehashed). */
+  save(): void;
 }
 
-export function computeDigest(
+/** The stat memo trusts (size, mtimeMs) exactly like git's index trusts its
+ * stat cache: a content edit that preserves BOTH size and mtimeMs is not
+ * detected. That is the same trade git makes, and touching the file (or
+ * deleting .deco/.cache) recovers. Correctness never depends on the memo —
+ * it only decides whether we re-read bytes to compute the same sha256. */
+function createContentHasher(cwd: string): ContentHasher {
+  let files: Record<string, [size: number, mtimeMs: number, sha256: string]> = {};
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(path.join(cwd, STAT_MEMO_FILE_REL), "utf-8"),
+    ) as { version?: number; files?: typeof files };
+    if (parsed?.version === CACHE_SCHEMA_VERSION && typeof parsed.files === "object") {
+      files = parsed.files ?? {};
+    }
+  } catch {}
+  let dirty = false;
+  const rehashedPaths = new Set<string>();
+  return {
+    hashEntry([rel, size, mtimeMs]: InputEntry): string {
+      const memo = files[rel];
+      if (memo && memo[0] === size && memo[1] === mtimeMs) return memo[2];
+      let sha: string;
+      try {
+        sha = createHash("sha256").update(fs.readFileSync(path.join(cwd, rel))).digest("hex");
+      } catch {
+        // Vanished between stat and read — a sentinel that can never equal a
+        // recorded sha256 forces a re-run without poisoning the memo.
+        return `unreadable:${rel}`;
+      }
+      files[rel] = [size, mtimeMs, sha];
+      dirty = true;
+      rehashedPaths.add(rel);
+      return sha;
+    },
+    wasRehashed(relPath: string): boolean {
+      return rehashedPaths.has(relPath);
+    },
+    save() {
+      if (!dirty) return;
+      ensureCacheDir(cwd);
+      fs.writeFileSync(
+        path.join(cwd, STAT_MEMO_FILE_REL),
+        `${JSON.stringify({ version: CACHE_SCHEMA_VERSION, files })}\n`,
+      );
+    },
+  };
+}
+
+function computeDigestRecord(
   plan: Pick<GeneratorPlan, "name" | "args" | "inputs">,
   versions: Record<string, string>,
   cliVersion: string,
-): string {
-  const payload = {
+  hasher: ContentHasher,
+): DigestRecord {
+  const pairs = plan.inputs().map((e) => [e[0], hasher.hashEntry(e)]);
+  return {
     v: CACHE_SCHEMA_VERSION,
-    name: plan.name,
     args: plan.args,
-    cliVersion,
-    versions,
-    inputs: plan.inputs(),
+    cli: cliVersion,
+    deco: Object.entries(versions)
+      .map(([name, version]) => `${name}@${version}`)
+      .join(" "),
+    inputs: createHash("sha256").update(JSON.stringify(pairs)).digest("hex"),
   };
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+/** First differing field, most-global first — the log's re-run reason. */
+function recordMismatch(prev: DigestRecord | undefined, next: DigestRecord): string | null {
+  if (!prev) return "no committed digest";
+  if (prev.v !== next.v) return "digest schema changed";
+  if (prev.cli !== next.cli) return "blocks-cli version changed";
+  if (prev.deco !== next.deco) return "@decocms versions changed";
+  if (JSON.stringify(prev.args) !== JSON.stringify(next.args)) return "flags changed";
+  if (prev.inputs !== next.inputs) return "inputs changed";
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -772,29 +914,32 @@ function runGeneratorProcess(plan: GeneratorPlan, cwd: string): Promise<RunResul
 
 type Decision =
   | { kind: "disabled"; reason: string }
-  | { kind: "cached"; ms: number }
-  | { kind: "run"; reason: string; digest: string };
+  | { kind: "cached"; ms: number; verified: boolean }
+  | { kind: "run"; reason: string; record: DigestRecord };
 
 function decide(
   plan: GeneratorPlan,
-  cache: CacheFile,
+  digests: DigestMap,
   cwd: string,
   force: boolean,
   versions: Record<string, string>,
   cliVersion: string,
+  hasher: ContentHasher,
 ): Decision {
   if (!plan.enabled) return { kind: "disabled", reason: plan.disabledReason ?? "disabled" };
   const started = Date.now();
-  const digest = computeDigest(plan, versions, cliVersion);
-  if (force) return { kind: "run", reason: "--force", digest };
-  const entry = cache.generators[plan.name];
-  if (!entry) return { kind: "run", reason: "no cache entry", digest };
-  if (entry.digest !== digest) return { kind: "run", reason: "inputs changed", digest };
-  const missing = (entry.outputs.length ? entry.outputs : plan.outputs).find(
-    (o) => !fs.existsSync(path.resolve(cwd, o)),
-  );
-  if (missing) return { kind: "run", reason: `output missing (${missing})`, digest };
-  return { kind: "cached", ms: Date.now() - started };
+  const record = computeDigestRecord(plan, versions, cliVersion, hasher);
+  // Was any of THIS generator's inputs validated by reading bytes this run
+  // (memo cold / stats moved) rather than pure stat-memo lookups? Sticky per
+  // run — shared inputs mark every generator that fingerprints them. Only
+  // affects the log marker.
+  const verified = plan.inputs().some(([rel]) => hasher.wasRehashed(rel));
+  if (force) return { kind: "run", reason: "--force", record };
+  const mismatch = recordMismatch(digests[plan.name], record);
+  if (mismatch) return { kind: "run", reason: mismatch, record };
+  const missing = plan.outputs.find((o) => !fs.existsSync(path.resolve(cwd, o)));
+  if (missing) return { kind: "run", reason: `output missing (${missing})`, record };
+  return { kind: "cached", ms: Date.now() - started, verified };
 }
 
 function indent(text: string): string {
@@ -823,7 +968,8 @@ export async function runGenerate(argv: string[], cwd = process.cwd()): Promise<
   const plans = buildPlan(cwd, opts);
   const versions = decoPackageVersions(cwd);
   const cliVersion = ownVersion();
-  const cache = loadCache(cwd);
+  const digests = loadDigests(cwd);
+  const hasher = createContentHasher(cwd);
 
   if (opts.dryRun) {
     console.log("[generate] dry run — nothing will be written");
@@ -832,7 +978,7 @@ export async function runGenerate(argv: string[], cwd = process.cwd()): Promise<
       // real run computes stage-2 digests only after stage 1 lands (see
       // runStage), because stage-1 outputs like src/server/invoke.gen.ts are
       // part of schema's src/** input set.
-      const d = decide(plan, cache, cwd, opts.force, versions, cliVersion);
+      const d = decide(plan, digests, cwd, opts.force, versions, cliVersion, hasher);
       if (d.kind === "disabled") {
         console.log(`[generate] ${plan.name}: skip — ${d.reason}`);
       } else if (d.kind === "cached") {
@@ -843,28 +989,29 @@ export async function runGenerate(argv: string[], cwd = process.cwd()): Promise<
         );
       }
     }
+    // Dry run writes NOTHING — not even the stat memo it warmed in memory.
     return 0;
   }
 
   let fresh = 0;
   let cached = 0;
   let failed = 0;
-  let cacheDirty = false;
+  let digestsDirty = false;
 
-  const finish = (plan: GeneratorPlan, digest: string, result: RunResult): void => {
+  const finish = (plan: GeneratorPlan, record: DigestRecord, result: RunResult): void => {
     if (result.stdout.trim()) process.stdout.write(indent(result.stdout));
     if (result.stderr.trim()) process.stderr.write(indent(result.stderr));
     if (result.code === 0) {
-      // Rewrite the digest only AFTER success — a crashed run must leave no
-      // entry so the next run retries instead of trusting a poisoned cache.
-      cache.generators[plan.name] = { digest, outputs: plan.outputs };
-      cacheDirty = true;
+      // Rewrite the record only AFTER success — a crashed run must leave no
+      // record so the next run retries instead of trusting a poisoned cache.
+      digests[plan.name] = record;
+      digestsDirty = true;
       fresh++;
       console.log(`[generate] ${plan.name} ${result.ms}ms (fresh)`);
     } else {
-      if (cache.generators[plan.name]) {
-        delete cache.generators[plan.name];
-        cacheDirty = true;
+      if (digests[plan.name]) {
+        delete digests[plan.name];
+        digestsDirty = true;
       }
       failed++;
       console.error(`[generate] ${plan.name} ${result.ms}ms FAILED (exit ${result.code})`);
@@ -874,32 +1021,36 @@ export async function runGenerate(argv: string[], cwd = process.cwd()): Promise<
   // Decisions are made per stage, at stage start: stage-1 generators WRITE
   // files that sit inside stage-2 input sets (invoke emits
   // src/server/invoke.gen.ts, which schema fingerprints as part of src/**).
-  // Digesting everything upfront would store a pre-stage-1 digest for schema
+  // Digesting everything upfront would store a pre-stage-1 record for schema
   // and guarantee a spurious "inputs changed" re-run on the next boot.
   const runStage = async (stage: 1 | 2): Promise<void> => {
-    const runnable: Array<{ plan: GeneratorPlan; digest: string }> = [];
+    const runnable: Array<{ plan: GeneratorPlan; record: DigestRecord }> = [];
     for (const plan of plans) {
       if (plan.stage !== stage) continue;
-      const d = decide(plan, cache, cwd, opts.force, versions, cliVersion);
+      const d = decide(plan, digests, cwd, opts.force, versions, cliVersion, hasher);
       if (d.kind === "disabled") {
         console.log(`[generate] ${plan.name} skipped (${d.reason})`);
       } else if (d.kind === "cached") {
         cached++;
-        console.log(`[generate] ${plan.name} ${d.ms}ms (cached)`);
+        // content-verified = this hit re-read at least one file's bytes
+        // (fresh clone / touched mtimes) instead of pure stat-memo lookups.
+        console.log(
+          `[generate] ${plan.name} ${d.ms}ms (cached${d.verified ? ", content-verified" : ""})`,
+        );
       } else {
-        runnable.push({ plan, digest: d.digest });
+        runnable.push({ plan, record: d.record });
       }
     }
     // Stage-1 generators have disjoint inputs/outputs (verified — see the
     // header comment), so they run concurrently.
     const results = await Promise.all(
-      runnable.map(async ({ plan, digest }) => ({
+      runnable.map(async ({ plan, record }) => ({
         plan,
-        digest,
+        record,
         result: await runGeneratorProcess(plan, cwd),
       })),
     );
-    for (const { plan, digest, result } of results) finish(plan, digest, result);
+    for (const { plan, record, result } of results) finish(plan, record, result);
   };
 
   await runStage(1);
@@ -915,12 +1066,13 @@ export async function runGenerate(argv: string[], cwd = process.cwd()): Promise<
     await runStage(2);
   }
 
-  if (cacheDirty || !fs.existsSync(path.join(cwd, CACHE_FILE_REL))) {
-    try {
-      saveCache(cwd, cache);
-    } catch (e) {
-      console.warn(`[generate] could not write cache: ${(e as Error).message}`);
-    }
+  try {
+    if (digestsDirty) saveDigests(cwd, digests);
+    hasher.save();
+    // The pre-v2 machine-local cache file is superseded; drop it quietly.
+    fs.rmSync(path.join(cwd, LEGACY_CACHE_FILE_REL), { force: true });
+  } catch (e) {
+    console.warn(`[generate] could not write cache: ${(e as Error).message}`);
   }
 
   const totalMs = Date.now() - totalStarted;
