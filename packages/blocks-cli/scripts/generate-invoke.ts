@@ -51,6 +51,25 @@ function arg(name: string, fallback: string): string {
 const cwd = process.cwd();
 const outFile = path.resolve(cwd, arg("out-file", "src/server/invoke.gen.ts"));
 
+// Security guard: generic, admin-credentialed VTEX MasterData CRUD must never
+// be emitted as a client-callable /_serverFn endpoint. Each emitted action
+// becomes a public, unauthenticated createServerFn; a generic action that takes
+// a client-supplied `entity` and hits MasterData with the app's appKey/appToken
+// is broken access control (e.g. searchDocuments({ entity: "CL" }) dumps
+// customer PII). These names are refused even if present in invoke.vtex.actions,
+// so the exclusion can't silently regress via an edit to the source contract.
+// Sites needing MasterData define a narrow, entity-pinned, authenticated action
+// in their own src/server/invoke.ts instead (the masterData.ts functions stay
+// exported for that server-side use).
+const PRIVILEGED_ACTIONS = new Set([
+  "createDocument",
+  "getDocument",
+  "patchDocument",
+  "searchDocuments",
+  "searchDocumentsFull",
+  "uploadAttachment",
+]);
+
 function resolveAppsDir(): string {
   const explicit = arg("apps-dir", "");
   if (explicit) return path.resolve(cwd, explicit);
@@ -195,6 +214,17 @@ for (const prop of actionsObj.getProperties()) {
   if (prop.getKind() !== SyntaxKind.PropertyAssignment) continue;
   const pa = prop as PropertyAssignment;
   const name = pa.getName();
+
+  // Never emit generic admin-credentialed MasterData CRUD as a serverFn — see
+  // PRIVILEGED_ACTIONS above. Skipping here means no top-level createServerFn
+  // const and no vtexActions entry is generated for it.
+  if (PRIVILEGED_ACTIONS.has(name)) {
+    console.warn(
+      `⚠ Skipping privileged action "${name}" — generic MasterData CRUD is not exposed as a serverFn (security).`,
+    );
+    continue;
+  }
+
   const initText = pa.getInitializer()!.getText();
 
   // Check if it uses createInvokeFn with unwrap
