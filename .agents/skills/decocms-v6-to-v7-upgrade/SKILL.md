@@ -42,17 +42,17 @@ grep -rhoE '@decocms/apps/[a-z-]+' src/ | sort -u
 
 Mapping per commerce platform: `@decocms/apps/vtex` → `@decocms/apps-vtex`, and likewise `apps-magento`, `apps-algolia`, `apps-salesforce`, `apps-shopify`. Almost every site also needs `@decocms/apps-commerce` (shared types/sdk/utils) and `@decocms/apps-website` (Seo, analytics components). Real splits used: lebiscuit/miess = vtex + commerce + website; granadobr = vtex + magento + algolia + salesforce + commerce + website.
 
-In the same commit, repoint every `generate:*` script from `@decocms/start/scripts/*` to `node_modules/@decocms/blocks-cli/scripts/*`:
+In the same commit, replace the site's `@decocms/start/scripts/*` `generate:*` chain with the ONE unified orchestrator (blocks-cli ships it as `scripts/generate.ts`; it runs blocks/manifest/sections/loaders/invoke/schema with an incremental cache, skipping generators whose inputs didn't change):
 
 ```
-"generate:blocks":   "tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts",
-"generate:schema":   "tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts --site <site>",
-"generate:invoke":   "tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts",
-"generate:sections": "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts",
-"generate:loaders":  "tsx node_modules/@decocms/blocks-cli/scripts/generate-loaders.ts",
+"generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --site <site>",
 ```
 
-(`generate:routes` stays `tsr generate` — that's TanStack's, not ours. Preserve any site-specific flags like `--exclude` lists.)
+Fold the site's per-generator flags into that single line — `--exclude <keys>` (loaders), `--namespace`/`--skip-apps`/`--platform` (schema), `--registry` (sections; auto-on for Next.js sites). Run `--help` (or `--dry-run` to see the per-site plan) for the full flag mapping. Update the `build` script to `npm run generate && tsr generate && vite build`.
+
+The individual scripts (`generate-blocks.ts`, `generate-sections.ts`, `generate-loaders.ts`, `generate-schema.ts`, `generate-invoke.ts`, `generate-blocks-manifest.ts`) remain available and unchanged at `node_modules/@decocms/blocks-cli/scripts/` for one-off runs or `--out-file`-style overrides the orchestrator doesn't re-expose.
+
+(`generate:routes` stays `tsr generate` — that's TanStack's, not ours.)
 
 Also update `vite.config.ts` `resolve.dedupe`: replace `["@decocms/start", "@decocms/apps"]` with the full list of split package names the site now depends on.
 
@@ -81,7 +81,7 @@ blocks-cli 7.x defaults generator output to `.deco/` instead of `src/server/{cms
 
 ### Commit 4 (or folded into 3) — bump, regenerate, verify
 
-Bump all `@decocms/*` to the final target range, `bun install`, run the full `generate:*` chain, and confirm the tree is clean afterwards (regeneration must be idempotent). Then run the Verification gates below.
+Bump all `@decocms/*` to the final target range, `bun install`, run `bun run generate` (a version bump busts the orchestrator's cache, so everything regenerates), and confirm the tree is clean afterwards (regeneration must be idempotent). Then run the Verification gates below.
 
 ## Edge cases (all hit in real migrations)
 
@@ -98,7 +98,7 @@ Bump all `@decocms/*` to the final target range, `bun install`, run the full `ge
 Run all of these; "it typechecks" alone is not a pass.
 
 1. **Clean install**: `bun install` succeeds and the lockfile contains zero `@decocms/start` / `@decocms/apps` (monolith) entries.
-2. **Regeneration idempotent**: run the full `generate:*` chain (and `bun run build`), then `git status` — the tree must be clean. Diffs mean a generator default moved or an artifact wasn't relocated.
+2. **Regeneration idempotent**: run `bun run generate --force` (and `bun run build`), then `git status` — the tree must be clean. Diffs mean a generator default moved or an artifact wasn't relocated.
 3. **Typecheck diff-vs-baseline, not absolute zero**: capture `tsc --noEmit` output on the pre-migration commit, again after each migration commit, and diff the error sets. Sites have pre-existing errors (granadobr's baseline was 258); the gate is **zero new errors**, not zero errors.
 4. **Build passes**: `bun run build` (this is what catches server-only imports leaking into client bundles).
 5. **Dev smoke**: `bun run dev`, then `/` (page renders with sections), `/live/_meta` (200, schema JSON), `/.decofile` (200, decofile JSON).

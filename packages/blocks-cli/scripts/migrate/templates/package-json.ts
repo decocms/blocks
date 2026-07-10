@@ -124,17 +124,16 @@ export function generatePackageJson(ctx: MigrationContext): string {
       dev: "vite dev",
       "dev:clean":
         "rm -rf node_modules/.vite .wrangler/state .tanstack && vite dev",
-      "generate:blocks":
-        "tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts",
+      // ONE incremental orchestrator instead of the old 5-script chain
+      // (generate-blocks/sections/loaders/schema/invoke). It runs the same
+      // generators — concurrently, skipping the ones whose inputs didn't
+      // change — and the individual scripts stay available under
+      // node_modules/@decocms/blocks-cli/scripts/ for one-off runs. Sites
+      // chain their own extra tools (tsr, graphql-codegen, tailwind) around
+      // this command themselves.
+      generate: `tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --site ${ctx.siteName} --exclude vtex/loaders,vtex/actions,loaders/vtex-auth-loader,loaders/reviews/productReviews,loaders/product/buyTogether,loaders/search/productListPageCollection,loaders/search/intelligenseSearch,loaders/Layouts/ProductCard`,
       "generate:routes": "tsr generate",
-      "generate:schema": `tsx node_modules/@decocms/blocks-cli/scripts/generate-schema.ts --site ${ctx.siteName}`,
-      "generate:invoke":
-        "tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts",
-      "generate:sections":
-        "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts",
-      "generate:loaders": `tsx node_modules/@decocms/blocks-cli/scripts/generate-loaders.ts --exclude vtex/loaders,vtex/actions,loaders/vtex-auth-loader,loaders/reviews/productReviews,loaders/product/buyTogether,loaders/search/productListPageCollection,loaders/search/intelligenseSearch,loaders/Layouts/ProductCard`,
-      build:
-        "npm run generate:blocks && npm run generate:sections && npm run generate:loaders && npm run generate:schema && npm run generate:invoke && tsr generate && vite build",
+      build: "npm run generate && tsr generate && vite build",
       preview: "vite preview",
       // Deploy is owned by Cloudflare Workers Builds (D6.3); the
       // repo<->worker connection is configured per-worker in the CF

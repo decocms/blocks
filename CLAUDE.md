@@ -72,6 +72,7 @@ Every export maps to a source file — no dist indirection. Representative subse
 | `@decocms/tanstack` (root) | tanstack | `src/index.ts` (re-exports routes, hooks, worker entry, router sdk) |
 | `@decocms/tanstack/vite` | tanstack | `src/vite/plugin.js` (plain JS, no `.d.ts` yet) |
 | `@decocms/nextjs` (root) | nextjs | `src/index.ts` |
+| `@decocms/blocks-cli/generate` | blocks-cli | `scripts/generate.ts` — the unified incremental orchestrator (runs blocks/manifest/sections/loaders/invoke/schema as one command with a `.deco/.cache/generate.json` digest cache; sites scaffold `"generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts <flags>"` instead of chaining the individual scripts) |
 | `@decocms/blocks-cli/generate-*` | blocks-cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
 
 ### Key Boundaries
