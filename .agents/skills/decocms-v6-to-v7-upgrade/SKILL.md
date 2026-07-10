@@ -42,7 +42,7 @@ grep -rhoE '@decocms/apps/[a-z-]+' src/ | sort -u
 
 Mapping per commerce platform: `@decocms/apps/vtex` → `@decocms/apps-vtex`, and likewise `apps-magento`, `apps-algolia`, `apps-salesforce`, `apps-shopify`. Almost every site also needs `@decocms/apps-commerce` (shared types/sdk/utils) and `@decocms/apps-website` (Seo, analytics components). Real splits used: lebiscuit/miess = vtex + commerce + website; granadobr = vtex + magento + algolia + salesforce + commerce + website.
 
-In the same commit, replace the site's `@decocms/start/scripts/*` `generate:*` chain with the ONE unified orchestrator (blocks-cli ships it as `scripts/generate.ts`; it runs blocks/manifest/sections/loaders/invoke/schema with an incremental cache, skipping generators whose inputs didn't change):
+In the same commit, replace the site's `@decocms/start/scripts/*` `generate:*` chain with the ONE unified orchestrator (blocks-cli ships it as `scripts/generate.ts`; it runs blocks/manifest/sections/loaders/invoke/schema with an incremental content-hash cache, skipping generators whose inputs didn't change):
 
 ```
 "generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --site <site>",
@@ -50,7 +50,9 @@ In the same commit, replace the site's `@decocms/start/scripts/*` `generate:*` c
 
 Fold the site's per-generator flags into that single line — `--exclude <keys>` (loaders), `--namespace`/`--skip-apps`/`--platform` (schema), `--registry` (sections; auto-on for Next.js sites). Run `--help` (or `--dry-run` to see the per-site plan) for the full flag mapping. Update the `build` script to `npm run generate && tsr generate && vite build`.
 
-The individual scripts (`generate-blocks.ts`, `generate-sections.ts`, `generate-loaders.ts`, `generate-schema.ts`, `generate-invoke.ts`, `generate-blocks-manifest.ts`) remain available and unchanged at `node_modules/@decocms/blocks-cli/scripts/` for one-off runs or `--out-file`-style overrides the orchestrator doesn't re-expose.
+The individual scripts (`generate-blocks.ts`, `generate-sections.ts`, `generate-loaders.ts`, `generate-schema.ts`, `generate-invoke.ts`, `generate-blocks-manifest.ts`) remain available and unchanged at `node_modules/@decocms/blocks-cli/scripts/` (literal paths — they are no longer exports-map subpaths) for one-off runs or `--out-file`-style overrides the orchestrator doesn't re-expose.
+
+**Commit `.deco/generate.digests.json`** alongside the regenerated artifacts — it records content hashes of each generator's inputs, so fresh clones (and CI) cache-hit instead of re-running every generator on first boot. `.deco/.cache/` stays out of git (the orchestrator drops its own `.gitignore` there).
 
 (`generate:routes` stays `tsr generate` — that's TanStack's, not ours.)
 

@@ -1,4 +1,9 @@
 #!/usr/bin/env tsx
+/**
+ * Internal implementation detail of generate.ts (the unified orchestrator)
+ * -- invoke `generate` instead; direct invocation remains possible but
+ * undocumented.
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

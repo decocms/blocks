@@ -1,5 +1,13 @@
 #!/usr/bin/env tsx
 /**
+ * Internal implementation detail of generate.ts (the unified orchestrator)
+ * -- invoke `generate` instead; direct invocation remains possible but
+ * undocumented. Exception to the exports-map narrowing: this file keeps
+ * its `@decocms/blocks-cli/generate-blocks` subpath export because
+ * @decocms/tanstack's vite plugin tsImports it (programmatic
+ * generateBlocks on bootstrap, readBlockDelta on live edits).
+ */
+/**
  * Reads .deco/blocks/*.json and emits:
  *   1. blocks.gen.json  — compact JSON data (the source of truth)
  *   2. blocks.gen.ts    — thin TypeScript re-export for editor tooling

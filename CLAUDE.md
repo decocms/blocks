@@ -72,8 +72,8 @@ Every export maps to a source file — no dist indirection. Representative subse
 | `@decocms/tanstack` (root) | tanstack | `src/index.ts` (re-exports routes, hooks, worker entry, router sdk) |
 | `@decocms/tanstack/vite` | tanstack | `src/vite/plugin.js` (plain JS, no `.d.ts` yet) |
 | `@decocms/nextjs` (root) | nextjs | `src/index.ts` |
-| `@decocms/blocks-cli/generate` | blocks-cli | `scripts/generate.ts` — the unified incremental orchestrator (runs blocks/manifest/sections/loaders/invoke/schema as one command with a `.deco/.cache/generate.json` digest cache; sites scaffold `"generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts <flags>"` instead of chaining the individual scripts) |
-| `@decocms/blocks-cli/generate-*` | blocks-cli | `scripts/generate-*.ts` (also reachable as literal filesystem paths, e.g. `node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts` — no `./scripts/generate-sections` or `./scripts/generate-loaders` exports-map entry exists even though the files are real; consumers reference those two by path, not by specifier) |
+| `@decocms/blocks-cli/generate` | blocks-cli | `scripts/generate.ts` — the unified incremental orchestrator (runs blocks/manifest/sections/loaders/invoke/schema as one command over a two-tier cache: committed content-hash digest records in `.deco/generate.digests.json` — commit it, fresh clones then cache-hit — plus a gitignored local stat memo in `.deco/.cache/stat-memo.json`; sites scaffold `"generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts <flags>"` instead of chaining the individual scripts) |
+| `@decocms/blocks-cli/generate-blocks` | blocks-cli | `scripts/generate-blocks.ts` — the ONLY other blocks-cli exports-map entry, kept because `@decocms/tanstack`'s vite plugin tsImports it (programmatic `generateBlocks` + `readBlockDelta`). The remaining `scripts/generate-*.ts` / `scripts/migrate*.ts` files ship in the package but are internal implementation details of `./generate` — reachable as literal filesystem paths (e.g. `node_modules/@decocms/blocks-cli/scripts/generate-schema.ts`), not as module specifiers; CLIs are exposed via `bin` |
 
 ### Key Boundaries
 

@@ -1,5 +1,10 @@
 #!/usr/bin/env tsx
 /**
+ * Internal implementation detail of generate.ts (the unified orchestrator)
+ * -- invoke `generate` instead; direct invocation remains possible but
+ * undocumented.
+ */
+/**
  * Reads .deco/blocks/*.json and emits blocksManifest.gen.ts — a module that
  * STATICALLY imports every block file and re-exports them as one
  * `Record<string, unknown>` keyed exactly like

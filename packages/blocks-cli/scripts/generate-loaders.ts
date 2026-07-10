@@ -1,5 +1,10 @@
 #!/usr/bin/env tsx
 /**
+ * Internal implementation detail of generate.ts (the unified orchestrator)
+ * -- invoke `generate` instead; direct invocation remains possible but
+ * undocumented.
+ */
+/**
  * Scans site loader and action files and generates a registry map
  * for COMMERCE_LOADERS pass-through entries.
  *

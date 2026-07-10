@@ -1,5 +1,10 @@
 #!/usr/bin/env tsx
 /**
+ * Internal implementation detail of generate.ts (the unified orchestrator)
+ * -- invoke `generate` instead; direct invocation remains possible but
+ * undocumented.
+ */
+/**
  * Scans site section files and extracts convention-based metadata:
  *   - export const eager = true       → alwaysEager
  *   - export const cache = "listing"  → registerCacheableSections
