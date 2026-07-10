@@ -75,7 +75,7 @@ Identical subpaths under the new package name:
 | `@decocms/apps/salesforce(/*)` | `@decocms/apps-salesforce(/*)` |
 | `@decocms/apps/shopify(/*)` | `@decocms/apps-shopify(/*)` |
 | `@decocms/apps/commerce/{sdk,types,utils}/*` | `@decocms/apps-commerce/*` |
-| `@decocms/apps/commerce/components/Image`, `.../components/Picture` | **`@decocms/blocks/hooks`** (moved into the framework hooks barrel, not apps-commerce) |
+| `@decocms/apps/commerce/components/Image`, `.../components/Picture`, `.../components/JsonLd` (`ProductJsonLd`, `PLPJsonLd`, `BreadcrumbJsonLd`) | **`@decocms/blocks/hooks`** (all moved into the framework hooks barrel, not apps-commerce/apps-website — `apps-commerce` ships no `components/`) |
 | `@decocms/apps/website/*` (`components/Seo`, `components/OneDollarStats`, `client`, …) | `@decocms/apps-website/*` |
 
 ## Not imports, but part of the same rewrite commit
