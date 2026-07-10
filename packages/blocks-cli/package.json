@@ -8,7 +8,7 @@
     "url": "https://github.com/decocms/blocks.git",
     "directory": "packages/blocks-cli"
   },
-  "main": "./scripts/generate-blocks.ts",
+  "main": "./scripts/generate.ts",
   "bin": {
     "deco-migrate": "./scripts/migrate.ts",
     "deco-post-cleanup": "./scripts/migrate-post-cleanup.ts",
@@ -18,16 +18,10 @@
     "deco-migrate-blocks-to-kv": "./scripts/migrate-blocks-to-kv.ts",
     "deco-sync-blocks-to-kv": "./scripts/sync-blocks-to-kv.ts"
   },
+  "//exports": "Deliberately narrow. ./generate is the ONE public module entry (unified orchestrator); ./generate-blocks stays only because @decocms/tanstack's vite plugin tsImports it (readBlockDelta + programmatic generateBlocks) — each surviving entry must name its consumer here. The other scripts remain shipped FILES (the orchestrator spawns them; sites' existing `tsx node_modules/@decocms/blocks-cli/scripts/generate-*.ts` invocations keep working) but are internal implementation details of ./generate, not module subpaths. CLIs are exposed via bin, not exports.",
   "exports": {
-    "./generate-app-schemas": "./scripts/generate-app-schemas.ts",
-    "./generate-blocks": "./scripts/generate-blocks.ts",
-    "./generate-blocks-manifest": "./scripts/generate-blocks-manifest.ts",
-    "./generate-schema": "./scripts/generate-schema.ts",
-    "./generate-invoke": "./scripts/generate-invoke.ts",
-    "./migrate": "./scripts/migrate.ts",
-    "./migrate-post-cleanup": "./scripts/migrate-post-cleanup.ts",
-    "./migrate-to-cf-observability": "./scripts/migrate-to-cf-observability.ts",
-    "./tailwind-lint": "./scripts/tailwind-lint.ts"
+    "./generate": "./scripts/generate.ts",
+    "./generate-blocks": "./scripts/generate-blocks.ts"
   },
   "scripts": {
     "build": "tsc",

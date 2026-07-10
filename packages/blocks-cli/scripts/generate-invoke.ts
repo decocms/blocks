@@ -1,5 +1,10 @@
 #!/usr/bin/env tsx
 /**
+ * Internal implementation detail of generate.ts (the unified orchestrator)
+ * -- invoke `generate` instead; direct invocation remains possible but
+ * undocumented.
+ */
+/**
  * Scans @decocms/apps-vtex's invoke.ts and generates a site-local invoke file
  * with top-level createServerFn declarations.
  *
