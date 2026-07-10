@@ -19,6 +19,7 @@
     "deco-sync-blocks-to-kv": "./scripts/sync-blocks-to-kv.ts"
   },
   "exports": {
+    "./generate": "./scripts/generate.ts",
     "./generate-app-schemas": "./scripts/generate-app-schemas.ts",
     "./generate-blocks": "./scripts/generate-blocks.ts",
     "./generate-blocks-manifest": "./scripts/generate-blocks-manifest.ts",
