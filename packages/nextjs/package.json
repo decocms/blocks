@@ -1,47 +1,50 @@
 {
-  "name": "@decocms/nextjs",
-  "version": "0.0.0",
-  "type": "module",
-  "description": "Deco framework binding for Next.js App Router",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/decocms/blocks.git",
-    "directory": "packages/nextjs"
-  },
-  "main": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./routeHandlers": "./src/routeHandlers.ts",
-    "./setup": "./src/setup.ts",
-    "./config": {
-      "types": "./src/config.d.cts",
-      "default": "./src/config.cjs"
-    }
-  },
-  "scripts": {
-    "build": "tsc",
-    "test": "vitest run --root ../.. packages/nextjs/",
-    "typecheck": "tsc --noEmit",
-    "lint:unused": "knip"
-  },
-  "dependencies": {
-    "@decocms/blocks": "workspace:*",
-    "@decocms/blocks-admin": "workspace:*"
-  },
-  "peerDependencies": {
-    "next": ">=15.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
-  "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "knip": "^5.86.0",
-    "next": "^15.4.0",
-    "typescript": "^5.9.0"
-  },
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org",
-    "access": "public"
-  }
+	"name": "@decocms/nextjs",
+	"version": "0.0.0",
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"description": "Deco framework binding for Next.js App Router",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/decocms/blocks.git",
+		"directory": "packages/nextjs"
+	},
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./routeHandlers": "./src/routeHandlers.ts",
+		"./setup": "./src/setup.ts",
+		"./config": {
+			"types": "./src/config.d.cts",
+			"default": "./src/config.cjs"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"test": "vitest run --root ../.. packages/nextjs/",
+		"typecheck": "tsc --noEmit",
+		"lint:unused": "knip"
+	},
+	"dependencies": {
+		"@decocms/blocks": "workspace:*",
+		"@decocms/blocks-admin": "workspace:*"
+	},
+	"peerDependencies": {
+		"next": ">=15.0.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"knip": "^5.86.0",
+		"next": "^15.4.0",
+		"typescript": "^5.9.0"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	}
 }
