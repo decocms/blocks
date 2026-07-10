@@ -495,6 +495,19 @@ export function clearCommerceLoaders(): void {
   for (const key of Object.keys(commerceLoaders)) delete commerceLoaders[key];
 }
 
+/**
+ * Look up a commerce loader tolerant of a legacy `.ts`/`.tsx` resolveType
+ * suffix. Fresh/Deno decofiles reference app loaders with the file extension
+ * (`shopify/loaders/ProductDetailsPage.ts`), but the split-package app
+ * manifests register them WITHOUT it (`shopify/loaders/ProductDetailsPage`).
+ * Exact key wins (so an explicitly-registered `.ts` alias — e.g. a site's
+ * wrapped loader — still takes precedence); otherwise fall back to the
+ * extension-stripped key so existing content keeps resolving after a migration.
+ */
+export function getCommerceLoader(resolveType: string): CommerceLoader | undefined {
+  return commerceLoaders[resolveType] ?? commerceLoaders[resolveType.replace(/\.tsx?$/, "")];
+}
+
 // ---------------------------------------------------------------------------
 // Custom matchers
 // ---------------------------------------------------------------------------
@@ -832,7 +845,7 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
   }
 
   // Commerce loaders
-  const commerceLoader = commerceLoaders[resolveType];
+  const commerceLoader = getCommerceLoader(resolveType);
   if (commerceLoader) {
     const { __resolveType: _, ...loaderProps } = obj;
     const resolvedProps = await resolveProps(loaderProps, childCtx);
@@ -1186,7 +1199,7 @@ function resolvesToCommerceLoader(value: unknown, depth = 0): boolean {
   const rt = obj.__resolveType as string | undefined;
   if (!rt) return false;
 
-  if (commerceLoaders[rt]) return true;
+  if (getCommerceLoader(rt)) return true;
 
   if (rt === WELL_KNOWN_TYPES.LAZY) return resolvesToCommerceLoader(obj.section, depth + 1);
   if (rt === WELL_KNOWN_TYPES.DEFERRED) {

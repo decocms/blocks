@@ -306,6 +306,47 @@ describe("commerce loader auto-injects URL search params as props", () => {
   });
 });
 
+describe("commerce loader resolves legacy .ts-suffixed resolveType", () => {
+  beforeEach(() => clearCommerceLoaders());
+  afterEach(() => clearCommerceLoaders());
+
+  it("matches a manifest key (no extension) against a decofile .ts resolveType", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    // Split-package manifests register WITHOUT the file extension.
+    registerCommerceLoader("shopify/loaders/ProductDetailsPage", async (props) => {
+      calls.push({ ...props });
+      return null;
+    });
+
+    // Legacy (Fresh/Deno) decofile references it WITH the .ts extension.
+    await resolveValue(
+      { __resolveType: "shopify/loaders/ProductDetailsPage.ts", slug: "oversize-t-shirt-123" },
+      undefined,
+      { url: "https://store.com/products/oversize-t-shirt-123", path: "/products/oversize-t-shirt-123" },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ slug: "oversize-t-shirt-123" });
+  });
+
+  it("prefers an exact .ts registration over the stripped fallback", async () => {
+    const hits: string[] = [];
+    registerCommerceLoader("shopify/loaders/X", async () => {
+      hits.push("plain");
+      return null;
+    });
+    registerCommerceLoader("shopify/loaders/X.ts", async () => {
+      hits.push("dotts");
+      return null;
+    });
+    await resolveValue({ __resolveType: "shopify/loaders/X.ts" }, undefined, {
+      url: "https://s.com/",
+      path: "/",
+    });
+    expect(hits).toEqual(["dotts"]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Async rendering: the admin (CMS Lazy ⚡ toggle) is the source of truth
 // ---------------------------------------------------------------------------
