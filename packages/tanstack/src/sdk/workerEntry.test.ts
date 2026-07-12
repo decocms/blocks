@@ -1,6 +1,6 @@
 import { setBlocks } from "@decocms/blocks/cms";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDecoWorkerEntry, injectGeoCookies } from "./workerEntry";
+import { buildGeoCacheParam, createDecoWorkerEntry, detectLocationMatcher, injectGeoCookies } from "./workerEntry";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 
 const EMPTY_ENV = {};
@@ -110,6 +110,86 @@ describe("injectGeoCookies", () => {
     expect(out.headers.get("accept")).toBe("*/*");
     expect(out.headers.get("x-custom")).toBe("value");
     expect(out.headers.get("cf-ray")).toBe("9ff5b26cf9bc067a");
+  });
+});
+
+describe("buildGeoCacheParam", () => {
+  const cf = { country: "BR", region: "São Paulo", city: "SP" };
+
+  it("returns undefined when granularity is off", () => {
+    expect(buildGeoCacheParam(cf, "off")).toBeUndefined();
+  });
+
+  it("returns undefined when cf is undefined", () => {
+    expect(buildGeoCacheParam(undefined, "city")).toBeUndefined();
+  });
+
+  it("returns country only when granularity is country", () => {
+    expect(buildGeoCacheParam(cf, "country")).toBe("BR");
+  });
+
+  it("returns country|region when granularity is region", () => {
+    expect(buildGeoCacheParam(cf, "region")).toBe("BR|São Paulo");
+  });
+
+  it("returns country|region|city when granularity is city", () => {
+    expect(buildGeoCacheParam(cf, "city")).toBe("BR|São Paulo|SP");
+  });
+
+  it("omits missing fields gracefully", () => {
+    expect(buildGeoCacheParam({ country: "BR" }, "city")).toBe("BR");
+    expect(buildGeoCacheParam({ country: "BR", region: "MG" }, "city")).toBe("BR|MG");
+  });
+
+  it("returns undefined when cf has none of country/region/city", () => {
+    expect(buildGeoCacheParam({ asn: "12345" }, "city")).toBeUndefined();
+  });
+});
+
+describe("detectLocationMatcher", () => {
+  it("returns true when decofile has a website/matchers/location.ts __resolveType", () => {
+    const blocks = {
+      "audiences/geo-audience.json": {
+        "__resolveType": "website/flags/audience.ts",
+        "matcher": { "__resolveType": "website/matchers/location.ts", "includeLocations": [{ "country": "BR" }] },
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(true);
+  });
+
+  it("returns false when decofile has no location matcher", () => {
+    const blocks = {
+      "audiences/device-audience.json": {
+        "__resolveType": "website/flags/audience.ts",
+        "matcher": { "__resolveType": "website/matchers/device.ts" },
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(false);
+  });
+
+  it("returns false for an empty decofile", () => {
+    expect(detectLocationMatcher({})).toBe(false);
+  });
+
+  it("returns true when the matcher is nested deeply", () => {
+    const blocks = {
+      "pages/home.json": {
+        "variant": {
+          "matcher": { "__resolveType": "website/matchers/location.ts" },
+        },
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(true);
+  });
+
+  it("returns false when location.ts appears only in a non-resolveType string value (no false positive)", () => {
+    const blocks = {
+      "content/help.json": {
+        "__resolveType": "website/sections/RichText.tsx",
+        "body": "This page is controlled by website/matchers/location.ts for geo targeting.",
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(false);
   });
 });
 
