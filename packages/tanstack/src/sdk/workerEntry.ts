@@ -30,12 +30,14 @@ import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
 import {
   isBot,
   loadBlocks,
+  getRevision,
   type MatcherContext,
   resolveDecoPage,
   runSectionLoaders,
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
+import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -690,6 +692,14 @@ async function hashText(text: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+// ---------------------------------------------------------------------------
+// CMS redirect cache — keyed by revision so cross-bundle setBlocks() calls
+// (Vite server-function split) are detected via globalThis.__deco.revision.
+// ---------------------------------------------------------------------------
+
+let _redirectMap: RedirectMap | null = null;
+let _redirectMapRevision: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -1447,6 +1457,23 @@ export function createDecoWorkerEntry(
     // Purge endpoint
     if (url.pathname === "/_cache/purge" && request.method === "POST") {
       return handlePurge(request, env);
+    }
+
+    // CMS redirects (website/loaders/redirect.ts blocks) — checked before
+    // ?asJson and commerce proxy so every request path respects redirects.
+    // Revision-keyed so cross-bundle setBlocks() calls are detected even when
+    // onChange listeners don't fire across Vite split-bundle module instances.
+    const currentRevision = getRevision();
+    if (_redirectMapRevision !== currentRevision) {
+      _redirectMap = loadRedirects(loadBlocks());
+      _redirectMapRevision = currentRevision;
+    }
+    const cmsRedirect = matchRedirect(url.pathname, _redirectMap!);
+    if (cmsRedirect) {
+      return new Response(null, {
+        status: cmsRedirect.status,
+        headers: { Location: encodeURI(cmsRedirect.to) },
+      });
     }
 
     // ?asJson — return resolved page data as JSON (legacy deco compat)

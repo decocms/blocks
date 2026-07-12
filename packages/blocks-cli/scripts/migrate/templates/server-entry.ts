@@ -121,9 +121,7 @@ import {
 } from "@decocms/blocks-admin";
 import { shouldProxyToVtex, createVtexCheckoutProxy } from "@decocms/apps-vtex/utils/proxy";
 import { extractVtexContext } from "@decocms/apps-vtex/middleware";
-import { loadRedirects, matchRedirect } from "@decocms/blocks/sdk/redirects";
 import { withABTesting } from "@decocms/blocks/sdk/abTesting";
-import { loadBlocks } from "@decocms/blocks/cms";
 
 // ---------------------------------------------------------------------------
 // VTEX checkout proxy — configured via @decocms/apps-vtex factory
@@ -151,11 +149,6 @@ const CSP_DIRECTIVES = [
 ];
 
 const serverEntry = createServerEntry({ fetch: handler.fetch });
-
-// ---------------------------------------------------------------------------
-// CMS Redirects — loaded once at module level from .deco/blocks/
-// ---------------------------------------------------------------------------
-const cmsRedirects = loadRedirects(loadBlocks());
 
 const MOBILE_RE = /mobile|android|iphone/i;
 
@@ -205,17 +198,6 @@ const decoWorker = createDecoWorkerEntry(serverEntry, {
 
 const abTestedWorker = withABTesting(decoWorker, {
   kvBinding: "SITES_KV",
-  preHandler: (request, url) => {
-    const redirect = matchRedirect(url.pathname, cmsRedirects);
-    if (redirect) {
-      const target = url.search ? \`\${redirect.to}\${url.search}\` : redirect.to;
-      return new Response(null, {
-        status: redirect.status,
-        headers: { Location: target },
-      });
-    }
-    return null;
-  },
   shouldBypassAB: (_request, url) => {
     if (url.pathname === "/login" || url.pathname === "/login/" ||
         url.pathname === "/logout" || url.pathname === "/logout/") return false;
