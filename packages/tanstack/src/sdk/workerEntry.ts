@@ -30,7 +30,7 @@ import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
 import {
   isBot,
   loadBlocks,
-  onChange,
+  getRevision,
   type MatcherContext,
   resolveDecoPage,
   runSectionLoaders,
@@ -694,13 +694,12 @@ async function hashText(text: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// CMS redirect cache — invalidated on hot-reload via onChange
+// CMS redirect cache — keyed by revision so cross-bundle setBlocks() calls
+// (Vite server-function split) are detected via globalThis.__deco.revision.
 // ---------------------------------------------------------------------------
 
 let _redirectMap: RedirectMap | null = null;
-onChange(() => {
-  _redirectMap = null;
-});
+let _redirectMapRevision: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -1460,6 +1459,23 @@ export function createDecoWorkerEntry(
       return handlePurge(request, env);
     }
 
+    // CMS redirects (website/loaders/redirect.ts blocks) — checked before
+    // ?asJson and commerce proxy so every request path respects redirects.
+    // Revision-keyed so cross-bundle setBlocks() calls are detected even when
+    // onChange listeners don't fire across Vite split-bundle module instances.
+    const currentRevision = getRevision();
+    if (_redirectMapRevision !== currentRevision) {
+      _redirectMap = loadRedirects(loadBlocks());
+      _redirectMapRevision = currentRevision;
+    }
+    const cmsRedirect = matchRedirect(url.pathname, _redirectMap!);
+    if (cmsRedirect) {
+      return new Response(null, {
+        status: cmsRedirect.status,
+        headers: { Location: encodeURI(cmsRedirect.to) },
+      });
+    }
+
     // ?asJson — return resolved page data as JSON (legacy deco compat)
     if (url.searchParams.has("asJson") && request.method === "GET") {
       const basePath = url.pathname;
@@ -1568,19 +1584,6 @@ export function createDecoWorkerEntry(
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
           "Access-Control-Allow-Methods": "GET, OPTIONS",
         },
-      });
-    }
-
-    // CMS redirects (website/loaders/redirect.ts blocks) — before commerce
-    // proxy so /old-url → /new-url is handled without site configuration.
-    if (!_redirectMap) {
-      _redirectMap = loadRedirects(loadBlocks());
-    }
-    const cmsRedirect = matchRedirect(url.pathname, _redirectMap);
-    if (cmsRedirect) {
-      return new Response(null, {
-        status: cmsRedirect.status,
-        headers: { Location: cmsRedirect.to },
       });
     }
 

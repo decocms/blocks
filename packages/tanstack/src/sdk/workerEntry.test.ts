@@ -136,6 +136,40 @@ describe("CMS redirects", () => {
     expect(res.headers.get("Location")).toBe("/new");
   });
 
+  it("redirects ?asJson requests too (does not fall through to page resolver)", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/old", to: "/new", type: "permanent" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/old?asJson"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe("/new");
+  });
+
+  it("URI-encodes the Location header for non-ASCII destinations", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/promo", to: "/promoção", type: "temporary" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/promo"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
+  });
+
   it("returns a 302 redirect for a temporary redirect block", async () => {
     setBlocks({
       "redirect-1": {
