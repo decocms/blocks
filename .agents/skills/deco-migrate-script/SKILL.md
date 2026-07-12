@@ -196,9 +196,9 @@ setTimeout       → window.setTimeout (type safety)
 
 #### 4. `dead-code.ts` — Old Deco Patterns
 
-- Removes: `export const cache`, `export const cacheKey`, `export const loader` (old caching system)
 - Handles: `crypto.subtle.digestSync` (Deno-only → async)
 - Preserves: `invoke.*` calls (runtime.ts proxy)
+- Preserves: `export const cache` / `export const cacheKey` / `export const loader` — no longer dead; `cache`/`cacheKey` now drive single-flight dedup via `createLoaderEntry` (author must verify `cacheKey` is `(props, req)`)
 
 #### 5. `deno-isms.ts` — Deno Cleanup
 
@@ -283,7 +283,6 @@ Generates `MIGRATION_REPORT.md` with:
 - No `class=` (should be `className=`)
 - No `for=` (should be `htmlFor=`)
 - No negative z-index on non-images
-- No dead `cache`/`cacheKey`/`loader` exports
 - No HTMX attributes (`hx-*`)
 - No `site/` imports (should use `~/`)
 - No `.ts`/`.tsx` extensions in imports
