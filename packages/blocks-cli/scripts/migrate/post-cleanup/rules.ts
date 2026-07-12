@@ -1677,6 +1677,79 @@ const ruleVtexProxyHandlerMissing: Rule = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Rule 15 — module-level signal .value reads without useStore         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Detects the "frozen UI" pattern: a module-level signal whose `.value`
+ * is read inside a React component without a `useStore()` subscription.
+ *
+ * In Preact, `.value` reads are automatically reactive. In React they
+ * are just synchronous property accesses — no subscription is registered,
+ * so the component renders once with the initial value and never updates.
+ *
+ * Two-pass approach:
+ *   1. Find every `const name = signal(...)` at module scope (line starts
+ *      with optional `export const` — indented declarations inside
+ *      functions are skipped).
+ *   2. For each .tsx consumer that reads `name.value`, check whether it
+ *      also calls `useStore(` in the same file. If not, emit a warning.
+ */
+const MODULE_SIGNAL_RE =
+  /^(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:\w+\.)?signal\s*\(/m;
+
+const ruleSignalValueReads: Rule = {
+  id: "signal-value-reads",
+  title: "Module-level signal .value reads without useStore()",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
+
+    // Pass 1: collect module-level signal names + the file they live in.
+    const moduleSignals: { name: string; declaredIn: string }[] = [];
+    for (const abs of tsFiles) {
+      const content = fs.readText(abs);
+      let match: RegExpExecArray | null;
+      const re = new RegExp(MODULE_SIGNAL_RE.source, "gm");
+      while ((match = re.exec(content)) !== null) {
+        moduleSignals.push({
+          name: match[1],
+          declaredIn: abs.slice(siteDir.length + 1),
+        });
+      }
+    }
+
+    if (moduleSignals.length === 0) return [];
+
+    // Pass 2: for each .tsx file, check for unsubscribed .value reads.
+    const tsxFiles = tsFiles.filter((f) => f.endsWith(".tsx"));
+    const findings: Finding[] = [];
+
+    for (const abs of tsxFiles) {
+      const content = fs.readText(abs);
+      const rel = abs.slice(siteDir.length + 1);
+      const hasUseStore = /\buseStore\s*\(/.test(content);
+
+      for (const { name, declaredIn } of moduleSignals) {
+        const valueRe = new RegExp(`\\b${name}\\.value\\b`);
+        if (!valueRe.test(content)) continue;
+        if (hasUseStore) continue;
+
+        findings.push({
+          rule: "signal-value-reads",
+          severity: "warning",
+          file: rel,
+          message: `'${name}.value' read without useStore() — component will not re-render when the signal changes`,
+          fix: `Use useStore(${name}.store, (s) => s) to subscribe, or replace with useQuery / useMutation`,
+          meta: { signalName: name, declaredIn },
+        });
+      }
+    }
+
+    return findings;
+  },
+};
+
 export const ALL_RULES: Rule[] = [
   ruleDeadLibShims,
   ruleObsoleteVitePlugins,
@@ -1692,6 +1765,7 @@ export const ALL_RULES: Rule[] = [
   ruleLockfileMissing,
   ruleLockfileDrift,
   rulePackageManagerMissing,
+  ruleSignalValueReads,
 ];
 
 /** Exported for direct unit tests. */
@@ -1715,5 +1789,6 @@ export const _internals = {
     ruleLockfileMissing,
     ruleLockfileDrift,
     rulePackageManagerMissing,
+    ruleSignalValueReads,
   },
 };
