@@ -369,10 +369,11 @@ export interface DecoWorkerEntryOptions {
    *
    * - `"auto"` (default): inspects the loaded decofile on every `setBlocks()`
    *   call (startup + fast-deploy swaps). If any block is configured with
-   *   `website/matchers/location.ts`, geo keying is activated at `"city"`
-   *   granularity; otherwise it is set to `"off"`. No manual configuration
-   *   needed — sites gain HIT rate automatically when they have no location
-   *   matchers, and keep correct geo isolation when they do.
+   *   `website/matchers/location.ts`, geo keying is activated at `"region"`
+   *   granularity (country+state); otherwise it is set to `"off"`. `"region"`
+   *   covers VTEX regionalization and most geo matchers without city-level
+   *   fragmentation. Sites that need city precision should set `"city"`
+   *   explicitly. No manual configuration needed for the common case.
    * - `"city"`: full `country|region|city` key — maximum isolation for sites
    *   with city-level location matchers.
    * - `"region"`: `country|region` — good for region/state matchers (e.g.
@@ -525,6 +526,20 @@ function buildPreviewShell(): string {
  * ```
  */
 /**
+ * Returns `true` when the decofile contains at least one block whose
+ * `__resolveType` is `website/matchers/location.ts`. Used by
+ * `geoCacheKey: "auto"` to decide whether geo cache key fragmentation
+ * should be active.
+ *
+ * Matches only resolver-type references (not arbitrary string values) to
+ * avoid false positives from content/label fields that happen to mention
+ * the path.
+ */
+export function detectLocationMatcher(blocks: Record<string, unknown>): boolean {
+  return JSON.stringify(blocks).includes('"__resolveType":"website/matchers/location.ts"');
+}
+
+/**
  * Build the `__cf_geo` cache-key fragment from Cloudflare's `request.cf`
  * object at the requested granularity.
  *
@@ -535,15 +550,6 @@ function buildPreviewShell(): string {
  * buildGeoCacheParam({ country: "BR", region: "São Paulo", city: "SP" }, "region")
  * // → "BR|São Paulo"
  */
-/**
- * Returns `true` when the decofile contains at least one block configured
- * with `website/matchers/location.ts`. Used by `geoCacheKey: "auto"` to
- * decide whether geo-based cache key fragmentation should be active.
- */
-export function detectLocationMatcher(blocks: Record<string, unknown>): boolean {
-  return JSON.stringify(blocks).includes('"website/matchers/location.ts"');
-}
-
 export function buildGeoCacheParam(
   cf: Record<string, string> | undefined,
   granularity: "off" | "country" | "region" | "city",
@@ -732,6 +738,28 @@ function deduplicateSetCookies(response: Response): void {
 
 const FINGERPRINTED_ASSET_RE = /(?:\/_build)?\/assets\/.*-[a-zA-Z0-9_-]{8,}\.\w+$/;
 
+// ---------------------------------------------------------------------------
+// Auto geo-key detection (module-level singleton)
+// ---------------------------------------------------------------------------
+// Registered once so that multiple createDecoWorkerEntry calls in the same
+// isolate (e.g. integration tests) don't accumulate listeners. Uses "region"
+// (country+state) as the auto granularity — covers VTEX regionalization and
+// most geo matchers without the city-level fragmentation (~hundreds of buckets).
+// Sites that need city precision should set geoCacheKey: "city" explicitly.
+
+let _autoGeoKey: "off" | "region" = "off";
+let _autoGeoListenerInstalled = false;
+
+function installAutoGeoListener(): void {
+  if (_autoGeoListenerInstalled) return;
+  _autoGeoListenerInstalled = true;
+  const update = (blocks: Record<string, unknown>) => {
+    _autoGeoKey = detectLocationMatcher(blocks) ? "region" : "off";
+  };
+  onChange(update);
+  update(loadBlocks());
+}
+
 const IMMUTABLE_HEADERS: Record<string, string> = {
   "Cache-Control": `public, max-age=${ONE_YEAR}, immutable`,
   Vary: "Accept-Encoding",
@@ -796,24 +824,17 @@ export function createDecoWorkerEntry(
     installDefaultUserAgent(outboundUserAgentOpt);
   }
 
-  // When geoCacheKey is "auto", watch the decofile for location matchers.
-  // The effective granularity is recomputed on every setBlocks() call so fast-
-  // deploy decofile swaps are picked up without a redeploy. The initial value
-  // is "off" (safe: no geo fragmentation until the decofile is loaded).
-  let autoGeoKey: "off" | "city" = "off";
+  // When geoCacheKey is "auto", install the module-level listener that watches
+  // the decofile for website/matchers/location.ts. The listener is registered
+  // only once regardless of how many times this factory is called, so there is
+  // no listener accumulation in tests or dynamic worker-composition scenarios.
   if (geoCacheKeyOpt === "auto") {
-    const detectFromBlocks = (blocks: Record<string, unknown>) => {
-      autoGeoKey = detectLocationMatcher(blocks) ? "city" : "off";
-    };
-    onChange(detectFromBlocks);
-    // Initialise synchronously from the already-loaded decofile so the very
-    // first request (before any setBlocks()-triggered onChange) is correct.
-    detectFromBlocks(loadBlocks());
+    installAutoGeoListener();
   }
 
   /** Resolve the effective geo granularity for the current request. */
   function effectiveGeoKey(): "off" | "country" | "region" | "city" {
-    return geoCacheKeyOpt === "auto" ? autoGeoKey : geoCacheKeyOpt;
+    return geoCacheKeyOpt === "auto" ? _autoGeoKey : geoCacheKeyOpt;
   }
 
   // Backfill `regionId` from Cloudflare geo when the consumer's buildSegment
@@ -1718,15 +1739,14 @@ export function createDecoWorkerEntry(
         const device = isMobileUA(request.headers.get("user-agent") ?? "") ? "mobile" : "desktop";
         cacheKeyUrl.searchParams.set("__cf_device", device);
       }
-      // Include CF geo data so location-based content doesn't leak across geos
-      const cf = (request as unknown as { cf?: Record<string, string> }).cf;
-      if (cf) {
-        const geoParts: string[] = [];
-        if (cf.country) geoParts.push(cf.country);
-        if (cf.region) geoParts.push(cf.region);
-        if (cf.city) geoParts.push(cf.city);
-        if (geoParts.length) cacheKeyUrl.searchParams.set("__cf_geo", geoParts.join("|"));
-      }
+      // Include CF geo data so location-based content doesn't leak across geos.
+      // Uses the same effectiveGeoKey() as the GET path so geoCacheKey config
+      // is respected consistently for both HTML and server-fn responses.
+      const sfnGeoParam = buildGeoCacheParam(
+        (request as unknown as { cf?: Record<string, string> }).cf,
+        effectiveGeoKey(),
+      );
+      if (sfnGeoParam) cacheKeyUrl.searchParams.set("__cf_geo", sfnGeoParam);
       const sfnCacheKey = new Request(cacheKeyUrl.toString(), { method: "GET" });
 
       // Use "listing" profile for server function responses

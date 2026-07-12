@@ -139,7 +139,7 @@ describe("buildGeoCacheParam", () => {
 });
 
 describe("detectLocationMatcher", () => {
-  it("returns true when decofile has a website/matchers/location.ts block", () => {
+  it("returns true when decofile has a website/matchers/location.ts __resolveType", () => {
     const blocks = {
       "audiences/geo-audience.json": {
         "__resolveType": "website/flags/audience.ts",
@@ -172,5 +172,15 @@ describe("detectLocationMatcher", () => {
       },
     };
     expect(detectLocationMatcher(blocks)).toBe(true);
+  });
+
+  it("returns false when location.ts appears only in a non-resolveType string value (no false positive)", () => {
+    const blocks = {
+      "content/help.json": {
+        "__resolveType": "website/sections/RichText.tsx",
+        "body": "This page is controlled by website/matchers/location.ts for geo targeting.",
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(false);
   });
 });
