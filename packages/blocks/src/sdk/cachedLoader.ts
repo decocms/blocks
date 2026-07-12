@@ -32,11 +32,6 @@ export interface CachedLoaderOptions {
   keyFn?: (props: unknown) => string;
 }
 
-export interface LoaderModule<TProps = any, TResult = any> {
-  default: (props: TProps) => Promise<TResult>;
-  cache?: CachePolicy | { maxAge: number };
-  cacheKey?: (props: TProps) => string | null;
-}
 
 interface CacheEntry<T = unknown> {
   value: T;
@@ -307,44 +302,6 @@ export function createCachedLoader<TProps, TResult>(
   };
 }
 
-/**
- * Create a cached loader from a module that exports `cache` and/or `cacheKey`.
- * Falls back to the provided defaults if the module doesn't declare them.
- */
-export function createCachedLoaderFromModule<TProps, TResult>(
-  name: string,
-  mod: LoaderModule<TProps, TResult>,
-  defaults?: Partial<CachedLoaderOptions>,
-): (props: TProps) => Promise<TResult> {
-  const moduleCache = mod.cache;
-  let policy: CachePolicy;
-  let maxAge: number | undefined;
-
-  if (typeof moduleCache === "string") {
-    policy = moduleCache;
-  } else if (moduleCache && typeof moduleCache === "object") {
-    policy = "stale-while-revalidate";
-    maxAge = moduleCache.maxAge;
-  } else {
-    policy = defaults?.policy ?? "stale-while-revalidate";
-  }
-
-  maxAge = maxAge ?? defaults?.maxAge;
-
-  const keyFn = mod.cacheKey
-    ? (props: unknown) => {
-        const key = mod.cacheKey!(props as TProps);
-        return key ?? JSON.stringify(props);
-      }
-    : defaults?.keyFn;
-
-  return createCachedLoader(name, mod.default, {
-    policy,
-    maxAge,
-    staleIfError: defaults?.staleIfError,
-    keyFn,
-  });
-}
 
 /** Clear all cached entries. Useful for decofile hot-reload. */
 export function clearLoaderCache() {
