@@ -202,9 +202,11 @@ export function transformFreshApis(content: string): TransformResult {
     notes.push("Removed allowCorsFor (not needed in TanStack)");
   }
 
-  // ctx.response.headers → not available, flag
+  // ctx.response.headers → supported by the compat ctx (#305): section loaders
+  // receive a 3rd-arg ctx whose `response.headers` maps to
+  // RequestContext.responseHeaders. Just an INFO note (no manual work).
   if (result.includes("ctx.response")) {
-    notes.push("MANUAL: ctx.response usage found — FnContext in @decocms/blocks does not have response object");
+    notes.push("INFO: ctx.response.headers is provided by the compat ctx (RequestContext.responseHeaders) inside the worker request scope; writes are dropped on the dev/SPA serverFn path");
   }
 
   // { crypto } from "@std/crypto" → use globalThis.crypto (Web Crypto API)

@@ -14,10 +14,17 @@ import { djb2 } from "../sdk/djb2";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { withTracing } from "../sdk/observability";
 import type { ResolvedSection } from "./resolve";
+import { buildSectionLoaderContext, type SectionLoaderContext } from "./sectionLoaderContext";
 
 export type SectionLoaderFn = (
   props: Record<string, unknown>,
   req: Request,
+  /**
+   * Compat context (issue #305). Optional so 2-arg loaders/mixins remain
+   * valid — they simply ignore the extra argument. Framework-supplied at the
+   * call site via {@link buildSectionLoaderContext}.
+   */
+  ctx?: SectionLoaderContext,
 ) => Promise<Record<string, unknown>> | Record<string, unknown>;
 
 // globalThis-backed: server function split modules need access
@@ -361,9 +368,14 @@ function injectPageContext(
   return enriched;
 }
 
-/** Wrap a loader so it receives __pageUrl/__pagePath in its props. */
+/**
+ * Wrap a loader so it receives __pageUrl/__pagePath in its props AND the
+ * 3rd-arg compat `ctx` (issue #305). This is the single choke point that all
+ * four invocation paths (regular, layout, cacheable, SWR refresh) route
+ * through, so building `ctx` here covers every path.
+ */
 function withPageContext(loader: SectionLoaderFn): SectionLoaderFn {
-  return (props, req) => loader(injectPageContext(props, req), req);
+  return (props, req) => loader(injectPageContext(props, req), req, buildSectionLoaderContext(req));
 }
 
 /**

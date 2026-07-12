@@ -81,6 +81,8 @@ export {
   WELL_KNOWN_TYPES,
 } from "./resolve";
 export type { SectionLoaderFn } from "./sectionLoaders";
+export type { SectionLoaderContext } from "./sectionLoaderContext";
+export { buildSectionLoaderContext } from "./sectionLoaderContext";
 export {
   isLayoutSection,
   registerCacheableSections,

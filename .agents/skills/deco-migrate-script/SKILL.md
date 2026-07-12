@@ -79,6 +79,7 @@ packages/blocks-cli/scripts/migrate/
 │   ├── imports.ts              ← 70+ import rewriting rules
 │   ├── jsx.ts                  ← JSX attribute fixes
 │   ├── fresh-apis.ts           ← Fresh framework API removal
+│   ├── ctx-compat.ts           ← Optional-chain section-loader ctx.* reads (#305)
 │   ├── deno-isms.ts            ← Deno-specific cleanup
 │   ├── dead-code.ts            ← Old cache/loader system removal
 │   └── tailwind.ts             ← Tailwind v3→v4 + DaisyUI v4→v5
@@ -152,7 +153,7 @@ Generates 14+ configuration and infrastructure files:
 
 ### Phase 3: Transform
 
-Applies 6 transforms in sequence to every source file:
+Applies 7 transforms in sequence to every source file:
 
 #### 1. `imports.ts` — Import Rewriting (70+ rules)
 
@@ -194,13 +195,27 @@ setTimeout       → window.setTimeout (type safety)
 - `IS_BROWSER` → `typeof window !== "undefined"`
 - `Context.active()` → removed
 
-#### 4. `dead-code.ts` — Old Deco Patterns
+#### 4. `ctx-compat.ts` — Section-loader `ctx` compatibility (#305)
+
+Runs only on files that export a `loader`. deco.cx section loaders use a
+3-arg `(props, req, ctx)` signature; the framework now supplies a real compat
+`ctx` (device, `invoke`, per-app state, `response.headers`) as the 3rd arg. But
+an app that isn't configured yields `undefined`, so a non-optional deep read
+(`ctx.salesforce.cartExtension[0]`) still throws and `withSectionLoader`'s
+try/catch silently drops the section's props (blank render).
+
+- Optional-chains every `ctx.*` read → `ctx?.salesforce?.cartExtension?.[0]`.
+- Leaves already-optional chains and assignment targets alone.
+- No-op on files without a `loader` export (so an unrelated `ctx`, e.g. a
+  canvas 2D context, is untouched).
+
+#### 5. `dead-code.ts` — Old Deco Patterns
 
 - Removes: `export const cache`, `export const cacheKey`, `export const loader` (old caching system)
 - Handles: `crypto.subtle.digestSync` (Deno-only → async)
 - Preserves: `invoke.*` calls (runtime.ts proxy)
 
-#### 5. `deno-isms.ts` — Deno Cleanup
+#### 6. `deno-isms.ts` — Deno Cleanup
 
 - `deno-lint-ignore` comments → removed
 - `npm:` prefix → removed
@@ -208,7 +223,7 @@ setTimeout       → window.setTimeout (type safety)
 - `Deno.*` API usage → flagged
 - `/// <reference>` directives → removed
 
-#### 6. `tailwind.ts` — Tailwind v3→v4 + DaisyUI v4→v5
+#### 7. `tailwind.ts` — Tailwind v3→v4 + DaisyUI v4→v5
 
 **23 Tailwind class renames:**
 ```
@@ -477,7 +492,7 @@ This script handles **Phases 0-6** of the [migration playbook](../deco-to-tansta
 - Phase 0 (Scaffold) → `phase-scaffold.ts`
 - Phase 1 (Imports) → `transforms/imports.ts`
 - Phase 2 (Signals) → `transforms/imports.ts` (bulk only — manual `useSignal` → `useState` still needed)
-- Phase 3 (Deco Framework) → `transforms/fresh-apis.ts` + `transforms/deno-isms.ts`
+- Phase 3 (Deco Framework) → `transforms/fresh-apis.ts` + `transforms/ctx-compat.ts` + `transforms/deno-isms.ts`
 - Phase 4 (Commerce) → `transforms/imports.ts`
 - Phase 6 (Islands) → `phase-cleanup.ts` (deletes directory, repoints imports)
 
