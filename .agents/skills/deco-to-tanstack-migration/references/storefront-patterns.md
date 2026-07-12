@@ -583,58 +583,57 @@ onClick={(e: React.MouseEvent<HTMLButtonElement>) => { ... }}
 
 ## 16. Loader `cache` / `cacheKey` Module Exports
 
-### Problem
-
-In `deco-cx/apps`, loaders declare their caching policy as module exports:
+In `deco-cx/apps`, loaders declare caching intent as module exports:
 
 ```typescript
-// deco-cx/apps pattern
+// deco-cx/apps pattern (e.g. shopify/loaders/RelatedProducts.ts)
 export const cache = "stale-while-revalidate";
-export const cacheKey = (props, req, ctx) =>
-  JSON.stringify(props) + `:sc=${ctx.salesChannel}`;
-export default async function myLoader(props) { ... }
+export const cacheKey = (props, req) => new URL(req.url).pathname + `:${props.slug}`;
+export default async function myLoader(props, req, ctx) { ... }
 ```
 
-`@decocms/start`'s `createCachedLoader` previously only accepted inline options.
+### What they do in `@decocms/blocks` (as of this repo)
 
-### Solution — `createCachedLoaderFromModule`
+**PORT THEM — they now work, but only for single-flight dedup, NOT cross-request
+caching.** The framework wires them automatically: `generate-loaders.ts` routes
+every loader through `createLoaderEntry` (`@decocms/blocks/sdk/cachedLoader`),
+which reads the module's `cache`/`cacheKey` and applies dedup.
 
-New utility in `@decocms/start/sdk/cachedLoader`:
+Semantics — deliberately conservative (no stale data risk):
 
-```typescript
-import { createCachedLoaderFromModule, type LoaderModule } from "@decocms/start/sdk/cachedLoader";
+- `cache: "stale-while-revalidate"` (or `{ maxAge }`) → **opt into single-flight
+  dedup**: N sections referencing the same loader in one render collapse to one
+  upstream call (the #339 N+1 fix). Nothing is retained past settlement — a later
+  request re-runs the loader (no SWR, no stale serving at this layer).
+- No `cache` export, `cache: "no-store"`, or `cache: "no-cache"` → runs on every
+  call, exactly like `deco-cx/apps`' default. `cacheKey` is ignored.
+- `cacheKey(props, req)` computes the dedup identity (strip tracking params,
+  key on pathname, etc.). Returning `null` → run fresh (uncacheable). `req` is
+  sourced from the argument or `RequestContext.current` on the CMS-resolution
+  path; if `cacheKey` needs `req` but none is available, it falls back to
+  `JSON.stringify(props)`.
+- **Actions are never wrapped** — they always run (they mutate).
 
-// Import the loader module (not just the default export)
-import * as myLoaderModule from "./loaders/myLoader";
-
-const cached = createCachedLoaderFromModule("myLoader", myLoaderModule, {
-  policy: "stale-while-revalidate",
-  maxAge: 60_000, // fallback if module doesn't declare cache
-});
-```
-
-### `LoaderModule` Interface
+### `LoaderModule` interface
 
 ```typescript
 interface LoaderModule<TProps = any, TResult = any> {
-  default: (props: TProps) => Promise<TResult>;
+  default: (props: TProps, req?: Request) => Promise<TResult>;
   cache?: CachePolicy | { maxAge: number };
-  cacheKey?: (props: TProps) => string | null;
+  cacheKey?: (props: TProps, req?: Request) => string | null; // (props, req) — NOT props-only
 }
 ```
 
-### Priority
+### Cross-request / edge caching lives elsewhere
 
-1. Module `cache` export overrides the defaults `policy`
-2. Module `cacheKey` export overrides the default `keyFn`
-3. If module has `cache: { maxAge: 120_000 }`, policy is automatically `stale-while-revalidate` with that TTL
-4. If `cacheKey` returns `null`, falls back to `JSON.stringify(props)`
+This layer is dedup-only. For serving the same page/response across requests, use
+the **edge cache key** (`registerTrackingParams` + `setCacheProfile` in
+`@decocms/blocks/sdk/cacheHeaders`) — that's what actually cuts origin hits (see
+§17). Don't reach for loader `cache`/`cacheKey` expecting SWR; reach for it to
+kill duplicate concurrent calls.
 
-### When to Use
-
-- Porting loaders from `deco-cx/apps` that already have `export const cache = ...`
-- Creating new loaders that need custom cache keys (e.g., segment-aware caching)
-- When different instances of the same loader type need different cache policies
+> After changing/porting loaders, run the site's `generate` so
+> `.deco/loaders.gen.ts` is regenerated with the `createLoaderEntry` wrappers.
 
 ---
 
