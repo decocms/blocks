@@ -30,12 +30,14 @@ import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
 import {
   isBot,
   loadBlocks,
+  onChange,
   type MatcherContext,
   resolveDecoPage,
   runSectionLoaders,
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
+import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -690,6 +692,15 @@ async function hashText(text: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+// ---------------------------------------------------------------------------
+// CMS redirect cache — invalidated on hot-reload via onChange
+// ---------------------------------------------------------------------------
+
+let _redirectMap: RedirectMap | null = null;
+onChange(() => {
+  _redirectMap = null;
+});
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -1557,6 +1568,19 @@ export function createDecoWorkerEntry(
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
           "Access-Control-Allow-Methods": "GET, OPTIONS",
         },
+      });
+    }
+
+    // CMS redirects (website/loaders/redirect.ts blocks) — before commerce
+    // proxy so /old-url → /new-url is handled without site configuration.
+    if (!_redirectMap) {
+      _redirectMap = loadRedirects(loadBlocks());
+    }
+    const cmsRedirect = matchRedirect(url.pathname, _redirectMap);
+    if (cmsRedirect) {
+      return new Response(null, {
+        status: cmsRedirect.status,
+        headers: { Location: cmsRedirect.to },
       });
     }
 
