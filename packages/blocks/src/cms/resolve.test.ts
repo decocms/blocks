@@ -39,7 +39,7 @@ import {
 } from "./resolve";
 import { runSingleSectionLoader } from "./sectionLoaders";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
-import { findPageByPath } from "./loader";
+import { findPageByPath, loadBlocks } from "./loader";
 import { getSection } from "./registry";
 import type { AsyncRenderingConfig, DeferredSection } from "./resolve";
 
@@ -636,5 +636,86 @@ describe("resolveDecoPage — #277 client-side navigation disables deferral", ()
   it("client-nav (isClientNavigation: true) resolves the ⚡ section eagerly — empty deferredSections", async () => {
     const result = await resolveDecoPage("/product/foo", { isClientNavigation: true });
     expect(result?.deferredSections).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Site globals (theme + global) — prepended into resolveDecoPage, mirroring
+// deco-cx/apps website/pages/Page.tsx. Opt-in by declaration on the Site block.
+// ---------------------------------------------------------------------------
+
+describe("resolveDecoPage — site globals", () => {
+  const components = (result: Awaited<ReturnType<typeof resolveDecoPage>>) =>
+    result?.resolvedSections.map((s) => s.component);
+
+  const pageWith = (sections: unknown[]) =>
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: { name: "test", sections },
+      params: {},
+      blockKey: "test-page",
+    });
+
+  beforeEach(() => {
+    // Every section key resolves to a real component so resolveRawSection emits it.
+    (getSection as ReturnType<typeof vi.fn>).mockReturnValue({ default: () => null });
+  });
+
+  afterEach(() => {
+    (getSection as ReturnType<typeof vi.fn>).mockReset();
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReset();
+    (loadBlocks as ReturnType<typeof vi.fn>).mockReset();
+    (loadBlocks as ReturnType<typeof vi.fn>).mockReturnValue({});
+  });
+
+  it("prepends site.theme then site.global before page sections", async () => {
+    pageWith([{ __resolveType: "site/sections/PageA.tsx" }]);
+    (loadBlocks as ReturnType<typeof vi.fn>).mockReturnValue({
+      site: {
+        theme: { __resolveType: "site/sections/Theme.tsx" },
+        global: [{ __resolveType: "site/sections/Analytics.tsx" }],
+      },
+    });
+    // client-nav → everything eager (no deferral) so order is deterministic.
+    const result = await resolveDecoPage("/", { isClientNavigation: true });
+    expect(components(result)).toEqual([
+      "site/sections/Theme.tsx",
+      "site/sections/Analytics.tsx",
+      "site/sections/PageA.tsx",
+    ]);
+  });
+
+  it("injects nothing when the Site block declares no theme/global (opt-in)", async () => {
+    pageWith([{ __resolveType: "site/sections/PageA.tsx" }]);
+    (loadBlocks as ReturnType<typeof vi.fn>).mockReturnValue({ site: {} });
+    const result = await resolveDecoPage("/", { isClientNavigation: true });
+    expect(components(result)).toEqual(["site/sections/PageA.tsx"]);
+  });
+
+  it("injects nothing when there is no Site block at all", async () => {
+    pageWith([{ __resolveType: "site/sections/PageA.tsx" }]);
+    (loadBlocks as ReturnType<typeof vi.fn>).mockReturnValue({});
+    const result = await resolveDecoPage("/", { isClientNavigation: true });
+    expect(components(result)).toEqual(["site/sections/PageA.tsx"]);
+  });
+
+  it("page sections win: a global already present on the page is deduped out", async () => {
+    pageWith([{ __resolveType: "site/sections/Shared.tsx" }]);
+    (loadBlocks as ReturnType<typeof vi.fn>).mockReturnValue({
+      site: {
+        theme: { __resolveType: "site/sections/Theme.tsx" },
+        global: [{ __resolveType: "site/sections/Shared.tsx" }],
+      },
+    });
+    const result = await resolveDecoPage("/", { isClientNavigation: true });
+    expect(components(result)).toEqual(["site/sections/Theme.tsx", "site/sections/Shared.tsx"]);
+  });
+
+  it("reads the Site block under the capitalized `Site` key too", async () => {
+    pageWith([{ __resolveType: "site/sections/PageA.tsx" }]);
+    (loadBlocks as ReturnType<typeof vi.fn>).mockReturnValue({
+      Site: { theme: { __resolveType: "site/sections/Theme.tsx" } },
+    });
+    const result = await resolveDecoPage("/", { isClientNavigation: true });
+    expect(components(result)).toEqual(["site/sections/Theme.tsx", "site/sections/PageA.tsx"]);
   });
 });

@@ -61,7 +61,6 @@ import {
 import { normalizeUrlsInObject } from "@decocms/blocks/sdk/normalizeUrls";
 import { type Device, detectDevice } from "@decocms/blocks/sdk/useDevice";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
-import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
 
 const isServer = typeof document === "undefined";
 
@@ -150,22 +149,11 @@ async function loadCmsPageInternal(fullPath: string) {
     headers: originRequest.headers,
   });
 
-  // Resolve page sections and site globals in parallel. Globals are merged
-  // into the same `resolvedSections` array so the path through this server
-  // function is identical for SSR (F5) and SPA (<Link>) navigations — see
-  // #233 for the previous SPA-breakage when `withSiteGlobals` ran client-side
-  // and saw an empty client-bundled `blocks.gen.ts`.
-  const [enrichedSections, globals] = await Promise.all([
-    runSectionLoaders(page.resolvedSections, request),
-    resolveSiteGlobals(),
-  ]);
-
-  // Page sections take precedence over globals — dedupe drops any global
-  // whose component is already rendered by the page.
-  const mergedSections: ResolvedSection[] = [
-    ...dedupeGlobals(globals.resolvedSections, enrichedSections),
-    ...enrichedSections,
-  ];
+  // Site globals (Site block theme + global) are already prepended and deduped
+  // into `page.resolvedSections` by `resolveDecoPage` (runtime), so both SSR
+  // (F5) and SPA (<Link>) go through one identical server-side path (#233) and
+  // section loaders run uniformly over page + global sections.
+  const mergedSections = await runSectionLoaders(page.resolvedSections, request);
 
   // Pre-import eager section modules so their default exports are cached
   // in resolvedComponents. This ensures SSR renders with direct component
@@ -193,7 +181,6 @@ async function loadCmsPageInternal(fullPath: string) {
     seo,
     device,
     flags,
-    siteGlobals: { rawRefs: globals.rawRefs },
   };
 }
 
@@ -241,15 +228,8 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
   const page = await resolveDecoPage("/", matcherCtx);
   if (!page) return null;
   const flags = persistFlags(matcherCtx);
-  const [enrichedSections, globals] = await Promise.all([
-    runSectionLoaders(page.resolvedSections, request),
-    resolveSiteGlobals(),
-  ]);
-
-  const mergedSections: ResolvedSection[] = [
-    ...dedupeGlobals(globals.resolvedSections, enrichedSections),
-    ...enrichedSections,
-  ];
+  // Globals are already merged into page.resolvedSections by resolveDecoPage.
+  const mergedSections = await runSectionLoaders(page.resolvedSections, request);
 
   const eagerKeys = mergedSections.map((s) => s.component);
   await preloadSectionComponents(eagerKeys);
@@ -268,7 +248,6 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
     seo,
     device,
     flags,
-    siteGlobals: { rawRefs: globals.rawRefs },
   };
 });
 

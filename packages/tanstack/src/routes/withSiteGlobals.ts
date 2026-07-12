@@ -109,8 +109,13 @@ const EMPTY_ENTRY: CacheEntry = {
  * Cache is invalidated by `onChange()` from the CMS loader, so admin edits
  * and decofile reloads are reflected on the next request.
  *
- * Exposed as a util so sites can call it directly if they need globals
- * outside the route loader path (rare).
+ * @deprecated Site globals are now resolved inside `resolveDecoPage`
+ * (`@decocms/blocks/cms`), which prepends `site.theme` + `site.global` (NOT
+ * `pageSections`) to every page and reuses the resolver's own layout cache —
+ * one path shared by `@decocms/tanstack` and `@decocms/nextjs`, mirroring old
+ * deco's `website/pages/Page.tsx`. The route loaders no longer call this; it is
+ * kept only for direct callers and back-compat. Note it still reads
+ * `pageSections` and keeps its own bespoke cache — prefer the runtime path.
  */
 export async function resolveSiteGlobals(): Promise<{
   resolvedSections: ResolvedSection[];

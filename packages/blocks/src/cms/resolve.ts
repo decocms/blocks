@@ -1702,6 +1702,98 @@ export function extractSeoFromSections(sections: ResolvedSection[]): PageSeo {
   return seo;
 }
 
+// ---------------------------------------------------------------------------
+// Site globals — theme + global sections declared on the CMS `Site` block,
+// prepended to every page. Mirrors deco-cx/apps `website/pages/Page.tsx`,
+// whose loader did `sections = [ctx.theme, ...ctx.global, ...pageSections]`.
+//
+// Opt-in: if the Site block declares neither `theme` nor `global`, nothing is
+// injected. Resolution goes through the SAME path as page sections
+// (`resolveRawSection` + `resolvedLayoutCache`), so a Theme marked
+// `export const layout = true` is cached cross-request exactly like
+// Header/Footer — there is no separate globals cache. `site.pageSections` is
+// intentionally NOT a globals source: old deco's Site block only had `theme` +
+// `global`, and grabbing `pageSections` was the divergence behind #292.
+// ---------------------------------------------------------------------------
+
+interface SiteBlockGlobals {
+  theme?: Record<string, unknown>;
+  global?: Record<string, unknown>[];
+}
+
+/** Raw refs declared in `site.theme` + `site.global`, in render order. */
+function gatherSiteGlobalRefs(): unknown[] {
+  const blocks = loadBlocks();
+  // Block key casing varies by site convention — accept both.
+  const site = (blocks.site ?? blocks.Site) as SiteBlockGlobals | undefined;
+  if (!site) return [];
+  const refs: unknown[] = [];
+  if (site.theme) refs.push(site.theme);
+  if (Array.isArray(site.global)) refs.push(...site.global);
+  return refs;
+}
+
+/**
+ * Resolve the site-global refs eagerly (globals never defer — a Theme must
+ * render synchronously), reusing the cross-request resolved-layout cache for
+ * any global registered as a layout section.
+ */
+async function resolveSiteGlobalSections(rctx: ResolveContext): Promise<ResolvedSection[]> {
+  const refs = gatherSiteGlobalRefs();
+  if (refs.length === 0) return [];
+  const results = await Promise.all(
+    refs.map((section) => {
+      const layoutKey = isRawSectionLayout(section);
+      if (layoutKey) {
+        const cached = getCachedResolvedLayout(layoutKey);
+        if (cached) return Promise.resolve(cached);
+        const inflight = resolvedLayoutInflight.get(layoutKey);
+        if (inflight) return inflight;
+        const p = withInflightTimeout(
+          resolveRawSection(section, rctx).then((r) => {
+            setCachedResolvedLayout(layoutKey, r);
+            return r;
+          }),
+          `resolvedLayout ${layoutKey}`,
+        ).finally(() => resolvedLayoutInflight.delete(layoutKey));
+        resolvedLayoutInflight.set(layoutKey, p);
+        return p;
+      }
+      return resolveRawSection(section, rctx).catch((e) => {
+        onResolveError(e, "section", "Site global section resolution");
+        return [] as ResolvedSection[];
+      });
+    }),
+  );
+  return results.flat();
+}
+
+/**
+ * Drop globals whose `component` already appears among the page's own
+ * sections — page sections take precedence (e.g. a `Session` declared both
+ * site-global and on the page renders once). Also dedupes within the globals
+ * list itself.
+ */
+function dedupeGlobals(
+  globals: ResolvedSection[],
+  pageSections: ResolvedSection[],
+): ResolvedSection[] {
+  if (globals.length === 0) return [];
+  const seen = new Set<string>();
+  for (const s of pageSections) {
+    if (typeof s.component === "string") seen.add(s.component);
+  }
+  const result: ResolvedSection[] = [];
+  for (const s of globals) {
+    if (typeof s.component === "string") {
+      if (seen.has(s.component)) continue;
+      seen.add(s.component);
+    }
+    result.push(s);
+  }
+  return result;
+}
+
 export interface DecoPageResult {
   name: string;
   path: string;
@@ -1898,6 +1990,7 @@ async function resolveDecoPageImpl(
   }
 
   const allResults = await Promise.all(eagerResults);
+  const pageSections = allResults.flat();
 
   // Resolve page-level SEO block (page.seo field) — always eager.
   // Runs after sections to benefit from memoized commerce loader results.
@@ -1910,12 +2003,22 @@ async function resolveDecoPageImpl(
     }
   }
 
+  // Prepend site globals (theme + global) — shared with `page.sections` on the
+  // same resolution context so nested resolvables memoize once. Deduped so
+  // page sections win over a conflicting global. Runs on every page whenever
+  // the Site block declares them (opt-in-by-declaration), and is a no-op
+  // otherwise — this is the one shared path both `@decocms/tanstack` and
+  // `@decocms/nextjs` render through, replacing the tanstack-only side path.
+  const globals = await resolveSiteGlobalSections(rctx);
+  const resolvedSections =
+    globals.length > 0 ? [...dedupeGlobals(globals, pageSections), ...pageSections] : pageSections;
+
   return {
     name: page.name,
     path: page.path || targetPath,
     params,
     blockKey,
-    resolvedSections: allResults.flat(),
+    resolvedSections,
     deferredSections,
     seoSection,
   };
