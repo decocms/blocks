@@ -364,6 +364,22 @@ export interface DecoWorkerEntryOptions {
   autoInjectGeoCookies?: boolean;
 
   /**
+   * Controls how Cloudflare geo data is folded into edge cache keys.
+   *
+   * - `"city"` (default): full `country|region|city` key — maximum isolation
+   *   for sites with city-level location matchers.
+   * - `"region"`: `country|region` — good for region/state matchers (e.g.
+   *   VTEX regionalization), avoids city-level fragmentation.
+   * - `"country"`: country only.
+   * - `"off"`: no `__cf_geo` param is added and the automatic `regionId`
+   *   backfill from CF geo is disabled. Use for single-catalog storefronts
+   *   that do not vary content by location — recovers the full edge HIT rate.
+   *
+   * @default "city"
+   */
+  geoCacheKey?: "off" | "country" | "region" | "city";
+
+  /**
    * Cookie names considered "safe" for caching — these are public/anonymous
    * cookies that do not carry per-user session or auth data.
    *
@@ -501,6 +517,29 @@ function buildPreviewShell(): string {
  * };
  * ```
  */
+/**
+ * Build the `__cf_geo` cache-key fragment from Cloudflare's `request.cf`
+ * object at the requested granularity.
+ *
+ * Returns `undefined` when `granularity` is `"off"`, `cf` is absent, or no
+ * relevant fields are present.
+ *
+ * @example
+ * buildGeoCacheParam({ country: "BR", region: "São Paulo", city: "SP" }, "region")
+ * // → "BR|São Paulo"
+ */
+export function buildGeoCacheParam(
+  cf: Record<string, string> | undefined,
+  granularity: "off" | "country" | "region" | "city",
+): string | undefined {
+  if (granularity === "off" || !cf) return undefined;
+  const parts: string[] = [];
+  if (cf.country) parts.push(cf.country);
+  if (granularity !== "country" && cf.region) parts.push(cf.region);
+  if (granularity === "city" && cf.city) parts.push(cf.city);
+  return parts.length ? parts.join("|") : undefined;
+}
+
 export function injectGeoCookies(request: Request): Request {
   const cf = (request as unknown as { cf?: Record<string, string> }).cf;
   if (!cf) return request;
@@ -724,6 +763,7 @@ export function createDecoWorkerEntry(
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     autoInjectGeoCookies: geoOpt = true,
+    geoCacheKey: geoCacheKeyOpt = "city",
     safeCookies: safeCookiesOpt = DEFAULT_SAFE_COOKIES,
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
     cdnCacheControl: cdnCacheControlOpt = "no-store",
@@ -760,6 +800,7 @@ export function createDecoWorkerEntry(
     ? (request: Request): SegmentKey => {
         const seg = rawBuildSegment(request);
         if (seg.regionId) return seg;
+        if (geoCacheKeyOpt === "off") return seg;
         const region = readRegionFromRequest(request);
         return region ? { ...seg, regionId: region } : seg;
       }
@@ -913,17 +954,14 @@ export function createDecoWorkerEntry(
     }
 
     // Include CF geo data in cache key so location matcher results don't leak
-    // across different geos. Applies to both segment and device-based keys.
-    const cf = (request as unknown as { cf?: Record<string, string> }).cf;
-    if (cf) {
-      const geoParts: string[] = [];
-      if (cf.country) geoParts.push(cf.country);
-      if (cf.region) geoParts.push(cf.region);
-      if (cf.city) geoParts.push(cf.city);
-      if (geoParts.length) {
-        url.searchParams.set("__cf_geo", geoParts.join("|"));
-      }
-    }
+    // across different geos. Granularity is controlled by `geoCacheKey`:
+    // "city" (default) → country|region|city, "region" → country|region,
+    // "country" → country only, "off" → omitted entirely.
+    const geoParam = buildGeoCacheParam(
+      (request as unknown as { cf?: Record<string, string> }).cf,
+      geoCacheKeyOpt,
+    );
+    if (geoParam) url.searchParams.set("__cf_geo", geoParam);
 
     // Bots render every section eagerly (shouldDeferSection short-circuits in
     // resolve.ts), producing a ~10x larger HTML payload (all eager-section

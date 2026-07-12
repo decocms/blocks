@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { injectGeoCookies } from "./workerEntry";
+import { buildGeoCacheParam, injectGeoCookies } from "./workerEntry";
 
 function parseCookies(header: string): Record<string, string> {
   return Object.fromEntries(
@@ -102,5 +102,38 @@ describe("injectGeoCookies", () => {
     expect(out.headers.get("accept")).toBe("*/*");
     expect(out.headers.get("x-custom")).toBe("value");
     expect(out.headers.get("cf-ray")).toBe("9ff5b26cf9bc067a");
+  });
+});
+
+describe("buildGeoCacheParam", () => {
+  const cf = { country: "BR", region: "São Paulo", city: "SP" };
+
+  it("returns undefined when granularity is off", () => {
+    expect(buildGeoCacheParam(cf, "off")).toBeUndefined();
+  });
+
+  it("returns undefined when cf is undefined", () => {
+    expect(buildGeoCacheParam(undefined, "city")).toBeUndefined();
+  });
+
+  it("returns country only when granularity is country", () => {
+    expect(buildGeoCacheParam(cf, "country")).toBe("BR");
+  });
+
+  it("returns country|region when granularity is region", () => {
+    expect(buildGeoCacheParam(cf, "region")).toBe("BR|São Paulo");
+  });
+
+  it("returns country|region|city when granularity is city", () => {
+    expect(buildGeoCacheParam(cf, "city")).toBe("BR|São Paulo|SP");
+  });
+
+  it("omits missing fields gracefully", () => {
+    expect(buildGeoCacheParam({ country: "BR" }, "city")).toBe("BR");
+    expect(buildGeoCacheParam({ country: "BR", region: "MG" }, "city")).toBe("BR|MG");
+  });
+
+  it("returns undefined when cf has none of country/region/city", () => {
+    expect(buildGeoCacheParam({ asn: "12345" }, "city")).toBeUndefined();
   });
 });
