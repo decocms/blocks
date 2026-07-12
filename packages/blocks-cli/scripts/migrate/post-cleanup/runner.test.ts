@@ -1875,28 +1875,70 @@ describe("rule: signal-value-reads", () => {
     expect(r.findings).toEqual([]);
   });
 
-  it("flags only the signal without useStore when two signals coexist, one subscribed and one not", () => {
+  it("flags only the unsubscribed signal when two signals coexist, one subscribed and one not", () => {
     const fs = makeFs({
       "/site/src/sdk/state.ts":
         'import { signal } from "@decocms/blocks/sdk/signal";\n' +
         "export const loading = signal(false);\n" +
-        "export const query = signal(\"\");\n",
-      // useStore is called (for loading), but query.value is read without subscription.
-      // The rule only checks whether ANY useStore() call exists — per the plan, a file
-      // with useStore() is considered "aware" and will NOT be flagged. This test
-      // verifies that behaviour explicitly.
+        'export const query = signal("");\n',
+      // loading is correctly subscribed via useStore(loading.store, ...).
+      // query.value is read raw — no useStore(query.store) call anywhere.
+      // Per-signal check: loading should produce no finding; query should.
       "/site/src/components/Search.tsx":
         'import { useStore } from "@tanstack/react-store";\n' +
         'import { loading, query } from "~/sdk/state";\n' +
         "export default function Search() {\n" +
         "  const isLoading = useStore(loading.store, (s) => s);\n" +
-        "  return isLoading ? null : <div>{query.value}</div>;\n" + // mixed but useStore present
+        "  return isLoading ? null : <div>{query.value}</div>;\n" +
         "}\n",
     });
     const report = runAudit(SITE, fs);
     const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
-    // File calls useStore() — rule treats this as "developer is aware"; no finding.
+    // loading is subscribed — no finding for it.
+    // query.value is read without useStore(query.store) — one finding.
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].meta?.signalName).toBe("query");
+    expect(r.findings[0].file).toBe("src/components/Search.tsx");
+  });
+
+  it("does NOT flag when the .tsx file calls useStore with the exact signal's store", () => {
+    const fs = makeFs({
+      "/site/src/sdk/state.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const count = signal(0);\n",
+      "/site/src/components/Counter.tsx":
+        'import { useStore } from "@tanstack/react-store";\n' +
+        'import { count } from "~/sdk/state";\n' +
+        "export default function Counter() {\n" +
+        "  const n = useStore(count.store, (s) => s);\n" +
+        "  return <div>{count.value}</div>;\n" + // .value present but store is subscribed
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
     expect(r.findings).toEqual([]);
+  });
+
+  it("does not produce duplicate findings when two source files declare the same signal name", () => {
+    const fs = makeFs({
+      "/site/src/sdk/useAutocomplete.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const loading = signal(false);\n",
+      // A re-export file also declares the same name — realistic in partial migrations.
+      "/site/src/re-exports.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const loading = signal(false);\n",
+      "/site/src/components/Searchbar.tsx":
+        'import { loading } from "~/sdk/useAutocomplete";\n' +
+        "export default function Searchbar() {\n" +
+        "  return loading.value ? <Spinner /> : <div />;\n" +
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    // Only one finding despite two source files declaring "loading".
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].meta?.signalName).toBe("loading");
   });
 
   it("returns zero findings on a site with no signal declarations", () => {

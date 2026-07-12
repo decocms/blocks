@@ -1692,9 +1692,12 @@ const ruleVtexProxyHandlerMissing: Rule = {
  * Two-pass approach:
  *   1. Find every `const name = signal(...)` at module scope (line starts
  *      with optional `export const` — indented declarations inside
- *      functions are skipped).
- *   2. For each .tsx consumer that reads `name.value`, check whether it
- *      also calls `useStore(` in the same file. If not, emit a warning.
+ *      functions are skipped). First declaration wins when the same name
+ *      appears in multiple files (Map keyed by name deduplicates).
+ *   2. For each .tsx consumer, check per-signal: does it read `name.value`
+ *      AND lack a `useStore(name.store` call? Both conditions must hold for
+ *      a finding — a file that subscribes to signal A but reads signal B
+ *      raw is still flagged for B.
  */
 const MODULE_SIGNAL_RE =
   /^(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:\w+\.)?signal\s*\(/m;
@@ -1705,35 +1708,46 @@ const ruleSignalValueReads: Rule = {
   run({ siteDir, fs }: RuleContext): Finding[] {
     const tsFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
 
-    // Pass 1: collect module-level signal names + the file they live in.
-    const moduleSignals: { name: string; declaredIn: string }[] = [];
+    // Pass 1: collect module-level signal declarations, first occurrence wins.
+    // Map<signalName, declaredIn> deduplicates names across files so Pass 2
+    // never emits two findings for the same (file, signalName) pair.
+    const moduleSignals = new Map<string, string>();
     for (const abs of tsFiles) {
       const content = fs.readText(abs);
-      let match: RegExpExecArray | null;
       const re = new RegExp(MODULE_SIGNAL_RE.source, "gm");
+      let match: RegExpExecArray | null;
       while ((match = re.exec(content)) !== null) {
-        moduleSignals.push({
-          name: match[1],
-          declaredIn: abs.slice(siteDir.length + 1),
-        });
+        const name = match[1];
+        if (!moduleSignals.has(name)) {
+          moduleSignals.set(name, abs.slice(siteDir.length + 1));
+        }
       }
     }
 
-    if (moduleSignals.length === 0) return [];
+    if (moduleSignals.size === 0) return [];
 
-    // Pass 2: for each .tsx file, check for unsubscribed .value reads.
+    // Pre-compile per-signal regexes once — avoids N×M compilations in Pass 2.
+    const valueReMap = new Map<string, RegExp>(
+      [...moduleSignals.keys()].map((name) => [name, new RegExp(`\\b${name}\\.value\\b`)]),
+    );
+
+    // Pass 2: for each .tsx file, check per-signal whether .value is read
+    // without a matching useStore(name.store call in the same file.
     const tsxFiles = tsFiles.filter((f) => f.endsWith(".tsx"));
     const findings: Finding[] = [];
 
     for (const abs of tsxFiles) {
       const content = fs.readText(abs);
       const rel = abs.slice(siteDir.length + 1);
-      const hasUseStore = /\buseStore\s*\(/.test(content);
 
-      for (const { name, declaredIn } of moduleSignals) {
-        const valueRe = new RegExp(`\\b${name}\\.value\\b`);
+      for (const [name, declaredIn] of moduleSignals) {
+        const valueRe = valueReMap.get(name)!;
         if (!valueRe.test(content)) continue;
-        if (hasUseStore) continue;
+        // Per-signal subscription check: useStore(name.store is the canonical
+        // subscription pattern. A file that subscribes to a different signal
+        // is not considered subscribed to this one.
+        const subscribedRe = new RegExp(`\\buseStore\\s*\\(\\s*${name}\\.store\\b`);
+        if (subscribedRe.test(content)) continue;
 
         findings.push({
           rule: "signal-value-reads",
