@@ -17,6 +17,7 @@ vi.mock("./loader", () => ({
 
 vi.mock("./registry", () => ({
   getSection: vi.fn(),
+  getOnBeforeResolveProps: vi.fn(),
 }));
 
 import {
@@ -28,6 +29,7 @@ import {
   registerEagerSections,
   registerNeverDeferSections,
   resolveDeferredSectionFull,
+  resolveDecoPage,
   resolvePageSeoBlock,
   resolveSectionsList,
   resolveValue,
@@ -37,6 +39,8 @@ import {
 } from "./resolve";
 import { runSingleSectionLoader } from "./sectionLoaders";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
+import { findPageByPath } from "./loader";
+import { getSection } from "./registry";
 import type { AsyncRenderingConfig, DeferredSection } from "./resolve";
 
 describe("resolveDeferredSectionFull", () => {
@@ -584,5 +588,53 @@ describe("resolvePageSeoBlock — bot-aware commerce SEO", () => {
 
     expect(calls).toBe(1); // override forces the commerce loader to run
     expect(res?.props?.jsonLD).toMatchObject({ seo: { title: "Rich SEO title" } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveDecoPage — #277 client-side navigation disables deferral
+// ---------------------------------------------------------------------------
+//
+// When isClientNavigation is true, resolveDecoPageImpl sets useAsync = false so
+// shouldDeferSection is never called. All sections — including CMS ⚡-wrapped
+// ones — are resolved eagerly. This prevents client-nav from returning a
+// deferredSections array that loadDeferredSection would then try to resolve
+// without the per-request commerce app context.
+
+describe("resolveDecoPage — #277 client-side navigation disables deferral", () => {
+  const lazySec = {
+    __resolveType: WELL_KNOWN_TYPES.LAZY,
+    section: { __resolveType: "site/sections/Hero.tsx" },
+  };
+
+  beforeEach(() => {
+    // Enable async rendering so useAsync can be true for SSR requests.
+    setAsyncRenderingConfig({ foldThreshold: Infinity, respectCmsLazy: true });
+    // resolveSectionShallow unwraps the ⚡ and looks up the inner key via
+    // getSection — return truthy so it produces a DeferredSection rather than
+    // falling back to eager resolution.
+    (getSection as ReturnType<typeof vi.fn>).mockReturnValue({ default: () => null });
+    // Return a page with one CMS ⚡-wrapped section.
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: { name: "test", sections: [lazySec] },
+      params: {},
+      blockKey: "test-page",
+    });
+  });
+
+  afterEach(() => {
+    (getSection as ReturnType<typeof vi.fn>).mockReset();
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("SSR request defers a CMS ⚡ section", async () => {
+    const result = await resolveDecoPage("/product/foo", {});
+    expect(result?.deferredSections).toHaveLength(1);
+    expect(result?.deferredSections[0].component).toBe("site/sections/Hero.tsx");
+  });
+
+  it("client-nav (isClientNavigation: true) resolves the ⚡ section eagerly — empty deferredSections", async () => {
+    const result = await resolveDecoPage("/product/foo", { isClientNavigation: true });
+    expect(result?.deferredSections).toHaveLength(0);
   });
 });
