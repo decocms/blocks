@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGeoCacheParam, injectGeoCookies } from "./workerEntry";
+import { buildGeoCacheParam, detectLocationMatcher, injectGeoCookies } from "./workerEntry";
 
 function parseCookies(header: string): Record<string, string> {
   return Object.fromEntries(
@@ -135,5 +135,42 @@ describe("buildGeoCacheParam", () => {
 
   it("returns undefined when cf has none of country/region/city", () => {
     expect(buildGeoCacheParam({ asn: "12345" }, "city")).toBeUndefined();
+  });
+});
+
+describe("detectLocationMatcher", () => {
+  it("returns true when decofile has a website/matchers/location.ts block", () => {
+    const blocks = {
+      "audiences/geo-audience.json": {
+        "__resolveType": "website/flags/audience.ts",
+        "matcher": { "__resolveType": "website/matchers/location.ts", "includeLocations": [{ "country": "BR" }] },
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(true);
+  });
+
+  it("returns false when decofile has no location matcher", () => {
+    const blocks = {
+      "audiences/device-audience.json": {
+        "__resolveType": "website/flags/audience.ts",
+        "matcher": { "__resolveType": "website/matchers/device.ts" },
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(false);
+  });
+
+  it("returns false for an empty decofile", () => {
+    expect(detectLocationMatcher({})).toBe(false);
+  });
+
+  it("returns true when the matcher is nested deeply", () => {
+    const blocks = {
+      "pages/home.json": {
+        "variant": {
+          "matcher": { "__resolveType": "website/matchers/location.ts" },
+        },
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(true);
   });
 });

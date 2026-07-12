@@ -31,6 +31,7 @@ import {
   isBot,
   loadBlocks,
   type MatcherContext,
+  onChange,
   resolveDecoPage,
   runSectionLoaders,
   runSingleSectionLoader,
@@ -366,8 +367,14 @@ export interface DecoWorkerEntryOptions {
   /**
    * Controls how Cloudflare geo data is folded into edge cache keys.
    *
-   * - `"city"` (default): full `country|region|city` key — maximum isolation
-   *   for sites with city-level location matchers.
+   * - `"auto"` (default): inspects the loaded decofile on every `setBlocks()`
+   *   call (startup + fast-deploy swaps). If any block is configured with
+   *   `website/matchers/location.ts`, geo keying is activated at `"city"`
+   *   granularity; otherwise it is set to `"off"`. No manual configuration
+   *   needed — sites gain HIT rate automatically when they have no location
+   *   matchers, and keep correct geo isolation when they do.
+   * - `"city"`: full `country|region|city` key — maximum isolation for sites
+   *   with city-level location matchers.
    * - `"region"`: `country|region` — good for region/state matchers (e.g.
    *   VTEX regionalization), avoids city-level fragmentation.
    * - `"country"`: country only.
@@ -375,9 +382,9 @@ export interface DecoWorkerEntryOptions {
    *   backfill from CF geo is disabled. Use for single-catalog storefronts
    *   that do not vary content by location — recovers the full edge HIT rate.
    *
-   * @default "city"
+   * @default "auto"
    */
-  geoCacheKey?: "off" | "country" | "region" | "city";
+  geoCacheKey?: "auto" | "off" | "country" | "region" | "city";
 
   /**
    * Cookie names considered "safe" for caching — these are public/anonymous
@@ -528,6 +535,15 @@ function buildPreviewShell(): string {
  * buildGeoCacheParam({ country: "BR", region: "São Paulo", city: "SP" }, "region")
  * // → "BR|São Paulo"
  */
+/**
+ * Returns `true` when the decofile contains at least one block configured
+ * with `website/matchers/location.ts`. Used by `geoCacheKey: "auto"` to
+ * decide whether geo-based cache key fragmentation should be active.
+ */
+export function detectLocationMatcher(blocks: Record<string, unknown>): boolean {
+  return JSON.stringify(blocks).includes('"website/matchers/location.ts"');
+}
+
 export function buildGeoCacheParam(
   cf: Record<string, string> | undefined,
   granularity: "off" | "country" | "region" | "city",
@@ -763,7 +779,7 @@ export function createDecoWorkerEntry(
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     autoInjectGeoCookies: geoOpt = true,
-    geoCacheKey: geoCacheKeyOpt = "city",
+    geoCacheKey: geoCacheKeyOpt = "auto",
     safeCookies: safeCookiesOpt = DEFAULT_SAFE_COOKIES,
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
     cdnCacheControl: cdnCacheControlOpt = "no-store",
@@ -778,6 +794,26 @@ export function createDecoWorkerEntry(
   // own UA are untouched.
   if (outboundUserAgentOpt !== false) {
     installDefaultUserAgent(outboundUserAgentOpt);
+  }
+
+  // When geoCacheKey is "auto", watch the decofile for location matchers.
+  // The effective granularity is recomputed on every setBlocks() call so fast-
+  // deploy decofile swaps are picked up without a redeploy. The initial value
+  // is "off" (safe: no geo fragmentation until the decofile is loaded).
+  let autoGeoKey: "off" | "city" = "off";
+  if (geoCacheKeyOpt === "auto") {
+    const detectFromBlocks = (blocks: Record<string, unknown>) => {
+      autoGeoKey = detectLocationMatcher(blocks) ? "city" : "off";
+    };
+    onChange(detectFromBlocks);
+    // Initialise synchronously from the already-loaded decofile so the very
+    // first request (before any setBlocks()-triggered onChange) is correct.
+    detectFromBlocks(loadBlocks());
+  }
+
+  /** Resolve the effective geo granularity for the current request. */
+  function effectiveGeoKey(): "off" | "country" | "region" | "city" {
+    return geoCacheKeyOpt === "auto" ? autoGeoKey : geoCacheKeyOpt;
   }
 
   // Backfill `regionId` from Cloudflare geo when the consumer's buildSegment
@@ -800,7 +836,7 @@ export function createDecoWorkerEntry(
     ? (request: Request): SegmentKey => {
         const seg = rawBuildSegment(request);
         if (seg.regionId) return seg;
-        if (geoCacheKeyOpt === "off") return seg;
+        if (effectiveGeoKey() === "off") return seg;
         const region = readRegionFromRequest(request);
         return region ? { ...seg, regionId: region } : seg;
       }
@@ -959,7 +995,7 @@ export function createDecoWorkerEntry(
     // "country" → country only, "off" → omitted entirely.
     const geoParam = buildGeoCacheParam(
       (request as unknown as { cf?: Record<string, string> }).cf,
-      geoCacheKeyOpt,
+      effectiveGeoKey(),
     );
     if (geoParam) url.searchParams.set("__cf_geo", geoParam);
 
