@@ -205,11 +205,19 @@ export const loadCmsPage = createServerFn({ method: "GET" })
     // Use the full path (including query string) as the dedup key.
     // Using basePath only caused /s?q=a and /s?q=b to share one promise,
     // returning wrong/empty results for search and filtered PLPs.
-    const existing = pageInflight.get(fullPath);
+    //
+    // Client-nav resolves all sections eagerly (#277). An in-flight SSR response
+    // for the same path may carry deferredSections; sharing that promise with a
+    // concurrent SPA transition would smuggle those deferred sections in, causing
+    // loadDeferredSection to run without the per-request commerce app context.
+    // Use separate dedup buckets for SSR vs client-nav.
+    const clientNav = isClientNavigation(fullPath, getRequestUrl());
+    const inflightKey = clientNav ? `__nav:${fullPath}` : fullPath;
+    const existing = pageInflight.get(inflightKey);
     if (existing) return existing;
 
-    const promise = loadCmsPageInternal(fullPath).finally(() => pageInflight.delete(fullPath));
-    pageInflight.set(fullPath, promise);
+    const promise = loadCmsPageInternal(fullPath).finally(() => pageInflight.delete(inflightKey));
+    pageInflight.set(inflightKey, promise);
     return promise;
   });
 

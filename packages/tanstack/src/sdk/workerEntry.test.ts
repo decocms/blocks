@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { buildGeoCacheParam, detectLocationMatcher, injectGeoCookies } from "./workerEntry";
+import { setBlocks } from "@decocms/blocks/cms";
+import { afterEach, describe, expect, it } from "vitest";
+import { buildGeoCacheParam, createDecoWorkerEntry, detectLocationMatcher, injectGeoCookies } from "./workerEntry";
+import { __resetKvHydrationStateForTests } from "./kvHydration";
+
+const EMPTY_ENV = {};
+const MOCK_CTX = { waitUntil: (_p: Promise<unknown>) => {} };
+const MOCK_SERVER_ENTRY = {
+  fetch: async (_req: Request) => new Response("page content", { status: 200 }),
+};
 
 function parseCookies(header: string): Record<string, string> {
   return Object.fromEntries(
@@ -182,5 +190,126 @@ describe("detectLocationMatcher", () => {
       },
     };
     expect(detectLocationMatcher(blocks)).toBe(false);
+  });
+});
+
+describe("CMS redirects", () => {
+  afterEach(() => {
+    setBlocks({});
+    __resetKvHydrationStateForTests();
+  });
+
+  it("returns a 301 redirect for a permanent redirect block", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/old", to: "/new", type: "permanent" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/old"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe("/new");
+  });
+
+  it("redirects ?asJson requests too (does not fall through to page resolver)", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/old", to: "/new", type: "permanent" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/old?asJson"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe("/new");
+  });
+
+  it("URI-encodes the Location header for non-ASCII destinations", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/promo", to: "/promoção", type: "temporary" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/promo"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
+  });
+
+  it("returns a 302 redirect for a temporary redirect block", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/promo", to: "/sale", type: "temporary" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/promo"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/sale");
+  });
+
+  it("falls through to serverEntry for paths with no redirect", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/old", to: "/new", type: "permanent" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/other"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("picks up new redirects after setBlocks hot-reload", async () => {
+    setBlocks({});
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+
+    // First request with no redirects — falls through
+    const res1 = await worker.fetch(
+      new Request("https://example.com/v1"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res1.status).toBe(200);
+
+    // Hot-reload: add a redirect
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirect.ts",
+        redirects: [{ from: "/v1", to: "/v2", type: "permanent" }],
+      },
+    });
+
+    // Same path should now redirect
+    const res2 = await worker.fetch(
+      new Request("https://example.com/v1"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res2.status).toBe(301);
+    expect(res2.headers.get("Location")).toBe("/v2");
   });
 });

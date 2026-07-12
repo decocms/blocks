@@ -1793,3 +1793,184 @@ describe("rule: package-manager-missing", () => {
     expect(updated.packageManager).toMatch(/^bun@/);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* signal-value-reads rule                                             */
+/* ------------------------------------------------------------------ */
+
+describe("rule: signal-value-reads", () => {
+  it("flags a .tsx file that reads a module-level signal .value without useStore()", () => {
+    const fs = makeFs({
+      "/site/src/sdk/useAutocomplete.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const loading = signal(false);\n" +
+        "export const suggestions = signal(null);\n",
+      "/site/src/components/Searchbar.tsx":
+        'import { loading, suggestions } from "~/sdk/useAutocomplete";\n' +
+        "export default function Searchbar() {\n" +
+        "  const { products = [] } = suggestions.value ?? {};\n" +
+        "  return loading.value ? <Spinner /> : <ul>{products.map(p => <li>{p.name}</li>)}</ul>;\n" +
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    // Two signals read without useStore — one finding per signal per file.
+    expect(r.findings.length).toBeGreaterThanOrEqual(1);
+    const files = r.findings.map((f) => f.file);
+    expect(files.every((f) => f === "src/components/Searchbar.tsx")).toBe(true);
+    expect(r.findings[0].severity).toBe("warning");
+    expect(r.findings[0].fix).toContain("useStore");
+  });
+
+  it("does NOT flag when the .tsx file also calls useStore()", () => {
+    const fs = makeFs({
+      "/site/src/sdk/useAutocomplete.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const loading = signal(false);\n",
+      "/site/src/components/Searchbar.tsx":
+        'import { useStore } from "@tanstack/react-store";\n' +
+        'import { loading } from "~/sdk/useAutocomplete";\n' +
+        "export default function Searchbar() {\n" +
+        "  const isLoading = useStore(loading.store, (s) => s);\n" +
+        "  return isLoading ? <Spinner /> : <div />;\n" +
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("does NOT flag signal declared inside a function body (not module-level)", () => {
+    const fs = makeFs({
+      "/site/src/hooks/useCounter.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export function useCounter() {\n" +
+        "  const count = signal(0);\n" + // indented — not module-level
+        "  return count;\n" +
+        "}\n",
+      "/site/src/components/Counter.tsx":
+        'import { useCounter } from "~/hooks/useCounter";\n' +
+        "export default function Counter() {\n" +
+        "  const count = useCounter();\n" +
+        "  return <div>{count.value}</div>;\n" +
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("does NOT flag .ts files (non-.tsx), which are not React render bodies", () => {
+    const fs = makeFs({
+      "/site/src/sdk/state.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const count = signal(0);\n",
+      // A plain .ts file that reads .value — not a React component, no JSX.
+      "/site/src/utils/helper.ts":
+        'import { count } from "~/sdk/state";\n' +
+        "export function getCount() { return count.value; }\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("flags only the unsubscribed signal when two signals coexist, one subscribed and one not", () => {
+    const fs = makeFs({
+      "/site/src/sdk/state.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const loading = signal(false);\n" +
+        'export const query = signal("");\n',
+      // loading is correctly subscribed via useStore(loading.store, ...).
+      // query.value is read raw — no useStore(query.store) call anywhere.
+      // Per-signal check: loading should produce no finding; query should.
+      "/site/src/components/Search.tsx":
+        'import { useStore } from "@tanstack/react-store";\n' +
+        'import { loading, query } from "~/sdk/state";\n' +
+        "export default function Search() {\n" +
+        "  const isLoading = useStore(loading.store, (s) => s);\n" +
+        "  return isLoading ? null : <div>{query.value}</div>;\n" +
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    // loading is subscribed — no finding for it.
+    // query.value is read without useStore(query.store) — one finding.
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].meta?.signalName).toBe("query");
+    expect(r.findings[0].file).toBe("src/components/Search.tsx");
+  });
+
+  it("does NOT flag when the .tsx file calls useStore with the exact signal's store", () => {
+    const fs = makeFs({
+      "/site/src/sdk/state.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const count = signal(0);\n",
+      "/site/src/components/Counter.tsx":
+        'import { useStore } from "@tanstack/react-store";\n' +
+        'import { count } from "~/sdk/state";\n' +
+        "export default function Counter() {\n" +
+        "  const n = useStore(count.store, (s) => s);\n" +
+        "  return <div>{count.value}</div>;\n" + // .value present but store is subscribed
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("does not produce duplicate findings when two source files declare the same signal name", () => {
+    const fs = makeFs({
+      "/site/src/sdk/useAutocomplete.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const loading = signal(false);\n",
+      // A re-export file also declares the same name — realistic in partial migrations.
+      "/site/src/re-exports.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const loading = signal(false);\n",
+      "/site/src/components/Searchbar.tsx":
+        'import { loading } from "~/sdk/useAutocomplete";\n' +
+        "export default function Searchbar() {\n" +
+        "  return loading.value ? <Spinner /> : <div />;\n" +
+        "}\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    // Only one finding despite two source files declaring "loading".
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].meta?.signalName).toBe("loading");
+  });
+
+  it("returns zero findings on a site with no signal declarations", () => {
+    const fs = makeFs({
+      "/site/src/components/Static.tsx":
+        "export default function Static() { return <div>hello</div>; }\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    expect(r.findings).toEqual([]);
+  });
+
+  it("does NOT support auto-fix (correct replacement varies per case)", () => {
+    const fs = makeFs({});
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    expect(r.supportsAutoFix).toBe(false);
+  });
+
+  it("includes signalName and declaredIn in finding meta", () => {
+    const fs = makeFs({
+      "/site/src/sdk/signals.ts":
+        'import { signal } from "@decocms/blocks/sdk/signal";\n' +
+        "export const mySignal = signal(0);\n",
+      "/site/src/components/Widget.tsx":
+        'import { mySignal } from "~/sdk/signals";\n' +
+        "export default function Widget() { return <div>{mySignal.value}</div>; }\n",
+    });
+    const report = runAudit(SITE, fs);
+    const r = report.rules.find((r) => r.rule === "signal-value-reads")!;
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].meta?.signalName).toBe("mySignal");
+    expect(r.findings[0].meta?.declaredIn).toBe("src/sdk/signals.ts");
+  });
+});
