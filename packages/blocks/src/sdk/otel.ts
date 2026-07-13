@@ -99,6 +99,23 @@ import { RequestContext } from "./requestContext";
 // ---------------------------------------------------------------------------
 
 export interface OtelOptions {
+  /**
+   * When `true`, skips all observability exporters (AE, OTLP metrics,
+   * logs, traces). Overridden by the env var.
+   */
+  disabled?: boolean;
+  /**
+   * Env var name holding the tri-state observability switch. Values:
+   * - `"on"`   → force enable (even in local dev)
+   * - `"off"`  → force disable
+   * - unset    → auto: enabled in real deploys, disabled in local
+   *
+   * Local is detected by the absence of `CF_VERSION_METADATA` (a binding
+   * that only exists in production/preview Cloudflare deploys).
+   *
+   * Defaults to `"DECO_OTEL"`.
+   */
+  envVar?: string;
   /** Logical service name. Falls back to `env.DECO_SITE_NAME`, then "deco-site". */
   serviceName?: string;
   /** Env var name holding the AE binding. Defaults to `"DECO_METRICS"`. */
@@ -623,6 +640,18 @@ function patchConsole(state: BootState): void {
 function bootObservability(opts: OtelOptions, env: Record<string, unknown>): void {
   const state = getBootState();
   if (state.booted) return;
+
+  // CF_VERSION_METADATA is only present in real (production/preview) deploys;
+  // wrangler dev never sets it, making it a reliable local-dev signal.
+  const mode = env[opts.envVar ?? "DECO_OTEL"];
+  const isLocal = !env.CF_VERSION_METADATA;
+  const isDisabled =
+    mode === "off" ||
+    (mode !== "on" && (opts.disabled || isLocal));
+  if (isDisabled) {
+    state.booted = true;
+    return;
+  }
 
   // Capture the original console.warn BEFORE patchConsole() runs. The onError
   // callbacks below need a direct channel to console that bypasses the logger
