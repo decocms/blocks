@@ -95,8 +95,21 @@ async function configureAllApps(
         handlers: mod.handlers,
       };
       apps.push(withHandlers);
-    } catch {
-      // App module missing, configure threw, or block was malformed — skip.
+    } catch (err) {
+      // The app is present in the decofile (block matched) but couldn't be
+      // configured — module load failed, configure() threw, or the block was
+      // malformed. We still skip it so one broken app can't take down setup,
+      // but we must NOT swallow silently: a failure here means the app's
+      // loaders/actions never register, so its sections resolve to null at
+      // runtime with no other signal. Common cause: the registry entry's
+      // `module: () => import("...")` dynamic import failing to resolve in a
+      // production bundle (works under `vite dev`) — the fix is a static module
+      // reference in the app's registry entry.
+      console.error(
+        `[autoconfigApps] failed to configure app "${entry.blockKey}" — its ` +
+          `loaders/actions will NOT be registered (matching sections resolve to null):`,
+        err,
+      );
     }
   }
 
