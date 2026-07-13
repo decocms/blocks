@@ -101,10 +101,9 @@ import { RequestContext } from "./requestContext";
 export interface OtelOptions {
   /**
    * When `true`, all observability exporters are skipped entirely —
-   * AE, OTLP metrics, logs, traces. Useful for local dev where there
-   * is no ingest endpoint reachable and the console output is noise.
+   * AE, OTLP metrics, logs, traces. Takes precedence over auto-detection.
    *
-   * Precedence: env var > this option > false.
+   * Precedence: enabledEnvVar > disabledEnvVar > disabled > auto-detect (local dev).
    */
   disabled?: boolean;
   /**
@@ -112,6 +111,15 @@ export interface OtelOptions {
    * Defaults to `"DECO_OTEL_DISABLED"`.
    */
   disabledEnvVar?: string;
+  /**
+   * Env var name that force-enables observability even in local dev
+   * (where it is otherwise disabled automatically because
+   * `CF_VERSION_METADATA` is absent). Defaults to `"DECO_OTEL_ENABLED"`.
+   *
+   * Set `DECO_OTEL_ENABLED=true` in `.dev.vars` to run a local OTLP
+   * collector (e.g. Jaeger, Grafana Agent) during development.
+   */
+  enabledEnvVar?: string;
   /** Logical service name. Falls back to `env.DECO_SITE_NAME`, then "deco-site". */
   serviceName?: string;
   /** Env var name holding the AE binding. Defaults to `"DECO_METRICS"`. */
@@ -637,9 +645,15 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   const state = getBootState();
   if (state.booted) return;
 
+  // CF_VERSION_METADATA is only present in real (production/preview) deploys;
+  // wrangler dev never sets it, making it a reliable local-dev signal.
+  const isLocal = !env.CF_VERSION_METADATA;
+  const forceEnabled = env[opts.enabledEnvVar ?? "DECO_OTEL_ENABLED"] === "true";
   const isDisabled =
-    opts.disabled ||
-    env[opts.disabledEnvVar ?? "DECO_OTEL_DISABLED"] === "true";
+    !forceEnabled &&
+    (opts.disabled ||
+      env[opts.disabledEnvVar ?? "DECO_OTEL_DISABLED"] === "true" ||
+      isLocal);
   if (isDisabled) {
     state.booted = true;
     return;
