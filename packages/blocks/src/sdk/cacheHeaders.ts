@@ -213,12 +213,21 @@ export function edgeCacheConfig(profile: CacheProfileName): EdgeCacheConfig {
  *
  * In dev mode, uses short staleTime (5s) to keep data fresh enough for
  * development while avoiding redundant re-fetches.
+ *
+ * staleTime is always Infinity in production: TanStack Router v1 dehydrates
+ * SSR route data with updatedAt: 0, so any finite staleTime makes SSR data
+ * appear immediately stale on client hydration. That triggers a second
+ * /_serverFn/loadCmsPage request — a separate Worker isolate that re-runs all
+ * loaders (including Magento ResolveURL/GetCompleteProduct) and doubles the
+ * origin load on every first navigation. With Infinity, TanStack Router never
+ * time-based-refetches in-memory data; gcTime controls how long the data lives
+ * in memory, and the Cloudflare edge cache handles actual data freshness. (#355)
  */
 export function routeCacheDefaults(profile: CacheProfileName): { staleTime: number; gcTime: number } {
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
   const isDev = env?.DECO_CACHE_DISABLE === "true" || env?.NODE_ENV === "development";
   if (isDev) return { staleTime: 5_000, gcTime: 30_000 };
-  return { ...PROFILES[profile].client };
+  return { staleTime: Infinity, gcTime: PROFILES[profile].client.gcTime };
 }
 
 // ---------------------------------------------------------------------------
