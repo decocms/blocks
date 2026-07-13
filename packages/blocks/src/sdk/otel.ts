@@ -99,6 +99,19 @@ import { RequestContext } from "./requestContext";
 // ---------------------------------------------------------------------------
 
 export interface OtelOptions {
+  /**
+   * When `true`, all observability exporters are skipped entirely —
+   * AE, OTLP metrics, logs, traces. Useful for local dev where there
+   * is no ingest endpoint reachable and the console output is noise.
+   *
+   * Precedence: env var > this option > false.
+   */
+  disabled?: boolean;
+  /**
+   * Env var name to read the disabled flag from.
+   * Defaults to `"DECO_OTEL_DISABLED"`.
+   */
+  disabledEnvVar?: string;
   /** Logical service name. Falls back to `env.DECO_SITE_NAME`, then "deco-site". */
   serviceName?: string;
   /** Env var name holding the AE binding. Defaults to `"DECO_METRICS"`. */
@@ -623,6 +636,14 @@ function patchConsole(state: BootState): void {
 function bootObservability(opts: OtelOptions, env: Record<string, unknown>): void {
   const state = getBootState();
   if (state.booted) return;
+
+  const isDisabled =
+    opts.disabled ||
+    env[opts.disabledEnvVar ?? "DECO_OTEL_DISABLED"] === "true";
+  if (isDisabled) {
+    state.booted = true;
+    return;
+  }
 
   // Capture the original console.warn BEFORE patchConsole() runs. The onError
   // callbacks below need a direct channel to console that bypasses the logger
