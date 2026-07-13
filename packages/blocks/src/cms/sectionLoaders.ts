@@ -270,19 +270,26 @@ function resolveLayoutSection(
   request: Request,
 ): Promise<ResolvedSection> {
   const key = section.component;
+  const { index } = section;
+
+  // Re-apply the caller's page-specific index onto a fresh object so the
+  // shared cache entry never carries an index from a previous request.
+  const withIndex = (s: ResolvedSection): ResolvedSection =>
+    index !== undefined ? { ...s, index } : s;
 
   const cached = getCachedLayout(key);
-  if (cached) return Promise.resolve(cached);
+  if (cached) return Promise.resolve(withIndex(cached));
 
   const existing = layoutInflight.get(key);
-  if (existing) return existing;
+  if (existing) return existing.then(withIndex);
 
   const promise = withInflightTimeout(
     (async () => {
       const enrichedProps = await loader(section.props as Record<string, unknown>, request);
-      const enriched = { ...section, props: enrichedProps };
+      const { index: _idx, ...sectionWithoutIndex } = section;
+      const enriched = { ...sectionWithoutIndex, props: enrichedProps };
       setCachedLayout(key, enriched);
-      return enriched;
+      return withIndex(enriched);
     })(),
     `layoutSection ${key}`,
   ).finally(() => layoutInflight.delete(key));

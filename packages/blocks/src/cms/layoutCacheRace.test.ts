@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   registerLayoutSections,
+  registerSectionLoader,
   registerSections,
   resolveDecoPage,
+  runSectionLoaders,
   setBlocks,
   unregisterLayoutSections,
 } from "./index";
@@ -100,6 +102,39 @@ describe("resolveDecoPage — layout section cache does not leak `.index` across
       expect(footerA).not.toBe(footerB);
     } finally {
       unregisterLayoutSections([FOOTER_TYPE]);
+    }
+  });
+
+  it("does not leak index across sequential requests when the result is already in the TTL cache", async () => {
+    // This covers the scenario missing from the concurrent test above:
+    // Page A is fully served first (result lands in layoutCache), then Page B
+    // arrives and hits the cache — it must get its own index, not Page A's.
+    const FOOTER_KEY = "site/sections/SeqCacheFooter.tsx";
+
+    registerLayoutSections([FOOTER_KEY]);
+    registerSectionLoader(FOOTER_KEY, async (props) => props);
+
+    const req = new Request("https://example.com/");
+    const makeSection = (index: number) => ({
+      component: FOOTER_KEY,
+      props: {},
+      key: `${FOOTER_KEY}-${index}`,
+      index,
+    });
+
+    try {
+      // First request: populate the TTL cache with index 2.
+      const [sectionA] = await runSectionLoaders([makeSection(2)], req);
+
+      // Second request: hits the TTL cache — must get index 7, not 2.
+      const [sectionB] = await runSectionLoaders([makeSection(7)], req);
+
+      expect(sectionA?.index).toBe(2);
+      expect(sectionB?.index).toBe(7);
+      // Must be separate objects — the cached entry must never carry an index.
+      expect(sectionA).not.toBe(sectionB);
+    } finally {
+      unregisterLayoutSections([FOOTER_KEY]);
     }
   });
 
