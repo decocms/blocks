@@ -82,6 +82,7 @@ import {
   ATTR_CLOUD_PROVIDER,
 } from "@opentelemetry/semantic-conventions/incubating";
 import { createCompositeLogger, createCompositeMeter } from "./composite";
+import { isDevMode } from "./env";
 import { configureLogger, defaultLoggerAdapter, logger, setLogLevel, setLoggerAttributeFloor, type LogLevel } from "./logger";
 import { configureMeter, configureTracer, getActiveSpan, METRIC_METADATA } from "../middleware/observability";
 import { createAnalyticsEngineMeterAdapter } from "./otelAdapters";
@@ -110,8 +111,9 @@ export interface OtelOptions {
    * - `"off"`  → force disable
    * - unset    → auto: enabled in real deploys, disabled in local
    *
-   * Local is detected by the absence of `CF_VERSION_METADATA` (a binding
-   * that only exists in production/preview Cloudflare deploys).
+   * Local is detected via `isDevMode()` (reads
+   * `process.env.NODE_ENV === "development"`, which Vite and
+   * `@cloudflare/vite-plugin` set during `vite dev`).
    *
    * Defaults to `"DECO_OTEL"`.
    */
@@ -641,13 +643,14 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
   const state = getBootState();
   if (state.booted) return;
 
-  // CF_VERSION_METADATA is only present in real (production/preview) deploys;
-  // wrangler dev never sets it, making it a reliable local-dev signal.
+  // `isDevMode()` reads `process.env.NODE_ENV === "development"`. Vite and
+  // `@cloudflare/vite-plugin` set NODE_ENV during `vite dev`; `wrangler
+  // deploy` does not. `CF_VERSION_METADATA` is NOT a reliable local signal —
+  // wrangler dev populates it with a random per-session UUID.
   const mode = env[opts.envVar ?? "DECO_OTEL"];
-  const isLocal = !env.CF_VERSION_METADATA;
   const isDisabled =
     mode === "off" ||
-    (mode !== "on" && (opts.disabled || isLocal));
+    (mode !== "on" && (opts.disabled || isDevMode()));
   if (isDisabled) {
     state.booted = true;
     return;
