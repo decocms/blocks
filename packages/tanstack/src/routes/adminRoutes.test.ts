@@ -7,7 +7,7 @@ vi.mock("@decocms/blocks-admin", () => ({
   handleRender: vi.fn(),
 }));
 
-vi.mock("@decocms/blocks/sdk/observability", () => ({
+vi.mock("@decocms/blocks/middleware/observability", () => ({
   withTracing: vi.fn((_name: string, fn: () => unknown) => fn()),
 }));
 
