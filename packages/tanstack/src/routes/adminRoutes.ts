@@ -29,7 +29,7 @@
  * below are module-private and deliberately NOT exported.
  */
 import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/blocks-admin";
-import { withTracing } from "@decocms/blocks/sdk/observability";
+import { withTracing } from "@decocms/blocks/middleware/observability";
 
 function invokeAttrs(request: Request): Record<string, string | boolean> {
   const url = new URL(request.url);
