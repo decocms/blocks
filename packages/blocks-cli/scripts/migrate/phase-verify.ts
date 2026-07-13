@@ -13,6 +13,10 @@ const REQUIRED_FILES = [
   "package.json",
   "tsconfig.json",
   "vite.config.ts",
+  // Required for @cloudflare/vite-plugin to mount the worker in local dev
+  // (without it every route returns a silent 404). For deploy, Cloudflare
+  // Workers Builds ignores the `name` field (D6.3 — wired in CF dashboard).
+  "wrangler.jsonc",
   // Deploy / preview / sync-secrets pipelines are owned by Cloudflare
   // Workers Builds (D6.3) -- configured in the CF dashboard, not via
   // GitHub workflow files in the site repo.
