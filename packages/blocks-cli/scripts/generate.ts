@@ -579,10 +579,11 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
         ...(opts.pruneByDecofile ? ["--prune-by-decofile", opts.pruneByDecofile] : []),
       ],
       stage: 1,
-      ...enabledIf(
-        fs.existsSync(loadersDirAbs) || fs.existsSync(actionsDirAbs),
-        `neither ${opts.loadersDir} nor ${opts.actionsDir} exists`,
-      ),
+      // Always run even when src/loaders and src/actions don't exist yet —
+      // generate-loaders.ts handles missing dirs gracefully (emits an empty
+      // siteLoaders map). This ensures .deco/loaders.gen.ts is always present
+      // so scaffolded commerce-loaders.ts imports resolve on first boot.
+      enabled: true,
       inputs: () =>
         sortEntries([
           ...walkTree(cwd, loadersDirAbs, [".ts", ".tsx"]),
