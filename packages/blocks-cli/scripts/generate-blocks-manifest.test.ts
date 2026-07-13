@@ -5,15 +5,16 @@
  * block filenames (the shapes found in production `.deco/blocks` corpora:
  * double-encoded `%2520`, single-encoded `%20`, parentheses, encoded slashes
  * `%2F`, raw UTF-8), then verifies the emitted module the way a site would
- * consume it: keys verbatim, `tsc` accepts it, and importing it (via a tsx
- * child process from the fixture dir, resolving the raw-filename JSON import
- * specifiers against the real files on disk) yields the parsed contents.
+ * consume it: keys URL-decoded once (parseBlockId), import specifiers raw,
+ * `tsc` accepts it, and importing it (via a tsx child process from the
+ * fixture dir, resolving the raw-filename JSON import specifiers against the
+ * real files on disk) yields the parsed contents.
  */
 import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateBlocksManifest } from "./generate-blocks-manifest";
 
 const SCRIPT = path.resolve(__dirname, "generate-blocks-manifest.ts");
@@ -23,6 +24,14 @@ const HOSTILE_FIXTURE: Record<string, unknown> = {
   "pages-Home%20(principal)-287364": { path: "/", parens: true },
   "collections%2Fblog%2Fauthors%2Fx": { nested: "encoded-slash" },
   "pages-Calçados-42": { utf8: "çãé" },
+};
+
+// filename stem → emitted key: URL-decoded exactly once (parseBlockId).
+const DECODED_KEY: Record<string, string> = {
+  "pages-PDP%2520Box-102215": "pages-PDP%20Box-102215",
+  "pages-Home%20(principal)-287364": "pages-Home (principal)-287364",
+  "collections%2Fblog%2Fauthors%2Fx": "collections/blog/authors/x",
+  "pages-Calçados-42": "pages-Calçados-42",
 };
 
 describe("generate-blocks-manifest", () => {
@@ -47,7 +56,7 @@ describe("generate-blocks-manifest", () => {
     }
   };
 
-  it("emits verbatim keys and raw-filename import specifiers for hostile names", async () => {
+  it("emits once-decoded keys and raw-filename import specifiers for hostile names", async () => {
     writeFixture();
     const result = await generateBlocksManifest({ blocksDir, outFile, silent: true });
     expect(result.count).toBe(4);
@@ -55,16 +64,43 @@ describe("generate-blocks-manifest", () => {
     expect(result.written).toBe(true);
 
     const emitted = fs.readFileSync(outFile, "utf-8");
-    for (const key of Object.keys(HOSTILE_FIXTURE)) {
-      // Key: filename minus .json, verbatim — no decoding of %2520/%20/%2F.
-      expect(emitted).toContain(`${JSON.stringify(key)}: `);
-      // Specifier: the raw on-disk filename, relative to the emitted module.
-      expect(emitted).toContain(`from ${JSON.stringify(`./blocks/${key}.json`)};`);
+    for (const stem of Object.keys(HOSTILE_FIXTURE)) {
+      // Key: parseBlockId(<filename>) — the stem URL-decoded once.
+      expect(emitted).toContain(`${JSON.stringify(DECODED_KEY[stem])}: `);
+      // Specifier: the raw on-disk filename, relative to the emitted module —
+      // bundlers never URL-decode specifiers, so no normalizing there.
+      expect(emitted).toContain(`from ${JSON.stringify(`./blocks/${stem}.json`)};`);
     }
-    // Never URL-decoded anywhere in the module.
-    expect(emitted).not.toContain("pages-PDP%20Box");
-    expect(emitted).not.toContain("pages-Home (principal)");
-    expect(emitted).not.toContain("collections/blog");
+    // Raw stems must not leak into keys (only into import specifiers).
+    expect(emitted).not.toContain('"pages-PDP%2520Box-102215": ');
+    expect(emitted).not.toContain('"pages-Home%20(principal)-287364": ');
+    expect(emitted).not.toContain('"collections%2Fblog%2Fauthors%2Fx": ');
+  });
+
+  it("keeps a stem verbatim as key when it is not valid percent-encoding", async () => {
+    writeFixture({ "pages-50% off-7": { x: 1 } });
+    await generateBlocksManifest({ blocksDir, outFile, silent: true });
+
+    const emitted = fs.readFileSync(outFile, "utf-8");
+    expect(emitted).toContain('"pages-50% off-7": _b0');
+  });
+
+  it("dedupes filenames that decode to the same key (last sorted wins, warns)", async () => {
+    writeFixture({ "A B": { raw: true }, "A%20B": { encoded: true } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await generateBlocksManifest({ blocksDir, outFile, silent: true });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("A%20B.json"));
+    } finally {
+      warn.mockRestore();
+    }
+
+    const emitted = fs.readFileSync(outFile, "utf-8");
+    // One property only (duplicate object keys are a TS error), keyed "A B",
+    // bound to the LAST sorted filename ("A B.json" < "A%20B.json").
+    expect(emitted.match(/"A B": /g)).toHaveLength(1);
+    expect(emitted).not.toContain('from "./blocks/A B.json";');
+    expect(emitted).toContain('from "./blocks/A%20B.json";');
   });
 
   it("compiles under tsc (module esnext, bundler resolution, resolveJsonModule)", async () => {
@@ -105,7 +141,10 @@ describe("generate-blocks-manifest", () => {
     const r = cp.spawnSync("npx", ["tsx", runner], { encoding: "utf8", cwd: tmpDir });
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
-    expect(JSON.parse(r.stdout)).toEqual(HOSTILE_FIXTURE);
+    const expected = Object.fromEntries(
+      Object.entries(HOSTILE_FIXTURE).map(([stem, v]) => [DECODED_KEY[stem], v]),
+    );
+    expect(JSON.parse(r.stdout)).toEqual(expected);
   }, 30_000);
 
   it("is idempotent: regeneration over an unchanged block set writes nothing", async () => {
