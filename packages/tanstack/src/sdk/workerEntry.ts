@@ -146,6 +146,11 @@ interface ServerEntry {
  * The workerEntry calls `buildSegment` (if provided) to extract these
  * from the request. Two requests with the same SegmentKey share a
  * cache entry; different segments get different cached responses.
+ *
+ * Beyond the known fields below, any custom key added to the returned
+ * object is honored: `hashSegment` serializes it (stable-sorted) into the
+ * cache key, so sites can add extra cache dimensions without routing them
+ * through `flags` (issue #284).
  */
 export interface SegmentKey {
   /**
@@ -171,6 +176,14 @@ export interface SegmentKey {
   regionId?: string;
   /** Sorted list of active A/B flag names for cache cohort splitting. */
   flags?: string[];
+  /**
+   * Custom cache dimensions. Any key beyond the known set above is
+   * serialized (stable-sorted) into the cache key by `hashSegment` — it is
+   * no longer silently dropped (issue #284). Trade-off: this index
+   * signature relaxes typo detection on the known fields (a misspelled
+   * known field becomes a custom dimension instead of a type error).
+   */
+  [custom: string]: unknown;
 }
 
 /**
@@ -784,6 +797,47 @@ async function hashText(text: string): Promise<string> {
 let _redirectMap: RedirectMap | null = null;
 let _redirectMapRevision: string | null = null;
 
+/** Fields `hashSegment` serializes with a dedicated, fixed-order token. */
+const KNOWN_SEGMENT_FIELDS = new Set([
+  "device",
+  "loggedIn",
+  "salesChannel",
+  "regionId",
+  "flags",
+]);
+
+/** Stable string token for a custom segment value; "" means "omit". */
+function serializeSegmentValue(value: unknown): string {
+  if (value == null || value === false || value === "") return "";
+  if (Array.isArray(value)) return [...value].map(String).sort().join(",");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+/**
+ * Canonical cache-key serialization for a `SegmentKey`.
+ *
+ * Known fields emit their historical fixed-order tokens
+ * (`device[|auth][|sc=…][|r=…][|f=…]`) so existing cache keys are unchanged.
+ * Any custom dimension is then appended in stable key-sorted order as
+ * `key=value` — so extra cache dimensions vary the key instead of being
+ * silently dropped (issue #284).
+ */
+export function hashSegment(seg: SegmentKey): string {
+  const parts: string[] = [String(seg.device)];
+  if (seg.loggedIn) parts.push("auth");
+  if (seg.salesChannel) parts.push(`sc=${seg.salesChannel}`);
+  if (seg.regionId) parts.push(`r=${seg.regionId}`);
+  if (seg.flags?.length) parts.push(`f=${[...seg.flags].sort().join(",")}`);
+  for (const key of Object.keys(seg)
+    .filter((k) => !KNOWN_SEGMENT_FIELDS.has(k))
+    .sort()) {
+    const token = serializeSegmentValue(seg[key]);
+    if (token) parts.push(`${key}=${token}`);
+  }
+  return parts.join("|");
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -943,14 +997,6 @@ export function createDecoWorkerEntry(
     return detectCacheProfile(target);
   }
 
-  function hashSegment(seg: SegmentKey): string {
-    const parts: string[] = [seg.device];
-    if (seg.loggedIn) parts.push("auth");
-    if (seg.salesChannel) parts.push(`sc=${seg.salesChannel}`);
-    if (seg.regionId) parts.push(`r=${seg.regionId}`);
-    if (seg.flags?.length) parts.push(`f=${seg.flags.sort().join(",")}`);
-    return parts.join("|");
-  }
 
   /**
    * Resolve the per-deploy cache-key version with this priority:
@@ -1096,6 +1142,12 @@ export function createDecoWorkerEntry(
     regionIds?: string[];
   }
 
+  // NOTE: this enumerates only device × salesChannel × regionId. Cache
+  // entries segmented by any other dimension `hashSegment` serializes —
+  // `flags`, `device: "tablet"`, or a custom key (issue #284) — are NOT
+  // reconstructed here, so the HTTP purge endpoint won't reach them. This
+  // is a pre-existing limitation (already true for `flags`); purging those
+  // cohorts would require the caller to declare the extra dimensions.
   function buildPurgeSegments(body: PurgeRequestBody): SegmentKey[] {
     const devices: Array<"mobile" | "desktop"> = ["mobile", "desktop"];
     const channels = body.salesChannels ?? ["1"];
