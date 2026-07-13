@@ -100,26 +100,22 @@ import { RequestContext } from "./requestContext";
 
 export interface OtelOptions {
   /**
-   * When `true`, all observability exporters are skipped entirely —
-   * AE, OTLP metrics, logs, traces. Takes precedence over auto-detection.
-   *
-   * Precedence: enabledEnvVar > disabledEnvVar > disabled > auto-detect (local dev).
+   * When `true`, skips all observability exporters (AE, OTLP metrics,
+   * logs, traces). Overridden by the env var.
    */
   disabled?: boolean;
   /**
-   * Env var name to read the disabled flag from.
-   * Defaults to `"DECO_OTEL_DISABLED"`.
-   */
-  disabledEnvVar?: string;
-  /**
-   * Env var name that force-enables observability even in local dev
-   * (where it is otherwise disabled automatically because
-   * `CF_VERSION_METADATA` is absent). Defaults to `"DECO_OTEL_ENABLED"`.
+   * Env var name holding the tri-state observability switch. Values:
+   * - `"on"`   → force enable (even in local dev)
+   * - `"off"`  → force disable
+   * - unset    → auto: enabled in real deploys, disabled in local
    *
-   * Set `DECO_OTEL_ENABLED=true` in `.dev.vars` to run a local OTLP
-   * collector (e.g. Jaeger, Grafana Agent) during development.
+   * Local is detected by the absence of `CF_VERSION_METADATA` (a binding
+   * that only exists in production/preview Cloudflare deploys).
+   *
+   * Defaults to `"DECO_OTEL"`.
    */
-  enabledEnvVar?: string;
+  envVar?: string;
   /** Logical service name. Falls back to `env.DECO_SITE_NAME`, then "deco-site". */
   serviceName?: string;
   /** Env var name holding the AE binding. Defaults to `"DECO_METRICS"`. */
@@ -647,13 +643,11 @@ function bootObservability(opts: OtelOptions, env: Record<string, unknown>): voi
 
   // CF_VERSION_METADATA is only present in real (production/preview) deploys;
   // wrangler dev never sets it, making it a reliable local-dev signal.
+  const mode = env[opts.envVar ?? "DECO_OTEL"];
   const isLocal = !env.CF_VERSION_METADATA;
-  const forceEnabled = env[opts.enabledEnvVar ?? "DECO_OTEL_ENABLED"] === "true";
   const isDisabled =
-    !forceEnabled &&
-    (opts.disabled ||
-      env[opts.disabledEnvVar ?? "DECO_OTEL_DISABLED"] === "true" ||
-      isLocal);
+    mode === "off" ||
+    (mode !== "on" && (opts.disabled || isLocal));
   if (isDisabled) {
     state.booted = true;
     return;
