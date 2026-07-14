@@ -100,6 +100,63 @@ describe("typeToJsonSchema with an unresolvable widget alias import", () => {
   }, 30_000);
 });
 
+describe("typeToJsonSchema with intersection types", () => {
+  it("keeps a branded primitive (`string & { __brand }`) as a string", () => {
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { skipLibCheck: true },
+    });
+    const sf = project.createSourceFile(
+      "props.ts",
+      `
+        type Slug = string & { readonly __brand: unique symbol };
+        export interface Props { slug?: Slug }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.slug.type).toBe("string");
+  }, 30_000);
+
+  it("expands an object intersection into a merged field set (recursive menu shape)", () => {
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { skipLibCheck: true },
+    });
+    // Mirrors the granado header `SiteNavigationElement` recursive workaround:
+    // nested children written as `Leaf & { children?: Array<…> }`. Before the
+    // intersection branch these collapsed to `children: { items: { type: "string" } }`.
+    const sf = project.createSourceFile(
+      "props.ts",
+      `
+        interface Leaf {
+          /** The name of the item. */
+          name?: string;
+          /** URL of the item. */
+          url?: string;
+        }
+        export interface Props {
+          navItems?: Array<
+            Leaf & {
+              children?: Array<Leaf & { children?: Leaf[] }>;
+            }
+          >;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+
+    const item = schema.properties.navItems.items;
+    expect(item.type).toBe("object");
+    expect(Object.keys(item.properties).sort()).toEqual(["children", "name", "url"]);
+
+    const child = item.properties.children.items;
+    expect(child.type).toBe("object");
+    expect(child.properties.name.type).toBe("string");
+    expect(child.properties.url.type).toBe("string");
+    expect(child.properties.children.items.type).toBe("object");
+  }, 30_000);
+});
+
 // ---------------------------------------------------------------------------
 // Default output path (.deco/) + legacy warning — subprocess, mirrors the
 // pattern in generate-sections.test.ts. generate-schema.ts IS guarded by
