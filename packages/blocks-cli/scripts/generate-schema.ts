@@ -237,6 +237,35 @@ export const WIDGET_TYPE_FORMATS: Record<string, string> = {
 };
 
 /**
+ * Eitri authors annotate fields with JSDoc `@format` using Eitri's own vocab
+ * (e.g. `@format datetime`). Map those onto the JSON-Schema `format` values the
+ * Studio widget layer understands. `textarea` already matches, so only the
+ * divergent ones need remapping. Applied only for --platform eitri.
+ */
+export const EITRI_FORMAT_ALIASES: Record<string, string> = {
+  datetime: "date-time",
+};
+
+/**
+ * Recursively remap `format` string values in a JSON-Schema tree using the
+ * given alias map. Mutates in place; only touches `format` fields whose value
+ * is a known alias, so unrelated schema is untouched.
+ */
+export function normalizeFormats(node: unknown, aliases: Record<string, string>): void {
+  if (Array.isArray(node)) {
+    for (const item of node) normalizeFormats(item, aliases);
+    return;
+  }
+  if (node && typeof node === "object") {
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.format === "string" && aliases[obj.format]) {
+      obj.format = aliases[obj.format];
+    }
+    for (const key of Object.keys(obj)) normalizeFormats(obj[key], aliases);
+  }
+}
+
+/**
  * Detect known widget types and set the appropriate format.
  */
 function applyWidgetDetection(schema: any, typeText: string): void {
@@ -837,7 +866,13 @@ function resolvePropsViaReExport(
   return null;
 }
 
-function findTsxFiles(dir: string): string[] {
+// Default scan extensions. Sections may widen this to also include .jsx/.js
+// on stacks whose sections can be plain JavaScript (e.g. Eitri) — see
+// SECTION_EXTS. Loaders/apps stay TS-only (their input types come from real
+// TypeScript signatures, which JS files cannot express).
+const DEFAULT_EXTS = [".tsx", ".ts"] as const;
+
+function findTsxFiles(dir: string, exts: readonly string[] = DEFAULT_EXTS): string[] {
   const results: string[] = [];
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -845,10 +880,10 @@ function findTsxFiles(dir: string): string[] {
     if (entry.isDirectory()) {
       // The exclusion predicate targets generated/test *files* — a directory
       // named e.g. `foo.gen.ts` is a real path segment and must still be walked.
-      results.push(...findTsxFiles(full));
+      results.push(...findTsxFiles(full, exts));
     } else if (
       !isExcludedCodegenFile(entry.name) &&
-      (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts"))
+      exts.some((e) => entry.name.endsWith(e))
     ) {
       results.push(full);
     }
@@ -1155,6 +1190,11 @@ function generateMeta(): MetaResponse {
   ];
   for (const wrapper of COMMERCE_EXTENSION_WRAPPERS) {
     const matchingLoaders = outputTypeToLoaderKeys.get(wrapper.outputType) ?? [];
+    // A wrapper whose base loader type has no matching loaders in the site is
+    // useless (its `data` picker would only offer Resolvable). Non-commerce
+    // sites (e.g. Eitri) have none, so skip it instead of injecting a phantom
+    // commerce loader into the picker.
+    if (matchingLoaders.length === 0) continue;
     const wrapperDefKey = toBase64(wrapper.key);
     definitions[wrapperDefKey] = {
       title: wrapper.key,
@@ -1196,7 +1236,13 @@ function generateMeta(): MetaResponse {
     process.exit(1);
   }
 
-  const sectionFiles = findTsxFiles(sectionsDir);
+  // Eitri sections can be plain JavaScript (.js/.jsx) as well as TS; other
+  // stacks stay TS-only so a stray .js helper in src/sections isn't mistaken
+  // for a section. A JS file with no extractable Props still registers as a
+  // (prop-less) section rather than being silently skipped.
+  const sectionExts =
+    PLATFORM === "eitri" ? [".tsx", ".ts", ".jsx", ".js"] : DEFAULT_EXTS;
+  const sectionFiles = findTsxFiles(sectionsDir, sectionExts);
   console.log(`Found ${sectionFiles.length} section files`);
   for (const filePath of sectionFiles) {
     getSourceFile(project, filePath, sourceFileCache);
@@ -1375,6 +1421,13 @@ function generateMeta(): MetaResponse {
         console.warn(`  ✗ ${blockKey}: ${(e as Error).message}`);
       }
     }
+  }
+
+  // Eitri @format aliases → JSON-Schema formats (e.g. datetime → date-time).
+  // Done as a final pass over the generated definitions so every prop schema,
+  // however deeply nested, is normalized before it reaches Studio.
+  if (PLATFORM === "eitri") {
+    normalizeFormats(definitions, EITRI_FORMAT_ALIASES);
   }
 
   // Pages, matchers, etc. are injected at runtime by composeMeta() in src/admin/schema.ts.
