@@ -1,7 +1,7 @@
 # `@decocms/nextjs`
 
 Deco framework binding for Next.js App Router — the Next.js sibling of
-`@decocms/tanstack`. Three surfaces, composed together:
+`@decocms/tanstack`. Four surfaces, composed together:
 
 - **`@decocms/nextjs/config`** — `withDeco(nextConfig)`, a `next.config`
   wrapper that adds the rewrites and `transpilePackages` Deco's admin
@@ -9,12 +9,15 @@ Deco framework binding for Next.js App Router — the Next.js sibling of
 - **`@decocms/nextjs/routeHandlers`** — `createDecoRouteHandlers({ setup })`,
   a single catch-all dispatcher for the whole Studio admin protocol
   (decofile read/reload, meta schema, invoke, live previews).
+- **`@decocms/nextjs`** — `createDecoPreviewPage({ setup })`, an App Router
+  Server Component that renders live previews through Next's RSC pipeline,
+  including sections marked with `"use client"`.
 - **`@decocms/nextjs/setup`** — `createNextSetup(options)`, a one-call site
   bootstrap: the Next.js analogue of Vite's
   `createSiteSetup` + `createAdminSetup` + `import.meta.glob`.
 
 This document is the complete recipe a new Next.js site follows to wire all
-three together. Every code block below is meant to be copied, not
+all four together. Every code block below is meant to be copied, not
 paraphrased.
 
 ## Install
@@ -78,12 +81,49 @@ import { ensureSetup } from "../../../deco/setup";
 
 export const dynamic = "force-dynamic";
 
-export const { GET, POST, OPTIONS } = createDecoRouteHandlers({ setup: ensureSetup });
+export const { GET, POST, OPTIONS } = createDecoRouteHandlers({
+  setup: ensureSetup,
+});
 ```
 
 `dynamic = "force-dynamic"` is required — this route must never be
 statically cached (decofile reloads, invoke calls, and previews all need a
 fresh response per request).
+
+### The RSC preview page
+
+Mount `createDecoPreviewPage` at the framework-owned `/deco/preview` path.
+This path is intentionally not configurable: preview GET requests are always
+redirected from the catch-all route to this App Router page, with the query
+string preserved. Other admin requests, including `POST /deco/render`, remain
+on the catch-all handler.
+
+```tsx
+// src/app/deco/preview/[[...path]]/page.tsx
+import { createDecoPreviewPage } from "@decocms/nextjs";
+import { ensureSetup } from "../../../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export default createDecoPreviewPage({ setup: ensureSetup });
+```
+
+The page boundary is essential for Client Components. A route handler can
+produce plain HTML with `react-dom/server`, but that renderer cannot execute
+the client-reference proxies Next creates for modules marked
+`"use client"`. An App Router page is rendered by Next's React Server
+Components pipeline, so it can render a server section tree containing
+Client Components and preserve their hydration metadata.
+
+Do not work around this error by removing `"use client"` from interactive
+components. Keep sections and wrappers as Server Components when they only
+render markup, but retain a Client Component boundary wherever hooks, event
+handlers, browser APIs, or client-only context are required. The RSC preview
+page exists so those two kinds of component can compose exactly as they do in
+the storefront.
+
+Importing the root barrel is correct in this `page.tsx`; the subpath-only
+rule below applies specifically to `route.ts` files.
 
 ### Route-handler import rule: subpaths, never the root barrel
 
@@ -189,7 +229,7 @@ successful bootstrap is cached for the life of the warm serverless
 instance; a *rejected* bootstrap clears the memo so the next call retries
 from scratch (the triggering call still rejects with the original error).
 
-Two call sites need `ensureSetup()`:
+Three call sites need `ensureSetup()`:
 
 1. **The catch-all route** (above) passes it as `{ setup: ensureSetup }` —
    `createDecoRouteHandlers` awaits it before dispatching every admin
@@ -211,6 +251,9 @@ Two call sites need `ensureSetup()`:
 
    (`app/layout.tsx` is a Server Component, not a route handler, so it's
    fine to import the root barrel here — see the rule above.)
+3. **The RSC preview page** passes it to `createDecoPreviewPage`, as shown
+   above. The setup function is memoized, so these call sites share one
+   successful bootstrap per warm process.
 
 ### `NextSetupOptions` at a glance
 
@@ -317,7 +360,8 @@ implementation file) can opt into these, each read as a literal
 ## Verifying your setup
 
 `examples/nextjs-smoke` in this monorepo is a minimal, real Next.js App
-Router build exercising all three surfaces end to end — `withDeco` rewrites,
-the catch-all route, `createNextSetup`, and a resolved page render. Use it
-as a working reference if any of the above doesn't compose the way you
-expect.
+Router build exercising all four surfaces end to end — `withDeco` rewrites,
+the catch-all route, the RSC preview page, `createNextSetup`, and a resolved
+page render. Its preview fixture is a real interactive Client Component, so
+the build also guards the server/client boundary described above. Use it as
+a working reference if any of the above doesn't compose the way you expect.

@@ -27,9 +27,14 @@ import { createNextSetup } from "@decocms/nextjs/setup";
 export const ensureSetup = createNextSetup({
   blocksDir: false,
   sections: {
+    "./sections/ClientHero.tsx": () => import("./sections/ClientHero"),
     "./sections/Hero.tsx": () => import("./sections/Hero"),
   },
   blocks: {
+    ClientHero: {
+      __resolveType: "site/sections/ClientHero.tsx",
+      label: "preview",
+    },
     "pages-home": {
       path: "/",
       sections: [{ __resolveType: "site/sections/Hero.tsx", label: "next-smoke" }],

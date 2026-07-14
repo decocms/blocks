@@ -1,8 +1,12 @@
-export { createDecoPage } from "./createDecoPage";
-export { DecoRootLayout, type DecoRootLayoutProps } from "./DecoRootLayout";
-export { DecoPageRenderer } from "./DecoPageRenderer";
-export { SectionRenderer } from "./SectionRenderer";
 export { ClientOnlySection } from "./ClientOnlySection";
+export { createDecoPage } from "./createDecoPage";
+export {
+  type CreateDecoPreviewPageOptions,
+  createDecoPreviewPage,
+  type DecoPreviewPageProps,
+} from "./createDecoPreviewPage";
+export { DecoPageRenderer } from "./DecoPageRenderer";
+export { DecoRootLayout, type DecoRootLayoutProps } from "./DecoRootLayout";
 export { DeferredSectionBoundary } from "./DeferredSection";
 export {
   decofileGET,
@@ -12,3 +16,4 @@ export {
   renderGET,
   renderPOST,
 } from "./routeHandlers";
+export { SectionRenderer } from "./SectionRenderer";
