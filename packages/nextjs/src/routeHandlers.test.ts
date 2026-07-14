@@ -67,12 +67,44 @@ describe("createDecoRouteHandlers", () => {
     expect(mocks.handleInvoke).toHaveBeenCalled();
   });
 
-  it("rebuilds /deco/previews/* URLs to the /live/previews/* prefix handleRender parses", async () => {
+  it("redirects preview GETs to the fixed RSC page and preserves the path and query", async () => {
     const { GET } = createDecoRouteHandlers();
-    const res = await GET(new Request("http://x/deco/previews/pages-Home-123?props=x"));
-    expect(await res.text()).toBe("/live/previews/pages-Home-123");
-    const calledUrl = new URL(mocks.handleRender.mock.calls[0][0].url);
-    expect(calledUrl.searchParams.get("props")).toBe("x");
+    const res = await GET(
+      new Request("http://x/deco/previews/pages-Home-123?props=x&deviceHint=mobile"),
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "http://x/deco/preview/pages-Home-123?props=x&deviceHint=mobile",
+    );
+    expect(mocks.handleRender).not.toHaveBeenCalled();
+  });
+
+  it("redirects the public /live/previews path to the fixed RSC page", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(
+      new Request("http://x/live/previews/site/sections/Hero.tsx?deviceHint=desktop"),
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "http://x/deco/preview/site/sections/Hero.tsx?deviceHint=desktop",
+    );
+    expect(mocks.handleRender).not.toHaveBeenCalled();
+  });
+
+  it("keeps preview POSTs on handleRender", async () => {
+    const { POST } = createDecoRouteHandlers();
+    const res = await POST(
+      new Request("http://x/deco/previews/pages-Home-123", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mocks.handleRender).toHaveBeenCalledOnce();
   });
 
   it("forwards a POST body through the /deco/previews/* URL rebuild (Request-as-init carries the body stream)", async () => {
@@ -135,12 +167,12 @@ describe("createDecoRouteHandlers", () => {
     expect(mocks.handleMeta).not.toHaveBeenCalled();
   });
 
-  it("routes the rewrite-source /live/previews/* path straight through to handleRender with the prefix intact", async () => {
+  it("redirects the rewrite-source /live/previews/* path to the fixed RSC page", async () => {
     const { GET } = createDecoRouteHandlers();
     const res = await GET(new Request("http://x/live/previews/pages-Home-123?props=x"));
-    expect(await res.text()).toBe("/live/previews/pages-Home-123");
-    const calledUrl = new URL(mocks.handleRender.mock.calls[0][0].url);
-    expect(calledUrl.searchParams.get("props")).toBe("x");
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("http://x/deco/preview/pages-Home-123?props=x");
+    expect(mocks.handleRender).not.toHaveBeenCalled();
   });
 
   it("405s GET /deco/invoke/* with Allow: POST (CSRF protection — see comment on the invoke branch)", async () => {

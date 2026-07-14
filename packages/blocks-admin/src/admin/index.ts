@@ -1,3 +1,18 @@
+export {
+  type ActionConfig,
+  composeMeta,
+  getRegisteredLoaders,
+  getRegisteredMatchers,
+  type LoaderConfig,
+  type MatcherConfig,
+  type MetaResponse,
+  registerActionSchema,
+  registerActionSchemas,
+  registerLoaderSchema,
+  registerLoaderSchemas,
+  registerMatcherSchema,
+  registerMatcherSchemas,
+} from "@decocms/blocks/cms";
 export { corsHeaders, isAdminOrLocalhost, registerAdminOrigin, registerAdminOrigins } from "./cors";
 export { handleDecofileRead, handleDecofileReload, setFastDeployKVGetter } from "./decofile";
 export {
@@ -13,17 +28,6 @@ export { LIVE_CONTROLS_SCRIPT } from "./liveControls";
 export { handleMeta, setMetaData } from "./meta";
 export { handleRender, setPreviewWrapper, setRenderShell } from "./render";
 export {
-  composeMeta,
-  getRegisteredLoaders,
-  getRegisteredMatchers,
-  type ActionConfig,
-  type LoaderConfig,
-  type MatcherConfig,
-  type MetaResponse,
-  registerActionSchema,
-  registerActionSchemas,
-  registerLoaderSchema,
-  registerLoaderSchemas,
-  registerMatcherSchema,
-  registerMatcherSchemas,
-} from "@decocms/blocks/cms";
+  type PreviewResolution,
+  resolvePreviewRequest,
+} from "./resolvePreview";

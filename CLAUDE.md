@@ -100,7 +100,9 @@ Communicates with `admin.deco.cx` via:
 Both bindings expose the same four handlers from `@decocms/blocks-admin` (`handleMeta`, `handleDecofileRead`/`handleDecofileReload`, `handleRender`, `handleInvoke`), but wire them up differently:
 
 - **TanStack**: admin routes MUST be handled inside `createDecoWorkerEntry` (`@decocms/tanstack`), NOT inside TanStack's `createServerEntry` — Vite strips custom fetch logic from server entries in production builds.
-- **Next.js**: each handler is exported as a one-line Route Handler re-export (`metaGET`, `decofileGET`/`decofilePOST`, `renderGET`/`renderPOST`, `invokeGET`/`invokePOST` from `@decocms/nextjs`) — no single dispatcher, since Next's routing is already file-based. `renderGET`/`renderPOST` can be mounted at more than one path (`/deco/render` and `/live/previews/*`).
+- **Next.js**: mount `createDecoRouteHandlers({ setup })` from the `@decocms/nextjs/routeHandlers` subpath at `app/deco/[[...deco]]/route.ts`, and mount `createDecoPreviewPage({ setup })` from the root package at the fixed `app/deco/preview/[[...path]]/page.tsx` route. The catch-all serves the protocol and always redirects preview GETs to `/deco/preview`; that framework-owned path is not configurable. POST render requests retain the plain-HTML handler.
+
+The separate Next preview page is load-bearing. `handleRender` uses `react-dom/server.renderToString`, which cannot invoke the client-reference proxies Next creates for modules marked `"use client"`; only Next's App Router/RSC renderer can compose Server Components with those Client Components and emit hydration metadata. Do not fix preview failures by stripping `"use client"` from components that need hooks, events, browser APIs, or client-only context. Also keep route-handler imports on the `/routeHandlers` subpath: importing the root barrel from `route.ts` pulls client component code into a react-server-only module graph and can fail at import time.
 
 Schema is composed at runtime: `@decocms/blocks-cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/blocks/cms`) injects page schemas and framework definitions.
 
@@ -136,6 +138,7 @@ Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework*
 1. **No compat layers in a package** — if a site needs a symbol a package should export, add the export; don't let sites accumulate local reimplementations (see "Known gaps" above).
 2. **`AsyncLocalStorage`** — see the `RequestContext` section above. Never add a bare `node:async_hooks` import to any file reachable from a `"use client"` boundary; route through the existing conditional-exports pattern.
 3. **Preview shell** — must include `data-theme="light"` for DaisyUI v4 color variables.
-4. **Base64 encoding** — `toBase64()` must produce padded output matching `btoa()` — admin uses `btoa()` for definition refs.
-5. **ETag** — content-based DJB2 hash, not string length.
-6. **Dependency graph direction** — see "Key Boundaries" above; this is enforced by convention, not tooling, so review new imports across package boundaries carefully.
+4. **Next preview rendering** — Client Components must render through `createDecoPreviewPage`; plain `renderToString` cannot execute Next client references. Preserve legitimate `"use client"` boundaries.
+5. **Base64 encoding** — `toBase64()` must produce padded output matching `btoa()` — admin uses `btoa()` for definition refs.
+6. **ETag** — content-based DJB2 hash, not string length.
+7. **Dependency graph direction** — see "Key Boundaries" above; this is enforced by convention, not tooling, so review new imports across package boundaries carefully.

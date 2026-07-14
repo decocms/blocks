@@ -93,6 +93,8 @@ export interface DecoRouteHandlersOptions {
   setup?: () => Promise<void>;
 }
 
+const PREVIEW_PAGE_PATH = "/deco/preview";
+
 /**
  * Single catch-all dispatcher for the whole Studio admin protocol. Mount
  * at `app/deco/[[...deco]]/route.ts` and wrap next.config with
@@ -104,7 +106,9 @@ export interface DecoRouteHandlersOptions {
  * import { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";
  * import { ensureSetup } from "../../../deco/setup";
  * export const dynamic = "force-dynamic";
- * export const { GET, POST, OPTIONS } = createDecoRouteHandlers({ setup: ensureSetup });
+ * export const { GET, POST, OPTIONS } = createDecoRouteHandlers({
+ *   setup: ensureSetup,
+ * });
  * ```
  *
  * `resolveAction` accepts BOTH the rewrite's public source path (e.g.
@@ -184,6 +188,13 @@ export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}):
       return handleInvoke(request);
     }
     if (action === "previews" || action.startsWith("previews/")) {
+      if (request.method === "GET") {
+        const rest = action === "previews" ? "" : action.slice("previews/".length);
+        const target = new URL(url);
+        target.pathname = rest ? `${PREVIEW_PAGE_PATH}/${rest}` : PREVIEW_PAGE_PATH;
+        return Response.redirect(target, 307);
+      }
+
       // handleRender parses the literal "/live/previews/" prefix.
       // `resolveAction` above already normalizes BOTH a direct
       // `/deco/previews/*` hit and a rewritten `/live/previews/*` hit down

@@ -1,119 +1,88 @@
-# Admin Routes Template
+# Admin Routes and RSC Preview Template
 
-Worked example derived directly from faststore-fila's `src/sdk/deco/adminRoute.ts` and the App Router route files that mount it. The old `@decocms/start/next` tier exported one function, `createDecoAdminRouteHandlers`, that returned `{ GET, POST, PATCH, DELETE }` from a single internal dispatcher routing on `req.url`. `@decocms/nextjs` has no equivalent single dispatcher — it exports one function per admin concern instead, so the site's wrapper becomes a set of thin per-concern re-exports.
+Replace the old `@decocms/start/next` dispatcher with the current
+`@decocms/nextjs` catch-all route and a dedicated App Router preview page.
+`withDeco` rewrites `/.decofile`, `/live/_meta`, and `/live/previews/*` into
+the catch-all; `/deco/invoke/*` and `/deco/render` are directly addressable.
 
-## The wrapper: `src/sdk/deco/adminRoute.ts`
+## Protocol catch-all
 
 ```typescript
-/**
- * Per-route wrappers around @decocms/nextjs's admin Route Handlers.
- * Each runs ensureSetup() first (so the block registry is populated
- * before handling the request), then delegates. Replaces the single
- * dispatcher `createDecoAdminRouteHandlers` provided — that function has
- * no equivalent on the current package split; @decocms/nextjs's handlers
- * are already split one per concern instead of URL-sniffed from one
- * function.
- */
-import {
-  decofileGET as decofileGETImpl,
-  decofilePOST as decofilePOSTImpl,
-  invokePOST as invokePOSTImpl,
-  metaGET as metaGETImpl,
-  renderGET as renderGETImpl,
-  renderPOST as renderPOSTImpl,
-} from '@decocms/nextjs'
+// src/app/deco/[[...deco]]/route.ts
+import { createDecoRouteHandlers } from '@decocms/nextjs/routeHandlers'
 
-import { ensureSetup } from './setup'
+import { ensureSetup } from 'src/sdk/deco/setup'
 
-export async function metaGET(request: Request): Promise<Response> {
-  await ensureSetup()
-  return metaGETImpl(request)
-}
+export const dynamic = 'force-dynamic'
 
-export async function decofileGET(): Promise<Response> {
-  await ensureSetup()
-  return decofileGETImpl()
-}
-
-export async function decofilePOST(request: Request): Promise<Response> {
-  await ensureSetup()
-  return decofilePOSTImpl(request)
-}
-
-export async function invokePOST(request: Request): Promise<Response> {
-  await ensureSetup()
-  return invokePOSTImpl(request)
-}
-
-export async function renderGET(request: Request): Promise<Response> {
-  await ensureSetup()
-  return renderGETImpl(request)
-}
-
-export async function renderPOST(request: Request): Promise<Response> {
-  await ensureSetup()
-  return renderPOSTImpl(request)
-}
+export const { GET, POST, OPTIONS } = createDecoRouteHandlers({
+  setup: ensureSetup,
+})
 ```
 
-## Mounting it: App Router route files
+Import from the `/routeHandlers` subpath in `route.ts`, never from the root
+`@decocms/nextjs` barrel. Route handlers are evaluated against React's
+react-server build and have no client bundle; importing the root also pulls
+component modules into that graph and can fail at module evaluation.
 
-Each admin concern gets its own `route.ts` re-exporting the matching wrapper function under the HTTP method(s) it needs. Folder naming here is asymmetric and easy to get backwards: `_`-prefixed folders (e.g. `_meta`, `_healthcheck`) must be URL-encoded as `%5Ffoo`, because Next treats a literal `_folder` as private and excludes it from routing. Dot-prefixed folders (e.g. `.decofile`) must do the opposite — keep the literal dot; the encoded form (`%2E…`) is NOT decoded by Next App Router (verified against Next 16.2.6 / Turbopack) and resolves to the catchall route instead. This is a Next.js routing constraint, unrelated to the package split, but easy to trip over when porting route folders from an old site.
+Keep `dynamic = 'force-dynamic'`: metadata, decofile reloads, invokes, and
+previews are request-specific admin operations.
 
-```typescript
-// src/app/live/%5Fmeta/route.ts
+## RSC preview page
+
+Mount the page at the fixed framework path `/deco/preview`. This convention is
+not configurable; do not add a site option or mount it somewhere else.
+
+```tsx
+// src/app/deco/preview/[[...path]]/page.tsx
+import { createDecoPreviewPage } from '@decocms/nextjs'
+
+import { ensureSetup } from 'src/sdk/deco/setup'
+
 export const dynamic = 'force-dynamic'
-export { metaGET as GET } from 'src/sdk/deco/adminRoute'
+
+export default createDecoPreviewPage({ setup: ensureSetup })
 ```
 
-```typescript
-// src/app/.decofile/route.ts
-export const dynamic = 'force-dynamic'
-export { decofileGET as GET, decofilePOST as POST } from 'src/sdk/deco/adminRoute'
-```
+This page is required for Client Components. The generic admin renderer uses
+`react-dom/server.renderToString`; in a Next build, a module marked
+`"use client"` is represented on the server by a client-reference proxy that
+plain React SSR cannot invoke. The App Router page runs through Next's RSC
+renderer instead, so a server section tree can contain Client Components and
+retain their hydration metadata.
 
-```typescript
-// src/app/deco/invoke/[[...path]]/route.ts — optional catchall covers both
-// `/deco/invoke` and `/deco/invoke/<resolveType>`. Both HTTP methods map to
-// the same underlying function.
-export const dynamic = 'force-dynamic'
-export { invokePOST as GET, invokePOST as POST } from 'src/sdk/deco/adminRoute'
-```
+Do not remove `"use client"` merely to make a preview pass. Leave static
+sections and wrappers on the server, but keep a client boundary wherever the
+component needs hooks, event handlers, browser APIs, or client-only context.
 
-```typescript
-// src/app/deco/render/route.ts — renders an ad-hoc section by
-// __resolveType + props, used by the deco admin UI for live previews.
-export const dynamic = 'force-dynamic'
-export { renderGET as GET, renderPOST as POST } from 'src/sdk/deco/adminRoute'
-```
+Preview GETs for `/live/previews/*` redirect to this page with their path and
+query string preserved. POST preview requests, including `POST /deco/render`,
+retain the legacy plain-HTML handler for protocol compatibility.
 
-`renderGET`/`renderPOST` have a second real mount point beyond `/deco/render`: `/live/previews/*` (an optional catchall) is the path `@decocms/nextjs`'s own `renderGET` doc comment calls out as its preview-mode route. Mount the same two functions there too — a future migrator should not assume render handlers live at exactly one URL:
+## Next configuration
 
-```typescript
-// src/app/live/previews/[[...path]]/route.ts
-export const dynamic = 'force-dynamic'
-export { renderGET as GET, renderPOST as POST } from 'src/sdk/deco/adminRoute'
+Keep the site wrapped with `withDeco`; it installs the public admin rewrites
+and transpiles the raw TypeScript packages:
+
+```javascript
+// next.config.js
+const { withDeco } = require('@decocms/nextjs/config')
+
+module.exports = withDeco(nextConfig)
 ```
 
 ## Routes with no package equivalent
 
-The old dispatcher also served routes that have **no** `@decocms/blocks-admin`/`@decocms/nextjs` equivalent — these were deliberately scoped out of the current package split (live-editing dev tunnel), not omitted by oversight. Delete them or replace with a simple non-daemon stub:
+The old dispatcher also served live-editing daemon routes that remain outside
+the current package split:
+
+- Delete `/_watch`, the SSE file-watch channel.
+- Delete `/fs/file/*`, the JSON-Patch file mutation endpoint.
+- Replace `/_healthcheck` with a plain site-authored liveness response.
+- Replace `/_ready` with a site-authored block-registry check.
 
 ```typescript
-// src/app/%5Fwatch/route.ts — DELETE. This served an SSE channel
-// streaming file-watch events under `.deco/` to a live-editing admin UI
-// (chokidar-based hot reload). No equivalent in the new packages.
-
-// src/app/fs/file/[[...path]]/route.ts — DELETE. JSON-Patch file
-// mutation for the same live-editing dev tunnel. No equivalent.
-```
-
-```typescript
-// src/app/%5Fhealthcheck/route.ts — replace with a plain 200.
-// The old dispatcher returned an ADMIN_COMPAT_VERSION string; there's no
-// version-negotiation protocol in the new packages, and a bare 200 is
-// sufficient for k8s/Cloud Run liveness probes, which don't inspect the
-// body.
+// src/app/%5Fhealthcheck/route.ts
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
@@ -122,9 +91,7 @@ export async function GET() {
 ```
 
 ```typescript
-// src/app/%5Fready/route.ts — replace with a site-authored readiness
-// check reading the block registry directly. No shared "readiness"
-// helper ships in the new packages; this logic now lives in the site.
+// src/app/%5Fready/route.ts
 import { loadBlocks } from '@decocms/blocks/cms'
 
 import { ensureSetup } from 'src/sdk/deco/setup'
@@ -134,18 +101,27 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     await ensureSetup()
-    const blocks = loadBlocks()
-    const ready = Object.keys(blocks).length > 0
-    return new Response(ready ? 'ready' : 'not ready', { status: ready ? 200 : 503 })
+    const ready = Object.keys(loadBlocks()).length > 0
+    return new Response(ready ? 'ready' : 'not ready', {
+      status: ready ? 200 : 503,
+    })
   } catch {
     return new Response('not ready', { status: 503 })
   }
 }
 ```
 
-## Key patterns
+Next treats literal `_folder` route segments as private. Use `%5Ffolder` for
+underscore-prefixed public routes. Keep dot-prefixed route folders such as
+`.decofile` literal; `%2Edecofile` is not decoded into the intended route.
 
-1. **One `route.ts` per concern, not one dispatcher.** Each Next.js route file re-exports exactly the wrapper function(s) it needs under the HTTP method name(s) Next.js expects (`GET`, `POST`, etc.) — there's no single `{ GET, POST, PATCH, DELETE }` object to spread across every route anymore.
-2. **`ensureSetup()` runs inside every wrapper function, not once at module scope.** The old dispatcher's `onRequest` hook ran it once per dispatched request; the replacement re-implements that per-function since there's no shared dispatcher to hook into.
-3. **Don't try to force a package-provided replacement for the deleted dev-tunnel routes.** There isn't one — confirm the site doesn't depend on live in-admin editing before deleting `/_watch` and `/fs/file/*`, and if it does, that's a real capability gap to flag rather than something to work around silently.
-4. **Verify route folder naming still resolves after the file changes, and don't apply the same rule to both prefixes.** Renaming/moving these files is a good moment to re-confirm: `_`-prefixed folders need `%5F` encoding, dot-prefixed folders need to stay literal — under the Next.js version in use, encoding a dot-prefixed folder silently reroutes the request to a catchall instead of erroring, so a wrong assumption here fails quietly rather than loudly.
+## Verification
+
+1. Run a production `next build`; development mode does not prove the same
+   server/client module boundaries.
+2. Register a real interactive `"use client"` section in a preview block.
+3. Start the production server and request `/live/previews/<block-key>` with
+   redirects enabled.
+4. Confirm the first response redirects to `/deco/preview/<block-key>`, the
+   final response is 200, and its HTML contains the client section's initial
+   markup without an `Attempted to call ... from the server` diagnostic.
