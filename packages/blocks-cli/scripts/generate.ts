@@ -171,6 +171,15 @@ Selection:
   --skip <names>      Comma-separated generators to exclude
   --force             Ignore the cache; run everything selected
   --dry-run           Print what would run / skip / stay disabled, then exit
+  --root <dir>        Effective working directory (also accepted as a bare
+                      positional path). Input dirs + .deco/ output resolve
+                      against it, so a monorepo can target a sub-app folder
+                      without cd. (default: process.cwd())
+
+Platform:
+  --platform <name>   Forwarded to schema. With "eitri": runs ONLY schema +
+                      blocks (skips manifest/sections/loaders/invoke) and makes
+                      the schema self-contained (composeMeta at gen time).
 
 Forwarded to the individual generators:
   --blocks-dir <dir>       blocks + manifest input        (default .deco/blocks)
@@ -220,6 +229,13 @@ export interface CliOptions {
   namespace: string | null;
   platform: string | null;
   skipApps: boolean;
+  /**
+   * Effective working directory. `.deco/` output and input dirs resolve
+   * against this instead of process.cwd(), so a monorepo can target a
+   * sub-app folder without `cd`. Set via `--root <dir>` or a bare positional
+   * path. Relative to process.cwd().
+   */
+  root: string | null;
 }
 
 function parseNames(raw: string, flag: string): GeneratorName[] {
@@ -257,6 +273,7 @@ export function parseCliOptions(argv: string[]): CliOptions {
     namespace: null,
     platform: null,
     skipApps: false,
+    root: null,
   };
 
   const valueOf = (i: number, flag: string): string => {
@@ -335,7 +352,18 @@ export function parseCliOptions(argv: string[]): CliOptions {
       case "--skip-apps":
         opts.skipApps = true;
         break;
+      case "--root":
+        opts.root = valueOf(i, a);
+        i++;
+        break;
       default:
+        // A single bare (non-flag) argument is accepted as the root path, so
+        // `generate ./apps/foo` works like `generate --root ./apps/foo`.
+        // Anything else (or a second positional) is still a hard error.
+        if (!a.startsWith("--") && opts.root === null) {
+          opts.root = a;
+          break;
+        }
         throw new Error(`Unknown option "${a}". Run with --help for usage.`);
     }
   }
@@ -624,6 +652,9 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
         ...(opts.namespace ? ["--namespace", opts.namespace] : []),
         ...(opts.platform ? ["--platform", opts.platform] : []),
         ...(opts.skipApps ? ["--skip-apps"] : []),
+        // Eitri (and any FS-only consumer) needs a self-contained meta.gen.json:
+        // bake composeMeta's framework block types in at generation time.
+        ...(opts.platform === "eitri" ? ["--compose", "--framework", "eitri"] : []),
       ],
       stage: 2,
       ...enabledIf(
@@ -659,6 +690,26 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
       outputs: [path.join(".deco", "meta.gen.json")],
     },
   ];
+
+  // --platform eitri: deco only AUTHORS config for Eitri (Eitri renders on its
+  // own mobile runtime), so the only useful artifacts are the self-contained
+  // meta.gen.json (schema) and the bundled decofile snapshot (blocks). The
+  // React-runtime generators (manifest/sections/loaders/invoke) would be dead
+  // weight, and `sections` in particular would otherwise auto-enable because
+  // src/sections exists. Applied before --only/--skip so those still win.
+  if (opts.platform === "eitri") {
+    for (const plan of plans) {
+      if (plan.name === "blocks") {
+        // Emit the snapshot even when .deco/blocks is empty (a fresh Eitri app
+        // has no authored content yet) — generate-blocks writes an empty barrel.
+        plan.enabled = true;
+        plan.disabledReason = undefined;
+      } else if (plan.name !== "schema") {
+        plan.enabled = false;
+        plan.disabledReason = "not used by --platform eitri";
+      }
+    }
+  }
 
   // Apply --only / --skip on top of auto-enablement. --only also FORCES a
   // generator on (explicit intent beats detection) unless its hard inputs
@@ -962,6 +1013,19 @@ export async function runGenerate(argv: string[], cwd = process.cwd()): Promise<
   if (opts.help) {
     console.log(USAGE);
     return 0;
+  }
+
+  // --root / positional path relocates the effective working directory: every
+  // input dir and the `.deco/` output tree resolve against it (child
+  // generators are spawned with this cwd), so a monorepo can target a sub-app
+  // folder without an explicit `cd`.
+  if (opts.root) {
+    cwd = path.resolve(cwd, opts.root);
+    if (!fs.existsSync(cwd)) {
+      console.error(`[generate] --root path does not exist: ${cwd}`);
+      return 1;
+    }
+    console.log(`[generate] root: ${cwd}`);
   }
 
   const totalStarted = Date.now();
