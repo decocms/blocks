@@ -430,6 +430,37 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
       return result;
     }
 
+    // Intersection (A & B). TypeScript merges the members, but ts-morph reports
+    // the type as neither object nor interface, so without this branch it falls
+    // through to the `{ type: "string" }` fallback — which is why recursive
+    // menu/navigation types written as `Leaf & { children?: Array<Leaf & …> }`
+    // lost every field and rendered as a bare string/block-ref in the CMS.
+    // Two shapes matter:
+    //   - Branded primitives (`string & { __brand }`) → keep the primitive.
+    //   - Object intersections → merge every member's properties into one object.
+    if (type.isIntersection()) {
+      const parts = type.getIntersectionTypes();
+      const primitive = parts.find((t) => t.isString() || t.isNumber() || t.isBoolean());
+      if (primitive) return typeToJsonSchema(primitive, new Set(visited), ctx);
+
+      const merged: any = { type: "object", properties: {} };
+      const required = new Set<string>();
+      for (const part of parts) {
+        const sub = typeToJsonSchema(part, new Set(visited), ctx);
+        if (sub?.type !== "object" || !sub.properties) continue;
+        Object.assign(merged.properties, sub.properties);
+        for (const r of sub.required ?? []) required.add(r);
+        // Carry object-level annotations (title, @titleBy, …) from members,
+        // first member wins so an earlier explicit value is never clobbered.
+        for (const [k, v] of Object.entries(sub)) {
+          if (k === "type" || k === "properties" || k === "required") continue;
+          if (!(k in merged)) merged[k] = v;
+        }
+      }
+      if (required.size > 0) merged.required = [...required];
+      return merged;
+    }
+
     if (type.isObject() || type.isInterface()) {
       // Runtime-injected platform types (loader `url: URL`, `req: Request`, …)
       // are not CMS-configurable — hide instead of expanding the whole DOM
