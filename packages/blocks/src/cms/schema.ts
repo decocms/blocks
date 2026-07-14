@@ -994,7 +994,19 @@ function wrapNestedProperties(
 
 const SECTION_REF_DEF_KEY = "__SECTION_REF__";
 
-export function composeMeta(siteMeta: MetaResponse): MetaResponse {
+export interface ComposeMetaOptions {
+  /**
+   * Value written to the returned `framework` field. Defaults to
+   * "tanstack-start" for backward compatibility. Non-React stacks that compose
+   * a self-contained meta at generation time (e.g. Eitri) pass their own name.
+   */
+  framework?: string;
+}
+
+export function composeMeta(
+  siteMeta: MetaResponse,
+  options?: ComposeMetaOptions,
+): MetaResponse {
   const siteAnyOf = siteMeta.schema?.root?.sections?.anyOf || [];
 
   // Build all framework components
@@ -1030,7 +1042,7 @@ export function composeMeta(siteMeta: MetaResponse): MetaResponse {
 
   return {
     ...siteMeta,
-    framework: "tanstack-start",
+    framework: options?.framework ?? "tanstack-start",
     manifest: {
       blocks: {
         ...(siteMeta.manifest?.blocks || {}),

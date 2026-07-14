@@ -27,6 +27,12 @@ import { fileURLToPath } from "node:url";
  *   --skip-apps   Skip app schema generation
  *   --out         Output file        (default: ".deco/meta.gen.json")
  *   --platform    Platform name      (default: "cloudflare")
+ *   --compose     Run composeMeta() before writing so the output is
+ *                 SELF-CONTAINED (bakes in Page, matchers, __SECTION_REF__,
+ *                 Resolvable). For consumers that read meta.gen.json straight
+ *                 from disk with no runtime (FS-based Studio / Eitri stack).
+ *   --framework   With --compose, the value written to the `framework` field
+ *                 (default: "tanstack-start").
  *
  * If no `--out` is passed and the OLD default (src/server/admin/meta.gen.json)
  * still exists on disk, a one-line legacy warning is printed to stderr and the
@@ -75,6 +81,15 @@ let APPS_REL = "src/apps";
 let SKIP_APPS = false;
 let OUT_REL = NEW_DEFAULT_OUT_REL;
 let PLATFORM = "cloudflare";
+// When true, run composeMeta() over the generated site meta before writing, so
+// the output file is SELF-CONTAINED — it carries the framework block types
+// (Page, matchers, __SECTION_REF__, Resolvable) that composeMeta otherwise
+// injects at runtime. Required by consumers that read meta.gen.json straight
+// from the filesystem with no runtime (e.g. the FS-based Studio / Eitri stack).
+let COMPOSE = false;
+// Value written to the composed meta's `framework` field (only used with
+// --compose). Defaults to composeMeta's historical "tanstack-start".
+let FRAMEWORK = "tanstack-start";
 
 if (isMainModule()) {
   SITE_NAMESPACE = arg("namespace", SITE_NAMESPACE);
@@ -87,6 +102,8 @@ if (isMainModule()) {
   const outFileExplicit = argv.includes("--out");
   OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
   PLATFORM = arg("platform", PLATFORM);
+  COMPOSE = argv.includes("--compose");
+  FRAMEWORK = arg("framework", FRAMEWORK);
   if (!outFileExplicit && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_REL))) {
     warnLegacyArtifact(OLD_DEFAULT_OUT_REL, NEW_DEFAULT_OUT_REL);
   }
@@ -1410,16 +1427,28 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  const meta = generateMeta();
-  const outPath = path.resolve(process.cwd(), OUT_REL);
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
+  // Wrapped in an async IIFE so --compose can dynamically import composeMeta
+  // ONLY when requested — the default path (and any test importing this
+  // module's pure exports) never pulls in the @decocms/blocks/cms barrel.
+  void (async () => {
+    let meta = generateMeta();
+    if (COMPOSE) {
+      const { composeMeta } = await import("@decocms/blocks/cms");
+      // composeMeta returns @decocms/blocks' MetaResponse (platform optional);
+      // this file's local MetaResponse requires platform. It's always present
+      // (composeMeta spreads siteMeta, which set it), so the cast is safe.
+      meta = composeMeta(meta, { framework: FRAMEWORK }) as MetaResponse;
+    }
+    const outPath = path.resolve(process.cwd(), OUT_REL);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
 
-  const defCount = Object.keys(meta.schema.definitions).length;
-  const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
-  const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
-  const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
-  console.log(
-    `\nGenerated schema: ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
-  );
+    const defCount = Object.keys(meta.schema.definitions).length;
+    const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
+    const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
+    const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
+    console.log(
+      `\nGenerated schema${COMPOSE ? " (self-contained)" : ""}: ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
+    );
+  })();
 }

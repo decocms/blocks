@@ -218,3 +218,22 @@ describe("registerAppSchemas", () => {
     expect(registered?.tags).toEqual(["product-list"]);
   });
 });
+
+describe("composeMeta framework option", () => {
+  it("defaults the framework field to tanstack-start", () => {
+    expect(composeMeta(emptySiteMeta()).framework).toBe("tanstack-start");
+  });
+
+  it("honors an explicit framework override (e.g. eitri)", () => {
+    expect(composeMeta(emptySiteMeta(), { framework: "eitri" }).framework).toBe("eitri");
+  });
+
+  it("still bakes in the framework block types regardless of framework name", () => {
+    const meta = composeMeta(emptySiteMeta(), { framework: "eitri" });
+    // The whole point of composing at generation time: Page + section-picker +
+    // Resolvable land in definitions so an FS-only consumer is self-contained.
+    expect(meta.schema.definitions).toHaveProperty("__SECTION_REF__");
+    expect(meta.schema.definitions).toHaveProperty("Resolvable");
+    expect(meta.manifest.blocks.pages).toHaveProperty("website/pages/Page.tsx");
+  });
+});
