@@ -157,6 +157,66 @@ describe("typeToJsonSchema with intersection types", () => {
   }, 30_000);
 });
 
+describe("typeToJsonSchema loader block-ref matching", () => {
+  // Regression: a loader that returns an array whose element type has no
+  // resolvable name (`VNode[]`, `string[]`, …) used to be bucketed under the
+  // generic key "Array". Because an array type's OWN symbol name is also
+  // "Array", EVERY array-of-objects section prop (`Collection[]`, `Tab[]`)
+  // matched that bucket and collapsed into a block-ref picker — so the array
+  // was no longer editable and its item fields (label, nested loaders) all
+  // disappeared from the CMS form. The two guards (drop the "Array" bucket at
+  // registration; never look it up from an array prop's symbol name) keep the
+  // array inline and editable.
+  it("does not collapse an array-of-objects prop into a block-ref via the generic 'Array' bucket", () => {
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { skipLibCheck: true },
+    });
+    const sf = project.createSourceFile(
+      "props.ts",
+      `
+        interface Product { productID: string; name: string; }
+        interface Collection { label: string; products: Product[] | null; }
+        export interface Props {
+          collections: Collection[];
+          topLevelProducts?: Product[] | null;
+        }
+      `,
+    );
+    const ctx = {
+      // Mimics a site where List/Sections (VNode[]) and skuList (string[])
+      // would otherwise land in an "Array" bucket, plus a real Product[] loader.
+      outputTypeToLoaderKeys: new Map<string, string[]>([
+        ["Product[]", ["site/loaders/algolia/products/list.ts"]],
+        ["Array", ["site/loaders/List/Sections.tsx", "site/loaders/skuList.ts"]],
+      ]),
+    };
+
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType(), new Set(), ctx);
+    const collections = schema.properties.collections;
+
+    // Stays an editable array of objects — NOT a block-ref anyOf.
+    expect(collections.type).toBe("array");
+    expect(collections.anyOf).toBeUndefined();
+
+    const item = collections.items;
+    expect(item.type).toBe("object");
+    expect(item.properties.label).toMatchObject({ type: "string" });
+    // The nested Product[] field still resolves to a loader picker (its type
+    // name matches a registered loader output).
+    expect(item.properties.products.anyOf).toEqual([
+      { $ref: "#/definitions/Resolvable" },
+      { $ref: "#/definitions/c2l0ZS9sb2FkZXJzL2FsZ29saWEvcHJvZHVjdHMvbGlzdC50cw==" },
+    ]);
+
+    // Control: a top-level Product[] prop still resolves to a loader picker.
+    expect(schema.properties.topLevelProducts.anyOf).toEqual([
+      { $ref: "#/definitions/Resolvable" },
+      { $ref: "#/definitions/c2l0ZS9sb2FkZXJzL2FsZ29saWEvcHJvZHVjdHMvbGlzdC50cw==" },
+    ]);
+  }, 30_000);
+});
+
 // ---------------------------------------------------------------------------
 // Default output path (.deco/) + legacy warning — subprocess, mirrors the
 // pattern in generate-sections.test.ts. generate-schema.ts IS guarded by
