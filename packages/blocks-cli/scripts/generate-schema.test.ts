@@ -5,9 +5,11 @@ import * as path from "node:path";
 import { Project } from "ts-morph";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  EITRI_FORMAT_ALIASES,
   WIDGET_TYPE_FORMATS,
   applyWidgetFormat,
   definitionIdForPath,
+  normalizeFormats,
   typeToJsonSchema,
 } from "./generate-schema";
 
@@ -26,6 +28,38 @@ describe("definitionIdForPath", () => {
       "/Users/anyone/code/mysite",
     );
     expect(Buffer.from(id, "base64").toString()).toBe("src/sections/Hero.tsx");
+  });
+});
+
+describe("normalizeFormats (Eitri @format aliases)", () => {
+  it("remaps a known alias in a nested prop schema", () => {
+    const defs = {
+      "abc@Props": {
+        type: "object",
+        properties: {
+          datetime: { type: "string", format: "datetime", title: "Publish date." },
+          post: { type: "string", format: "textarea" },
+        },
+      },
+    };
+    normalizeFormats(defs, EITRI_FORMAT_ALIASES);
+    expect(defs["abc@Props"].properties.datetime.format).toBe("date-time");
+    // textarea is already a valid widget format — left untouched.
+    expect(defs["abc@Props"].properties.post.format).toBe("textarea");
+  });
+
+  it("recurses through arrays and leaves unknown formats alone", () => {
+    const node = {
+      items: [{ format: "datetime" }, { format: "email" }],
+    };
+    normalizeFormats(node, EITRI_FORMAT_ALIASES);
+    expect(node.items[0].format).toBe("date-time");
+    expect(node.items[1].format).toBe("email");
+  });
+
+  it("is a no-op on primitives / null", () => {
+    expect(() => normalizeFormats(null, EITRI_FORMAT_ALIASES)).not.toThrow();
+    expect(() => normalizeFormats("datetime", EITRI_FORMAT_ALIASES)).not.toThrow();
   });
 });
 
