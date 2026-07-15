@@ -345,15 +345,21 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
     const nonNull = ret.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
     if (nonNull.length === 1) ret = nonNull[0];
   }
-  // Unwrap array element type — Product[] → "Product[]" (keyed as array)
+  // Unwrap array element type — Product[] → "Product[]" (keyed as array).
+  // When the element type has no resolvable name (primitives like `string[]`,
+  // or opaque types like `VNode[]`), there is NO meaningful output-type key.
+  // Returning the generic `Array` symbol here would bucket the loader under
+  // "Array", which then collides with EVERY array-typed section prop
+  // (`Collection[]`, `Tab[]`, …) and wrongly turns them into loader pickers.
   if (ret.isArray()) {
     const elType = ret.getArrayElementType();
-    if (elType) {
-      const elName = elType.getSymbol()?.getName() ?? elType.getAliasSymbol()?.getName() ?? null;
-      if (elName) return `${elName}[]`;
-    }
+    const elName = elType?.getSymbol()?.getName() ?? elType?.getAliasSymbol()?.getName() ?? null;
+    return elName ? `${elName}[]` : null;
   }
-  return ret.getSymbol()?.getName() ?? ret.getAliasSymbol()?.getName() ?? null;
+  // Reject anonymous object returns (`{ … }` → symbol name "__type"): they are
+  // not a nameable output type and would over-match anonymous-object props.
+  const name = ret.getSymbol()?.getName() ?? ret.getAliasSymbol()?.getName() ?? null;
+  return name && name !== "__type" ? name : null;
 }
 
 export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
@@ -565,7 +571,12 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
         if (ctx?.outputTypeToLoaderKeys) {
           const typeSym = propType.getSymbol() ?? propType.getAliasSymbol();
-          const outputTypeName = typeSym?.getName() ?? baseHint;
+          // An array type's symbol name is always the generic "Array", which is
+          // never a meaningful loader output key — fall back to the AST type
+          // text (`baseHint`, e.g. "Collection[]") instead. The element-based
+          // `${elName}[]` lookup below handles arrays precisely.
+          const symName = typeSym?.getName();
+          const outputTypeName = symName && symName !== "Array" ? symName : baseHint;
           let matchingLoaders =
             ctx.outputTypeToLoaderKeys.get(outputTypeName) ??
             (outputTypeName !== baseHint ? ctx.outputTypeToLoaderKeys.get(baseHint) : undefined);
