@@ -285,6 +285,21 @@
         "typescript": "^5.9.0",
       },
     },
+    "packages/eitri": {
+      "name": "@decocms/eitri",
+      "version": "0.0.0",
+      "bin": {
+        "deco-eitri": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@decocms/blocks-cli": "workspace:*",
+        "tsx": "^4.22.5",
+      },
+      "devDependencies": {
+        "knip": "^5.86.0",
+        "typescript": "^5.9.0",
+      },
+    },
     "packages/nextjs": {
       "name": "@decocms/nextjs",
       "version": "0.0.0",
@@ -478,6 +493,8 @@
     "@decocms/blocks-admin": ["@decocms/blocks-admin@workspace:packages/blocks-admin"],
 
     "@decocms/blocks-cli": ["@decocms/blocks-cli@workspace:packages/blocks-cli"],
+
+    "@decocms/eitri": ["@decocms/eitri@workspace:packages/eitri"],
 
     "@decocms/nextjs": ["@decocms/nextjs@workspace:packages/nextjs"],
 

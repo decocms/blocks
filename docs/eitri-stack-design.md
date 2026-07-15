@@ -1,8 +1,9 @@
 # Supporting the Eitri stack — Design & Plan
 
-> Design + phased plan captured in the 2026-07-14 session. Phase 0 (two spikes:
-> schema generation + self-contained `composeMeta`) has been run and is reported
-> below; Phases 1–3 are proposed, not yet implemented. Target app:
+> Design + phased plan captured in the 2026-07-14 session. **Status:** Phase 0
+> (spikes) and **Phase 1 shipped** (PRs #362/#363/#364, released in
+> `blocks-v7.19.0`); **Phase 2 implemented** (the `@decocms/eitri` package —
+> this doc's PR). Phase 3 remains. Target app:
 > `montecarlo-app/eitri-shopping-monte-carlo-shared`.
 
 ## Direction (decided 2026-07-14)
@@ -291,9 +292,27 @@ flag is proposed in Phase 1 for the monorepo-of-apps ergonomics.
   awareness into `buildPlan`). Also ensure `blocks` runs even when
   `.deco/blocks/` is empty (a fresh app) so an empty snapshot is emitted.
 
-### Phase 2 — `@decocms/eitri` package (lean, non-rendering)
+### Phase 2 — `@decocms/eitri` package (lean, non-rendering) — IMPLEMENTED
 
-Mirror the *lean* Next.js package layout, but include only what Eitri needs:
+Shipped in `packages/eitri`:
+- `package.json` (`@decocms/eitri`, dep `@decocms/blocks-cli` + `tsx`, `bin:
+  deco-eitri`, `exports` `./tsconfig` + `./types`; auto-publishes in the
+  lockstep release — `packages/*` is globbed by `sync-versions.mjs` /
+  `publishCmd`, no release-config edits needed).
+- `configs/tsconfig.json` — base tsconfig Eitri apps extend (`allowJs`,
+  `checkJs:false`, `jsx`, `skipLibCheck`), exported as `@decocms/eitri/tsconfig`.
+- `types/eitri-luminus.d.ts` — ambient `eitri-luminus`/`eitri-bifrost`/
+  `eitri-commons` shims (loose `any`), so authors' editors/`tsc` don't flag the
+  imports. Generation works without them.
+- `src/cli.ts` (`deco-eitri`): `init` (scaffolds tsconfig + `src/eitri-env.d.ts`
+  shim, idempotent) and `generate` (forwards to the orchestrator with
+  `--platform eitri`).
+- `src/index.ts` — programmatic `generateEitri()` + `eitriGenerateArgs()`.
+- `README.md` — the "how to run an Eitri app with the runtime" guide.
+- Tests: `eitriGenerateArgs` mapping + `runEitriInit` scaffolding/idempotency.
+
+Original intent (for reference) — mirror the *lean* Next.js package layout, but
+include only what Eitri needs:
 
 - `package.json` (raw-TS `exports`, dep on `@decocms/blocks-cli`; **no** React
   rendering deps), `README.md` = the "how to run an Eitri app with the runtime"

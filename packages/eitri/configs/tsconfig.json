@@ -1,0 +1,17 @@
+{
+  "//": "Base tsconfig for Eitri apps that generate a .deco with @decocms/eitri. Extend it from your app root: { \"extends\": \"@decocms/eitri/tsconfig\", \"include\": [\"src\"] }. generate-schema (ts-morph) reads this to parse section Props interfaces. allowJs + checkJs:false because Eitri apps are mostly plain JS with .tsx sections; skipLibCheck because eitri-luminus/eitri-bifrost types are shimmed, not installed.",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "checkJs": false,
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  }
+}
