@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parseCliOptions } from "./generate";
+import { buildPlan, parseCliOptions } from "./generate";
 
 const SCRIPT = path.resolve(__dirname, "generate.ts");
 
@@ -212,6 +212,43 @@ describe("parseCliOptions", () => {
   it("--no-registry forces the registry off; default is auto (null)", () => {
     expect(parseCliOptions(["--no-registry"]).registry).toBe(false);
     expect(parseCliOptions([]).registry).toBe(null);
+  });
+
+  it("accepts --root and a bare positional path as the effective root", () => {
+    expect(parseCliOptions(["--root", "apps/foo"]).root).toBe("apps/foo");
+    expect(parseCliOptions(["apps/foo"]).root).toBe("apps/foo");
+    expect(parseCliOptions([]).root).toBe(null);
+  });
+
+  it("rejects a second positional but still rejects unknown flags", () => {
+    expect(() => parseCliOptions(["a", "b"])).toThrow(/Unknown option/);
+    expect(() => parseCliOptions(["--wat"])).toThrow(/Unknown option/);
+  });
+});
+
+describe("buildPlan --platform eitri", () => {
+  it("runs only schema + blocks and makes schema self-contained", () => {
+    // makeFixture installs @decocms/tanstack + src/sections + src/loaders, which
+    // would normally enable sections/loaders/invoke; --platform eitri overrides.
+    const dir = makeFixture({ withInvoke: true });
+    try {
+      const plans = buildPlan(dir, parseCliOptions(["--platform", "eitri"]));
+      const byName = Object.fromEntries(plans.map((p) => [p.name, p]));
+
+      expect(byName.schema.enabled).toBe(true);
+      expect(byName.blocks.enabled).toBe(true);
+      for (const name of ["manifest", "sections", "loaders", "invoke"]) {
+        expect(byName[name].enabled).toBe(false);
+        expect(byName[name].disabledReason).toBe("not used by --platform eitri");
+      }
+
+      // schema is asked to bake composeMeta's framework block types in.
+      expect(byName.schema.args).toContain("--compose");
+      const fwIdx = byName.schema.args.indexOf("--framework");
+      expect(byName.schema.args[fwIdx + 1]).toBe("eitri");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
