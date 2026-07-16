@@ -7,47 +7,47 @@
  * @see https://developers.vtex.com/docs/api-reference/checkout-api
  */
 
+import {
+  type CartProjection,
+  type CartSection,
+  defaultSectionsFor,
+  SECTIONS_FULL,
+} from "@decocms/apps-commerce/types";
 import { getVtexConfig, vtexFetchWithCookies } from "../client";
 import type { OrderForm } from "../types";
+import {
+  type ProjectOrderFormOptions,
+  projectOrderForm,
+  type VtexCartProjectionResult,
+} from "../utils/cartProjection";
 
-export const DEFAULT_EXPECTED_SECTIONS = [
-	"items",
-	"totalizers",
-	"clientProfileData",
-	"shippingData",
-	"paymentData",
-	"sellers",
-	"messages",
-	"marketingData",
-	"clientPreferencesData",
-	"storePreferencesData",
-	"giftRegistryData",
-	"ratesAndBenefitsData",
-	"openTextField",
-	"commercialConditionData",
-	"customData",
-];
+/**
+ * Legacy full-section default. Kept as an exported symbol (loaders/cart.ts and
+ * older callers import it), but sourced from the agnostic `SECTIONS_FULL`
+ * preset so the "which sections" list lives in exactly one place.
+ */
+export const DEFAULT_EXPECTED_SECTIONS: string[] = SECTIONS_FULL;
 
 function scParam(): string {
-	const sc = getVtexConfig().salesChannel;
-	return sc ? `sc=${sc}` : "";
+  const sc = getVtexConfig().salesChannel;
+  return sc ? `sc=${sc}` : "";
 }
 
 function appendSc(params: URLSearchParams): URLSearchParams {
-	const sc = getVtexConfig().salesChannel;
-	if (sc) params.set("sc", sc);
-	return params;
+  const sc = getVtexConfig().salesChannel;
+  if (sc) params.set("sc", sc);
+  return params;
 }
 
 function forceHttpsOnAssets(orderForm: OrderForm): OrderForm {
-	if (!orderForm?.items) return orderForm;
-	return {
-		...orderForm,
-		items: orderForm.items.map((item: any) => ({
-			...item,
-			imageUrl: item.imageUrl?.replace(/^http:/, "https:"),
-		})),
-	};
+  if (!orderForm?.items) return orderForm;
+  return {
+    ...orderForm,
+    items: orderForm.items.map((item: any) => ({
+      ...item,
+      imageUrl: item.imageUrl?.replace(/^http:/, "https:"),
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -55,107 +55,107 @@ function forceHttpsOnAssets(orderForm: OrderForm): OrderForm {
 // ---------------------------------------------------------------------------
 
 export interface GetOrCreateCartProps {
-	orderFormId?: string;
+  orderFormId?: string;
 }
 
 export async function getOrCreateCart(props: GetOrCreateCartProps): Promise<OrderForm> {
-	const { orderFormId } = props;
-	const sc = scParam();
+  const { orderFormId } = props;
+  const sc = scParam();
 
-	if (orderFormId) {
-		const result = await vtexFetchWithCookies<OrderForm>(
-			`/api/checkout/pub/orderForm/${orderFormId}${sc ? `?${sc}` : ""}`,
-		);
-		return forceHttpsOnAssets(result);
-	}
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm${sc ? `?${sc}` : ""}`,
-		{
-			method: "POST",
-			body: JSON.stringify({
-				expectedOrderFormSections: DEFAULT_EXPECTED_SECTIONS,
-			}),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  if (orderFormId) {
+    const result = await vtexFetchWithCookies<OrderForm>(
+      `/api/checkout/pub/orderForm/${orderFormId}${sc ? `?${sc}` : ""}`,
+    );
+    return forceHttpsOnAssets(result);
+  }
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm${sc ? `?${sc}` : ""}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        expectedOrderFormSections: DEFAULT_EXPECTED_SECTIONS,
+      }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface AddItemsToCartProps {
-	orderFormId: string;
-	orderItems: Array<{
-		id: string;
-		seller: string;
-		quantity: number;
-		index?: number;
-		price?: number;
-	}>;
-	allowedOutdatedData?: string[];
+  orderFormId: string;
+  orderItems: Array<{
+    id: string;
+    seller: string;
+    quantity: number;
+    index?: number;
+    price?: number;
+  }>;
+  allowedOutdatedData?: string[];
 }
 
 export async function addItemsToCart(props: AddItemsToCartProps): Promise<OrderForm> {
-	const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"] } = props;
-	const params = appendSc(new URLSearchParams());
-	for (const d of allowedOutdatedData) params.append("allowedOutdatedData", d);
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items?${params}`,
-		{ method: "POST", body: JSON.stringify({ orderItems }) },
-	);
-	return forceHttpsOnAssets(result);
+  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"] } = props;
+  const params = appendSc(new URLSearchParams());
+  for (const d of allowedOutdatedData) params.append("allowedOutdatedData", d);
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items?${params}`,
+    { method: "POST", body: JSON.stringify({ orderItems }) },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface UpdateCartItemsProps {
-	orderFormId: string;
-	orderItems: Array<{ index: number; quantity: number }>;
-	allowedOutdatedData?: string[];
-	noSplitItem?: boolean;
+  orderFormId: string;
+  orderItems: Array<{ index: number; quantity: number }>;
+  allowedOutdatedData?: string[];
+  noSplitItem?: boolean;
 }
 
 export async function updateCartItems(props: UpdateCartItemsProps): Promise<OrderForm> {
-	const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"], noSplitItem } = props;
-	const params = appendSc(new URLSearchParams());
-	for (const d of allowedOutdatedData) {
-		params.append("allowedOutdatedData", d);
-	}
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items/update?${params}`,
-		{
-			method: "POST",
-			body: JSON.stringify({
-				orderItems,
-				noSplitItem: Boolean(noSplitItem),
-			}),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"], noSplitItem } = props;
+  const params = appendSc(new URLSearchParams());
+  for (const d of allowedOutdatedData) {
+    params.append("allowedOutdatedData", d);
+  }
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/update?${params}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        orderItems,
+        noSplitItem: Boolean(noSplitItem),
+      }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface RemoveAllItemsProps {
-	orderFormId: string;
+  orderFormId: string;
 }
 
 export async function removeAllItems(props: RemoveAllItemsProps): Promise<OrderForm> {
-	const { orderFormId } = props;
-	const sc = scParam();
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items/removeAll${sc ? `?${sc}` : ""}`,
-		{ method: "POST", body: JSON.stringify({}) },
-	);
-	return forceHttpsOnAssets(result);
+  const { orderFormId } = props;
+  const sc = scParam();
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/removeAll${sc ? `?${sc}` : ""}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface AddCouponToCartProps {
-	orderFormId: string;
-	text: string;
+  orderFormId: string;
+  text: string;
 }
 
 export async function addCouponToCart(props: AddCouponToCartProps): Promise<OrderForm> {
-	const { orderFormId, text } = props;
-	const sc = scParam();
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/coupons${sc ? `?${sc}` : ""}`,
-		{ method: "POST", body: JSON.stringify({ text }) },
-	);
-	return forceHttpsOnAssets(result);
+  const { orderFormId, text } = props;
+  const sc = scParam();
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/coupons${sc ? `?${sc}` : ""}`,
+    { method: "POST", body: JSON.stringify({ text }) },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,35 +163,35 @@ export async function addCouponToCart(props: AddCouponToCartProps): Promise<Orde
 // ---------------------------------------------------------------------------
 
 export interface SimulationItem {
-	id: number | string;
-	quantity: number;
-	seller: string;
+  id: number | string;
+  quantity: number;
+  seller: string;
 }
 
 export interface SimulateCartProps {
-	items: SimulationItem[];
-	postalCode: string;
-	country?: string;
-	RnbBehavior?: 0 | 1;
+  items: SimulationItem[];
+  postalCode: string;
+  country?: string;
+  RnbBehavior?: 0 | 1;
 }
 
 export async function simulateCart(props: SimulateCartProps) {
-	const { items, postalCode, country, RnbBehavior = 1 } = props;
-	const config = getVtexConfig();
-	const params = appendSc(new URLSearchParams({ RnbBehavior: String(RnbBehavior) }));
-	// Uses vtexFetchWithCookies so any Set-Cookie VTEX returns on the
-	// orderForm-scoped simulation reaches the browser via RequestContext.
-	// Without this, the segment/ownership cookies VTEX may rotate during
-	// simulation are dropped, and the storefront's local orderFormId
-	// drifts away from VTEX's checkout.vtex.com server cookie.
-	return vtexFetchWithCookies<any>(`/api/checkout/pub/orderForms/simulation?${params}`, {
-		method: "POST",
-		body: JSON.stringify({
-			items,
-			postalCode,
-			country: country ?? config.country ?? "BRA",
-		}),
-	});
+  const { items, postalCode, country, RnbBehavior = 1 } = props;
+  const config = getVtexConfig();
+  const params = appendSc(new URLSearchParams({ RnbBehavior: String(RnbBehavior) }));
+  // Uses vtexFetchWithCookies so any Set-Cookie VTEX returns on the
+  // orderForm-scoped simulation reaches the browser via RequestContext.
+  // Without this, the segment/ownership cookies VTEX may rotate during
+  // simulation are dropped, and the storefront's local orderFormId
+  // drifts away from VTEX's checkout.vtex.com server cookie.
+  return vtexFetchWithCookies<any>(`/api/checkout/pub/orderForms/simulation?${params}`, {
+    method: "POST",
+    body: JSON.stringify({
+      items,
+      postalCode,
+      country: country ?? config.country ?? "BRA",
+    }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -199,55 +199,55 @@ export async function simulateCart(props: SimulateCartProps) {
 // ---------------------------------------------------------------------------
 
 export interface AddOfferingProps {
-	orderFormId: string;
-	itemIndex: number;
-	offeringId: string | number;
-	expectedOrderFormSections?: string[];
+  orderFormId: string;
+  itemIndex: number;
+  offeringId: string | number;
+  expectedOrderFormSections?: string[];
 }
 
 export async function addOffering(props: AddOfferingProps): Promise<OrderForm> {
-	const {
-		orderFormId,
-		itemIndex,
-		offeringId,
-		expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-	} = props;
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/offerings`,
-		{
-			method: "POST",
-			body: JSON.stringify({
-				expectedOrderFormSections,
-				id: offeringId,
-				info: null,
-			}),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  const {
+    orderFormId,
+    itemIndex,
+    offeringId,
+    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
+  } = props;
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/offerings`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        expectedOrderFormSections,
+        id: offeringId,
+        info: null,
+      }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface RemoveOfferingProps {
-	orderFormId: string;
-	itemIndex: number;
-	offeringId: string | number;
-	expectedOrderFormSections?: string[];
+  orderFormId: string;
+  itemIndex: number;
+  offeringId: string | number;
+  expectedOrderFormSections?: string[];
 }
 
 export async function removeOffering(props: RemoveOfferingProps): Promise<OrderForm> {
-	const {
-		orderFormId,
-		itemIndex,
-		offeringId,
-		expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-	} = props;
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/offerings/${offeringId}/remove`,
-		{
-			method: "POST",
-			body: JSON.stringify({ expectedOrderFormSections }),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  const {
+    orderFormId,
+    itemIndex,
+    offeringId,
+    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
+  } = props;
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/offerings/${offeringId}/remove`,
+    {
+      method: "POST",
+      body: JSON.stringify({ expectedOrderFormSections }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -255,94 +255,94 @@ export async function removeOffering(props: RemoveOfferingProps): Promise<OrderF
 // ---------------------------------------------------------------------------
 
 export interface UpdateOrderFormAttachmentProps {
-	orderFormId: string;
-	attachment: string;
-	body: Record<string, unknown>;
-	expectedOrderFormSections?: string[];
+  orderFormId: string;
+  attachment: string;
+  body: Record<string, unknown>;
+  expectedOrderFormSections?: string[];
 }
 
 export async function updateOrderFormAttachment(
-	props: UpdateOrderFormAttachmentProps,
+  props: UpdateOrderFormAttachmentProps,
 ): Promise<OrderForm> {
-	const {
-		orderFormId,
-		attachment,
-		body,
-		expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-	} = props;
-	if (!orderFormId) throw new Error("Order form ID is required");
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/attachments/${attachment}`,
-		{
-			method: "POST",
-			body: JSON.stringify({ expectedOrderFormSections, ...body }),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  const {
+    orderFormId,
+    attachment,
+    body,
+    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
+  } = props;
+  if (!orderFormId) throw new Error("Order form ID is required");
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/attachments/${attachment}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ expectedOrderFormSections, ...body }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface UpdateItemAttachmentProps {
-	orderFormId: string;
-	itemIndex: number;
-	attachment: string;
-	content: Record<string, unknown>;
-	noSplitItem?: boolean;
-	expectedOrderFormSections?: string[];
+  orderFormId: string;
+  itemIndex: number;
+  attachment: string;
+  content: Record<string, unknown>;
+  noSplitItem?: boolean;
+  expectedOrderFormSections?: string[];
 }
 
 export async function updateItemAttachment(props: UpdateItemAttachmentProps): Promise<OrderForm> {
-	const {
-		orderFormId,
-		itemIndex,
-		attachment,
-		content,
-		noSplitItem = true,
-		expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-	} = props;
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}`,
-		{
-			method: "POST",
-			body: JSON.stringify({
-				content,
-				noSplitItem,
-				expectedOrderFormSections,
-			}),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  const {
+    orderFormId,
+    itemIndex,
+    attachment,
+    content,
+    noSplitItem = true,
+    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
+  } = props;
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+        noSplitItem,
+        expectedOrderFormSections,
+      }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface RemoveItemAttachmentProps {
-	orderFormId: string;
-	itemIndex: number;
-	attachment: string;
-	content: Record<string, unknown>;
-	noSplitItem?: boolean;
-	expectedOrderFormSections?: string[];
+  orderFormId: string;
+  itemIndex: number;
+  attachment: string;
+  content: Record<string, unknown>;
+  noSplitItem?: boolean;
+  expectedOrderFormSections?: string[];
 }
 
 export async function removeItemAttachment(props: RemoveItemAttachmentProps): Promise<OrderForm> {
-	const {
-		orderFormId,
-		itemIndex,
-		attachment,
-		content,
-		noSplitItem = true,
-		expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-	} = props;
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}`,
-		{
-			method: "DELETE",
-			body: JSON.stringify({
-				content,
-				noSplitItem,
-				expectedOrderFormSections,
-			}),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  const {
+    orderFormId,
+    itemIndex,
+    attachment,
+    content,
+    noSplitItem = true,
+    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
+  } = props;
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({
+        content,
+        noSplitItem,
+        expectedOrderFormSections,
+      }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -350,17 +350,17 @@ export async function removeItemAttachment(props: RemoveItemAttachmentProps): Pr
 // ---------------------------------------------------------------------------
 
 export interface UpdateItemPriceProps {
-	orderFormId: string;
-	itemIndex: number;
-	price: number;
+  orderFormId: string;
+  itemIndex: number;
+  price: number;
 }
 
 export async function updateItemPrice(props: UpdateItemPriceProps): Promise<OrderForm> {
-	const { orderFormId, itemIndex, price } = props;
-	return vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/price`,
-		{ method: "PUT", body: JSON.stringify({ price }) },
-	);
+  const { orderFormId, itemIndex, price } = props;
+  return vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/price`,
+    { method: "PUT", body: JSON.stringify({ price }) },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -368,31 +368,31 @@ export async function updateItemPrice(props: UpdateItemPriceProps): Promise<Orde
 // ---------------------------------------------------------------------------
 
 export interface UpdateSelectableGiftsProps {
-	orderFormId: string;
-	giftId: string;
-	selectedGifts: Array<{ id: string; seller: string; quantity: number }>;
-	expectedOrderFormSections?: string[];
+  orderFormId: string;
+  giftId: string;
+  selectedGifts: Array<{ id: string; seller: string; quantity: number }>;
+  expectedOrderFormSections?: string[];
 }
 
 export async function updateSelectableGifts(props: UpdateSelectableGiftsProps): Promise<OrderForm> {
-	const {
-		orderFormId,
-		giftId,
-		selectedGifts,
-		expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-	} = props;
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/selectable-gifts/${giftId}`,
-		{
-			method: "POST",
-			body: JSON.stringify({
-				expectedOrderFormSections,
-				selectedGifts,
-				id: giftId,
-			}),
-		},
-	);
-	return forceHttpsOnAssets(result);
+  const {
+    orderFormId,
+    giftId,
+    selectedGifts,
+    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
+  } = props;
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/selectable-gifts/${giftId}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        expectedOrderFormSections,
+        selectedGifts,
+        id: giftId,
+      }),
+    },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -400,17 +400,17 @@ export async function updateSelectableGifts(props: UpdateSelectableGiftsProps): 
 // ---------------------------------------------------------------------------
 
 export interface GetInstallmentsProps {
-	orderFormId: string;
-	paymentSystem: number;
+  orderFormId: string;
+  paymentSystem: number;
 }
 
 export async function getInstallments(props: GetInstallmentsProps) {
-	const { orderFormId, paymentSystem } = props;
-	const params = new URLSearchParams({ paymentSystem: String(paymentSystem) });
-	appendSc(params);
-	return vtexFetchWithCookies<any>(
-		`/api/checkout/pub/orderForm/${orderFormId}/installments?${params}`,
-	);
+  const { orderFormId, paymentSystem } = props;
+  const params = new URLSearchParams({ paymentSystem: String(paymentSystem) });
+  appendSc(params);
+  return vtexFetchWithCookies<any>(
+    `/api/checkout/pub/orderForm/${orderFormId}/installments?${params}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -418,49 +418,49 @@ export async function getInstallments(props: GetInstallmentsProps) {
 // ---------------------------------------------------------------------------
 
 export interface UpdateOrderFormProfileProps {
-	orderFormId: string;
-	fields: Record<string, unknown>;
-	ignoreProfileData?: boolean;
+  orderFormId: string;
+  fields: Record<string, unknown>;
+  ignoreProfileData?: boolean;
 }
 
 export async function updateOrderFormProfile(
-	props: UpdateOrderFormProfileProps,
+  props: UpdateOrderFormProfileProps,
 ): Promise<OrderForm> {
-	const { orderFormId, fields, ignoreProfileData } = props;
-	const body = ignoreProfileData ? { ...fields, ignoreProfileData: true } : fields;
-	const result = await vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/profile`,
-		{ method: "PATCH", body: JSON.stringify(body) },
-	);
-	return forceHttpsOnAssets(result);
+  const { orderFormId, fields, ignoreProfileData } = props;
+  const body = ignoreProfileData ? { ...fields, ignoreProfileData: true } : fields;
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/profile`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+  return forceHttpsOnAssets(result);
 }
 
 export interface ChangeToAnonymousUserProps {
-	orderFormId: string;
+  orderFormId: string;
 }
 
 export async function changeToAnonymousUser(props: ChangeToAnonymousUserProps): Promise<OrderForm> {
-	const { orderFormId } = props;
-	// This endpoint rotates the orderForm ownership cookies — must use
-	// vtexFetchWithCookies so the new cookies reach the browser.
-	return vtexFetchWithCookies<OrderForm>(`/api/checkout/changeToAnonymousUser/${orderFormId}`);
+  const { orderFormId } = props;
+  // This endpoint rotates the orderForm ownership cookies — must use
+  // vtexFetchWithCookies so the new cookies reach the browser.
+  return vtexFetchWithCookies<OrderForm>(`/api/checkout/changeToAnonymousUser/${orderFormId}`);
 }
 
 export interface ClearOrderFormMessagesProps {
-	orderFormId: string;
+  orderFormId: string;
 }
 
 export async function clearOrderFormMessages(
-	props: ClearOrderFormMessagesProps,
+  props: ClearOrderFormMessagesProps,
 ): Promise<OrderForm> {
-	const { orderFormId } = props;
-	return vtexFetchWithCookies<OrderForm>(
-		`/api/checkout/pub/orderForm/${orderFormId}/messages/clear`,
-		{
-			method: "POST",
-			body: JSON.stringify({}),
-		},
-	);
+  const { orderFormId } = props;
+  return vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/messages/clear`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -468,55 +468,192 @@ export async function clearOrderFormMessages(
 // ---------------------------------------------------------------------------
 
 export interface Seller {
-	id: string;
-	name: string;
+  id: string;
+  name: string;
 }
 
 export interface RegionResult {
-	id: string;
-	sellers: Seller[];
+  id: string;
+  sellers: Seller[];
 }
 
 export interface GetSellersByRegionProps {
-	postalCode: string;
-	salesChannel?: string;
+  postalCode: string;
+  salesChannel?: string;
 }
 
 export async function getSellersByRegion(
-	props: GetSellersByRegionProps,
+  props: GetSellersByRegionProps,
 ): Promise<RegionResult | null> {
-	const { postalCode, salesChannel } = props;
-	const params = new URLSearchParams({ country: "BRA", postalCode });
-	const sc = salesChannel ?? getVtexConfig().salesChannel;
-	if (sc) params.set("sc", sc);
-	const resp = await vtexFetchWithCookies<RegionResult[]>(`/api/checkout/pub/regions/?${params}`);
-	return resp[0]?.sellers?.length > 0 ? resp[0] : null;
+  const { postalCode, salesChannel } = props;
+  const params = new URLSearchParams({ country: "BRA", postalCode });
+  const sc = salesChannel ?? getVtexConfig().salesChannel;
+  if (sc) params.set("sc", sc);
+  const resp = await vtexFetchWithCookies<RegionResult[]>(`/api/checkout/pub/regions/?${params}`);
+  return resp[0]?.sellers?.length > 0 ? resp[0] : null;
 }
 
 export interface SetShippingPostalCodeProps {
-	orderFormId: string;
-	postalCode: string;
-	country?: string;
+  orderFormId: string;
+  postalCode: string;
+  country?: string;
 }
 
 export async function setShippingPostalCode(props: SetShippingPostalCodeProps): Promise<boolean> {
-	const { orderFormId, postalCode, country = "BRA" } = props;
-	try {
-		// VTEX docs note that /attachments/shippingData can rotate the
-		// CheckoutOrderFormOwnership cookie. vtexFetchWithCookies ensures
-		// any such Set-Cookie reaches the browser via RequestContext,
-		// keeping the storefront and VTEX bound to the same orderForm.
-		await vtexFetchWithCookies<any>(
-			`/api/checkout/pub/orderForm/${orderFormId}/attachments/shippingData`,
-			{
-				method: "POST",
-				body: JSON.stringify({
-					selectedAddresses: [{ postalCode, country }],
-				}),
-			},
-		);
-		return true;
-	} catch {
-		return false;
-	}
+  const { orderFormId, postalCode, country = "BRA" } = props;
+  try {
+    // VTEX docs note that /attachments/shippingData can rotate the
+    // CheckoutOrderFormOwnership cookie. vtexFetchWithCookies ensures
+    // any such Set-Cookie reaches the browser via RequestContext,
+    // keeping the storefront and VTEX bound to the same orderForm.
+    await vtexFetchWithCookies<any>(
+      `/api/checkout/pub/orderForm/${orderFormId}/attachments/shippingData`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          selectedAddresses: [{ postalCode, country }],
+        }),
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cart v2 — granular sections + server-side projection
+//
+// The v1 CRUD above always returns the raw OrderForm with all 15 sections.
+// The v2 variants let the caller pick (a) which `sections` VTEX computes and
+// (b) which `projection` reaches the client — defaulting to the minimum
+// (`SECTIONS_MINIMAL` + `"summary+items"`). They are additive: v1 stays for
+// back-compat, v2 is opt-in via the new loaders/hooks.
+//
+// @see `@decocms/apps-commerce/types/cart` for the contract.
+// ---------------------------------------------------------------------------
+
+/** Shared fragmentation knobs for every v2 cart operation. */
+export interface CartV2Options {
+  /** Sections to request from VTEX. Defaults to the projection's preset. */
+  sections?: CartSection[];
+  /** Client-facing shape. Default: `"summary+items"`. */
+  projection?: CartProjection;
+  /** Storefront overrides forwarded when `projection === "minicart"`. */
+  minicartOptions?: ProjectOrderFormOptions;
+}
+
+function resolveFragmentation(opts: CartV2Options): {
+  sections: string[];
+  projection: CartProjection;
+} {
+  const projection = opts.projection ?? "summary+items";
+  const sections = opts.sections ?? defaultSectionsFor(projection);
+  return { sections, projection };
+}
+
+export interface GetOrCreateCartV2Props extends CartV2Options {
+  orderFormId?: string;
+}
+
+/**
+ * v2 of {@link getOrCreateCart}. Fetches (or creates, when no id) the cart with
+ * only the requested sections and returns the requested projection.
+ */
+export async function getOrCreateCartV2(
+  props: GetOrCreateCartV2Props,
+): Promise<VtexCartProjectionResult> {
+  const { orderFormId } = props;
+  const { sections, projection } = resolveFragmentation(props);
+  const sc = scParam();
+  const body = JSON.stringify({ expectedOrderFormSections: sections });
+
+  const result = orderFormId
+    ? await vtexFetchWithCookies<OrderForm>(
+        `/api/checkout/pub/orderForm/${orderFormId}${sc ? `?${sc}` : ""}`,
+        { method: "POST", body },
+      )
+    : await vtexFetchWithCookies<OrderForm>(`/api/checkout/pub/orderForm${sc ? `?${sc}` : ""}`, {
+        method: "POST",
+        body,
+      });
+  return projectOrderForm(forceHttpsOnAssets(result), projection, props.minicartOptions);
+}
+
+export interface AddItemsToCartV2Props extends CartV2Options {
+  orderFormId: string;
+  orderItems: Array<{
+    id: string;
+    seller: string;
+    quantity: number;
+    index?: number;
+    price?: number;
+  }>;
+  allowedOutdatedData?: string[];
+}
+
+/** v2 of {@link addItemsToCart} — fragmented request + projected response. */
+export async function addItemsToCartV2(
+  props: AddItemsToCartV2Props,
+): Promise<VtexCartProjectionResult> {
+  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"] } = props;
+  const { sections, projection } = resolveFragmentation(props);
+  const params = appendSc(new URLSearchParams());
+  for (const d of allowedOutdatedData) params.append("allowedOutdatedData", d);
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items?${params}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ orderItems, expectedOrderFormSections: sections }),
+    },
+  );
+  return projectOrderForm(forceHttpsOnAssets(result), projection, props.minicartOptions);
+}
+
+export interface UpdateCartItemsV2Props extends CartV2Options {
+  orderFormId: string;
+  orderItems: Array<{ index: number; quantity: number }>;
+  allowedOutdatedData?: string[];
+  noSplitItem?: boolean;
+}
+
+/** v2 of {@link updateCartItems} — used for quantity change and item removal (`quantity: 0`). */
+export async function updateCartItemsV2(
+  props: UpdateCartItemsV2Props,
+): Promise<VtexCartProjectionResult> {
+  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"], noSplitItem } = props;
+  const { sections, projection } = resolveFragmentation(props);
+  const params = appendSc(new URLSearchParams());
+  for (const d of allowedOutdatedData) params.append("allowedOutdatedData", d);
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/items/update?${params}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        orderItems,
+        noSplitItem: Boolean(noSplitItem),
+        expectedOrderFormSections: sections,
+      }),
+    },
+  );
+  return projectOrderForm(forceHttpsOnAssets(result), projection, props.minicartOptions);
+}
+
+export interface AddCouponToCartV2Props extends CartV2Options {
+  orderFormId: string;
+  text: string;
+}
+
+/** v2 of {@link addCouponToCart} — a coupon typically needs the drawer projection. */
+export async function addCouponToCartV2(
+  props: AddCouponToCartV2Props,
+): Promise<VtexCartProjectionResult> {
+  const { orderFormId, text } = props;
+  const { sections, projection } = resolveFragmentation(props);
+  const sc = scParam();
+  const result = await vtexFetchWithCookies<OrderForm>(
+    `/api/checkout/pub/orderForm/${orderFormId}/coupons${sc ? `?${sc}` : ""}`,
+    { method: "POST", body: JSON.stringify({ text, expectedOrderFormSections: sections }) },
+  );
+  return projectOrderForm(forceHttpsOnAssets(result), projection, props.minicartOptions);
 }

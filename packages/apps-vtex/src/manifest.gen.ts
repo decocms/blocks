@@ -17,6 +17,11 @@ import * as loaders_address from "./loaders/address";
 import * as loaders_autocomplete from "./loaders/autocomplete";
 import * as loaders_brands from "./loaders/brands";
 import * as loaders_cart from "./loaders/cart";
+import * as loaders_cart_attachments from "./loaders/cart/attachments";
+import * as loaders_cart_full from "./loaders/cart/full";
+import * as loaders_cart_gifts from "./loaders/cart/gifts";
+import * as loaders_cart_shipping from "./loaders/cart/shipping";
+import * as loaders_cart_summary from "./loaders/cart/summary";
 import * as loaders_catalog from "./loaders/catalog";
 import * as loaders_collections from "./loaders/collections";
 import * as loaders_legacy from "./loaders/legacy";
@@ -35,44 +40,49 @@ import * as loaders_wishlistProducts from "./loaders/wishlistProducts";
 import * as loaders_workflow from "./loaders/workflow";
 
 const manifest = {
-	name: "vtex",
-	loaders: {
-		"vtex/loaders/address": loaders_address,
-		"vtex/loaders/autocomplete": loaders_autocomplete,
-		"vtex/loaders/brands": loaders_brands,
-		"vtex/loaders/cart": loaders_cart,
-		"vtex/loaders/catalog": loaders_catalog,
-		"vtex/loaders/collections": loaders_collections,
-		"vtex/loaders/legacy": loaders_legacy,
-		"vtex/loaders/logistics": loaders_logistics,
-		"vtex/loaders/navbar": loaders_navbar,
-		"vtex/loaders/orders": loaders_orders,
-		"vtex/loaders/pageType": loaders_pageType,
-		"vtex/loaders/payment": loaders_payment,
-		"vtex/loaders/profile": loaders_profile,
-		"vtex/loaders/promotion": loaders_promotion,
-		"vtex/loaders/search": loaders_search,
-		"vtex/loaders/session": loaders_session,
-		"vtex/loaders/user": loaders_user,
-		"vtex/loaders/wishlist": loaders_wishlist,
-		"vtex/loaders/wishlistProducts": loaders_wishlistProducts,
-		"vtex/loaders/workflow": loaders_workflow,
-	},
-	actions: {
-		"vtex/actions/address": actions_address,
-		"vtex/actions/analytics/sendEvent": actions_analytics_sendEvent,
-		"vtex/actions/auth": actions_auth,
-		"vtex/actions/checkout": actions_checkout,
-		"vtex/actions/masterData": actions_masterData,
-		"vtex/actions/misc": actions_misc,
-		"vtex/actions/newsletter": actions_newsletter,
-		"vtex/actions/orders": actions_orders,
-		"vtex/actions/profile": actions_profile,
-		"vtex/actions/session": actions_session,
-		"vtex/actions/trigger": actions_trigger,
-		"vtex/actions/wishlist": actions_wishlist,
-	},
-	sections: {},
+  name: "vtex",
+  loaders: {
+    "vtex/loaders/address": loaders_address,
+    "vtex/loaders/autocomplete": loaders_autocomplete,
+    "vtex/loaders/brands": loaders_brands,
+    "vtex/loaders/cart": loaders_cart,
+    "vtex/loaders/cart/summary": loaders_cart_summary,
+    "vtex/loaders/cart/full": loaders_cart_full,
+    "vtex/loaders/cart/shipping": loaders_cart_shipping,
+    "vtex/loaders/cart/gifts": loaders_cart_gifts,
+    "vtex/loaders/cart/attachments": loaders_cart_attachments,
+    "vtex/loaders/catalog": loaders_catalog,
+    "vtex/loaders/collections": loaders_collections,
+    "vtex/loaders/legacy": loaders_legacy,
+    "vtex/loaders/logistics": loaders_logistics,
+    "vtex/loaders/navbar": loaders_navbar,
+    "vtex/loaders/orders": loaders_orders,
+    "vtex/loaders/pageType": loaders_pageType,
+    "vtex/loaders/payment": loaders_payment,
+    "vtex/loaders/profile": loaders_profile,
+    "vtex/loaders/promotion": loaders_promotion,
+    "vtex/loaders/search": loaders_search,
+    "vtex/loaders/session": loaders_session,
+    "vtex/loaders/user": loaders_user,
+    "vtex/loaders/wishlist": loaders_wishlist,
+    "vtex/loaders/wishlistProducts": loaders_wishlistProducts,
+    "vtex/loaders/workflow": loaders_workflow,
+  },
+  actions: {
+    "vtex/actions/address": actions_address,
+    "vtex/actions/analytics/sendEvent": actions_analytics_sendEvent,
+    "vtex/actions/auth": actions_auth,
+    "vtex/actions/checkout": actions_checkout,
+    "vtex/actions/masterData": actions_masterData,
+    "vtex/actions/misc": actions_misc,
+    "vtex/actions/newsletter": actions_newsletter,
+    "vtex/actions/orders": actions_orders,
+    "vtex/actions/profile": actions_profile,
+    "vtex/actions/session": actions_session,
+    "vtex/actions/trigger": actions_trigger,
+    "vtex/actions/wishlist": actions_wishlist,
+  },
+  sections: {},
 } as const;
 
 export type Manifest = typeof manifest;

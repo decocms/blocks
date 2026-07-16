@@ -1226,3 +1226,8 @@ export interface Minicart<TRaw = unknown> {
 		postalCode?: string;
 	};
 }
+
+// ---------------------------------------------------------------------------
+// Cart v2 — platform-agnostic fragmentation contract (sections + projections).
+// ---------------------------------------------------------------------------
+export * from "./cart";
