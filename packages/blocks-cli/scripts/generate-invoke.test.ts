@@ -268,3 +268,111 @@ describe("generate-invoke.ts — default --apps-dir resolution", () => {
     }
   }, 30_000);
 });
+
+describe("generate-invoke.ts — privileged MasterData actions are never exposed", () => {
+  // Security regression guard: generic admin-credentialed MasterData CRUD
+  // (searchDocuments / createDocument / patchDocument / getDocument /
+  // uploadAttachment) must NOT be emitted as createServerFn endpoints, even if
+  // they appear in invoke.vtex.actions. Each emitted action is a public,
+  // unauthenticated /_serverFn/<hash>; a generic (entity, filter) proxy over the
+  // app's appKey/appToken is broken access control (e.g. entity: "CL" dumps
+  // customer PII). The generator's PRIVILEGED_ACTIONS guard must skip them.
+  const FIXTURE_WITH_PRIVILEGED = `\
+import { createInvokeFn } from "@decocms/tanstack/sdk/createInvoke";
+import { getOrCreateCart } from "./actions/checkout";
+import { createDocument, searchDocuments, patchDocument } from "./actions/masterData";
+import type { OrderForm } from "./types";
+
+export const invoke = {
+	vtex: {
+		actions: {
+			getOrCreateCart: createInvokeFn(
+				(data: { orderFormId?: string }) => getOrCreateCart(data),
+			) as unknown as (ctx: { data: { orderFormId?: string } }) => Promise<OrderForm>,
+
+			createDocument: createInvokeFn(
+				(data: { entity: string; data: Record<string, any> }) => createDocument(data),
+			),
+			searchDocuments: createInvokeFn(
+				(data: { entity: string; filter: string }) => searchDocuments(data),
+			),
+			patchDocument: createInvokeFn(
+				(data: { entity: string; documentId: string; data: Record<string, any> }) =>
+					patchDocument(data),
+			),
+		},
+	},
+} as const;
+`;
+  const FIXTURE_ACTIONS_MASTERDATA_TS = `\
+export async function createDocument(_p: any): Promise<any> { return null; }
+export async function searchDocuments(_p: any): Promise<any> { return null; }
+export async function patchDocument(_p: any): Promise<any> { return null; }
+`;
+
+  let generatedOutput: string;
+  let stderr: string;
+  let status: number | null;
+  let cleanup: () => void;
+
+  beforeAll(() => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gen-invoke-priv-"));
+    const appsDir = path.join(tmp, "apps-vtex");
+    const siteDir = path.join(tmp, "site");
+    fs.mkdirSync(path.join(appsDir, "actions"), { recursive: true });
+    fs.mkdirSync(path.join(siteDir, "src", "server"), { recursive: true });
+    fs.writeFileSync(path.join(appsDir, "invoke.ts"), FIXTURE_WITH_PRIVILEGED);
+    fs.writeFileSync(path.join(appsDir, "actions", "checkout.ts"), FIXTURE_ACTIONS_CHECKOUT_TS);
+    fs.writeFileSync(path.join(appsDir, "actions", "masterData.ts"), FIXTURE_ACTIONS_MASTERDATA_TS);
+    fs.writeFileSync(path.join(appsDir, "types.ts"), FIXTURE_TYPES_TS);
+    const outFile = path.join(siteDir, "src", "server", "invoke.gen.ts");
+    const result = spawnSync(
+      "npx",
+      ["tsx", GENERATOR, "--apps-dir", appsDir, "--out-file", outFile],
+      { cwd: siteDir, encoding: "utf8" },
+    );
+    status = result.status;
+    stderr = result.stderr;
+    generatedOutput = fs.readFileSync(outFile, "utf8");
+    cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
+  }, 30_000);
+
+  afterAll(() => {
+    try {
+      cleanup();
+    } catch {
+      // ignore
+    }
+  });
+
+  it("runs to completion", () => {
+    expect(status, stderr).toBe(0);
+  });
+
+  it("does NOT emit createServerFn consts for privileged MasterData actions", () => {
+    expect(generatedOutput).not.toContain("$createDocument");
+    expect(generatedOutput).not.toContain("$searchDocuments");
+    expect(generatedOutput).not.toContain("$patchDocument");
+  });
+
+  it("does NOT list privileged actions in the exported vtexActions map", () => {
+    expect(generatedOutput).not.toMatch(/^\s*createDocument:/m);
+    expect(generatedOutput).not.toMatch(/^\s*searchDocuments:/m);
+    expect(generatedOutput).not.toMatch(/^\s*patchDocument:/m);
+  });
+
+  it("does NOT import the privileged action functions", () => {
+    expect(generatedOutput).not.toContain("actions/masterData");
+  });
+
+  it("still emits the safe action alongside the skipped ones", () => {
+    expect(generatedOutput).toContain("const $getOrCreateCart = createServerFn");
+    expect(generatedOutput).toContain("const result = await getOrCreateCart(data);");
+  });
+
+  it("warns on stderr for each skipped privileged action", () => {
+    expect(stderr).toContain('Skipping privileged action "createDocument"');
+    expect(stderr).toContain('Skipping privileged action "searchDocuments"');
+    expect(stderr).toContain('Skipping privileged action "patchDocument"');
+  });
+});

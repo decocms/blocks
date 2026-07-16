@@ -37,15 +37,6 @@ import {
 	updateCartItems,
 	updateOrderFormAttachment,
 } from "./actions/checkout";
-import {
-	type CreateDocumentResult,
-	createDocument,
-	getDocument,
-	patchDocument,
-	searchDocuments,
-	type UploadAttachmentOpts,
-	uploadAttachment,
-} from "./actions/masterData";
 import { type NotifyMeProps, notifyMe } from "./actions/misc";
 import { type SubscribeProps, subscribe } from "./actions/newsletter";
 import { createSession, editSession, type SessionData } from "./actions/session";
@@ -139,31 +130,30 @@ export const invoke = {
 			}) => Promise<SessionData>,
 
 			// -- MasterData -------------------------------------------------------
-
-			createDocument: createInvokeFn((data: { entity: string; data: Record<string, any> }) =>
-				createDocument(data),
-			) as unknown as (ctx: {
-				data: { entity: string; data: Record<string, any> };
-			}) => Promise<CreateDocumentResult>,
-
-			getDocument: createInvokeFn((data: { entity: string; documentId: string }) =>
-				getDocument(data),
-			),
-
-			patchDocument: createInvokeFn(
-				(data: { entity: string; documentId: string; data: Record<string, any> }) =>
-					patchDocument(data),
-			) as unknown as (ctx: {
-				data: { entity: string; documentId: string; data: Record<string, any> };
-			}) => Promise<void>,
-
-			searchDocuments: createInvokeFn((data: { entity: string; filter: string }) =>
-				searchDocuments(data),
-			),
-
-			uploadAttachment: createInvokeFn((data: UploadAttachmentOpts) =>
-				uploadAttachment(data),
-			) as unknown as (ctx: { data: UploadAttachmentOpts }) => Promise<{ ok: true }>,
+			//
+			// Generic MasterData CRUD (createDocument / getDocument / patchDocument /
+			// searchDocuments / uploadAttachment) is deliberately NOT exposed here.
+			//
+			// Every entry in this object is emitted by @decocms/blocks-cli's
+			// generate-invoke.ts as a top-level createServerFn, which TanStack Start
+			// compiles into a public, unauthenticated /_serverFn/<hash> endpoint. A
+			// generic action that takes a client-supplied `entity` and proxies to the
+			// VTEX MasterData API with the app's admin appKey/appToken lets any caller
+			// read/enumerate/write arbitrary entities — e.g. searchDocuments({ entity:
+			// "CL", ... }) dumps the Clients (customer PII) table. Authentication alone
+			// can't make this safe: the generic (entity, filter) shape has no room for
+			// per-entity/per-record authorization.
+			//
+			// The underlying functions remain exported from ./actions/masterData for
+			// SERVER-SIDE use. A site that needs MasterData defines a narrow,
+			// entity-pinned, validated action in its own src/server/invoke.ts: pin
+			// `entity` server-side (never take it from the client), validate input, and
+			// for user-scoped data derive identity from the session cookie
+			// (parseVtexAuthJwt) rather than a client-supplied id. See `subscribe` /
+			// `notifyMe` below for the purpose-specific pattern.
+			//
+			// generate-invoke.ts also carries a PRIVILEGED_ACTIONS guard that refuses
+			// to emit these names even if re-added here, so this stays enforced.
 
 			// -- Newsletter -------------------------------------------------------
 
