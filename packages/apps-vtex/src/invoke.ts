@@ -24,32 +24,39 @@
  *   1. Add an entry below with the input/output types and the action call,
  *   2. From a site repo: `npm run generate:invoke`.
  */
+
+import type { CartProjection, CartSection } from "@decocms/apps-commerce/types";
 import { createInvokeFn } from "@decocms/tanstack/sdk/createInvoke";
 import {
-	addCouponToCart,
-	addItemsToCart,
-	getOrCreateCart,
-	getSellersByRegion,
-	type RegionResult,
-	type SimulationItem,
-	setShippingPostalCode,
-	simulateCart,
-	updateCartItems,
-	updateOrderFormAttachment,
+  addCouponToCart,
+  addCouponToCartV2,
+  addItemsToCart,
+  addItemsToCartV2,
+  getOrCreateCart,
+  getOrCreateCartV2,
+  getSellersByRegion,
+  type RegionResult,
+  type SimulationItem,
+  setShippingPostalCode,
+  simulateCart,
+  updateCartItems,
+  updateCartItemsV2,
+  updateOrderFormAttachment,
 } from "./actions/checkout";
 import {
-	type CreateDocumentResult,
-	createDocument,
-	getDocument,
-	patchDocument,
-	searchDocuments,
-	type UploadAttachmentOpts,
-	uploadAttachment,
+  type CreateDocumentResult,
+  createDocument,
+  getDocument,
+  patchDocument,
+  searchDocuments,
+  type UploadAttachmentOpts,
+  uploadAttachment,
 } from "./actions/masterData";
 import { type NotifyMeProps, notifyMe } from "./actions/misc";
 import { type SubscribeProps, subscribe } from "./actions/newsletter";
 import { createSession, editSession, type SessionData } from "./actions/session";
 import type { OrderForm } from "./types";
+import type { VtexCartProjectionResult } from "./utils/cartProjection";
 
 // ---------------------------------------------------------------------------
 // invoke.vtex.actions — typed server functions callable from client
@@ -62,120 +69,177 @@ import type { OrderForm } from "./types";
 // ---------------------------------------------------------------------------
 
 export const invoke = {
-	vtex: {
-		actions: {
-			// -- Cart (OrderForm CRUD) --------------------------------------------
+  vtex: {
+    actions: {
+      // -- Cart (OrderForm CRUD) --------------------------------------------
 
-			getOrCreateCart: createInvokeFn((data: { orderFormId?: string }) =>
-				getOrCreateCart(data),
-			) as unknown as (ctx: { data: { orderFormId?: string } }) => Promise<OrderForm>,
+      getOrCreateCart: createInvokeFn((data: { orderFormId?: string }) =>
+        getOrCreateCart(data),
+      ) as unknown as (ctx: { data: { orderFormId?: string } }) => Promise<OrderForm>,
 
-			addItemsToCart: createInvokeFn(
-				(data: {
-					orderFormId: string;
-					orderItems: Array<{
-						id: string;
-						seller: string;
-						quantity: number;
-					}>;
-				}) => addItemsToCart(data),
-			) as unknown as (ctx: {
-				data: {
-					orderFormId: string;
-					orderItems: Array<{
-						id: string;
-						seller: string;
-						quantity: number;
-					}>;
-				};
-			}) => Promise<OrderForm>,
+      addItemsToCart: createInvokeFn(
+        (data: {
+          orderFormId: string;
+          orderItems: Array<{
+            id: string;
+            seller: string;
+            quantity: number;
+          }>;
+        }) => addItemsToCart(data),
+      ) as unknown as (ctx: {
+        data: {
+          orderFormId: string;
+          orderItems: Array<{
+            id: string;
+            seller: string;
+            quantity: number;
+          }>;
+        };
+      }) => Promise<OrderForm>,
 
-			updateCartItems: createInvokeFn(
-				(data: { orderFormId: string; orderItems: Array<{ index: number; quantity: number }> }) =>
-					updateCartItems(data),
-			) as unknown as (ctx: {
-				data: { orderFormId: string; orderItems: Array<{ index: number; quantity: number }> };
-			}) => Promise<OrderForm>,
+      updateCartItems: createInvokeFn(
+        (data: { orderFormId: string; orderItems: Array<{ index: number; quantity: number }> }) =>
+          updateCartItems(data),
+      ) as unknown as (ctx: {
+        data: { orderFormId: string; orderItems: Array<{ index: number; quantity: number }> };
+      }) => Promise<OrderForm>,
 
-			addCouponToCart: createInvokeFn((data: { orderFormId: string; text: string }) =>
-				addCouponToCart(data),
-			) as unknown as (ctx: { data: { orderFormId: string; text: string } }) => Promise<OrderForm>,
+      addCouponToCart: createInvokeFn((data: { orderFormId: string; text: string }) =>
+        addCouponToCart(data),
+      ) as unknown as (ctx: { data: { orderFormId: string; text: string } }) => Promise<OrderForm>,
 
-			simulateCart: createInvokeFn(
-				(data: { items: SimulationItem[]; postalCode: string; country?: string }) =>
-					simulateCart(data),
-			),
+      // -- Cart v2 (fragmented sections + projected response) ----------------
 
-			// -- Shipping / Region ------------------------------------------------
+      getOrCreateCartV2: createInvokeFn(
+        (data: { orderFormId?: string; projection?: CartProjection; sections?: CartSection[] }) =>
+          getOrCreateCartV2(data),
+      ) as unknown as (ctx: {
+        data: { orderFormId?: string; projection?: CartProjection; sections?: CartSection[] };
+      }) => Promise<VtexCartProjectionResult>,
 
-			getSellersByRegion: createInvokeFn((data: { postalCode: string; salesChannel?: string }) =>
-				getSellersByRegion(data),
-			) as unknown as (ctx: {
-				data: { postalCode: string; salesChannel?: string };
-			}) => Promise<RegionResult | null>,
+      addItemsToCartV2: createInvokeFn(
+        (data: {
+          orderFormId: string;
+          orderItems: Array<{ id: string; seller: string; quantity: number }>;
+          projection?: CartProjection;
+          sections?: CartSection[];
+        }) => addItemsToCartV2(data),
+      ) as unknown as (ctx: {
+        data: {
+          orderFormId: string;
+          orderItems: Array<{ id: string; seller: string; quantity: number }>;
+          projection?: CartProjection;
+          sections?: CartSection[];
+        };
+      }) => Promise<VtexCartProjectionResult>,
 
-			setShippingPostalCode: createInvokeFn(
-				(data: { orderFormId: string; postalCode: string; country?: string }) =>
-					setShippingPostalCode(data),
-			) as unknown as (ctx: {
-				data: { orderFormId: string; postalCode: string; country?: string };
-			}) => Promise<boolean>,
+      updateCartItemsV2: createInvokeFn(
+        (data: {
+          orderFormId: string;
+          orderItems: Array<{ index: number; quantity: number }>;
+          projection?: CartProjection;
+          sections?: CartSection[];
+        }) => updateCartItemsV2(data),
+      ) as unknown as (ctx: {
+        data: {
+          orderFormId: string;
+          orderItems: Array<{ index: number; quantity: number }>;
+          projection?: CartProjection;
+          sections?: CartSection[];
+        };
+      }) => Promise<VtexCartProjectionResult>,
 
-			updateOrderFormAttachment: createInvokeFn(
-				(data: { orderFormId: string; attachment: string; body: Record<string, unknown> }) =>
-					updateOrderFormAttachment(data),
-			) as unknown as (ctx: {
-				data: { orderFormId: string; attachment: string; body: Record<string, unknown> };
-			}) => Promise<OrderForm>,
+      addCouponToCartV2: createInvokeFn(
+        (data: {
+          orderFormId: string;
+          text: string;
+          projection?: CartProjection;
+          sections?: CartSection[];
+        }) => addCouponToCartV2(data),
+      ) as unknown as (ctx: {
+        data: {
+          orderFormId: string;
+          text: string;
+          projection?: CartProjection;
+          sections?: CartSection[];
+        };
+      }) => Promise<VtexCartProjectionResult>,
 
-			// -- Session ----------------------------------------------------------
+      simulateCart: createInvokeFn(
+        (data: { items: SimulationItem[]; postalCode: string; country?: string }) =>
+          simulateCart(data),
+      ),
 
-			createSession: createInvokeFn((data: Record<string, any>) => createSession({ data })),
+      // -- Shipping / Region ------------------------------------------------
 
-			editSession: createInvokeFn((data: { public: Record<string, { value: string }> }) =>
-				editSession(data),
-			) as unknown as (ctx: {
-				data: { public: Record<string, { value: string }> };
-			}) => Promise<SessionData>,
+      getSellersByRegion: createInvokeFn((data: { postalCode: string; salesChannel?: string }) =>
+        getSellersByRegion(data),
+      ) as unknown as (ctx: {
+        data: { postalCode: string; salesChannel?: string };
+      }) => Promise<RegionResult | null>,
 
-			// -- MasterData -------------------------------------------------------
+      setShippingPostalCode: createInvokeFn(
+        (data: { orderFormId: string; postalCode: string; country?: string }) =>
+          setShippingPostalCode(data),
+      ) as unknown as (ctx: {
+        data: { orderFormId: string; postalCode: string; country?: string };
+      }) => Promise<boolean>,
 
-			createDocument: createInvokeFn((data: { entity: string; data: Record<string, any> }) =>
-				createDocument(data),
-			) as unknown as (ctx: {
-				data: { entity: string; data: Record<string, any> };
-			}) => Promise<CreateDocumentResult>,
+      updateOrderFormAttachment: createInvokeFn(
+        (data: { orderFormId: string; attachment: string; body: Record<string, unknown> }) =>
+          updateOrderFormAttachment(data),
+      ) as unknown as (ctx: {
+        data: { orderFormId: string; attachment: string; body: Record<string, unknown> };
+      }) => Promise<OrderForm>,
 
-			getDocument: createInvokeFn((data: { entity: string; documentId: string }) =>
-				getDocument(data),
-			),
+      // -- Session ----------------------------------------------------------
 
-			patchDocument: createInvokeFn(
-				(data: { entity: string; documentId: string; data: Record<string, any> }) =>
-					patchDocument(data),
-			) as unknown as (ctx: {
-				data: { entity: string; documentId: string; data: Record<string, any> };
-			}) => Promise<void>,
+      createSession: createInvokeFn((data: Record<string, any>) => createSession({ data })),
 
-			searchDocuments: createInvokeFn((data: { entity: string; filter: string }) =>
-				searchDocuments(data),
-			),
+      editSession: createInvokeFn((data: { public: Record<string, { value: string }> }) =>
+        editSession(data),
+      ) as unknown as (ctx: {
+        data: { public: Record<string, { value: string }> };
+      }) => Promise<SessionData>,
 
-			uploadAttachment: createInvokeFn((data: UploadAttachmentOpts) =>
-				uploadAttachment(data),
-			) as unknown as (ctx: { data: UploadAttachmentOpts }) => Promise<{ ok: true }>,
+      // -- MasterData -------------------------------------------------------
 
-			// -- Newsletter -------------------------------------------------------
+      createDocument: createInvokeFn((data: { entity: string; data: Record<string, any> }) =>
+        createDocument(data),
+      ) as unknown as (ctx: {
+        data: { entity: string; data: Record<string, any> };
+      }) => Promise<CreateDocumentResult>,
 
-			subscribe: createInvokeFn((data: SubscribeProps) => subscribe(data)) as unknown as (ctx: {
-				data: SubscribeProps;
-			}) => Promise<void>,
+      getDocument: createInvokeFn((data: { entity: string; documentId: string }) =>
+        getDocument(data),
+      ),
 
-			// -- Misc -------------------------------------------------------------
+      patchDocument: createInvokeFn(
+        (data: { entity: string; documentId: string; data: Record<string, any> }) =>
+          patchDocument(data),
+      ) as unknown as (ctx: {
+        data: { entity: string; documentId: string; data: Record<string, any> };
+      }) => Promise<void>,
 
-			notifyMe: createInvokeFn((data: NotifyMeProps) => notifyMe(data)) as unknown as (ctx: {
-				data: NotifyMeProps;
-			}) => Promise<void>,
-		},
-	},
+      searchDocuments: createInvokeFn((data: { entity: string; filter: string }) =>
+        searchDocuments(data),
+      ),
+
+      uploadAttachment: createInvokeFn((data: UploadAttachmentOpts) =>
+        uploadAttachment(data),
+      ) as unknown as (ctx: { data: UploadAttachmentOpts }) => Promise<{ ok: true }>,
+
+      // -- Newsletter -------------------------------------------------------
+
+      subscribe: createInvokeFn((data: SubscribeProps) => subscribe(data)) as unknown as (ctx: {
+        data: SubscribeProps;
+      }) => Promise<void>,
+
+      // -- Misc -------------------------------------------------------------
+
+      notifyMe: createInvokeFn((data: NotifyMeProps) => notifyMe(data)) as unknown as (ctx: {
+        data: NotifyMeProps;
+      }) => Promise<void>,
+    },
+  },
 } as const;

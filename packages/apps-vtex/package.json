@@ -54,10 +54,17 @@
     "@decocms/tanstack": "workspace:*"
   },
   "peerDependencies": {
+    "@tanstack/react-query": ">=5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
+  "peerDependenciesMeta": {
+    "@tanstack/react-query": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@tanstack/react-query": "^5.96.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "knip": "^5.86.0",
