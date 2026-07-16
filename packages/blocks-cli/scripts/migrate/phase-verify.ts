@@ -349,7 +349,16 @@ export const checks: Check[] = [
         return false;
       }
       const content = fs.readFileSync(gitignorePath, "utf-8");
-      const required = [".wrangler/", "node_modules/", ".tanstack/", "src/routeTree.gen.ts"];
+      const required = [
+        ".wrangler/",
+        "node_modules/",
+        ".tanstack/",
+        "src/routeTree.gen.ts",
+        // Generated snapshots must be ignored — committing them causes
+        // constant PR merge conflicts (see generateGitignore in phase-scaffold).
+        ".deco/blocks.gen.json",
+        ".deco/meta.gen.json",
+      ];
       const missing = required.filter((r) => !content.includes(r));
       if (missing.length > 0) {
         console.log(`    .gitignore missing entries: ${missing.join(", ")}`);

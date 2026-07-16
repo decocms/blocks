@@ -456,6 +456,35 @@ export function decoVitePlugin() {
         }, 500);
       };
 
+      // Cold-start bootstrap: generate meta.gen.json if it's absent. The
+      // artifact is gitignored (committing it causes constant PR conflicts), so
+      // a fresh clone has no file on disk — yet setup.ts imports it EAGERLY via
+      // createAdminSetup, so the import would reject on the first request.
+      //
+      // Unlike the blocks bootstrap above, this is (a) gated on absence and
+      // (b) SYNCHRONOUS: a full ts-morph schema pass takes seconds, so we only
+      // pay it when the file is genuinely missing, and we must finish before the
+      // server accepts a request. Once the file exists on disk (any subsequent
+      // start), this is skipped and the watch-driven regen below keeps it fresh.
+      if (!existsSync(schemaOutFile)) {
+        console.log("[deco] meta.gen.json missing — generating on cold start…");
+        try {
+          const scriptPath = path.resolve(
+            cwd,
+            "node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
+          );
+          execFileSync("npx", ["tsx", scriptPath, "--site", schemaSiteName], {
+            cwd,
+            stdio: "inherit",
+          });
+        } catch (err) {
+          console.warn(
+            "[deco] meta.gen.json cold-start generation failed:",
+            err?.message ?? err,
+          );
+        }
+      }
+
       const isSchemaSource = (file) => {
         const rel = path.relative(cwd, file);
         return (
