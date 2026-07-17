@@ -376,27 +376,52 @@ export function decoVitePlugin() {
       server.watcher.on("change", (file) => handleBlocksDirEvent(file, false));
       server.watcher.on("unlink", (file) => handleBlocksDirEvent(file, true));
 
-      // Cold-start bootstrap: always regenerate `blocks.gen.json` from source
-      // on dev startup. We deliberately do NOT gate this on mtime. A fresh git
-      // checkout/clone (e.g. Studio's preview sandbox) rewrites every file's
-      // mtime to the checkout time, so the committed artifact can be CONTENT-
-      // stale yet mtime-"fresh" — the old `source.mtime > artifact.mtime` gate
-      // then skipped regen and served the stale snapshot (the double-render
-      // bug in branch previews). Regen is cheap (tens of ms for a typical
-      // decofile) and fire-and-forget, so it never blocks startup. No POST
-      // /.decofile here — the SSR runtime isn't listening yet, and `setup.ts`
-      // reads the freshly-written .json via the load() hook on the first
-      // request (the watch-driven path above handles live edits, with reload).
+      // Cold-start bootstrap of `blocks.gen.json`, in two modes:
+      //
+      // MISSING (fresh clone): blocks.gen.json is gitignored, so a first
+      //   checkout has no file on disk. The async refresh below is
+      //   fire-and-forget and races the first request — `setup.ts` reads the
+      //   .json sibling via the blocks.gen.ts load() hook, and a miss falls
+      //   back to the empty stub, rendering a blank page until regen lands and
+      //   triggers a reload. So when the snapshot is ABSENT we generate it
+      //   SYNCHRONOUSLY, blocking startup until the very first request can see
+      //   real content. This only fires on a fresh clone, never steady-state.
+      //
+      // PRESENT (steady state): refresh asynchronously and DELIBERATELY NOT
+      //   gated on mtime. A fresh git checkout rewrites every file's mtime to
+      //   the checkout time, so a committed artifact could be CONTENT-stale yet
+      //   mtime-"fresh" — the old `source.mtime > artifact.mtime` gate then
+      //   served the stale snapshot (the double-render bug in branch previews).
+      //   Regen is cheap (tens of ms) and fire-and-forget, so it never blocks
+      //   startup. No POST /.decofile here — the SSR runtime isn't listening
+      //   yet; `setup.ts` reads the freshly-written .json on the first request
+      //   (the watch-driven path above handles live edits, with reload).
       if (existsSync(blocksDir)) {
-        ensureMerged()
-          .then(({ result }) => {
-            if (result && !result.empty) {
-              console.log(`[deco] bootstrapped ${result.count} blocks from .deco/blocks`);
-            }
-          })
-          .catch((err) => {
-            console.warn("[deco] blocks bootstrap failed:", err?.message ?? err);
-          });
+        if (!existsSync(jsonFile)) {
+          console.log("[deco] blocks.gen.json missing — generating on cold start…");
+          try {
+            const scriptPath = path.resolve(
+              cwd,
+              "node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts",
+            );
+            execFileSync("npx", ["tsx", scriptPath], { cwd, stdio: "inherit" });
+          } catch (err) {
+            console.warn(
+              "[deco] blocks.gen.json cold-start generation failed:",
+              err?.message ?? err,
+            );
+          }
+        } else {
+          ensureMerged()
+            .then(({ result }) => {
+              if (result && !result.empty) {
+                console.log(`[deco] bootstrapped ${result.count} blocks from .deco/blocks`);
+              }
+            })
+            .catch((err) => {
+              console.warn("[deco] blocks bootstrap failed:", err?.message ?? err);
+            });
+        }
       }
 
       // --- meta.gen.json auto-regeneration ---
