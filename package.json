@@ -16,7 +16,8 @@
     "lint:unused": "bun run --filter='./packages/*' lint:unused",
     "format": "biome format packages/*/src packages/*/scripts",
     "format:fix": "biome format --write packages/*/src packages/*/scripts",
-    "check": "bun run typecheck && bun run lint && bun run lint:unused",
+    "audit:secrets": "bun packages/blocks-cli/scripts/audit-secrets.ts --source packages --mode block",
+    "check": "bun run typecheck && bun run lint && bun run lint:unused && bun run audit:secrets",
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist .cache .wrangler/state node_modules/.vite && bun install"
   },
   "devDependencies": {
