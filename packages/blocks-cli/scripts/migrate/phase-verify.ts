@@ -354,10 +354,10 @@ export const checks: Check[] = [
         "node_modules/",
         ".tanstack/",
         "src/routeTree.gen.ts",
-        // Generated snapshots must be ignored — committing them causes
+        // The decofile snapshot must be ignored — its 10MB+ single line causes
         // constant PR merge conflicts (see generateGitignore in phase-scaffold).
+        // meta.gen.json stays committed on purpose, so it is NOT required here.
         ".deco/blocks.gen.json",
-        ".deco/meta.gen.json",
       ];
       const missing = required.filter((r) => !content.includes(r));
       if (missing.length > 0) {
