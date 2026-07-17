@@ -82,7 +82,14 @@ export function generateSetup(ctx: MigrationContext): string {
  *
  * Actual logic lives in focused modules:
  *   setup/commerce-loaders.ts  — COMMERCE_LOADERS map (VTEX + site data fetchers)
+ *   setup/commerce-init.ts     — server-only registration of COMMERCE_LOADERS +
+ *                                invoke. Imported by worker-entry.ts, NOT here,
+ *                                so the loader/action module graph (and any
+ *                                credential in it) never enters the client bundle.
  *   setup/section-loaders.ts   — registerSectionLoaders (per-section prop enrichment)
+ *
+ * This file IS imported by router.tsx (client) for section registration/hydration,
+ * so it must stay free of server-only imports (COMMERCE_LOADERS, invoke, secrets).
  *
  * Section metadata (eager, sync, layout, cache, LoadingFallback) is declared
  * in each section file and auto-extracted by generate-sections.ts.
@@ -90,12 +97,8 @@ export function generateSetup(ctx: MigrationContext): string {
 
 import "./cache-config";
 
-import {
-  registerCommerceLoaders,
-  applySectionConventions,
-} from "@decocms/blocks/cms";
-import { createSiteSetup } from "@decocms/blocks/setup";
-import { setInvokeLoaders } from "@decocms/blocks-admin";${isVtex ? `
+import { applySectionConventions } from "@decocms/blocks/cms";
+import { createSiteSetup } from "@decocms/blocks/setup";${isVtex ? `
 import { createInstrumentedFetch } from "@decocms/blocks/sdk/instrumentedFetch";
 import { initVtexFromBlocks, setVtexFetch } from "@decocms/apps-vtex";` : ""}${hasLocationMatcher ? `
 import { registerLocationMatcher } from "./matchers/location";` : ""}
@@ -105,7 +108,6 @@ import { PreviewProviders } from "@decocms/tanstack";
 // @ts-ignore Vite ?url import
 import appCss from "./styles/app.css?url";
 
-import { COMMERCE_LOADERS } from "./setup/commerce-loaders";
 import "./setup/section-loaders";
 
 // -- Framework setup --
@@ -142,7 +144,8 @@ applySectionConventions({
 });
 
 // -- Commerce + invoke --
-registerCommerceLoaders(COMMERCE_LOADERS);
-setInvokeLoaders(() => COMMERCE_LOADERS);
+// Registration lives in setup/commerce-init.ts, imported ONLY by
+// src/worker-entry.ts (server). Importing it here would drag COMMERCE_LOADERS —
+// and every site loader/action module it references — into the client bundle.
 `;
 }
