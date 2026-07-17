@@ -481,10 +481,13 @@ export function decoVitePlugin() {
         }, 500);
       };
 
-      // Cold-start bootstrap: generate meta.gen.json if it's absent. The
-      // artifact is gitignored (committing it causes constant PR conflicts), so
-      // a fresh clone has no file on disk — yet setup.ts imports it EAGERLY via
-      // createAdminSetup, so the import would reject on the first request.
+      // Cold-start bootstrap: generate meta.gen.json if it's absent. Unlike the
+      // decofile, meta.gen.json is normally COMMITTED (it merges cleanly), so
+      // this is a safety net — it fires only when the file is genuinely missing
+      // (a site that opts to gitignore it, a partial checkout, a manual delete).
+      // It matters because setup.ts imports meta.gen.json EAGERLY via
+      // createAdminSetup, so a missing file would reject the import on the first
+      // request.
       //
       // Unlike the blocks bootstrap above, this is (a) gated on absence and
       // (b) SYNCHRONOUS: a full ts-morph schema pass takes seconds, so we only
