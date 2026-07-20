@@ -19,6 +19,15 @@
  *   it on the client cuts a typically-large module out of the browser bundle.
  *   Match is done by substring on the import id, so any path style works.
  *
+ * loaders.gen.ts handling:
+ *   The site invoke registry (`export const siteLoaders`) registers every site
+ *   loader/action behind a dynamic `import()`. It is reachable from the client
+ *   entry (router -> setup -> commerce-loaders -> loaders.gen), so without a stub
+ *   Vite emits each loader/action module as a public client chunk — leaking the
+ *   module source (including any hardcoded credential) into the browser assets.
+ *   Invoke runs server-side only, so the client never needs it. Stubbed to an
+ *   empty object on the client; SSR keeps the real module.
+ *
  * manualChunks:
  *   `@decocms/tanstack` and `@decocms/apps` are intentionally NOT split
  *   into their own chunks. They have circular re-exports that produce a
@@ -191,6 +200,22 @@ export function decoVitePlugin() {
         // Fallback: if .json doesn't exist yet (pre-generate-blocks), let
         // Vite load the .ts file normally (may contain inline data for
         // backward-compatible sites that haven't regenerated).
+      }
+
+      // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
+      // It registers every site loader/action behind a dynamic `import()`, so if
+      // it stays in the CLIENT module graph (it's reachable via
+      // router -> setup -> commerce-loaders -> loaders.gen) Vite emits each
+      // loader/action module as a public client chunk. That leaks the module's
+      // source — including any hardcoded credential in it — into the browser
+      // assets. The invoke handler runs server-side only (`/deco/invoke` ->
+      // handleInvoke reads the registry via getRegisteredLoaders()), and client
+      // components reach loaders/actions exclusively through the HTTP `invoke`
+      // proxy (which imports no modules). So the client never needs `siteLoaders`.
+      // Stub it to an empty object on the client, mirroring blocks.gen.ts above;
+      // SSR keeps the real module.
+      if (id.endsWith("loaders.gen.ts") && !options?.ssr) {
+        return "export const siteLoaders = {};";
       }
 
       // Virtual module stubs.
