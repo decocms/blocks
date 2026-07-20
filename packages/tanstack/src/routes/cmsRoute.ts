@@ -31,6 +31,7 @@ import {
   extractSeoFromProps,
   extractSeoFromSections,
   getDeferredRawProps,
+  getDegradedSections,
   getSiteSeo,
   preloadSectionComponents,
   reExtractRawProps,
@@ -188,11 +189,23 @@ async function loadCmsPageInternal(fullPath: string) {
   // Destructure seoSection out — it's an internal artifact, not serialized to client
   const { seoSection: _seo, ...pageData } = page;
 
+  // Anti-cache-poisoning: if a critical section loader failed, this page is
+  // rendering with raw/empty data. Flag the response so the edge refuses to
+  // cache the broken 200 and serves stale instead (see workerEntry.ts). Without
+  // this, the empty page would be cached as healthy for the whole retention
+  // window and stale-if-error would never fire.
+  const degraded = getDegradedSections();
+  if (degraded.length > 0) {
+    setResponseHeader("X-Deco-Degraded", "true");
+    console.warn(`[cms] page degraded — critical sections failed: ${degraded.join(", ")}`);
+  }
+
   return {
     ...pageData,
     resolvedSections: normalizeUrlsInObject(mergedSections),
     deferredSections: normalizeUrlsInObject(page.deferredSections),
     cacheProfile,
+    degraded: degraded.length > 0,
     pageUrl: urlWithSearch,
     pagePath: basePath,
     seo,

@@ -1,3 +1,5 @@
+export type { ApplySectionConventionsInput, SectionMetaEntry } from "./applySectionConventions";
+export { applySectionConventions } from "./applySectionConventions";
 export type { BlockSnapshot, BlockSource, KVNamespace } from "./blockSource";
 export {
   BUILD_HASH_ENV,
@@ -50,10 +52,11 @@ export type {
 } from "./resolve";
 export {
   addSkipResolveType,
+  cacheDeferredRawProps,
+  clearCommerceLoaders,
   evaluateMatcher,
   extractSeoFromProps,
   extractSeoFromSections,
-  cacheDeferredRawProps,
   getAsyncRenderingConfig,
   getDeferredRawProps,
   isBot,
@@ -63,43 +66,22 @@ export {
   registerBotPattern,
   registerCommerceLoader,
   registerCommerceLoaders,
-  unregisterCommerceLoader,
-  clearCommerceLoaders,
-  registerMatcher,
   registerEagerSections,
+  registerMatcher,
   registerNeverDeferSections,
   registerSeoSections,
   resolveDecoPage,
-  resolvePageSections,
-  resolvePageSeoBlock,
   resolveDeferredSection,
   resolveDeferredSectionFull,
+  resolvePageSections,
+  resolvePageSeoBlock,
   resolveValue,
   setAsyncRenderingConfig,
   setDanglingReferenceHandler,
   setResolveErrorHandler,
+  unregisterCommerceLoader,
   WELL_KNOWN_TYPES,
 } from "./resolve";
-export type { SectionLoaderFn } from "./sectionLoaders";
-export {
-  isLayoutSection,
-  registerCacheableSections,
-  registerLayoutSections,
-  registerSectionLoader,
-  registerSectionLoaders,
-  runSectionLoaders,
-  runSingleSectionLoader,
-  unregisterLayoutSections,
-} from "./sectionLoaders";
-export {
-  compose,
-  withDevice,
-  withMobile,
-  withSearchParam,
-  withSectionLoader,
-} from "./sectionMixins";
-export type { ApplySectionConventionsInput, SectionMetaEntry } from "./applySectionConventions";
-export { applySectionConventions } from "./applySectionConventions";
 export type {
   ActionConfig,
   AppSchemas,
@@ -121,3 +103,25 @@ export {
   registerMatcherSchema,
   registerMatcherSchemas,
 } from "./schema";
+export type { SectionLoaderFn } from "./sectionLoaders";
+export {
+  getDegradedSections,
+  isCriticalSection,
+  isLayoutSection,
+  markSectionDegraded,
+  registerCacheableSections,
+  registerLayoutSections,
+  registerNonCriticalSections,
+  registerSectionLoader,
+  registerSectionLoaders,
+  runSectionLoaders,
+  runSingleSectionLoader,
+  unregisterLayoutSections,
+} from "./sectionLoaders";
+export {
+  compose,
+  withDevice,
+  withMobile,
+  withSearchParam,
+  withSectionLoader,
+} from "./sectionMixins";
