@@ -36,6 +36,8 @@
  * the underlying fetch (emergency escape hatch — an env flip, no code deploy).
  */
 
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+
 export interface ResilienceConfig {
   /** Per-attempt timeout in ms. Aborts the socket. */
   perAttemptTimeoutMs: number;
@@ -253,11 +255,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Union a caller-supplied signal with our per-attempt timeout so both a caller
- * abort (SSR deadline) and the timeout cancel the underlying fetch and free the
- * socket.
+ * Union any number of upstream signals with our per-attempt timeout so a caller
+ * abort, the ambient request abort (client disconnect / SSR deadline via
+ * {@link RequestContext}), OR the timeout all cancel the underlying fetch and
+ * free the socket.
  */
-function withTimeoutSignal(callerSignal: AbortSignal | null | undefined, timeoutMs: number) {
+function withTimeoutSignal(
+  callerSignals: Array<AbortSignal | null | undefined>,
+  timeoutMs: number,
+) {
   const controller = new AbortController();
   let didTimeout = false;
   const onAbort = () => controller.abort();
@@ -265,15 +271,20 @@ function withTimeoutSignal(callerSignal: AbortSignal | null | undefined, timeout
     didTimeout = true;
     controller.abort();
   }, timeoutMs);
-  if (callerSignal) {
-    if (callerSignal.aborted) controller.abort();
-    else callerSignal.addEventListener("abort", onAbort, { once: true });
+  const bound: AbortSignal[] = [];
+  for (const s of callerSignals) {
+    if (!s) continue;
+    if (s.aborted) controller.abort();
+    else {
+      s.addEventListener("abort", onAbort, { once: true });
+      bound.push(s);
+    }
   }
   return {
     signal: controller.signal,
     cleanup: () => {
       clearTimeout(timer);
-      callerSignal?.removeEventListener("abort", onAbort);
+      for (const s of bound) s.removeEventListener("abort", onAbort);
     },
     timedOut: () => didTimeout,
   };
@@ -315,7 +326,12 @@ export function createResilientFetch(
       if (remaining <= 0) break;
       const perAttempt = Math.min(cfg.perAttemptTimeoutMs, remaining);
 
-      const { signal, cleanup, timedOut } = withTimeoutSignal(init?.signal, perAttempt);
+      // Union the caller's signal with the ambient request signal so a client
+      // disconnect (or a request-level SSR deadline) also aborts the VTEX call.
+      const { signal, cleanup, timedOut } = withTimeoutSignal(
+        [init?.signal, RequestContext.current?.signal],
+        perAttempt,
+      );
       try {
         const response = await underlying(input, { ...init, signal });
         cleanup();

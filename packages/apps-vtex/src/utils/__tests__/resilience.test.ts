@@ -1,3 +1,4 @@
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createResilientFetch,
@@ -121,6 +122,31 @@ describe("createResilientFetch", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("aborts an in-flight VTEX call when the ambient request signal aborts", async () => {
+    const ac = new AbortController();
+    const request = new Request("https://store.example/page", { signal: ac.signal });
+    const underlying = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+          );
+        }),
+    );
+    const rf = createResilientFetch(underlying as unknown as typeof fetch, {
+      maxRetries: 0,
+      perAttemptTimeoutMs: 60_000,
+    });
+
+    await RequestContext.run(request, async () => {
+      const p = rf("https://acct.vtexcommercestable.com.br/slow");
+      p.catch(() => {});
+      ac.abort();
+      await expect(p).rejects.toThrow();
+    });
+    expect(underlying).toHaveBeenCalled();
   });
 
   it("honors the kill-switch env var", async () => {
