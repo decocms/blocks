@@ -65,6 +65,10 @@ function generateWorkerEntry(ctx: MigrationContext): string {
  *   npx -p @decocms/blocks-cli deco-cf-observability --write
  */
 import "./setup";
+// Server-only: registers COMMERCE_LOADERS + invoke. Kept out of ./setup (which
+// router.tsx imports) so the loader/action module graph never enters the client
+// bundle. See setup/commerce-init.ts.
+import "./setup/commerce-init";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { createDecoWorkerEntry } from "@decocms/tanstack";
 import { instrumentWorker } from "@decocms/blocks/sdk/observability";
@@ -109,6 +113,10 @@ function generateVtexWorkerEntry(ctx: MigrationContext): string {
   const vtexAccount = ctx.vtexAccount || ctx.siteName;
 
   return `import "./setup";
+// Server-only: registers COMMERCE_LOADERS + invoke. Kept out of ./setup (which
+// router.tsx imports) so the loader/action module graph never enters the client
+// bundle. See setup/commerce-init.ts.
+import "./setup/commerce-init";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { createDecoWorkerEntry } from "@decocms/tanstack";
 import { instrumentWorker } from "@decocms/blocks/sdk/observability";

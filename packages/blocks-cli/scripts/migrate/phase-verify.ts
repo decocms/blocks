@@ -32,6 +32,7 @@ const REQUIRED_FILES = [
   "src/setup.ts",
   "src/cache-config.ts",
   "src/setup/commerce-loaders.ts",
+  "src/setup/commerce-init.ts",
   "src/setup/section-loaders.ts",
   "src/styles/app.css",
   "src/apps/site.ts",
@@ -417,6 +418,7 @@ export const checks: Check[] = [
         "src/setup.ts",
         "src/cache-config.ts",
         "src/setup/commerce-loaders.ts",
+        "src/setup/commerce-init.ts",
         "src/setup/section-loaders.ts",
       ];
       const missing = setupFiles.filter(
