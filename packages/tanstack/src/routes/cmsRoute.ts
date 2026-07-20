@@ -21,16 +21,12 @@
  * ```
  */
 
-import { createServerFn } from "@tanstack/react-start";
-import {
-  getCookies,
-  getRequest,
-  getRequestHeader,
-  getRequestUrl,
-  setCookie,
-  setResponseHeader,
-} from "@tanstack/react-start/server";
-import { createElement } from "react";
+import type {
+  DeferredSection,
+  MatcherContext,
+  PageSeo,
+  ResolvedSection,
+} from "@decocms/blocks/cms";
 import {
   extractSeoFromProps,
   extractSeoFromSections,
@@ -44,13 +40,6 @@ import {
   runSectionLoaders,
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
-import type { DeferredSection, MatcherContext, PageSeo, ResolvedSection } from "@decocms/blocks/cms";
-import {
-  parseSegmentCookie,
-  SEGMENT_COOKIE,
-  serializeSegmentCookie,
-  type StoredFlag,
-} from "@decocms/blocks/sdk/flags";
 import { withTracing } from "@decocms/blocks/middleware/observability";
 import {
   type CacheProfileName,
@@ -58,8 +47,24 @@ import {
   detectCacheProfile,
   routeCacheDefaults,
 } from "@decocms/blocks/sdk/cacheHeaders";
+import {
+  parseSegmentCookie,
+  SEGMENT_COOKIE,
+  type StoredFlag,
+  serializeSegmentCookie,
+} from "@decocms/blocks/sdk/flags";
 import { normalizeUrlsInObject } from "@decocms/blocks/sdk/normalizeUrls";
 import { type Device, detectDevice } from "@decocms/blocks/sdk/useDevice";
+import { createServerFn } from "@tanstack/react-start";
+import {
+  getCookies,
+  getRequest,
+  getRequestHeader,
+  getRequestUrl,
+  setCookie,
+  setResponseHeader,
+} from "@tanstack/react-start/server";
+import { createElement } from "react";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
 
@@ -310,14 +315,17 @@ export const loadDeferredSection = createServerFn({ method: "POST" })
     // Resolve rawProps: prefer client-provided (backward compat), then server cache,
     // then re-extract from the page as a last resort (handles cross-isolate cache miss
     // on Cloudflare Workers and TTL expiry for slow-scrolling users).
-    const rawProps = clientRawProps
-      ?? (index !== undefined ? getDeferredRawProps(pagePath, component, index) : null)
-      ?? (index !== undefined
+    const rawProps =
+      clientRawProps ??
+      (index !== undefined ? getDeferredRawProps(pagePath, component, index) : null) ??
+      (index !== undefined
         ? await reExtractRawProps(pagePath, component, index, matcherCtx)
         : null);
 
     if (!rawProps) {
-      console.warn(`[CMS] Deferred section cache miss: ${component} at index ${index} on ${pagePath}`);
+      console.warn(
+        `[CMS] Deferred section cache miss: ${component} at index ${index} on ${pagePath}`,
+      );
       return null;
     }
 
@@ -378,6 +386,43 @@ export function CmsPagePendingFallback() {
   );
 }
 
+/**
+ * Default branded error boundary for CMS routes. Rendered when page resolution
+ * throws (as opposed to returning no match, which is a 404 / not-found path) —
+ * e.g. an uncaught throw in `resolveDecoPage` / `buildPageSeo` /
+ * `resolveSiteGlobals` during a VTEX outage. Without an `errorComponent` the
+ * loader rejection surfaces as a raw 500 white screen.
+ *
+ * This is the COLD-CACHE last resort: whenever a warm edge entry exists the
+ * worker serves it as `STALE-ERROR` before the request ever reaches here.
+ * Sites override via `cmsRouteConfig({ errorComponent })`.
+ */
+export function CmsPageErrorFallback(props: { reset?: () => void }) {
+  return createElement(
+    "div",
+    { className: "min-h-[60vh] flex items-center justify-center px-4 text-center" },
+    createElement(
+      "div",
+      { className: "max-w-md flex flex-col items-center gap-4" },
+      createElement("h1", { className: "text-2xl font-bold" }, "Estamos com uma instabilidade"),
+      createElement(
+        "p",
+        { className: "opacity-70" },
+        "Não conseguimos carregar esta página agora. Tente novamente em instantes.",
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
+          className: "btn btn-primary",
+          onClick: () => (props.reset ? props.reset() : undefined),
+        },
+        "Tentar de novo",
+      ),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Route configuration factory
 // ---------------------------------------------------------------------------
@@ -397,6 +442,13 @@ export interface CmsRouteOptions {
   ignoreSearchParams?: string[];
   /** Custom pending component shown during SPA navigation. */
   pendingComponent?: () => any;
+  /**
+   * Custom error boundary rendered when the loader / page resolution throws.
+   * Defaults to {@link CmsPageErrorFallback} (branded "instability" page with a
+   * retry button) so an outage degrades gracefully instead of a raw 500.
+   * Receives TanStack Router's `{ error, reset }`.
+   */
+  errorComponent?: (props: { error: Error; reset: () => void }) => any;
   /**
    * Delay (ms) before showing the pending component during SPA navigation.
    * If the loader resolves before this threshold, no pending UI is shown.
@@ -621,6 +673,7 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     pendingMs = 200,
     pendingMinMs = 300,
     ssr: ssrMode,
+    errorComponent = CmsPageErrorFallback,
   } = options;
 
   const ignoreSet = new Set(ignoreSearchParams);
@@ -629,8 +682,7 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     // Catch-all search validation: preserve all URL search params so they
     // reach loaderDeps. Without this, TanStack Router may strip unknown
     // params (e.g. ?q=, filter.*, page, sort) during SPA navigation.
-    validateSearch: (search: Record<string, unknown>) =>
-      search as Record<string, string>,
+    validateSearch: (search: Record<string, unknown>) => search as Record<string, string>,
 
     loaderDeps: ({ search }: { search: Record<string, string> }) => {
       const filtered = Object.fromEntries(
@@ -679,6 +731,7 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     ...(pendingComponent ? { pendingComponent } : {}),
     pendingMs,
     pendingMinMs,
+    errorComponent,
     ...(ssrMode !== undefined ? { ssr: ssrMode } : {}),
 
     ...routeCacheDefaults("product"),
@@ -709,8 +762,17 @@ export function cmsHomeRouteConfig(options: {
   pendingMs?: number;
   /** Minimum display time (ms) for pending component. Default: 300. */
   pendingMinMs?: number;
+  /** Error boundary for loader throws. Defaults to {@link CmsPageErrorFallback}. */
+  errorComponent?: (props: { error: Error; reset: () => void }) => any;
 }) {
-  const { defaultTitle, defaultDescription, siteName, pendingMs = 200, pendingMinMs = 300 } = options;
+  const {
+    defaultTitle,
+    defaultDescription,
+    siteName,
+    pendingMs = 200,
+    pendingMinMs = 300,
+    errorComponent = CmsPageErrorFallback,
+  } = options;
 
   return {
     loader: async () => {
@@ -729,6 +791,7 @@ export function cmsHomeRouteConfig(options: {
     ...(options.pendingComponent ? { pendingComponent: options.pendingComponent } : {}),
     pendingMs,
     pendingMinMs,
+    errorComponent,
     ...routeCacheDefaults("static"),
     headers: () => cacheHeaders("static"),
     head: ({ loaderData }: { loaderData?: CmsPageLoaderData }) =>
