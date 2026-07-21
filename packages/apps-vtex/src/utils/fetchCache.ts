@@ -7,11 +7,7 @@
  * Only caches on the server side. Keyed by full URL string.
  */
 
-import { isNonRetryableVtexError } from "./resilience";
-
 const DEFAULT_MAX_ENTRIES = 500;
-const MAX_RETRIES = 2;
-const RETRY_DELAYS = [200, 400];
 // Stale-if-error window: how long past the freshness TTL a last-good entry may
 // still be served when the origin is failing (5xx / timeout / circuit open).
 // Bounds "availability first" — a warm key survives a full VTEX outage for up
@@ -19,12 +15,19 @@ const RETRY_DELAYS = [200, 400];
 // stale to serve and the error surfaces (→ degraded / branded error page).
 // Mirrors the edge `sie` window sites configure for product/listing.
 const STALE_IF_ERROR_MS = 86_400_000; // 24h
-// Per-attempt timeout. Bounds how long a single hung `fetch()` can hold an
-// inflight entry alive. Without this, a VTEX subrequest that never settles
-// leaks the inflight Map slot forever and every subsequent request for the
-// same cache key joins the zombie Promise, pinning memory until
+// Inflight-slot backstop timeout. Bounds how long a single hung `fetch()` can
+// hold an inflight entry alive. Without this, a VTEX subrequest that never
+// settles leaks the inflight Map slot forever and every subsequent request for
+// the same cache key joins the zombie Promise, pinning memory until
 // `exceededMemory` (observed in prod: 514 hard crashes / 24h on a PLP route).
-const FETCH_TIMEOUT_MS = 10_000;
+//
+// MUST stay ABOVE the resilience layer's totalTimeoutMs (12s) — the resilient
+// fetch owns real per-call abort/timeout now, so this is only a last-resort
+// backstop. If it fired first (e.g. at 10s) it would kill a slow-but-
+// recoverable response the resilience layer was about to deliver at ~12s,
+// discard the good body (never cached), and free the dedup slot early so a
+// concurrent request launches a duplicate upstream fetch.
+const FETCH_TIMEOUT_MS = 15_000;
 
 interface CacheEntry {
   body: unknown;
@@ -56,14 +59,6 @@ function evictIfNeeded() {
   for (const [key] of toRemove) store.delete(key);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isRetryable(response: Response): boolean {
-  return response.status >= 500 || response.status === 429;
-}
-
 /**
  * Race a Promise against a timeout so callers' `.finally()` always runs.
  * Critical for evicting the inflight Map entry when a `fetch()` hangs —
@@ -82,58 +77,27 @@ function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T>
   });
 }
 
-async function executeFetch(
-  url: string,
-  doFetch: () => Promise<Response>,
-  retry = true,
-): Promise<CacheEntry> {
-  let lastError: Error | undefined;
+async function executeFetch(url: string, doFetch: () => Promise<Response>): Promise<CacheEntry> {
+  // Single attempt on purpose. The resilience layer (`createResilientFetch`,
+  // wired as the VTEX fetch's baseFetch) owns retries, backoff+jitter, the
+  // per-host retry budget, and the circuit breaker. Retrying here would:
+  //   - double-retry network errors (resilience 3× × fetchCache 3× = up to 9
+  //     upstream calls per logical request — the retry storm the budget
+  //     prevents), and
+  //   - re-enter the breaker on every 5xx retry, opening it ~3× too fast.
+  const response = await doFetch();
 
-  const attempts = retry ? MAX_RETRIES + 1 : 1;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    try {
-      const response = await doFetch();
-
-      if (isRetryable(response) && attempt < attempts - 1) {
-        console.warn(
-          `[vtex-fetch] ${response.status} on attempt ${attempt + 1}/${attempts} — ${url}`,
-        );
-        await sleep(RETRY_DELAYS[attempt] ?? 400);
-        continue;
-      }
-
-      if (response.status >= 500) {
-        throw new Error(
-          `fetchWithCache: ${response.status} ${response.statusText} after ${attempt + 1} attempt(s) — ${url}`,
-        );
-      }
-
-      const body = response.ok ? await response.json() : null;
-      return {
-        body,
-        status: response.status,
-        createdAt: Date.now(),
-        refreshing: false,
-      };
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      // The resilience layer already decided to shed load (circuit open) or
-      // the request timed out — retrying here would defeat the fast-fail and
-      // hammer an upstream that is already down. Surface it immediately so
-      // the caller can serve stale (stale-if-error) instead.
-      if (isNonRetryableVtexError(lastError)) break;
-
-      if (attempt < attempts - 1) {
-        console.warn(
-          `[vtex-fetch] attempt ${attempt + 1}/${attempts} failed — ${url}: ${lastError.message}`,
-        );
-        await sleep(RETRY_DELAYS[attempt] ?? 400);
-      }
-    }
+  if (response.status >= 500) {
+    throw new Error(`fetchWithCache: ${response.status} ${response.statusText} — ${url}`);
   }
 
-  throw lastError ?? new Error(`fetchWithCache: all ${attempts} attempts failed — ${url}`);
+  const body = response.ok ? await response.json() : null;
+  return {
+    body,
+    status: response.status,
+    createdAt: Date.now(),
+    refreshing: false,
+  };
 }
 
 export interface FetchCacheOptions {
@@ -189,7 +153,7 @@ export function fetchWithCache<T>(
         // Timeout guards against a hung VTEX response leaving `refreshing`
         // stuck true forever (which would silently disable revalidation).
         withTimeout(
-          executeFetch(cacheKey, doFetch, false),
+          executeFetch(cacheKey, doFetch),
           FETCH_TIMEOUT_MS,
           `fetchCache stale-refresh ${cacheKey}`,
         )

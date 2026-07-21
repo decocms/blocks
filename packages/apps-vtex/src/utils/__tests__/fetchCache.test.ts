@@ -92,6 +92,14 @@ describe("fetchWithCache", () => {
     }
   });
 
+  it("does not retry — retries are owned by the resilience layer", async () => {
+    // A 5xx used to be retried 3× here, which also re-entered the circuit
+    // breaker 3× per request. fetchCache now makes a single attempt.
+    const doFetch = vi.fn(() => Promise.resolve(mockResponse(null, 500)));
+    await expect(fetchWithCache("single-attempt", doFetch)).rejects.toThrow("500");
+    expect(doFetch).toHaveBeenCalledOnce();
+  });
+
   it("returns null for 404 responses", async () => {
     const doFetch = vi.fn(() => Promise.resolve(mockResponse(null, 404)));
 
@@ -135,8 +143,8 @@ describe("fetchWithCache", () => {
 
       expect(getFetchCacheStats().inflight).toBe(1);
 
-      // Fast-forward past the 10s fetch timeout.
-      await vi.advanceTimersByTimeAsync(11_000);
+      // Fast-forward past the 15s inflight backstop timeout.
+      await vi.advanceTimersByTimeAsync(16_000);
 
       await expect(pending).rejects.toThrow(/timed out/);
       expect(getFetchCacheStats().inflight).toBe(0);

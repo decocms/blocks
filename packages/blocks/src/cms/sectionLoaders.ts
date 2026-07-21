@@ -468,7 +468,11 @@ async function runSingleSectionLoaderImpl(
         result = await resolveLayoutSection(section, wrapped, request);
       } catch (error) {
         console.error(`[SectionLoader] Error in layout "${section.component}":`, error);
-        markSectionDegraded(section.component);
+        // Deliberately NOT marked degraded: layout sections (Header/Footer/Theme)
+        // render on every page, so a flaky layout loader would flip the whole
+        // site to X-Deco-Degraded and defeat edge caching everywhere. A failed
+        // layout renders raw chrome, which is acceptable — page-body data
+        // integrity (product shelves/PLP/PDP) is what the degraded signal guards.
         result = section;
       }
     } else {

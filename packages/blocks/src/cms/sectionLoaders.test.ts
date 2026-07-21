@@ -66,6 +66,21 @@ describe("section degradation tracking (anti-cache-poisoning)", () => {
     expect(degraded).toEqual([]);
   });
 
+  it("does NOT mark a failing LAYOUT section as degraded (avoids site-wide poisoning)", async () => {
+    registerSectionLoader("site/sections/Header.tsx", failing);
+    registerLayoutSections(["site/sections/Header.tsx"]);
+    const section = makeSection("site/sections/Header.tsx");
+    const request = new Request("https://store.com/p");
+
+    const degraded = await RequestContext.run(request, async () => {
+      await runSingleSectionLoader(section, request);
+      return getDegradedSections();
+    });
+
+    // A flaky Header/Footer must not flip every page to X-Deco-Degraded.
+    expect(degraded).toEqual([]);
+  });
+
   it("does not flag a page whose loaders all succeed", async () => {
     registerSectionLoader("site/sections/Ok.tsx", async (p: Record<string, unknown>) => p);
     const section = makeSection("site/sections/Ok.tsx");

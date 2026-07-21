@@ -254,6 +254,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** True for a fetch abort (DOMException / Error with name "AbortError"). */
+function isAbortError(err: unknown): boolean {
+  return (
+    typeof err === "object" && err !== null && (err as { name?: string }).name === "AbortError"
+  );
+}
+
 /**
  * Union any number of upstream signals with our per-attempt timeout so a caller
  * abort, the ambient request abort (client disconnect / SSR deadline via
@@ -344,6 +351,15 @@ export function createResilientFetch(
         return response;
       } catch (err) {
         cleanup();
+
+        // An abort that did NOT come from our own timeout timer is a caller /
+        // ambient abort — a client disconnect or a request-level cancel via
+        // RequestContext.signal. That is NOT an upstream failure: it must not
+        // count toward the breaker (a burst of users hitting "stop" would
+        // otherwise trip the circuit against a perfectly healthy VTEX) and must
+        // not be retried (the signal is still aborted). Surface it as-is.
+        if (!timedOut() && isAbortError(err)) throw err;
+
         lastError = timedOut() ? new VtexTimeoutError(host, perAttempt) : err;
         breakerOnFailure(breaker, cfg, host, Date.now());
 

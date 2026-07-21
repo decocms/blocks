@@ -149,6 +149,37 @@ describe("createResilientFetch", () => {
     expect(underlying).toHaveBeenCalled();
   });
 
+  it("does NOT count an external (caller/ambient) abort as a breaker failure", async () => {
+    const underlying = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+          );
+        }),
+    );
+    const host = "https://acct.vtexcommercestable.com.br";
+    const rf = createResilientFetch(underlying as unknown as typeof fetch, {
+      maxRetries: 0,
+      breakerConsecutiveFailures: 3,
+    });
+
+    // Abort 5 caller requests (> the 3-failure threshold). If these counted as
+    // breaker failures, the circuit would open against a healthy upstream.
+    for (let i = 0; i < 5; i++) {
+      const ac = new AbortController();
+      const p = rf(`${host}/x`, { signal: ac.signal });
+      p.catch(() => {});
+      ac.abort();
+      await expect(p).rejects.toThrow();
+    }
+
+    // Breaker must still be CLOSED: a healthy call succeeds (not VtexCircuitOpenError).
+    const healthy = createResilientFetch((async () => res(200)) as unknown as typeof fetch);
+    const r = await healthy(`${host}/x`);
+    expect(r.status).toBe(200);
+  });
+
   it("honors the kill-switch env var", async () => {
     const prev = process.env.VTEX_RESILIENCE_DISABLED;
     process.env.VTEX_RESILIENCE_DISABLED = "true";

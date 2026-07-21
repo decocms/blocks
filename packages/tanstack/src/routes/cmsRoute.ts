@@ -277,10 +277,20 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
 
   const { seoSection: _seo, ...pageData } = page;
 
+  // Same anti-cache-poisoning flag as loadCmsPageInternal — the homepage is the
+  // highest-traffic, most-cached route, so it must not be exempt. The actual
+  // X-Deco-Degraded header is emitted by the route `headers:` callback from
+  // this `degraded` field (a reliable document-response channel).
+  const degraded = getDegradedSections();
+  if (degraded.length > 0) {
+    console.warn(`[cms] home degraded — critical sections failed: ${degraded.join(", ")}`);
+  }
+
   return {
     ...pageData,
     resolvedSections: normalizeUrlsInObject(mergedSections),
     deferredSections: normalizeUrlsInObject(page.deferredSections),
+    degraded: degraded.length > 0,
     pagePath: "/",
     pageUrl: serverUrl.toString(),
     seo,
@@ -361,10 +371,18 @@ export const loadDeferredSection = createServerFn({ method: "POST" })
     });
     const enriched = await runSingleSectionLoader(section, request);
 
-    // Signal to the worker entry that this response is safe to edge-cache.
-    // Without this header, POST _serverFn responses are passed through
-    // without caching (checkout actions, invoke mutations, etc.).
-    setResponseHeader("X-Deco-Cacheable", "true");
+    // Anti-cache-poisoning: if this deferred section's loader failed (e.g. an
+    // empty product shelf during a VTEX outage), do NOT mark it cacheable —
+    // otherwise the empty shelf would be stored in serverFnCache and served to
+    // every visitor for the full retention window. Flag it degraded instead.
+    if (getDegradedSections().length > 0) {
+      setResponseHeader("X-Deco-Degraded", "true");
+    } else {
+      // Signal to the worker entry that this response is safe to edge-cache.
+      // Without this header, POST _serverFn responses are passed through
+      // without caching (checkout actions, invoke mutations, etc.).
+      setResponseHeader("X-Deco-Cacheable", "true");
+    }
 
     return normalizeUrlsInObject(enriched);
   });
@@ -487,6 +505,7 @@ export interface CmsRouteOptions {
 type CmsPageLoaderData = {
   name?: string;
   cacheProfile?: CacheProfileName;
+  degraded?: boolean;
   seo?: PageSeo;
   device?: Device;
   resolvedSections?: Array<{ component: string }>;
@@ -751,7 +770,14 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
 
     headers: ({ loaderData }: { loaderData?: CmsPageLoaderData }) => {
       const profile = loaderData?.cacheProfile ?? "listing";
-      return cacheHeaders(profile);
+      const headers = cacheHeaders(profile);
+      // Emit the degraded flag on the DOCUMENT response via the route headers
+      // callback — the reliable channel (same one cacheHeaders rides), unlike
+      // setResponseHeader inside the server fn which may not reach the document.
+      // The worker treats a 200 + X-Deco-Degraded like a 5xx (no store, serve
+      // stale) to prevent caching an empty page during a VTEX outage.
+      if (loaderData?.degraded) headers["X-Deco-Degraded"] = "true";
+      return headers;
     },
 
     head: ({ loaderData }: { loaderData?: CmsPageLoaderData }) =>
@@ -806,7 +832,11 @@ export function cmsHomeRouteConfig(options: {
     pendingMinMs,
     errorComponent,
     ...routeCacheDefaults("static"),
-    headers: () => cacheHeaders("static"),
+    headers: ({ loaderData }: { loaderData?: CmsPageLoaderData }) => {
+      const headers = cacheHeaders("static");
+      if (loaderData?.degraded) headers["X-Deco-Degraded"] = "true";
+      return headers;
+    },
     head: ({ loaderData }: { loaderData?: CmsPageLoaderData }) =>
       buildHead(loaderData, siteName ?? defaultTitle, defaultTitle, defaultDescription),
   };

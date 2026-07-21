@@ -13,7 +13,7 @@ import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { findPageByPath, loadBlocks } from "./loader";
 import { getOnBeforeResolveProps, getSection, registerOnBeforeResolveProps } from "./registry";
-import { isLayoutSection, runSingleSectionLoader } from "./sectionLoaders";
+import { isLayoutSection, markSectionDegraded, runSingleSectionLoader } from "./sectionLoaders";
 
 // globalThis-backed: share state across Vite server function split modules
 const G = globalThis as any;
@@ -888,6 +888,11 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
       return await commerceLoader(resolvedProps);
     } catch (error) {
       onResolveError(error, resolveType, "Commerce loader");
+      // Commerce loaders (VTEX product/PLP/PDP data) are the primary source of
+      // page-body data — this is exactly the layer that fails during a VTEX
+      // outage. Flag the page degraded so the edge won't cache the empty
+      // result as a healthy 200 (see X-Deco-Degraded in cmsRoute/workerEntry).
+      markSectionDegraded(resolveType);
       return null;
     }
   }
