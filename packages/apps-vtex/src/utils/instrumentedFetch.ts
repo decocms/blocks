@@ -34,7 +34,7 @@ import {
   createInstrumentedFetch,
   type InstrumentedFetch,
 } from "@decocms/blocks/sdk/instrumentedFetch";
-import { recordCommerceMetric } from "@decocms/blocks/sdk/observability";
+import { recordCommerceMetric, statusClassFor } from "@decocms/blocks/sdk/observability";
 import { vtexOperationRouter } from "./operationRouter";
 import { createResilientFetch, type ResilienceConfig } from "./resilience";
 
@@ -89,7 +89,7 @@ export function createVtexFetch(options: CreateVtexFetchOptions = {}): Instrumen
           recordCommerceMetric(durationMs, {
             provider: "vtex",
             operation,
-            status_class: `${Math.floor(status / 100)}xx`,
+            status_class: statusClassFor(status),
             cached,
           });
         },
