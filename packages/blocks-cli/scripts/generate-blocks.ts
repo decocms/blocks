@@ -48,6 +48,7 @@ import {
   mergeCandidates,
   singleDecodeBlockName,
 } from "./lib/blocks-dedupe";
+import { buildCsvRedirectBlocks } from "./lib/csv-redirects";
 import { warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const TS_STUB = [
@@ -175,10 +176,19 @@ export async function generateBlocks(
   // This matches the Deno runtime's `parseBlockId` (one decodeURIComponent)
   // so that studio's `encodeURIComponent(blockKey)` round-trips back to the
   // exact filename on disk.
-  const blocks: Record<string, unknown> = {};
+  const mergedBlocks: Record<string, unknown> = {};
   for (const [_name, c] of Object.entries(winners)) {
-    blocks[singleDecodeBlockName(c.file)] = c.parsed;
+    mergedBlocks[singleDecodeBlockName(c.file)] = c.parsed;
   }
+
+  // Read CSV-backed redirect loaders from public/ and emit synthetic top-level
+  // redirect blocks so `loadRedirects` can see them (it only scans top-level).
+  // Spread CSV blocks FIRST so a curated CMS redirect wins over a bulk CSV row
+  // for the same `from` (loadRedirects is last-write-wins over insertion order).
+  const csvRedirectBlocks = buildCsvRedirectBlocks(mergedBlocks, { blocksDir, silent });
+  const blocks: Record<string, unknown> = Object.keys(csvRedirectBlocks).length
+    ? { ...csvRedirectBlocks, ...mergedBlocks }
+    : mergedBlocks;
 
   await fs.promises.mkdir(path.dirname(outFile), { recursive: true });
 
@@ -277,7 +287,11 @@ export function readBlockDelta(options: ReadBlockDeltaOptions): Record<string, u
     delta[key] = parsed;
   }
 
-  return delta;
+  // If a changed block references a CSV redirect loader (e.g. site.json was
+  // edited), re-materialize the synthetic top-level redirect blocks into the
+  // delta so the live snapshot stays in sync. Curated blocks keep precedence.
+  const csvRedirectBlocks = buildCsvRedirectBlocks(delta, { blocksDir, silent });
+  return Object.keys(csvRedirectBlocks).length ? { ...csvRedirectBlocks, ...delta } : delta;
 }
 
 // ---------------------------------------------------------------------------

@@ -145,6 +145,9 @@ export function parseRedirectsCsv(csv: string): Redirect[] {
 
     const [from, to, type] = parts;
     if (!from || !to) continue;
+    // Skip a header row (`from,to[,type]`). Robust for CSVs with or without a
+    // header, and for a header repeated when multiple files are concatenated.
+    if (from.toLowerCase() === "from" && to.toLowerCase() === "to") continue;
 
     redirects.push({
       from: normalizePath(from),
