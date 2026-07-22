@@ -638,3 +638,73 @@ describe("resolveDecoPage — #277 client-side navigation disables deferral", ()
     expect(result?.deferredSections).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hidden array items — a `never`-gated multivariate wrapper must vanish from
+// the array, not survive as a `null` hole the section renders as empty.
+//
+// The admin (Studio) hides an array item by wrapping it in
+// `{ __resolveType: "website/flags/multivariate.ts", variants: [{ value, rule:
+// { __resolveType: "website/matchers/never.ts" } }] }`. `never` never matches,
+// so the wrapper resolves to "not present" and the item is dropped.
+// ---------------------------------------------------------------------------
+
+describe("hidden array items (never matcher)", () => {
+  const NEVER = "website/matchers/never.ts";
+  const ALWAYS = "website/matchers/always.ts";
+  const MULTIVARIATE = "website/flags/multivariate.ts";
+
+  const hidden = (value: unknown) => ({
+    __resolveType: MULTIVARIATE,
+    variants: [{ value, rule: { __resolveType: NEVER } }],
+  });
+
+  it("drops a hidden item from an array instead of leaving a null hole", async () => {
+    const benefits = [
+      { label: "Parcelamento" },
+      { label: "Frete" },
+      hidden({ label: "RetiradaLoja" }),
+      hidden({ label: "EntregaExpressa" }),
+    ];
+
+    const result = (await resolveValue({ benefits }, undefined, {})) as {
+      benefits: unknown[];
+    };
+
+    expect(result.benefits).toEqual([{ label: "Parcelamento" }, { label: "Frete" }]);
+    // No null holes.
+    expect(result.benefits).not.toContain(null);
+  });
+
+  it("keeps a visible (always-gated) item in the array", async () => {
+    const benefits = [
+      {
+        __resolveType: MULTIVARIATE,
+        variants: [{ value: { label: "Shown" }, rule: { __resolveType: ALWAYS } }],
+      },
+      hidden({ label: "Hidden" }),
+    ];
+
+    const result = (await resolveValue({ benefits }, undefined, {})) as {
+      benefits: unknown[];
+    };
+
+    expect(result.benefits).toEqual([{ label: "Shown" }]);
+  });
+
+  it("preserves a legitimate null value in an array (matched variant resolving to null)", async () => {
+    // A matched variant whose value is literally null stays — only the
+    // no-match sentinel is filtered, not every null.
+    const items = [
+      {
+        __resolveType: MULTIVARIATE,
+        variants: [{ value: null, rule: { __resolveType: ALWAYS } }],
+      },
+      { label: "kept" },
+    ];
+
+    const result = (await resolveValue({ items }, undefined, {})) as { items: unknown[] };
+
+    expect(result.items).toEqual([null, { label: "kept" }]);
+  });
+});

@@ -780,7 +780,14 @@ async function resolveProps(
 async function internalResolve(value: unknown, rctx: ResolveContext): Promise<unknown> {
   if (!value || typeof value !== "object") return value;
   if (Array.isArray(value)) {
-    return Promise.all(value.map((item) => internalResolve(item, rctx)));
+    const resolved = await Promise.all(value.map((item) => internalResolve(item, rctx)));
+    // Drop items that resolved to "not present" (`undefined`) — e.g. a hidden
+    // array item (a multivariate wrapped in a `never` matcher, see the admin's
+    // hideArrayItem) where no variant matched. A `never`-gated item must vanish
+    // from the array, NOT become a `null` hole the section then renders as an
+    // empty card. Legitimate `null` values (a matched variant that resolved to
+    // null, a failed loader) are kept — only the no-match sentinel is filtered.
+    return resolved.filter((item) => item !== undefined);
   }
 
   const obj = value as Record<string, unknown>;
@@ -833,7 +840,10 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
     resolveType === WELL_KNOWN_TYPES.MULTIVARIATE_SECTION
   ) {
     const variants = obj.variants as Array<{ value: unknown; rule?: unknown }> | undefined;
-    if (!variants || variants.length === 0) return null;
+    // No variant matched (incl. a single `never`-gated variant, i.e. a hidden
+    // item) → resolve to `undefined`, the "not present" sentinel the array
+    // branch filters out, rather than `null`, which would survive as a hole.
+    if (!variants || variants.length === 0) return undefined;
 
     for (const variant of variants) {
       const rule = variant.rule as Record<string, unknown> | undefined;
@@ -841,7 +851,7 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
         return internalResolve(variant.value, childCtx);
       }
     }
-    return null;
+    return undefined;
   }
 
   // Commerce loaders
