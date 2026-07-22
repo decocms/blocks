@@ -1,6 +1,6 @@
 import { setBlocks } from "@decocms/blocks/cms";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildGeoCacheParam, createDecoWorkerEntry, detectLocationMatcher, injectGeoCookies } from "./workerEntry";
+import { buildGeoCacheParam, createDecoWorkerEntry, detectLocationMatcher, hashSegment, injectGeoCookies } from "./workerEntry";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 
 const EMPTY_ENV = {};
@@ -311,5 +311,58 @@ describe("CMS redirects", () => {
     );
     expect(res2.status).toBe(301);
     expect(res2.headers.get("Location")).toBe("/v2");
+  });
+});
+
+describe("hashSegment", () => {
+  it("keeps the historical fixed-order format for known fields", () => {
+    expect(hashSegment({ device: "desktop", regionId: "RJ" })).toBe("desktop|r=RJ");
+    expect(
+      hashSegment({
+        device: "mobile",
+        loggedIn: true,
+        salesChannel: "2",
+        regionId: "SP",
+        flags: ["b", "a"],
+      }),
+    ).toBe("mobile|auth|sc=2|r=SP|f=a,b");
+  });
+
+  it("serializes a custom dimension instead of dropping it (issue #284)", () => {
+    const withStore = hashSegment({ device: "desktop", regionId: "RJ", delivery: "pp:123" });
+    const withoutStore = hashSegment({ device: "desktop", regionId: "RJ" });
+    expect(withStore).toBe("desktop|r=RJ|delivery=pp:123");
+    expect(withStore).not.toBe(withoutStore);
+  });
+
+  it("orders custom keys stably regardless of object-construction order", () => {
+    const a = hashSegment({ device: "desktop", zebra: "z", alpha: "a" });
+    const b = hashSegment({ device: "desktop", alpha: "a", zebra: "z" });
+    expect(a).toBe("desktop|alpha=a|zebra=z");
+    expect(a).toBe(b);
+  });
+
+  it("sorts array-valued custom dimensions", () => {
+    expect(hashSegment({ device: "mobile", stores: ["c", "a", "b"] })).toBe(
+      "mobile|stores=a,b,c",
+    );
+  });
+
+  it("does not mutate the caller's flags array", () => {
+    const flags = ["b", "a"];
+    hashSegment({ device: "desktop", flags });
+    expect(flags).toEqual(["b", "a"]);
+  });
+
+  it("omits falsy custom values", () => {
+    expect(
+      hashSegment({
+        device: "desktop",
+        gone: undefined,
+        empty: "",
+        no: false,
+        nil: null,
+      }),
+    ).toBe("desktop");
   });
 });
