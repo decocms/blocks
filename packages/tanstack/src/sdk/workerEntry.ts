@@ -646,8 +646,8 @@ export const DEFAULT_SECURITY_HEADERS: Record<string, string> = {
 
 /**
  * Origins allowed to embed the storefront in an iframe. These are the deco
- * admin / studio surfaces that render the live-preview iframe. Kept in sync
- * with the admin CORS allowlist (`@decocms/blocks-admin/admin/cors`).
+ * studio surfaces that render the live-preview iframe, plus `'self'` so the
+ * storefront can frame itself.
  *
  * A site can widen this by passing its own
  * `securityHeaders["Content-Security-Policy"]`, or drop framing protection
@@ -655,20 +655,8 @@ export const DEFAULT_SECURITY_HEADERS: Record<string, string> = {
  */
 export const DECO_ADMIN_FRAME_ANCESTORS: string[] = [
   "'self'",
-  "https://admin.deco.cx",
-  "https://v0-admin.deco.cx",
-  "https://play.deco.cx",
-  "https://admin-cx.deco.page",
-  "https://deco.chat",
-  "https://deco.cx",
-  "https://www.deco.cx",
-  "https://admin.decocms.com",
-  "https://decocms.com",
-  "https://*.decocms.com",
   "https://studio.decocms.com",
   "https://*.deco.studio",
-  "http://localhost:*",
-  "https://localhost:*",
 ];
 
 /**

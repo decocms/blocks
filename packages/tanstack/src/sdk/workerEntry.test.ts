@@ -346,7 +346,7 @@ describe("security headers — frame-ancestors default", () => {
   it("allows the deco studio to embed the storefront by default", () => {
     expect(DEFAULT_FRAME_ANCESTORS_CSP).toContain("frame-ancestors");
     expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("https://studio.decocms.com");
-    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("https://*.decocms.com");
+    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("https://*.deco.studio");
     expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("'self'");
   });
 

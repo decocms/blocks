@@ -5,22 +5,7 @@
  * storefront in an iframe for live preview.
  */
 
-const DEFAULT_ADMIN_ORIGINS = [
-  "https://admin.deco.cx",
-  "https://v0-admin.deco.cx",
-  "https://play.deco.cx",
-  "https://admin-cx.deco.page",
-  "https://deco.chat",
-  "https://deco.cx",
-  "https://www.deco.cx",
-  "https://admin.decocms.com",
-  "https://decocms.com",
-  "https://*.decocms.com",
-  "https://studio.decocms.com",
-  "https://*.deco.studio",
-  "http://localhost:*",
-  "https://localhost:*",
-];
+const DEFAULT_ADMIN_ORIGINS = ["https://admin.deco.cx", "https://deco.cx", "https://localhost:*"];
 
 export interface CSPOptions {
   /** Additional origins allowed to frame the storefront. */
