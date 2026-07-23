@@ -1,7 +1,12 @@
 import { setBlocks } from "@decocms/blocks/cms";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildGeoCacheParam, createDecoWorkerEntry, detectLocationMatcher, injectGeoCookies } from "./workerEntry";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
+import {
+  buildGeoCacheParam,
+  createDecoWorkerEntry,
+  detectLocationMatcher,
+  injectGeoCookies,
+} from "./workerEntry";
 
 const EMPTY_ENV = {};
 const MOCK_CTX = { waitUntil: (_p: Promise<unknown>) => {} };
@@ -48,10 +53,7 @@ describe("injectGeoCookies", () => {
   });
 
   it("strips cf-ipcity from the outgoing Request headers while preserving the value in __cf_geo_city cookie", () => {
-    const req = makeRequest(
-      { city: "Brasília", country: "BR" },
-      { "cf-ipcity": "Brasília" },
-    );
+    const req = makeRequest({ city: "Brasília", country: "BR" }, { "cf-ipcity": "Brasília" });
 
     const out = injectGeoCookies(req);
 
@@ -80,10 +82,7 @@ describe("injectGeoCookies", () => {
   });
 
   it("preserves a pre-existing cookie header", () => {
-    const req = makeRequest(
-      { region: "São Paulo" },
-      { cookie: "vtex_segment=abc; another=xyz" },
-    );
+    const req = makeRequest({ region: "São Paulo" }, { cookie: "vtex_segment=abc; another=xyz" });
 
     const out = injectGeoCookies(req);
 
@@ -150,8 +149,11 @@ describe("detectLocationMatcher", () => {
   it("returns true when decofile has a website/matchers/location.ts __resolveType", () => {
     const blocks = {
       "audiences/geo-audience.json": {
-        "__resolveType": "website/flags/audience.ts",
-        "matcher": { "__resolveType": "website/matchers/location.ts", "includeLocations": [{ "country": "BR" }] },
+        __resolveType: "website/flags/audience.ts",
+        matcher: {
+          __resolveType: "website/matchers/location.ts",
+          includeLocations: [{ country: "BR" }],
+        },
       },
     };
     expect(detectLocationMatcher(blocks)).toBe(true);
@@ -160,8 +162,8 @@ describe("detectLocationMatcher", () => {
   it("returns false when decofile has no location matcher", () => {
     const blocks = {
       "audiences/device-audience.json": {
-        "__resolveType": "website/flags/audience.ts",
-        "matcher": { "__resolveType": "website/matchers/device.ts" },
+        __resolveType: "website/flags/audience.ts",
+        matcher: { __resolveType: "website/matchers/device.ts" },
       },
     };
     expect(detectLocationMatcher(blocks)).toBe(false);
@@ -174,8 +176,8 @@ describe("detectLocationMatcher", () => {
   it("returns true when the matcher is nested deeply", () => {
     const blocks = {
       "pages/home.json": {
-        "variant": {
-          "matcher": { "__resolveType": "website/matchers/location.ts" },
+        variant: {
+          matcher: { __resolveType: "website/matchers/location.ts" },
         },
       },
     };
@@ -185,8 +187,8 @@ describe("detectLocationMatcher", () => {
   it("returns false when location.ts appears only in a non-resolveType string value (no false positive)", () => {
     const blocks = {
       "content/help.json": {
-        "__resolveType": "website/sections/RichText.tsx",
-        "body": "This page is controlled by website/matchers/location.ts for geo targeting.",
+        __resolveType: "website/sections/RichText.tsx",
+        body: "This page is controlled by website/matchers/location.ts for geo targeting.",
       },
     };
     expect(detectLocationMatcher(blocks)).toBe(false);
@@ -207,11 +209,7 @@ describe("CMS redirects", () => {
       },
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(
-      new Request("https://example.com/old"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/old"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(301);
     expect(res.headers.get("Location")).toBe("/new");
   });
@@ -241,11 +239,7 @@ describe("CMS redirects", () => {
       },
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(
-      new Request("https://example.com/promo"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
   });
@@ -258,11 +252,7 @@ describe("CMS redirects", () => {
       },
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(
-      new Request("https://example.com/promo"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/sale");
   });
@@ -275,11 +265,7 @@ describe("CMS redirects", () => {
       },
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(
-      new Request("https://example.com/other"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/other"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(200);
   });
 
@@ -288,11 +274,7 @@ describe("CMS redirects", () => {
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
 
     // First request with no redirects — falls through
-    const res1 = await worker.fetch(
-      new Request("https://example.com/v1"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res1 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
     expect(res1.status).toBe(200);
 
     // Hot-reload: add a redirect
@@ -304,12 +286,48 @@ describe("CMS redirects", () => {
     });
 
     // Same path should now redirect
-    const res2 = await worker.fetch(
-      new Request("https://example.com/v1"),
+    const res2 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
+    expect(res2.status).toBe(301);
+    expect(res2.headers.get("Location")).toBe("/v2");
+  });
+});
+
+describe("degraded origin (anti-cache-poisoning)", () => {
+  afterEach(() => {
+    setBlocks({});
+    __resetKvHydrationStateForTests();
+  });
+
+  it("never caches a degraded 200 and marks it no-store", async () => {
+    setBlocks({});
+    const degradedEntry = {
+      fetch: async () =>
+        new Response("empty shelf", {
+          status: 200,
+          headers: { "X-Deco-Degraded": "true" },
+        }),
+    };
+    const worker = createDecoWorkerEntry(degradedEntry, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/some-category"),
       EMPTY_ENV,
       MOCK_CTX,
     );
-    expect(res2.status).toBe(301);
-    expect(res2.headers.get("Location")).toBe("/v2");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Cache")).toBe("BYPASS");
+    expect(res.headers.get("X-Cache-Reason")).toBe("degraded");
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+  });
+
+  it("serves a healthy 200 origin without the degraded bypass", async () => {
+    setBlocks({});
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/some-category"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Cache-Reason")).not.toBe("degraded");
   });
 });

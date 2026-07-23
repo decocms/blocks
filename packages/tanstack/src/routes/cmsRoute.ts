@@ -21,6 +21,41 @@
  * ```
  */
 
+import type {
+  DeferredSection,
+  MatcherContext,
+  PageSeo,
+  ResolvedSection,
+} from "@decocms/blocks/cms";
+import {
+  extractSeoFromProps,
+  extractSeoFromSections,
+  getDeferredRawProps,
+  getDegradedSections,
+  getSiteSeo,
+  preloadSectionComponents,
+  reExtractRawProps,
+  resolveDecoPage,
+  resolveDeferredSection,
+  resolveDeferredSectionFull,
+  runSectionLoaders,
+  runSingleSectionLoader,
+} from "@decocms/blocks/cms";
+import { withTracing } from "@decocms/blocks/middleware/observability";
+import {
+  type CacheProfileName,
+  cacheHeaders,
+  detectCacheProfile,
+  routeCacheDefaults,
+} from "@decocms/blocks/sdk/cacheHeaders";
+import {
+  parseSegmentCookie,
+  SEGMENT_COOKIE,
+  type StoredFlag,
+  serializeSegmentCookie,
+} from "@decocms/blocks/sdk/flags";
+import { normalizeUrlsInObject } from "@decocms/blocks/sdk/normalizeUrls";
+import { type Device, detectDevice } from "@decocms/blocks/sdk/useDevice";
 import { createServerFn } from "@tanstack/react-start";
 import {
   getCookies,
@@ -31,35 +66,6 @@ import {
   setResponseHeader,
 } from "@tanstack/react-start/server";
 import { createElement } from "react";
-import {
-  extractSeoFromProps,
-  extractSeoFromSections,
-  getDeferredRawProps,
-  getSiteSeo,
-  preloadSectionComponents,
-  reExtractRawProps,
-  resolveDecoPage,
-  resolveDeferredSection,
-  resolveDeferredSectionFull,
-  runSectionLoaders,
-  runSingleSectionLoader,
-} from "@decocms/blocks/cms";
-import type { DeferredSection, MatcherContext, PageSeo, ResolvedSection } from "@decocms/blocks/cms";
-import {
-  parseSegmentCookie,
-  SEGMENT_COOKIE,
-  serializeSegmentCookie,
-  type StoredFlag,
-} from "@decocms/blocks/sdk/flags";
-import { withTracing } from "@decocms/blocks/middleware/observability";
-import {
-  type CacheProfileName,
-  cacheHeaders,
-  detectCacheProfile,
-  routeCacheDefaults,
-} from "@decocms/blocks/sdk/cacheHeaders";
-import { normalizeUrlsInObject } from "@decocms/blocks/sdk/normalizeUrls";
-import { type Device, detectDevice } from "@decocms/blocks/sdk/useDevice";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
 
@@ -183,11 +189,23 @@ async function loadCmsPageInternal(fullPath: string) {
   // Destructure seoSection out — it's an internal artifact, not serialized to client
   const { seoSection: _seo, ...pageData } = page;
 
+  // Anti-cache-poisoning: if a critical section loader failed, this page is
+  // rendering with raw/empty data. Flag the response so the edge refuses to
+  // cache the broken 200 and serves stale instead (see workerEntry.ts). Without
+  // this, the empty page would be cached as healthy for the whole retention
+  // window and stale-if-error would never fire.
+  const degraded = getDegradedSections();
+  if (degraded.length > 0) {
+    setResponseHeader("X-Deco-Degraded", "true");
+    console.warn(`[cms] page degraded — critical sections failed: ${degraded.join(", ")}`);
+  }
+
   return {
     ...pageData,
     resolvedSections: normalizeUrlsInObject(mergedSections),
     deferredSections: normalizeUrlsInObject(page.deferredSections),
     cacheProfile,
+    degraded: degraded.length > 0,
     pageUrl: urlWithSearch,
     pagePath: basePath,
     seo,
@@ -259,10 +277,20 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
 
   const { seoSection: _seo, ...pageData } = page;
 
+  // Same anti-cache-poisoning flag as loadCmsPageInternal — the homepage is the
+  // highest-traffic, most-cached route, so it must not be exempt. The actual
+  // X-Deco-Degraded header is emitted by the route `headers:` callback from
+  // this `degraded` field (a reliable document-response channel).
+  const degraded = getDegradedSections();
+  if (degraded.length > 0) {
+    console.warn(`[cms] home degraded — critical sections failed: ${degraded.join(", ")}`);
+  }
+
   return {
     ...pageData,
     resolvedSections: normalizeUrlsInObject(mergedSections),
     deferredSections: normalizeUrlsInObject(page.deferredSections),
+    degraded: degraded.length > 0,
     pagePath: "/",
     pageUrl: serverUrl.toString(),
     seo,
@@ -310,14 +338,17 @@ export const loadDeferredSection = createServerFn({ method: "POST" })
     // Resolve rawProps: prefer client-provided (backward compat), then server cache,
     // then re-extract from the page as a last resort (handles cross-isolate cache miss
     // on Cloudflare Workers and TTL expiry for slow-scrolling users).
-    const rawProps = clientRawProps
-      ?? (index !== undefined ? getDeferredRawProps(pagePath, component, index) : null)
-      ?? (index !== undefined
+    const rawProps =
+      clientRawProps ??
+      (index !== undefined ? getDeferredRawProps(pagePath, component, index) : null) ??
+      (index !== undefined
         ? await reExtractRawProps(pagePath, component, index, matcherCtx)
         : null);
 
     if (!rawProps) {
-      console.warn(`[CMS] Deferred section cache miss: ${component} at index ${index} on ${pagePath}`);
+      console.warn(
+        `[CMS] Deferred section cache miss: ${component} at index ${index} on ${pagePath}`,
+      );
       return null;
     }
 
@@ -340,10 +371,18 @@ export const loadDeferredSection = createServerFn({ method: "POST" })
     });
     const enriched = await runSingleSectionLoader(section, request);
 
-    // Signal to the worker entry that this response is safe to edge-cache.
-    // Without this header, POST _serverFn responses are passed through
-    // without caching (checkout actions, invoke mutations, etc.).
-    setResponseHeader("X-Deco-Cacheable", "true");
+    // Anti-cache-poisoning: if this deferred section's loader failed (e.g. an
+    // empty product shelf during a VTEX outage), do NOT mark it cacheable —
+    // otherwise the empty shelf would be stored in serverFnCache and served to
+    // every visitor for the full retention window. Flag it degraded instead.
+    if (getDegradedSections().length > 0) {
+      setResponseHeader("X-Deco-Degraded", "true");
+    } else {
+      // Signal to the worker entry that this response is safe to edge-cache.
+      // Without this header, POST _serverFn responses are passed through
+      // without caching (checkout actions, invoke mutations, etc.).
+      setResponseHeader("X-Deco-Cacheable", "true");
+    }
 
     return normalizeUrlsInObject(enriched);
   });
@@ -378,6 +417,43 @@ export function CmsPagePendingFallback() {
   );
 }
 
+/**
+ * Default branded error boundary for CMS routes. Rendered when page resolution
+ * throws (as opposed to returning no match, which is a 404 / not-found path) —
+ * e.g. an uncaught throw in `resolveDecoPage` / `buildPageSeo` /
+ * `resolveSiteGlobals` during a VTEX outage. Without an `errorComponent` the
+ * loader rejection surfaces as a raw 500 white screen.
+ *
+ * This is the COLD-CACHE last resort: whenever a warm edge entry exists the
+ * worker serves it as `STALE-ERROR` before the request ever reaches here.
+ * Sites override via `cmsRouteConfig({ errorComponent })`.
+ */
+export function CmsPageErrorFallback(props: { reset?: () => void }) {
+  return createElement(
+    "div",
+    { className: "min-h-[60vh] flex items-center justify-center px-4 text-center" },
+    createElement(
+      "div",
+      { className: "max-w-md flex flex-col items-center gap-4" },
+      createElement("h1", { className: "text-2xl font-bold" }, "Estamos com uma instabilidade"),
+      createElement(
+        "p",
+        { className: "opacity-70" },
+        "Não conseguimos carregar esta página agora. Tente novamente em instantes.",
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
+          className: "btn btn-primary",
+          onClick: () => (props.reset ? props.reset() : undefined),
+        },
+        "Tentar de novo",
+      ),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Route configuration factory
 // ---------------------------------------------------------------------------
@@ -397,6 +473,13 @@ export interface CmsRouteOptions {
   ignoreSearchParams?: string[];
   /** Custom pending component shown during SPA navigation. */
   pendingComponent?: () => any;
+  /**
+   * Custom error boundary rendered when the loader / page resolution throws.
+   * Defaults to {@link CmsPageErrorFallback} (branded "instability" page with a
+   * retry button) so an outage degrades gracefully instead of a raw 500.
+   * Receives TanStack Router's `{ error, reset }`.
+   */
+  errorComponent?: (props: { error: Error; reset: () => void }) => any;
   /**
    * Delay (ms) before showing the pending component during SPA navigation.
    * If the loader resolves before this threshold, no pending UI is shown.
@@ -422,6 +505,7 @@ export interface CmsRouteOptions {
 type CmsPageLoaderData = {
   name?: string;
   cacheProfile?: CacheProfileName;
+  degraded?: boolean;
   seo?: PageSeo;
   device?: Device;
   resolvedSections?: Array<{ component: string }>;
@@ -621,6 +705,7 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     pendingMs = 200,
     pendingMinMs = 300,
     ssr: ssrMode,
+    errorComponent = CmsPageErrorFallback,
   } = options;
 
   const ignoreSet = new Set(ignoreSearchParams);
@@ -629,8 +714,7 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     // Catch-all search validation: preserve all URL search params so they
     // reach loaderDeps. Without this, TanStack Router may strip unknown
     // params (e.g. ?q=, filter.*, page, sort) during SPA navigation.
-    validateSearch: (search: Record<string, unknown>) =>
-      search as Record<string, string>,
+    validateSearch: (search: Record<string, unknown>) => search as Record<string, string>,
 
     loaderDeps: ({ search }: { search: Record<string, string> }) => {
       const filtered = Object.fromEntries(
@@ -679,13 +763,21 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     ...(pendingComponent ? { pendingComponent } : {}),
     pendingMs,
     pendingMinMs,
+    errorComponent,
     ...(ssrMode !== undefined ? { ssr: ssrMode } : {}),
 
     ...routeCacheDefaults("product"),
 
     headers: ({ loaderData }: { loaderData?: CmsPageLoaderData }) => {
       const profile = loaderData?.cacheProfile ?? "listing";
-      return cacheHeaders(profile);
+      const headers = cacheHeaders(profile);
+      // Emit the degraded flag on the DOCUMENT response via the route headers
+      // callback — the reliable channel (same one cacheHeaders rides), unlike
+      // setResponseHeader inside the server fn which may not reach the document.
+      // The worker treats a 200 + X-Deco-Degraded like a 5xx (no store, serve
+      // stale) to prevent caching an empty page during a VTEX outage.
+      if (loaderData?.degraded) headers["X-Deco-Degraded"] = "true";
+      return headers;
     },
 
     head: ({ loaderData }: { loaderData?: CmsPageLoaderData }) =>
@@ -709,8 +801,17 @@ export function cmsHomeRouteConfig(options: {
   pendingMs?: number;
   /** Minimum display time (ms) for pending component. Default: 300. */
   pendingMinMs?: number;
+  /** Error boundary for loader throws. Defaults to {@link CmsPageErrorFallback}. */
+  errorComponent?: (props: { error: Error; reset: () => void }) => any;
 }) {
-  const { defaultTitle, defaultDescription, siteName, pendingMs = 200, pendingMinMs = 300 } = options;
+  const {
+    defaultTitle,
+    defaultDescription,
+    siteName,
+    pendingMs = 200,
+    pendingMinMs = 300,
+    errorComponent = CmsPageErrorFallback,
+  } = options;
 
   return {
     loader: async () => {
@@ -729,8 +830,13 @@ export function cmsHomeRouteConfig(options: {
     ...(options.pendingComponent ? { pendingComponent: options.pendingComponent } : {}),
     pendingMs,
     pendingMinMs,
+    errorComponent,
     ...routeCacheDefaults("static"),
-    headers: () => cacheHeaders("static"),
+    headers: ({ loaderData }: { loaderData?: CmsPageLoaderData }) => {
+      const headers = cacheHeaders("static");
+      if (loaderData?.degraded) headers["X-Deco-Degraded"] = "true";
+      return headers;
+    },
     head: ({ loaderData }: { loaderData?: CmsPageLoaderData }) =>
       buildHead(loaderData, siteName ?? defaultTitle, defaultTitle, defaultDescription),
   };

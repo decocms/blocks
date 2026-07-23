@@ -9,6 +9,7 @@
  * inside the TanStack Start server function.
  */
 
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { getCacheProfile } from "../sdk/cacheHeaders";
 import { djb2 } from "../sdk/djb2";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
@@ -26,8 +27,55 @@ if (!G.__deco) G.__deco = {};
 if (!G.__deco.sectionLoaderRegistry) G.__deco.sectionLoaderRegistry = new Map();
 if (!G.__deco.layoutSections) G.__deco.layoutSections = new Set();
 if (!G.__deco.cacheableSections) G.__deco.cacheableSections = new Map();
+if (!G.__deco.nonCriticalSections) G.__deco.nonCriticalSections = new Set();
 
 const loaderRegistry: Map<string, SectionLoaderFn> = G.__deco.sectionLoaderRegistry;
+
+// ---------------------------------------------------------------------------
+// Degradation tracking (anti-cache-poisoning)
+//
+// When a section loader throws, the section renders with raw (un-enriched)
+// props — e.g. a product shelf with no products during a VTEX outage. Today
+// that degraded page is emitted as a healthy 200 and the edge caches it for the
+// full retention window, so stale-if-error never fires and users see an empty
+// page for hours. We record each CRITICAL section degradation on a
+// request-scoped collector; the CMS route reads it and emits `X-Deco-Degraded`
+// so the worker refuses to cache the broken page and serves stale instead.
+//
+// Every section is critical by default (a registered loader failing means
+// intended data is missing). Decorative sections whose empty state is harmless
+// can opt out via `registerNonCriticalSections`.
+// ---------------------------------------------------------------------------
+
+const DEGRADED_BAG_KEY = "deco:degraded-sections";
+const nonCriticalSections: Set<string> = G.__deco.nonCriticalSections;
+
+/** Mark section keys whose loader failure should NOT make the page uncacheable. */
+export function registerNonCriticalSections(keys: string[]): void {
+  for (const k of keys) nonCriticalSections.add(k);
+}
+
+/** A section is critical (its failure degrades the page) unless opted out. */
+export function isCriticalSection(key: string): boolean {
+  return !nonCriticalSections.has(key);
+}
+
+/**
+ * Record that a critical section rendered with raw props because its loader
+ * threw. No-op outside a request scope or for non-critical sections.
+ */
+export function markSectionDegraded(component: string): void {
+  if (!isCriticalSection(component)) return;
+  const set = RequestContext.getBag<Set<string>>(DEGRADED_BAG_KEY) ?? new Set<string>();
+  set.add(component);
+  RequestContext.setBag(DEGRADED_BAG_KEY, set);
+}
+
+/** Component keys of critical sections that degraded during this request. */
+export function getDegradedSections(): string[] {
+  const set = RequestContext.getBag<Set<string>>(DEGRADED_BAG_KEY);
+  return set ? [...set] : [];
+}
 
 // ---------------------------------------------------------------------------
 // Cacheable section loaders — SWR cache for section loader results
@@ -420,6 +468,11 @@ async function runSingleSectionLoaderImpl(
         result = await resolveLayoutSection(section, wrapped, request);
       } catch (error) {
         console.error(`[SectionLoader] Error in layout "${section.component}":`, error);
+        // Deliberately NOT marked degraded: layout sections (Header/Footer/Theme)
+        // render on every page, so a flaky layout loader would flip the whole
+        // site to X-Deco-Degraded and defeat edge caching everywhere. A failed
+        // layout renders raw chrome, which is acceptable — page-body data
+        // integrity (product shelves/PLP/PDP) is what the degraded signal guards.
         result = section;
       }
     } else {
@@ -429,6 +482,7 @@ async function runSingleSectionLoaderImpl(
           result = await runCacheableSectionLoader(section, wrapped, request, cacheConfig);
         } catch (error) {
           console.error(`[SectionLoader] Error in cacheable "${section.component}":`, error);
+          markSectionDegraded(section.component);
           result = section;
         }
       } else {
@@ -437,6 +491,7 @@ async function runSingleSectionLoaderImpl(
           result = { ...section, props: enrichedProps };
         } catch (error) {
           console.error(`[SectionLoader] Error in "${section.component}":`, error);
+          markSectionDegraded(section.component);
           result = section;
         }
       }
