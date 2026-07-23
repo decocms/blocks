@@ -331,10 +331,13 @@ export interface DecoWorkerEntryOptions {
    * Security headers appended to every SSR response (HTML pages).
    * Pass `false` to disable entirely.
    *
-   * Default headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
-   * Permissions-Policy, X-XSS-Protection, HSTS, Cross-Origin-Opener-Policy.
+   * Default headers: X-Content-Type-Options, Referrer-Policy,
+   * Permissions-Policy, X-XSS-Protection, HSTS, Cross-Origin-Opener-Policy,
+   * and a `Content-Security-Policy: frame-ancestors` directive that lets the
+   * deco admin/studio embed the storefront (see DEFAULT_FRAME_ANCESTORS_CSP).
    *
-   * Custom entries are merged with defaults (custom values take precedence).
+   * Custom entries are merged with defaults (custom values take precedence) —
+   * pass `Content-Security-Policy` here to override the default frame-ancestors.
    *
    * @default DEFAULT_SECURITY_HEADERS
    */
@@ -621,17 +624,59 @@ const ONE_YEAR = 31536000;
 
 /**
  * Sensible security headers for any production storefront.
- * CSP is intentionally not included — it's site-specific (third-party script domains).
+ *
+ * Framing protection is handled by a default `Content-Security-Policy:
+ * frame-ancestors` directive (see DEFAULT_FRAME_ANCESTORS_CSP), NOT
+ * `X-Frame-Options`. CSP level 3 `frame-ancestors` supersedes X-Frame-Options
+ * in every modern browser, and — unlike the all-or-nothing SAMEORIGIN value —
+ * it can allow the deco admin/studio to embed the storefront for live preview
+ * while still blocking arbitrary third-party framing (clickjacking).
+ *
+ * Full CSP (script-src etc.) is intentionally not included here — it's
+ * site-specific (third-party script domains) and passed via the `csp` option.
  */
 export const DEFAULT_SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
-  "X-Frame-Options": "SAMEORIGIN",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   "X-XSS-Protection": "1; mode=block",
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
   "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
 };
+
+/**
+ * Origins allowed to embed the storefront in an iframe. These are the deco
+ * admin / studio surfaces that render the live-preview iframe. Kept in sync
+ * with the admin CORS allowlist (`@decocms/blocks-admin/admin/cors`).
+ *
+ * A site can widen this by passing its own
+ * `securityHeaders["Content-Security-Policy"]`, or drop framing protection
+ * entirely with `securityHeaders: false`.
+ */
+export const DECO_ADMIN_FRAME_ANCESTORS: string[] = [
+  "'self'",
+  "https://admin.deco.cx",
+  "https://v0-admin.deco.cx",
+  "https://play.deco.cx",
+  "https://admin-cx.deco.page",
+  "https://deco.chat",
+  "https://deco.cx",
+  "https://www.deco.cx",
+  "https://admin.decocms.com",
+  "https://decocms.com",
+  "https://*.decocms.com",
+  "https://studio.decocms.com",
+  "https://*.deco.studio",
+  "http://localhost:*",
+  "https://localhost:*",
+];
+
+/**
+ * Default enforcement CSP shipped on every SSR HTML response. Only the
+ * `frame-ancestors` directive is enforced by default; the full site CSP
+ * (passed via the `csp` option) is emitted report-only.
+ */
+export const DEFAULT_FRAME_ANCESTORS_CSP = `frame-ancestors ${DECO_ADMIN_FRAME_ANCESTORS.join(" ")}`;
 
 const DEFAULT_BYPASS_PATHS = ["/_build", "/deco/", "/live/", "/.decofile"];
 
@@ -879,6 +924,12 @@ export function createDecoWorkerEntry(
   const secHeaders: Record<string, string> | null = (() => {
     if (securityHeadersOpt === false) return null;
     const base = { ...DEFAULT_SECURITY_HEADERS };
+    // Ship an enforcement `frame-ancestors` CSP by default so the deco
+    // admin/studio can embed the storefront for live preview without every
+    // site copy-pasting the directive into its worker entry. A site can
+    // override the whole header via securityHeaders["Content-Security-Policy"]
+    // (the merge loop below wins) or disable all security headers with `false`.
+    base["Content-Security-Policy"] = DEFAULT_FRAME_ANCESTORS_CSP;
     if (securityHeadersOpt) {
       for (const [k, v] of Object.entries(securityHeadersOpt)) base[k] = v;
     }

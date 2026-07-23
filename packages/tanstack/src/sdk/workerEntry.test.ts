@@ -1,10 +1,21 @@
 import { setBlocks } from "@decocms/blocks/cms";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildGeoCacheParam, createDecoWorkerEntry, detectLocationMatcher, injectGeoCookies } from "./workerEntry";
+import {
+  buildGeoCacheParam,
+  createDecoWorkerEntry,
+  DECO_ADMIN_FRAME_ANCESTORS,
+  DEFAULT_FRAME_ANCESTORS_CSP,
+  DEFAULT_SECURITY_HEADERS,
+  detectLocationMatcher,
+  injectGeoCookies,
+} from "./workerEntry";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 
 const EMPTY_ENV = {};
-const MOCK_CTX = { waitUntil: (_p: Promise<unknown>) => {} };
+const MOCK_CTX = {
+  waitUntil: (_p: Promise<unknown>) => {},
+  passThroughOnException: () => {},
+};
 const MOCK_SERVER_ENTRY = {
   fetch: async (_req: Request) => new Response("page content", { status: 200 }),
 };
@@ -311,5 +322,66 @@ describe("CMS redirects", () => {
     );
     expect(res2.status).toBe(301);
     expect(res2.headers.get("Location")).toBe("/v2");
+  });
+});
+
+describe("security headers — frame-ancestors default", () => {
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    setBlocks({});
+  });
+
+  const HTML_SERVER_ENTRY = {
+    fetch: async (_req: Request) =>
+      new Response("<html>hi</html>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+  };
+
+  it("does NOT ship X-Frame-Options (frame-ancestors supersedes it)", () => {
+    expect(DEFAULT_SECURITY_HEADERS["X-Frame-Options"]).toBeUndefined();
+  });
+
+  it("allows the deco studio to embed the storefront by default", () => {
+    expect(DEFAULT_FRAME_ANCESTORS_CSP).toContain("frame-ancestors");
+    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("https://studio.decocms.com");
+    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("https://*.decocms.com");
+    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("'self'");
+  });
+
+  it("applies the default frame-ancestors CSP on HTML responses and drops X-Frame-Options", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY);
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
+    expect(res.headers.get("X-Frame-Options")).toBeNull();
+    // Other defaults are still present.
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  it("lets a site override the frame-ancestors CSP via securityHeaders", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      securityHeaders: { "Content-Security-Policy": "frame-ancestors 'none'" },
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
+  });
+
+  it("emits the full site CSP report-only alongside the enforced frame-ancestors", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      csp: ["default-src 'self'", "img-src 'self' https:"],
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
+    expect(res.headers.get("Content-Security-Policy-Report-Only")).toBe(
+      "default-src 'self'; img-src 'self' https:",
+    );
+  });
+
+  it("omits all security headers when securityHeaders is false", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, { securityHeaders: false });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBeNull();
+    expect(res.headers.get("X-Content-Type-Options")).toBeNull();
   });
 });
