@@ -21,6 +21,32 @@ import { type CacheProfileName, loaderCacheOptions } from "./cacheHeaders";
 import { withInflightTimeout } from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
+// Build-time constant injected by `decoVitePlugin()` (see @decocms/tanstack's
+// vite plugin) — the same commit-SHA/deploy token the edge Cache API uses as
+// its `__v` cache-key version. Declared here with a `typeof` guard so it's
+// inert where the define is not applied (Node tests, non-plugin builds). Same
+// pattern already used in `../cms/blockSource.ts`.
+declare const __DECO_BUILD_HASH__: string | undefined;
+
+// Prefixes every in-memory loader cache key with the build hash, mirroring the
+// edge cache's `__v`. This is defense-in-depth, NOT the primary invalidation
+// lever: the cache Map is per-isolate, so a fresh isolate spun for a new deploy
+// already starts empty, and a warm isolate keeps running its old bundle (hence
+// its old BUILD) until it is recycled — the prefix cannot flush that. It only
+// matters if this store ever becomes shared across builds. Gated on truthiness
+// (empty string ⇒ unversioned) to match getBuildHash()/getDeploymentId() in
+// workerEntry.ts / blockSource.ts.
+const BUILD =
+  typeof __DECO_BUILD_HASH__ !== "undefined" && __DECO_BUILD_HASH__ ? __DECO_BUILD_HASH__ : "";
+
+/**
+ * `maxAge` above this (10 min) is almost always a mistake for a commerce loader:
+ * upstream (catalog/price/stock) changes then take that long to propagate and a
+ * redeploy is the only fast lever. Warned once per loader name.
+ */
+const LONG_MAXAGE_WARN = 600_000;
+const warnedLongMaxAge = new Set<string>();
+
 export type CachePolicy = "no-store" | "no-cache" | "stale-while-revalidate";
 
 export interface CachedLoaderOptions {
@@ -89,6 +115,13 @@ const MAX_CACHE_BYTES = resolveMaxBytes();
 
 const cache = new Map<string, CacheEntry>();
 let cacheBytes = 0;
+
+// Bumped by clearLoaderCache(). A loader invocation captures this at entry and
+// only writes its result back if the generation is unchanged when it settles —
+// so a purge (e.g. POST /_cache/purge-loaders) that lands while a loader is
+// in flight can't be silently undone by that in-flight loader repopulating a
+// just-cleared entry with pre-purge data.
+let cacheGeneration = 0;
 
 // Floor each entry at 512 bytes so we never accumulate unbounded zero-cost
 // entries when a loader legitimately returns `undefined` or an empty object
@@ -180,10 +213,22 @@ export function createCachedLoader<TProps, TResult>(
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
   const isDev = env?.DECO_CACHE_DISABLE === "true" || env?.NODE_ENV === "development";
 
+  if (policy !== "no-store" && maxAge > LONG_MAXAGE_WARN && !warnedLongMaxAge.has(name)) {
+    warnedLongMaxAge.add(name);
+    console.warn(
+      `[cachedLoader] ${name}: maxAge=${Math.round(maxAge / 1000)}s is very long — ` +
+        `upstream changes take that long to propagate. Prefer a short window and use ` +
+        `POST /_cache/purge-loaders (or a redeploy) for immediate invalidation.`,
+    );
+  }
+
   if (policy === "no-store") return loaderFn;
 
   return async (props: TProps): Promise<TResult> => {
-    const cacheKey = `${name}::${keyFn(props)}`;
+    const cacheKey = `${BUILD}::${name}::${keyFn(props)}`;
+    // Snapshot the cache generation; a purge during this invocation bumps it,
+    // and the deferred writes below skip repopulating a just-cleared entry.
+    const gen = cacheGeneration;
 
     const inflight = inflightRequests.get(cacheKey);
     if (inflight) {
@@ -248,6 +293,9 @@ export function createCachedLoader<TProps, TResult>(
         entry.refreshing = true;
         loaderFn(props)
           .then((result) => {
+            // Skip the write if a purge cleared the cache mid-refresh — otherwise
+            // we'd re-insert pre-purge data the purge was meant to drop.
+            if (gen !== cacheGeneration) return;
             setCacheEntry(cacheKey, {
               value: result,
               createdAt: Date.now(),
@@ -290,13 +338,17 @@ export function createCachedLoader<TProps, TResult>(
     )
       .then((result) => {
         recordLoaderMetric(name, performance.now() - loaderStart, "MISS");
-        setCacheEntry(cacheKey, {
-          value: result,
-          createdAt: Date.now(),
-          refreshing: false,
-          estimatedBytes: estimateBytes(result),
-        });
-        evictIfNeeded();
+        // Skip caching if a purge landed while this loader was in flight — still
+        // return the fresh value to the caller, just don't persist a raced entry.
+        if (gen === cacheGeneration) {
+          setCacheEntry(cacheKey, {
+            value: result,
+            createdAt: Date.now(),
+            refreshing: false,
+            estimatedBytes: estimateBytes(result),
+          });
+          evictIfNeeded();
+        }
         return result;
       })
       .catch((err) => {
@@ -380,7 +432,7 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     // Explicit null → the loader declared this call uncacheable: run fresh.
     if (keyPart === null) return mod.default(props, req);
 
-    const key = `${name}::${keyPart}`;
+    const key = `${BUILD}::${name}::${keyPart}`;
     const existing = moduleInflight.get(key) as Promise<TResult> | undefined;
     if (existing) return existing;
 
@@ -423,12 +475,21 @@ export function createLoaderEntry<TProps = any, TResult = any>(
   };
 }
 
-/** Clear all cached entries. Useful for decofile hot-reload. */
+/**
+ * Clear all cached entries in THIS isolate. Used both by decofile hot-reload
+ * (`@decocms/blocks-admin`) and by the `POST /_cache/purge-loaders` route — an
+ * escape hatch to invalidate immediately (e.g. after an out-of-band Magento/
+ * catalog sync) without waiting out the TTL. Per-isolate: the route must be hit
+ * for every isolate; a redeploy replaces isolates wholesale. Bumps the cache
+ * generation so any loader in flight at purge time won't repopulate a cleared
+ * entry with pre-purge data.
+ */
 export function clearLoaderCache() {
   cache.clear();
   cacheBytes = 0;
   inflightRequests.clear();
   moduleInflight.clear();
+  cacheGeneration++;
 }
 
 /** Get cache stats for diagnostics. */

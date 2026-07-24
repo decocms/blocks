@@ -385,3 +385,48 @@ describe("security headers — frame-ancestors default", () => {
     expect(res.headers.get("X-Content-Type-Options")).toBeNull();
   });
 });
+
+describe("POST /_cache/purge-loaders", () => {
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    setBlocks({});
+  });
+
+  const purge = (env: Record<string, unknown>, headers: Record<string, string> = {}) => {
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    return worker.fetch(
+      new Request("https://example.com/_cache/purge-loaders", { method: "POST", headers }),
+      env,
+      MOCK_CTX,
+    );
+  };
+
+  it("401s without a valid Bearer token", async () => {
+    const res = await purge({ PURGE_TOKEN: "secret" });
+    expect(res.status).toBe(401);
+  });
+
+  it("401s with the wrong token", async () => {
+    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer nope" });
+    expect(res.status).toBe(401);
+  });
+
+  it("clears the loader cache with a valid token", async () => {
+    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer secret" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ cleared: true, scope: "isolate" });
+  });
+
+  it("404s when purge is disabled (purgeTokenEnv: false)", async () => {
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      purgeTokenEnv: false,
+    });
+    const res = await worker.fetch(
+      new Request("https://example.com/_cache/purge-loaders", { method: "POST" }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(404);
+  });
+});
