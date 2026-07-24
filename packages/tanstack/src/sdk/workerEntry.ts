@@ -38,6 +38,7 @@ import {
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
+import { bustLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
 import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import {
   type CacheProfileName,
@@ -1268,6 +1269,26 @@ export function createDecoWorkerEntry(
     return Response.json({ purged, total: purged.length });
   }
 
+  // Purge the in-memory loader/commerce cache for THIS isolate. Same auth as
+  // handlePurge (Bearer `purgeTokenEnv`). Per-isolate by nature — the isolate
+  // that serves this request clears its cache; other live isolates keep theirs
+  // until they're recycled or hit too. For a guaranteed global flush, redeploy
+  // (loader cache keys are build-hash versioned).
+  async function handlePurgeLoaders(
+    request: Request,
+    env: Record<string, unknown>,
+  ): Promise<Response> {
+    if (purgeTokenEnv === false) {
+      return new Response("Purge disabled", { status: 404 });
+    }
+    const token = (env[purgeTokenEnv] as string) || "";
+    if (!token || request.headers.get("Authorization") !== `Bearer ${token}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    bustLoaderCache();
+    return Response.json({ cleared: true, scope: "isolate" });
+  }
+
   // -- Admin route handler ---------------------------------------------------
 
   const ADMIN_NO_CACHE: Record<string, string> = {
@@ -1591,6 +1612,14 @@ export function createDecoWorkerEntry(
     // Purge endpoint
     if (url.pathname === "/_cache/purge" && request.method === "POST") {
       return handlePurge(request, env);
+    }
+
+    // Loader/commerce cache purge (in-memory, this isolate only). Escape hatch
+    // to invalidate loader results immediately after an out-of-band upstream
+    // change (e.g. a Magento catalog sync) without waiting out the TTL. A
+    // redeploy is the global lever — loader cache keys are build-hash versioned.
+    if (url.pathname === "/_cache/purge-loaders" && request.method === "POST") {
+      return handlePurgeLoaders(request, env);
     }
 
     // CMS redirects (website/loaders/redirect.ts blocks) — checked before

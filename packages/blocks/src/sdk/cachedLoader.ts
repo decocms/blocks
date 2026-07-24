@@ -21,6 +21,28 @@ import { type CacheProfileName, loaderCacheOptions } from "./cacheHeaders";
 import { withInflightTimeout } from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
+// Build-time constant injected by `decoVitePlugin()` (see @decocms/tanstack's
+// vite plugin) — the same commit-SHA/deploy token the edge Cache API uses as
+// its `__v` cache-key version. Declared here with a `typeof` guard so it's
+// inert where the define is not applied (Node tests, non-plugin builds). Same
+// pattern already used in `../cms/blockSource.ts`.
+declare const __DECO_BUILD_HASH__: string | undefined;
+
+// Prefixes every in-memory loader cache key so a new deploy (new build hash)
+// makes all prior-build entries unreachable — i.e. a redeploy clears the loader
+// cache even in a reused warm isolate, mirroring the edge cache's `__v` scheme.
+// Empty string when the constant isn't defined (keys are then unversioned, the
+// pre-existing behaviour).
+const BUILD = typeof __DECO_BUILD_HASH__ !== "undefined" ? (__DECO_BUILD_HASH__ ?? "") : "";
+
+/**
+ * `maxAge` above this (10 min) is almost always a mistake for a commerce loader:
+ * upstream (catalog/price/stock) changes then take that long to propagate and a
+ * redeploy is the only fast lever. Warned once per loader name.
+ */
+const LONG_MAXAGE_WARN = 600_000;
+const warnedLongMaxAge = new Set<string>();
+
 export type CachePolicy = "no-store" | "no-cache" | "stale-while-revalidate";
 
 export interface CachedLoaderOptions {
@@ -180,10 +202,19 @@ export function createCachedLoader<TProps, TResult>(
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
   const isDev = env?.DECO_CACHE_DISABLE === "true" || env?.NODE_ENV === "development";
 
+  if (policy !== "no-store" && maxAge > LONG_MAXAGE_WARN && !warnedLongMaxAge.has(name)) {
+    warnedLongMaxAge.add(name);
+    console.warn(
+      `[cachedLoader] ${name}: maxAge=${Math.round(maxAge / 1000)}s is very long — ` +
+        `upstream changes take that long to propagate. Prefer a short window and use ` +
+        `POST /_cache/purge-loaders (or a redeploy) for immediate invalidation.`,
+    );
+  }
+
   if (policy === "no-store") return loaderFn;
 
   return async (props: TProps): Promise<TResult> => {
-    const cacheKey = `${name}::${keyFn(props)}`;
+    const cacheKey = `${BUILD}::${name}::${keyFn(props)}`;
 
     const inflight = inflightRequests.get(cacheKey);
     if (inflight) {
@@ -380,7 +411,7 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     // Explicit null → the loader declared this call uncacheable: run fresh.
     if (keyPart === null) return mod.default(props, req);
 
-    const key = `${name}::${keyPart}`;
+    const key = `${BUILD}::${name}::${keyPart}`;
     const existing = moduleInflight.get(key) as Promise<TResult> | undefined;
     if (existing) return existing;
 
@@ -429,6 +460,18 @@ export function clearLoaderCache() {
   cacheBytes = 0;
   inflightRequests.clear();
   moduleInflight.clear();
+}
+
+/**
+ * Purge every loader cache entry in THIS isolate on demand. Named alias for
+ * `clearLoaderCache()` used by the `POST /_cache/purge-loaders` route: an escape
+ * hatch to invalidate immediately (e.g. after an out-of-band Magento/catalog
+ * sync) without waiting out the TTL. Per-isolate — the route must be hit (or
+ * fanned out) for every isolate; a redeploy is the global lever (keys are
+ * build-hash versioned, see `BUILD`).
+ */
+export function bustLoaderCache() {
+  clearLoaderCache();
 }
 
 /** Get cache stats for diagnostics. */
