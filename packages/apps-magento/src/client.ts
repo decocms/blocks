@@ -15,7 +15,7 @@
  *     Magento has consistent muscle memory.
  */
 
-import { withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
+import { type FetchFn, withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
 
 // ---------------------------------------------------------------------------
 // Config shapes
@@ -97,7 +97,7 @@ let config: MagentoConfig | null = null;
  * Mirrors VTEX's `setVtexFetch` / Shopify's `setShopifyFetch` so every commerce
  * app funnels egress through a single instrumented `_fetch`.
  */
-let _fetch: typeof fetch = withFetchTimeout();
+let _fetch: FetchFn = withFetchTimeout();
 
 /**
  * Override the fetch used by every Magento egress call.
@@ -108,7 +108,7 @@ let _fetch: typeof fetch = withFetchTimeout();
  * setMagentoFetch(createMagentoFetch());
  * ```
  */
-export function setMagentoFetch(fetchFn: typeof fetch): void {
+export function setMagentoFetch(fetchFn: FetchFn): void {
 	_fetch = fetchFn;
 }
 

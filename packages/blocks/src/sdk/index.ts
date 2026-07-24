@@ -22,6 +22,7 @@ export { djb2, djb2Hex } from "./djb2";
 export { isDevMode } from "./env";
 export {
   DEFAULT_FETCH_TIMEOUT_MS,
+  type FetchFn,
   withFetchTimeout,
   withTimeoutSignal,
 } from "./fetchTimeout";

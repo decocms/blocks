@@ -3,7 +3,7 @@
  * Uses VTEX's public REST APIs (Intelligent Search + Catalog + Checkout).
  */
 
-import { withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
+import { type FetchFn, withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
 import type {
 	InstrumentedFetch,
 	InstrumentedFetchInit,
@@ -148,7 +148,7 @@ export interface VtexConfig {
 }
 
 let _config: VtexConfig | null = null;
-let _fetch: typeof fetch | InstrumentedFetch = withFetchTimeout();
+let _fetch: FetchFn | InstrumentedFetch = withFetchTimeout();
 
 export function configureVtex(config: VtexConfig) {
 	_config = config;
@@ -170,7 +170,7 @@ export function configureVtex(config: VtexConfig) {
  * uninstrumented (useful for tests + sites that haven't onboarded
  * the observability stack yet).
  */
-export function setVtexFetch(fetchFn: typeof fetch | InstrumentedFetch) {
+export function setVtexFetch(fetchFn: FetchFn | InstrumentedFetch) {
 	_fetch = fetchFn;
 }
 
