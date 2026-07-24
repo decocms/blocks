@@ -1,3 +1,4 @@
+import type { FetchFn } from "@decocms/blocks/sdk/fetchTimeout";
 import { createGraphqlClient, type GraphQLClient } from "./utils/graphql";
 
 export interface ShopifyConfig {
@@ -8,7 +9,7 @@ export interface ShopifyConfig {
 
 let _client: GraphQLClient | null = null;
 let _config: ShopifyConfig | null = null;
-let _fetch: typeof fetch | undefined;
+let _fetch: FetchFn | undefined;
 
 /**
  * Override the fetch function used by the Shopify GraphQL client.
@@ -21,7 +22,7 @@ let _fetch: typeof fetch | undefined;
  * setShopifyFetch(createInstrumentedFetch("shopify"));
  * ```
  */
-export function setShopifyFetch(fetchFn: typeof fetch) {
+export function setShopifyFetch(fetchFn: FetchFn) {
 	_fetch = fetchFn;
 	if (_config) configureShopify(_config);
 }

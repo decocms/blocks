@@ -15,6 +15,14 @@
 export const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
 /**
+ * Named alias for `typeof fetch`. Prefer this over repeating `typeof fetch`
+ * in signatures — packages that ban the bare `fetch` global (see this
+ * monorepo's `biome.json` `noRestrictedGlobals` override) flag `typeof fetch`
+ * too, since it's the same identifier reference; `FetchFn` sidesteps that.
+ */
+export type FetchFn = typeof fetch;
+
+/**
  * Combine a caller-supplied `AbortSignal` (if any) with a timeout signal, so
  * neither cancellation source is lost. Pass `timeoutMs <= 0` or
  * non-finite to opt out of the timeout entirely (e.g. long-lived streaming

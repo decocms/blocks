@@ -11,6 +11,7 @@
  *   needs to expose VTEX's existing crawl tree to the public hostname.
  */
 
+import { type FetchFn, withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
 import { getVtexConfig, vtexFetchResponse, vtexHost } from "../client";
 
 export interface SitemapEntry {
@@ -185,7 +186,7 @@ export interface VtexSitemapProxyConfig {
 	 * Optional fetch override — primarily for tests. Defaults to the
 	 * platform `fetch`.
 	 */
-	fetchImpl?: typeof fetch;
+	fetchImpl?: FetchFn;
 }
 
 const DEFAULT_SITEMAP_CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
@@ -238,7 +239,7 @@ export function createVtexSitemapProxy(
 	const environment = config.environment ?? "vtexcommercestable";
 	const cacheControl = config.cacheControl ?? DEFAULT_SITEMAP_CACHE_CONTROL;
 	const extraSitemaps = config.extraSitemaps ?? [];
-	const fetchImpl = config.fetchImpl ?? fetch;
+	const fetchImpl = config.fetchImpl ?? withFetchTimeout();
 
 	return async (_request: Request, url: URL): Promise<Response | null> => {
 		if (!isVtexSitemapPath(url.pathname)) return null;

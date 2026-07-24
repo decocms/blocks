@@ -30,6 +30,7 @@
  * behavior.
  */
 
+import type { FetchFn } from "@decocms/blocks/sdk/fetchTimeout";
 import {
 	createInstrumentedFetch,
 	type InstrumentedFetch,
@@ -44,7 +45,7 @@ export interface CreateVtexFetchOptions {
 	 * or routes through a proxy) to preserve its behavior while adding
 	 * the VTEX instrumentation layer on top.
 	 */
-	baseFetch?: typeof fetch;
+	baseFetch?: FetchFn;
 	/**
 	 * Disable the `http.client.request.duration` histogram emission for
 	 * VTEX calls. The framework's span and structured logs still emit.
