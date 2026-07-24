@@ -35,19 +35,23 @@ describe("sendEmail", () => {
 		expect(result.data).toEqual({ id: "email_abc123" });
 		expect(result.error).toBeNull();
 
-		expect(fetchSpy).toHaveBeenCalledWith("https://api.resend.com/emails", {
-			method: "POST",
-			headers: {
-				Authorization: "Bearer re_test_123",
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				from: "Test <test@example.com>",
-				to: "user@example.com",
-				subject: "Hello",
-				html: "<p>World</p>",
+		expect(fetchSpy).toHaveBeenCalledWith(
+			"https://api.resend.com/emails",
+			expect.objectContaining({
+				method: "POST",
+				headers: {
+					Authorization: "Bearer re_test_123",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					from: "Test <test@example.com>",
+					to: "user@example.com",
+					subject: "Hello",
+					html: "<p>World</p>",
+				}),
+				signal: expect.any(AbortSignal),
 			}),
-		});
+		);
 	});
 
 	it("falls back to defaults when fields are omitted", async () => {

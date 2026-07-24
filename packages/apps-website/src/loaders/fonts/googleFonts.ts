@@ -1,4 +1,7 @@
+import { withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
 import type { Font } from "../../types";
+
+const timeoutFetch = withFetchTimeout();
 
 interface Props {
 	fonts: GoogleFont[];
@@ -94,13 +97,13 @@ const loader = async (props: Props): Promise<Font> => {
 	};
 
 	const sheets = await Promise.all([
-		fetch(url, { headers: OLD_BROWSER_KEY })
+		timeoutFetch(url, { headers: OLD_BROWSER_KEY })
 			.then((res) => res.text())
 			.catch((e) => {
 				logFontError("OLD_UA", url, e);
 				return "";
 			}),
-		fetch(url, { headers: NEW_BROWSER_KEY })
+		timeoutFetch(url, { headers: NEW_BROWSER_KEY })
 			.then((res) => res.text())
 			.catch((e) => {
 				logFontError("NEW_UA", url, e);

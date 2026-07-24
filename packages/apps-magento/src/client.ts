@@ -15,6 +15,10 @@
  *     Magento has consistent muscle memory.
  */
 
+import { withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
+
+const timeoutFetch = withFetchTimeout();
+
 // ---------------------------------------------------------------------------
 // Config shapes
 // ---------------------------------------------------------------------------
@@ -224,5 +228,5 @@ export function magentoFetch(path: string, opts: MagentoFetchOpts = {}): Promise
 	// clarity at the call site.
 	const sameOrigin = target.origin === baseUrl.origin;
 
-	return fetch(target, { ...opts, headers: buildHeaders(opts, c, sameOrigin) });
+	return timeoutFetch(target, { ...opts, headers: buildHeaders(opts, c, sameOrigin) });
 }

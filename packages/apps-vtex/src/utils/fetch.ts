@@ -15,6 +15,10 @@
  * the platform.
  */
 
+import { withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
+
+const timeoutFetch = withFetchTimeout();
+
 type CachingMode = "stale-while-revalidate";
 
 type DecoInit = {
@@ -88,7 +92,7 @@ export async function fetchSafe(
 	init?: DecoRequestInit,
 ): Promise<Response> {
 	const sanitized = sanitizeUrl(input);
-	const response = await fetch(sanitized as RequestInfo, init);
+	const response = await timeoutFetch(sanitized as RequestInfo, init);
 	if (!response.ok) {
 		throw new HttpError(response);
 	}
