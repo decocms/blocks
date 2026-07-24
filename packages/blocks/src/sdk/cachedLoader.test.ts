@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  bustLoaderCache,
-  clearLoaderCache,
-  createCachedLoader,
-  getLoaderCacheStats,
-} from "./cachedLoader";
+import { clearLoaderCache, createCachedLoader, getLoaderCacheStats } from "./cachedLoader";
 
 describe("createCachedLoader", () => {
   beforeEach(() => {
@@ -43,7 +38,7 @@ describe("createCachedLoader", () => {
     expect(getLoaderCacheStats().entries).toBe(2);
   });
 
-  it("bustLoaderCache() empties the cache so the next call is a MISS", async () => {
+  it("clearLoaderCache() empties the cache so the next call is a MISS", async () => {
     const loaderFn = vi.fn(async (p: { id: number }) => ({ v: p.id }));
     const cached = createCachedLoader("t/bust", loaderFn, {
       policy: "stale-while-revalidate",
@@ -54,11 +49,34 @@ describe("createCachedLoader", () => {
     await cached({ id: 1 }); // HIT
     expect(loaderFn).toHaveBeenCalledTimes(1);
 
-    bustLoaderCache();
+    clearLoaderCache();
     expect(getLoaderCacheStats().entries).toBe(0);
 
-    await cached({ id: 1 }); // MISS again — cache was busted
+    await cached({ id: 1 }); // MISS again — cache was cleared
     expect(loaderFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("a purge during an in-flight loader does not repopulate the cleared entry", async () => {
+    // Loader we can resolve manually, to hold it "in flight" across the purge.
+    let release!: (v: { v: number }) => void;
+    const loaderFn = vi.fn(
+      () =>
+        new Promise<{ v: number }>((res) => {
+          release = res;
+        }),
+    );
+    const cached = createCachedLoader("t/race", loaderFn, {
+      policy: "stale-while-revalidate",
+      maxAge: 60_000,
+    });
+
+    const inflight = cached({ id: 1 }); // MISS — loader now pending
+    clearLoaderCache(); // purge lands while the loader is in flight
+    release({ v: 99 }); // loader resolves with pre-purge data
+    await expect(inflight).resolves.toEqual({ v: 99 }); // caller still gets its value
+
+    // ...but the raced result must NOT have been written back to the cache.
+    expect(getLoaderCacheStats().entries).toBe(0);
   });
 
   it("warns once per loader name when maxAge is very long", async () => {

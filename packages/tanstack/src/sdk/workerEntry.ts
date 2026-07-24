@@ -38,7 +38,7 @@ import {
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
-import { bustLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
+import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
 import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import {
   type CacheProfileName,
@@ -1153,15 +1153,33 @@ export function createDecoWorkerEntry(
     return segments;
   }
 
-  async function handlePurge(request: Request, env: Record<string, unknown>): Promise<Response> {
+  // Constant-time string compare — avoids a byte-wise timing side-channel on the
+  // purge token. Length is not secret here, so a fast length-mismatch reject is fine.
+  function timingSafeEqualStr(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return diff === 0;
+  }
+
+  // Shared auth for the cache purge endpoints. Returns a Response when the request
+  // is unauthorized or purge is disabled, or null when authorized. Single source
+  // of truth so /_cache/purge and /_cache/purge-loaders can't drift.
+  function authorizePurge(request: Request, env: Record<string, unknown>): Response | null {
     if (purgeTokenEnv === false) {
       return new Response("Purge disabled", { status: 404 });
     }
-
     const token = (env[purgeTokenEnv] as string) || "";
-    if (!token || request.headers.get("Authorization") !== `Bearer ${token}`) {
+    const auth = request.headers.get("Authorization") ?? "";
+    if (!token || !timingSafeEqualStr(auth, `Bearer ${token}`)) {
       return new Response("Unauthorized", { status: 401 });
     }
+    return null;
+  }
+
+  async function handlePurge(request: Request, env: Record<string, unknown>): Promise<Response> {
+    const denied = authorizePurge(request, env);
+    if (denied) return denied;
 
     let body: PurgeRequestBody;
     try {
@@ -1278,14 +1296,9 @@ export function createDecoWorkerEntry(
     request: Request,
     env: Record<string, unknown>,
   ): Promise<Response> {
-    if (purgeTokenEnv === false) {
-      return new Response("Purge disabled", { status: 404 });
-    }
-    const token = (env[purgeTokenEnv] as string) || "";
-    if (!token || request.headers.get("Authorization") !== `Bearer ${token}`) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-    bustLoaderCache();
+    const denied = authorizePurge(request, env);
+    if (denied) return denied;
+    clearLoaderCache();
     return Response.json({ cleared: true, scope: "isolate" });
   }
 
