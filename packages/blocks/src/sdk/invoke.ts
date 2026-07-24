@@ -199,12 +199,71 @@ export function createAppInvoke<T extends Record<string, any>>(
   basePath?: string,
 ): NestedFromFlat<T>;
 export function createAppInvoke(basePath = "/deco/invoke"): any {
+  return createAppInvokeWith({ basePath });
+}
+
+/**
+ * Default nested invoke proxy bound to `/deco/invoke`.
+ *
+ * Replaces site-level `~/runtime.ts` shims that wrap the same `createAppInvoke`
+ * call. Importing this singleton means no per-site boilerplate.
+ *
+ * @example
+ * ```ts
+ * import { invoke } from "@decocms/start/sdk/invoke";
+ *
+ * await invoke.vtex.actions.checkout.addItemsToCart({ orderFormId, orderItems });
+ * await invoke.site.loaders.Wishlist.getWishlist({});
+ * ```
+ *
+ * For a custom `basePath` or typed handlers, call `createAppInvoke()` directly:
+ * ```ts
+ * const invoke = createAppInvoke<Handlers>("/my/invoke");
+ * ```
+ */
+export const invoke = createAppInvoke();
+
+/**
+ * A `fetch`-compatible function. Lets callers route the invoke proxy's HTTP
+ * calls through a custom transport — e.g. server-side, an absolute-origin
+ * self-fetch that injects the request's AbortSignal (`RequestContext.fetch`).
+ */
+export type InvokeFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Like {@link createAppInvoke}, but with an injectable `fetcher`.
+ *
+ * The default `createAppInvoke` targets a relative path (`/deco/invoke`) via
+ * the global `fetch`, which only works in the browser. Server-side callers
+ * (e.g. a section loader's `ctx.invoke`) need an **absolute** base URL plus a
+ * fetcher that forwards the request's AbortSignal. This factory keeps the exact
+ * same nested-proxy semantics and 404→`.ts` retry, only swapping the transport.
+ *
+ * @example
+ * ```ts
+ * const origin = new URL(req.url).origin;
+ * const invoke = createAppInvokeWith({
+ *   basePath: `${origin}/deco/invoke`,
+ *   fetcher: (input, init) => RequestContext.fetch(input, init),
+ * });
+ * await invoke.vtex.loaders.product.detailsPageGQL({ slug });
+ * ```
+ */
+export function createAppInvokeWith(options?: { basePath?: string; fetcher?: InvokeFetcher }): any;
+export function createAppInvokeWith<T extends Record<string, any>>(options?: {
+  basePath?: string;
+  fetcher?: InvokeFetcher;
+}): NestedFromFlat<T>;
+export function createAppInvokeWith(options?: { basePath?: string; fetcher?: InvokeFetcher }): any {
+  const basePath = options?.basePath ?? "/deco/invoke";
+  const fetcher: InvokeFetcher = options?.fetcher ?? ((input, init) => fetch(input, init));
+
   function buildProxy(path: string[]): any {
     return new Proxy(
       Object.assign(async (props: any) => {
         const key = path.join("/");
         for (const k of [key, `${key}.ts`]) {
-          const response = await fetch(`${basePath}/${k}`, {
+          const response = await fetcher(`${basePath}/${k}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(props ?? {}),
@@ -237,24 +296,3 @@ export function createAppInvoke(basePath = "/deco/invoke"): any {
 
   return buildProxy([]);
 }
-
-/**
- * Default nested invoke proxy bound to `/deco/invoke`.
- *
- * Replaces site-level `~/runtime.ts` shims that wrap the same `createAppInvoke`
- * call. Importing this singleton means no per-site boilerplate.
- *
- * @example
- * ```ts
- * import { invoke } from "@decocms/start/sdk/invoke";
- *
- * await invoke.vtex.actions.checkout.addItemsToCart({ orderFormId, orderItems });
- * await invoke.site.loaders.Wishlist.getWishlist({});
- * ```
- *
- * For a custom `basePath` or typed handlers, call `createAppInvoke()` directly:
- * ```ts
- * const invoke = createAppInvoke<Handlers>("/my/invoke");
- * ```
- */
-export const invoke = createAppInvoke();

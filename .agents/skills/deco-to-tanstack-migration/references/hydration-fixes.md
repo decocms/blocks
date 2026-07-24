@@ -517,15 +517,17 @@ function Header({ device, ...props }: Props) {
 
 The `device` prop comes from the section loader:
 ```typescript
-export async function loader(props: Props, req: Request, ctx: AppContext) {
+export async function loader(props: Props, req: Request, ctx?: AppContext) {
   return {
     ...props,
-    device: ctx.device as "mobile" | "desktop" | "tablet",
+    device: ctx?.device as "mobile" | "desktop" | "tablet",
   };
 }
 ```
 
 `ctx.device` is detected from the request `User-Agent` header server-side. TanStack Start serializes loaderData and sends it to the client, so both server and client always use the same value. No mismatch.
+
+> **The 3rd-arg `ctx` is real (#305).** The framework passes a compat `ctx` (device, `invoke`, per-app state, `response.headers`) as the loader's 3rd argument — see vtex-commerce.md §32. `ctx.device` here is genuinely populated. Keep app-state reads optional-chained (`ctx?.vtex?.…`) since an unconfigured app is `undefined`.
 
 Also fix the section's `LoadingFallback` to use `props.device` instead of `useDevice()`:
 ```tsx

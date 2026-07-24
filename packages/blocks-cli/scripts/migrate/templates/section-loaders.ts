@@ -314,9 +314,11 @@ export function generateSectionLoaders(ctx: MigrationContext): string {
   // ---------- SEO + analytics delegation ----------
   if (hasSEOPDP) {
     entries.push(``);
-    entries.push(`  "site/sections/SEOPDP.tsx": async (props: any, _req) => {`);
+    // The framework supplies the real compat ctx as the 3rd arg (#305) —
+    // forward it instead of faking `{ seo: {} }` (which violated policy D3).
+    entries.push(`  "site/sections/SEOPDP.tsx": async (props: any, _req, ctx) => {`);
     entries.push(`    const mod = await import("../sections/SEOPDP");`);
-    entries.push(`    const result = mod.loader(props, _req, { seo: {} } as any);`);
+    entries.push(`    const result = mod.loader(props, _req, ctx);`);
     entries.push(`    return result ?? props;`);
     entries.push(`  },`);
   }
@@ -329,9 +331,9 @@ export function generateSectionLoaders(ctx: MigrationContext): string {
   }
 
   if (hasIsEvents) {
-    entries.push(`  "site/sections/Analytics/IsEvents.tsx": async (props: any, req) => {`);
+    entries.push(`  "site/sections/Analytics/IsEvents.tsx": async (props: any, req, ctx) => {`);
     entries.push(`    const mod = await import("../sections/Analytics/IsEvents");`);
-    entries.push(`    return mod.loader(props, req) as unknown as Record<string, unknown>;`);
+    entries.push(`    return mod.loader(props, req, ctx) as unknown as Record<string, unknown>;`);
     entries.push(`  },`);
   }
 

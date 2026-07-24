@@ -82,6 +82,59 @@ describe("runSingleSectionLoader — page context injection", () => {
     const result = await runSingleSectionLoader(section, new Request("https://store.com/"));
     expect(result).toBe(section);
   });
+
+  it("passes a 3rd-arg compat ctx (device from UA) — regular path (#305)", async () => {
+    const loader = vi.fn(
+      async (props: Record<string, unknown>, _req: Request, ctx?: { device?: string }) => ({
+        ...props,
+        seenDevice: ctx?.device,
+      }),
+    );
+    registerSectionLoader("site/sections/Ctx.tsx", loader);
+
+    const section = makeSection("site/sections/Ctx.tsx", {});
+    const mobileReq = new Request("https://store.com/", {
+      headers: { "user-agent": "iPhone Mobile Safari" },
+    });
+    const result = await runSingleSectionLoader(section, mobileReq);
+
+    expect((result.props as Record<string, unknown>).seenDevice).toBe("mobile");
+  });
+
+  it("passes the compat ctx through layout and cacheable paths (#305)", async () => {
+    const layoutLoader = vi.fn(
+      async (props: Record<string, unknown>, _req: Request, ctx?: { device?: string }) => ({
+        ...props,
+        seenDevice: ctx?.device,
+      }),
+    );
+    const cacheableLoader = vi.fn(
+      async (props: Record<string, unknown>, _req: Request, ctx?: { device?: string }) => ({
+        ...props,
+        seenDevice: ctx?.device,
+      }),
+    );
+    registerSectionLoader("site/sections/CtxHeader.tsx", layoutLoader);
+    registerLayoutSections(["site/sections/CtxHeader.tsx"]);
+    registerSectionLoader("site/sections/CtxShelf.tsx", cacheableLoader);
+    registerCacheableSections({ "site/sections/CtxShelf.tsx": { maxAge: 60_000 } });
+
+    const mobileReq = new Request("https://store.com/", {
+      headers: { "user-agent": "iPhone Mobile Safari" },
+    });
+
+    const layoutResult = await runSingleSectionLoader(
+      makeSection("site/sections/CtxHeader.tsx"),
+      mobileReq,
+    );
+    const cacheableResult = await runSingleSectionLoader(
+      makeSection("site/sections/CtxShelf.tsx"),
+      mobileReq,
+    );
+
+    expect((layoutResult.props as Record<string, unknown>).seenDevice).toBe("mobile");
+    expect((cacheableResult.props as Record<string, unknown>).seenDevice).toBe("mobile");
+  });
 });
 
 describe("runSingleSectionLoader — cache keying", () => {
@@ -151,9 +204,7 @@ describe("unregisterLayoutSections", () => {
   });
 
   it("is a no-op for keys that were never registered", () => {
-    expect(() =>
-      unregisterLayoutSections(["site/sections/Never.tsx"]),
-    ).not.toThrow();
+    expect(() => unregisterLayoutSections(["site/sections/Never.tsx"])).not.toThrow();
     expect(isLayoutSection("site/sections/Never.tsx")).toBe(false);
   });
 });
@@ -190,10 +241,7 @@ describe("registerSectionLoaders — request-dependent + layout warning (#206)",
   it("warns when a composed loader contains any request-dependent mixin", () => {
     registerLayoutSections(["site/sections/Footer.tsx"]);
     registerSectionLoaders({
-      "site/sections/Footer.tsx": compose(
-        withSearchParam(),
-        async (props) => props,
-      ),
+      "site/sections/Footer.tsx": compose(withSearchParam(), async (props) => props),
     });
     expect(warnSpy).toHaveBeenCalled();
   });
