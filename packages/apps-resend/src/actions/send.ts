@@ -1,5 +1,8 @@
+import { withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
 import { getResendConfig } from "../client";
 import type { CreateEmailOptions, CreateEmailResponse } from "../types";
+
+const timeoutFetch = withFetchTimeout();
 
 /**
  * Send an email via Resend API.
@@ -32,7 +35,7 @@ export async function sendEmail(
 		...(payload.headers && { headers: payload.headers }),
 	};
 
-	const response = await fetch("https://api.resend.com/emails", {
+	const response = await timeoutFetch("https://api.resend.com/emails", {
 		method: "POST",
 		headers: {
 			Authorization: `Bearer ${config.apiKey}`,

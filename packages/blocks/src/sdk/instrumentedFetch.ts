@@ -15,6 +15,7 @@
  * ```
  */
 
+import { DEFAULT_FETCH_TIMEOUT_MS, withTimeoutSignal } from "./fetchTimeout";
 import { logger } from "./logger";
 import { getTracer, injectTraceContext } from "./observability";
 import { redactUrl } from "./urlRedaction";
@@ -87,6 +88,15 @@ export interface FetchInstrumentationOptions {
    *   `init.operation` ?? `defaultOperation` ?? `resolveOperation(url, method)` ?? `"fetch"`
    */
   resolveOperation?: (url: string, method: string) => string | undefined;
+  /**
+   * Abort a request after this many ms unless it settles first, via
+   * `AbortSignal.timeout` composed with any signal the caller already
+   * passed in `init.signal`. Default: {@link DEFAULT_FETCH_TIMEOUT_MS}
+   * (10s). Pass `0` or `Infinity` to disable for this integration (e.g. a
+   * client that intentionally makes long-lived/streaming requests).
+   * Override per-call via `init.timeoutMs`.
+   */
+  timeoutMs?: number;
 }
 
 export interface FetchMetrics {
@@ -115,6 +125,12 @@ export type InstrumentedFetchInit = RequestInit & {
    * surfaces to the network as a request property.
    */
   operation?: string;
+  /**
+   * Per-call timeout override (ms). See
+   * {@link FetchInstrumentationOptions.timeoutMs}. Stripped from the init
+   * before reaching `baseFetch`.
+   */
+  timeoutMs?: number;
 };
 
 /**
@@ -149,6 +165,7 @@ export function createInstrumentedFetch(
     injectTraceparent = true,
     defaultOperation,
     resolveOperation,
+    timeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
   } = options;
 
   return async (input: RequestInfo | URL, init?: InstrumentedFetchInit): Promise<Response> => {
@@ -177,9 +194,10 @@ export function createInstrumentedFetch(
     // off init so it never reaches `baseFetch` as an unknown RequestInit
     // property (some runtimes warn / future runtimes might reject).
     const explicitOp = init?.operation;
+    const effectiveTimeoutMs = init?.timeoutMs ?? timeoutMs;
     let initForFetch: RequestInit | undefined = init;
-    if (init && "operation" in init) {
-      const { operation: _drop, ...rest } = init;
+    if (init && ("operation" in init || "timeoutMs" in init)) {
+      const { operation: _drop, timeoutMs: _drop2, ...rest } = init;
       initForFetch = rest;
     }
     const operation =
@@ -217,6 +235,11 @@ export function createInstrumentedFetch(
       injectTraceContext(headers);
       finalInit = { ...(initForFetch ?? {}), headers };
     }
+
+    finalInit = {
+      ...(finalInit ?? {}),
+      signal: withTimeoutSignal(finalInit?.signal, effectiveTimeoutMs),
+    };
 
     const doFetch = async (): Promise<Response> => {
       if (logging) {
