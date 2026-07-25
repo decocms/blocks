@@ -1,4 +1,12 @@
 import type { TransformResult } from "../types";
+import {
+  CLASS_RENAMES,
+  DAISYUI_RENAMES,
+  PX_TO_SPACING,
+  TEXT_SIZE_MAP,
+  detectDaisyUiV5StructuralIssues,
+  detectLogicalPropertyConflict,
+} from "./tailwind-renames";
 
 /**
  * Tailwind v3 → v4 class migration transform.
@@ -9,6 +17,8 @@ import type { TransformResult } from "../types";
  * 3. Responsive class ordering (base → sm → md → lg → xl → 2xl)
  * 4. Arbitrary values → native equivalents (px-[16px] → px-4)
  * 5. Deprecated patterns
+ * 6. Flags (does not auto-fix) DaisyUI v5 structural breaks and v4
+ *    logical-vs-physical spacing property conflicts
  */
 
 // ── Breakpoint order (mobile-first) ─────────────────────────────
@@ -17,111 +27,6 @@ const BP_INDEX: Record<string, number> = {};
 BREAKPOINT_ORDER.forEach((bp, i) => {
   BP_INDEX[bp] = i + 1; // base = 0
 });
-
-// ── Tailwind v3 → v4 class renames ──────────────────────────────
-// These are direct 1:1 replacements
-const CLASS_RENAMES: Record<string, string> = {
-  // Flexbox/Grid
-  "flex-grow-0": "grow-0",
-  "flex-grow": "grow",
-  "flex-shrink-0": "shrink-0",
-  "flex-shrink": "shrink",
-
-  // Overflow
-  "overflow-ellipsis": "text-ellipsis",
-
-  // Decoration
-  "decoration-clone": "box-decoration-clone",
-  "decoration-slice": "box-decoration-slice",
-
-  // Transforms (v4 applies transforms automatically)
-  "transform": "",  // remove — v4 applies automatically
-  "transform-gpu": "",
-  "transform-none": "transform-none", // this one stays
-
-  // Blur/filter (v4 applies automatically)
-  "filter": "",  // remove
-  "backdrop-filter": "",  // remove
-
-  // Ring width default
-  "ring": "ring-3", // v4 changed default from 3px to 1px
-};
-
-// ── DaisyUI v4 → v5 class renames ──────────────────────────────
-const DAISYUI_RENAMES: Record<string, string> = {
-  // Button changes
-  "btn-ghost": "btn-ghost",  // kept
-  "btn-outline": "btn-outline",  // kept
-  "btn-active": "btn-active",  // kept
-
-  // Alert/Badge
-  "badge-ghost": "badge-soft",
-  "alert-info": "alert-info",
-  "alert-success": "alert-success",
-  "alert-warning": "alert-warning",
-  "alert-error": "alert-error",
-
-  // Card
-  "card-compact": "card-sm",
-
-  // Modal
-  "modal-open": "modal-open",
-
-  // Drawer
-  "drawer-end": "drawer-end",
-
-  // Menu
-  "menu-horizontal": "menu-horizontal",
-
-  // Toast position classes (daisy v5 uses different system)
-  "toast-top": "toast-top",
-  "toast-bottom": "toast-bottom",
-  "toast-center": "toast-center",
-  "toast-end": "toast-end",
-  "toast-start": "toast-start",
-  "toast-middle": "toast-middle",
-
-  // Loading
-  "loading-spinner": "loading-spinner",
-  "loading-dots": "loading-dots",
-  "loading-ring": "loading-ring",
-  "loading-ball": "loading-ball",
-  "loading-bars": "loading-bars",
-  "loading-infinity": "loading-infinity",
-
-  // Sizes (daisy v5 naming)
-  "btn-xs": "btn-xs",
-  "btn-sm": "btn-sm",
-  "btn-md": "btn-md",
-  "btn-lg": "btn-lg",
-};
-
-// ── Spacing scale: px → Tailwind unit ───────────────────────────
-const PX_TO_SPACING: Record<number, string> = {};
-for (let i = 0; i <= 96; i++) {
-  PX_TO_SPACING[i * 4] = String(i);
-}
-PX_TO_SPACING[2] = "0.5";
-PX_TO_SPACING[6] = "1.5";
-PX_TO_SPACING[10] = "2.5";
-PX_TO_SPACING[14] = "3.5";
-
-// Text size: px → native class
-const TEXT_SIZE_MAP: Record<string, string> = {
-  "12": "xs",
-  "14": "sm",
-  "16": "base",
-  "18": "lg",
-  "20": "xl",
-  "24": "2xl",
-  "30": "3xl",
-  "36": "4xl",
-  "48": "5xl",
-  "60": "6xl",
-  "72": "7xl",
-  "96": "8xl",
-  "128": "9xl",
-};
 
 // Properties that accept spacing values
 const SPACING_PROPS = new Set([
@@ -402,6 +307,11 @@ function fixClassNameString(classes: string): { fixed: string; changes: string[]
     }
   }
 
+  // 5. Flag (don't auto-fix) shorthand/longhand spacing conflicts — gotcha #42
+  for (const finding of detectLogicalPropertyConflict(classList)) {
+    changes.push(`MANUAL: ${finding.message}`);
+  }
+
   return { fixed: classList.join(" "), changes };
 }
 
@@ -625,6 +535,18 @@ export function transformTailwind(content: string): TransformResult {
   const notes: string[] = [];
   let changed = false;
   let result = content;
+
+  // ── Flag (don't auto-fix) DaisyUI v5 structural breaks — gotcha #37 ──
+  const daisyFindings = detectDaisyUiV5StructuralIssues(result);
+  if (daisyFindings.length > 0) {
+    // No content is rewritten here, but the caller (phase-transform) only
+    // surfaces `notes` when `changed` is true — mark it so these
+    // manual-review findings aren't silently dropped.
+    changed = true;
+    for (const finding of daisyFindings) {
+      notes.push(`MANUAL: ${finding.message}`);
+    }
+  }
 
   // ── Fix negative z-index on background images ──────────────────
   const zFix = fixNegativeZIndex(result);

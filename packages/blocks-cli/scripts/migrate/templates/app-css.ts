@@ -1,7 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MigrationContext } from "../types";
+import { log } from "../types";
 import type { ExtractedTheme } from "../analyzers/theme-extractor";
+import { fixOklchHexMismatches, isOklchCoordinates } from "../transforms/color-oklch";
+import { transformCss } from "../transforms/css";
+import { CLASS_RENAMES, DAISYUI_RENAMES } from "../transforms/tailwind-renames";
 
 /**
  * Find the original site's custom CSS file.
@@ -48,41 +52,24 @@ function extractCustomCss(rawCss: string): string {
 /**
  * Transform @apply directives for TW3→TW4 compatibility.
  * The tailwind.ts transform handles className= attributes in JSX,
- * but @apply inside CSS also needs class renames.
- *
- * Also converts @apply with custom brand/theme colors to native CSS
- * properties when the utility class might not be registered in TW4.
+ * but @apply inside CSS also needs the same class renames — reuses the
+ * single shared table (transforms/tailwind-renames.ts) so this never
+ * drifts from the className= rewriter again.
  */
 function transformApplyDirectives(css: string): string {
-  return css
-    .replace(/@apply\s+([^;]+);/g, (_match, classes: string) => {
-      let fixed = classes;
-      // flex-grow-0 → grow-0
-      fixed = fixed.replace(/\bflex-grow-0\b/g, "grow-0");
-      fixed = fixed.replace(/\bflex-grow\b/g, "grow");
-      fixed = fixed.replace(/\bflex-shrink-0\b/g, "shrink-0");
-      fixed = fixed.replace(/\bflex-shrink\b/g, "shrink");
-      // transform → removed (auto in v4)
-      fixed = fixed.replace(/\btransform\b(?!-none)/g, "");
-      fixed = fixed.replace(/\bfilter\b/g, "");
-      // ring → ring-3
-      fixed = fixed.replace(/\bring\b(?!-)/g, "ring-3");
-      // Clean up multiple spaces
-      fixed = fixed.replace(/\s{2,}/g, " ").trim();
-      return `@apply ${fixed};`;
-    });
-}
-
-/**
- * Test if a value looks like oklch coordinates (space-separated numbers,
- * possibly with `/` for alpha). Examples: "0.5 0.2 30", "0.8 0.15 120 / 0.5"
- * This distinguishes oklch coordinate values from hex colors.
- */
-function isOklchCoordinates(val: string): boolean {
-  const trimmed = val.trim();
-  // oklch coordinates: 2-3 space-separated numbers, possibly with / alpha
-  // e.g. "0.5 0.2 30" or "0.85 0.15 120 / 0.5"
-  return /^[\d.]+\s+[\d.]+\s+[\d.]+(\s*\/\s*[\d.]+)?$/.test(trimmed);
+  return css.replace(/@apply\s+([^;]+);/g, (_match, classes: string) => {
+    const fixed = classes
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((cls) => {
+        if (CLASS_RENAMES[cls] !== undefined) return CLASS_RENAMES[cls];
+        if (DAISYUI_RENAMES[cls] !== undefined) return DAISYUI_RENAMES[cls];
+        return cls;
+      })
+      .filter(Boolean)
+      .join(" ");
+    return `@apply ${fixed};`;
+  });
 }
 
 /**
@@ -200,6 +187,39 @@ ${colorLines}
           }
         }
       }
+    }
+  }
+
+  // Port theme.extend.colors / theme.extend.fontFamily / theme.extend.screens
+  // from the source site's tailwind.config.ts (extracted in phase-analyze
+  // before that file is deleted — see analyzers/tailwind-config.ts). Without
+  // this, custom brand palettes and named font stacks are silently dropped
+  // and any class referencing them (`bg-perola`, `font-bebas-neue`) makes
+  // Tailwind v4 throw "Cannot apply unknown utility class" (decocms/blocks#369).
+  const twColors = ctx.tailwindConfig.colors;
+  const twColorKeys = Object.keys(twColors).filter((k) => !(`--color-${k}` in semanticColors));
+  if (twColorKeys.length > 0) {
+    themeBlock += `\n\n  /* Custom colors ported from tailwind.config.ts */`;
+    for (const key of twColorKeys) {
+      themeBlock += `\n  --color-${key}: ${twColors[key]};`;
+    }
+  }
+
+  const twFontFamily = ctx.tailwindConfig.fontFamily;
+  const twFontKeys = Object.keys(twFontFamily);
+  if (twFontKeys.length > 0) {
+    themeBlock += `\n\n  /* Font stacks ported from tailwind.config.ts */`;
+    for (const key of twFontKeys) {
+      themeBlock += `\n  --font-${key}: ${twFontFamily[key]};`;
+    }
+  }
+
+  const twScreens = ctx.tailwindConfig.screens;
+  const twScreenKeys = Object.keys(twScreens);
+  if (twScreenKeys.length > 0) {
+    themeBlock += `\n\n  /* Custom breakpoints ported from tailwind.config.ts */`;
+    for (const key of twScreenKeys) {
+      themeBlock += `\n  --breakpoint-${key}: ${twScreens[key]};`;
     }
   }
 
@@ -345,6 +365,23 @@ section[data-deferred="true"] {
   display: none;
 }`);
 
+  // ── Safelist (tailwind.config.ts) ──────────────────────────────────
+  // Tailwind v4 has no config-based safelist. Literal class names port
+  // directly to `@source inline(...)`; regex patterns can't be converted
+  // automatically and are flagged for manual review instead.
+  const safelist = ctx.tailwindConfig.safelist;
+  if (safelist.length > 0) {
+    sections.push(`/* Safelist ported from tailwind.config.ts (Tailwind v4 has no config safelist) */
+@source inline("${safelist.join(" ")}");`);
+  }
+  for (const pattern of ctx.tailwindConfig.safelistPatterns) {
+    ctx.manualReviewItems.push({
+      file: "src/styles/app.css",
+      reason: `tailwind.config.ts safelist pattern ${pattern} cannot be auto-converted — add the matching classes via @source inline("...") manually (Tailwind v4 has no regex safelist)`,
+      severity: "warning",
+    });
+  }
+
   // ── Incorporate original site's custom CSS ────────────────────
   // Instead of throwing away the site's CSS, we extract and append
   // all custom rules (component overrides, @layer base, @font-face,
@@ -353,7 +390,20 @@ section[data-deferred="true"] {
   if (originalCss) {
     const customCss = extractCustomCss(originalCss);
     if (customCss) {
-      const transformed = transformApplyDirectives(customCss);
+      let transformed = transformApplyDirectives(customCss);
+      const cssFix = transformCss(transformed);
+      transformed = cssFix.css;
+      for (const note of cssFix.notes) {
+        if (note.startsWith("MANUAL:")) {
+          ctx.manualReviewItems.push({
+            file: "src/styles/app.css",
+            reason: note.replace(/^MANUAL:\s*/, ""),
+            severity: "warning",
+          });
+        } else {
+          log(ctx, `[app.css] ${note}`);
+        }
+      }
       sections.push(`/* ═══════════════════════════════════════════════════════════════
    Original site CSS (migrated from tailwind.css)
    ═══════════════════════════════════════════════════════════════ */
@@ -362,5 +412,24 @@ ${transformed}`);
     }
   }
 
-  return sections.join("\n\n") + "\n";
+  const rawCss = sections.join("\n\n") + "\n";
+
+  // Fix gotcha #43: `oklch(var(--x))` is emitted wherever a CMS theme var
+  // looked like bare oklch coordinates, but if that var was actually
+  // declared as hex elsewhere, the wrapper is invalid CSS (icons/fills
+  // silently render black). Convert the hex declaration to an oklch triplet
+  // so the wrapper stays valid.
+  const { css: fixedCss, fixed, flagged } = fixOklchHexMismatches(rawCss);
+  for (const note of fixed) {
+    log(ctx, `[app.css] Fixed oklch/hex mismatch: ${note}`);
+  }
+  for (const note of flagged) {
+    ctx.manualReviewItems.push({
+      file: "src/styles/app.css",
+      reason: note,
+      severity: "warning",
+    });
+  }
+
+  return fixedCss;
 }

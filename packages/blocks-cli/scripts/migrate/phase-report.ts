@@ -1,7 +1,27 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext } from "./types";
+import type { MigrationContext, ReviewItem } from "./types";
 import { logPhase } from "./types";
+
+const CSS_REVIEW_KEYWORDS = [
+  "tailwind.config.ts",
+  "safelist",
+  "oklch",
+  "css-styling.md",
+  "@theme",
+  "@apply",
+  "@utility",
+  "DaisyUI",
+  "collapse",
+];
+
+function isCssReviewItem(item: ReviewItem): boolean {
+  return (
+    item.file.endsWith("app.css") ||
+    item.file === "tailwind.config.ts" ||
+    CSS_REVIEW_KEYWORDS.some((k) => item.reason.includes(k))
+  );
+}
 
 const FRAMEWORK_FINDINGS = [
   "Session/analytics SDK is boilerplate duplicated across all sites — should be a single framework function",
@@ -129,6 +149,37 @@ export function report(ctx: MigrationContext): void {
     lines.push("");
   }
 
+  // CSS Migration — replaces the old generic "DaisyUI/Tailwind" checkboxes
+  // with what was actually ported/detected for THIS site, so a human
+  // doesn't have to re-derive it from scratch.
+  lines.push("## CSS Migration");
+  lines.push("");
+  const twColorCount = Object.keys(ctx.tailwindConfig.colors).length;
+  const twFontCount = Object.keys(ctx.tailwindConfig.fontFamily).length;
+  const twScreenCount = Object.keys(ctx.tailwindConfig.screens).length;
+  const twSafelistCount = ctx.tailwindConfig.safelist.length;
+  lines.push(
+    `- **tailwind.config.ts porting**: ${twColorCount} color(s), ${twFontCount} font stack(s), ${twScreenCount} breakpoint(s) ported into \`src/styles/app.css\` \`@theme\`; ${twSafelistCount} safelist entrie(s) ported via \`@source inline(...)\`.`,
+  );
+  lines.push(
+    "- **Real CSS compile check**: runs in the compile phase (`npx @tailwindcss/cli`) against `src/styles/app.css` — catches unknown-utility-class errors before they ship. Re-run any time with `bun run tailwind:lint`.",
+  );
+
+  const cssReviewItems = ctx.manualReviewItems.filter(isCssReviewItem);
+  if (cssReviewItems.length > 0) {
+    lines.push("");
+    lines.push(`**${cssReviewItems.length} CSS-specific finding(s) requiring manual review:**`);
+    lines.push("");
+    for (const item of cssReviewItems) {
+      const icon = item.severity === "error" ? "🔴" : item.severity === "warning" ? "🟡" : "🔵";
+      lines.push(`${icon} **\`${item.file}\`**: ${item.reason}`);
+    }
+  } else {
+    lines.push("");
+    lines.push("- No CSS-specific findings from this run.");
+  }
+  lines.push("");
+
   // Always-present manual review items
   lines.push("## Always Check (site-specific)");
   lines.push("");
@@ -136,9 +187,7 @@ export function report(ctx: MigrationContext): void {
   lines.push("- [ ] `src/setup/section-loaders.ts` — verify extracted loaders work correctly");
   lines.push("- [ ] `src/hooks/useCart.ts` — wire to actual server functions for your platform");
   lines.push("- [ ] `src/worker-entry.ts` — verify CSP, proxy, and segment builder");
-  lines.push("- [ ] DaisyUI v4 to v5 class name changes");
-  lines.push("- [ ] Tailwind v3 to v4: verify all utility classes still work");
-  lines.push("- [ ] Check `src/styles/app.css` theme colors match the original design");
+  lines.push("- [ ] See the **CSS Migration** section above for DaisyUI v4→v5 / Tailwind v3→v4 findings specific to this site");
   lines.push("- [ ] Run `npm run generate:blocks` and `npm run generate:schema` after migration");
   lines.push("");
 
