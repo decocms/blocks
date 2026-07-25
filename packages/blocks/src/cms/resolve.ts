@@ -880,7 +880,20 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
       if (URL.canParse(rctx.matcherCtx.url)) {
         const url = new URL(rctx.matcherCtx.url);
         for (const [k, v] of url.searchParams.entries()) {
-          if (resolvedProps[k] === undefined) resolvedProps[k] = v;
+          if (resolvedProps[k] !== undefined) continue;
+          // `page` is skipped on purpose (#391): loaders that read `page`
+          // from `__pageUrl` themselves (e.g. VTEX's PLP loader) apply their
+          // own 1-indexed-URL -> 0-indexed-internal conversion. Auto-injecting
+          // the raw 1-indexed URL string here as `props.page` bypasses that
+          // conversion and produces an off-by-one, on top of arriving as an
+          // un-coerced string. Numeric conventional names get coerced so a
+          // loader declaring `count?: number` doesn't receive a raw string.
+          if (k === "page") continue;
+          if ((k === "count" || k === "pageOffset") && Number.isFinite(Number(v))) {
+            resolvedProps[k] = Number(v);
+            continue;
+          }
+          resolvedProps[k] = v;
         }
       } else {
         // Loud warning instead of silent swallow: matcherCtx.url should

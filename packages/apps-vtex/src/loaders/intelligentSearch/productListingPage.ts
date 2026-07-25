@@ -28,6 +28,28 @@ export type LabelledFuzzy = "automatic" | "disabled" | "enabled";
  * @example
  *   intelligentSearch({ fuzzy: mapLabelledFuzzyToFuzzy(props.fuzzy) })
  */
+/**
+ * Resolve the 0-indexed internal `page` from the CMS prop and/or the
+ * 1-indexed URL `?page=` param.
+ *
+ * `props.page` may arrive as a string (e.g. auto-injected from a URL search
+ * param upstream) — `Number.isFinite` does NOT coerce, so a bare
+ * `Number.isFinite(propsPage)` check would silently treat `"3"` as invalid
+ * and hard-default to page 0 (see #391). Coerce first, and treat a
+ * non-finite coerced value as "absent" so it falls through to the URL
+ * parse instead of hard-defaulting.
+ */
+export function resolvePage(propsPage: number | string | undefined, pageFromUrl: string | null | undefined): number {
+	const coercedPropsPage = propsPage !== undefined ? Number(propsPage) : undefined;
+	const rawPage =
+		coercedPropsPage !== undefined && Number.isFinite(coercedPropsPage)
+			? coercedPropsPage
+			: pageFromUrl
+				? Number(pageFromUrl) - 1
+				: 0;
+	return Number.isFinite(rawPage) && rawPage >= 0 ? Math.floor(rawPage) : 0;
+}
+
 export const mapLabelledFuzzyToFuzzy = (label?: LabelledFuzzy): "0" | "1" | "auto" | undefined => {
 	switch (label) {
 		case "automatic":
@@ -333,9 +355,7 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 	// raw IS API value. The URL param is already a raw value, so it passes through.
 	const fuzzy =
 		mapLabelledFuzzyToFuzzy(props.fuzzy) ?? pageUrl?.searchParams.get("fuzzy") ?? undefined;
-	const pageFromUrl = pageUrl?.searchParams.get("page");
-	const rawPage = props.page ?? (pageFromUrl ? Number(pageFromUrl) - 1 : 0);
-	const page = Number.isFinite(rawPage) && rawPage >= 0 ? Math.floor(rawPage) : 0;
+	const page = resolvePage(props.page, pageUrl?.searchParams.get("page"));
 
 	const { selectedFacets: cmsSelectedFacets, hideUnavailableItems = false, __pagePath } = props;
 
