@@ -16,7 +16,8 @@
     "deco-cf-observability": "./scripts/migrate-to-cf-observability.ts",
     "deco-audit-observability": "./scripts/audit-observability-config.ts",
     "deco-migrate-blocks-to-kv": "./scripts/migrate-blocks-to-kv.ts",
-    "deco-sync-blocks-to-kv": "./scripts/sync-blocks-to-kv.ts"
+    "deco-sync-blocks-to-kv": "./scripts/sync-blocks-to-kv.ts",
+    "deco-upgrade-6-to-7": "./scripts/upgrade-6-to-7.ts"
   },
   "//exports": "Deliberately narrow. ./generate is the ONE public module entry (unified orchestrator); ./generate-blocks stays only because @decocms/tanstack's vite plugin tsImports it (readBlockDelta + programmatic generateBlocks) — each surviving entry must name its consumer here. The other scripts remain shipped FILES (the orchestrator spawns them; sites' existing `tsx node_modules/@decocms/blocks-cli/scripts/generate-*.ts` invocations keep working) but are internal implementation details of ./generate, not module subpaths. CLIs are exposed via bin, not exports.",
   "exports": {
