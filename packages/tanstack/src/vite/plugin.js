@@ -552,6 +552,71 @@ export function decoVitePlugin() {
         if (isSchemaSource(file)) scheduleSchemaGen();
       });
 
+      // --- sections.gen.ts / loaders.gen.ts / invoke.gen.ts regeneration (#371) ---
+      // Unlike meta.gen.json (regenerated above via generate-schema.ts
+      // directly), these three were never re-run in dev — only `npm run build`
+      // (which chains the full `generate` orchestrator) touched them. Editing
+      // a section/loader's TS interface (new prop, new @title) updated the TS
+      // source but left the `.gen` files stale until a manual `generate` run:
+      // typecheck passed and the runtime worked, but the studio/admin form
+      // silently kept showing the old schema.
+      //
+      // Reuses the SAME `generate.ts` orchestrator sites already run for
+      // `build`, restricted to --only sections,loaders,invoke so the schema
+      // regen above isn't duplicated. The orchestrator's own two-tier digest
+      // cache (.deco/generate.digests.json + .deco/.cache/stat-memo.json)
+      // makes a steady-state run (nothing changed) a cheap no-op — a cache
+      // miss only pays the cost for the generator(s) whose actual inputs
+      // changed. Best-effort: a failure here only warns (matches the schema
+      // regen's own error handling above) — dev keeps running off whatever
+      // was last generated, same as before this feature existed.
+      let scaffoldTimer = null;
+      let scaffoldInFlight = false;
+      let scaffoldQueued = false;
+      const runScaffoldGen = () => {
+        if (scaffoldInFlight) {
+          scaffoldQueued = true;
+          return;
+        }
+        scaffoldInFlight = true;
+        const start = Date.now();
+        const scriptPath = path.resolve(cwd, "node_modules/@decocms/blocks-cli/scripts/generate.ts");
+        const cmd = `npx tsx ${JSON.stringify(scriptPath)} --only sections,loaders,invoke --site ${schemaSiteName}`;
+        exec(cmd, { cwd }, (err) => {
+          scaffoldInFlight = false;
+          if (err) {
+            console.warn("[deco] sections/loaders/invoke generation failed:", err.message);
+          } else {
+            console.log(`[deco] sections/loaders/invoke checked (${Date.now() - start}ms)`);
+          }
+          if (scaffoldQueued) {
+            scaffoldQueued = false;
+            scheduleScaffoldGen();
+          }
+        });
+      };
+      const scheduleScaffoldGen = () => {
+        if (scaffoldTimer) clearTimeout(scaffoldTimer);
+        scaffoldTimer = setTimeout(() => {
+          scaffoldTimer = null;
+          runScaffoldGen();
+        }, 500);
+      };
+
+      // Cold-start: run once on dev startup. The digest cache makes this a
+      // fast no-op when nothing changed since the last `generate` run (e.g.
+      // right after a `build`) — fire-and-forget, doesn't block the first request.
+      scheduleScaffoldGen();
+
+      // Reuse the same src/**/*.{ts,tsx} watch predicate as the schema regen
+      // above — sections/loaders/actions all live under the same tree.
+      server.watcher.on("change", (file) => {
+        if (isSchemaSource(file)) scheduleScaffoldGen();
+      });
+      server.watcher.on("add", (file) => {
+        if (isSchemaSource(file)) scheduleScaffoldGen();
+      });
+
       // Tunnel + daemon: connect local dev to admin.deco.cx
       // Activated only when both DECO_SITE_NAME and DECO_ENV_NAME are set.
       // Omitting DECO_ENV_NAME runs Vite fully local (no tunnel registration),

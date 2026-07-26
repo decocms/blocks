@@ -430,3 +430,53 @@ describe("POST /_cache/purge-loaders", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    setBlocks({});
+  });
+
+  const HTML_SERVER_ENTRY = {
+    fetch: async (_req: Request) =>
+      new Response("<html>hi</html>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+  };
+
+  it("includes a custom segment field in X-Cache-Segment instead of dropping it", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop", regionId: "RJ", delivery: "store-42" }),
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("X-Cache-Segment")).toBe("desktop|r=RJ|delivery=store-42");
+  });
+
+  it("produces different X-Cache-Segment hashes for requests that only differ by a custom field", async () => {
+    let delivery = "store-1";
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop", delivery }),
+    });
+
+    const first = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const firstSegment = first.headers.get("X-Cache-Segment");
+
+    delivery = "store-2";
+    const second = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const secondSegment = second.headers.get("X-Cache-Segment");
+
+    expect(firstSegment).not.toBe(secondSegment);
+  });
+
+  it("keeps the existing hash format for segments using only known fields (back-compat)", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop", salesChannel: "1", flags: ["b", "a"] }),
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("X-Cache-Segment")).toBe("desktop|sc=1|f=a,b");
+  });
+});

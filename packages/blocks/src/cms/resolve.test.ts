@@ -308,6 +308,37 @@ describe("commerce loader auto-injects URL search params as props", () => {
       warnSpy.mockRestore();
     }
   });
+
+  it("never auto-injects `page` — loaders that read __pageUrl apply their own index-base conversion (#391)", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoader(KEY, async (props: Record<string, unknown>) => {
+      calls.push({ ...props });
+      return null;
+    });
+
+    await resolveValue({ __resolveType: KEY }, undefined, {
+      url: "https://store.com/?page=3",
+      path: "/",
+    });
+
+    expect(calls[0]?.page).toBeUndefined();
+  });
+
+  it("coerces `count`/`pageOffset` to numbers instead of injecting raw strings", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoader(KEY, async (props: Record<string, unknown>) => {
+      calls.push({ ...props });
+      return null;
+    });
+
+    await resolveValue({ __resolveType: KEY }, undefined, {
+      url: "https://store.com/?count=24&pageOffset=2",
+      path: "/",
+    });
+
+    expect(calls[0]?.count).toBe(24);
+    expect(calls[0]?.pageOffset).toBe(2);
+  });
 });
 
 describe("commerce loader resolves legacy .ts-suffixed resolveType", () => {

@@ -172,6 +172,13 @@ export interface SegmentKey {
   regionId?: string;
   /** Sorted list of active A/B flag names for cache cohort splitting. */
   flags?: string[];
+  /**
+   * Custom cache dimensions beyond the known fields above (e.g. a
+   * store/CEP-based delivery selector). `hashSegment` serializes these
+   * automatically — unlike the known fields, there's no dedicated shorthand
+   * key, so don't reuse a name already declared above.
+   */
+  [customField: string]: string | boolean | string[] | undefined;
 }
 
 /**
@@ -983,12 +990,34 @@ export function createDecoWorkerEntry(
     return detectCacheProfile(target);
   }
 
+  const KNOWN_SEGMENT_FIELDS = new Set([
+    "device",
+    "loggedIn",
+    "salesChannel",
+    "regionId",
+    "flags",
+  ]);
+
   function hashSegment(seg: SegmentKey): string {
     const parts: string[] = [seg.device];
     if (seg.loggedIn) parts.push("auth");
     if (seg.salesChannel) parts.push(`sc=${seg.salesChannel}`);
     if (seg.regionId) parts.push(`r=${seg.regionId}`);
     if (seg.flags?.length) parts.push(`f=${seg.flags.sort().join(",")}`);
+    // Custom dimensions (anything beyond the known fields above) are
+    // serialized generically so they aren't silently dropped from the
+    // cache key — see #284.
+    const customKeys = Object.keys(seg)
+      .filter((k) => !KNOWN_SEGMENT_FIELDS.has(k) && seg[k] !== undefined)
+      .sort();
+    for (const k of customKeys) {
+      const v = seg[k];
+      if (v === "" || v === false || (Array.isArray(v) && v.length === 0)) {
+        continue;
+      }
+      const serialized = Array.isArray(v) ? [...v].sort().join(",") : v === true ? "" : String(v);
+      parts.push(serialized ? `${k}=${serialized}` : k);
+    }
     return parts.join("|");
   }
 

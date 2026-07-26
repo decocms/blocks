@@ -16,6 +16,7 @@ function makeCtx(sourceDir: string, dryRun = false): MigrationContext {
 		importMap: {},
 		discoveredNpmDeps: {},
 		themeColors: {},
+	tailwindConfig: { colors: {}, fontFamily: {}, screens: {}, safelist: [], safelistPatterns: [], plugins: [], reviewItems: [] },
 		fontFamily: null,
 		files: [],
 		sectionMetas: [],
@@ -171,6 +172,53 @@ describe("compile (phase 8)", () => {
 		expect(calls).toEqual(["npx tsc --noEmit", "npx vite build"]);
 		expect(result.typecheck.passed).toBe(false);
 		expect(result.build.passed).toBe(true);
+	});
+
+	it("skips the CSS compile check when src/styles/app.css doesn't exist", () => {
+		fs.mkdirSync(path.join(tmpDir, "node_modules"), { recursive: true });
+		const ctx = makeCtx(tmpDir);
+		const { runner, calls } = fakeRunner({
+			"npx tsc --noEmit": { ok: true },
+		});
+		const result = compile(ctx, { runner });
+		expect(result.css.ran).toBe(false);
+		expect(calls).toEqual(["npx tsc --noEmit"]);
+	});
+
+	it("runs and fails the CSS compile check when app.css exists and the CLI errors", () => {
+		fs.mkdirSync(path.join(tmpDir, "node_modules"), { recursive: true });
+		fs.mkdirSync(path.join(tmpDir, "src", "styles"), { recursive: true });
+		fs.writeFileSync(path.join(tmpDir, "src", "styles", "app.css"), "@import \"tailwindcss\";\n");
+		const ctx = makeCtx(tmpDir);
+		const { runner } = fakeRunner({
+			"npx tsc --noEmit": { ok: true },
+		});
+		const cssAwareRunner = (cmd: string, cwd: string) => {
+			if (cmd.includes("@tailwindcss/cli")) {
+				return { ok: false, output: "Cannot apply unknown utility class `font-bebas-neue`" };
+			}
+			return runner(cmd, cwd);
+		};
+		const result = compile(ctx, { runner: cssAwareRunner });
+		expect(result.css.ran).toBe(true);
+		expect(result.css.passed).toBe(false);
+		expect(result.css.output).toContain("font-bebas-neue");
+		expect(result.shouldFail).toBe(false); // non-strict: warning only
+	});
+
+	it("promotes a CSS compile failure to abort in --strict mode", () => {
+		fs.mkdirSync(path.join(tmpDir, "node_modules"), { recursive: true });
+		fs.mkdirSync(path.join(tmpDir, "src", "styles"), { recursive: true });
+		fs.writeFileSync(path.join(tmpDir, "src", "styles", "app.css"), "@import \"tailwindcss\";\n");
+		const ctx = makeCtx(tmpDir);
+		const cssAwareRunner = (cmd: string): CompileRunResult => {
+			if (cmd.includes("@tailwindcss/cli")) return { ok: false, output: "invalid CSS" };
+			return { ok: true };
+		};
+		const result = compile(ctx, { runner: cssAwareRunner, strict: true });
+		expect(result.typecheck.passed).toBe(true);
+		expect(result.css.passed).toBe(false);
+		expect(result.shouldFail).toBe(true);
 	});
 });
 
