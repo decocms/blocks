@@ -25,6 +25,7 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { gray, green, red, yellow } from "./colors";
+import { checkCssCompiles } from "./css-compile-check";
 import type { MigrationContext } from "./types";
 import { logPhase } from "./types";
 
@@ -48,6 +49,15 @@ export interface CompileResult {
 	skipped: boolean;
 	typecheck: { ran: boolean; passed: boolean; output?: string };
 	build: { ran: boolean; passed: boolean; output?: string };
+	/**
+	 * Real Tailwind v4 compilation of src/styles/app.css via the site's own
+	 * `@tailwindcss/cli` install. Catches the exact failure mode of
+	 * decocms/blocks#369 / skill gotcha #48 (dropped custom theme tokens ->
+	 * "Cannot apply unknown utility class") during migration instead of at
+	 * runtime. `unmatchedClassWarnings` is informational only — it never
+	 * fails the build (see css-compile-check.ts for why).
+	 */
+	css: { ran: boolean; passed: boolean; output?: string; unmatchedClassWarnings: string[] };
 	/** True iff compile decided the migration should fail (only in strict mode). */
 	shouldFail: boolean;
 }
@@ -96,6 +106,7 @@ export function compile(
 		skipped: false,
 		typecheck: { ran: false, passed: false },
 		build: { ran: false, passed: false },
+		css: { ran: false, passed: false, unmatchedClassWarnings: [] },
 		shouldFail: false,
 	};
 
@@ -136,6 +147,32 @@ export function compile(
 		console.log("");
 	}
 
+	// CSS compile check — real Tailwind v4 build of src/styles/app.css.
+	console.log("  Running: CSS compile check (npx @tailwindcss/cli)...");
+	const cssResult = checkCssCompiles(ctx, runner);
+	result.css.ran = cssResult.ran;
+	result.css.passed = cssResult.passed;
+	result.css.unmatchedClassWarnings = cssResult.unmatchedClassWarnings;
+
+	if (!cssResult.ran) {
+		console.log(`  ${gray("–")} Skipped (no src/styles/app.css)`);
+	} else if (cssResult.passed) {
+		console.log(`  ${green("✓")} CSS compiled`);
+		if (cssResult.unmatchedClassWarnings.length > 0) {
+			console.log(
+				`  ${yellow("⚠")} ${cssResult.unmatchedClassWarnings.length} class(es) used in src/ produced no CSS output (dropped theme token or typo?):`,
+			);
+			console.log(`    ${cssResult.unmatchedClassWarnings.slice(0, 20).join(", ")}`);
+		}
+	} else {
+		result.css.output = cssResult.output;
+		const output = truncate(cssResult.output ?? "", MAX_OUTPUT_LINES);
+		const icon = opts.strict ? red("✗") : yellow("⚠");
+		console.log(`  ${icon} CSS compile failed:\n`);
+		console.log(output);
+		console.log("");
+	}
+
 	// Optional Vite build (heavier, opt-in).
 	if (opts.withBuild) {
 		console.log("  Running: Vite build (npx vite build)...");
@@ -158,6 +195,7 @@ export function compile(
 	// Decide whether to fail the migration.
 	const anyFailed =
 		(result.typecheck.ran && !result.typecheck.passed) ||
+		(result.css.ran && !result.css.passed) ||
 		(result.build.ran && !result.build.passed);
 
 	if (anyFailed && opts.strict) {

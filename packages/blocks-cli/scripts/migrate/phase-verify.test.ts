@@ -28,6 +28,7 @@ function makeCtx(sourceDir: string): MigrationContext {
     importMap: {},
     discoveredNpmDeps: {},
     themeColors: {},
+  tailwindConfig: { colors: {}, fontFamily: {}, screens: {}, safelist: [], safelistPatterns: [], plugins: [], reviewItems: [] },
     fontFamily: null,
     files: [],
     sectionMetas: [],

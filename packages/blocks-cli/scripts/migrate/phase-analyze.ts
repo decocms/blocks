@@ -10,6 +10,7 @@ import { log, logPhase } from "./types";
 import { extractSectionMetadata } from "./analyzers/section-metadata";
 import { classifyIslands } from "./analyzers/island-classifier";
 import { inventoryLoaders } from "./analyzers/loader-inventory";
+import { extractTailwindConfig } from "./analyzers/tailwind-config";
 
 const PATTERN_DETECTORS: Array<[DetectedPattern, RegExp]> = [
   ["preact-hooks", /from\s+["']preact\/hooks["']/],
@@ -631,6 +632,18 @@ export function analyze(ctx: MigrationContext): void {
   const theme = extractThemeFromCms(ctx.sourceDir);
   ctx.themeColors = theme.colors;
   ctx.fontFamily = theme.fontFamily;
+
+  // Extract the source site's tailwind.config.ts BEFORE it gets deleted in
+  // cleanup — otherwise custom colors/fontFamily/safelist are silently
+  // dropped (see decocms/blocks#369, gotcha #48 in the migration skill).
+  ctx.tailwindConfig = extractTailwindConfig(ctx.sourceDir);
+  const twColorCount = Object.keys(ctx.tailwindConfig.colors).length;
+  if (twColorCount > 0) {
+    console.log(`  Tailwind config: ${twColorCount} custom color(s) ported from tailwind.config.ts`);
+  }
+  if (ctx.tailwindConfig.reviewItems.length > 0) {
+    ctx.manualReviewItems.push(...ctx.tailwindConfig.reviewItems);
+  }
 
   console.log(`  Site: ${ctx.siteName}`);
   console.log(`  Platform: ${ctx.platform}${ctx.vtexAccount ? ` (account: ${ctx.vtexAccount})` : ""}`);

@@ -210,7 +210,15 @@ setTimeout       → window.setTimeout (type safety)
 
 #### 6. `tailwind.ts` — Tailwind v3→v4 + DaisyUI v4→v5
 
-**23 Tailwind class renames:**
+Class rename tables live in one place, `transforms/tailwind-renames.ts` —
+`tailwind.ts` (className= rewriter), `templates/app-css.ts` (`@apply`
+rewriter), and the standalone `scripts/tailwind-lint.ts` shipped into
+migrated sites all import from it. They used to be three drifting copies;
+don't reintroduce a fourth by inlining a rename table anywhere else.
+
+**Tailwind class renames** (scale-shift entries applied via per-token map
+lookup, not sequential regex, so `shadow-sm→shadow-xs` and `shadow→shadow-sm`
+can't cascade):
 ```
 flex-grow-0   → grow-0
 flex-shrink   → shrink
@@ -218,9 +226,16 @@ decoration-clone → box-decoration-clone
 transform     → (removed, implicit in v4)
 filter        → (removed, implicit in v4)
 ring          → ring-3 (default changed)
+outline-none  → outline-hidden
+shadow-sm/shadow → shadow-xs/shadow-sm
+blur-sm/blur  → blur-xs/blur-sm
+rounded-sm/rounded → rounded-xs/rounded-sm
+drop-shadow-sm/drop-shadow → drop-shadow-xs/drop-shadow-sm
+bg-gradient-to-*  → bg-linear-to-*
 ```
 
-**15 DaisyUI v4→v5 renames:**
+**DaisyUI v4→v5 renames** (intentionally conservative — only confirmed 1:1
+renames are listed; structural breaks below have no mechanical rename):
 ```
 badge-ghost   → badge-soft
 card-compact  → card-sm
@@ -242,13 +257,77 @@ bg-black bg-opacity-20 → bg-black/20
 - Extracts `backgroundColor` into separate overlay div
 - Bumps content div to `relative z-20`
 
+**Flagged, not auto-fixed** (`detectDaisyUiV5StructuralIssues` /
+`detectLogicalPropertyConflict` in `transforms/tailwind-renames.ts`, surfaced
+as `MANUAL:`-prefixed notes that land in the migration report):
+- DaisyUI `.collapse`/`collapse-title`/`collapse-content` usage — broken
+  under Tailwind v4, needs a manual `<details>/<summary>` rewrite (gotcha #37)
+- `btn-group` / `form-control` — removed in DaisyUI v5 with no drop-in
+  class (gotcha #37)
+- `px-*`/`mx-*`/`py-*`/`my-*` mixed with their `pl-*`/`pr-*`/`mt-*`/`mb-*`
+  longhand siblings in the same className — v4's logical properties don't
+  cascade the same as v3's physical ones (gotcha #42)
+
+#### 6b. `tailwind-config.ts` analyzer + `app-css.ts` porting (decocms/blocks#369, gotcha #48)
+
+`analyzers/tailwind-config.ts` statically extracts the source site's
+`tailwind.config.ts` (`theme.extend.colors`, `theme.extend.fontFamily`,
+`theme.extend.screens`, top-level `safelist`) **during analyze, before the
+file is deleted in cleanup** — it used to be deleted unread, silently
+dropping every custom color/font/safelist entry the site defined. Extraction
+is ts-morph-based static analysis only (no code execution); anything built
+via a spread, function call, or imported constant becomes a `ReviewItem`
+instead of being guessed at.
+
+`templates/app-css.ts` then ports the result into the scaffolded
+`src/styles/app.css`: custom colors/fonts/breakpoints go into `@theme` as
+plain hex/CSS values (skipping any key that collides with a daisyUI
+semantic color), and literal safelist entries become a Tailwind v4
+`@source inline(...)` block. Safelist **regex** patterns have no v4
+equivalent and are flagged for manual conversion.
+
+`transforms/color-oklch.ts` closes gotcha #43 (SVG icons rendering solid
+black): if generated CSS emits `oklch(var(--x))` but `--x` was declared as
+hex rather than oklch coordinates, `oklch(#hex)` is invalid CSS and silently
+falls back to black. `fixOklchHexMismatches` finds every such mismatch in
+the generated stylesheet and converts the hex declaration to a genuine
+oklch triplet so the wrapper stays valid.
+
+`transforms/css.ts` covers two more CSS-only gotchas applied to the site's
+original custom CSS before it's appended to `app.css`:
+- `theme(colors.x.y)` (the removed v3 CSS helper) → `var(--color-x-y)`
+- a single-class rule under `@layer components { .foo { @apply ...; } }`
+  gets promoted to `@utility foo { ... }` (v4 requires `@utility` for a
+  custom class to stay `@apply`-able elsewhere — gotcha #49); compound
+  selectors can't be mechanically promoted and are flagged instead.
+
+**Real CSS compile check** (`css-compile-check.ts`, wired into
+`phase-compile.ts`): after `bun install`, the migration actually compiles
+`src/styles/app.css` with the site's own `@tailwindcss/cli` install (the
+official CLI, not the internal `@tailwindcss/node` API — more stable across
+versions). An unknown-utility-class error now fails migration/CI instead of
+shipping an unstyled page. It also does a best-effort, non-blocking scan for
+plain utility classes used in `src/` that produced no CSS output at all
+(the "silently skipped, no error" failure mode a compile error can't catch).
+
+**Why not `npx @tailwindcss/upgrade`?** The official Tailwind v4 upgrade
+codemod was evaluated and rejected for the pipeline: it requires an
+installed v3 Node project with a clean git tree, but the Fresh source is
+Deno (no package.json/node_modules), and running it against the *migrated*
+tree would mean synthesizing a throwaway v3 project that fights the
+scaffolded `vite.config.ts`/`app.css` — plus it has no stable programmatic
+API. Its rename table and config→CSS conversion semantics are mirrored
+manually instead (`transforms/tailwind-renames.ts`,
+`analyzers/tailwind-config.ts`), where Deno-specific quirks stay under our
+control.
+
 ### Phase 4: Cleanup
 
 **Deletes directories:**
 - `islands/`, `routes/`, `apps/deco/`, `sdk/cart/`
 
 **Deletes root files:**
-- `deno.json`, `fresh.gen.ts`, `main.ts`, `dev.ts`, `tailwind.config.ts`, `runtime.ts`, `constants.ts`
+- `deno.json`, `fresh.gen.ts`, `main.ts`, `dev.ts`, `tailwind.config.ts` (read by `analyzers/tailwind-config.ts` in the analyze phase first — see 6b — then deleted here, same as always), `runtime.ts`, `constants.ts`
 
 **Deletes SDK files** (now in @decocms/blocks or @decocms/apps):
 - `sdk/clx.ts`, `sdk/useId.ts`, `sdk/useOffer.ts`, `sdk/useVariantPossiblities.ts`, `sdk/usePlatform.tsx`
@@ -262,7 +341,8 @@ Generates `MIGRATION_REPORT.md` with:
 - Summary table (files analyzed / scaffolded / transformed / deleted / moved)
 - Categorized file lists
 - Manual review items with severity
-- Always-check section (FormEmail, Slider, Theme, DaisyUI, Tailwind)
+- Dedicated **CSS Migration** section: tokens ported from `tailwind.config.ts`, a pointer to the real CSS compile check, and every CSS-specific manual-review finding filtered out of the general list (see `phase-report.ts`'s `isCssReviewItem`)
+- Always-check section (FormEmail, Slider, Theme, points to the CSS Migration section above)
 - Known issues (z-index stacking, opacity modifiers)
 - Framework findings (patterns to consolidate into @decocms/blocks)
 - Next steps
