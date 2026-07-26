@@ -25,12 +25,10 @@
  * ```
  */
 
-import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
-import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
 import {
+  getRevision,
   isBot,
   loadBlocks,
-  getRevision,
   type MatcherContext,
   onChange,
   resolveDecoPage,
@@ -39,7 +37,6 @@ import {
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
 import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
-import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -49,9 +46,8 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "@decocms/blocks/sdk/cacheHeaders";
+import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
-import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
-import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import {
   getActiveSpan,
   logRequest,
@@ -66,13 +62,17 @@ import {
   instrumentWorker,
   type OtelOptions,
 } from "@decocms/blocks/sdk/otel";
-import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
+import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { cleanPathForCacheKey } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
-import { isDevMode } from "@decocms/blocks/sdk/env";
+import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
+import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
+import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
+import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
+import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 
 /**
  * Build-time identifier injected by `decoVitePlugin()` (see
@@ -1074,10 +1074,7 @@ export function createDecoWorkerEntry(
     // (skuId/idsku) that the loader ignores — otherwise `/p?skuId=X` and `/p`
     // get distinct keys and every variant-carrying PDP→PDP nav MISSes, even
     // though the resolved response is identical. Keeps PLP filter params intact.
-    if (
-      url.pathname.startsWith("/_serverFn/") ||
-      url.pathname.startsWith("/_server/")
-    ) {
+    if (url.pathname.startsWith("/_serverFn/") || url.pathname.startsWith("/_server/")) {
       const payload = url.searchParams.get("payload");
       if (payload) {
         url.searchParams.set("payload", canonicalizeServerFnPayloadForCacheKey(payload));
@@ -1122,8 +1119,8 @@ export function createDecoWorkerEntry(
     // diverge. `/_serverFn` (SPA-nav data) is excluded: it has its own keying
     // and stays eager via isClientNavigation, not this bucket.
     const secFetchDest = request.headers.get("sec-fetch-dest");
-    const isServerFnPath = url.pathname.startsWith("/_serverFn/") ||
-      url.pathname.startsWith("/_server/");
+    const isServerFnPath =
+      url.pathname.startsWith("/_serverFn/") || url.pathname.startsWith("/_server/");
     if (!isServerFnPath && secFetchDest === "empty") {
       url.searchParams.set("__fetch", "1");
     }
@@ -1135,7 +1132,9 @@ export function createDecoWorkerEntry(
     // keep sharing one entry. A freshly-assigned visitor sets the cookie on the
     // response, which is not a "safe" cookie, so that one response bypasses the
     // cache and never poisons the shared entry.
-    const flagToken = segmentCacheToken(parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)));
+    const flagToken = segmentCacheToken(
+      parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)),
+    );
     if (flagToken) {
       url.searchParams.set("__abf", flagToken);
     }
@@ -2129,7 +2128,10 @@ export function createDecoWorkerEntry(
       ctx.waitUntil(
         Promise.resolve(serverEntry.fetch(request, env, ctx))
           .then((origin) => {
-            if (origin.status === 200) {
+            // Never overwrite a good entry with a degraded 200 (a critical
+            // section failed) — that would poison the cache. Leave the stale
+            // entry in place until a healthy revalidation succeeds.
+            if (origin.status === 200 && origin.headers.get("X-Deco-Degraded") !== "true") {
               // Only cache if response has no cookies or only safe cookies.
               // Strip safe cookies from the cached copy.
               if (hasOnlySafeCookies(origin, safeCookieSet)) {
@@ -2243,6 +2245,38 @@ export function createDecoWorkerEntry(
       resp.headers.delete("CDN-Cache-Control");
       resp.headers.set("X-Cache", "BYPASS");
       resp.headers.set("X-Cache-Reason", "private-set-cookie");
+      appendResourceHints(resp);
+      return resp;
+    }
+
+    // Degraded origin — a critical section loader failed, so this 200 carries
+    // raw/empty data (e.g. an empty product shelf during a VTEX outage). Treat
+    // it like a 5xx for caching: prefer a warm stale entry (STALE-ERROR) and
+    // NEVER store it. Without this, the broken page would be cached as healthy
+    // for the full retention window and stale-if-error would never fire —
+    // turning a seconds-long blip into hours of empty pages.
+    if (origin.headers.get("X-Deco-Degraded") === "true") {
+      if (cached && edgeConfig.sie > 0) {
+        const storedAtStr = cached.headers.get("X-Deco-Stored-At");
+        const storedAt = storedAtStr ? Number(storedAtStr) : 0;
+        const ageSec = storedAt > 0 ? (Date.now() - storedAt) / 1000 : Infinity;
+        if (ageSec < edgeConfig.fresh + edgeConfig.sie) {
+          console.warn(
+            `[edge-cache] Origin degraded, serving stale (age=${Math.round(ageSec)}s, sie=${edgeConfig.sie}s)`,
+          );
+          recordCacheMetric(true, profile, "STALE-ERROR", "edge");
+          return dressResponse(cached, "STALE-ERROR", {
+            "X-Cache-Age": String(Math.round(ageSec)),
+            "X-Cache-Reason": "degraded",
+          });
+        }
+      }
+      // Cold cache — serve the degraded page but never persist it.
+      const resp = new Response(origin.body, origin);
+      resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+      resp.headers.delete("CDN-Cache-Control");
+      resp.headers.set("X-Cache", "BYPASS");
+      resp.headers.set("X-Cache-Reason", "degraded");
       appendResourceHints(resp);
       return resp;
     }
