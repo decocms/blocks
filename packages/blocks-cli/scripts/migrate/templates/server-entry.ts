@@ -65,6 +65,10 @@ function generateWorkerEntry(ctx: MigrationContext): string {
  *   npx -p @decocms/blocks-cli deco-cf-observability --write
  */
 import "./setup";
+// Server-only: registers COMMERCE_LOADERS + invoke. Kept out of ./setup (which
+// router.tsx imports) so the loader/action module graph never enters the client
+// bundle. See setup/commerce-init.ts.
+import "./setup/commerce-init";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { createDecoWorkerEntry } from "@decocms/tanstack";
 import { instrumentWorker } from "@decocms/blocks/sdk/observability";
@@ -109,6 +113,10 @@ function generateVtexWorkerEntry(ctx: MigrationContext): string {
   const vtexAccount = ctx.vtexAccount || ctx.siteName;
 
   return `import "./setup";
+// Server-only: registers COMMERCE_LOADERS + invoke. Kept out of ./setup (which
+// router.tsx imports) so the loader/action module graph never enters the client
+// bundle. See setup/commerce-init.ts.
+import "./setup/commerce-init";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { createDecoWorkerEntry } from "@decocms/tanstack";
 import { instrumentWorker } from "@decocms/blocks/sdk/observability";
@@ -318,8 +326,12 @@ ${hasVtexAuthLoader ? `import vtexAuthLoader from "../loaders/vtex-auth-loader";
   performVtexLogout,
   parseVtexAuthJwt,
 } from "@decocms/apps-vtex/utils/authHelpers";
+import { getUser, type Person } from "@decocms/apps-vtex/loaders/user";
+import { getWishlist, type WishlistItem } from "@decocms/apps-vtex/loaders/wishlist";
+import { addItem as addToWishlistItem, removeItem as removeFromWishlistItem } from "@decocms/apps-vtex/actions/wishlist";
 
 export type { OrderForm } from "./invoke.gen";
+export type { Person, WishlistItem };
 
 function getVtexCookies(): string {
   return extractVtexCookiesFromHeader(getRequestHeader("cookie") ?? "");
@@ -353,9 +365,57 @@ const _getUserFromJwt = createServerFn({ method: "POST" }).handler(
   },
 );
 
+// createUseUser/createUseWishlist (@decocms/apps-vtex/hooks) require
+// invoke.vtex.loaders.user/wishlist and invoke.vtex.actions.addToWishlist/
+// removeFromWishlist — without these the hooks throw on mount and take
+// down the whole section (e.g. the Header) via the error boundary.
+function getShopperId(): string | null {
+  return parseVtexAuthJwt(getRequestHeader("cookie") ?? "")?.email ?? null;
+}
+
+const _vtexUser = createServerFn({ method: "GET" }).handler(
+  async (): Promise<Person | null> => {
+    return getUser(getVtexCookies());
+  },
+);
+
+const _vtexWishlist = createServerFn({ method: "GET" }).handler(
+  async (): Promise<WishlistItem[]> => {
+    const shopperId = getShopperId();
+    if (!shopperId) return [];
+    return getWishlist(getVtexCookies(), { shopperId, allRecords: true });
+  },
+);
+
+const _addToWishlist = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: { data: { productId: string; sku: string; title?: string } }) => data,
+  )
+  .handler(async ({ data }): Promise<WishlistItem[]> => {
+    const shopperId = getShopperId();
+    if (!shopperId) throw new Error("User must be logged in to add to wishlist");
+    return addToWishlistItem(data.data, shopperId, getVtexCookies());
+  });
+
+const _removeFromWishlist = createServerFn({ method: "POST" })
+  .inputValidator((data: { data: { id: string } }) => data)
+  .handler(async ({ data }): Promise<WishlistItem[]> => {
+    const shopperId = getShopperId();
+    if (!shopperId) throw new Error("User must be logged in to remove from wishlist");
+    return removeFromWishlistItem(data.data.id, shopperId, getVtexCookies());
+  });
+
 export const invoke = {
   vtex: {
-    actions: vtexActions,
+    actions: {
+      ...vtexActions,
+      addToWishlist: _addToWishlist,
+      removeFromWishlist: _removeFromWishlist,
+    },
+    loaders: {
+      user: _vtexUser,
+      wishlist: _vtexWishlist,
+    },
   },
   site: {
     loaders: {

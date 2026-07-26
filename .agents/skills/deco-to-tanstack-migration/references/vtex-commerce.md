@@ -56,6 +56,15 @@ During migration, section loaders (e.g., `sections/Header/Header.tsx`) may have 
 
 **Fix**: Keep all section loader logic intact. The loader signature `(props, req, ctx) => {...}` and the `ctx.invoke` calls should be preserved as-is.
 
+**The 3rd-arg `ctx` is real now (#305).** The framework builds a compat `ctx` and passes it as the loader's 3rd argument (`@decocms/blocks`'s `buildSectionLoaderContext`, wired through `withSectionLoader`/`withPageContext`). What it provides:
+
+- `ctx.device` — `"mobile" | "tablet" | "desktop"` from the request User-Agent (works in worker, dev, and SPA-nav paths — it's derived from `req`, not the ambient `RequestContext`).
+- `ctx.invoke.*` — a nested invoke proxy bound to this request's origin + AbortSignal. `ctx.invoke.vtex.loaders.categories.tree()` works server-side via a self-fetch to `/deco/invoke`.
+- `ctx.<appName>` (e.g. `ctx.vtex`, `ctx.salesforce`) — the app's request-scoped state via `RequestContext.getAppState(name)`, or `undefined` if the app isn't configured.
+- `ctx.response.headers` — maps to `RequestContext.responseHeaders` (Set-Cookie forwarding) inside the worker request scope; writes are dropped on the dev/SPA serverFn path.
+
+**Still optional-chain app-state reads.** An unconfigured app yields `undefined`, so a non-optional deep read like `ctx.salesforce.cartExtension[0]` throws — and `withSectionLoader`'s try/catch swallows it, dropping the section's props (blank render). The migrator's `ctx-compat` transform auto-rewrites `ctx.*` reads to optional chains (`ctx?.salesforce?.cartExtension?.[0]`); write new/hand-fixed loaders the same way.
+
 
 ## 34. Commerce Loaders Are Blind to the URL
 

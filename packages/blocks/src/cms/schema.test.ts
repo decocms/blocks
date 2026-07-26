@@ -237,3 +237,24 @@ describe("composeMeta framework option", () => {
     expect(meta.manifest.blocks.pages).toHaveProperty("website/pages/Page.tsx");
   });
 });
+
+describe("composeMeta idempotency", () => {
+  it("returns an already-composed meta unchanged (no double-compose)", () => {
+    const once = composeMeta(emptySiteMeta());
+    const twice = composeMeta(once);
+    // The sentinel is the top-level `framework` field, which only composeMeta
+    // sets — re-composing must be a no-op, returning the same object.
+    expect(twice).toBe(once);
+  });
+
+  it("does not duplicate framework section refs when re-composed", () => {
+    // Simulate the tanstack runtime path: a self-contained meta.gen.json (baked
+    // at gen time) is loaded from disk and composeMeta runs again on top of it.
+    const composed = composeMeta(emptySiteMeta());
+    const sectionsAnyOf = composed.schema.root.sections.anyOf;
+    const recomposed = composeMeta(composed);
+    // Without the guard, framework section refs (Lazy/Seo/…) would be appended
+    // to root.sections.anyOf a second time.
+    expect(recomposed.schema.root.sections.anyOf).toHaveLength(sectionsAnyOf.length);
+  });
+});

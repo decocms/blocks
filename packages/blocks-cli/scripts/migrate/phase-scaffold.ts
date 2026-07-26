@@ -14,6 +14,7 @@ import { generateAppCss } from "./templates/app-css";
 import { generateTypeFiles } from "./templates/types-gen";
 import { generateUiComponents } from "./templates/ui-components";
 import { generateHooks } from "./templates/hooks";
+import { generateCommerceInit } from "./templates/commerce-init";
 import { generateCommerceLoaders } from "./templates/commerce-loaders";
 import { generateSectionLoaders } from "./templates/section-loaders";
 import { generateCacheConfig } from "./templates/cache-config";
@@ -110,6 +111,10 @@ export function scaffold(ctx: MigrationContext): void {
   writeFile(ctx, "src/setup.ts", generateSetup(ctx));
   writeFile(ctx, "src/cache-config.ts", generateCacheConfig(ctx));
   writeFile(ctx, "src/setup/commerce-loaders.ts", generateCommerceLoaders(ctx));
+  // Server-only registration of COMMERCE_LOADERS + invoke — imported by
+  // worker-entry.ts, not setup.ts, so the loader/action graph stays out of the
+  // client bundle.
+  writeFile(ctx, "src/setup/commerce-init.ts", generateCommerceInit(ctx));
   writeFile(ctx, "src/setup/section-loaders.ts", generateSectionLoaders(ctx));
 
   // Theme extraction + Styles

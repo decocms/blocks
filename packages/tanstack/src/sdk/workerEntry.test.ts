@@ -4,12 +4,18 @@ import { __resetKvHydrationStateForTests } from "./kvHydration";
 import {
   buildGeoCacheParam,
   createDecoWorkerEntry,
+  DECO_ADMIN_FRAME_ANCESTORS,
+  DEFAULT_FRAME_ANCESTORS_CSP,
+  DEFAULT_SECURITY_HEADERS,
   detectLocationMatcher,
   injectGeoCookies,
 } from "./workerEntry";
 
 const EMPTY_ENV = {};
-const MOCK_CTX = { waitUntil: (_p: Promise<unknown>) => {} };
+const MOCK_CTX = {
+  waitUntil: (_p: Promise<unknown>) => {},
+  passThroughOnException: () => {},
+};
 const MOCK_SERVER_ENTRY = {
   fetch: async (_req: Request) => new Response("page content", { status: 200 }),
 };
@@ -329,5 +335,161 @@ describe("degraded origin (anti-cache-poisoning)", () => {
     );
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Cache-Reason")).not.toBe("degraded");
+  });
+});
+
+describe("security headers — frame-ancestors default", () => {
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    setBlocks({});
+  });
+
+  const HTML_SERVER_ENTRY = {
+    fetch: async (_req: Request) =>
+      new Response("<html>hi</html>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+  };
+
+  it("does NOT ship X-Frame-Options (frame-ancestors supersedes it)", () => {
+    expect(DEFAULT_SECURITY_HEADERS["X-Frame-Options"]).toBeUndefined();
+  });
+
+  it("allows the deco studio to embed the storefront by default", () => {
+    expect(DEFAULT_FRAME_ANCESTORS_CSP).toContain("frame-ancestors");
+    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("https://studio.decocms.com");
+    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("https://*.deco.studio");
+    expect(DECO_ADMIN_FRAME_ANCESTORS).toContain("'self'");
+  });
+
+  it("applies the default frame-ancestors CSP on HTML responses and drops X-Frame-Options", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY);
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
+    expect(res.headers.get("X-Frame-Options")).toBeNull();
+    // Other defaults are still present.
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  it("lets a site override the frame-ancestors CSP via securityHeaders", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      securityHeaders: { "Content-Security-Policy": "frame-ancestors 'none'" },
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
+  });
+
+  it("emits the full site CSP report-only alongside the enforced frame-ancestors", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      csp: ["default-src 'self'", "img-src 'self' https:"],
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
+    expect(res.headers.get("Content-Security-Policy-Report-Only")).toBe(
+      "default-src 'self'; img-src 'self' https:",
+    );
+  });
+
+  it("omits all security headers when securityHeaders is false", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, { securityHeaders: false });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBeNull();
+    expect(res.headers.get("X-Content-Type-Options")).toBeNull();
+  });
+});
+
+describe("POST /_cache/purge-loaders", () => {
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    setBlocks({});
+  });
+
+  const purge = (env: Record<string, unknown>, headers: Record<string, string> = {}) => {
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    return worker.fetch(
+      new Request("https://example.com/_cache/purge-loaders", { method: "POST", headers }),
+      env,
+      MOCK_CTX,
+    );
+  };
+
+  it("401s without a valid Bearer token", async () => {
+    const res = await purge({ PURGE_TOKEN: "secret" });
+    expect(res.status).toBe(401);
+  });
+
+  it("401s with the wrong token", async () => {
+    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer nope" });
+    expect(res.status).toBe(401);
+  });
+
+  it("clears the loader cache with a valid token", async () => {
+    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer secret" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ cleared: true, scope: "isolate" });
+  });
+
+  it("404s when purge is disabled (purgeTokenEnv: false)", async () => {
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      purgeTokenEnv: false,
+    });
+    const res = await worker.fetch(
+      new Request("https://example.com/_cache/purge-loaders", { method: "POST" }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    setBlocks({});
+  });
+
+  const HTML_SERVER_ENTRY = {
+    fetch: async (_req: Request) =>
+      new Response("<html>hi</html>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+  };
+
+  it("includes a custom segment field in X-Cache-Segment instead of dropping it", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop", regionId: "RJ", delivery: "store-42" }),
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("X-Cache-Segment")).toBe("desktop|r=RJ|delivery=store-42");
+  });
+
+  it("produces different X-Cache-Segment hashes for requests that only differ by a custom field", async () => {
+    let delivery = "store-1";
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop", delivery }),
+    });
+
+    const first = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const firstSegment = first.headers.get("X-Cache-Segment");
+
+    delivery = "store-2";
+    const second = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const secondSegment = second.headers.get("X-Cache-Segment");
+
+    expect(firstSegment).not.toBe(secondSegment);
+  });
+
+  it("keeps the existing hash format for segments using only known fields (back-compat)", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop", salesChannel: "1", flags: ["b", "a"] }),
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("X-Cache-Segment")).toBe("desktop|sc=1|f=a,b");
   });
 });

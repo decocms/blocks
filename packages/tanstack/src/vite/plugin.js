@@ -19,6 +19,15 @@
  *   it on the client cuts a typically-large module out of the browser bundle.
  *   Match is done by substring on the import id, so any path style works.
  *
+ * loaders.gen.ts handling:
+ *   The site invoke registry (`export const siteLoaders`) registers every site
+ *   loader/action behind a dynamic `import()`. It is reachable from the client
+ *   entry (router -> setup -> commerce-loaders -> loaders.gen), so without a stub
+ *   Vite emits each loader/action module as a public client chunk — leaking the
+ *   module source (including any hardcoded credential) into the browser assets.
+ *   Invoke runs server-side only, so the client never needs it. Stubbed to an
+ *   empty object on the client; SSR keeps the real module.
+ *
  * manualChunks:
  *   `@decocms/tanstack` and `@decocms/apps` are intentionally NOT split
  *   into their own chunks. They have circular re-exports that produce a
@@ -191,6 +200,22 @@ export function decoVitePlugin() {
         // Fallback: if .json doesn't exist yet (pre-generate-blocks), let
         // Vite load the .ts file normally (may contain inline data for
         // backward-compatible sites that haven't regenerated).
+      }
+
+      // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
+      // It registers every site loader/action behind a dynamic `import()`, so if
+      // it stays in the CLIENT module graph (it's reachable via
+      // router -> setup -> commerce-loaders -> loaders.gen) Vite emits each
+      // loader/action module as a public client chunk. That leaks the module's
+      // source — including any hardcoded credential in it — into the browser
+      // assets. The invoke handler runs server-side only (`/deco/invoke` ->
+      // handleInvoke reads the registry via getRegisteredLoaders()), and client
+      // components reach loaders/actions exclusively through the HTTP `invoke`
+      // proxy (which imports no modules). So the client never needs `siteLoaders`.
+      // Stub it to an empty object on the client, mirroring blocks.gen.ts above;
+      // SSR keeps the real module.
+      if (id.endsWith("loaders.gen.ts") && !options?.ssr) {
+        return "export const siteLoaders = {};";
       }
 
       // Virtual module stubs.
@@ -525,6 +550,71 @@ export function decoVitePlugin() {
       });
       server.watcher.on("add", (file) => {
         if (isSchemaSource(file)) scheduleSchemaGen();
+      });
+
+      // --- sections.gen.ts / loaders.gen.ts / invoke.gen.ts regeneration (#371) ---
+      // Unlike meta.gen.json (regenerated above via generate-schema.ts
+      // directly), these three were never re-run in dev — only `npm run build`
+      // (which chains the full `generate` orchestrator) touched them. Editing
+      // a section/loader's TS interface (new prop, new @title) updated the TS
+      // source but left the `.gen` files stale until a manual `generate` run:
+      // typecheck passed and the runtime worked, but the studio/admin form
+      // silently kept showing the old schema.
+      //
+      // Reuses the SAME `generate.ts` orchestrator sites already run for
+      // `build`, restricted to --only sections,loaders,invoke so the schema
+      // regen above isn't duplicated. The orchestrator's own two-tier digest
+      // cache (.deco/generate.digests.json + .deco/.cache/stat-memo.json)
+      // makes a steady-state run (nothing changed) a cheap no-op — a cache
+      // miss only pays the cost for the generator(s) whose actual inputs
+      // changed. Best-effort: a failure here only warns (matches the schema
+      // regen's own error handling above) — dev keeps running off whatever
+      // was last generated, same as before this feature existed.
+      let scaffoldTimer = null;
+      let scaffoldInFlight = false;
+      let scaffoldQueued = false;
+      const runScaffoldGen = () => {
+        if (scaffoldInFlight) {
+          scaffoldQueued = true;
+          return;
+        }
+        scaffoldInFlight = true;
+        const start = Date.now();
+        const scriptPath = path.resolve(cwd, "node_modules/@decocms/blocks-cli/scripts/generate.ts");
+        const cmd = `npx tsx ${JSON.stringify(scriptPath)} --only sections,loaders,invoke --site ${schemaSiteName}`;
+        exec(cmd, { cwd }, (err) => {
+          scaffoldInFlight = false;
+          if (err) {
+            console.warn("[deco] sections/loaders/invoke generation failed:", err.message);
+          } else {
+            console.log(`[deco] sections/loaders/invoke checked (${Date.now() - start}ms)`);
+          }
+          if (scaffoldQueued) {
+            scaffoldQueued = false;
+            scheduleScaffoldGen();
+          }
+        });
+      };
+      const scheduleScaffoldGen = () => {
+        if (scaffoldTimer) clearTimeout(scaffoldTimer);
+        scaffoldTimer = setTimeout(() => {
+          scaffoldTimer = null;
+          runScaffoldGen();
+        }, 500);
+      };
+
+      // Cold-start: run once on dev startup. The digest cache makes this a
+      // fast no-op when nothing changed since the last `generate` run (e.g.
+      // right after a `build`) — fire-and-forget, doesn't block the first request.
+      scheduleScaffoldGen();
+
+      // Reuse the same src/**/*.{ts,tsx} watch predicate as the schema regen
+      // above — sections/loaders/actions all live under the same tree.
+      server.watcher.on("change", (file) => {
+        if (isSchemaSource(file)) scheduleScaffoldGen();
+      });
+      server.watcher.on("add", (file) => {
+        if (isSchemaSource(file)) scheduleScaffoldGen();
       });
 
       // Tunnel + daemon: connect local dev to admin.deco.cx

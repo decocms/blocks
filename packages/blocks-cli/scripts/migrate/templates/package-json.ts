@@ -174,6 +174,11 @@ export function generatePackageJson(ctx: MigrationContext): string {
     devDependencies: {
       "@cloudflare/vite-plugin": "^1.27.0",
       "@decocms/blocks-cli": `^${frameworkVersion}`,
+      // CLI build of src/styles/app.css — used by the migration's own
+      // css-compile-check.ts (phase-compile) and by `tailwind:lint`, so a
+      // dropped custom theme token fails migration/CI instead of shipping
+      // an unstyled page (decocms/blocks#369).
+      "@tailwindcss/cli": "^4.2.1",
       "@tailwindcss/vite": "^4.2.1",
       "@tanstack/router-cli": "1.166.7",
       "@types/react": "^19.2.14",

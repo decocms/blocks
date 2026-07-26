@@ -157,6 +157,15 @@ export interface MigrationContext {
   /** Font family from CMS config */
   fontFamily: string | null;
 
+  /**
+   * Statically-extracted content of the source site's `tailwind.config.ts`
+   * (colors, fontFamily, screens, safelist, plugins) — read during analyze,
+   * before the file is deleted in cleanup, so its content can be ported into
+   * the scaffolded `src/styles/app.css` @theme block instead of silently
+   * dropped. See analyzers/tailwind-config.ts.
+   */
+  tailwindConfig: import("./analyzers/tailwind-config").TailwindConfigExtract;
+
   /** All categorized source files */
   files: FileRecord[];
 
@@ -217,6 +226,15 @@ export function createContext(
     discoveredNpmDeps: {},
     themeColors: {},
     fontFamily: null,
+    tailwindConfig: {
+      colors: {},
+      fontFamily: {},
+      screens: {},
+      safelist: [],
+      safelistPatterns: [],
+      plugins: [],
+      reviewItems: [],
+    },
     files: [],
     sectionMetas: [],
     islandClassifications: [],

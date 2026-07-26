@@ -2,6 +2,42 @@
 
 > oklch triplets, logical properties, DaisyUI collapse, theme prefixes, sidebar.
 
+**#43, #48, and #49 are now automated by the migrator** — the fixes below
+still document the failure mode and manual recovery, but a fresh migration
+handles them without intervention:
+- **#48** — `analyzers/tailwind-config.ts` reads `tailwind.config.ts`'s
+  `theme.extend.colors`/`fontFamily`/`screens`/`safelist` during analyze
+  (before the file is deleted) and `templates/app-css.ts` ports them into
+  the scaffolded `@theme` block / `@source inline(...)`.
+- **#43** — `transforms/color-oklch.ts` detects `oklch(var(--x))` usages
+  where `--x` was declared as hex and converts the declaration to a real
+  oklch triplet.
+- **#49** — `transforms/css.ts` promotes single-class `@layer components`
+  rules to `@utility` automatically; compound selectors still need the
+  manual fix documented under #49.
+
+There's also now a **real compile check** (`css-compile-check.ts`, wired
+into the compile phase): the migration builds `src/styles/app.css` with
+the site's own `@tailwindcss/cli` and fails (in `--strict` mode) on any
+remaining unknown-utility-class error, instead of that error only
+surfacing at runtime in the browser.
+
+**Why not run the official `npx @tailwindcss/upgrade` codemod?** Evaluated
+and rejected for the pipeline — it needs an installed v3 Node project
+with a clean git tree (the Fresh source is Deno, no package.json), and
+running it against the migrated tree would mean synthesizing a throwaway
+v3 project that fights the scaffolded `vite.config.ts`/`app.css`, with no
+stable programmatic API to hook into anyway. Its rename table and
+config→CSS semantics are mirrored manually instead, in
+`transforms/tailwind-renames.ts` and `analyzers/tailwind-config.ts`, where
+Deno-specific quirks stay under the migrator's control.
+
+Gotchas #37 (DaisyUI collapse/btn-group/form-control) and #42 (logical vs
+physical spacing properties) have no safe mechanical fix — the migrator
+detects both (`transforms/tailwind-renames.ts`'s
+`detectDaisyUiV5StructuralIssues` / `detectLogicalPropertyConflict`) and
+surfaces them as manual-review findings instead of guessing at a rewrite.
+
 
 ## 15. DaisyUI v4 Theme in Preview Shell
 

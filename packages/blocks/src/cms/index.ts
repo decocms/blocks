@@ -82,6 +82,8 @@ export {
   unregisterCommerceLoader,
   WELL_KNOWN_TYPES,
 } from "./resolve";
+export type { SectionLoaderContext } from "./sectionLoaderContext";
+export { buildSectionLoaderContext } from "./sectionLoaderContext";
 export type {
   ActionConfig,
   AppSchemas,
