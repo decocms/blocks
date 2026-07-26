@@ -83,10 +83,10 @@ export function withSearchParam(): SectionLoaderFn {
  * ```
  */
 export function compose(...mixins: SectionLoaderFn[]): SectionLoaderFn {
-  const composed: SectionLoaderFn = async (props, req) => {
+  const composed: SectionLoaderFn = async (props, req, ctx) => {
     let result = { ...props };
     for (const mixin of mixins) {
-      const partial = await mixin(result, req);
+      const partial = await mixin(result, req, ctx);
       result = { ...result, ...partial };
     }
     return result;
@@ -138,12 +138,14 @@ export function compose(...mixins: SectionLoaderFn[]): SectionLoaderFn {
 export function withSectionLoader(
   modImport: () => Promise<unknown>,
 ): SectionLoaderFn {
-  return async (props, req) => {
+  return async (props, req, ctx) => {
     const mod = (await modImport()) as { loader?: unknown } | undefined;
     const loader = mod?.loader;
     if (typeof loader !== "function") return props;
     try {
-      const result = await (loader as SectionLoaderFn)(props, req);
+      // Forward the compat `ctx` (issue #305) so migrated Fresh loaders that
+      // read `ctx.device`/`ctx.invoke`/`ctx.<app>` get the real 3rd argument.
+      const result = await (loader as SectionLoaderFn)(props, req, ctx);
       return result ?? props;
     } catch (error) {
       console.error("[withSectionLoader] section loader threw:", error);

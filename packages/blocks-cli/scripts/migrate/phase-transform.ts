@@ -6,6 +6,7 @@ import { log, logPhase } from "./types";
 import { transformImports } from "./transforms/imports";
 import { transformJsx } from "./transforms/jsx";
 import { transformFreshApis } from "./transforms/fresh-apis";
+import { transformCtxCompat } from "./transforms/ctx-compat";
 import { transformDenoIsms } from "./transforms/deno-isms";
 import { transformTailwind } from "./transforms/tailwind";
 import { transformDeadCode } from "./transforms/dead-code";
@@ -55,16 +56,19 @@ function applyTransforms(content: string, filePath: string, ctx?: MigrationConte
     return { content, changed: false, notes: [] };
   }
 
-  // Pipeline: imports → jsx → htmx-on-events → fresh-apis → dead-code → deno-isms → tailwind
+  // Pipeline: imports → jsx → htmx-on-events → fresh-apis → ctx-compat → dead-code → deno-isms → tailwind
   // htmx-on-events runs after jsx (which renames class/onChange) and
   // before fresh-apis (which removes useScript imports the htmx
   // codemod's TODO might still reference). The codemod is a no-op on
   // files without hx-on, so it never adds latency to non-htmx sites.
+  // ctx-compat runs after fresh-apis so it sees the settled loader body; it's
+  // a no-op on files without a `loader` export (#305).
   const pipeline: Array<{ name: string; fn: (content: string) => TransformResult }> = [
     { name: "imports", fn: (c) => transformImports(c, ctx?.islandWrapperTargets) },
     { name: "jsx", fn: transformJsx },
     { name: "htmx-on-events", fn: transformHtmxOnEvents },
     { name: "fresh-apis", fn: transformFreshApis },
+    { name: "ctx-compat", fn: transformCtxCompat },
     { name: "dead-code", fn: (c) => transformDeadCode(c, ctx?.platform) },
     { name: "deno-isms", fn: transformDenoIsms },
     { name: "tailwind", fn: transformTailwind },
