@@ -11,6 +11,7 @@
   "main": "./src/types/commerce.ts",
   "exports": {
     "./types": "./src/types/commerce.ts",
+    "./types/cart": "./src/types/cart.ts",
     "./app-types": "./src/app-types.ts",
     "./resolve": "./src/resolve.ts",
     "./manifest-utils": "./src/manifest-utils.ts",

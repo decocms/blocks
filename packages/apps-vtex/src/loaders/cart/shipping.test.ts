@@ -10,7 +10,7 @@ vi.mock("../../actions/checkout", () => ({
 	simulateCart: (props: any) => simulateCartMock(props),
 }));
 
-import { getShippingSimulation } from "./shipping";
+import cartShipping, { getShippingSimulation } from "./shipping";
 import { __resetSimulationCacheForTests } from "../../utils/simulationCache";
 
 describe("getShippingSimulation (#373)", () => {
@@ -84,5 +84,42 @@ describe("getShippingSimulation (#373)", () => {
 		const result = await getShippingSimulation(props);
 		expect(result).not.toHaveProperty("headers");
 		expect(JSON.stringify(result)).not.toContain("set-cookie");
+	});
+});
+
+describe("cartShipping (drawer loader, built on getShippingSimulation)", () => {
+	beforeEach(() => {
+		configureVtex({ account: "acme", salesChannel: "1" });
+		__resetSimulationCacheForTests();
+		simulateCartMock.mockClear();
+	});
+
+	afterEach(() => {
+		__resetSimulationCacheForTests();
+	});
+
+	const props = {
+		items: [{ id: "1", quantity: 1, seller: "1" }],
+		postalCode: "01310-100",
+	};
+
+	it("returns empty options when items or postalCode are missing", async () => {
+		expect(await cartShipping({ items: [], postalCode: "" })).toEqual({
+			postalCode: "",
+			options: [],
+		});
+	});
+
+	it("normalizes SLAs from the (cached) simulation into a de-duplicated option list", async () => {
+		const result = await cartShipping(props);
+		expect(result.postalCode).toBe(props.postalCode);
+		expect(result.options).toHaveLength(1);
+		expect(result.options[0].id).toBe("sla-1");
+	});
+
+	it("shares the underlying simulation cache — a second call does not re-simulate", async () => {
+		await cartShipping(props);
+		await cartShipping(props);
+		expect(simulateCartMock).toHaveBeenCalledTimes(1);
 	});
 });

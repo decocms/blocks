@@ -46,7 +46,7 @@ function buildCacheKey(props: ShippingSimulationProps): string {
  * Fetch shipping SLAs for a cart, serving a cached response body when
  * available for the same `{items, postalCode, salesChannel}` tuple.
  */
-export async function getShippingSimulation(props: ShippingSimulationProps): Promise<unknown> {
+export async function getShippingSimulation(props: ShippingSimulationProps): Promise<any> {
 	const cache = getSimulationCache();
 	const key = buildCacheKey(props);
 
@@ -67,4 +67,70 @@ export async function getShippingSimulation(props: ShippingSimulationProps): Pro
 	const result = await simulateCart(simulateProps);
 	await cache.put(key, JSON.stringify(result), props.ttlSeconds ?? DEFAULT_TTL_SECONDS);
 	return result;
+}
+
+// ---------------------------------------------------------------------------
+// `vtex/loaders/cart/shipping` — normalized shipping options for the drawer
+// ---------------------------------------------------------------------------
+//
+// Runs a (cached) VTEX cart simulation for the given items + postal code and
+// returns a normalized, de-duplicated list of shipping SLAs (price in major
+// units). Separate from the cart mutation path so the drawer can show
+// delivery estimates without re-fetching the whole OrderForm. Built on
+// `getShippingSimulation` above instead of calling `simulateCart` directly,
+// so repeated drawer opens for the same {items, postalCode} share the cache.
+
+const CENTS_PER_MAJOR = 100;
+
+export interface CartShippingProps {
+	items: SimulationItem[];
+	postalCode: string;
+	country?: string;
+}
+
+export interface ShippingOption {
+	id: string;
+	name: string;
+	/** Price in major units. */
+	price: number;
+	shippingEstimate: string;
+	deliveryChannel?: string;
+}
+
+export interface CartShipping {
+	postalCode: string;
+	options: ShippingOption[];
+}
+
+interface SimSla {
+	id: string;
+	name: string;
+	price: number;
+	shippingEstimate: string;
+	deliveryChannel?: string;
+}
+
+export default async function cartShipping(props: CartShippingProps): Promise<CartShipping> {
+	const { items, postalCode, country } = props;
+	if (!items?.length || !postalCode) return { postalCode, options: [] };
+
+	const sim = await getShippingSimulation({ items, postalCode, country });
+	const logisticsInfo: Array<{ slas?: SimSla[] }> = sim?.logisticsInfo ?? [];
+
+	// Collapse SLAs across all items into one unique-by-id option list.
+	const byId = new Map<string, ShippingOption>();
+	for (const info of logisticsInfo) {
+		for (const sla of info.slas ?? []) {
+			if (byId.has(sla.id)) continue;
+			byId.set(sla.id, {
+				id: sla.id,
+				name: sla.name,
+				price: (sla.price ?? 0) / CENTS_PER_MAJOR,
+				shippingEstimate: sla.shippingEstimate,
+				deliveryChannel: sla.deliveryChannel,
+			});
+		}
+	}
+
+	return { postalCode, options: [...byId.values()] };
 }
