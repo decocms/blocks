@@ -124,6 +124,36 @@ function persistFlags(matcherCtx: MatcherContext): StoredFlag[] {
   return recorded;
 }
 
+/**
+ * Run the body sections' loaders and the SEO section's loader in the SAME
+ * batch (`Promise.all` via `runSectionLoaders`), instead of sequentially
+ * (body first, then `buildPageSeo` separately awaiting the SEO section).
+ *
+ * On a PDP, the SEO section (e.g. SeoPDP) commonly resolves the same
+ * product as a body section via the same commerce loader. Running them
+ * sequentially meant the SEO fetch always missed any in-flight request
+ * dedup at the fetch-cache layer (apps-vtex's fetchWithCache) — the body
+ * fetch had already completed and left the in-flight map by the time the
+ * SEO fetch started, so the origin got hit twice per navigation (#355).
+ * Batching them gives concurrent identical requests a chance to share one
+ * origin round-trip.
+ */
+/** @internal exported for tests */
+export async function runSectionLoadersWithSeo(
+  resolvedSections: ResolvedSection[],
+  seoSection: ResolvedSection | null | undefined,
+  request: Request,
+): Promise<{ enrichedSections: ResolvedSection[]; enrichedSeoSection: ResolvedSection | null | undefined }> {
+  if (!seoSection) {
+    return { enrichedSections: await runSectionLoaders(resolvedSections, request), enrichedSeoSection: seoSection };
+  }
+  const enrichedAll = await runSectionLoaders([...resolvedSections, seoSection], request);
+  return {
+    enrichedSections: enrichedAll.slice(0, -1),
+    enrichedSeoSection: enrichedAll[enrichedAll.length - 1],
+  };
+}
+
 async function loadCmsPageInternal(fullPath: string) {
   const [basePath] = fullPath.split("?");
   // On client-side navigation getRequestUrl() is the /_serverFn/... endpoint,
@@ -150,13 +180,14 @@ async function loadCmsPageInternal(fullPath: string) {
     headers: originRequest.headers,
   });
 
-  // Resolve page sections and site globals in parallel. Globals are merged
-  // into the same `resolvedSections` array so the path through this server
-  // function is identical for SSR (F5) and SPA (<Link>) navigations — see
-  // #233 for the previous SPA-breakage when `withSiteGlobals` ran client-side
-  // and saw an empty client-bundled `blocks.gen.ts`.
-  const [enrichedSections, globals] = await Promise.all([
-    runSectionLoaders(page.resolvedSections, request),
+  // Resolve page sections (+ the SEO section, batched together — see #355)
+  // and site globals in parallel. Globals are merged into the same
+  // `resolvedSections` array so the path through this server function is
+  // identical for SSR (F5) and SPA (<Link>) navigations — see #233 for the
+  // previous SPA-breakage when `withSiteGlobals` ran client-side and saw an
+  // empty client-bundled `blocks.gen.ts`.
+  const [{ enrichedSections, enrichedSeoSection }, globals] = await Promise.all([
+    runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
     resolveSiteGlobals(),
   ]);
 
@@ -178,7 +209,7 @@ async function loadCmsPageInternal(fullPath: string) {
   const device = detectDevice(ua);
 
   // Build SEO: merge page-level seo block (primary) with section-contributed SEO (secondary)
-  const seo = await buildPageSeo(page.seoSection, mergedSections, request);
+  const seo = buildPageSeo(page.seoSection, enrichedSeoSection, mergedSections);
 
   // Destructure seoSection out — it's an internal artifact, not serialized to client
   const { seoSection: _seo, ...pageData } = page;
@@ -241,8 +272,8 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
   const page = await resolveDecoPage("/", matcherCtx);
   if (!page) return null;
   const flags = persistFlags(matcherCtx);
-  const [enrichedSections, globals] = await Promise.all([
-    runSectionLoaders(page.resolvedSections, request),
+  const [{ enrichedSections, enrichedSeoSection }, globals] = await Promise.all([
+    runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
     resolveSiteGlobals(),
   ]);
 
@@ -255,7 +286,7 @@ export const loadCmsHomePage = createServerFn({ method: "GET" }).handler(async (
   await preloadSectionComponents(eagerKeys);
 
   const device = detectDevice(ua);
-  const seo = await buildPageSeo(page.seoSection, mergedSections, request);
+  const seo = buildPageSeo(page.seoSection, enrichedSeoSection, mergedSections);
 
   const { seoSection: _seo, ...pageData } = page;
 
@@ -432,15 +463,26 @@ type CmsPageLoaderData = {
 // ---------------------------------------------------------------------------
 
 /**
- * Process the resolved SEO section from page.seo, run its section loader
- * if registered, apply title/description templates, and merge with
- * section-contributed SEO.
+ * Process the resolved SEO section from page.seo, apply title/description
+ * templates, and merge with section-contributed SEO.
+ *
+ * `seoSection` is the raw (pre-loader) resolved section — its `props` are
+ * used for the CMS-configured `titleTemplate`/`descriptionTemplate` fields,
+ * which a loader transforming `{jsonLD} → {title, description}` may not
+ * pass through unchanged. `enrichedSeoSection` must already have gone
+ * through that registered section loader (e.g., SEOPDP transforms
+ * {jsonLD: ProductDetailsPage} → {title, description, ...}) — batched
+ * together with the body sections in `runSectionLoadersWithSeo` so a
+ * commerce loader shared by both (the same product fetched by both the PDP
+ * body section and the SeoPDP section) gets a chance to dedupe at the
+ * fetch-cache layer instead of resolving the page twice (#355). This
+ * function itself no longer runs any loader.
  */
-async function buildPageSeo(
+function buildPageSeo(
   seoSection: ResolvedSection | null | undefined,
+  enrichedSeoSection: ResolvedSection | null | undefined,
   enrichedSections: ResolvedSection[],
-  request: Request,
-): Promise<PageSeo> {
+): PageSeo {
   // Secondary source: SEO sections embedded in the sections array
   const sectionSeo = extractSeoFromSections(enrichedSections);
 
@@ -472,16 +514,11 @@ async function buildPageSeo(
     return merged;
   }
 
-  // Run the section loader on the seo section if one is registered
-  // (e.g., SEOPDP loader transforms {jsonLD: ProductDetailsPage} → {title, description, ...})
-  let enrichedProps = seoSection.props;
-  try {
-    const enriched = await runSingleSectionLoader(seoSection, request);
-    if (enriched) enrichedProps = enriched.props;
-  } catch {
-    // Section loader failed — use the raw resolved props
-  }
-
+  // enrichedSeoSection should always be present once seoSection is, but
+  // fall back to the raw section's props (pre-loader) if the loader batch
+  // somehow dropped it — same "use the raw resolved props" resilience the
+  // old inline try/catch had around the loader call.
+  const enrichedProps = (enrichedSeoSection ?? seoSection).props;
   const pageSeo = extractSeoFromProps(enrichedProps);
 
   // Replicate original SeoV2 loader logic: `_title ?? appTitle`
