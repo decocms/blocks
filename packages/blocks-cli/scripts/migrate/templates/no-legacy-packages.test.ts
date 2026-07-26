@@ -5,6 +5,7 @@ import { generateRoutes } from "./routes";
 import { generateServerEntry } from "./server-entry";
 import { generateSetup } from "./setup";
 import { generateViteConfig } from "./vite-config";
+import { generateCommerceInit } from "./commerce-init";
 import { generateCommerceLoaders } from "./commerce-loaders";
 import { generateSectionLoaders } from "./section-loaders";
 import { generateHooks } from "./hooks";
@@ -74,6 +75,10 @@ describe("scaffolder templates never emit @decocms/start or @decocms/apps/*", ()
           "commerce-loaders.ts",
           generateCommerceLoaders(ctx),
         );
+      });
+
+      it("commerce-init.ts", () => {
+        assertNoLegacyPackageNames("commerce-init.ts", generateCommerceInit(ctx));
       });
 
       it("section-loaders.ts", () => {

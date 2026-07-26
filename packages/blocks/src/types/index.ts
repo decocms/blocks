@@ -4,8 +4,22 @@
  * without depending on the Deno-specific @deco/deco package.
  */
 
+/**
+ * Compat context handed to ported deco.cx (Fresh) section loaders as the 3rd
+ * argument (issue #305). `state` is the app state; `device`/`invoke`/`response`
+ * mirror what Fresh's `ctx` exposed, and the index signature lets migrated
+ * loaders read per-app state directly off `ctx` (`ctx.vtex`, `ctx.salesforce`).
+ * Deep reads should still be optional-chained — an unconfigured app is
+ * `undefined`. See `@decocms/blocks/cms`'s `SectionLoaderContext` for the
+ * runtime shape.
+ */
 export interface FnContext<TState = any> {
   state: TState;
+  device?: "mobile" | "tablet" | "desktop";
+  invoke?: any;
+  response?: { headers: Headers };
+  getAppState?: <T>(appName: string) => T | undefined;
+  [key: string]: any;
 }
 
 export type App<TManifest = any, TState = any, TDeps extends any[] = any[]> = {

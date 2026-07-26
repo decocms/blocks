@@ -1764,6 +1764,309 @@ const ruleSignalValueReads: Rule = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Rules — runtime-breaking artifacts left by the Fresh→TanStack       */
+/* migration (#369). Each one crashes SSR/hydration until fixed by     */
+/* hand; today they pass through the transforms silently.             */
+/* ------------------------------------------------------------------ */
+
+const ruleStringStyleProps: Rule = {
+  id: "string-style-props",
+  title: "String `style` props (React rejects, Preact allowed)",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsxFiles = fs.glob(siteDir, "src/**/*.tsx", SRC_GLOB_EXCLUDES);
+    const re = /style\s*=\s*(?:"[^"]*"|\{\s*"[^"]*"\s*\}|\{\s*`[^`]*`\s*\})/g;
+    const findings: Finding[] = [];
+    for (const abs of tsxFiles) {
+      const content = fs.readText(abs);
+      const count = [...content.matchAll(re)].length;
+      if (count === 0) continue;
+      findings.push({
+        rule: "string-style-props",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: `${count} string \`style\` prop(s) — React throws "the \`style\` prop expects a mapping ... not a string"`,
+        fix: `Convert each to an object: style="a: b" → style={{ a: "b" }}`,
+        meta: { count },
+      });
+    }
+    return findings;
+  },
+};
+
+const ruleFreshAssetCalls: Rule = {
+  id: "fresh-asset-calls",
+  title: "`asset()` Fresh global with no @decocms/blocks equivalent",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
+    const callRe = /\basset\(/;
+    const localDeclRe = /\b(?:const|function)\s+asset\b/;
+    const findings: Finding[] = [];
+    for (const abs of tsFiles) {
+      const content = fs.readText(abs);
+      if (!callRe.test(content) || localDeclRe.test(content)) continue;
+      findings.push({
+        rule: "fresh-asset-calls",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: "`asset(...)` from $fresh/runtime has no @decocms/blocks equivalent — undefined at runtime",
+        fix: "Remove the asset() wrapper — pass the URL/path through directly",
+      });
+    }
+    return findings;
+  },
+};
+
+const ruleImportMetaResolve: Rule = {
+  id: "import-meta-resolve",
+  title: "`import.meta.resolve(...)` — unsupported in the Workers module runner",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
+    const re = /import\.meta\.resolve\s*\(/;
+    const findings: Finding[] = [];
+    for (const abs of tsFiles) {
+      const content = fs.readText(abs);
+      if (!re.test(content)) continue;
+      findings.push({
+        rule: "import-meta-resolve",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: "`import.meta.resolve(...)` crashes at load in the Cloudflare Workers module runner",
+        fix: "Replace with a static import or a precomputed URL/path",
+      });
+    }
+    return findings;
+  },
+};
+
+const ruleUndeclaredPlatformGlobal: Rule = {
+  id: "platform-global",
+  title: "`platform` global with no local declaration or import",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
+    const usageRe = /\bplatform\s*(?:===|!==|==|!=)|\bif\s*\(\s*platform\b/;
+    const declaredRe =
+      /\b(?:const|let|var|function)\s+platform\b|\bimport\s+.*\bplatform\b.*from\s+["']/;
+    const findings: Finding[] = [];
+    for (const abs of tsFiles) {
+      const content = fs.readText(abs);
+      if (!usageRe.test(content) || declaredRe.test(content)) continue;
+      findings.push({
+        rule: "platform-global",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: "`platform` is referenced but never declared or imported — ReferenceError at runtime",
+        fix: "Import the active platform from your apps/storefront.ts setup, or hardcode the site's platform string",
+      });
+    }
+    return findings;
+  },
+};
+
+const ruleCtxRuntimeApiResidue: Rule = {
+  id: "ctx-runtime-api-residue",
+  title: "deco.cx runtime APIs with no @decocms/blocks equivalent (`ctx.get`, `ctx.response`)",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsxFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
+    const patterns: Array<{ re: RegExp; label: string }> = [
+      { re: /\bctx\.get\s*\(\s*\{\s*__resolveType/, label: "ctx.get({ __resolveType: ... })" },
+      { re: /\bctx\.response\b/, label: "ctx.response" },
+    ];
+    const findings: Finding[] = [];
+    for (const abs of tsxFiles) {
+      const content = fs.readText(abs);
+      const hits = patterns.filter((p) => p.re.test(content)).map((p) => p.label);
+      if (hits.length === 0) continue;
+      findings.push({
+        rule: "ctx-runtime-api-residue",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: `${hits.join(", ")} — deco-cx/deco runtime API with no @decocms/blocks equivalent`,
+        fix: "Remove or replace with the equivalent @decocms/blocks resolver/response API",
+        meta: { apis: hits },
+      });
+    }
+    return findings;
+  },
+};
+
+const ruleDuplicateImports: Rule = {
+  id: "duplicate-imports",
+  title: "Same identifier imported twice",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
+    const findings: Finding[] = [];
+    for (const abs of tsFiles) {
+      const content = fs.readText(abs);
+      const dupes = findDuplicateNamedImports(content);
+      if (dupes.length === 0) continue;
+      findings.push({
+        rule: "duplicate-imports",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: `Duplicate import(s): ${dupes.join(", ")} — passes esbuild, fails babel-react-compiler`,
+        fix: "Remove the redundant import line",
+        meta: { identifiers: dupes },
+      });
+    }
+    return findings;
+  },
+  applyFix({ siteDir, fs }: RuleContext, findings: Finding[], writer: FsWriter): FixAction[] {
+    const actions: FixAction[] = [];
+    for (const f of findings) {
+      const abs = `${siteDir}/${f.file}`;
+      const content = fs.readText(abs);
+      const { content: next, removed } = dedupeNamedImports(content);
+      if (removed.length === 0) continue;
+      writer.writeText(abs, next);
+      actions.push({ file: f.file, kind: "edit", detail: `removed ${removed.length} duplicate import(s)` });
+    }
+    return actions;
+  },
+};
+
+/** Named-import line: `import { A, B as C } from "spec";` */
+const NAMED_IMPORT_LINE_RE = /^import\s+\{([^}]*)\}\s+from\s+["'][^"']+["'];?\s*$/gm;
+
+function localNamesOf(namedClause: string): string[] {
+  return namedClause
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .map((n) => {
+      const asMatch = n.match(/^(?:type\s+)?[\w$]+\s+as\s+([\w$]+)$/);
+      return asMatch ? asMatch[1] : n.replace(/^type\s+/, "");
+    });
+}
+
+function findDuplicateNamedImports(content: string): string[] {
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  for (const m of content.matchAll(NAMED_IMPORT_LINE_RE)) {
+    for (const name of localNamesOf(m[1])) {
+      if (seen.has(name)) dupes.add(name);
+      seen.add(name);
+    }
+  }
+  return [...dupes].sort();
+}
+
+/** Drops any named import line whose bindings are ALL already seen. */
+function dedupeNamedImports(content: string): { content: string; removed: string[] } {
+  const seen = new Set<string>();
+  const removed: string[] = [];
+  const next = content.replace(NAMED_IMPORT_LINE_RE, (line, namedClause) => {
+    const names = localNamesOf(namedClause);
+    const allDup = names.length > 0 && names.every((n) => seen.has(n));
+    for (const n of names) seen.add(n);
+    if (allDup) {
+      removed.push(...names);
+      return "";
+    }
+    return line;
+  });
+  return { content: next, removed };
+}
+
+const ruleCorruptedTernaries: Rule = {
+  id: "corrupted-ternaries",
+  title: "Corrupted ternary in a template-literal className (closing brace in the wrong branch)",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsxFiles = fs.glob(siteDir, "src/**/*.tsx", SRC_GLOB_EXCLUDES);
+    const re = /\$\{[^{}?]+\?\s*"(?:[^"\\]|\\.)*"\}\s*:\s*"(?:[^"\\]|\\.)*"\}/g;
+    const findings: Finding[] = [];
+    for (const abs of tsxFiles) {
+      const content = fs.readText(abs);
+      const count = [...content.matchAll(re)].length;
+      if (count === 0) continue;
+      findings.push({
+        rule: "corrupted-ternaries",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: `${count} corrupted ternary/ternaries in a template literal — the \`}\` closes the expression before \`: "..."\`, causing a syntax error`,
+        fix: `\`... \\\${a ? "x"} : "y"\`\` → \`... \\\${a ? "x" : "y"}\``,
+        meta: { count },
+      });
+    }
+    return findings;
+  },
+  applyFix({ siteDir, fs }: RuleContext, findings: Finding[], writer: FsWriter): FixAction[] {
+    const actions: FixAction[] = [];
+    const re = /\$\{([^{}?]+)\?\s*("(?:[^"\\]|\\.)*")\}\s*:\s*("(?:[^"\\]|\\.)*")\}/g;
+    for (const f of findings) {
+      const abs = `${siteDir}/${f.file}`;
+      const content = fs.readText(abs);
+      let count = 0;
+      const next = content.replace(re, (_m, cond, a, b) => {
+        count++;
+        return `\${${cond}? ${a} : ${b}}`;
+      });
+      if (count === 0) continue;
+      writer.writeText(abs, next);
+      actions.push({ file: f.file, kind: "edit", detail: `repaired ${count} corrupted ternary/ternaries` });
+    }
+    return actions;
+  },
+};
+
+const ruleBrokenTemplateLiterals: Rule = {
+  id: "broken-template-literals",
+  title: 'Broken template literal emitted by the migration (`${await ""}`)',
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const tsxFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
+    const re = /\$\{await\s+""\}/;
+    const findings: Finding[] = [];
+    for (const abs of tsxFiles) {
+      const content = fs.readText(abs);
+      if (!re.test(content)) continue;
+      findings.push({
+        rule: "broken-template-literals",
+        severity: "warning",
+        file: abs.slice(siteDir.length + 1),
+        message: '`${await ""}` is an invalid placeholder emitted by the migration',
+        fix: "Replace with the real expression (e.g. a revision/build-hash variable) or drop the interpolation",
+      });
+    }
+    return findings;
+  },
+};
+
+const ruleTailwindPaletteDropped: Rule = {
+  id: "tailwind-palette-dropped",
+  title: "Custom Tailwind v3 palette not ported to the v4 @theme reset",
+  run({ siteDir, fs }: RuleContext): Finding[] {
+    const configFiles = fs.glob(siteDir, "tailwind.config.{ts,js}", []);
+    if (configFiles.length === 0) return [];
+
+    const configContent = fs.readText(configFiles[0]);
+    const extendColorsMatch = configContent.match(/extend\s*:\s*\{[^]*?colors\s*:\s*\{([^]*?)\n\s*\}/);
+    if (!extendColorsMatch) return [];
+
+    const colorNames = [...extendColorsMatch[1].matchAll(/^\s*["']?([\w-]+)["']?\s*:/gm)].map(
+      (m) => m[1],
+    );
+    if (colorNames.length === 0) return [];
+
+    const cssFiles = fs.glob(siteDir, "src/**/*.css", SRC_GLOB_EXCLUDES);
+    const themeFile = cssFiles.find((f) => fs.readText(f).includes("@theme"));
+    const themeContent = themeFile ? fs.readText(themeFile) : "";
+
+    const missing = colorNames.filter((name) => !themeContent.includes(name));
+    if (missing.length === 0) return [];
+
+    return [
+      {
+        rule: "tailwind-palette-dropped",
+        severity: "warning",
+        file: themeFile ? themeFile.slice(siteDir.length + 1) : "tailwind.config.ts",
+        message: `Custom color(s) from tailwind.config.ts not present in the v4 @theme block: ${missing.join(", ")} — \`@apply\` on them fails ("unknown utility class")`,
+        fix: "Port each color as a --color-<name> CSS variable inside the @theme block",
+        meta: { missing },
+      },
+    ];
+  },
+};
+
 export const ALL_RULES: Rule[] = [
   ruleDeadLibShims,
   ruleObsoleteVitePlugins,
@@ -1780,6 +2083,15 @@ export const ALL_RULES: Rule[] = [
   ruleLockfileDrift,
   rulePackageManagerMissing,
   ruleSignalValueReads,
+  ruleStringStyleProps,
+  ruleFreshAssetCalls,
+  ruleImportMetaResolve,
+  ruleUndeclaredPlatformGlobal,
+  ruleCtxRuntimeApiResidue,
+  ruleDuplicateImports,
+  ruleCorruptedTernaries,
+  ruleBrokenTemplateLiterals,
+  ruleTailwindPaletteDropped,
 ];
 
 /** Exported for direct unit tests. */
@@ -1804,5 +2116,14 @@ export const _internals = {
     ruleLockfileDrift,
     rulePackageManagerMissing,
     ruleSignalValueReads,
+    ruleStringStyleProps,
+    ruleFreshAssetCalls,
+    ruleImportMetaResolve,
+    ruleUndeclaredPlatformGlobal,
+    ruleCtxRuntimeApiResidue,
+    ruleDuplicateImports,
+    ruleCorruptedTernaries,
+    ruleBrokenTemplateLiterals,
+    ruleTailwindPaletteDropped,
   },
 };

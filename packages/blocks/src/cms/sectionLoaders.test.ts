@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configureTracer, type Span } from "../sdk/observability";
+import { RequestContext } from "../sdk/requestContext";
 import type { ResolvedSection } from "./resolve";
 import {
+  getDegradedSections,
   isLayoutSection,
   registerCacheableSections,
   registerLayoutSections,
+  registerNonCriticalSections,
   registerSectionLoader,
   registerSectionLoaders,
   runSectionLoaders,
@@ -19,6 +22,7 @@ beforeEach(() => {
   G.__deco.sectionLoaderRegistry.clear();
   G.__deco.layoutSections.clear();
   G.__deco.cacheableSections.clear();
+  G.__deco.nonCriticalSections.clear();
 });
 
 const makeSection = (component: string, props: Record<string, unknown> = {}): ResolvedSection => ({
@@ -26,6 +30,78 @@ const makeSection = (component: string, props: Record<string, unknown> = {}): Re
   props,
   key: component,
   index: 0,
+});
+
+describe("section degradation tracking (anti-cache-poisoning)", () => {
+  const failing = async () => {
+    throw new Error("VTEX down");
+  };
+
+  it("marks a critical section as degraded when its loader throws", async () => {
+    registerSectionLoader("site/sections/ProductShelf.tsx", failing);
+    const section = makeSection("site/sections/ProductShelf.tsx");
+    const request = new Request("https://store.com/p");
+
+    const degraded = await RequestContext.run(request, async () => {
+      // Loader throws → section degrades to raw props (does not reject).
+      const result = await runSingleSectionLoader(section, request);
+      expect(result.component).toBe("site/sections/ProductShelf.tsx");
+      return getDegradedSections();
+    });
+
+    expect(degraded).toContain("site/sections/ProductShelf.tsx");
+  });
+
+  it("does NOT mark a non-critical section as degraded", async () => {
+    registerSectionLoader("site/sections/Decorative.tsx", failing);
+    registerNonCriticalSections(["site/sections/Decorative.tsx"]);
+    const section = makeSection("site/sections/Decorative.tsx");
+    const request = new Request("https://store.com/p");
+
+    const degraded = await RequestContext.run(request, async () => {
+      await runSingleSectionLoader(section, request);
+      return getDegradedSections();
+    });
+
+    expect(degraded).toEqual([]);
+  });
+
+  it("does NOT mark a failing LAYOUT section as degraded (avoids site-wide poisoning)", async () => {
+    registerSectionLoader("site/sections/Header.tsx", failing);
+    registerLayoutSections(["site/sections/Header.tsx"]);
+    const section = makeSection("site/sections/Header.tsx");
+    const request = new Request("https://store.com/p");
+
+    const degraded = await RequestContext.run(request, async () => {
+      await runSingleSectionLoader(section, request);
+      return getDegradedSections();
+    });
+
+    // A flaky Header/Footer must not flip every page to X-Deco-Degraded.
+    expect(degraded).toEqual([]);
+  });
+
+  it("does not flag a page whose loaders all succeed", async () => {
+    registerSectionLoader("site/sections/Ok.tsx", async (p: Record<string, unknown>) => p);
+    const section = makeSection("site/sections/Ok.tsx");
+    const request = new Request("https://store.com/p");
+
+    const degraded = await RequestContext.run(request, async () => {
+      await runSingleSectionLoader(section, request);
+      return getDegradedSections();
+    });
+
+    expect(degraded).toEqual([]);
+  });
+
+  it("is a no-op outside a request scope (does not throw)", async () => {
+    registerSectionLoader("site/sections/NoScope.tsx", failing);
+    const section = makeSection("site/sections/NoScope.tsx");
+    const request = new Request("https://store.com/p");
+    // No RequestContext.run wrapper — must not throw.
+    await expect(runSingleSectionLoader(section, request)).resolves.toBeTruthy();
+    expect(getDegradedSections()).toEqual([]);
+  });
 });
 
 describe("runSingleSectionLoader — page context injection", () => {
@@ -81,6 +157,59 @@ describe("runSingleSectionLoader — page context injection", () => {
     const section = makeSection("site/sections/NoLoader.tsx", { foo: 1 });
     const result = await runSingleSectionLoader(section, new Request("https://store.com/"));
     expect(result).toBe(section);
+  });
+
+  it("passes a 3rd-arg compat ctx (device from UA) — regular path (#305)", async () => {
+    const loader = vi.fn(
+      async (props: Record<string, unknown>, _req: Request, ctx?: { device?: string }) => ({
+        ...props,
+        seenDevice: ctx?.device,
+      }),
+    );
+    registerSectionLoader("site/sections/Ctx.tsx", loader);
+
+    const section = makeSection("site/sections/Ctx.tsx", {});
+    const mobileReq = new Request("https://store.com/", {
+      headers: { "user-agent": "iPhone Mobile Safari" },
+    });
+    const result = await runSingleSectionLoader(section, mobileReq);
+
+    expect((result.props as Record<string, unknown>).seenDevice).toBe("mobile");
+  });
+
+  it("passes the compat ctx through layout and cacheable paths (#305)", async () => {
+    const layoutLoader = vi.fn(
+      async (props: Record<string, unknown>, _req: Request, ctx?: { device?: string }) => ({
+        ...props,
+        seenDevice: ctx?.device,
+      }),
+    );
+    const cacheableLoader = vi.fn(
+      async (props: Record<string, unknown>, _req: Request, ctx?: { device?: string }) => ({
+        ...props,
+        seenDevice: ctx?.device,
+      }),
+    );
+    registerSectionLoader("site/sections/CtxHeader.tsx", layoutLoader);
+    registerLayoutSections(["site/sections/CtxHeader.tsx"]);
+    registerSectionLoader("site/sections/CtxShelf.tsx", cacheableLoader);
+    registerCacheableSections({ "site/sections/CtxShelf.tsx": { maxAge: 60_000 } });
+
+    const mobileReq = new Request("https://store.com/", {
+      headers: { "user-agent": "iPhone Mobile Safari" },
+    });
+
+    const layoutResult = await runSingleSectionLoader(
+      makeSection("site/sections/CtxHeader.tsx"),
+      mobileReq,
+    );
+    const cacheableResult = await runSingleSectionLoader(
+      makeSection("site/sections/CtxShelf.tsx"),
+      mobileReq,
+    );
+
+    expect((layoutResult.props as Record<string, unknown>).seenDevice).toBe("mobile");
+    expect((cacheableResult.props as Record<string, unknown>).seenDevice).toBe("mobile");
   });
 });
 
@@ -151,9 +280,7 @@ describe("unregisterLayoutSections", () => {
   });
 
   it("is a no-op for keys that were never registered", () => {
-    expect(() =>
-      unregisterLayoutSections(["site/sections/Never.tsx"]),
-    ).not.toThrow();
+    expect(() => unregisterLayoutSections(["site/sections/Never.tsx"])).not.toThrow();
     expect(isLayoutSection("site/sections/Never.tsx")).toBe(false);
   });
 });
@@ -190,10 +317,7 @@ describe("registerSectionLoaders — request-dependent + layout warning (#206)",
   it("warns when a composed loader contains any request-dependent mixin", () => {
     registerLayoutSections(["site/sections/Footer.tsx"]);
     registerSectionLoaders({
-      "site/sections/Footer.tsx": compose(
-        withSearchParam(),
-        async (props) => props,
-      ),
+      "site/sections/Footer.tsx": compose(withSearchParam(), async (props) => props),
     });
     expect(warnSpy).toHaveBeenCalled();
   });

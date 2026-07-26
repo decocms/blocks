@@ -178,8 +178,13 @@ Selection:
 
 Platform:
   --platform <name>   Forwarded to schema. With "eitri": runs ONLY schema +
-                      blocks (skips manifest/sections/loaders/invoke) and makes
-                      the schema self-contained (composeMeta at gen time).
+                      blocks (skips manifest/sections/loaders/invoke) and tags
+                      the composed meta's framework field with "eitri".
+
+The generated meta.gen.json is always self-contained (composeMeta runs at gen
+time for every platform), so FS-only consumers (FS-based Studio, Eitri) and the
+committed artifact all carry the framework block types. The tanstack runtime
+re-composes on load idempotently, so it sees the same shape either way.
 
 Forwarded to the individual generators:
   --blocks-dir <dir>       blocks + manifest input        (default .deco/blocks)
@@ -653,9 +658,19 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
         ...(opts.namespace ? ["--namespace", opts.namespace] : []),
         ...(opts.platform ? ["--platform", opts.platform] : []),
         ...(opts.skipApps ? ["--skip-apps"] : []),
-        // Eitri (and any FS-only consumer) needs a self-contained meta.gen.json:
-        // bake composeMeta's framework block types in at generation time.
-        ...(opts.platform === "eitri" ? ["--compose", "--framework", "eitri"] : []),
+        // Always bake composeMeta's framework block types (Page, matchers,
+        // __SECTION_REF__, Resolvable) into meta.gen.json so the file is
+        // SELF-CONTAINED for every consumer that reads it straight from disk —
+        // the FS-based Studio and the Eitri stack, but also anyone diffing the
+        // committed artifact against /live/_meta. The tanstack runtime re-runs
+        // composeMeta on load, which is now idempotent (it returns an
+        // already-composed meta unchanged — see composeMeta's `framework`
+        // sentinel), so this is a no-op there rather than a double-compose.
+        "--compose",
+        // Non-React stacks (Eitri) tag the composed meta with their own
+        // framework name; everyone else gets composeMeta's default
+        // ("tanstack-start").
+        ...(opts.platform === "eitri" ? ["--framework", "eitri"] : []),
       ],
       stage: 2,
       ...enabledIf(

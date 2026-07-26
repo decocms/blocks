@@ -308,6 +308,37 @@ describe("commerce loader auto-injects URL search params as props", () => {
       warnSpy.mockRestore();
     }
   });
+
+  it("never auto-injects `page` — loaders that read __pageUrl apply their own index-base conversion (#391)", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoader(KEY, async (props: Record<string, unknown>) => {
+      calls.push({ ...props });
+      return null;
+    });
+
+    await resolveValue({ __resolveType: KEY }, undefined, {
+      url: "https://store.com/?page=3",
+      path: "/",
+    });
+
+    expect(calls[0]?.page).toBeUndefined();
+  });
+
+  it("coerces `count`/`pageOffset` to numbers instead of injecting raw strings", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoader(KEY, async (props: Record<string, unknown>) => {
+      calls.push({ ...props });
+      return null;
+    });
+
+    await resolveValue({ __resolveType: KEY }, undefined, {
+      url: "https://store.com/?count=24&pageOffset=2",
+      path: "/",
+    });
+
+    expect(calls[0]?.count).toBe(24);
+    expect(calls[0]?.pageOffset).toBe(2);
+  });
 });
 
 describe("commerce loader resolves legacy .ts-suffixed resolveType", () => {
@@ -636,5 +667,75 @@ describe("resolveDecoPage — #277 client-side navigation disables deferral", ()
   it("client-nav (isClientNavigation: true) resolves the ⚡ section eagerly — empty deferredSections", async () => {
     const result = await resolveDecoPage("/product/foo", { isClientNavigation: true });
     expect(result?.deferredSections).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hidden array items — a `never`-gated multivariate wrapper must vanish from
+// the array, not survive as a `null` hole the section renders as empty.
+//
+// The admin (Studio) hides an array item by wrapping it in
+// `{ __resolveType: "website/flags/multivariate.ts", variants: [{ value, rule:
+// { __resolveType: "website/matchers/never.ts" } }] }`. `never` never matches,
+// so the wrapper resolves to "not present" and the item is dropped.
+// ---------------------------------------------------------------------------
+
+describe("hidden array items (never matcher)", () => {
+  const NEVER = "website/matchers/never.ts";
+  const ALWAYS = "website/matchers/always.ts";
+  const MULTIVARIATE = "website/flags/multivariate.ts";
+
+  const hidden = (value: unknown) => ({
+    __resolveType: MULTIVARIATE,
+    variants: [{ value, rule: { __resolveType: NEVER } }],
+  });
+
+  it("drops a hidden item from an array instead of leaving a null hole", async () => {
+    const benefits = [
+      { label: "Parcelamento" },
+      { label: "Frete" },
+      hidden({ label: "RetiradaLoja" }),
+      hidden({ label: "EntregaExpressa" }),
+    ];
+
+    const result = (await resolveValue({ benefits }, undefined, {})) as {
+      benefits: unknown[];
+    };
+
+    expect(result.benefits).toEqual([{ label: "Parcelamento" }, { label: "Frete" }]);
+    // No null holes.
+    expect(result.benefits).not.toContain(null);
+  });
+
+  it("keeps a visible (always-gated) item in the array", async () => {
+    const benefits = [
+      {
+        __resolveType: MULTIVARIATE,
+        variants: [{ value: { label: "Shown" }, rule: { __resolveType: ALWAYS } }],
+      },
+      hidden({ label: "Hidden" }),
+    ];
+
+    const result = (await resolveValue({ benefits }, undefined, {})) as {
+      benefits: unknown[];
+    };
+
+    expect(result.benefits).toEqual([{ label: "Shown" }]);
+  });
+
+  it("preserves a legitimate null value in an array (matched variant resolving to null)", async () => {
+    // A matched variant whose value is literally null stays — only the
+    // no-match sentinel is filtered, not every null.
+    const items = [
+      {
+        __resolveType: MULTIVARIATE,
+        variants: [{ value: null, rule: { __resolveType: ALWAYS } }],
+      },
+      { label: "kept" },
+    ];
+
+    const result = (await resolveValue({ items }, undefined, {})) as { items: unknown[] };
+
+    expect(result.items).toEqual([null, { label: "kept" }]);
   });
 });

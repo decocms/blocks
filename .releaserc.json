@@ -57,7 +57,7 @@
       "@semantic-release/exec",
       {
         "prepareCmd": "VERSION=${nextRelease.version} node scripts/sync-versions.mjs",
-        "publishCmd": "if [ \"$DRY_RUN\" = \"true\" ]; then echo \"[dry-run] would publish version ${nextRelease.version} for: $(ls -d packages/*/)\"; else for dir in packages/*/; do (cd \"$dir\" && npm publish --access public); done; fi"
+        "publishCmd": "if [ \"$DRY_RUN\" = \"true\" ]; then echo \"[dry-run] would publish version ${nextRelease.version} for: $(ls -d packages/*/)\"; else failed=0; for dir in packages/*/; do (cd \"$dir\" && npm publish --access public) || { echo \"::error::npm publish failed for $dir\"; failed=1; }; done; exit \"$failed\"; fi"
       }
     ],
     "@semantic-release/github"

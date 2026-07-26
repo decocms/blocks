@@ -32,6 +32,7 @@ const REQUIRED_FILES = [
   "src/setup.ts",
   "src/cache-config.ts",
   "src/setup/commerce-loaders.ts",
+  "src/setup/commerce-init.ts",
   "src/setup/section-loaders.ts",
   "src/styles/app.css",
   "src/apps/site.ts",
@@ -349,7 +350,16 @@ export const checks: Check[] = [
         return false;
       }
       const content = fs.readFileSync(gitignorePath, "utf-8");
-      const required = [".wrangler/", "node_modules/", ".tanstack/", "src/routeTree.gen.ts"];
+      const required = [
+        ".wrangler/",
+        "node_modules/",
+        ".tanstack/",
+        "src/routeTree.gen.ts",
+        // The decofile snapshot must be ignored — its 10MB+ single line causes
+        // constant PR merge conflicts (see generateGitignore in phase-scaffold).
+        // meta.gen.json stays committed on purpose, so it is NOT required here.
+        ".deco/blocks.gen.json",
+      ];
       const missing = required.filter((r) => !content.includes(r));
       if (missing.length > 0) {
         console.log(`    .gitignore missing entries: ${missing.join(", ")}`);
@@ -401,6 +411,30 @@ export const checks: Check[] = [
     },
   },
   {
+    // Fleet-wide regression guard, complementing the scaffolder-only check
+    // in templates/no-legacy-packages.test.ts (#367): the frozen
+    // pre-7.x-split packages (@decocms/start@6.30.0, @decocms/apps@5.4.0)
+    // must never appear in a migrated site's src/, even via a transform
+    // hand-off marker that leaked past cleanup (see jsx.ts's
+    // `@decocms/start/hooks` same-run hand-off to phase-cleanup.ts).
+    name: "No frozen pre-split package specifiers in src/ (@decocms/start, @decocms/apps/*)",
+    severity: "error",
+    fn: (ctx) => {
+      const srcDir = path.join(ctx.sourceDir, "src");
+      if (!fs.existsSync(srcDir)) return true;
+      const bad = [
+        ...findFilesWithPattern(srcDir, /(?:from|import)\s+["']@decocms\/start(?:\/|["'])/),
+        ...findFilesWithPattern(srcDir, /from\s+["']@decocms\/apps\//),
+      ];
+      const unique = [...new Set(bad)];
+      if (unique.length > 0) {
+        console.log(`    Still references frozen @decocms/start or @decocms/apps/* specifiers: ${unique.join(", ")}`);
+        return false;
+      }
+      return true;
+    },
+  },
+  {
     name: "Setup infrastructure is complete",
     severity: "error",
     fn: (ctx) => {
@@ -408,6 +442,7 @@ export const checks: Check[] = [
         "src/setup.ts",
         "src/cache-config.ts",
         "src/setup/commerce-loaders.ts",
+        "src/setup/commerce-init.ts",
         "src/setup/section-loaders.ts",
       ];
       const missing = setupFiles.filter(

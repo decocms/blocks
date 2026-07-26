@@ -18,6 +18,13 @@
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import {
+  CLASS_RENAMES,
+  DAISYUI_RENAMES,
+  PX_TO_SPACING,
+  TEXT_SIZE_MAP,
+  renameToken,
+} from "./migrate/transforms/tailwind-renames";
 
 // ── Breakpoint order (mobile-first) ─────────────────────────────
 const BREAKPOINT_ORDER = ["sm", "md", "lg", "xl", "2xl"] as const;
@@ -25,44 +32,6 @@ const BP_INDEX: Record<string, number> = {};
 BREAKPOINT_ORDER.forEach((bp, i) => {
   BP_INDEX[bp] = i + 1;
 });
-
-// ── Tailwind v3 → v4 class renames ──────────────────────────────
-const CLASS_RENAMES: Record<string, string> = {
-  "flex-grow-0": "grow-0",
-  "flex-grow": "grow",
-  "flex-shrink-0": "shrink-0",
-  "flex-shrink": "shrink",
-  "overflow-ellipsis": "text-ellipsis",
-  "decoration-clone": "box-decoration-clone",
-  "decoration-slice": "box-decoration-slice",
-  "transform": "",
-  "transform-gpu": "",
-  "filter": "",
-  "backdrop-filter": "",
-  "ring": "ring-3",
-};
-
-// ── DaisyUI v4 → v5 class renames ──────────────────────────────
-const DAISYUI_RENAMES: Record<string, string> = {
-  "badge-ghost": "badge-soft",
-  "card-compact": "card-sm",
-};
-
-// ── Spacing scale ───────────────────────────────────────────────
-const PX_TO_SPACING: Record<number, string> = {};
-for (let i = 0; i <= 96; i++) {
-  PX_TO_SPACING[i * 4] = String(i);
-}
-PX_TO_SPACING[2] = "0.5";
-PX_TO_SPACING[6] = "1.5";
-PX_TO_SPACING[10] = "2.5";
-PX_TO_SPACING[14] = "3.5";
-
-const TEXT_SIZE_MAP: Record<string, string> = {
-  "12": "xs", "14": "sm", "16": "base", "18": "lg", "20": "xl",
-  "24": "2xl", "30": "3xl", "36": "4xl", "48": "5xl", "60": "6xl",
-  "72": "7xl", "96": "8xl", "128": "9xl",
-};
 
 const SPACING_PROPS = new Set([
   "p", "px", "py", "pt", "pb", "pl", "pr",
@@ -247,7 +216,7 @@ function scanFile(filePath: string): Issue[] {
     for (const cls of classList) {
       const parts = cls.split(":");
       const utility = parts[parts.length - 1];
-      if (CLASS_RENAMES[utility] !== undefined) {
+      if (CLASS_RENAMES[utility] !== undefined && CLASS_RENAMES[utility] !== utility) {
         const renamed = CLASS_RENAMES[utility];
         issues.push({
           file: filePath, line, type: "rename",
@@ -291,21 +260,7 @@ function fixClassOrder(classes: string): string {
 function fixClassName(classes: string): string {
   let classList = classes.split(/\s+/).filter(Boolean);
 
-  classList = classList.map((cls) => {
-    const parts = cls.split(":");
-    const utility = parts.pop()!;
-    if (CLASS_RENAMES[utility] !== undefined) {
-      const renamed = CLASS_RENAMES[utility];
-      if (renamed === "") return "";
-      parts.push(renamed);
-      return parts.join(":");
-    }
-    if (DAISYUI_RENAMES[utility] && DAISYUI_RENAMES[utility] !== utility) {
-      parts.push(DAISYUI_RENAMES[utility]);
-      return parts.join(":");
-    }
-    return cls;
-  }).filter(Boolean);
+  classList = classList.map(renameToken).filter(Boolean);
 
   classList = classList.map((cls) => {
     if (!cls.includes("[")) return cls;

@@ -1,73 +1,136 @@
 /**
- * `vtex/loaders/cart/shipping` — shipping options for the drawer.
+ * Cached shipping simulation loader (#373).
  *
- * Runs a VTEX cart simulation for the given items + postal code and returns a
- * normalized, de-duplicated list of shipping SLAs (price in major units). This
- * is separate from the cart mutation path so the drawer can show delivery
- * estimates without re-fetching the whole OrderForm.
+ * Wraps `simulateCart` (a POST to `/api/checkout/pub/orderForms/simulation`)
+ * with a cache keyed only on the non-personalized inputs — items,
+ * postalCode, country, and salesChannel. See `../../utils/simulationCache.ts`
+ * for why this can't just be `vtexCachedFetch` (POST + cookie-rotation).
  *
- * NOTE on caching: shipping options for a fixed {items, postalCode, sc} are not
- * user-personalized, so they are cache-friendly in principle. But the
- * simulation is a POST and `vtexCachedFetch` only caches GET, and `simulateCart`
- * intentionally uses `vtexFetchWithCookies` because the endpoint can rotate
- * segment/ownership cookies. Caching therefore needs a bespoke `fetchWithCache`
- * key that excludes cookies — deferred to a follow-up rather than risk
- * cookie-drift here.
+ * On a cache MISS, `simulateCart` still goes through `vtexFetchWithCookies`
+ * as normal — cookies rotate exactly as before. Only the response BODY
+ * (SLAs + logistics info) is cached; cookies are never stored or replayed.
  */
+import { djb2 } from "@decocms/blocks/sdk/djb2";
+import { simulateCart, type SimulateCartProps, type SimulationItem } from "../../actions/checkout";
+import { getVtexConfig } from "../../client";
+import { getSimulationCache } from "../../utils/simulationCache";
 
-import { type SimulationItem, simulateCart } from "../../actions/checkout";
+/** Shipping SLAs can shift with promotions/stock — keep the TTL short. */
+const DEFAULT_TTL_SECONDS = 5 * 60;
+
+export interface ShippingSimulationProps {
+	items: SimulationItem[];
+	postalCode: string;
+	country?: string;
+	/** Override the cache TTL (seconds). Defaults to 5 minutes. */
+	ttlSeconds?: number;
+}
+
+function buildCacheKey(props: ShippingSimulationProps): string {
+	const config = getVtexConfig();
+	const normalizedItems = [...props.items]
+		.map((item) => ({ id: String(item.id), quantity: item.quantity, seller: item.seller }))
+		.sort((a, b) => (a.id === b.id ? a.seller.localeCompare(b.seller) : a.id.localeCompare(b.id)));
+
+	const raw = JSON.stringify({
+		account: config.account,
+		salesChannel: config.salesChannel ?? null,
+		items: normalizedItems,
+		postalCode: props.postalCode,
+		country: props.country ?? config.country ?? "BRA",
+	});
+	return `shipping-sim:${djb2(raw)}`;
+}
+
+/**
+ * Fetch shipping SLAs for a cart, serving a cached response body when
+ * available for the same `{items, postalCode, salesChannel}` tuple.
+ */
+export async function getShippingSimulation(props: ShippingSimulationProps): Promise<any> {
+	const cache = getSimulationCache();
+	const key = buildCacheKey(props);
+
+	const cached = await cache.get(key);
+	if (cached != null) {
+		try {
+			return JSON.parse(cached);
+		} catch {
+			// Corrupted cache entry — fall through to a fresh simulation.
+		}
+	}
+
+	const simulateProps: SimulateCartProps = {
+		items: props.items,
+		postalCode: props.postalCode,
+		country: props.country,
+	};
+	const result = await simulateCart(simulateProps);
+	await cache.put(key, JSON.stringify(result), props.ttlSeconds ?? DEFAULT_TTL_SECONDS);
+	return result;
+}
+
+// ---------------------------------------------------------------------------
+// `vtex/loaders/cart/shipping` — normalized shipping options for the drawer
+// ---------------------------------------------------------------------------
+//
+// Runs a (cached) VTEX cart simulation for the given items + postal code and
+// returns a normalized, de-duplicated list of shipping SLAs (price in major
+// units). Separate from the cart mutation path so the drawer can show
+// delivery estimates without re-fetching the whole OrderForm. Built on
+// `getShippingSimulation` above instead of calling `simulateCart` directly,
+// so repeated drawer opens for the same {items, postalCode} share the cache.
 
 const CENTS_PER_MAJOR = 100;
 
 export interface CartShippingProps {
-  items: SimulationItem[];
-  postalCode: string;
-  country?: string;
+	items: SimulationItem[];
+	postalCode: string;
+	country?: string;
 }
 
 export interface ShippingOption {
-  id: string;
-  name: string;
-  /** Price in major units. */
-  price: number;
-  shippingEstimate: string;
-  deliveryChannel?: string;
+	id: string;
+	name: string;
+	/** Price in major units. */
+	price: number;
+	shippingEstimate: string;
+	deliveryChannel?: string;
 }
 
 export interface CartShipping {
-  postalCode: string;
-  options: ShippingOption[];
+	postalCode: string;
+	options: ShippingOption[];
 }
 
 interface SimSla {
-  id: string;
-  name: string;
-  price: number;
-  shippingEstimate: string;
-  deliveryChannel?: string;
+	id: string;
+	name: string;
+	price: number;
+	shippingEstimate: string;
+	deliveryChannel?: string;
 }
 
 export default async function cartShipping(props: CartShippingProps): Promise<CartShipping> {
-  const { items, postalCode, country } = props;
-  if (!items?.length || !postalCode) return { postalCode, options: [] };
+	const { items, postalCode, country } = props;
+	if (!items?.length || !postalCode) return { postalCode, options: [] };
 
-  const sim = await simulateCart({ items, postalCode, country });
-  const logisticsInfo: Array<{ slas?: SimSla[] }> = sim?.logisticsInfo ?? [];
+	const sim = await getShippingSimulation({ items, postalCode, country });
+	const logisticsInfo: Array<{ slas?: SimSla[] }> = sim?.logisticsInfo ?? [];
 
-  // Collapse SLAs across all items into one unique-by-id option list.
-  const byId = new Map<string, ShippingOption>();
-  for (const info of logisticsInfo) {
-    for (const sla of info.slas ?? []) {
-      if (byId.has(sla.id)) continue;
-      byId.set(sla.id, {
-        id: sla.id,
-        name: sla.name,
-        price: (sla.price ?? 0) / CENTS_PER_MAJOR,
-        shippingEstimate: sla.shippingEstimate,
-        deliveryChannel: sla.deliveryChannel,
-      });
-    }
-  }
+	// Collapse SLAs across all items into one unique-by-id option list.
+	const byId = new Map<string, ShippingOption>();
+	for (const info of logisticsInfo) {
+		for (const sla of info.slas ?? []) {
+			if (byId.has(sla.id)) continue;
+			byId.set(sla.id, {
+				id: sla.id,
+				name: sla.name,
+				price: (sla.price ?? 0) / CENTS_PER_MAJOR,
+				shippingEstimate: sla.shippingEstimate,
+				deliveryChannel: sla.deliveryChannel,
+			});
+		}
+	}
 
-  return { postalCode, options: [...byId.values()] };
+	return { postalCode, options: [...byId.values()] };
 }

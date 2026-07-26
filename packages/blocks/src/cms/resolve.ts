@@ -13,7 +13,7 @@ import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { findPageByPath, loadBlocks } from "./loader";
 import { getOnBeforeResolveProps, getSection, registerOnBeforeResolveProps } from "./registry";
-import { isLayoutSection, runSingleSectionLoader } from "./sectionLoaders";
+import { isLayoutSection, markSectionDegraded, runSingleSectionLoader } from "./sectionLoaders";
 
 // globalThis-backed: share state across Vite server function split modules
 const G = globalThis as any;
@@ -780,7 +780,14 @@ async function resolveProps(
 async function internalResolve(value: unknown, rctx: ResolveContext): Promise<unknown> {
   if (!value || typeof value !== "object") return value;
   if (Array.isArray(value)) {
-    return Promise.all(value.map((item) => internalResolve(item, rctx)));
+    const resolved = await Promise.all(value.map((item) => internalResolve(item, rctx)));
+    // Drop items that resolved to "not present" (`undefined`) — e.g. a hidden
+    // array item (a multivariate wrapped in a `never` matcher, see the admin's
+    // hideArrayItem) where no variant matched. A `never`-gated item must vanish
+    // from the array, NOT become a `null` hole the section then renders as an
+    // empty card. Legitimate `null` values (a matched variant that resolved to
+    // null, a failed loader) are kept — only the no-match sentinel is filtered.
+    return resolved.filter((item) => item !== undefined);
   }
 
   const obj = value as Record<string, unknown>;
@@ -833,7 +840,10 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
     resolveType === WELL_KNOWN_TYPES.MULTIVARIATE_SECTION
   ) {
     const variants = obj.variants as Array<{ value: unknown; rule?: unknown }> | undefined;
-    if (!variants || variants.length === 0) return null;
+    // No variant matched (incl. a single `never`-gated variant, i.e. a hidden
+    // item) → resolve to `undefined`, the "not present" sentinel the array
+    // branch filters out, rather than `null`, which would survive as a hole.
+    if (!variants || variants.length === 0) return undefined;
 
     for (const variant of variants) {
       const rule = variant.rule as Record<string, unknown> | undefined;
@@ -841,7 +851,7 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
         return internalResolve(variant.value, childCtx);
       }
     }
-    return null;
+    return undefined;
   }
 
   // Commerce loaders
@@ -870,7 +880,20 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
       if (URL.canParse(rctx.matcherCtx.url)) {
         const url = new URL(rctx.matcherCtx.url);
         for (const [k, v] of url.searchParams.entries()) {
-          if (resolvedProps[k] === undefined) resolvedProps[k] = v;
+          if (resolvedProps[k] !== undefined) continue;
+          // `page` is skipped on purpose (#391): loaders that read `page`
+          // from `__pageUrl` themselves (e.g. VTEX's PLP loader) apply their
+          // own 1-indexed-URL -> 0-indexed-internal conversion. Auto-injecting
+          // the raw 1-indexed URL string here as `props.page` bypasses that
+          // conversion and produces an off-by-one, on top of arriving as an
+          // un-coerced string. Numeric conventional names get coerced so a
+          // loader declaring `count?: number` doesn't receive a raw string.
+          if (k === "page") continue;
+          if ((k === "count" || k === "pageOffset") && Number.isFinite(Number(v))) {
+            resolvedProps[k] = Number(v);
+            continue;
+          }
+          resolvedProps[k] = v;
         }
       } else {
         // Loud warning instead of silent swallow: matcherCtx.url should
@@ -888,6 +911,11 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
       return await commerceLoader(resolvedProps);
     } catch (error) {
       onResolveError(error, resolveType, "Commerce loader");
+      // Commerce loaders (VTEX product/PLP/PDP data) are the primary source of
+      // page-body data — this is exactly the layer that fails during a VTEX
+      // outage. Flag the page degraded so the edge won't cache the empty
+      // result as a healthy 200 (see X-Deco-Degraded in cmsRoute/workerEntry).
+      markSectionDegraded(resolveType);
       return null;
     }
   }

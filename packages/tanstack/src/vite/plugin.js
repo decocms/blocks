@@ -19,6 +19,15 @@
  *   it on the client cuts a typically-large module out of the browser bundle.
  *   Match is done by substring on the import id, so any path style works.
  *
+ * loaders.gen.ts handling:
+ *   The site invoke registry (`export const siteLoaders`) registers every site
+ *   loader/action behind a dynamic `import()`. It is reachable from the client
+ *   entry (router -> setup -> commerce-loaders -> loaders.gen), so without a stub
+ *   Vite emits each loader/action module as a public client chunk — leaking the
+ *   module source (including any hardcoded credential) into the browser assets.
+ *   Invoke runs server-side only, so the client never needs it. Stubbed to an
+ *   empty object on the client; SSR keeps the real module.
+ *
  * manualChunks:
  *   `@decocms/tanstack` and `@decocms/apps` are intentionally NOT split
  *   into their own chunks. They have circular re-exports that produce a
@@ -191,6 +200,22 @@ export function decoVitePlugin() {
         // Fallback: if .json doesn't exist yet (pre-generate-blocks), let
         // Vite load the .ts file normally (may contain inline data for
         // backward-compatible sites that haven't regenerated).
+      }
+
+      // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
+      // It registers every site loader/action behind a dynamic `import()`, so if
+      // it stays in the CLIENT module graph (it's reachable via
+      // router -> setup -> commerce-loaders -> loaders.gen) Vite emits each
+      // loader/action module as a public client chunk. That leaks the module's
+      // source — including any hardcoded credential in it — into the browser
+      // assets. The invoke handler runs server-side only (`/deco/invoke` ->
+      // handleInvoke reads the registry via getRegisteredLoaders()), and client
+      // components reach loaders/actions exclusively through the HTTP `invoke`
+      // proxy (which imports no modules). So the client never needs `siteLoaders`.
+      // Stub it to an empty object on the client, mirroring blocks.gen.ts above;
+      // SSR keeps the real module.
+      if (id.endsWith("loaders.gen.ts") && !options?.ssr) {
+        return "export const siteLoaders = {};";
       }
 
       // Virtual module stubs.
@@ -376,27 +401,52 @@ export function decoVitePlugin() {
       server.watcher.on("change", (file) => handleBlocksDirEvent(file, false));
       server.watcher.on("unlink", (file) => handleBlocksDirEvent(file, true));
 
-      // Cold-start bootstrap: always regenerate `blocks.gen.json` from source
-      // on dev startup. We deliberately do NOT gate this on mtime. A fresh git
-      // checkout/clone (e.g. Studio's preview sandbox) rewrites every file's
-      // mtime to the checkout time, so the committed artifact can be CONTENT-
-      // stale yet mtime-"fresh" — the old `source.mtime > artifact.mtime` gate
-      // then skipped regen and served the stale snapshot (the double-render
-      // bug in branch previews). Regen is cheap (tens of ms for a typical
-      // decofile) and fire-and-forget, so it never blocks startup. No POST
-      // /.decofile here — the SSR runtime isn't listening yet, and `setup.ts`
-      // reads the freshly-written .json via the load() hook on the first
-      // request (the watch-driven path above handles live edits, with reload).
+      // Cold-start bootstrap of `blocks.gen.json`, in two modes:
+      //
+      // MISSING (fresh clone): blocks.gen.json is gitignored, so a first
+      //   checkout has no file on disk. The async refresh below is
+      //   fire-and-forget and races the first request — `setup.ts` reads the
+      //   .json sibling via the blocks.gen.ts load() hook, and a miss falls
+      //   back to the empty stub, rendering a blank page until regen lands and
+      //   triggers a reload. So when the snapshot is ABSENT we generate it
+      //   SYNCHRONOUSLY, blocking startup until the very first request can see
+      //   real content. This only fires on a fresh clone, never steady-state.
+      //
+      // PRESENT (steady state): refresh asynchronously and DELIBERATELY NOT
+      //   gated on mtime. A fresh git checkout rewrites every file's mtime to
+      //   the checkout time, so a committed artifact could be CONTENT-stale yet
+      //   mtime-"fresh" — the old `source.mtime > artifact.mtime` gate then
+      //   served the stale snapshot (the double-render bug in branch previews).
+      //   Regen is cheap (tens of ms) and fire-and-forget, so it never blocks
+      //   startup. No POST /.decofile here — the SSR runtime isn't listening
+      //   yet; `setup.ts` reads the freshly-written .json on the first request
+      //   (the watch-driven path above handles live edits, with reload).
       if (existsSync(blocksDir)) {
-        ensureMerged()
-          .then(({ result }) => {
-            if (result && !result.empty) {
-              console.log(`[deco] bootstrapped ${result.count} blocks from .deco/blocks`);
-            }
-          })
-          .catch((err) => {
-            console.warn("[deco] blocks bootstrap failed:", err?.message ?? err);
-          });
+        if (!existsSync(jsonFile)) {
+          console.log("[deco] blocks.gen.json missing — generating on cold start…");
+          try {
+            const scriptPath = path.resolve(
+              cwd,
+              "node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts",
+            );
+            execFileSync("npx", ["tsx", scriptPath], { cwd, stdio: "inherit" });
+          } catch (err) {
+            console.warn(
+              "[deco] blocks.gen.json cold-start generation failed:",
+              err?.message ?? err,
+            );
+          }
+        } else {
+          ensureMerged()
+            .then(({ result }) => {
+              if (result && !result.empty) {
+                console.log(`[deco] bootstrapped ${result.count} blocks from .deco/blocks`);
+              }
+            })
+            .catch((err) => {
+              console.warn("[deco] blocks bootstrap failed:", err?.message ?? err);
+            });
+        }
       }
 
       // --- meta.gen.json auto-regeneration ---
@@ -456,6 +506,38 @@ export function decoVitePlugin() {
         }, 500);
       };
 
+      // Cold-start bootstrap: generate meta.gen.json if it's absent. Unlike the
+      // decofile, meta.gen.json is normally COMMITTED (it merges cleanly), so
+      // this is a safety net — it fires only when the file is genuinely missing
+      // (a site that opts to gitignore it, a partial checkout, a manual delete).
+      // It matters because setup.ts imports meta.gen.json EAGERLY via
+      // createAdminSetup, so a missing file would reject the import on the first
+      // request.
+      //
+      // Unlike the blocks bootstrap above, this is (a) gated on absence and
+      // (b) SYNCHRONOUS: a full ts-morph schema pass takes seconds, so we only
+      // pay it when the file is genuinely missing, and we must finish before the
+      // server accepts a request. Once the file exists on disk (any subsequent
+      // start), this is skipped and the watch-driven regen below keeps it fresh.
+      if (!existsSync(schemaOutFile)) {
+        console.log("[deco] meta.gen.json missing — generating on cold start…");
+        try {
+          const scriptPath = path.resolve(
+            cwd,
+            "node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
+          );
+          execFileSync("npx", ["tsx", scriptPath, "--site", schemaSiteName], {
+            cwd,
+            stdio: "inherit",
+          });
+        } catch (err) {
+          console.warn(
+            "[deco] meta.gen.json cold-start generation failed:",
+            err?.message ?? err,
+          );
+        }
+      }
+
       const isSchemaSource = (file) => {
         const rel = path.relative(cwd, file);
         return (
@@ -468,6 +550,71 @@ export function decoVitePlugin() {
       });
       server.watcher.on("add", (file) => {
         if (isSchemaSource(file)) scheduleSchemaGen();
+      });
+
+      // --- sections.gen.ts / loaders.gen.ts / invoke.gen.ts regeneration (#371) ---
+      // Unlike meta.gen.json (regenerated above via generate-schema.ts
+      // directly), these three were never re-run in dev — only `npm run build`
+      // (which chains the full `generate` orchestrator) touched them. Editing
+      // a section/loader's TS interface (new prop, new @title) updated the TS
+      // source but left the `.gen` files stale until a manual `generate` run:
+      // typecheck passed and the runtime worked, but the studio/admin form
+      // silently kept showing the old schema.
+      //
+      // Reuses the SAME `generate.ts` orchestrator sites already run for
+      // `build`, restricted to --only sections,loaders,invoke so the schema
+      // regen above isn't duplicated. The orchestrator's own two-tier digest
+      // cache (.deco/generate.digests.json + .deco/.cache/stat-memo.json)
+      // makes a steady-state run (nothing changed) a cheap no-op — a cache
+      // miss only pays the cost for the generator(s) whose actual inputs
+      // changed. Best-effort: a failure here only warns (matches the schema
+      // regen's own error handling above) — dev keeps running off whatever
+      // was last generated, same as before this feature existed.
+      let scaffoldTimer = null;
+      let scaffoldInFlight = false;
+      let scaffoldQueued = false;
+      const runScaffoldGen = () => {
+        if (scaffoldInFlight) {
+          scaffoldQueued = true;
+          return;
+        }
+        scaffoldInFlight = true;
+        const start = Date.now();
+        const scriptPath = path.resolve(cwd, "node_modules/@decocms/blocks-cli/scripts/generate.ts");
+        const cmd = `npx tsx ${JSON.stringify(scriptPath)} --only sections,loaders,invoke --site ${schemaSiteName}`;
+        exec(cmd, { cwd }, (err) => {
+          scaffoldInFlight = false;
+          if (err) {
+            console.warn("[deco] sections/loaders/invoke generation failed:", err.message);
+          } else {
+            console.log(`[deco] sections/loaders/invoke checked (${Date.now() - start}ms)`);
+          }
+          if (scaffoldQueued) {
+            scaffoldQueued = false;
+            scheduleScaffoldGen();
+          }
+        });
+      };
+      const scheduleScaffoldGen = () => {
+        if (scaffoldTimer) clearTimeout(scaffoldTimer);
+        scaffoldTimer = setTimeout(() => {
+          scaffoldTimer = null;
+          runScaffoldGen();
+        }, 500);
+      };
+
+      // Cold-start: run once on dev startup. The digest cache makes this a
+      // fast no-op when nothing changed since the last `generate` run (e.g.
+      // right after a `build`) — fire-and-forget, doesn't block the first request.
+      scheduleScaffoldGen();
+
+      // Reuse the same src/**/*.{ts,tsx} watch predicate as the schema regen
+      // above — sections/loaders/actions all live under the same tree.
+      server.watcher.on("change", (file) => {
+        if (isSchemaSource(file)) scheduleScaffoldGen();
+      });
+      server.watcher.on("add", (file) => {
+        if (isSchemaSource(file)) scheduleScaffoldGen();
       });
 
       // Tunnel + daemon: connect local dev to admin.deco.cx

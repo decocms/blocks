@@ -70,6 +70,26 @@ ORDER BY n DESC;
 | 3    | Set-Cookie present on a previously cacheable response       | `X-Cache: BYPASS` with `X-Cache-Reason: private-set-cookie` on the affected route | Inspect the section that started emitting cookies; move the cookie write to a non-cacheable POST handler. |
 | 4    | A real burst of unique URLs (e.g. crawler scanning long-tail) | `Attributes['route_pattern']` doesn't change but distinct paths multiply | If a known bot, add a WAF rule. If a real catalog query, consider broader cache profile.                  |
 
+## Stale loader/commerce data (a different layer)
+
+If the symptom is **stale data** (a catalog/price/stock change or a CMS edit
+that won't show up) rather than a hit-rate drop, the edge Cache API is usually
+*not* the culprit — that layer is versioned by build hash (`__v` / `X-Cache-Version`)
+and a deploy busts it. Suspect instead the **in-memory loader/commerce cache**
+(`createCachedLoader` in `@decocms/blocks`, and any site-local fetch cache like a
+Magento GQL cache):
+
+- It is **per-isolate and TTL-only** — its keys are build-hash prefixed (a redeploy
+  onto fresh isolates starts empty), but a **warm isolate keeps serving its own
+  entries until they age out**. A long `maxAge` (the framework warns above 10 min)
+  therefore delays propagation of upstream changes regardless of deploys.
+- **Immediate flush:** `POST /_cache/purge-loaders` with `Authorization: Bearer <PURGE_TOKEN>`.
+  Returns `{ "cleared": true, "scope": "isolate" }`. It is **per-isolate** — hit it
+  a few times / from the affected colo, or trigger it from an upstream-sync webhook.
+  A redeploy is the global lever.
+- **Prevent recurrence:** keep loader/commerce `maxAge` short (seconds–minutes), not
+  hours; wire an upstream catalog-sync to call the purge route.
+
 ## Escalation
 
 - Sustained > 1 hour despite no deploy → page the site team owner.

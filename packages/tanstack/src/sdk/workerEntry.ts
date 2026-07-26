@@ -25,12 +25,10 @@
  * ```
  */
 
-import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
-import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
 import {
+  getRevision,
   isBot,
   loadBlocks,
-  getRevision,
   type MatcherContext,
   onChange,
   resolveDecoPage,
@@ -38,7 +36,7 @@ import {
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
-import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
+import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -48,9 +46,8 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "@decocms/blocks/sdk/cacheHeaders";
+import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
-import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
-import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import {
   getActiveSpan,
   logRequest,
@@ -65,13 +62,17 @@ import {
   instrumentWorker,
   type OtelOptions,
 } from "@decocms/blocks/sdk/otel";
-import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
+import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { cleanPathForCacheKey } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
-import { isDevMode } from "@decocms/blocks/sdk/env";
+import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
+import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
+import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
+import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
+import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 
 /**
  * Build-time identifier injected by `decoVitePlugin()` (see
@@ -171,6 +172,13 @@ export interface SegmentKey {
   regionId?: string;
   /** Sorted list of active A/B flag names for cache cohort splitting. */
   flags?: string[];
+  /**
+   * Custom cache dimensions beyond the known fields above (e.g. a
+   * store/CEP-based delivery selector). `hashSegment` serializes these
+   * automatically — unlike the known fields, there's no dedicated shorthand
+   * key, so don't reuse a name already declared above.
+   */
+  [customField: string]: string | boolean | string[] | undefined;
 }
 
 /**
@@ -331,10 +339,13 @@ export interface DecoWorkerEntryOptions {
    * Security headers appended to every SSR response (HTML pages).
    * Pass `false` to disable entirely.
    *
-   * Default headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
-   * Permissions-Policy, X-XSS-Protection, HSTS, Cross-Origin-Opener-Policy.
+   * Default headers: X-Content-Type-Options, Referrer-Policy,
+   * Permissions-Policy, X-XSS-Protection, HSTS, Cross-Origin-Opener-Policy,
+   * and a `Content-Security-Policy: frame-ancestors` directive that lets the
+   * deco admin/studio embed the storefront (see DEFAULT_FRAME_ANCESTORS_CSP).
    *
-   * Custom entries are merged with defaults (custom values take precedence).
+   * Custom entries are merged with defaults (custom values take precedence) —
+   * pass `Content-Security-Policy` here to override the default frame-ancestors.
    *
    * @default DEFAULT_SECURITY_HEADERS
    */
@@ -621,17 +632,47 @@ const ONE_YEAR = 31536000;
 
 /**
  * Sensible security headers for any production storefront.
- * CSP is intentionally not included — it's site-specific (third-party script domains).
+ *
+ * Framing protection is handled by a default `Content-Security-Policy:
+ * frame-ancestors` directive (see DEFAULT_FRAME_ANCESTORS_CSP), NOT
+ * `X-Frame-Options`. CSP level 3 `frame-ancestors` supersedes X-Frame-Options
+ * in every modern browser, and — unlike the all-or-nothing SAMEORIGIN value —
+ * it can allow the deco admin/studio to embed the storefront for live preview
+ * while still blocking arbitrary third-party framing (clickjacking).
+ *
+ * Full CSP (script-src etc.) is intentionally not included here — it's
+ * site-specific (third-party script domains) and passed via the `csp` option.
  */
 export const DEFAULT_SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
-  "X-Frame-Options": "SAMEORIGIN",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   "X-XSS-Protection": "1; mode=block",
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
   "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
 };
+
+/**
+ * Origins allowed to embed the storefront in an iframe. These are the deco
+ * studio surfaces that render the live-preview iframe, plus `'self'` so the
+ * storefront can frame itself.
+ *
+ * A site can widen this by passing its own
+ * `securityHeaders["Content-Security-Policy"]`, or drop framing protection
+ * entirely with `securityHeaders: false`.
+ */
+export const DECO_ADMIN_FRAME_ANCESTORS: string[] = [
+  "'self'",
+  "https://studio.decocms.com",
+  "https://*.deco.studio",
+];
+
+/**
+ * Default enforcement CSP shipped on every SSR HTML response. Only the
+ * `frame-ancestors` directive is enforced by default; the full site CSP
+ * (passed via the `csp` option) is emitted report-only.
+ */
+export const DEFAULT_FRAME_ANCESTORS_CSP = `frame-ancestors ${DECO_ADMIN_FRAME_ANCESTORS.join(" ")}`;
 
 const DEFAULT_BYPASS_PATHS = ["/_build", "/deco/", "/live/", "/.decofile"];
 
@@ -879,6 +920,12 @@ export function createDecoWorkerEntry(
   const secHeaders: Record<string, string> | null = (() => {
     if (securityHeadersOpt === false) return null;
     const base = { ...DEFAULT_SECURITY_HEADERS };
+    // Ship an enforcement `frame-ancestors` CSP by default so the deco
+    // admin/studio can embed the storefront for live preview without every
+    // site copy-pasting the directive into its worker entry. A site can
+    // override the whole header via securityHeaders["Content-Security-Policy"]
+    // (the merge loop below wins) or disable all security headers with `false`.
+    base["Content-Security-Policy"] = DEFAULT_FRAME_ANCESTORS_CSP;
     if (securityHeadersOpt) {
       for (const [k, v] of Object.entries(securityHeadersOpt)) base[k] = v;
     }
@@ -943,12 +990,34 @@ export function createDecoWorkerEntry(
     return detectCacheProfile(target);
   }
 
+  const KNOWN_SEGMENT_FIELDS = new Set([
+    "device",
+    "loggedIn",
+    "salesChannel",
+    "regionId",
+    "flags",
+  ]);
+
   function hashSegment(seg: SegmentKey): string {
     const parts: string[] = [seg.device];
     if (seg.loggedIn) parts.push("auth");
     if (seg.salesChannel) parts.push(`sc=${seg.salesChannel}`);
     if (seg.regionId) parts.push(`r=${seg.regionId}`);
     if (seg.flags?.length) parts.push(`f=${seg.flags.sort().join(",")}`);
+    // Custom dimensions (anything beyond the known fields above) are
+    // serialized generically so they aren't silently dropped from the
+    // cache key — see #284.
+    const customKeys = Object.keys(seg)
+      .filter((k) => !KNOWN_SEGMENT_FIELDS.has(k) && seg[k] !== undefined)
+      .sort();
+    for (const k of customKeys) {
+      const v = seg[k];
+      if (v === "" || v === false || (Array.isArray(v) && v.length === 0)) {
+        continue;
+      }
+      const serialized = Array.isArray(v) ? [...v].sort().join(",") : v === true ? "" : String(v);
+      parts.push(serialized ? `${k}=${serialized}` : k);
+    }
     return parts.join("|");
   }
 
@@ -1005,10 +1074,7 @@ export function createDecoWorkerEntry(
     // (skuId/idsku) that the loader ignores — otherwise `/p?skuId=X` and `/p`
     // get distinct keys and every variant-carrying PDP→PDP nav MISSes, even
     // though the resolved response is identical. Keeps PLP filter params intact.
-    if (
-      url.pathname.startsWith("/_serverFn/") ||
-      url.pathname.startsWith("/_server/")
-    ) {
+    if (url.pathname.startsWith("/_serverFn/") || url.pathname.startsWith("/_server/")) {
       const payload = url.searchParams.get("payload");
       if (payload) {
         url.searchParams.set("payload", canonicalizeServerFnPayloadForCacheKey(payload));
@@ -1053,8 +1119,8 @@ export function createDecoWorkerEntry(
     // diverge. `/_serverFn` (SPA-nav data) is excluded: it has its own keying
     // and stays eager via isClientNavigation, not this bucket.
     const secFetchDest = request.headers.get("sec-fetch-dest");
-    const isServerFnPath = url.pathname.startsWith("/_serverFn/") ||
-      url.pathname.startsWith("/_server/");
+    const isServerFnPath =
+      url.pathname.startsWith("/_serverFn/") || url.pathname.startsWith("/_server/");
     if (!isServerFnPath && secFetchDest === "empty") {
       url.searchParams.set("__fetch", "1");
     }
@@ -1066,7 +1132,9 @@ export function createDecoWorkerEntry(
     // keep sharing one entry. A freshly-assigned visitor sets the cookie on the
     // response, which is not a "safe" cookie, so that one response bypasses the
     // cache and never poisons the shared entry.
-    const flagToken = segmentCacheToken(parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)));
+    const flagToken = segmentCacheToken(
+      parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)),
+    );
     if (flagToken) {
       url.searchParams.set("__abf", flagToken);
     }
@@ -1113,15 +1181,33 @@ export function createDecoWorkerEntry(
     return segments;
   }
 
-  async function handlePurge(request: Request, env: Record<string, unknown>): Promise<Response> {
+  // Constant-time string compare — avoids a byte-wise timing side-channel on the
+  // purge token. Length is not secret here, so a fast length-mismatch reject is fine.
+  function timingSafeEqualStr(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return diff === 0;
+  }
+
+  // Shared auth for the cache purge endpoints. Returns a Response when the request
+  // is unauthorized or purge is disabled, or null when authorized. Single source
+  // of truth so /_cache/purge and /_cache/purge-loaders can't drift.
+  function authorizePurge(request: Request, env: Record<string, unknown>): Response | null {
     if (purgeTokenEnv === false) {
       return new Response("Purge disabled", { status: 404 });
     }
-
     const token = (env[purgeTokenEnv] as string) || "";
-    if (!token || request.headers.get("Authorization") !== `Bearer ${token}`) {
+    const auth = request.headers.get("Authorization") ?? "";
+    if (!token || !timingSafeEqualStr(auth, `Bearer ${token}`)) {
       return new Response("Unauthorized", { status: 401 });
     }
+    return null;
+  }
+
+  async function handlePurge(request: Request, env: Record<string, unknown>): Promise<Response> {
+    const denied = authorizePurge(request, env);
+    if (denied) return denied;
 
     let body: PurgeRequestBody;
     try {
@@ -1227,6 +1313,21 @@ export function createDecoWorkerEntry(
     }
 
     return Response.json({ purged, total: purged.length });
+  }
+
+  // Purge the in-memory loader/commerce cache for THIS isolate. Same auth as
+  // handlePurge (Bearer `purgeTokenEnv`). Per-isolate by nature — the isolate
+  // that serves this request clears its cache; other live isolates keep theirs
+  // until they're recycled or hit too. For a guaranteed global flush, redeploy
+  // (loader cache keys are build-hash versioned).
+  async function handlePurgeLoaders(
+    request: Request,
+    env: Record<string, unknown>,
+  ): Promise<Response> {
+    const denied = authorizePurge(request, env);
+    if (denied) return denied;
+    clearLoaderCache();
+    return Response.json({ cleared: true, scope: "isolate" });
   }
 
   // -- Admin route handler ---------------------------------------------------
@@ -1552,6 +1653,14 @@ export function createDecoWorkerEntry(
     // Purge endpoint
     if (url.pathname === "/_cache/purge" && request.method === "POST") {
       return handlePurge(request, env);
+    }
+
+    // Loader/commerce cache purge (in-memory, this isolate only). Escape hatch
+    // to invalidate loader results immediately after an out-of-band upstream
+    // change (e.g. a Magento catalog sync) without waiting out the TTL. A
+    // redeploy is the global lever — loader cache keys are build-hash versioned.
+    if (url.pathname === "/_cache/purge-loaders" && request.method === "POST") {
+      return handlePurgeLoaders(request, env);
     }
 
     // CMS redirects (website/loaders/redirect.ts blocks) — checked before
@@ -2019,7 +2128,10 @@ export function createDecoWorkerEntry(
       ctx.waitUntil(
         Promise.resolve(serverEntry.fetch(request, env, ctx))
           .then((origin) => {
-            if (origin.status === 200) {
+            // Never overwrite a good entry with a degraded 200 (a critical
+            // section failed) — that would poison the cache. Leave the stale
+            // entry in place until a healthy revalidation succeeds.
+            if (origin.status === 200 && origin.headers.get("X-Deco-Degraded") !== "true") {
               // Only cache if response has no cookies or only safe cookies.
               // Strip safe cookies from the cached copy.
               if (hasOnlySafeCookies(origin, safeCookieSet)) {
@@ -2133,6 +2245,38 @@ export function createDecoWorkerEntry(
       resp.headers.delete("CDN-Cache-Control");
       resp.headers.set("X-Cache", "BYPASS");
       resp.headers.set("X-Cache-Reason", "private-set-cookie");
+      appendResourceHints(resp);
+      return resp;
+    }
+
+    // Degraded origin — a critical section loader failed, so this 200 carries
+    // raw/empty data (e.g. an empty product shelf during a VTEX outage). Treat
+    // it like a 5xx for caching: prefer a warm stale entry (STALE-ERROR) and
+    // NEVER store it. Without this, the broken page would be cached as healthy
+    // for the full retention window and stale-if-error would never fire —
+    // turning a seconds-long blip into hours of empty pages.
+    if (origin.headers.get("X-Deco-Degraded") === "true") {
+      if (cached && edgeConfig.sie > 0) {
+        const storedAtStr = cached.headers.get("X-Deco-Stored-At");
+        const storedAt = storedAtStr ? Number(storedAtStr) : 0;
+        const ageSec = storedAt > 0 ? (Date.now() - storedAt) / 1000 : Infinity;
+        if (ageSec < edgeConfig.fresh + edgeConfig.sie) {
+          console.warn(
+            `[edge-cache] Origin degraded, serving stale (age=${Math.round(ageSec)}s, sie=${edgeConfig.sie}s)`,
+          );
+          recordCacheMetric(true, profile, "STALE-ERROR", "edge");
+          return dressResponse(cached, "STALE-ERROR", {
+            "X-Cache-Age": String(Math.round(ageSec)),
+            "X-Cache-Reason": "degraded",
+          });
+        }
+      }
+      // Cold cache — serve the degraded page but never persist it.
+      const resp = new Response(origin.body, origin);
+      resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+      resp.headers.delete("CDN-Cache-Control");
+      resp.headers.set("X-Cache", "BYPASS");
+      resp.headers.set("X-Cache-Reason", "degraded");
       appendResourceHints(resp);
       return resp;
     }
