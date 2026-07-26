@@ -799,6 +799,8 @@ describe("runAudit — totals", () => {
         "obsolete-vite-plugins",
         "package-manager-missing",
         "vtex-shim-regression",
+        "duplicate-imports",
+        "corrupted-ternaries",
       ].sort(),
     );
   });
