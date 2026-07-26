@@ -3,6 +3,11 @@ import * as path from "node:path";
 import type { MigrationContext, ReviewItem } from "./types";
 import { logPhase } from "./types";
 
+// Word-only keywords are matched with \b boundaries so a generic English
+// word like "collapse" doesn't misfire on an unrelated finding's reason
+// text (e.g. a JS/UX note that happens to mention "collapse" in a
+// non-DaisyUI sense). Path-/symbol-like keywords (containing non-word
+// characters) are matched as plain substrings since \b doesn't apply to them.
 const CSS_REVIEW_KEYWORDS = [
   "tailwind.config.ts",
   "safelist",
@@ -15,11 +20,17 @@ const CSS_REVIEW_KEYWORDS = [
   "collapse",
 ];
 
+const CSS_REVIEW_KEYWORD_MATCHERS = CSS_REVIEW_KEYWORDS.map((k) =>
+  /^\w+$/.test(k) ? new RegExp(`\\b${k}\\b`, "i") : k,
+);
+
 function isCssReviewItem(item: ReviewItem): boolean {
   return (
     item.file.endsWith("app.css") ||
     item.file === "tailwind.config.ts" ||
-    CSS_REVIEW_KEYWORDS.some((k) => item.reason.includes(k))
+    CSS_REVIEW_KEYWORD_MATCHERS.some((k) =>
+      typeof k === "string" ? item.reason.includes(k) : k.test(item.reason),
+    )
   );
 }
 

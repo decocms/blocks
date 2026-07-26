@@ -124,6 +124,19 @@ export function promoteApplyClassesToUtility(css: string): CssTransformResult {
     result += css.slice(cursor, blockStart);
 
     const rules = splitTopLevelRules(inner);
+
+    // A block with no top-level `selector { ... }` rule (empty, or only
+    // comments/at-rules) has nothing to promote or re-wrap — pass it
+    // through verbatim instead of silently dropping it, since `promoted`
+    // and `remaining` would otherwise both stay empty and nothing gets
+    // appended to `result` for this block at all.
+    if (rules.length === 0) {
+      result += css.slice(blockStart, blockEnd);
+      cursor = blockEnd;
+      layerRe.lastIndex = blockEnd;
+      continue;
+    }
+
     const promoted: string[] = [];
     const remaining: CssRule[] = [];
 

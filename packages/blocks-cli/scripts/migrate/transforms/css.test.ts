@@ -64,6 +64,28 @@ describe("promoteApplyClassesToUtility", () => {
     expect(r.css).toContain(".card .title");
   });
 
+  it("passes through a comment-only @layer components block instead of dropping it", () => {
+    const css = `@layer components {
+  /* keep tab styles centralized here for now */
+}
+
+.after { color: red; }`;
+    const r = promoteApplyClassesToUtility(css);
+    expect(r.css).toContain("@layer components");
+    expect(r.css).toContain("/* keep tab styles centralized here for now */");
+    expect(r.css).toContain(".after { color: red; }");
+  });
+
+  it("passes through an empty @layer components block instead of dropping it", () => {
+    const css = `@layer components {
+}
+
+.after { color: red; }`;
+    const r = promoteApplyClassesToUtility(css);
+    expect(r.css).toContain("@layer components");
+    expect(r.css).toContain(".after { color: red; }");
+  });
+
   it("is a no-op when there is no @layer components block", () => {
     const css = ".foo { color: red; }";
     const r = promoteApplyClassesToUtility(css);

@@ -93,4 +93,23 @@ describe("checkCssCompiles", () => {
     const result = checkCssCompiles({ sourceDir: tmpDir }, runner);
     expect(result.unmatchedClassWarnings).toEqual([]);
   });
+
+  it("does not treat a data-class attribute's value as a className token", () => {
+    fs.mkdirSync(path.join(tmpDir, "src", "styles"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "src", "styles", "app.css"), "@import \"tailwindcss\";\n");
+    fs.mkdirSync(path.join(tmpDir, "src", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "src", "components", "Foo.tsx"),
+      `export default () => <div data-class="tracking-widget" className="flex" />;\n`,
+    );
+
+    const { runner } = fakeRunner((cmd) => {
+      const outPath = cmd.match(/-o\s+(\S+)/)![1];
+      fs.writeFileSync(outPath, ".flex { display: flex; }\n");
+      return { ok: true };
+    });
+
+    const result = checkCssCompiles({ sourceDir: tmpDir }, runner);
+    expect(result.unmatchedClassWarnings).not.toContain("tracking-widget");
+  });
 });

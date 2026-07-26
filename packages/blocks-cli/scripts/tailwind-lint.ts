@@ -23,6 +23,7 @@ import {
   DAISYUI_RENAMES,
   PX_TO_SPACING,
   TEXT_SIZE_MAP,
+  renameToken,
 } from "./migrate/transforms/tailwind-renames";
 
 // ── Breakpoint order (mobile-first) ─────────────────────────────
@@ -215,7 +216,7 @@ function scanFile(filePath: string): Issue[] {
     for (const cls of classList) {
       const parts = cls.split(":");
       const utility = parts[parts.length - 1];
-      if (CLASS_RENAMES[utility] !== undefined) {
+      if (CLASS_RENAMES[utility] !== undefined && CLASS_RENAMES[utility] !== utility) {
         const renamed = CLASS_RENAMES[utility];
         issues.push({
           file: filePath, line, type: "rename",
@@ -259,21 +260,7 @@ function fixClassOrder(classes: string): string {
 function fixClassName(classes: string): string {
   let classList = classes.split(/\s+/).filter(Boolean);
 
-  classList = classList.map((cls) => {
-    const parts = cls.split(":");
-    const utility = parts.pop()!;
-    if (CLASS_RENAMES[utility] !== undefined) {
-      const renamed = CLASS_RENAMES[utility];
-      if (renamed === "") return "";
-      parts.push(renamed);
-      return parts.join(":");
-    }
-    if (DAISYUI_RENAMES[utility] && DAISYUI_RENAMES[utility] !== utility) {
-      parts.push(DAISYUI_RENAMES[utility]);
-      return parts.join(":");
-    }
-    return cls;
-  }).filter(Boolean);
+  classList = classList.map(renameToken).filter(Boolean);
 
   classList = classList.map((cls) => {
     if (!cls.includes("[")) return cls;

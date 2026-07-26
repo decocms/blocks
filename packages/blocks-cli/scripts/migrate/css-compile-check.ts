@@ -77,7 +77,10 @@ export function checkCssCompiles(
   }
 }
 
-const CLASS_ATTR_RE = /(?:className|class)\s*=\s*"([^"]+)"/g;
+// Negative lookbehind guards against matching mid-attribute-name, e.g.
+// `data-class="..."` — without it, "class" (a substring of "data-class")
+// would match and pull an unrelated attribute value into the class scan.
+const CLASS_ATTR_RE = /(?<![\w-])(?:className|class)\s*=\s*"([^"]+)"/g;
 
 /**
  * Best-effort cross-check: className tokens used in src/ that don't show

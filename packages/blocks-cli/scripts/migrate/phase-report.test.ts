@@ -65,4 +65,39 @@ describe("report — CSS Migration section", () => {
     const content = fs.readFileSync(path.join(tmpDir, "MIGRATION_REPORT.md"), "utf-8");
     expect(content).toContain("No CSS-specific findings from this run.");
   });
+
+  it("does not miscategorize an unrelated finding whose reason merely contains 'collapse' as a substring of another word", () => {
+    const ctx = createContext(tmpDir);
+    ctx.manualReviewItems = [
+      {
+        file: "src/components/Nav.tsx",
+        reason: "the mobile nav state collapsed unexpectedly during the smoke test — needs manual QA",
+        severity: "warning",
+      },
+    ];
+
+    report(ctx);
+
+    const content = fs.readFileSync(path.join(tmpDir, "MIGRATION_REPORT.md"), "utf-8");
+    const cssSection = content.split("## CSS Migration")[1].split("## Always Check")[0];
+    expect(cssSection).toContain("No CSS-specific findings from this run.");
+    expect(cssSection).not.toContain("collapsed unexpectedly");
+  });
+
+  it("still categorizes a genuine DaisyUI collapse finding as CSS-specific", () => {
+    const ctx = createContext(tmpDir);
+    ctx.manualReviewItems = [
+      {
+        file: "src/components/Filters.tsx",
+        reason: "DaisyUI .collapse usage found — its expand/collapse chain breaks under Tailwind v4.",
+        severity: "warning",
+      },
+    ];
+
+    report(ctx);
+
+    const content = fs.readFileSync(path.join(tmpDir, "MIGRATION_REPORT.md"), "utf-8");
+    const cssSection = content.split("## CSS Migration")[1].split("## Always Check")[0];
+    expect(cssSection).toContain("DaisyUI .collapse usage found");
+  });
 });

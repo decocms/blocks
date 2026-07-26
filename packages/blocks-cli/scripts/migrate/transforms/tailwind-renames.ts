@@ -81,6 +81,40 @@ export const DAISYUI_RENAMES: Record<string, string> = {
   "card-compact": "card-sm",
 };
 
+/**
+ * Rename a single class token, preserving any `modifier:` prefix chain
+ * (`hover:`, `md:`, `dark:`, stacked or not) — e.g. `md:flex-grow` -> `md:grow`,
+ * `hover:ring` -> `hover:ring-3`. Returns `""` if the rename removes the
+ * class entirely (matching v4's dropped `transform`/`filter` utilities),
+ * or the original token unchanged if no rename applies.
+ *
+ * This is the one place that knows how to apply CLASS_RENAMES/DAISYUI_RENAMES
+ * to a token — every caller (JSX className rewriter, @apply rewriter,
+ * tailwind-lint) must go through this instead of doing its own split/lookup,
+ * or a variant-prefixed class silently stops getting renamed (as happened
+ * when the @apply rewriter did a whole-token lookup without stripping the
+ * modifier prefix first).
+ */
+export function renameToken(cls: string): string {
+  const parts = cls.split(":");
+  const utility = parts.pop()!;
+
+  if (CLASS_RENAMES[utility] !== undefined) {
+    const renamed = CLASS_RENAMES[utility];
+    if (renamed === "") return "";
+    if (renamed === utility) return cls;
+    parts.push(renamed);
+    return parts.join(":");
+  }
+
+  if (DAISYUI_RENAMES[utility] && DAISYUI_RENAMES[utility] !== utility) {
+    parts.push(DAISYUI_RENAMES[utility]);
+    return parts.join(":");
+  }
+
+  return cls;
+}
+
 // ── Spacing scale: px → Tailwind unit ───────────────────────────
 export const PX_TO_SPACING: Record<number, string> = {};
 for (let i = 0; i <= 96; i++) {

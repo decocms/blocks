@@ -1,11 +1,10 @@
 import type { TransformResult } from "../types";
 import {
-  CLASS_RENAMES,
-  DAISYUI_RENAMES,
   PX_TO_SPACING,
   TEXT_SIZE_MAP,
   detectDaisyUiV5StructuralIssues,
   detectLogicalPropertyConflict,
+  renameToken,
 } from "./tailwind-renames";
 
 /**
@@ -105,24 +104,7 @@ function parseClass(cls: string): ParsedClass {
 
 // ── Fix class renames ───────────────────────────────────────────
 function fixRenames(cls: string): string {
-  const parts = cls.split(":");
-  const utility = parts.pop()!;
-
-  // Check direct rename
-  if (CLASS_RENAMES[utility] !== undefined) {
-    const renamed = CLASS_RENAMES[utility];
-    if (renamed === "") return ""; // Remove class entirely
-    parts.push(renamed);
-    return parts.join(":");
-  }
-
-  // Check DaisyUI rename
-  if (DAISYUI_RENAMES[utility] && DAISYUI_RENAMES[utility] !== utility) {
-    parts.push(DAISYUI_RENAMES[utility]);
-    return parts.join(":");
-  }
-
-  return cls;
+  return renameToken(cls);
 }
 
 // ── Fix arbitrary values ────────────────────────────────────────

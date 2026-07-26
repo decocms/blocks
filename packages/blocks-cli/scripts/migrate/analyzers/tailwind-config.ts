@@ -105,9 +105,13 @@ function flattenColors(
       continue;
     }
     const name = stripQuotes(prop.getName());
-    const key = prefix ? `${prefix}-${name}` : name;
+    // Tailwind's `DEFAULT` sub-key (e.g. `colors: { primary: { DEFAULT: "#..." , 500: "#..." } }`)
+    // means "this IS `--color-primary`", not a nested `--color-primary-DEFAULT` token — Tailwind
+    // v4 only maps `bg-primary`/`text-primary`/etc. to the bare `--color-primary` variable.
+    const key = name === "DEFAULT" ? prefix : prefix ? `${prefix}-${name}` : name;
     const init = prop.getInitializer();
     if (!init) continue;
+    if (!key) continue;
 
     if (init.isKind(SyntaxKind.ObjectLiteralExpression)) {
       flattenColors(init, key, out, reviewItems);

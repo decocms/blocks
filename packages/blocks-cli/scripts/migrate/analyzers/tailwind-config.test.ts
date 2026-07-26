@@ -25,6 +25,30 @@ describe("extractTailwindConfig", () => {
     expect(result.reviewItems).toEqual([]);
   });
 
+  it("maps a DEFAULT sub-key to the bare parent color, not a literal -DEFAULT suffix", () => {
+    writeConfig(`
+      export default {
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                DEFAULT: "#112233",
+                500: "#445566",
+              },
+            },
+          },
+        },
+      };
+    `);
+
+    const result = extractTailwindConfig(tmpDir);
+    expect(result.colors).toEqual({
+      primary: "#112233",
+      "primary-500": "#445566",
+    });
+    expect(result.colors["primary-DEFAULT"]).toBeUndefined();
+  });
+
   it("flattens nested theme.extend.colors into dash-joined tokens", () => {
     writeConfig(`
       export default {

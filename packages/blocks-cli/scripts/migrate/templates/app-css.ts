@@ -5,7 +5,22 @@ import { log } from "../types";
 import type { ExtractedTheme } from "../analyzers/theme-extractor";
 import { fixOklchHexMismatches, isOklchCoordinates } from "../transforms/color-oklch";
 import { transformCss } from "../transforms/css";
-import { CLASS_RENAMES, DAISYUI_RENAMES } from "../transforms/tailwind-renames";
+import { renameToken } from "../transforms/tailwind-renames";
+
+const GRAY_SHADES = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950"];
+const GRAY_SCALE_DEFAULTS: Record<string, string> = {
+  "50": "#f9fafb",
+  "100": "#f3f4f6",
+  "200": "#e5e7eb",
+  "300": "#d1d5db",
+  "400": "#9ca3af",
+  "500": "#6b7280",
+  "600": "#4b5563",
+  "700": "#374151",
+  "800": "#1f2937",
+  "900": "#111827",
+  "950": "#030712",
+};
 
 /**
  * Find the original site's custom CSS file.
@@ -61,11 +76,7 @@ function transformApplyDirectives(css: string): string {
     const fixed = classes
       .split(/\s+/)
       .filter(Boolean)
-      .map((cls) => {
-        if (CLASS_RENAMES[cls] !== undefined) return CLASS_RENAMES[cls];
-        if (DAISYUI_RENAMES[cls] !== undefined) return DAISYUI_RENAMES[cls];
-        return cls;
-      })
+      .map(renameToken)
       .filter(Boolean)
       .join(" ");
     return `@apply ${fixed};`;
@@ -196,8 +207,14 @@ ${colorLines}
   // this, custom brand palettes and named font stacks are silently dropped
   // and any class referencing them (`bg-perola`, `font-bebas-neue`) makes
   // Tailwind v4 throw "Cannot apply unknown utility class" (decocms/blocks#369).
+  // gray-50..950 are handled below, in the gray-scale block, so a custom
+  // gray ramp from tailwind.config.ts overrides the default instead of
+  // being declared twice in the same @theme rule (last declaration wins in
+  // CSS — the default would otherwise silently clobber the custom one).
   const twColors = ctx.tailwindConfig.colors;
-  const twColorKeys = Object.keys(twColors).filter((k) => !(`--color-${k}` in semanticColors));
+  const twColorKeys = Object.keys(twColors).filter(
+    (k) => !(`--color-${k}` in semanticColors) && !GRAY_SHADES.some((shade) => k === `gray-${shade}`),
+  );
   if (twColorKeys.length > 0) {
     themeBlock += `\n\n  /* Custom colors ported from tailwind.config.ts */`;
     for (const key of twColorKeys) {
@@ -223,22 +240,18 @@ ${colorLines}
     }
   }
 
-  // Gray scale compat (Tailwind v3 had gray-50..gray-950 by default)
+  // Gray scale compat (Tailwind v3 had gray-50..gray-950 by default) — uses
+  // the site's own tailwind.config.ts gray-* override when present, falling
+  // back to the v3 default otherwise.
   themeBlock += `
 
-  /* Gray scale (Tailwind v3 default, required for bg-gray-*, text-gray-*, etc.) */
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-gray-300: #d1d5db;
-  --color-gray-400: #9ca3af;
-  --color-gray-500: #6b7280;
-  --color-gray-600: #4b5563;
-  --color-gray-700: #374151;
-  --color-gray-800: #1f2937;
-  --color-gray-900: #111827;
-  --color-gray-950: #030712;
-}`;
+  /* Gray scale (Tailwind v3 default, required for bg-gray-*, text-gray-*, etc.) */`;
+  for (const shade of GRAY_SHADES) {
+    const key = `gray-${shade}`;
+    const value = twColors[key] ?? GRAY_SCALE_DEFAULTS[shade];
+    themeBlock += `\n  --color-${key}: ${value};`;
+  }
+  themeBlock += `\n}`;
   sections.push(themeBlock);
 
   // ── DaisyUI v5 compat ─────────────────────────────────────────────
@@ -382,11 +395,38 @@ section[data-deferred="true"] {
     });
   }
 
+  // Fix gotcha #43: `oklch(var(--x))` is emitted wherever a CMS theme var
+  // looked like bare oklch coordinates, but if that var was actually
+  // declared as hex elsewhere, the wrapper is invalid CSS (icons/fills
+  // silently render black). Convert the hex declaration to an oklch triplet
+  // so the wrapper stays valid.
+  //
+  // Scoped to the generator's OWN output (`sections` so far) — NOT the
+  // site's original custom CSS appended below. That content should be
+  // passed through as close to verbatim as possible; scanning/rewriting it
+  // too would mean silently mutating a site-authored `--x: #hex;`
+  // declaration if the site happens to also use the same
+  // `oklch(var(--x))` idiom for an unrelated purpose.
+  const generatorCss = sections.join("\n\n") + "\n";
+  const { css: fixedGeneratorCss, fixed, flagged } = fixOklchHexMismatches(generatorCss);
+  for (const note of fixed) {
+    log(ctx, `[app.css] Fixed oklch/hex mismatch: ${note}`);
+  }
+  for (const note of flagged) {
+    ctx.manualReviewItems.push({
+      file: "src/styles/app.css",
+      reason: note,
+      severity: "warning",
+    });
+  }
+
   // ── Incorporate original site's custom CSS ────────────────────
   // Instead of throwing away the site's CSS, we extract and append
   // all custom rules (component overrides, @layer base, @font-face,
-  // typography utilities, feature-specific CSS, etc.)
+  // typography utilities, feature-specific CSS, etc.). Appended AFTER the
+  // oklch fix above runs, so this content is never scanned/rewritten by it.
   const originalCss = findOriginalCss(ctx);
+  let originalCssBlock = "";
   if (originalCss) {
     const customCss = extractCustomCss(originalCss);
     if (customCss) {
@@ -404,32 +444,13 @@ section[data-deferred="true"] {
           log(ctx, `[app.css] ${note}`);
         }
       }
-      sections.push(`/* ═══════════════════════════════════════════════════════════════
+      originalCssBlock = `/* ═══════════════════════════════════════════════════════════════
    Original site CSS (migrated from tailwind.css)
    ═══════════════════════════════════════════════════════════════ */
 
-${transformed}`);
+${transformed}`;
     }
   }
 
-  const rawCss = sections.join("\n\n") + "\n";
-
-  // Fix gotcha #43: `oklch(var(--x))` is emitted wherever a CMS theme var
-  // looked like bare oklch coordinates, but if that var was actually
-  // declared as hex elsewhere, the wrapper is invalid CSS (icons/fills
-  // silently render black). Convert the hex declaration to an oklch triplet
-  // so the wrapper stays valid.
-  const { css: fixedCss, fixed, flagged } = fixOklchHexMismatches(rawCss);
-  for (const note of fixed) {
-    log(ctx, `[app.css] Fixed oklch/hex mismatch: ${note}`);
-  }
-  for (const note of flagged) {
-    ctx.manualReviewItems.push({
-      file: "src/styles/app.css",
-      reason: note,
-      severity: "warning",
-    });
-  }
-
-  return fixedCss;
+  return originalCssBlock ? `${fixedGeneratorCss}\n${originalCssBlock}\n` : fixedGeneratorCss;
 }
