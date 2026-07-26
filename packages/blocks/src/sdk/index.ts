@@ -21,6 +21,12 @@ export { buildCSPHeaderValue, type CSPOptions, setCSPHeaders } from "./csp";
 export { djb2, djb2Hex } from "./djb2";
 export { isDevMode } from "./env";
 export {
+  DEFAULT_FETCH_TIMEOUT_MS,
+  type FetchFn,
+  withFetchTimeout,
+  withTimeoutSignal,
+} from "./fetchTimeout";
+export {
   createInstrumentedFetch,
   type FetchInstrumentationOptions,
   type FetchMetrics,

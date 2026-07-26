@@ -1,3 +1,4 @@
+import { type FetchFn, withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
 import type { InstrumentedFetchInit } from "@decocms/blocks/sdk/instrumentedFetch";
 import { extractGraphqlOperationName } from "./graphqlOperationName";
 
@@ -22,9 +23,9 @@ export interface GraphQLClient {
 export function createGraphqlClient(
 	endpoint: string,
 	headers: Record<string, string>,
-	fetchFn?: typeof fetch,
+	fetchFn?: FetchFn,
 ): GraphQLClient {
-	const _fetch = fetchFn ?? globalThis.fetch;
+	const _fetch = fetchFn ?? withFetchTimeout();
 	return {
 		async query<T>(
 			queryOrDef: string | QueryDefinition,
