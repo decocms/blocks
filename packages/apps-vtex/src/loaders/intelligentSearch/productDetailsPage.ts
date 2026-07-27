@@ -6,6 +6,7 @@
 
 import type { ProductDetailsPage } from "@decocms/apps-commerce/types";
 import { getVtexConfig, vtexCachedFetch } from "../../client";
+import PDPDefaultPath from "../paths/PDPDefaultPath";
 import { searchBySlug } from "../../utils/slugCache";
 import { pickSku, toProductPage } from "../../utils/transform";
 import type { LegacyProduct } from "../../utils/types";
@@ -42,10 +43,27 @@ export default async function vtexProductDetailsPage(
 		variantIncludeImage = true,
 		variantIncludeInventory = true,
 	} = props;
-	if (!slug) return null;
 
 	try {
-		const linkText = slug.replace(/\/p$/, "").replace(/^\//, "").toLowerCase();
+		// Only the admin hits the PDP at its raw route pattern (`/:slug/p`), so the
+		// `slug` route-param resolves to the literal placeholder `:slug` — there's
+		// no real product in the URL, so render the best seller as a preview.
+		//
+		// This is NOT a general fallback: a concrete slug that resolves to no
+		// product (e.g. `/dssadals/p`) must still 404 like any missing product, and
+		// a genuinely absent slug must NOT pull in an unrelated product either. So
+		// we trigger ONLY on the `:`-prefixed placeholder, never on empty/missing.
+		// Mirrors deco-cx/apps' PDPDefaultPath behavior.
+		let effectiveSlug = slug;
+
+		if (slug?.startsWith(":")) {
+			const defaultPaths = await PDPDefaultPath({ count: 1 });
+			effectiveSlug = defaultPaths?.possiblePaths[0];
+		}
+
+		if (!effectiveSlug) return null;
+
+		const linkText = effectiveSlug.replace(/\/p$/, "").replace(/^\//, "").toLowerCase();
 		const config = getVtexConfig();
 		const sc = config.salesChannel;
 
