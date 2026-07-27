@@ -23,6 +23,7 @@ vi.mock("./registry", () => ({
 import {
   clearCommerceLoaders,
   DEFAULT_FOLD_THRESHOLD,
+  extractSeoFromProps,
   getAsyncRenderingConfig,
   isEagerRequest,
   registerCommerceLoader,
@@ -631,6 +632,105 @@ describe("resolvePageSeoBlock — bot-aware commerce SEO", () => {
 // ones — are resolved eagerly. This prevents client-nav from returning a
 // deferredSections array that loadDeferredSection would then try to resolve
 // without the per-request commerce app context.
+
+describe("extractSeoFromProps — commerce jsonLD structured data", () => {
+  const plp = (overrides: Record<string, unknown> = {}) => ({
+    "@type": "ProductListingPage",
+    breadcrumb: {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, item: "https://x.com/a" },
+        { "@type": "ListItem", position: 2, item: "https://x.com/a/b" },
+      ],
+    },
+    products: [{ "@type": "Product", name: "P1" }],
+    seo: { title: "PLP Title", description: "PLP Desc" },
+    ...overrides,
+  });
+
+  it("derives title/description/canonical and emits the ItemList JSON-LD (PLP)", () => {
+    // The casaevideo.com.br/eletroportateis regression: a page.seo pointing at
+    // commerce/sections/Seo/SeoPLPV2.tsx resolved its jsonLD but emitted no
+    // schema.org. There is no section component in start to run this transform.
+    const seo = extractSeoFromProps({
+      __resolveType: "commerce/sections/Seo/SeoPLPV2.tsx",
+      jsonLD: plp(),
+    });
+    expect(seo.title).toBe("PLP Title");
+    expect(seo.description).toBe("PLP Desc");
+    // Highest-position breadcrumb item wins.
+    expect(seo.canonical).toBe("https://x.com/a/b");
+    expect(seo.noIndexing).toBe(false);
+    expect(seo.jsonLDs).toHaveLength(1);
+    expect(seo.jsonLDs?.[0]).toMatchObject({ "@type": "ProductListingPage" });
+  });
+
+  it("emits the product image and JSON-LD for a PDP", () => {
+    const seo = extractSeoFromProps({
+      __resolveType: "commerce/sections/Seo/SeoPDPV2.tsx",
+      jsonLD: {
+        "@type": "ProductDetailsPage",
+        breadcrumbList: { "@type": "BreadcrumbList", itemListElement: [] },
+        product: {
+          "@type": "Product",
+          name: "Widget",
+          image: [{ url: "https://x.com/w.jpg" }],
+        },
+        seo: { title: "Widget", description: "A widget" },
+      },
+    });
+    expect(seo.title).toBe("Widget");
+    expect(seo.image).toBe("https://x.com/w.jpg");
+    expect(seo.jsonLDs?.[0]).toMatchObject({ "@type": "ProductDetailsPage" });
+  });
+
+  it("lets manual override fields win over the jsonLD-derived ones", () => {
+    const seo = extractSeoFromProps({
+      jsonLD: plp(),
+      title: "Manual Title",
+      canonical: "https://x.com/manual",
+    });
+    expect(seo.title).toBe("Manual Title");
+    expect(seo.canonical).toBe("https://x.com/manual");
+    expect(seo.jsonLDs).toHaveLength(1);
+  });
+
+  it("omits structured data when ignoreStructuredData is set", () => {
+    const seo = extractSeoFromProps({
+      jsonLD: plp(),
+      configJsonLD: { ignoreStructuredData: true },
+    });
+    expect(seo.jsonLDs).toBeUndefined();
+    // Metadata is still derived — only the ItemList is suppressed.
+    expect(seo.title).toBe("PLP Title");
+  });
+
+  it("marks an empty listing noIndexing and emits no ItemList", () => {
+    const seo = extractSeoFromProps({ jsonLD: plp({ products: [] }) });
+    expect(seo.noIndexing).toBe(true);
+    expect(seo.jsonLDs).toBeUndefined();
+  });
+
+  it("does not touch a section that already emitted jsonLDs", () => {
+    const existing = [{ "@type": "WebSite" }];
+    const seo = extractSeoFromProps({ jsonLD: plp(), jsonLDs: existing });
+    expect(seo.jsonLDs).toBe(existing);
+  });
+
+  it("removeVideos clones rather than mutating the source jsonLD", () => {
+    const source = plp({
+      products: [{ "@type": "Product", name: "P1", video: [{ "@type": "VideoObject" }] }],
+    });
+    const seo = extractSeoFromProps({
+      jsonLD: source,
+      configJsonLD: { removeVideos: true },
+    });
+    expect(seo.jsonLDs?.[0].products[0].video).toBeUndefined();
+    // Source untouched — it may be shared with a body section.
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
+    expect((source.products[0] as any).video).toBeDefined();
+  });
+});
 
 describe("resolveDecoPage — #277 client-side navigation disables deferral", () => {
   const lazySec = {
