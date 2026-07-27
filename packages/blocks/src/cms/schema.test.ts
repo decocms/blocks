@@ -238,6 +238,56 @@ describe("composeMeta framework option", () => {
   });
 });
 
+describe("commerce SEO section schemas", () => {
+  const b64Ref = (key: string) => ({ $ref: `#/definitions/${b64(key)}` });
+
+  it("emits editable props for the product-listing SEO section (plp mode)", () => {
+    const def = definitionFor("commerce/sections/Seo/SeoPLPV2.tsx");
+    // Without a schema here, resolveSchema() returns null and the Studio SEO
+    // editor renders no fields — the "não tem props" bug.
+    expect(def).toBeDefined();
+    const props = def.properties;
+    expect(props).toHaveProperty("title");
+    expect(props).toHaveProperty("description");
+    expect(props).toHaveProperty("noIndexing");
+    // PLP-specific structured-data config (see seo-form-mode.ts PLP_SEO_FIELD_KEYS).
+    expect(props.configJsonLD.properties).toHaveProperty("removeVideos");
+    expect(props.configJsonLD.properties).toHaveProperty("ignoreStructuredData");
+    // The data source is set once at creation and stays hidden in the SEO panel;
+    // it round-trips via the form rather than being re-picked here.
+    expect(props.jsonLD.hide).toBe(true);
+  });
+
+  it("emits editable props for the product-details SEO section (pdp mode)", () => {
+    const def = definitionFor("commerce/sections/Seo/SeoPDPV2.tsx");
+    expect(def).toBeDefined();
+    const props = def.properties;
+    expect(props).toHaveProperty("title");
+    expect(props).toHaveProperty("description");
+    expect(props).toHaveProperty("noIndexing");
+    // PDP-specific fields (see seo-form-mode.ts PDP_SEO_FIELD_KEYS).
+    expect(props).toHaveProperty("omitVariants");
+    expect(props).toHaveProperty("ignoreStructuredData");
+    expect(props.jsonLD.hide).toBe(true);
+  });
+
+  it("registers the sections so existing pages resolve, without polluting the picker", () => {
+    const meta = composeMeta(emptySiteMeta());
+    for (const key of [
+      "commerce/sections/Seo/SeoPLPV2.tsx",
+      "commerce/sections/Seo/SeoPDPV2.tsx",
+    ]) {
+      // Registered as a manifest block + def → the SEO editor can resolve a
+      // schema for a page already on this type.
+      expect(meta.manifest.blocks.sections).toHaveProperty(key);
+      expect(meta.schema.definitions).toHaveProperty(b64(key));
+      // But deliberately NOT offered as a new pickable section everywhere
+      // (legacy commerce types have no component in start).
+      expect(meta.schema.root.sections.anyOf).not.toContainEqual(b64Ref(key));
+    }
+  });
+});
+
 describe("composeMeta idempotency", () => {
   it("returns an already-composed meta unchanged (no double-compose)", () => {
     const once = composeMeta(emptySiteMeta());

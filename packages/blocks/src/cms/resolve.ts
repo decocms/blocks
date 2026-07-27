@@ -1694,6 +1694,110 @@ export function isSeoSection(key: string): boolean {
 }
 
 /**
+ * Canonical URL from a schema.org BreadcrumbList — the `item` of its
+ * highest-position entry. Inlined from `@decocms/apps-commerce/utils/canonical`
+ * because `blocks` cannot depend on `apps-commerce` (apps-commerce depends on
+ * blocks, so the edge would be circular).
+ */
+function canonicalFromBreadcrumb(breadcrumb: unknown): string | undefined {
+  const items = (
+    breadcrumb as { itemListElement?: { position: number; item: string }[] } | undefined
+  )?.itemListElement;
+  if (!Array.isArray(items) || items.length === 0) return undefined;
+  return items.reduce((acc, curr) => (acc.position < curr.position ? curr : acc)).item;
+}
+
+/**
+ * Shallow-prune a commerce `jsonLD` before emitting it as structured data.
+ * Clones only when a prune option is set (the common path emits as-is), so a
+ * jsonLD shared with a body section is never mutated out from under it.
+ */
+function pruneCommerceJsonLD(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  jsonLD: Record<string, any>,
+  opts: { removeVideos: boolean; omitVariants: boolean },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Record<string, any> {
+  if (!opts.removeVideos && !opts.omitVariants) return jsonLD;
+  const clone = structuredClone(jsonLD);
+  if (opts.removeVideos && Array.isArray(clone.products)) {
+    for (const product of clone.products) {
+      product.video = undefined;
+      for (const variant of product.isVariantOf?.hasVariant ?? []) variant.video = undefined;
+    }
+  }
+  if (opts.omitVariants && clone.product?.isVariantOf?.hasVariant) {
+    clone.product.isVariantOf.hasVariant = [];
+  }
+  return clone;
+}
+
+/**
+ * Derive SEO metadata from a commerce `jsonLD` data source (a resolved
+ * ProductListingPage / ProductDetailsPage), mirroring the deco-cx
+ * `commerce/sections/Seo/Seo{PLP,PDP}V2.tsx` section loaders.
+ *
+ * Those legacy sections have no component in @decocms/start (the commerce apps
+ * ship loaders/types, not sections), so nothing else runs this transform.
+ * Without it, PLP/PDP pages whose `page.seo` points at those types emit a
+ * <title>/canonical (from top-level override props) but NO schema.org
+ * structured data — the casaevideo.com.br/eletroportateis regression.
+ *
+ * Manual override fields already read into `seo` always win; this only fills
+ * gaps and appends the JSON-LD. The caller guards on `seo.jsonLDs` so a real
+ * site SEO section that already computed structured data is never touched.
+ */
+function deriveCommerceSeoFromJsonLD(seo: PageSeo, props: Record<string, unknown>): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jsonLD = props.jsonLD as Record<string, any> | undefined;
+  if (!jsonLD) return;
+  const type = jsonLD["@type"];
+  if (type !== "ProductListingPage" && type !== "ProductDetailsPage") return;
+
+  const jsonLDSeo = jsonLD.seo as
+    | { title?: string; description?: string; canonical?: string; noIndexing?: boolean }
+    | null
+    | undefined;
+
+  if (!seo.title && jsonLDSeo?.title) seo.title = jsonLDSeo.title;
+  if (!seo.description && jsonLDSeo?.description) seo.description = jsonLDSeo.description;
+  if (!seo.canonical) {
+    seo.canonical =
+      jsonLDSeo?.canonical ||
+      canonicalFromBreadcrumb(
+        type === "ProductListingPage" ? jsonLD.breadcrumb : jsonLD.breadcrumbList,
+      );
+  }
+  if (type === "ProductDetailsPage" && !seo.image) {
+    seo.image = jsonLD.product?.image?.[0]?.url;
+  }
+
+  const isEmpty =
+    type === "ProductListingPage"
+      ? !Array.isArray(jsonLD.products) || jsonLD.products.length === 0
+      : !jsonLD.product;
+  if (seo.noIndexing === undefined) {
+    seo.noIndexing = isEmpty || jsonLDSeo?.noIndexing || false;
+  }
+
+  // Structured data — opt out via `ignoreStructuredData` (top-level on PDP,
+  // under `configJsonLD` on PLP). An empty page contributes no ItemList.
+  const configJsonLD = props.configJsonLD as
+    | { ignoreStructuredData?: boolean; removeVideos?: boolean }
+    | undefined;
+  const ignore =
+    props.ignoreStructuredData === true || configJsonLD?.ignoreStructuredData === true;
+  if (ignore || isEmpty) return;
+
+  seo.jsonLDs = [
+    pruneCommerceJsonLD(jsonLD, {
+      removeVideos: configJsonLD?.removeVideos === true,
+      omitVariants: props.omitVariants === true,
+    }),
+  ];
+}
+
+/**
  * Pick standard SEO fields from a props object.
  * Works for both framework SEO types (SeoV2) and site SEO sections (SEOPDP).
  */
@@ -1709,6 +1813,10 @@ export function extractSeoFromProps(props: Record<string, unknown>): PageSeo {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     seo.jsonLDs = props.jsonLDs as Record<string, any>[];
   }
+  // Legacy commerce PLP/PDP sections carry a `jsonLD` data source with no
+  // component to turn it into structured data — derive it here (only when a
+  // real SEO section hasn't already emitted `jsonLDs`).
+  if (!seo.jsonLDs) deriveCommerceSeoFromJsonLD(seo, props);
   return seo;
 }
 

@@ -833,6 +833,88 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
   };
   extraAnyOf.push({ $ref: `#/definitions/${seoV2Key}` });
 
+  // --- commerce/sections/Seo/SeoPLPV2.tsx ---
+  // Product-listing SEO. Its schema is synthesized here (like the website Seo
+  // sections) because the commerce apps ship loaders/types, not sections — so
+  // there is no manifest to emit these props from. The Studio's SEO editor
+  // already knows this type as its "plp" mode (see seo-form-mode.ts); it just
+  // needs the props schema to render the override fields. `jsonLD` is the
+  // data-source block-ref set once when the page is created; it round-trips via
+  // the form (kept `hide`) rather than being re-picked in the SEO panel.
+  //
+  // NOT pushed to `extraAnyOf`: unlike the website Seo sections these are legacy
+  // deco-cx types with no component in start, so we only register the def +
+  // manifest block (enough for the SEO editor to resolve a schema for pages
+  // already on these types) without offering them as a new pickable section on
+  // every — including non-commerce — site.
+  const SEO_PLP_V2_TYPE = "commerce/sections/Seo/SeoPLPV2.tsx";
+  const seoPlpV2Key = toBase64(SEO_PLP_V2_TYPE);
+  definitions[seoPlpV2Key] = {
+    title: SEO_PLP_V2_TYPE,
+    type: "object",
+    required: ["__resolveType"],
+    properties: {
+      __resolveType: {
+        type: "string",
+        enum: [SEO_PLP_V2_TYPE],
+        default: SEO_PLP_V2_TYPE,
+      },
+      jsonLD: {
+        type: "object",
+        title: "Data Source",
+        additionalProperties: true,
+        hide: true,
+      },
+      title: { type: "string", title: "Title Override" },
+      description: { type: "string", title: "Description Override" },
+      noIndexing: { type: "boolean", title: "Disable indexing" },
+      configJsonLD: {
+        type: "object",
+        title: "Structured Data",
+        properties: {
+          removeVideos: { type: "boolean", title: "Remove videos" },
+          ignoreStructuredData: { type: "boolean", title: "Ignore Structured Data" },
+        },
+      },
+    },
+  };
+  manifestBlocks[SEO_PLP_V2_TYPE] = {
+    $ref: `#/definitions/${seoPlpV2Key}`,
+    namespace: "commerce",
+  };
+
+  // --- commerce/sections/Seo/SeoPDPV2.tsx ---
+  // Product-details SEO. Studio "pdp" mode counterpart of the PLP section above.
+  const SEO_PDP_V2_TYPE = "commerce/sections/Seo/SeoPDPV2.tsx";
+  const seoPdpV2Key = toBase64(SEO_PDP_V2_TYPE);
+  definitions[seoPdpV2Key] = {
+    title: SEO_PDP_V2_TYPE,
+    type: "object",
+    required: ["__resolveType"],
+    properties: {
+      __resolveType: {
+        type: "string",
+        enum: [SEO_PDP_V2_TYPE],
+        default: SEO_PDP_V2_TYPE,
+      },
+      jsonLD: {
+        type: "object",
+        title: "Data Source",
+        additionalProperties: true,
+        hide: true,
+      },
+      omitVariants: { type: "boolean", title: "Omit variants" },
+      title: { type: "string", title: "Title Override" },
+      description: { type: "string", title: "Description Override" },
+      noIndexing: { type: "boolean", title: "Disable indexing" },
+      ignoreStructuredData: { type: "boolean", title: "Ignore Structured Data" },
+    },
+  };
+  manifestBlocks[SEO_PDP_V2_TYPE] = {
+    $ref: `#/definitions/${seoPdpV2Key}`,
+    namespace: "commerce",
+  };
+
   // --- website/flags/multivariate/section.ts ---
   const MV_SECTION_TYPE = "website/flags/multivariate/section.ts";
   const mvSectionKey = toBase64(MV_SECTION_TYPE);
