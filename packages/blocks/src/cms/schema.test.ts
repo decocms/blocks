@@ -271,19 +271,33 @@ describe("commerce SEO section schemas", () => {
     expect(props.jsonLD.hide).toBe(true);
   });
 
-  it("registers the sections so existing pages resolve, without polluting the picker", () => {
+  it("always registers the defs + manifest blocks so existing pages resolve", () => {
     const meta = composeMeta(emptySiteMeta());
     for (const key of [
       "commerce/sections/Seo/SeoPLPV2.tsx",
       "commerce/sections/Seo/SeoPDPV2.tsx",
     ]) {
-      // Registered as a manifest block + def → the SEO editor can resolve a
-      // schema for a page already on this type.
       expect(meta.manifest.blocks.sections).toHaveProperty(key);
       expect(meta.schema.definitions).toHaveProperty(b64(key));
-      // But deliberately NOT offered as a new pickable section everywhere
-      // (legacy commerce types have no component in start).
-      expect(meta.schema.root.sections.anyOf).not.toContainEqual(b64Ref(key));
+    }
+  });
+
+  it("offers them as page.seo options only on a commerce site", () => {
+    // "commerce site" = product-list loaders registered (the signal
+    // buildFrameworkSections gates the picker on). The key must match
+    // inferLoaderTags so it is tagged "product-list".
+    registerAppSchemas({
+      namespace: "vtex",
+      loaders: {
+        "vtex/loaders/test/ProductListForSeoPicker.ts": { type: "object", properties: {} },
+      },
+    });
+    const meta = composeMeta(emptySiteMeta());
+    for (const key of [
+      "commerce/sections/Seo/SeoPLPV2.tsx",
+      "commerce/sections/Seo/SeoPDPV2.tsx",
+    ]) {
+      expect(meta.schema.root.sections.anyOf).toContainEqual(b64Ref(key));
     }
   });
 });
