@@ -60,6 +60,7 @@ export {
   getAsyncRenderingConfig,
   getDeferredRawProps,
   isBot,
+  isEagerRequest,
   isSeoSection,
   onBeforeResolve,
   reExtractRawProps,

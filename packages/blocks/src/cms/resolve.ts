@@ -127,17 +127,25 @@ export interface AsyncRenderingConfig {
   /** Section component keys that must always be rendered eagerly. */
   alwaysEager: Set<string>;
   /**
-   * Bot-aware page SEO. When true, the page-level `seo` block's
-   * commerce-loader-backed props (e.g. `jsonLD: { __resolveType: "PLP Loader" }`)
-   * are SKIPPED for human (non-bot) requests — so SSR doesn't run the heavy
-   * upstream fetch and the product payload never reaches the human HTML. Bots
-   * still get the full SEO (JSON-LD) for indexing.
+   * Site-wide bot-aware page SEO shortcut. When true, the page-level `seo`
+   * block's commerce-loader-backed props (e.g. `jsonLD: { __resolveType: "PLP
+   * Loader" }`) are SKIPPED for human (non-bot) requests — so SSR doesn't run
+   * the heavy upstream fetch and the product payload never reaches the human
+   * HTML. Bots still get the full SEO (JSON-LD) for indexing.
+   *
+   * This is a blanket, developer-set shortcut. The PRIMARY, client-facing lever
+   * is the per-section `ignoreStructuredData` toggle in the admin (on the PLP/PDP
+   * SEO section): it drives the exact same fetch-skip + bot-aware JSON-LD, but
+   * per section and without a code change. This flag simply turns the behavior
+   * on for every commerce-backed SEO block at once.
    *
    * OFF by default: the optimization removes the commerce data a human `<title>`
-   * may derive from, so it is only safe once the site provides a lightweight
-   * title fallback (e.g. a cheap category-metadata loader). Sites that just bump
-   * the framework keep the previous behavior (full SEO for everyone) and are not
-   * regressed. Opt in with `setAsyncRenderingConfig({ botAwareSeo: true })`.
+   * may derive from, so a blanket opt-in is only safe once the site provides a
+   * lightweight title fallback (e.g. a cheap category-metadata loader). Sites
+   * that just bump the framework keep the previous behavior (full SEO for
+   * everyone) and are not regressed. Opt in with
+   * `setAsyncRenderingConfig({ botAwareSeo: true })`, or leave it off and let
+   * editors flip `ignoreStructuredData` per section.
    * @default false
    */
   botAwareSeo: boolean;
@@ -1124,18 +1132,21 @@ export async function resolvePageSeoBlock(
 ): Promise<ResolvedSection | null> {
   if (!seoBlock || typeof seoBlock !== "object") return null;
 
-  // Bot-aware SEO is OPT-IN (`setAsyncRenderingConfig({ botAwareSeo: true })`).
-  // When disabled (default), resolve the SEO block fully for EVERYONE — the
-  // previous behavior — so sites that bump the framework without a lightweight
-  // title fallback are not regressed to a generic `<title>`.
-  //
-  // When enabled: crawlers get the SEO block fully resolved (e.g. a
+  // Bot-aware SEO: crawlers get the SEO block fully resolved (e.g. a
   // ProductListingPage for JSON-LD ItemList) — that content exists for indexing;
-  // humans get only the lightweight metadata — SEO props backed by a commerce
-  // loader are skipped (see `stripCommerceLoaderProps`) so SSR doesn't block on
-  // the heavy upstream call and the bulky payload never reaches the human HTML.
-  const botAwareSeo = getAsyncConfig()?.botAwareSeo ?? false;
-  const seoForBot = !botAwareSeo || isEagerRequest(rctx.matcherCtx);
+  // humans get only the lightweight metadata, with SEO props backed by a commerce
+  // loader skipped (see `stripCommerceLoaderProps`) so SSR doesn't block on the
+  // heavy upstream call and the bulky payload never reaches the human HTML.
+  //
+  // The skip is driven per-section by the editor's `ignoreStructuredData` toggle
+  // (the primary, client-facing lever — see `sectionIgnoresStructuredData`), OR
+  // site-wide by the legacy `setAsyncRenderingConfig({ botAwareSeo: true })`
+  // shortcut. When neither is set, resolve fully for EVERYONE (the previous
+  // default) so sites without a lightweight title fallback are not regressed to
+  // a generic `<title>`. The final decision is made at the terminal section
+  // below, where the section's raw props are known.
+  const isEagerReq = isEagerRequest(rctx.matcherCtx);
+  const globalBotAware = getAsyncConfig()?.botAwareSeo ?? false;
 
   const blocks = loadBlocks();
   let current = seoBlock;
@@ -1195,7 +1206,11 @@ export async function resolvePageSeoBlock(
     // (e.g. `jsonLD: { __resolveType: "PLP Loader" }`). This avoids the heavy
     // SSR fetch and keeps the product payload out of the human HTML. Bots keep
     // the full props so JSON-LD/rich metadata is still emitted for indexing.
-    const propsToResolve = seoForBot ? rawProps : stripCommerceLoaderProps(rawProps);
+    // Skip only when the editor turned on `ignoreStructuredData` for this
+    // section, or the site-wide `botAwareSeo` shortcut is enabled.
+    const skipCommerceForHuman =
+      !isEagerReq && (globalBotAware || sectionIgnoresStructuredData(rawProps));
+    const propsToResolve = skipCommerceForHuman ? stripCommerceLoaderProps(rawProps) : rawProps;
     try {
       const resolvedProps = await resolveProps(propsToResolve, rctx);
       return {
@@ -1264,6 +1279,21 @@ function resolvesToCommerceLoader(value: unknown, depth = 0): boolean {
  * serialized into the HTML. Lightweight literal props (title, description,
  * canonical, …) are preserved.
  */
+/**
+ * True when a commerce SEO section's raw (pre-resolution) props carry the
+ * editor's "Ignore Structured Data" toggle. This is the primary, client-facing
+ * lever for bot-aware SEO: with it on, humans skip the heavy commerce fetch and
+ * receive no JSON-LD, while crawlers still get the full structured data.
+ *
+ * Two shapes, mirroring the Studio schema: top-level `ignoreStructuredData` on
+ * the PDP section, and nested under `configJsonLD` on the PLP section.
+ */
+function sectionIgnoresStructuredData(rawProps: Record<string, unknown>): boolean {
+  if (rawProps.ignoreStructuredData === true) return true;
+  const configJsonLD = rawProps.configJsonLD as { ignoreStructuredData?: boolean } | undefined;
+  return configJsonLD?.ignoreStructuredData === true;
+}
+
 function stripCommerceLoaderProps(
   rawProps: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -1747,7 +1777,11 @@ function pruneCommerceJsonLD(
  * gaps and appends the JSON-LD. The caller guards on `seo.jsonLDs` so a real
  * site SEO section that already computed structured data is never touched.
  */
-function deriveCommerceSeoFromJsonLD(seo: PageSeo, props: Record<string, unknown>): void {
+function deriveCommerceSeoFromJsonLD(
+  seo: PageSeo,
+  props: Record<string, unknown>,
+  isEager: boolean,
+): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const jsonLD = props.jsonLD as Record<string, any> | undefined;
   if (!jsonLD) return;
@@ -1781,13 +1815,16 @@ function deriveCommerceSeoFromJsonLD(seo: PageSeo, props: Record<string, unknown
   }
 
   // Structured data — opt out via `ignoreStructuredData` (top-level on PDP,
-  // under `configJsonLD` on PLP). An empty page contributes no ItemList.
+  // under `configJsonLD` on PLP). Bot-aware: the toggle suppresses JSON-LD for
+  // humans only; crawlers (and the `?__deco_ssr=1` audit override) still get it
+  // so indexing/rich results are unaffected. An empty page contributes no
+  // ItemList regardless.
   const configJsonLD = props.configJsonLD as
     | { ignoreStructuredData?: boolean; removeVideos?: boolean }
     | undefined;
   const ignore =
     props.ignoreStructuredData === true || configJsonLD?.ignoreStructuredData === true;
-  if (ignore || isEmpty) return;
+  if ((ignore && !isEager) || isEmpty) return;
 
   seo.jsonLDs = [
     pruneCommerceJsonLD(jsonLD, {
@@ -1801,7 +1838,11 @@ function deriveCommerceSeoFromJsonLD(seo: PageSeo, props: Record<string, unknown
  * Pick standard SEO fields from a props object.
  * Works for both framework SEO types (SeoV2) and site SEO sections (SEOPDP).
  */
-export function extractSeoFromProps(props: Record<string, unknown>): PageSeo {
+export function extractSeoFromProps(
+  props: Record<string, unknown>,
+  opts?: { isEager?: boolean },
+): PageSeo {
+  const isEager = opts?.isEager ?? false;
   const seo: PageSeo = {};
   if (props.title) seo.title = props.title as string;
   if (props.description) seo.description = props.description as string;
@@ -1816,7 +1857,7 @@ export function extractSeoFromProps(props: Record<string, unknown>): PageSeo {
   // Legacy commerce PLP/PDP sections carry a `jsonLD` data source with no
   // component to turn it into structured data — derive it here (only when a
   // real SEO section hasn't already emitted `jsonLDs`).
-  if (!seo.jsonLDs) deriveCommerceSeoFromJsonLD(seo, props);
+  if (!seo.jsonLDs) deriveCommerceSeoFromJsonLD(seo, props, isEager);
   return seo;
 }
 
@@ -1825,11 +1866,14 @@ export function extractSeoFromProps(props: Record<string, unknown>): PageSeo {
  * `registerSeoSections`. Later sections override earlier ones
  * (e.g., a PDP SEO section overrides a generic page SEO).
  */
-export function extractSeoFromSections(sections: ResolvedSection[]): PageSeo {
+export function extractSeoFromSections(
+  sections: ResolvedSection[],
+  opts?: { isEager?: boolean },
+): PageSeo {
   const seo: PageSeo = {};
   for (const section of sections) {
     if (!seoSectionKeys.has(section.component)) continue;
-    const extracted = extractSeoFromProps(section.props);
+    const extracted = extractSeoFromProps(section.props, opts);
     if (extracted.jsonLDs) {
       extracted.jsonLDs = [...(seo.jsonLDs ?? []), ...extracted.jsonLDs];
     }

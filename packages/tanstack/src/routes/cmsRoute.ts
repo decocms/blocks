@@ -33,6 +33,7 @@ import {
   getDeferredRawProps,
   getDegradedSections,
   getSiteSeo,
+  isEagerRequest,
   preloadSectionComponents,
   reExtractRawProps,
   resolveDecoPage,
@@ -222,7 +223,12 @@ async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
   const device = detectDevice(ua);
 
   // Build SEO: merge page-level seo block (primary) with section-contributed SEO (secondary)
-  const seo = buildPageSeo(page.seoSection, enrichedSeoSection, mergedSections);
+  const seo = buildPageSeo(
+    page.seoSection,
+    enrichedSeoSection,
+    mergedSections,
+    isEagerRequest(matcherCtx),
+  );
 
   // Destructure seoSection out — it's an internal artifact, not serialized to client
   const { seoSection: _seo, ...pageData } = page;
@@ -338,7 +344,12 @@ export const loadCmsHomePage = createServerFn({ method: "GET" })
     await preloadSectionComponents(eagerKeys);
 
     const device = detectDevice(ua);
-    const seo = buildPageSeo(page.seoSection, enrichedSeoSection, mergedSections);
+    const seo = buildPageSeo(
+      page.seoSection,
+      enrichedSeoSection,
+      mergedSections,
+      isEagerRequest(matcherCtx),
+    );
 
     const { seoSection: _seo, ...pageData } = page;
 
@@ -610,9 +621,12 @@ function buildPageSeo(
   seoSection: ResolvedSection | null | undefined,
   enrichedSeoSection: ResolvedSection | null | undefined,
   enrichedSections: ResolvedSection[],
+  isEager: boolean,
 ): PageSeo {
-  // Secondary source: SEO sections embedded in the sections array
-  const sectionSeo = extractSeoFromSections(enrichedSections);
+  // Secondary source: SEO sections embedded in the sections array.
+  // `isEager` keeps structured-data suppression bot-aware: humans skip the
+  // JSON-LD when `ignoreStructuredData` is on; crawlers still get it.
+  const sectionSeo = extractSeoFromSections(enrichedSections, { isEager });
 
   // Site-wide SEO config from the "Site" app block — mirrors ctx.seo in
   // the original deco-cx/deco framework. Provides fallback title,
@@ -647,7 +661,7 @@ function buildPageSeo(
   // somehow dropped it — same "use the raw resolved props" resilience the
   // old inline try/catch had around the loader call.
   const enrichedProps = (enrichedSeoSection ?? seoSection).props;
-  const pageSeo = extractSeoFromProps(enrichedProps);
+  const pageSeo = extractSeoFromProps(enrichedProps, { isEager });
 
   // Replicate original SeoV2 loader logic: `_title ?? appTitle`
   // When the page's seo block doesn't have a title/description,

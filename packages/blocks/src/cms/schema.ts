@@ -874,7 +874,12 @@ function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
         title: "Structured Data",
         properties: {
           removeVideos: { type: "boolean", title: "Remove videos" },
-          ignoreStructuredData: { type: "boolean", title: "Ignore Structured Data" },
+          ignoreStructuredData: {
+            type: "boolean",
+            title: "Ignore Structured Data",
+            description:
+              "By default, Structured Data (JSON-LD) is sent to everyone. Turn this on to skip it for regular visitors — the product fetch is also skipped, so the page loads faster — while crawlers and bots still receive the full Structured Data. Some integrations may rely on it being present for all users.",
+          },
         },
       },
     },
@@ -904,7 +909,12 @@ function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
       title: { type: "string", title: "Title Override" },
       description: { type: "string", title: "Description Override" },
       noIndexing: { type: "boolean", title: "Disable indexing" },
-      ignoreStructuredData: { type: "boolean", title: "Ignore Structured Data" },
+      ignoreStructuredData: {
+        type: "boolean",
+        title: "Ignore Structured Data",
+        description:
+          "By default, Structured Data (JSON-LD) is sent to everyone. Turn this on to skip it for regular visitors — the product fetch is also skipped, so the page loads faster — while crawlers and bots still receive the full Structured Data. Some integrations may rely on it being present for all users.",
+      },
     },
   };
   manifestBlocks[SEO_PDP_V2_TYPE] = {

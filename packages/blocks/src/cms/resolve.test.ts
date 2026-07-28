@@ -623,6 +623,104 @@ describe("resolvePageSeoBlock — bot-aware commerce SEO", () => {
   });
 });
 
+describe("resolvePageSeoBlock — per-section ignoreStructuredData drives the fetch-skip", () => {
+  const KEY = "site/loaders/__test/plpSeoLoader";
+  const HUMAN_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
+  const BOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+
+  // PLP toggle lives under `configJsonLD`; PDP toggle is top-level.
+  const plpBlock = {
+    __resolveType: "commerce/sections/Seo/SeoPLPV2.tsx",
+    title: "Escolar",
+    jsonLD: { __resolveType: KEY },
+    configJsonLD: { ignoreStructuredData: true },
+  };
+  const pdpBlock = {
+    __resolveType: "commerce/sections/Seo/SeoPDPV2.tsx",
+    title: "Produto",
+    jsonLD: { __resolveType: KEY },
+    ignoreStructuredData: true,
+  };
+
+  const rctx = (userAgent?: string) =>
+    ({
+      matcherCtx: { userAgent, url: "https://store.com/escolar", path: "/escolar" },
+      memo: new Map(),
+      depth: 0,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any;
+
+  beforeEach(() => {
+    clearCommerceLoaders();
+    // The per-section toggle is the PRIMARY lever — it must work with the
+    // site-wide botAwareSeo shortcut OFF.
+    setAsyncRenderingConfig({ botAwareSeo: false });
+  });
+  afterEach(() => {
+    clearCommerceLoaders();
+    setAsyncRenderingConfig({ botAwareSeo: false });
+  });
+
+  it("humans: toggle skips the commerce loader (PLP configJsonLD)", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { seo: { title: "Rich SEO title" }, products: [{ id: 1 }] };
+    });
+
+    const res = await resolvePageSeoBlock(plpBlock, rctx(HUMAN_UA));
+
+    expect(calls).toBe(0); // no product fetch for humans
+    expect(res?.props).toHaveProperty("title", "Escolar");
+    expect(res?.props).not.toHaveProperty("jsonLD");
+  });
+
+  it("bots: toggle still resolves the commerce loader (PLP configJsonLD)", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { seo: { title: "Rich SEO title" }, products: [{ id: 1 }] };
+    });
+
+    const res = await resolvePageSeoBlock(plpBlock, rctx(BOT_UA));
+
+    expect(calls).toBe(1);
+    expect(res?.props?.jsonLD).toMatchObject({ seo: { title: "Rich SEO title" } });
+  });
+
+  it("humans: top-level toggle skips the commerce loader (PDP)", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { seo: { title: "Rich SEO title" }, product: { id: 1 } };
+    });
+
+    const res = await resolvePageSeoBlock(pdpBlock, rctx(HUMAN_UA));
+
+    expect(calls).toBe(0);
+    expect(res?.props).not.toHaveProperty("jsonLD");
+  });
+
+  it("toggle OFF: humans keep the full SEO even with botAwareSeo off (no regression)", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { seo: { title: "Rich SEO title" }, products: [{ id: 1 }] };
+    });
+
+    const noToggle = {
+      __resolveType: "commerce/sections/Seo/SeoPLPV2.tsx",
+      title: "Escolar",
+      jsonLD: { __resolveType: KEY },
+    };
+    const res = await resolvePageSeoBlock(noToggle, rctx(HUMAN_UA));
+
+    expect(calls).toBe(1); // no toggle + no global flag → resolve for everyone
+    expect(res?.props?.jsonLD).toMatchObject({ seo: { title: "Rich SEO title" } });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // resolveDecoPage — #277 client-side navigation disables deferral
 // ---------------------------------------------------------------------------
@@ -645,6 +743,20 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     },
     products: [{ "@type": "Product", name: "P1" }],
     seo: { title: "PLP Title", description: "PLP Desc" },
+    ...overrides,
+  });
+
+  const pdp = (overrides: Record<string, unknown> = {}) => ({
+    "@type": "ProductDetailsPage",
+    breadcrumbList: {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, item: "https://x.com/a" },
+        { "@type": "ListItem", position: 2, item: "https://x.com/a/p" },
+      ],
+    },
+    product: { "@type": "Product", name: "P1", image: [{ url: "https://x.com/p.jpg" }] },
+    seo: { title: "PDP Title", description: "PDP Desc" },
     ...overrides,
   });
 
@@ -695,7 +807,7 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     expect(seo.jsonLDs).toHaveLength(1);
   });
 
-  it("omits structured data when ignoreStructuredData is set", () => {
+  it("omits structured data for humans when ignoreStructuredData is set", () => {
     const seo = extractSeoFromProps({
       jsonLD: plp(),
       configJsonLD: { ignoreStructuredData: true },
@@ -703,6 +815,35 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     expect(seo.jsonLDs).toBeUndefined();
     // Metadata is still derived — only the ItemList is suppressed.
     expect(seo.title).toBe("PLP Title");
+  });
+
+  it("keeps structured data for bots even when ignoreStructuredData is set", () => {
+    // Bot-aware: the toggle suppresses JSON-LD for humans only. Crawlers (and the
+    // `?__deco_ssr=1` audit override, both surfaced via isEager) still get it.
+    const seo = extractSeoFromProps(
+      { jsonLD: plp(), configJsonLD: { ignoreStructuredData: true } },
+      { isEager: true },
+    );
+    expect(seo.jsonLDs).toHaveLength(1);
+    expect(seo.title).toBe("PLP Title");
+  });
+
+  it("omits structured data for bots too when the listing is empty", () => {
+    // ignoreStructuredData is bot-aware, but an empty listing contributes no
+    // ItemList regardless of bot status.
+    const seo = extractSeoFromProps(
+      { jsonLD: plp({ products: [] }), configJsonLD: { ignoreStructuredData: true } },
+      { isEager: true },
+    );
+    expect(seo.jsonLDs).toBeUndefined();
+  });
+
+  it("keeps PDP structured data for bots with top-level ignoreStructuredData", () => {
+    const seo = extractSeoFromProps(
+      { jsonLD: pdp(), ignoreStructuredData: true },
+      { isEager: true },
+    );
+    expect(seo.jsonLDs).toHaveLength(1);
   });
 
   it("marks an empty listing noIndexing and emits no ItemList", () => {
