@@ -1273,27 +1273,30 @@ function resolvesToCommerceLoader(value: unknown, depth = 0): boolean {
 }
 
 /**
+ * True when a commerce SEO section's props carry the editor's "Ignore Structured
+ * Data" toggle. This is the primary, client-facing lever for bot-aware SEO: with
+ * it on, humans receive no JSON-LD (and, on the page's SEO block, skip the heavy
+ * commerce fetch) while crawlers still get the full structured data.
+ *
+ * Two shapes, mirroring the Studio schema: top-level `ignoreStructuredData` on
+ * the PDP section, and nested under `configJsonLD` on the PLP section. Shared by
+ * the fetch-skip path (`resolvePageSeoBlock`, pre-resolution) and the
+ * output-strip path (`deriveCommerceSeoFromJsonLD`, post-resolution) so the two
+ * decisions can never read the toggle differently.
+ */
+function sectionIgnoresStructuredData(props: Record<string, unknown>): boolean {
+  if (props.ignoreStructuredData === true) return true;
+  const configJsonLD = props.configJsonLD as { ignoreStructuredData?: boolean } | undefined;
+  return configJsonLD?.ignoreStructuredData === true;
+}
+
+/**
  * Return a copy of `rawProps` with every top-level field that resolves to a
  * commerce loader removed. Applied to page SEO props for human (non-bot)
  * requests so the heavy commerce fetch is skipped and its payload is never
  * serialized into the HTML. Lightweight literal props (title, description,
  * canonical, …) are preserved.
  */
-/**
- * True when a commerce SEO section's raw (pre-resolution) props carry the
- * editor's "Ignore Structured Data" toggle. This is the primary, client-facing
- * lever for bot-aware SEO: with it on, humans skip the heavy commerce fetch and
- * receive no JSON-LD, while crawlers still get the full structured data.
- *
- * Two shapes, mirroring the Studio schema: top-level `ignoreStructuredData` on
- * the PDP section, and nested under `configJsonLD` on the PLP section.
- */
-function sectionIgnoresStructuredData(rawProps: Record<string, unknown>): boolean {
-  if (rawProps.ignoreStructuredData === true) return true;
-  const configJsonLD = rawProps.configJsonLD as { ignoreStructuredData?: boolean } | undefined;
-  return configJsonLD?.ignoreStructuredData === true;
-}
-
 function stripCommerceLoaderProps(
   rawProps: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -1822,8 +1825,7 @@ function deriveCommerceSeoFromJsonLD(
   const configJsonLD = props.configJsonLD as
     | { ignoreStructuredData?: boolean; removeVideos?: boolean }
     | undefined;
-  const ignore =
-    props.ignoreStructuredData === true || configJsonLD?.ignoreStructuredData === true;
+  const ignore = sectionIgnoresStructuredData(props);
   if ((ignore && !isEager) || isEmpty) return;
 
   seo.jsonLDs = [

@@ -731,6 +731,15 @@ function buildPageSchema(sectionAnyOf: any[]) {
 // Framework sections
 // ---------------------------------------------------------------------------
 
+// Merchant-facing help for the per-section `ignoreStructuredData` toggle, shared
+// by the PLP (`configJsonLD`) and PDP (top-level) SEO sections. The fetch-skip is
+// deliberately scoped to "the page's SEO source" — it only fires when this block
+// is wired as the page's SEO (`page.seo`), not when the section is dropped inline
+// in the sections array (there the commerce loader still runs; only the JSON-LD
+// output is omitted for visitors).
+const IGNORE_STRUCTURED_DATA_DESCRIPTION =
+  "By default, Structured Data (JSON-LD) is sent to everyone. Turn this on to omit it for regular visitors while crawlers and bots still receive the full Structured Data. When this block is the page's SEO source, the product fetch is also skipped for visitors, so the page loads faster. Some integrations may rely on Structured Data being present for all users.";
+
 function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
   const definitions: Record<string, any> = {};
   const manifestBlocks: Record<string, any> = {};
@@ -877,8 +886,7 @@ function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
           ignoreStructuredData: {
             type: "boolean",
             title: "Ignore Structured Data",
-            description:
-              "By default, Structured Data (JSON-LD) is sent to everyone. Turn this on to skip it for regular visitors — the product fetch is also skipped, so the page loads faster — while crawlers and bots still receive the full Structured Data. Some integrations may rely on it being present for all users.",
+            description: IGNORE_STRUCTURED_DATA_DESCRIPTION,
           },
         },
       },
@@ -912,8 +920,7 @@ function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
       ignoreStructuredData: {
         type: "boolean",
         title: "Ignore Structured Data",
-        description:
-          "By default, Structured Data (JSON-LD) is sent to everyone. Turn this on to skip it for regular visitors — the product fetch is also skipped, so the page loads faster — while crawlers and bots still receive the full Structured Data. Some integrations may rely on it being present for all users.",
+        description: IGNORE_STRUCTURED_DATA_DESCRIPTION,
       },
     },
   };
