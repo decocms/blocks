@@ -731,7 +731,7 @@ function buildPageSchema(sectionAnyOf: any[]) {
 // Framework sections
 // ---------------------------------------------------------------------------
 
-function buildFrameworkSections(sectionAnyOf: any[]) {
+function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
   const definitions: Record<string, any> = {};
   const manifestBlocks: Record<string, any> = {};
   const extraAnyOf: any[] = [];
@@ -839,8 +839,12 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
   // there is no manifest to emit these props from. The Studio's SEO editor
   // already knows this type as its "plp" mode (see seo-form-mode.ts); it just
   // needs the props schema to render the override fields. `jsonLD` is the
-  // data-source block-ref set once when the page is created; it round-trips via
-  // the form (kept `hide`) rather than being re-picked in the SEO panel.
+  // data-source loader picker (mirrors deco-cx's `@title Data Source`) — an
+  // inline anyOf over the loader union so the editor lets you pick the PLP/PDP
+  // loader that feeds the structured data. Inlined (a fresh copy) rather than a
+  // `$ref: "#/root/loaders"` because the Studio drops the prop-level title when
+  // resolving a `$ref` union, which would lose the "Data Source" label; the
+  // copy also avoids sharing one array instance across the two defs + root.
   //
   // Added to `extraAnyOf` (offered as a selectable page.seo type) unconditionally,
   // like the website Seo sections above. Gating this on "is a commerce site" via
@@ -861,12 +865,7 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
         enum: [SEO_PLP_V2_TYPE],
         default: SEO_PLP_V2_TYPE,
       },
-      jsonLD: {
-        type: "object",
-        title: "Data Source",
-        additionalProperties: true,
-        hide: true,
-      },
+      jsonLD: { title: "Data Source", anyOf: [...loaderUnion] },
       title: { type: "string", title: "Title Override" },
       description: { type: "string", title: "Description Override" },
       noIndexing: { type: "boolean", title: "Disable indexing" },
@@ -900,12 +899,7 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
         enum: [SEO_PDP_V2_TYPE],
         default: SEO_PDP_V2_TYPE,
       },
-      jsonLD: {
-        type: "object",
-        title: "Data Source",
-        additionalProperties: true,
-        hide: true,
-      },
+      jsonLD: { title: "Data Source", anyOf: [...loaderUnion] },
       omitVariants: { type: "boolean", title: "Omit variants" },
       title: { type: "string", title: "Title Override" },
       description: { type: "string", title: "Description Override" },
@@ -1109,11 +1103,36 @@ export function composeMeta(
 
   const siteAnyOf = siteMeta.schema?.root?.sections?.anyOf || [];
 
-  // Build all framework components
-  const fwSections = buildFrameworkSections(siteAnyOf);
+  // Build all framework components. Loaders first: the commerce SEO sections'
+  // `jsonLD` data-source picker references the loader union, and that union must
+  // include the site's OWN loaders. The runtime registry (loaderRegistry) is
+  // empty at generation time, so `buildLoaderDefinitions` alone yields just
+  // `Resolvable` — merge in the site's own loaders so loader-backed pickers have
+  // real options in the baked meta, not only at runtime.
+  //
+  // Seed from the site's loader UNION (`schema.root.loaders.anyOf`), NOT
+  // `manifest.blocks.loaders`: the generator keeps `@ignore`d loaders in the
+  // manifest (they still need a def) while withholding them from the union so
+  // they can't be picked — reading the manifest would resurrect them. This
+  // source is also already `{ $ref }`-shaped and only points at defs that exist
+  // (no dangling refs).
+  //
+  // TODO: `root.matchers`/`root.actions` have the same empty-union-at-gen-time
+  // gap; only loaders are merged here (commerce SEO scope). Generalize if a
+  // matcher/action picker ever needs baked options.
+  const loaders = buildLoaderDefinitions();
+  const siteLoaderRefs = (siteMeta.schema?.root?.loaders?.anyOf ?? []).filter(
+    (ref: any): ref is { $ref: string } => Boolean(ref) && typeof ref.$ref === "string",
+  );
+  const seenLoaderRefs = new Set<string>(loaders.loaderAnyOf.map((r: any) => r.$ref));
+  const loaderUnion = [
+    ...loaders.loaderAnyOf,
+    ...siteLoaderRefs.filter((r) => !seenLoaderRefs.has(r.$ref)),
+  ];
+
+  const fwSections = buildFrameworkSections(siteAnyOf, loaderUnion);
   const fullSectionAnyOf = [...siteAnyOf, ...fwSections.extraAnyOf];
   const page = buildPageSchema(fullSectionAnyOf);
-  const loaders = buildLoaderDefinitions();
   const actions = buildActionDefinitions();
   const matchers = buildMatcherDefinitions();
 
@@ -1174,7 +1193,7 @@ export function composeMeta(
         ...(siteMeta.schema?.root || {}),
         sections: { anyOf: fullSectionAnyOf },
         pages: { anyOf: page.rootAnyOf },
-        loaders: { anyOf: loaders.loaderAnyOf },
+        loaders: { anyOf: loaderUnion },
         matchers: { anyOf: matchers.matcherAnyOf },
       },
     },
