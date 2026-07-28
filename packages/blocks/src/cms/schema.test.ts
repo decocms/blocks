@@ -253,9 +253,10 @@ describe("commerce SEO section schemas", () => {
     // PLP-specific structured-data config (see seo-form-mode.ts PLP_SEO_FIELD_KEYS).
     expect(props.configJsonLD.properties).toHaveProperty("removeVideos");
     expect(props.configJsonLD.properties).toHaveProperty("ignoreStructuredData");
-    // The data source is set once at creation and stays hidden in the SEO panel;
-    // it round-trips via the form rather than being re-picked here.
-    expect(props.jsonLD.hide).toBe(true);
+    // The data source is a loader picker (anyOf over the loader union), not
+    // hidden — the user picks the PLP loader that feeds the structured data.
+    expect(Array.isArray(props.jsonLD.anyOf)).toBe(true);
+    expect(props.jsonLD.title).toBe("Data Source");
   });
 
   it("emits editable props for the product-details SEO section (pdp mode)", () => {
@@ -268,7 +269,8 @@ describe("commerce SEO section schemas", () => {
     // PDP-specific fields (see seo-form-mode.ts PDP_SEO_FIELD_KEYS).
     expect(props).toHaveProperty("omitVariants");
     expect(props).toHaveProperty("ignoreStructuredData");
-    expect(props.jsonLD.hide).toBe(true);
+    expect(Array.isArray(props.jsonLD.anyOf)).toBe(true);
+    expect(props.jsonLD.title).toBe("Data Source");
   });
 
   it("registers the defs + manifest blocks and offers them as page.seo options", () => {
@@ -284,6 +286,51 @@ describe("commerce SEO section schemas", () => {
       expect(meta.schema.definitions).toHaveProperty(b64(key));
       expect(meta.schema.root.sections.anyOf).toContainEqual(b64Ref(key));
     }
+  });
+
+  // Mirrors a generated site meta: a loader carries a real def AND is listed in
+  // the site's loader union. `@ignore`d loaders are the exception — they get a
+  // def but are withheld from the union.
+  function siteMetaWithLoader(key: string, opts: { inUnion: boolean }) {
+    const site = emptySiteMeta();
+    site.schema.definitions[b64(key)] = {
+      title: key,
+      type: "object",
+      properties: { __resolveType: { type: "string", enum: [key] } },
+    };
+    site.manifest.blocks.loaders = {
+      [key]: { $ref: `#/definitions/${b64(key)}`, namespace: "site" },
+    };
+    site.schema.root = { loaders: { anyOf: opts.inUnion ? [b64Ref(key)] : [] } };
+    return site;
+  }
+
+  it("feeds the site's own loaders into the jsonLD data-source picker", () => {
+    // The runtime loader registry is empty at generation time, so the union must
+    // be seeded from the site's own loader union — else the picker has no
+    // options and the user can't wire the data source.
+    const loaderKey = "site/loaders/product/productDetailsPage.ts";
+    const meta = composeMeta(siteMetaWithLoader(loaderKey, { inUnion: true }));
+
+    // The picker option is real, not a dangling $ref: its def survives.
+    expect(meta.schema.definitions).toHaveProperty(b64(loaderKey));
+    // …offered in both the root union and the commerce SEO jsonLD picker.
+    expect(meta.schema.root.loaders.anyOf).toContainEqual(b64Ref(loaderKey));
+    const seoDef =
+      meta.schema.definitions[b64("commerce/sections/Seo/SeoPDPV2.tsx")];
+    expect(seoDef.properties.jsonLD.anyOf).toContainEqual(b64Ref(loaderKey));
+  });
+
+  it("keeps @ignore'd loaders (in the manifest, not the union) out of the picker", () => {
+    // Seeding from `manifest.blocks.loaders` would resurrect hidden loaders;
+    // seeding from the union keeps them out.
+    const hiddenKey = "site/loaders/internal/hidden.ts";
+    const meta = composeMeta(siteMetaWithLoader(hiddenKey, { inUnion: false }));
+
+    expect(meta.schema.root.loaders.anyOf).not.toContainEqual(b64Ref(hiddenKey));
+    const seoDef =
+      meta.schema.definitions[b64("commerce/sections/Seo/SeoPDPV2.tsx")];
+    expect(seoDef.properties.jsonLD.anyOf).not.toContainEqual(b64Ref(hiddenKey));
   });
 });
 
