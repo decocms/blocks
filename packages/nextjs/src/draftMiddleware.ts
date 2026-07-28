@@ -41,6 +41,44 @@ export function prepareDraft(request: NextRequest): DraftMiddlewareDecision {
 }
 
 /**
+ * Route prefix a drafted request is rewritten onto.
+ *
+ * Deliberately a `_`-prefixed segment: Next treats those as private folders and
+ * excludes them from routing, so a site cannot accidentally expose it as a real
+ * page — it is reachable only through the middleware rewrite below.
+ */
+export const DRAFT_ROUTE_PREFIX = "/_draft";
+
+/**
+ * Rewrite a drafted request onto the dynamic draft route.
+ *
+ * This exists because `dynamic` / `revalidate` are STATIC route exports: a
+ * statically rendered page cannot become dynamic for one request. Making the
+ * real route dynamic to support drafts would cost every shopper their cached
+ * page, and — worse — a statically rendered draft would be cached and served to
+ * them. Rewriting sends only drafted requests to a route that is dynamic by
+ * construction, leaving ordinary traffic's ISR completely untouched.
+ *
+ * The original path is preserved in the rewritten pathname, so the draft route
+ * can resolve exactly the page the visitor asked for.
+ *
+ * Returns null when this request is not drafted, so callers fall through to
+ * their normal response.
+ */
+export function rewriteToDraftRoute(
+  request: NextRequest,
+  decision: DraftMiddlewareDecision,
+): NextResponse | null {
+  if (!decision.pointer) return null;
+  const url = request.nextUrl.clone();
+  // Already rewritten (Next re-runs middleware on the rewritten URL in some
+  // configurations) — never nest the prefix.
+  if (url.pathname.startsWith(`${DRAFT_ROUTE_PREFIX}/`)) return null;
+  url.pathname = `${DRAFT_ROUTE_PREFIX}${url.pathname}`;
+  return NextResponse.rewrite(url);
+}
+
+/**
  * Apply the cookie and the cache/indexing headers a draft response requires.
  *
  * The caching headers are the difference between a preview and a **leak**.

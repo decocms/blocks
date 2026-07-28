@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { describe, expect, it } from "vitest";
 
 import { DRAFT_COOKIE } from "./draft";
-import { applyDraft, prepareDraft } from "./draftMiddleware";
+import { applyDraft, prepareDraft, rewriteToDraftRoute } from "./draftMiddleware";
 
 function request(url: string, cookie?: string): NextRequest {
   const req = new NextRequest(new URL(url), {
@@ -77,5 +77,41 @@ describe("applyDraft", () => {
     expect(setCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/i);
     // And the response is not treated as a draft render.
     expect(res.headers.get("cache-control")).toBeNull();
+  });
+});
+
+describe("rewriteToDraftRoute", () => {
+  it("rewrites a drafted request onto the dynamic draft route", () => {
+    const req = request("https://site.example/blog/hello?__draft=abc@v1");
+    const res = rewriteToDraftRoute(req, prepareDraft(req));
+    const target = new URL(res?.headers.get("x-middleware-rewrite") ?? "");
+    expect(target.pathname).toBe("/_draft/blog/hello");
+    // The pointer must survive: the draft page reads it from searchParams.
+    expect(target.searchParams.get("__draft")).toBe("abc@v1");
+  });
+
+  it("rewrites a cookie-only navigation too", () => {
+    const req = request("https://site.example/blog/hello", "abc@v1");
+    const res = rewriteToDraftRoute(req, prepareDraft(req));
+    expect(new URL(res?.headers.get("x-middleware-rewrite") ?? "").pathname).toBe(
+      "/_draft/blog/hello",
+    );
+  });
+
+  it("leaves an ordinary request alone — ISR must not be disturbed", () => {
+    // The whole point: only drafted requests go dynamic. A shopper's request
+    // must reach the real, statically rendered route untouched.
+    const req = request("https://site.example/blog/hello");
+    expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
+  });
+
+  it("never nests the prefix when middleware re-runs on the rewritten URL", () => {
+    const req = request("https://site.example/_draft/blog/hello?__draft=abc@v1");
+    expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
+  });
+
+  it("does not rewrite when leaving draft mode", () => {
+    const req = request("https://site.example/blog/hello?__draft=off", "abc@v1");
+    expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
   });
 });

@@ -20,6 +20,12 @@ export {
   selectDraftPointer,
 } from "./draft";
 export {
+  applyDraft,
+  DRAFT_ROUTE_PREFIX,
+  prepareDraft,
+  rewriteToDraftRoute,
+} from "./draftMiddleware";
+export {
   decofileGET,
   decofilePOST,
   invokePOST,
