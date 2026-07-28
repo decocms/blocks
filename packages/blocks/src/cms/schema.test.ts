@@ -271,7 +271,10 @@ describe("commerce SEO section schemas", () => {
     expect(props.jsonLD.hide).toBe(true);
   });
 
-  it("always registers the defs + manifest blocks so existing pages resolve", () => {
+  it("registers the defs + manifest blocks and offers them as page.seo options", () => {
+    // Unconditional (no commerce gate): meta.gen.json is baked at generation
+    // time when the loader registry is empty, and the runtime serves that baked
+    // meta as-is, so a registry-based gate would never bake the options.
     const meta = composeMeta(emptySiteMeta());
     for (const key of [
       "commerce/sections/Seo/SeoPLPV2.tsx",
@@ -279,24 +282,6 @@ describe("commerce SEO section schemas", () => {
     ]) {
       expect(meta.manifest.blocks.sections).toHaveProperty(key);
       expect(meta.schema.definitions).toHaveProperty(b64(key));
-    }
-  });
-
-  it("offers them as page.seo options only on a commerce site", () => {
-    // "commerce site" = product-list loaders registered (the signal
-    // buildFrameworkSections gates the picker on). The key must match
-    // inferLoaderTags so it is tagged "product-list".
-    registerAppSchemas({
-      namespace: "vtex",
-      loaders: {
-        "vtex/loaders/test/ProductListForSeoPicker.ts": { type: "object", properties: {} },
-      },
-    });
-    const meta = composeMeta(emptySiteMeta());
-    for (const key of [
-      "commerce/sections/Seo/SeoPLPV2.tsx",
-      "commerce/sections/Seo/SeoPDPV2.tsx",
-    ]) {
       expect(meta.schema.root.sections.anyOf).toContainEqual(b64Ref(key));
     }
   });

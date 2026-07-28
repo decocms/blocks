@@ -736,12 +736,6 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
   const manifestBlocks: Record<string, any> = {};
   const extraAnyOf: any[] = [];
 
-  // A site is "commerce" when it registered product-list loaders (same signal
-  // wrapResolvableProperties uses). Gates whether the commerce SEO section types
-  // below are offered as pickable page.seo options — a blog site should not see
-  // "Product listing SEO" in the SEO type dropdown.
-  const hasCommerce = getProductListLoaderKeys().length > 0;
-
   // --- website/sections/Rendering/Lazy.tsx ---
   const LAZY_TYPE = "website/sections/Rendering/Lazy.tsx";
   const lazyKey = toBase64(LAZY_TYPE);
@@ -848,10 +842,13 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
   // data-source block-ref set once when the page is created; it round-trips via
   // the form (kept `hide`) rather than being re-picked in the SEO panel.
   //
-  // The def + manifest block are always registered so the SEO editor can resolve
-  // a schema for pages already on these types. They are added to `extraAnyOf`
-  // (offered as a selectable page.seo type) only on commerce sites, so a blog
-  // does not get "Product listing SEO" in its SEO type dropdown.
+  // Added to `extraAnyOf` (offered as a selectable page.seo type) unconditionally,
+  // like the website Seo sections above. Gating this on "is a commerce site" via
+  // the loader registry does NOT work: meta.gen.json is baked at generation time
+  // (blocks-cli), when the registry is empty, and the runtime serves that baked,
+  // already-composed meta as-is (composeMeta is idempotent on it) — so a gate
+  // would drop the options at bake and never re-add them. Non-commerce sites
+  // seeing these two extra options is a minor, acceptable cost.
   const SEO_PLP_V2_TYPE = "commerce/sections/Seo/SeoPLPV2.tsx";
   const seoPlpV2Key = toBase64(SEO_PLP_V2_TYPE);
   definitions[seoPlpV2Key] = {
@@ -887,7 +884,7 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
     $ref: `#/definitions/${seoPlpV2Key}`,
     namespace: "commerce",
   };
-  if (hasCommerce) extraAnyOf.push({ $ref: `#/definitions/${seoPlpV2Key}` });
+  extraAnyOf.push({ $ref: `#/definitions/${seoPlpV2Key}` });
 
   // --- commerce/sections/Seo/SeoPDPV2.tsx ---
   // Product-details SEO. Studio "pdp" mode counterpart of the PLP section above.
@@ -920,7 +917,7 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
     $ref: `#/definitions/${seoPdpV2Key}`,
     namespace: "commerce",
   };
-  if (hasCommerce) extraAnyOf.push({ $ref: `#/definitions/${seoPdpV2Key}` });
+  extraAnyOf.push({ $ref: `#/definitions/${seoPdpV2Key}` });
 
   // --- website/flags/multivariate/section.ts ---
   const MV_SECTION_TYPE = "website/flags/multivariate/section.ts";
