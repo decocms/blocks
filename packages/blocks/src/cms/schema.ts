@@ -736,6 +736,12 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
   const manifestBlocks: Record<string, any> = {};
   const extraAnyOf: any[] = [];
 
+  // A site is "commerce" when it registered product-list loaders (same signal
+  // wrapResolvableProperties uses). Gates whether the commerce SEO section types
+  // below are offered as pickable page.seo options — a blog site should not see
+  // "Product listing SEO" in the SEO type dropdown.
+  const hasCommerce = getProductListLoaderKeys().length > 0;
+
   // --- website/sections/Rendering/Lazy.tsx ---
   const LAZY_TYPE = "website/sections/Rendering/Lazy.tsx";
   const lazyKey = toBase64(LAZY_TYPE);
@@ -842,11 +848,10 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
   // data-source block-ref set once when the page is created; it round-trips via
   // the form (kept `hide`) rather than being re-picked in the SEO panel.
   //
-  // NOT pushed to `extraAnyOf`: unlike the website Seo sections these are legacy
-  // deco-cx types with no component in start, so we only register the def +
-  // manifest block (enough for the SEO editor to resolve a schema for pages
-  // already on these types) without offering them as a new pickable section on
-  // every — including non-commerce — site.
+  // The def + manifest block are always registered so the SEO editor can resolve
+  // a schema for pages already on these types. They are added to `extraAnyOf`
+  // (offered as a selectable page.seo type) only on commerce sites, so a blog
+  // does not get "Product listing SEO" in its SEO type dropdown.
   const SEO_PLP_V2_TYPE = "commerce/sections/Seo/SeoPLPV2.tsx";
   const seoPlpV2Key = toBase64(SEO_PLP_V2_TYPE);
   definitions[seoPlpV2Key] = {
@@ -882,6 +887,7 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
     $ref: `#/definitions/${seoPlpV2Key}`,
     namespace: "commerce",
   };
+  if (hasCommerce) extraAnyOf.push({ $ref: `#/definitions/${seoPlpV2Key}` });
 
   // --- commerce/sections/Seo/SeoPDPV2.tsx ---
   // Product-details SEO. Studio "pdp" mode counterpart of the PLP section above.
@@ -914,6 +920,7 @@ function buildFrameworkSections(sectionAnyOf: any[]) {
     $ref: `#/definitions/${seoPdpV2Key}`,
     namespace: "commerce",
   };
+  if (hasCommerce) extraAnyOf.push({ $ref: `#/definitions/${seoPdpV2Key}` });
 
   // --- website/flags/multivariate/section.ts ---
   const MV_SECTION_TYPE = "website/flags/multivariate/section.ts";
