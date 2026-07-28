@@ -1,5 +1,6 @@
 import * as asyncHooks from "node:async_hooks";
 import { djb2Hex } from "../sdk/djb2";
+import { getRequestDraftOverride } from "./draftSource";
 
 export type Resolvable = {
   __resolveType?: string;
@@ -86,7 +87,8 @@ export function setBlocks(blocks: Record<string, unknown>) {
 
 /**
  * Load the current blocks. If running inside a `withBlocksOverride` scope
- * (admin preview), the override is merged on top of the base blocks.
+ * (admin preview) or a request carrying a draft-preview override, that
+ * override is merged on top of the base blocks.
  */
 export function loadBlocks(): Record<string, unknown> {
   // Re-sync from globalThis in case setBlocks was called in another module instance
@@ -95,7 +97,10 @@ export function loadBlocks(): Record<string, unknown> {
     revision = G.__deco.revision ?? null;
   }
 
-  const override = blocksOverrideStorage.getStore();
+  // `withBlocksOverride` (an explicit admin render of a specific payload) wins
+  // over an ambient draft: the caller named the exact blocks to render, so a
+  // draft pointer on the same request must not silently replace them.
+  const override = blocksOverrideStorage.getStore() ?? getRequestDraftOverride();
   if (override) {
     const merged = { ...blockData };
     for (const [key, value] of Object.entries(override)) {
@@ -203,12 +208,14 @@ export function getAllPages(): Array<{ key: string; page: DecoPage }> {
 // same regardless of whether @types/node has its own `URLPattern` global or
 // not — there's nothing for a local declaration to collide with.
 type MatchPatternResult = {
-	pathname: { groups: Record<string, string | undefined> };
+  pathname: { groups: Record<string, string | undefined> };
 };
 declare const URLPattern: {
-	new (init: { pathname: string }): {
-		exec(input: { pathname: string }): MatchPatternResult | null;
-	};
+  new (init: {
+    pathname: string;
+  }): {
+    exec(input: { pathname: string }): MatchPatternResult | null;
+  };
 };
 
 /**
@@ -231,10 +238,7 @@ declare const URLPattern: {
  * `URLPattern` is native in browsers, workerd, Deno, and Node >= 24 (this
  * package's `engines` floor). Node 22 and older lack it.
  */
-export function matchPath(
-  pattern: string,
-  urlPath: string,
-): Record<string, string> | null {
+export function matchPath(pattern: string, urlPath: string): Record<string, string> | null {
   if (typeof URLPattern === "undefined") {
     throw new Error(
       "@decocms/blocks: this runtime has no URLPattern Web API, so CMS page " +

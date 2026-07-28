@@ -9,6 +9,17 @@ export { DecoPageRenderer } from "./DecoPageRenderer";
 export { DecoRootLayout, type DecoRootLayoutProps } from "./DecoRootLayout";
 export { DeferredSectionBoundary } from "./DeferredSection";
 export {
+  DRAFT_COOKIE,
+  DRAFT_COOKIE_OPTIONS,
+  DRAFT_PARAM,
+  type DraftMiddlewareDecision,
+  type DraftSearchParams,
+  decideDraft,
+  ensureDraft,
+  registerDraftOverride,
+  selectDraftPointer,
+} from "./draft";
+export {
   decofileGET,
   decofilePOST,
   invokePOST,

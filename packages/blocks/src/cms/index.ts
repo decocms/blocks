@@ -12,6 +12,16 @@ export {
   revisionKey,
   snapshotKey,
 } from "./blockSource";
+export type { DraftPointer, ResolveDraftOptions } from "./draftSource";
+export {
+  buildDraftOrigin,
+  clearDraftCache,
+  getRequestDraftOverride,
+  isDraftPreviewEnabled,
+  parseDraftPointer,
+  resolveDraftDecofile,
+  setDraftOverrideGetter,
+} from "./draftSource";
 export type { DecoPage, Resolvable } from "./loader";
 export {
   findPageByPath,
@@ -83,8 +93,6 @@ export {
   unregisterCommerceLoader,
   WELL_KNOWN_TYPES,
 } from "./resolve";
-export type { SectionLoaderContext } from "./sectionLoaderContext";
-export { buildSectionLoaderContext } from "./sectionLoaderContext";
 export type {
   ActionConfig,
   AppSchemas,
@@ -106,6 +114,8 @@ export {
   registerMatcherSchema,
   registerMatcherSchemas,
 } from "./schema";
+export type { SectionLoaderContext } from "./sectionLoaderContext";
+export { buildSectionLoaderContext } from "./sectionLoaderContext";
 export type { SectionLoaderFn } from "./sectionLoaders";
 export {
   getDegradedSections,

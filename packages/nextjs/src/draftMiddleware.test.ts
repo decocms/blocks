@@ -1,0 +1,81 @@
+import { NextRequest, NextResponse } from "next/server";
+import { describe, expect, it } from "vitest";
+
+import { DRAFT_COOKIE } from "./draft";
+import { applyDraft, prepareDraft } from "./draftMiddleware";
+
+function request(url: string, cookie?: string): NextRequest {
+  const req = new NextRequest(new URL(url), {
+    headers: cookie ? { cookie: `${DRAFT_COOKIE}=${cookie}` } : {},
+  });
+  return req;
+}
+
+describe("prepareDraft", () => {
+  it("reads the pointer from the param", () => {
+    expect(prepareDraft(request("https://site.example/p?__draft=abc@v1")).pointer).toBe("abc@v1");
+  });
+
+  it("reads the pointer from the cookie on a plain navigation", () => {
+    expect(prepareDraft(request("https://site.example/p", "abc@v1")).pointer).toBe("abc@v1");
+  });
+
+  it("ignores a client-supplied draft header — the page owns the decision", () => {
+    // There is no request-header path any more; the page reads searchParams
+    // and cookies itself, so a forged header is simply not an input.
+    const req = new NextRequest(new URL("https://site.example/p"), {
+      headers: { "x-deco-draft": "attacker@v1" },
+    });
+    expect(prepareDraft(req).pointer).toBeNull();
+  });
+});
+
+describe("applyDraft", () => {
+  it("sets a partitioned cross-site cookie when entering draft mode", () => {
+    const decision = prepareDraft(request("https://site.example/p?__draft=abc@v1"));
+    const res = applyDraft(NextResponse.next(), decision);
+
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${DRAFT_COOKIE}=abc%40v1`);
+    // The preview iframe is cross-site, so these attributes are what make the
+    // cookie survive at all — not hardening extras.
+    expect(setCookie).toMatch(/SameSite=None/i);
+    expect(setCookie).toMatch(/Secure/i);
+    expect(setCookie).toMatch(/Partitioned/i);
+    expect(setCookie).toMatch(/HttpOnly/i);
+  });
+
+  it("marks a draft response uncacheable and unindexable", () => {
+    // With the pointer in a cookie, draft and published share a URL — a CDN
+    // keyed on URL alone would serve unpublished content to a real visitor.
+    const decision = prepareDraft(request("https://site.example/p", "abc@v1"));
+    const res = applyDraft(NextResponse.next(), decision);
+
+    expect(res.headers.get("cache-control")).toBe("no-store, private");
+    expect(res.headers.get("vary")).toBe("Cookie");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("leaves an ordinary response completely untouched", () => {
+    const decision = prepareDraft(request("https://site.example/p"));
+    const res = applyDraft(NextResponse.next(), decision);
+
+    expect(res.headers.get("cache-control")).toBeNull();
+    expect(res.headers.get("vary")).toBeNull();
+    expect(res.headers.get("x-robots-tag")).toBeNull();
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("clears the cookie on ?__draft=off", () => {
+    const decision = prepareDraft(request("https://site.example/p?__draft=off", "abc@v1"));
+    expect(decision.clearCookie).toBe(true);
+
+    const res = applyDraft(NextResponse.next(), decision);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    // Deletion is a set with an immediate expiry.
+    expect(setCookie).toContain(DRAFT_COOKIE);
+    expect(setCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/i);
+    // And the response is not treated as a draft render.
+    expect(res.headers.get("cache-control")).toBeNull();
+  });
+});
