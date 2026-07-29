@@ -6,10 +6,10 @@ import { applyDraft, prepareDraft, rewriteToDraftRoute } from "./draftMiddleware
 
 beforeEach(() => {
   // The middleware is host-gated; these tests run as the allowed host.
-  process.env.DECO_DRAFT_PREVIEW_HOST = "site.example";
+  process.env.DECO_ALLOWED_PREVIEW_HOSTS = "site.example";
 });
 afterEach(() => {
-  delete process.env.DECO_DRAFT_PREVIEW_HOST;
+  delete process.env.DECO_ALLOWED_PREVIEW_HOSTS;
 });
 
 function request(url: string, cookie?: string): NextRequest {
@@ -21,17 +21,21 @@ function request(url: string, cookie?: string): NextRequest {
 
 describe("prepareDraft", () => {
   it("reads the pointer from the param", () => {
-    expect(prepareDraft(request("https://site.example/p?__draft=abc@v1")).pointer).toBe("abc@v1");
+    expect(prepareDraft(request("https://site.example/p?__draft=abc.localhost@v1")).pointer).toBe(
+      "abc.localhost@v1",
+    );
   });
 
   it("reads the pointer from the cookie on a plain navigation", () => {
-    expect(prepareDraft(request("https://site.example/p", "abc@v1")).pointer).toBe("abc@v1");
+    expect(prepareDraft(request("https://site.example/p", "abc.localhost@v1")).pointer).toBe(
+      "abc.localhost@v1",
+    );
   });
 
   it("is inert on a host outside the allowlist — the production domain", () => {
     // Same build, different Host: no cookie, no rewrite, nothing touched.
     const req = request("https://fila.com.br/p?__draft=abc@v1");
-    process.env.DECO_DRAFT_PREVIEW_HOST = "fila.vtex.app";
+    process.env.DECO_ALLOWED_PREVIEW_HOSTS = "fila.vtex.app";
     expect(prepareDraft(req)).toEqual({ pointer: null, setCookie: null, clearCookie: false });
     expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
   });
@@ -40,7 +44,7 @@ describe("prepareDraft", () => {
     // There is no request-header path any more; the page reads searchParams
     // and cookies itself, so a forged header is simply not an input.
     const req = new NextRequest(new URL("https://site.example/p"), {
-      headers: { "x-deco-draft": "attacker@v1" },
+      headers: { "x-deco-draft": "attacker.localhost@v1" },
     });
     expect(prepareDraft(req).pointer).toBeNull();
   });
@@ -48,11 +52,11 @@ describe("prepareDraft", () => {
 
 describe("applyDraft", () => {
   it("sets a partitioned cross-site cookie when entering draft mode", () => {
-    const decision = prepareDraft(request("https://site.example/p?__draft=abc@v1"));
+    const decision = prepareDraft(request("https://site.example/p?__draft=abc.localhost@v1"));
     const res = applyDraft(NextResponse.next(), decision);
 
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain(`${DRAFT_COOKIE}=abc%40v1`);
+    expect(setCookie).toContain(`${DRAFT_COOKIE}=abc.localhost%40v1`);
     // The preview iframe is cross-site, so these attributes are what make the
     // cookie survive at all — not hardening extras.
     expect(setCookie).toMatch(/SameSite=None/i);
@@ -64,7 +68,7 @@ describe("applyDraft", () => {
   it("marks a draft response uncacheable and unindexable", () => {
     // With the pointer in a cookie, draft and published share a URL — a CDN
     // keyed on URL alone would serve unpublished content to a real visitor.
-    const decision = prepareDraft(request("https://site.example/p", "abc@v1"));
+    const decision = prepareDraft(request("https://site.example/p", "abc.localhost@v1"));
     const res = applyDraft(NextResponse.next(), decision);
 
     expect(res.headers.get("cache-control")).toBe("no-store, private");
@@ -83,7 +87,9 @@ describe("applyDraft", () => {
   });
 
   it("clears the cookie on ?__draft=off", () => {
-    const decision = prepareDraft(request("https://site.example/p?__draft=off", "abc@v1"));
+    const decision = prepareDraft(
+      request("https://site.example/p?__draft=off", "abc.localhost@v1"),
+    );
     expect(decision.clearCookie).toBe(true);
 
     const res = applyDraft(NextResponse.next(), decision);
@@ -98,16 +104,16 @@ describe("applyDraft", () => {
 
 describe("rewriteToDraftRoute", () => {
   it("rewrites a drafted request onto the dynamic draft route", () => {
-    const req = request("https://site.example/blog/hello?__draft=abc@v1");
+    const req = request("https://site.example/blog/hello?__draft=abc.localhost@v1");
     const res = rewriteToDraftRoute(req, prepareDraft(req));
     const target = new URL(res?.headers.get("x-middleware-rewrite") ?? "");
     expect(target.pathname).toBe("/_draft/blog/hello");
     // The pointer must survive: the draft page reads it from searchParams.
-    expect(target.searchParams.get("__draft")).toBe("abc@v1");
+    expect(target.searchParams.get("__draft")).toBe("abc.localhost@v1");
   });
 
   it("rewrites a cookie-only navigation too", () => {
-    const req = request("https://site.example/blog/hello", "abc@v1");
+    const req = request("https://site.example/blog/hello", "abc.localhost@v1");
     const res = rewriteToDraftRoute(req, prepareDraft(req));
     expect(new URL(res?.headers.get("x-middleware-rewrite") ?? "").pathname).toBe(
       "/_draft/blog/hello",
@@ -122,12 +128,12 @@ describe("rewriteToDraftRoute", () => {
   });
 
   it("never nests the prefix when middleware re-runs on the rewritten URL", () => {
-    const req = request("https://site.example/_draft/blog/hello?__draft=abc@v1");
+    const req = request("https://site.example/_draft/blog/hello?__draft=abc.localhost@v1");
     expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
   });
 
   it("does not rewrite when leaving draft mode", () => {
-    const req = request("https://site.example/blog/hello?__draft=off", "abc@v1");
+    const req = request("https://site.example/blog/hello?__draft=off", "abc.localhost@v1");
     expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
   });
 });

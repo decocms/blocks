@@ -14,13 +14,13 @@ export {
 } from "./blockSource";
 export type { DraftPointer, ResolveDraftOptions } from "./draftSource";
 export {
-  buildDraftOrigin,
   clearDraftCache,
-  DEFAULT_SANDBOX_ORIGIN_SUFFIXES,
+  DEFAULT_PREVIEW_API_DOMAINS,
   getRequestDraftOverride,
   isDraftHostAllowed,
   isDraftPreviewEnabled,
   parseDraftPointer,
+  previewApiOriginForHost,
   resolveDraftDecofile,
   setDraftOverrideGetter,
 } from "./draftSource";

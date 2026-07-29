@@ -1,20 +1,20 @@
 /**
  * Draft preview — pull-based decofile override.
  *
- * A Studio sandbox serves the working-tree draft at
+ * A Studio preview serves the working-tree draft at
  * `GET <origin>/_sandbox/decofile`; a production site pulls it and renders its
  * own real pages against it. This replaces pushing the decofile into a POST
  * body, which only deco's own runtime honours — Next.js and most frameworks
  * render on GET only.
  *
- * This module is the framework-agnostic half: pointer parsing, origin
- * construction, fetching, and version caching. Binding a resolved draft to a
+ * This module is the framework-agnostic half: token parsing, origin
+ * validation, fetching, and version caching. Binding a resolved draft to a
  * request is framework-specific (see `@decocms/nextjs`'s draft wiring) and
  * reaches this module through {@link setDraftOverrideGetter} — the same
  * dependency-injection shape as `setFastDeployKVGetter`, so `blocks` keeps its
  * zero-dependency direction.
  *
- * Inert unless `DECO_DRAFT_PREVIEW_HOST` names the request's host: upgrading
+ * Inert unless `DECO_ALLOWED_PREVIEW_HOSTS` names the request's host: upgrading
  * the package must never be enough to start fetching from the network and
  * rendering unpublished content. Host-scoping (rather than a boolean) exists
  * because one deployment commonly serves several domains — the preview domain
@@ -22,69 +22,95 @@
  * ignore a `?__draft=` entirely.
  */
 
-/** A parsed `<handle>@<version>` draft pointer. */
+/**
+ * A parsed `?__draft=` token: `<host[:port]>@<version>`.
+ *
+ * The token carries the AUTHORITY of the draft content API, never a scheme or
+ * path — a full URL would be an SSRF vector, and the scheme is derived from
+ * the matched domain instead. Reserved evolution: a future signed token uses a
+ * distinguishable prefix (e.g. `s1.`), so this strict two-part parse rejects
+ * it cleanly rather than half-reading it.
+ */
 export interface DraftPointer {
-  /** Sandbox handle — the subdomain under a configured origin suffix. */
-  handle: string;
-  /** Content version (the daemon's ETag). Immutable, so safe to cache on. */
+  /** Content-API authority, e.g. `abc.preview-studio.decocms.com` or `abc.localhost:60534`. */
+  host: string;
+  /** Opaque content version (the server's ETag). Immutable → safe cache key. */
   version: string;
 }
 
-/**
- * Sandbox handles are `[a-z0-9-]`, always leading with an alphanumeric.
- *
- * Validated BEFORE the handle is interpolated into an authority, so it cannot
- * smuggle `/`, `@`, `:` or userinfo into the URL and redirect the fetch at some
- * other host.
- */
-const HANDLE_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]*$/;
+/** Lowercase DNS hostname, at least two labels (a bare label can't match any domain). */
+const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const PORT_RE = /^[0-9]{1,5}$/;
+const VERSION_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 /**
- * Parse `<handle>@<version>`.
- *
- * Requires EXACTLY one `@`: a naive `split("@")` accepts `a@b@c` and silently
- * uses the first two segments, which is how a malformed pointer sneaks past
- * validation. Returns null on anything unexpected — callers fall back to
- * published content.
+ * Parse `<host[:port]>@<version>`. Null on anything unexpected — callers fall
+ * back to published content. Requires EXACTLY one `@`: a naive split accepts
+ * `a@b@c` and silently uses the first two segments.
  */
 export function parseDraftPointer(raw: string | null | undefined): DraftPointer | null {
   if (!raw) return null;
   const parts = raw.split("@");
   if (parts.length !== 2) return null;
-  const [handle, version] = parts;
-  if (!handle || !version) return null;
-  if (!HANDLE_RE.test(handle)) return null;
-  return { handle, version };
+  const [authority, version] = parts;
+  if (!authority || !version || !VERSION_RE.test(version)) return null;
+
+  const [host, port, extra] = authority.toLowerCase().split(":");
+  if (extra !== undefined) return null;
+  if (!host || !HOST_RE.test(host)) return null;
+  if (port !== undefined && !PORT_RE.test(port)) return null;
+
+  return { host: port === undefined ? host : `${host}:${port}`, version };
 }
 
 /**
- * Default sandbox origin suffixes — deco-operated domains, so shipping them as
- * defaults adds no SSRF surface: the origin is still configuration, never
- * caller input. `DECO_SANDBOX_ORIGIN_SUFFIXES` overrides (e.g. to pin a local
- * link port: `.localhost:60534`).
+ * Domains the draft content API may live under — deco-operated, so shipping
+ * them as defaults adds no SSRF surface. `DECO_PREVIEW_API_DOMAINS` overrides
+ * the whole list when set. Entries are dot-prefixed suffixes, which guarantees
+ * a label boundary on match (`evil-preview-studio.decocms.com` cannot pass).
  */
-export const DEFAULT_SANDBOX_ORIGIN_SUFFIXES = [
+export const DEFAULT_PREVIEW_API_DOMAINS = [
   ".preview-studio.decocms.com",
   ".local.studio.decocms.com",
   ".localhost",
 ];
 
-/**
- * Suffixes are tried in order until one answers — a deployment can serve
- * sandboxes from more than one origin (cluster and desktop-link), and the
- * handle alone does not say which one it lives under.
- */
-function readSuffixes(env: Record<string, string | undefined>): string[] {
-  const configured = (env.DECO_SANDBOX_ORIGIN_SUFFIXES ?? "")
+function readApiDomains(env: Record<string, string | undefined>): string[] {
+  const configured = (env.DECO_PREVIEW_API_DOMAINS ?? "")
     .split(",")
-    .map((s) => s.trim())
+    .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return configured.length > 0 ? configured : DEFAULT_SANDBOX_ORIGIN_SUFFIXES;
+  return configured.length > 0 ? configured : DEFAULT_PREVIEW_API_DOMAINS;
 }
 
-/** Hosts allowed to render drafts (`DECO_DRAFT_PREVIEW_HOST`, comma list). */
+/**
+ * Validate the token's authority against the configured domains and derive the
+ * fetch origin, or null if no domain admits it.
+ *
+ * The token proposes, configuration disposes: only the hostname-suffix match
+ * decides, so a caller can steer WHICH label under your domains, never which
+ * domains. Scheme is derived — http for localhost-ish domains, https
+ * otherwise — and an explicit port is allowed only there, so a public-domain
+ * token cannot aim at odd ports.
+ */
+export function previewApiOriginForHost(
+  authority: string,
+  env?: Record<string, string | undefined>,
+): string | null {
+  const [host, port] = authority.toLowerCase().split(":");
+  if (!host) return null;
+  const domain = readApiDomains(envOrProcess(env)).find(
+    (d) => host.length > d.length && host.endsWith(d),
+  );
+  if (!domain) return null;
+  const local = domain.includes("localhost");
+  if (port !== undefined && !local) return null;
+  return `${local ? "http" : "https"}://${host}${port === undefined ? "" : `:${port}`}`;
+}
+
+/** Hosts allowed to render drafts (`DECO_ALLOWED_PREVIEW_HOSTS`, comma list). */
 function readAllowedHosts(env: Record<string, string | undefined>): string[] {
-  return (env.DECO_DRAFT_PREVIEW_HOST ?? "")
+  return (env.DECO_ALLOWED_PREVIEW_HOSTS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
@@ -93,9 +119,9 @@ function readAllowedHosts(env: Record<string, string | undefined>): string[] {
 /**
  * Whether `host` (as seen on the request) may render drafts.
  *
- * Compared against `DECO_DRAFT_PREVIEW_HOST` verbatim, port included — local
- * dev is `localhost:3100`, not `localhost`. The header is spoofable by a
- * direct-to-origin request, but the sandbox handle is the actual capability;
+ * Compared against `DECO_ALLOWED_PREVIEW_HOSTS` verbatim, port included —
+ * local dev is `localhost:3100`, not `localhost`. The header is spoofable by a
+ * direct-to-origin request, but the draft id is the actual capability;
  * host-scoping bounds blast radius (production domains stay inert), it is not
  * a secret.
  */
@@ -104,8 +130,17 @@ export function isDraftHostAllowed(
   env?: Record<string, string | undefined>,
 ): boolean {
   if (!host) return false;
-  const e = envOrProcess(env);
-  return readAllowedHosts(e).includes(host.trim().toLowerCase());
+  return readAllowedHosts(envOrProcess(env)).includes(host.trim().toLowerCase());
+}
+
+/**
+ * True when any host is allowed to preview. A plain env read — callers use it
+ * to gate BEFORE touching dynamic APIs (`cookies()`/`headers()`), so an
+ * unconfigured site never loses static/ISR rendering. The per-request host
+ * match happens later, in `isDraftHostAllowed`.
+ */
+export function isDraftPreviewEnabled(env?: Record<string, string | undefined>): boolean {
+  return readAllowedHosts(envOrProcess(env)).length > 0;
 }
 
 function envOrProcess(
@@ -119,31 +154,14 @@ function envOrProcess(
 }
 
 /**
- * Build the sandbox origin for a handle under ONE configured suffix.
- *
- * The origin comes from configuration, never from caller input, so there is no
- * SSRF surface to defend and no allowlist to keep correct. A `localhost`
- * suffix (local e2e) speaks http; everything else is https.
- */
-export function buildDraftOrigin(handle: string, suffix: string): string | null {
-  if (!suffix) return null;
-  if (!HANDLE_RE.test(handle)) return null;
-  const scheme = suffix.includes("localhost") ? "http" : "https";
-  return `${scheme}://${handle}${suffix}`;
-}
-
-/**
- * Version cache.
- *
- * Bounded on purpose: a decofile is routinely multi-megabyte, so an unbounded
- * map keyed by version would grow with every save until the process died.
- * Keyed by version (content-addressed), so a hit is always correct.
+ * Version cache. Bounded on purpose: a decofile is routinely multi-megabyte,
+ * so an unbounded map keyed by version would grow with every save until the
+ * process died. Content-addressed, so a hit is always correct.
  */
 const MAX_CACHED_VERSIONS = 3;
 const byVersion = new Map<string, Record<string, unknown>>();
 
 function cacheDraft(version: string, blocks: Record<string, unknown>): void {
-  // Re-insert to make this the most recently used key.
   byVersion.delete(version);
   byVersion.set(version, blocks);
   while (byVersion.size > MAX_CACHED_VERSIONS) {
@@ -159,7 +177,7 @@ export function clearDraftCache(): void {
 }
 
 export interface ResolveDraftOptions {
-  /** Raw `<handle>@<version>` pointer from the request. */
+  /** Raw `<host[:port]>@<version>` token from the request. */
   pointer: string | null | undefined;
   /** Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
@@ -168,14 +186,11 @@ export interface ResolveDraftOptions {
 }
 
 /**
- * Resolve a draft pointer to a decofile, or null to render published content.
+ * Resolve a draft token to a decofile, or null to render published content.
  *
- * Null on every failure path — disabled, malformed pointer, unreachable
- * sandbox, non-2xx — because a draft that cannot be resolved must degrade to
- * published rather than break the page. Callers that need to *tell the user*
- * the draft failed should check {@link isDraftPreviewEnabled} and surface it
- * themselves; silently showing published content while the user believes they
- * are looking at a draft is the failure mode worth avoiding.
+ * Null on every failure path — disabled, malformed token, disallowed origin,
+ * unreachable, non-2xx — because a draft that cannot be resolved must degrade
+ * to published rather than break the page.
  */
 export async function resolveDraftDecofile(
   options: ResolveDraftOptions,
@@ -189,44 +204,27 @@ export async function resolveDraftDecofile(
   const cached = byVersion.get(parsed.version);
   if (cached) return cached;
 
+  const origin = previewApiOriginForHost(parsed.host, env);
+  if (!origin) return null;
+
   const doFetch = options.fetchImpl ?? fetch;
-  // Suffixes are tried in order; the first that answers with parseable JSON
-  // wins. A miss on one origin (unreachable, non-2xx, garbage) is expected —
-  // the handle only exists under one of them — so every failure falls through
-  // to the next rather than aborting the resolve.
-  for (const suffix of readSuffixes(env)) {
-    const origin = buildDraftOrigin(parsed.handle, suffix);
-    if (!origin) continue;
-
-    let res: Response;
-    try {
-      res = await doFetch(`${origin}/_sandbox/decofile`, { cache: "no-store" });
-    } catch {
-      continue;
-    }
-    if (!res.ok) continue;
-
-    let blocks: Record<string, unknown>;
-    try {
-      blocks = (await res.json()) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-
-    cacheDraft(parsed.version, blocks);
-    return blocks;
+  let res: Response;
+  try {
+    res = await doFetch(`${origin}/_sandbox/decofile`, { cache: "no-store" });
+  } catch {
+    return null;
   }
-  return null;
-}
+  if (!res.ok) return null;
 
-/**
- * True when any host is allowed to preview. A plain env read — callers use it
- * to gate BEFORE touching dynamic APIs (`cookies()`/`headers()`), so an
- * unconfigured site never loses static/ISR rendering. The per-request host
- * match happens later, in `isDraftHostAllowed`.
- */
-export function isDraftPreviewEnabled(env?: Record<string, string | undefined>): boolean {
-  return readAllowedHosts(envOrProcess(env)).length > 0;
+  let blocks: Record<string, unknown>;
+  try {
+    blocks = (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  cacheDraft(parsed.version, blocks);
+  return blocks;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,10 +240,8 @@ let getDraftOverride: DraftOverrideGetter = () => undefined;
  *
  * Binding a value to "the current request" is framework-specific and `blocks`
  * must not know about any framework: `@decocms/nextjs` backs this with React
- * `cache()` (App Router has no AsyncLocalStorage request scope of its own —
- * `RequestContext.run` is never entered there). Bindings that do have an ALS
- * request scope can back it with that instead. Never called → returns
- * undefined → `loadBlocks()` behaves exactly as before.
+ * `cache()` (App Router has no AsyncLocalStorage request scope of its own).
+ * Never called → returns undefined → `loadBlocks()` behaves exactly as before.
  */
 export function setDraftOverrideGetter(getter: DraftOverrideGetter): void {
   getDraftOverride = getter;

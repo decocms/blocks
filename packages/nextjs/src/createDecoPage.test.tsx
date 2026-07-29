@@ -1,6 +1,6 @@
+import { registerSections, setBlocks } from "@decocms/blocks/cms";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { registerSections, setBlocks } from "@decocms/blocks/cms";
 import { createDecoPage } from "./createDecoPage";
 
 function Hero({ label }: { label?: string }) {
@@ -58,8 +58,6 @@ describe("createDecoPage (next)", () => {
 
     const { default: Page } = createDecoPage({ siteName: "test-site" });
 
-    await expect(
-      Page({ params: Promise.resolve({ slug: ["missing"] }) }),
-    ).rejects.toThrow();
+    await expect(Page({ params: Promise.resolve({ slug: ["missing"] }) })).rejects.toThrow();
   });
 });

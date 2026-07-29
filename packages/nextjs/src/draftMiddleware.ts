@@ -40,13 +40,11 @@ import {
 const INERT: DraftMiddlewareDecision = { pointer: null, setCookie: null, clearCookie: false };
 
 export function prepareDraft(request: NextRequest): DraftMiddlewareDecision {
-  // Host gate first: on a host not named in DECO_DRAFT_PREVIEW_HOST the
+  // Host gate first: on a host not named in DECO_ALLOWED_PREVIEW_HOSTS the
   // decision is inert — no cookie written, no rewrite, no headers touched —
   // so the production domain behaves as if the feature didn't exist.
   const host =
-    request.headers.get("x-forwarded-host") ??
-    request.headers.get("host") ??
-    request.nextUrl.host;
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? request.nextUrl.host;
   if (!isDraftHostAllowed(host)) return INERT;
   return decideDraft(new URL(request.url), request.cookies.get(DRAFT_COOKIE)?.value ?? null);
 }

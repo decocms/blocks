@@ -135,9 +135,7 @@ export function compose(...mixins: SectionLoaderFn[]): SectionLoaderFn {
  * });
  * ```
  */
-export function withSectionLoader(
-  modImport: () => Promise<unknown>,
-): SectionLoaderFn {
+export function withSectionLoader(modImport: () => Promise<unknown>): SectionLoaderFn {
   return async (props, req, ctx) => {
     const mod = (await modImport()) as { loader?: unknown } | undefined;
     const loader = mod?.loader;

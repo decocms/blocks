@@ -42,7 +42,7 @@ function seedPublishedHome() {
 afterEach(() => {
   cookiesMock.mockClear();
   connectionMock.mockClear();
-  delete process.env.DECO_DRAFT_PREVIEW_HOST;
+  delete process.env.DECO_ALLOWED_PREVIEW_HOSTS;
   delete process.env.DECO_SANDBOX_ORIGIN_SUFFIXES;
 });
 
@@ -75,7 +75,7 @@ describe("createDecoPage — draft preview gate", () => {
   });
 
   it("reads cookies() once the feature is fully configured", async () => {
-    process.env.DECO_DRAFT_PREVIEW_HOST = "preview.example";
+    process.env.DECO_ALLOWED_PREVIEW_HOSTS = "preview.example";
     seedPublishedHome();
 
     const { default: Page } = createDecoPage({ siteName: "test-site" });

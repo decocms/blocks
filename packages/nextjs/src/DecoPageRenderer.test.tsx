@@ -1,6 +1,6 @@
+import { registerSectionsSync } from "@decocms/blocks/cms";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { registerSectionsSync } from "@decocms/blocks/cms";
 import { DecoPageRenderer } from "./DecoPageRenderer";
 
 function Hero({ label }: { label?: string }) {
@@ -16,8 +16,18 @@ describe("DecoPageRenderer (next)", () => {
 
     const element = await DecoPageRenderer({
       sections: [
-        { key: "site/sections/NextPageA.tsx", component: "site/sections/NextPageA.tsx", props: { label: "first" }, index: 0 } as any,
-        { key: "site/sections/NextPageB.tsx", component: "site/sections/NextPageB.tsx", props: { label: "second" }, index: 1 } as any,
+        {
+          key: "site/sections/NextPageA.tsx",
+          component: "site/sections/NextPageA.tsx",
+          props: { label: "first" },
+          index: 0,
+        } as any,
+        {
+          key: "site/sections/NextPageB.tsx",
+          component: "site/sections/NextPageB.tsx",
+          props: { label: "second" },
+          index: 1,
+        } as any,
       ],
       pagePath: "/",
     });

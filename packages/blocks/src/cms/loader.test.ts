@@ -82,12 +82,12 @@ describe("matchPath", () => {
     });
 
     it("matches with an optional prefix before a literal segment", () => {
-      expect(
-        matchPath("/{granado/}?campanhas/*", "/granado/campanhas/destaques-2023"),
-      ).toEqual({ "0": "destaques-2023" });
-      expect(
-        matchPath("/{granado/}?campanhas/*", "/campanhas/destaques-2023"),
-      ).toEqual({ "0": "destaques-2023" });
+      expect(matchPath("/{granado/}?campanhas/*", "/granado/campanhas/destaques-2023")).toEqual({
+        "0": "destaques-2023",
+      });
+      expect(matchPath("/{granado/}?campanhas/*", "/campanhas/destaques-2023")).toEqual({
+        "0": "destaques-2023",
+      });
     });
 
     it("matches an optional suffix group present and absent", () => {
@@ -112,9 +112,7 @@ describe("matchPath", () => {
       // biome-ignore lint/performance/noDelete: restoring exact global state
       delete g.URLPattern;
       try {
-        expect(() => matchPath("/foo/:slug", "/foo/bar")).toThrow(
-          /URLPattern.*Node\.js >= 24/s,
-        );
+        expect(() => matchPath("/foo/:slug", "/foo/bar")).toThrow(/URLPattern.*Node\.js >= 24/s);
       } finally {
         if (saved !== undefined) g.URLPattern = saved;
       }

@@ -106,7 +106,7 @@ export function selectDraftPointer(
  * `cookies()`. There is deliberately no request header in the path: the page
  * owns the decision, so a draft keeps working on routes the middleware matcher
  * never sees, and there is one less forgeable input to reason about. (The
- * pointer was never a secret — the sandbox handle is the capability — so a
+ * pointer was never a secret — the draft id (the token's authority) is the capability — so a
  * client supplying one directly is equivalent to typing the query param.)
  *
  * Returns whether a draft was bound, so callers can surface an explicit
@@ -122,7 +122,7 @@ export async function ensureDraft(searchParams?: DraftSearchParams): Promise<boo
 
   // Host gate, checked only once a pointer exists (headers() is a dynamic
   // API): the same build may serve the preview domain and the production
-  // domain, and only hosts named in DECO_DRAFT_PREVIEW_HOST may render
+  // domain, and only hosts named in DECO_ALLOWED_PREVIEW_HOSTS may render
   // drafts — production stays published no matter what the URL carries.
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");

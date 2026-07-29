@@ -1100,10 +1100,7 @@ export interface ComposeMetaOptions {
   framework?: string;
 }
 
-export function composeMeta(
-  siteMeta: MetaResponse,
-  options?: ComposeMetaOptions,
-): MetaResponse {
+export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions): MetaResponse {
   // Idempotency guard. composeMeta is NOT structurally idempotent — it appends
   // the framework section refs to `root.sections.anyOf` (and `__SECTION_REF__`),
   // so composing an already-composed meta a second time duplicates those refs.

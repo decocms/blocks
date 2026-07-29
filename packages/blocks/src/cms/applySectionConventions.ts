@@ -6,23 +6,20 @@
  * registerSectionsSync, setAsyncRenderingConfig, registerCacheableSections,
  * registerLayoutSections, registerSeoSections, and registerSection.
  */
+import { registerSection, registerSectionsSync } from "./registry";
 import {
-  registerSection,
-  registerSectionsSync,
-} from "./registry";
+  type AsyncRenderingConfig,
+  getAsyncRenderingConfig,
+  registerEagerSections,
+  registerNeverDeferSections,
+  registerSeoSections,
+  setAsyncRenderingConfig,
+} from "./resolve";
 import {
   type CacheableSectionInput,
   registerCacheableSections,
   registerLayoutSections,
 } from "./sectionLoaders";
-import {
-  type AsyncRenderingConfig,
-  registerEagerSections,
-  registerNeverDeferSections,
-  registerSeoSections,
-  setAsyncRenderingConfig,
-  getAsyncRenderingConfig,
-} from "./resolve";
 
 export interface SectionMetaEntry {
   eager?: boolean;
@@ -96,8 +93,7 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
   // it, asyncConfig stays null, `useAsync` is false in resolveDecoPage, and
   // even editor-marked ⚡ sections render eagerly. (The default foldThreshold is
   // Infinity, so position-based deferral stays off unless a site opts in.)
-  const existing: Partial<AsyncRenderingConfig> =
-    getAsyncRenderingConfig() ?? {};
+  const existing: Partial<AsyncRenderingConfig> = getAsyncRenderingConfig() ?? {};
   setAsyncRenderingConfig({
     ...existing,
     alwaysEager: [...(existing.alwaysEager ?? []), ...eagerSections],

@@ -1,10 +1,3 @@
-import {
-  type ActionConfig,
-  inferLoaderTags,
-  type LoaderConfig,
-  registerActionSchemas,
-  registerLoaderSchemas,
-} from "./schema";
 import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
 import { djb2Hex } from "../sdk/djb2";
@@ -13,6 +6,13 @@ import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { findPageByPath, loadBlocks } from "./loader";
 import { getOnBeforeResolveProps, getSection, registerOnBeforeResolveProps } from "./registry";
+import {
+  type ActionConfig,
+  inferLoaderTags,
+  type LoaderConfig,
+  registerActionSchemas,
+  registerLoaderSchemas,
+} from "./schema";
 import { isLayoutSection, markSectionDegraded, runSingleSectionLoader } from "./sectionLoaders";
 
 // globalThis-backed: share state across Vite server function split modules
@@ -235,7 +235,7 @@ function isEagerSection(key: string): boolean {
  * during hydration (search filters, configurators, etc.).
  */
 export function registerNeverDeferSections(keys: string[]): void {
-  const set: Set<string> = G.__deco.neverDeferSectionKeys ??= new Set();
+  const set: Set<string> = (G.__deco.neverDeferSectionKeys ??= new Set());
   for (const k of keys) set.add(k);
 }
 
@@ -350,8 +350,7 @@ function hasForceEagerParam(ctx?: MatcherContext): boolean {
  */
 function isProgrammaticFetch(ctx?: MatcherContext): boolean {
   if (ctx?.isClientNavigation) return false;
-  const dest = ctx?.request?.headers.get("sec-fetch-dest") ??
-    ctx?.headers?.["sec-fetch-dest"];
+  const dest = ctx?.request?.headers.get("sec-fetch-dest") ?? ctx?.headers?.["sec-fetch-dest"];
   return dest === "empty";
 }
 
@@ -362,8 +361,7 @@ function isProgrammaticFetch(ctx?: MatcherContext): boolean {
  * to gate both section deferral and page-SEO commerce resolution.
  */
 export function isEagerRequest(ctx?: MatcherContext): boolean {
-  return isBot(ctx?.userAgent) || hasForceEagerParam(ctx) ||
-    isProgrammaticFetch(ctx);
+  return isBot(ctx?.userAgent) || hasForceEagerParam(ctx) || isProgrammaticFetch(ctx);
 }
 
 /**
@@ -743,7 +741,9 @@ function evaluateVariantRule(
   const already = ctx.flags?.find((f) => f.name === meta.name && f.pct === meta.pct);
   if (already) return already.value;
 
-  const stored = parseSegmentCookie(ctx.cookies?.[SEGMENT_COOKIE]).find((f) => f.name === meta.name);
+  const stored = parseSegmentCookie(ctx.cookies?.[SEGMENT_COOKIE]).find(
+    (f) => f.name === meta.name,
+  );
   // pct === -1 marks a classic-deco segment without a fingerprint — honor it
   // (stay sticky) instead of re-rolling. A stale fingerprint re-rolls.
   const useStored = stored && (stored.pct === -1 || stored.pct === meta.pct);
@@ -1297,9 +1297,7 @@ function sectionIgnoresStructuredData(props: Record<string, unknown>): boolean {
  * serialized into the HTML. Lightweight literal props (title, description,
  * canonical, …) are preserved.
  */
-function stripCommerceLoaderProps(
-  rawProps: Record<string, unknown>,
-): Record<string, unknown> {
+function stripCommerceLoaderProps(rawProps: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rawProps)) {
     if (resolvesToCommerceLoader(v)) continue;
