@@ -88,6 +88,28 @@ export interface MagentoConfig {
 
 let config: MagentoConfig | null = null;
 
+/**
+ * Underlying fetch used by {@link magentoFetch}. Defaults to `globalThis.fetch`;
+ * override once at boot with {@link setMagentoFetch} to plug in the instrumented
+ * fetch (spans + `http.client.request.duration` histogram, `provider:"magento"`).
+ * Mirrors VTEX's `setVtexFetch` / Shopify's `setShopifyFetch` so every commerce
+ * app funnels egress through a single instrumented `_fetch`.
+ */
+let _fetch: typeof fetch | undefined;
+
+/**
+ * Override the fetch used by every Magento egress call.
+ *
+ * @example
+ * ```ts
+ * import { createMagentoFetch, setMagentoFetch } from "@decocms/apps/magento";
+ * setMagentoFetch(createMagentoFetch());
+ * ```
+ */
+export function setMagentoFetch(fetchFn: typeof fetch): void {
+	_fetch = fetchFn;
+}
+
 export function configureMagento(c: MagentoConfig): void {
 	config = c;
 }
@@ -224,5 +246,6 @@ export function magentoFetch(path: string, opts: MagentoFetchOpts = {}): Promise
 	// clarity at the call site.
 	const sameOrigin = target.origin === baseUrl.origin;
 
-	return fetch(target, { ...opts, headers: buildHeaders(opts, c, sameOrigin) });
+	const doFetch = _fetch ?? globalThis.fetch;
+	return doFetch(target, { ...opts, headers: buildHeaders(opts, c, sameOrigin) });
 }

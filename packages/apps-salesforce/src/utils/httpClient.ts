@@ -16,6 +16,8 @@
  * loaders that call `.then(res => res.json())` keep working).
  */
 
+import { createSalesforceFetch } from "./instrumentedFetch";
+
 export interface HttpClientOptions {
 	base: string;
 	headers?: Record<string, string> | Headers;
@@ -29,9 +31,22 @@ interface IndexedRouteResponse {
 	headers: Headers;
 }
 
+// Lazily-created, module-shared instrumented fetch used as the default
+// transport. Every Salesforce loader instantiates its own `createHttpClient`
+// inline, so defaulting the `fetcher` here is the single chokepoint that
+// instruments ALL Salesforce egress (upstream latency/status → ClickHouse,
+// `provider:"salesforce"`) without touching each loader. Sites that pass an
+// explicit `fetcher` opt out; wrap it with `createSalesforceFetch({ baseFetch })`
+// to keep instrumentation.
+let _defaultFetch: typeof fetch | undefined;
+function defaultInstrumentedFetch(): typeof fetch {
+	if (!_defaultFetch) _defaultFetch = createSalesforceFetch();
+	return _defaultFetch;
+}
+
 export function createHttpClient<_Routes = unknown>(options: HttpClientOptions) {
 	const base = options.base.replace(/\/$/, "");
-	const fetchImpl = options.fetcher ?? fetch;
+	const fetchImpl = options.fetcher ?? defaultInstrumentedFetch();
 	const defaultHeaders: Record<string, string> =
 		options.headers instanceof Headers
 			? Object.fromEntries(options.headers.entries())

@@ -398,7 +398,7 @@ export function recordRequestMetric(
   //   - `status_class`: 5-element enum (2xx / 3xx / 4xx / 5xx / unknown).
   //   - `outcome`: CF outcome enum (~7 values).
   //   - `cache_decision`: 5-element enum.
-  //   - `cache_layer`: 3-element enum (edge / cachedLoader / vtex-swr).
+  //   - `cache_layer`: 3-element enum (edge / cachedLoader / swr).
   //   - `region`: ~250 CF colo codes worldwide.
   // Total combinations are bounded — safe for unbounded series on
   // ClickHouse but operators should still avoid grouping by `region`
@@ -457,10 +457,14 @@ export type CacheDecision = "HIT" | "STALE-HIT" | "STALE-ERROR" | "MISS" | "BYPA
  *  - `edge`         — Cloudflare Cache API (HTML pages, server-fn responses)
  *  - `cachedLoader` — In-memory per-isolate via `sdk/cachedLoader.ts`
  *                     (loader-level SWR, dedup, in-flight)
- *  - `vtex-swr`     — Apps-side in-memory cache shared by VTEX clients
- *                     (intelligent-search, cross-selling, etc.)
+ *  - `swr`          — Apps-side in-memory SWR fetch cache shared by commerce
+ *                     clients (VTEX intelligent-search, Magento GraphQL,
+ *                     Shopify, etc.) via `sdk/fetchCache.ts`. Provider-agnostic;
+ *                     the specific backend rides on `deco.cache.profile`
+ *                     (e.g. `vtex` / `magento` / `shopify`). Renamed from the
+ *                     old `vtex-swr` once the util was shared across apps.
  */
-export type CacheLayer = "edge" | "cachedLoader" | "vtex-swr";
+export type CacheLayer = "edge" | "cachedLoader" | "swr";
 
 /**
  * Record a cache hit/miss metric. Also stamps the decision on the active
@@ -475,7 +479,7 @@ export type CacheLayer = "edge" | "cachedLoader" | "vtex-swr";
  * `decision` is optional — when omitted, the metric still records HIT
  * vs MISS but dashboards can't distinguish SWR/SIE paths. Pass it
  * whenever known. `layer` defaults to `edge` when called from
- * workerEntry; cachedLoader / vtex-swr call sites should pass their
+ * workerEntry; cachedLoader / swr call sites should pass their
  * value explicitly.
  */
 export function recordCacheMetric(

@@ -184,15 +184,15 @@ describe("recordCacheMetric — cache_layer label", () => {
     });
   });
 
-  it("distinguishes cachedLoader vs edge vs vtex-swr layers", () => {
+  it("distinguishes cachedLoader vs edge vs swr layers", () => {
     const { adapter, counters } = captureMeter();
     configureMeter(adapter);
 
     recordCacheMetric(true, "loader-x", "HIT", "cachedLoader");
-    recordCacheMetric(true, "vtex-product", "HIT", "vtex-swr");
+    recordCacheMetric(true, "vtex", "HIT", "swr");
 
     expect(counters[0]?.labels?.["deco.cache.layer"]).toBe("cachedLoader");
-    expect(counters[1]?.labels?.["deco.cache.layer"]).toBe("vtex-swr");
+    expect(counters[1]?.labels?.["deco.cache.layer"]).toBe("swr");
   });
 });
 

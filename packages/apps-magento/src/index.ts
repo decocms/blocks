@@ -9,3 +9,17 @@
  */
 export * from "./client";
 export type { MagentoCart } from "./types";
+export {
+  clearFetchCache,
+  type FetchCacheOptions,
+  getFetchCacheStats,
+  magentoCachedFetch,
+} from "./utils/fetchCache";
+// Observability wiring — sites call `setMagentoFetch(createMagentoFetch())` at
+// boot to route every Magento egress call through the instrumented fetch
+// (upstream latency/status), and use `magentoCachedFetch` for cacheable GETs
+// (SWR hit/miss → `deco.cache.requests{layer="swr",profile="magento"}`).
+export {
+  type CreateMagentoFetchOptions,
+  createMagentoFetch,
+} from "./utils/instrumentedFetch";
