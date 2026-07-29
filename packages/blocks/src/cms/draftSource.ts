@@ -116,11 +116,16 @@ export function previewApiOriginForHost(
  * request time: the request path merges the draft override, and an allowlist
  * readable through the override could be rewritten by the very draft it gates.
  */
-let sitePreviewHosts: string[] = [];
+// globalThis-backed, like the block loader itself: bundlers can duplicate
+// this module across graphs, and a plain module variable set in one instance
+// is invisible to the others. (The MIDDLEWARE runtime is a separate world
+// even so — which is why the page-side gate is the authoritative one and the
+// middleware only hard-gates when the env override is present.)
+const G = globalThis as { __decoDraftHosts?: string[] };
 
 /** Install the site-declared preview hosts. Called by the framework binding at setup. */
 export function setDraftPreviewHosts(hosts: readonly unknown[]): void {
-  sitePreviewHosts = hosts
+  G.__decoDraftHosts = hosts
     .filter((h): h is string => typeof h === "string")
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean);
@@ -139,7 +144,7 @@ function readAllowedHosts(env: Record<string, string | undefined>): string[] {
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return fromEnv.length > 0 ? fromEnv : sitePreviewHosts;
+  return fromEnv.length > 0 ? fromEnv : (G.__decoDraftHosts ?? []);
 }
 
 /**

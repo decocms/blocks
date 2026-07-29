@@ -32,6 +32,14 @@ describe("prepareDraft", () => {
     );
   });
 
+  it("passes through when no env override is set — the page gate is authoritative", () => {
+    // The site-block hosts live in the server-components graph; middleware
+    // can't see them, so without the env kill switch it must not block.
+    delete process.env.DECO_ALLOWED_PREVIEW_HOSTS;
+    const req = request("https://anything.example/p?__draft=abc.localhost@v1");
+    expect(prepareDraft(req).pointer).toBe("abc.localhost@v1");
+  });
+
   it("is inert on a host outside the allowlist — the production domain", () => {
     // Same build, different Host: no cookie, no rewrite, nothing touched.
     const req = request("https://fila.com.br/p?__draft=abc@v1");

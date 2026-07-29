@@ -110,8 +110,28 @@ export interface NextSetupOptions {
  * instead, nothing imports the JSON, so edits invalidate nothing and dev
  * serves stale content until a full restart.
  */
+/**
+ * Install the site block's `previewHosts` as the draft-preview allowlist.
+ *
+ * Reads the BASE blocks handed to setup — never `loadBlocks()` at request
+ * time, where the draft override is merged in: an allowlist readable through
+ * the override could be rewritten by the very draft it gates.
+ * `DECO_ALLOWED_PREVIEW_HOSTS` remains an operational override that replaces
+ * this list when set.
+ */
+function installPreviewHosts(blocks: Record<string, unknown> | undefined): void {
+  const site = blocks?.site as { previewHosts?: unknown } | undefined;
+  if (Array.isArray(site?.previewHosts)) setDraftPreviewHosts(site.previewHosts);
+}
+
 export function createNextSetup(options: NextSetupOptions): () => Promise<void> {
   let setupPromise: Promise<void> | null = null;
+
+  // Draft preview opt-in from the repo: read SYNCHRONOUSLY at createNextSetup
+  // time (module evaluation), not inside the lazy ensureSetup — pages call
+  // `ensureDraft` BEFORE they resolve CMS content, so hosts installed lazily
+  // would arrive after the gate already said no on the first request.
+  installPreviewHosts(options.blocks);
 
   return function ensureSetup(): Promise<void> {
     setupPromise ??= (async () => {
@@ -120,17 +140,8 @@ export function createNextSetup(options: NextSetupOptions): () => Promise<void> 
           ? {}
           : await loadDecofileDirectory(options.blocksDir ?? ".deco/blocks");
       const blocks = { ...dirBlocks, ...options.blocks };
-
-      // Draft preview opt-in from the repo itself: the global `site` block may
-      // declare `previewHosts` (e.g. ["fila.vtex.app", "localhost:3100"]).
-      // Read here, from the SETUP-TIME base blocks — never via loadBlocks()
-      // at request time, where the draft override is merged in: an allowlist
-      // readable through the override could be rewritten by the very draft it
-      // gates. DECO_ALLOWED_PREVIEW_HOSTS remains an operational override.
-      const siteBlock = blocks.site as { previewHosts?: unknown } | undefined;
-      if (Array.isArray(siteBlock?.previewHosts)) {
-        setDraftPreviewHosts(siteBlock.previewHosts);
-      }
+      // Covers the blocksDir mode, where blocks only exist after the fs read.
+      installPreviewHosts(blocks);
 
       createSiteSetup({
         sections: options.sections,

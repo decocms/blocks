@@ -40,12 +40,20 @@ import {
 const INERT: DraftMiddlewareDecision = { pointer: null, setCookie: null, clearCookie: false };
 
 export function prepareDraft(request: NextRequest): DraftMiddlewareDecision {
-  // Host gate first: on a host not named in DECO_ALLOWED_PREVIEW_HOSTS the
-  // decision is inert — no cookie written, no rewrite, no headers touched —
-  // so the production domain behaves as if the feature didn't exist.
-  const host =
-    request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? request.nextUrl.host;
-  if (!isDraftHostAllowed(host)) return INERT;
+  // The AUTHORITATIVE host gate lives page-side (`ensureDraft`): the site
+  // block's `previewHosts` are installed in the server-components graph, and
+  // middleware runs in a separate module graph/runtime that never sees them.
+  // Middleware therefore hard-gates only on the env override — keeping
+  // DECO_ALLOWED_PREVIEW_HOSTS a full kill switch — and otherwise passes the
+  // decision through. Worst case on a non-preview host is a cookie the
+  // page-side gate then ignores; drafts never render there.
+  if (process.env.DECO_ALLOWED_PREVIEW_HOSTS) {
+    const host =
+      request.headers.get("x-forwarded-host") ??
+      request.headers.get("host") ??
+      request.nextUrl.host;
+    if (!isDraftHostAllowed(host)) return INERT;
+  }
   return decideDraft(new URL(request.url), request.cookies.get(DRAFT_COOKIE)?.value ?? null);
 }
 
