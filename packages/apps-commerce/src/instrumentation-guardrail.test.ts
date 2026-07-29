@@ -1,10 +1,17 @@
 /**
  * Cross-app guardrail: every commerce provider that makes upstream API calls
- * MUST route egress through the framework's `createInstrumentedFetch` and emit
- * the canonical `http.client.request.duration` histogram via
- * `recordCommerceMetric`. This is the contract that makes cache/upstream
- * telemetry AUTOMATIC — a new commerce app can't quietly ship egress that never
- * reaches ClickHouse.
+ * MUST ship an instrumented fetch that routes egress through the framework's
+ * `createInstrumentedFetch` and emits the canonical
+ * `http.client.request.duration` histogram via `recordCommerceMetric`.
+ *
+ * Scope, stated honestly: this asserts the *factory exists* in the package
+ * (it greps `src/utils/instrumentedFetch.ts` for the two required symbols). It
+ * does NOT prove the fetch is actually reached at runtime — for VTEX/Shopify/
+ * Magento that still depends on the *site* calling `setXFetch(createXFetch())`
+ * at boot (they fall back to an uninstrumented `globalThis.fetch` otherwise).
+ * Only Salesforce is auto-wired via `createHttpClient`'s default fetcher. So
+ * this catches "a provider shipped with no instrumented fetch at all"; it does
+ * not catch "a site forgot to wire it".
  *
  * This test reads sibling package source from disk (it does NOT import app
  * modules) so it stays within the one-way dependency graph. If you add a new

@@ -160,8 +160,10 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
 
   function emit(decision: CacheDecision) {
     // `hit` is true for every branch that avoids a foreground upstream fetch
-    // (fresh, dedup-join, stale-serve); MISS is the only non-hit.
-    recordCacheMetric(decision !== "MISS", provider, decision, "swr");
+    // (fresh, dedup-join, stale-serve); MISS is the only non-hit. The backend
+    // rides on the dedicated `provider` label (NOT `profile`, which the edge
+    // layer reserves for page-type) so dashboards don't blend the two.
+    recordCacheMetric(decision !== "MISS", undefined, decision, "swr", provider);
   }
 
   function fetchWithCache<T>(

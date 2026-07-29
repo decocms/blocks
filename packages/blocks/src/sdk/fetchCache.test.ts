@@ -142,13 +142,15 @@ describe("createFetchCache — behavior", () => {
 });
 
 describe("createFetchCache — telemetry labels", () => {
-  it("stamps layer=swr and profile=<provider> on every emit", async () => {
+  it("stamps layer=swr and provider=<provider> on every emit (profile stays unset)", async () => {
     const cache = createFetchCache({ provider: "magento", ...KNOBS });
     await cache.fetchWithCache("k", () => Promise.resolve(jsonResponse({})));
     const emitted = counters.filter((c) => c.name === "deco.cache.requests");
     expect(emitted.length).toBe(1);
     expect(emitted[0]?.labels?.["deco.cache.layer"]).toBe("swr");
-    expect(emitted[0]?.labels?.["deco.cache.profile"]).toBe("magento");
+    expect(emitted[0]?.labels?.["deco.cache.provider"]).toBe("magento");
+    // profile is reserved for the edge layer's page-type — must NOT be set here.
+    expect(emitted[0]?.labels?.["deco.cache.profile"]).toBeUndefined();
     expect(emitted[0]?.labels?.["deco.cache.status"]).toBe("MISS");
   });
 
