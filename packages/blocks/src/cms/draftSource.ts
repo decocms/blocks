@@ -54,7 +54,13 @@ export function parseDraftPointer(raw: string | null | undefined): DraftPointer 
   return { handle, version };
 }
 
-/** Configured suffixes, e.g. `.preview-studio.decocms.com,.localhost:3200`. */
+/**
+ * Configured suffixes, e.g. `.preview-studio.decocms.com,.localhost:3200`.
+ *
+ * Tried in order until one answers — a deployment can legitimately serve
+ * sandboxes from more than one origin (cluster and desktop-link), and the
+ * handle alone does not say which one it lives under.
+ */
 function readSuffixes(env: Record<string, string | undefined>): string[] {
   return (env.DECO_SANDBOX_ORIGIN_SUFFIXES ?? "")
     .split(",")
@@ -63,14 +69,13 @@ function readSuffixes(env: Record<string, string | undefined>): string[] {
 }
 
 /**
- * Build the sandbox origin for a handle.
+ * Build the sandbox origin for a handle under ONE configured suffix.
  *
- * The origin comes from CONFIGURED suffixes, never from caller input, so there
- * is no SSRF surface to defend and no allowlist to keep correct. A `localhost`
+ * The origin comes from configuration, never from caller input, so there is no
+ * SSRF surface to defend and no allowlist to keep correct. A `localhost`
  * suffix (local e2e) speaks http; everything else is https.
  */
-export function buildDraftOrigin(handle: string, suffixes: string[]): string | null {
-  const suffix = suffixes[0];
+export function buildDraftOrigin(handle: string, suffix: string): string | null {
   if (!suffix) return null;
   if (!HANDLE_RE.test(handle)) return null;
   const scheme = suffix.includes("localhost") ? "http" : "https";
@@ -137,27 +142,34 @@ export async function resolveDraftDecofile(
   const cached = byVersion.get(parsed.version);
   if (cached) return cached;
 
-  const origin = buildDraftOrigin(parsed.handle, readSuffixes(env));
-  if (!origin) return null;
-
   const doFetch = options.fetchImpl ?? fetch;
-  let res: Response;
-  try {
-    res = await doFetch(`${origin}/_sandbox/decofile`, { cache: "no-store" });
-  } catch {
-    return null;
-  }
-  if (!res.ok) return null;
+  // Suffixes are tried in order; the first that answers with parseable JSON
+  // wins. A miss on one origin (unreachable, non-2xx, garbage) is expected —
+  // the handle only exists under one of them — so every failure falls through
+  // to the next rather than aborting the resolve.
+  for (const suffix of readSuffixes(env)) {
+    const origin = buildDraftOrigin(parsed.handle, suffix);
+    if (!origin) continue;
 
-  let blocks: Record<string, unknown>;
-  try {
-    blocks = (await res.json()) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+    let res: Response;
+    try {
+      res = await doFetch(`${origin}/_sandbox/decofile`, { cache: "no-store" });
+    } catch {
+      continue;
+    }
+    if (!res.ok) continue;
 
-  cacheDraft(parsed.version, blocks);
-  return blocks;
+    let blocks: Record<string, unknown>;
+    try {
+      blocks = (await res.json()) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    cacheDraft(parsed.version, blocks);
+    return blocks;
+  }
+  return null;
 }
 
 /** True when the feature is switched on and configured. Inert otherwise. */

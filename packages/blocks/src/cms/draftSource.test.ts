@@ -57,17 +57,17 @@ describe("parseDraftPointer", () => {
 
 describe("buildDraftOrigin", () => {
   it("builds https from the configured suffix", () => {
-    expect(buildDraftOrigin("abc", [".preview-studio.decocms.com"])).toBe(
+    expect(buildDraftOrigin("abc", ".preview-studio.decocms.com")).toBe(
       "https://abc.preview-studio.decocms.com",
     );
   });
 
   it("uses http for a localhost suffix (local e2e)", () => {
-    expect(buildDraftOrigin("abc", [".localhost:3200"])).toBe("http://abc.localhost:3200");
+    expect(buildDraftOrigin("abc", ".localhost:3200")).toBe("http://abc.localhost:3200");
   });
 
   it("returns null with no configured suffix — never guesses an origin", () => {
-    expect(buildDraftOrigin("abc", [])).toBeNull();
+    expect(buildDraftOrigin("abc", "")).toBeNull();
   });
 });
 
@@ -150,6 +150,30 @@ describe("resolveDraftDecofile", () => {
     // v4 is still resident.
     await resolveDraftDecofile({ pointer: "abc@v4", env: ENV_ON, fetchImpl });
     expect(fetches).toBe(5);
+  });
+
+  it("falls through the suffix list until one origin answers", async () => {
+    // A deployment can serve sandboxes from more than one origin (cluster and
+    // desktop-link); the handle doesn't say which. The first suffix here is
+    // unreachable — the resolver must try the next, not give up.
+    const calls: string[] = [];
+    const blocks = await resolveDraftDecofile({
+      pointer: "abc@v1",
+      env: {
+        DECO_DRAFT_PREVIEW: "1",
+        DECO_SANDBOX_ORIGIN_SUFFIXES: ".dead.example, .alive.example",
+      },
+      fetchImpl: (async (url: string) => {
+        calls.push(String(url));
+        if (String(url).includes("dead")) throw new Error("ECONNREFUSED");
+        return jsonResponse({ ok: true });
+      }) as unknown as typeof fetch,
+    });
+    expect(blocks).toEqual({ ok: true });
+    expect(calls).toEqual([
+      "https://abc.dead.example/_sandbox/decofile",
+      "https://abc.alive.example/_sandbox/decofile",
+    ]);
   });
 
   it("degrades to published on a malformed pointer, without fetching", async () => {

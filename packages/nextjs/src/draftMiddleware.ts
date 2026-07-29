@@ -41,11 +41,13 @@ export function prepareDraft(request: NextRequest): DraftMiddlewareDecision {
 }
 
 /**
- * Route prefix a drafted request is rewritten onto.
+ * URL prefix a drafted request is rewritten onto.
  *
- * Deliberately a `_`-prefixed segment: Next treats those as private folders and
- * excludes them from routing, so a site cannot accidentally expose it as a real
- * page — it is reachable only through the middleware rewrite below.
+ * The site must mount the matching route as `app/%5Fdraft/...` — URL-encoded.
+ * A literal `_draft/` directory is a Next "private folder", excluded from
+ * routing entirely, so the rewrite would fall through to whatever catch-all
+ * follows and 404. The encoded directory serves the same `/_draft` URL while
+ * staying routable.
  */
 export const DRAFT_ROUTE_PREFIX = "/_draft";
 
