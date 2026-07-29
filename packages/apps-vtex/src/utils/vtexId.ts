@@ -20,9 +20,17 @@ const VTEX_AUTH_COOKIE = "VtexIdclientAutCookie";
 
 /**
  * Extract the VtexIdclientAutCookie value from a cookie string.
+ *
+ * Matches BOTH the base cookie `VtexIdclientAutCookie=` and the account-suffixed
+ * variant `VtexIdclientAutCookie_{account}=`. VTEX frequently sets ONLY the
+ * suffixed variant on the storefront domain — matching just the base name makes
+ * genuinely logged-in users look anonymous, which defeats any logged-in cache
+ * bypass built on top of this and can leak personalized/cached responses.
  */
 export function extractVtexAuthCookie(cookieHeader: string): string | null {
-	const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${VTEX_AUTH_COOKIE}=([^;]+)`));
+	const match = cookieHeader.match(
+		new RegExp(`(?:^|;\\s*)${VTEX_AUTH_COOKIE}(?:_[^=;\\s]+)?=([^;]+)`),
+	);
 	return match?.[1] ?? null;
 }
 
@@ -48,7 +56,12 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 export function parseVtexAuthToken(token: string): VtexAuthInfo {
 	const payload = decodeJwtPayload(token);
 	if (!payload) {
-		return { isLoggedIn: false, isExpired: true };
+		// Opaque (non-JWT) token. VTEX auth cookies are frequently opaque strings
+		// rather than JWTs — we cannot read `exp`, but the mere presence of the
+		// cookie means the user IS authenticated. Treating it as logged-out (the
+		// previous behavior) makes real sessions look anonymous and defeats any
+		// logged-in cache bypass. Fail towards "logged in" (i.e. do-not-cache).
+		return { isLoggedIn: true, isExpired: false };
 	}
 
 	const exp = typeof payload.exp === "number" ? payload.exp : undefined;
