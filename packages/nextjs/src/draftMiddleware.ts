@@ -19,8 +19,9 @@
  * Lives on its own subpath so middleware (edge runtime) never imports the root
  * barrel, which pulls in the client component graph.
  */
-import { type NextRequest, NextResponse } from "next/server";
 
+import { isDraftHostAllowed } from "@decocms/blocks/cms";
+import { type NextRequest, NextResponse } from "next/server";
 import {
   DRAFT_COOKIE,
   DRAFT_COOKIE_OPTIONS,
@@ -36,7 +37,17 @@ import {
  * nothing has to be forwarded through the request. That also means a draft
  * still works on routes this middleware never matches.
  */
+const INERT: DraftMiddlewareDecision = { pointer: null, setCookie: null, clearCookie: false };
+
 export function prepareDraft(request: NextRequest): DraftMiddlewareDecision {
+  // Host gate first: on a host not named in DECO_DRAFT_PREVIEW_HOST the
+  // decision is inert — no cookie written, no rewrite, no headers touched —
+  // so the production domain behaves as if the feature didn't exist.
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    request.nextUrl.host;
+  if (!isDraftHostAllowed(host)) return INERT;
   return decideDraft(new URL(request.url), request.cookies.get(DRAFT_COOKIE)?.value ?? null);
 }
 

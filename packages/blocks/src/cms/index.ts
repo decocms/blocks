@@ -16,7 +16,9 @@ export type { DraftPointer, ResolveDraftOptions } from "./draftSource";
 export {
   buildDraftOrigin,
   clearDraftCache,
+  DEFAULT_SANDBOX_ORIGIN_SUFFIXES,
   getRequestDraftOverride,
+  isDraftHostAllowed,
   isDraftPreviewEnabled,
   parseDraftPointer,
   resolveDraftDecofile,

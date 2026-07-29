@@ -22,8 +22,12 @@
  * i.e. the page component. `ensureDraft()` exists so each site makes one call
  * instead of re-deriving that ordering rule.
  */
-import { resolveDraftDecofile, setDraftOverrideGetter } from "@decocms/blocks/cms";
-import { cookies } from "next/headers";
+import {
+  isDraftHostAllowed,
+  resolveDraftDecofile,
+  setDraftOverrideGetter,
+} from "@decocms/blocks/cms";
+import { cookies, headers } from "next/headers";
 import { cache } from "react";
 
 /** Cookie that carries the pointer across in-preview navigation. */
@@ -115,6 +119,14 @@ export async function ensureDraft(searchParams?: DraftSearchParams): Promise<boo
   const cookieStore = await cookies();
   const pointer = selectDraftPointer(searchParams, cookieStore.get(DRAFT_COOKIE)?.value);
   if (!pointer) return false;
+
+  // Host gate, checked only once a pointer exists (headers() is a dynamic
+  // API): the same build may serve the preview domain and the production
+  // domain, and only hosts named in DECO_DRAFT_PREVIEW_HOST may render
+  // drafts — production stays published no matter what the URL carries.
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  if (!isDraftHostAllowed(host)) return false;
 
   const blocks = await resolveDraftDecofile({ pointer });
   if (!blocks) return false;

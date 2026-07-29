@@ -90,7 +90,8 @@ export function createDecoPage({ siteName }: CreateDecoPageOptions) {
    *     first wins for both. So this must be awaited at the top of BOTH, not
    *     just the page. `cache()` here makes the second call free.
    *
-   * Gated on `isDraftPreviewEnabled()` — a plain env read, not a dynamic API —
+   * Gated on `isDraftPreviewEnabled()` (DECO_DRAFT_PREVIEW_HOST non-empty) — a
+   * plain env read, not a dynamic API —
    * so sites that never opt in behave exactly as before. That gate is doing
    * real work: `cookies()` and `searchParams` are both dynamic, and touching
    * them unconditionally would opt EVERY page out of static/ISR rendering.

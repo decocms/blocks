@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DRAFT_COOKIE } from "./draft";
 import { applyDraft, prepareDraft, rewriteToDraftRoute } from "./draftMiddleware";
+
+beforeEach(() => {
+  // The middleware is host-gated; these tests run as the allowed host.
+  process.env.DECO_DRAFT_PREVIEW_HOST = "site.example";
+});
+afterEach(() => {
+  delete process.env.DECO_DRAFT_PREVIEW_HOST;
+});
 
 function request(url: string, cookie?: string): NextRequest {
   const req = new NextRequest(new URL(url), {
@@ -18,6 +26,14 @@ describe("prepareDraft", () => {
 
   it("reads the pointer from the cookie on a plain navigation", () => {
     expect(prepareDraft(request("https://site.example/p", "abc@v1")).pointer).toBe("abc@v1");
+  });
+
+  it("is inert on a host outside the allowlist — the production domain", () => {
+    // Same build, different Host: no cookie, no rewrite, nothing touched.
+    const req = request("https://fila.com.br/p?__draft=abc@v1");
+    process.env.DECO_DRAFT_PREVIEW_HOST = "fila.vtex.app";
+    expect(prepareDraft(req)).toEqual({ pointer: null, setCookie: null, clearCookie: false });
+    expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
   });
 
   it("ignores a client-supplied draft header — the page owns the decision", () => {

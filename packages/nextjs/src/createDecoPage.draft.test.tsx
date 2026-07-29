@@ -13,7 +13,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The gate must stop us reaching cookies() at all when the feature is off.
 const cookiesMock = vi.fn(async () => ({ get: () => undefined }));
-vi.mock("next/headers", () => ({ cookies: () => cookiesMock() }));
+vi.mock("next/headers", () => ({
+  cookies: () => cookiesMock(),
+  headers: async () => new Headers(),
+}));
 
 // `connection()` is Next's runtime opt-out from static rendering; outside a
 // request scope it throws, so it is stubbed to a no-op here.
@@ -39,7 +42,7 @@ function seedPublishedHome() {
 afterEach(() => {
   cookiesMock.mockClear();
   connectionMock.mockClear();
-  delete process.env.DECO_DRAFT_PREVIEW;
+  delete process.env.DECO_DRAFT_PREVIEW_HOST;
   delete process.env.DECO_SANDBOX_ORIGIN_SUFFIXES;
 });
 
@@ -72,8 +75,7 @@ describe("createDecoPage — draft preview gate", () => {
   });
 
   it("reads cookies() once the feature is fully configured", async () => {
-    process.env.DECO_DRAFT_PREVIEW = "1";
-    process.env.DECO_SANDBOX_ORIGIN_SUFFIXES = ".preview-studio.decocms.com";
+    process.env.DECO_DRAFT_PREVIEW_HOST = "preview.example";
     seedPublishedHome();
 
     const { default: Page } = createDecoPage({ siteName: "test-site" });

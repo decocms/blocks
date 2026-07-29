@@ -14,9 +14,12 @@
  * dependency-injection shape as `setFastDeployKVGetter`, so `blocks` keeps its
  * zero-dependency direction.
  *
- * Inert unless BOTH `DECO_DRAFT_PREVIEW=1` and `DECO_SANDBOX_ORIGIN_SUFFIXES`
- * are set, mirroring Fast Deploy's opt-in: upgrading the package must never be
- * enough to start fetching from the network and rendering unpublished content.
+ * Inert unless `DECO_DRAFT_PREVIEW_HOST` names the request's host: upgrading
+ * the package must never be enough to start fetching from the network and
+ * rendering unpublished content. Host-scoping (rather than a boolean) exists
+ * because one deployment commonly serves several domains — the preview domain
+ * may render drafts while the production domain, on the same build, must
+ * ignore a `?__draft=` entirely.
  */
 
 /** A parsed `<handle>@<version>` draft pointer. */
@@ -55,17 +58,64 @@ export function parseDraftPointer(raw: string | null | undefined): DraftPointer 
 }
 
 /**
- * Configured suffixes, e.g. `.preview-studio.decocms.com,.localhost:3200`.
- *
- * Tried in order until one answers — a deployment can legitimately serve
+ * Default sandbox origin suffixes — deco-operated domains, so shipping them as
+ * defaults adds no SSRF surface: the origin is still configuration, never
+ * caller input. `DECO_SANDBOX_ORIGIN_SUFFIXES` overrides (e.g. to pin a local
+ * link port: `.localhost:60534`).
+ */
+export const DEFAULT_SANDBOX_ORIGIN_SUFFIXES = [
+  ".preview-studio.decocms.com",
+  ".local.studio.decocms.com",
+  ".localhost",
+];
+
+/**
+ * Suffixes are tried in order until one answers — a deployment can serve
  * sandboxes from more than one origin (cluster and desktop-link), and the
  * handle alone does not say which one it lives under.
  */
 function readSuffixes(env: Record<string, string | undefined>): string[] {
-  return (env.DECO_SANDBOX_ORIGIN_SUFFIXES ?? "")
+  const configured = (env.DECO_SANDBOX_ORIGIN_SUFFIXES ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  return configured.length > 0 ? configured : DEFAULT_SANDBOX_ORIGIN_SUFFIXES;
+}
+
+/** Hosts allowed to render drafts (`DECO_DRAFT_PREVIEW_HOST`, comma list). */
+function readAllowedHosts(env: Record<string, string | undefined>): string[] {
+  return (env.DECO_DRAFT_PREVIEW_HOST ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Whether `host` (as seen on the request) may render drafts.
+ *
+ * Compared against `DECO_DRAFT_PREVIEW_HOST` verbatim, port included — local
+ * dev is `localhost:3100`, not `localhost`. The header is spoofable by a
+ * direct-to-origin request, but the sandbox handle is the actual capability;
+ * host-scoping bounds blast radius (production domains stay inert), it is not
+ * a secret.
+ */
+export function isDraftHostAllowed(
+  host: string | null | undefined,
+  env?: Record<string, string | undefined>,
+): boolean {
+  if (!host) return false;
+  const e = envOrProcess(env);
+  return readAllowedHosts(e).includes(host.trim().toLowerCase());
+}
+
+function envOrProcess(
+  env?: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  return (
+    env ??
+    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ??
+    {}
+  );
 }
 
 /**
@@ -130,11 +180,8 @@ export interface ResolveDraftOptions {
 export async function resolveDraftDecofile(
   options: ResolveDraftOptions,
 ): Promise<Record<string, unknown> | null> {
-  const env =
-    options.env ??
-    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ??
-    {};
-  if (env.DECO_DRAFT_PREVIEW !== "1") return null;
+  const env = envOrProcess(options.env);
+  if (readAllowedHosts(env).length === 0) return null;
 
   const parsed = parseDraftPointer(options.pointer);
   if (!parsed) return null;
@@ -172,13 +219,14 @@ export async function resolveDraftDecofile(
   return null;
 }
 
-/** True when the feature is switched on and configured. Inert otherwise. */
+/**
+ * True when any host is allowed to preview. A plain env read — callers use it
+ * to gate BEFORE touching dynamic APIs (`cookies()`/`headers()`), so an
+ * unconfigured site never loses static/ISR rendering. The per-request host
+ * match happens later, in `isDraftHostAllowed`.
+ */
 export function isDraftPreviewEnabled(env?: Record<string, string | undefined>): boolean {
-  const e =
-    env ??
-    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ??
-    {};
-  return e.DECO_DRAFT_PREVIEW === "1" && readSuffixes(e).length > 0;
+  return readAllowedHosts(envOrProcess(env)).length > 0;
 }
 
 // ---------------------------------------------------------------------------

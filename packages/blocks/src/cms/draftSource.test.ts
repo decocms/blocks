@@ -3,13 +3,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildDraftOrigin,
   clearDraftCache,
+  DEFAULT_SANDBOX_ORIGIN_SUFFIXES,
+  isDraftHostAllowed,
   isDraftPreviewEnabled,
   parseDraftPointer,
   resolveDraftDecofile,
 } from "./draftSource";
 
 const ENV_ON = {
-  DECO_DRAFT_PREVIEW: "1",
+  DECO_DRAFT_PREVIEW_HOST: "preview.example",
   DECO_SANDBOX_ORIGIN_SUFFIXES: ".preview-studio.decocms.com",
 };
 
@@ -72,9 +74,12 @@ describe("buildDraftOrigin", () => {
 });
 
 describe("isDraftPreviewEnabled", () => {
-  it("needs both the flag and a suffix", () => {
+  it("is on iff an allowed host is configured — suffixes have defaults", () => {
+    // Inverted from the old two-key gate: suffixes now default to the
+    // deco-operated origins, so the single opt-in is the host allowlist.
+    // Upgrading the package with no host configured stays fully inert.
     expect(isDraftPreviewEnabled(ENV_ON)).toBe(true);
-    expect(isDraftPreviewEnabled({ DECO_DRAFT_PREVIEW: "1" })).toBe(false);
+    expect(isDraftPreviewEnabled({ DECO_DRAFT_PREVIEW_HOST: "a.example" })).toBe(true);
     expect(
       isDraftPreviewEnabled({
         DECO_SANDBOX_ORIGIN_SUFFIXES: ".preview-studio.decocms.com",
@@ -84,7 +89,41 @@ describe("isDraftPreviewEnabled", () => {
   });
 });
 
+describe("isDraftHostAllowed", () => {
+  const env = { DECO_DRAFT_PREVIEW_HOST: "fila.vtex.app, localhost:3100" };
+
+  it("matches listed hosts verbatim, port included, case-insensitively", () => {
+    expect(isDraftHostAllowed("fila.vtex.app", env)).toBe(true);
+    expect(isDraftHostAllowed("FILA.VTEX.APP", env)).toBe(true);
+    expect(isDraftHostAllowed("localhost:3100", env)).toBe(true);
+  });
+
+  it("rejects everything else — the production domain on the same build", () => {
+    expect(isDraftHostAllowed("fila.com.br", env)).toBe(false);
+    expect(isDraftHostAllowed("localhost", env)).toBe(false); // port matters
+    expect(isDraftHostAllowed(null, env)).toBe(false);
+    expect(isDraftHostAllowed("fila.vtex.app", {})).toBe(false);
+  });
+});
+
 describe("resolveDraftDecofile", () => {
+  it("uses the default deco suffixes when none are configured", async () => {
+    const calls: string[] = [];
+    await resolveDraftDecofile({
+      pointer: "abc@v1",
+      env: { DECO_DRAFT_PREVIEW_HOST: "preview.example" },
+      fetchImpl: (async (url: string) => {
+        calls.push(String(url));
+        throw new Error("unreachable");
+      }) as unknown as typeof fetch,
+    });
+    expect(calls).toEqual(
+      DEFAULT_SANDBOX_ORIGIN_SUFFIXES.map(
+        (sfx) => `${sfx.includes("localhost") ? "http" : "https"}://abc${sfx}/_sandbox/decofile`,
+      ),
+    );
+  });
+
   it("fetches the sandbox decofile and returns it", async () => {
     const calls: string[] = [];
     const blocks = await resolveDraftDecofile({
@@ -100,7 +139,7 @@ describe("resolveDraftDecofile", () => {
     expect(calls).toEqual(["https://abc.preview-studio.decocms.com/_sandbox/decofile"]);
   });
 
-  it("is inert unless explicitly enabled — no fetch at all", async () => {
+  it("is inert without a host allowlist — no fetch at all", async () => {
     let called = false;
     const blocks = await resolveDraftDecofile({
       pointer: "abc@v1",
@@ -160,7 +199,7 @@ describe("resolveDraftDecofile", () => {
     const blocks = await resolveDraftDecofile({
       pointer: "abc@v1",
       env: {
-        DECO_DRAFT_PREVIEW: "1",
+        DECO_DRAFT_PREVIEW_HOST: "preview.example",
         DECO_SANDBOX_ORIGIN_SUFFIXES: ".dead.example, .alive.example",
       },
       fetchImpl: (async (url: string) => {
