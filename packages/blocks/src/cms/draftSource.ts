@@ -108,12 +108,38 @@ export function previewApiOriginForHost(
   return `${local ? "http" : "https"}://${host}${port === undefined ? "" : `:${port}`}`;
 }
 
-/** Hosts allowed to render drafts (`DECO_ALLOWED_PREVIEW_HOSTS`, comma list). */
+/**
+ * Hosts declared by the site itself (the global `site` block's `previewHosts`),
+ * installed once at setup time by the framework binding.
+ *
+ * MUST be fed from the setup-time base blocks, never from `loadBlocks()` at
+ * request time: the request path merges the draft override, and an allowlist
+ * readable through the override could be rewritten by the very draft it gates.
+ */
+let sitePreviewHosts: string[] = [];
+
+/** Install the site-declared preview hosts. Called by the framework binding at setup. */
+export function setDraftPreviewHosts(hosts: readonly unknown[]): void {
+  sitePreviewHosts = hosts
+    .filter((h): h is string => typeof h === "string")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Hosts allowed to render drafts.
+ *
+ * The site block is the expected source — the opt-in lives in the repo,
+ * reviewed in a PR, versioned with branches. `DECO_ALLOWED_PREVIEW_HOSTS`
+ * REPLACES it when set: an operational escape hatch (kill a bad value without
+ * a deploy, add a machine-specific port) — not the primary configuration.
+ */
 function readAllowedHosts(env: Record<string, string | undefined>): string[] {
-  return (env.DECO_ALLOWED_PREVIEW_HOSTS ?? "")
+  const fromEnv = (env.DECO_ALLOWED_PREVIEW_HOSTS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+  return fromEnv.length > 0 ? fromEnv : sitePreviewHosts;
 }
 
 /**

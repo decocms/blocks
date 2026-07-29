@@ -23,6 +23,7 @@ export {
   previewApiOriginForHost,
   resolveDraftDecofile,
   setDraftOverrideGetter,
+  setDraftPreviewHosts,
 } from "./draftSource";
 export type { DecoPage, Resolvable } from "./loader";
 export {

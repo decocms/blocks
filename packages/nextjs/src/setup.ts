@@ -38,7 +38,7 @@
  * deploys must ship the directory alongside the server bundle).
  */
 import type { ApplySectionConventionsInput } from "@decocms/blocks/cms";
-import { applySectionConventions, loadBlocks } from "@decocms/blocks/cms";
+import { applySectionConventions, loadBlocks, setDraftPreviewHosts } from "@decocms/blocks/cms";
 import { loadDecofileDirectory } from "@decocms/blocks/cms/loadDecofileDirectory";
 import { createSiteSetup, type SiteSetupOptions } from "@decocms/blocks/setup";
 
@@ -120,6 +120,17 @@ export function createNextSetup(options: NextSetupOptions): () => Promise<void> 
           ? {}
           : await loadDecofileDirectory(options.blocksDir ?? ".deco/blocks");
       const blocks = { ...dirBlocks, ...options.blocks };
+
+      // Draft preview opt-in from the repo itself: the global `site` block may
+      // declare `previewHosts` (e.g. ["fila.vtex.app", "localhost:3100"]).
+      // Read here, from the SETUP-TIME base blocks — never via loadBlocks()
+      // at request time, where the draft override is merged in: an allowlist
+      // readable through the override could be rewritten by the very draft it
+      // gates. DECO_ALLOWED_PREVIEW_HOSTS remains an operational override.
+      const siteBlock = blocks.site as { previewHosts?: unknown } | undefined;
+      if (Array.isArray(siteBlock?.previewHosts)) {
+        setDraftPreviewHosts(siteBlock.previewHosts);
+      }
 
       createSiteSetup({
         sections: options.sections,

@@ -8,6 +8,7 @@ import {
   parseDraftPointer,
   previewApiOriginForHost,
   resolveDraftDecofile,
+  setDraftPreviewHosts,
 } from "./draftSource";
 
 const ENV_ON = { DECO_ALLOWED_PREVIEW_HOSTS: "preview.example" };
@@ -225,5 +226,33 @@ describe("DEFAULT_PREVIEW_API_DOMAINS", () => {
       ".local.studio.decocms.com",
       ".localhost",
     ]);
+  });
+});
+
+describe("site-block preview hosts", () => {
+  it("enables the feature from the site block alone — no env needed", () => {
+    setDraftPreviewHosts(["fila.vtex.app", "LOCALHOST:3100", 42, "  "]);
+    try {
+      expect(isDraftPreviewEnabled({})).toBe(true);
+      expect(isDraftHostAllowed("fila.vtex.app", {})).toBe(true);
+      // Sanitized: lowercased, non-strings and blanks dropped.
+      expect(isDraftHostAllowed("localhost:3100", {})).toBe(true);
+      expect(isDraftHostAllowed("evil.example", {})).toBe(false);
+    } finally {
+      setDraftPreviewHosts([]);
+    }
+  });
+
+  it("env REPLACES the block hosts when set — the operational escape hatch", () => {
+    setDraftPreviewHosts(["fila.vtex.app"]);
+    try {
+      const env = { DECO_ALLOWED_PREVIEW_HOSTS: "other.example" };
+      expect(isDraftHostAllowed("other.example", env)).toBe(true);
+      // Not merged: env is a kill switch / override, so the block value must
+      // not survive alongside it.
+      expect(isDraftHostAllowed("fila.vtex.app", env)).toBe(false);
+    } finally {
+      setDraftPreviewHosts([]);
+    }
   });
 });
