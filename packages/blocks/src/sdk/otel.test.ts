@@ -14,7 +14,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as composite from "./composite";
 import * as logger from "./logger";
 import * as observability from "./observability";
-import { _resetBootStateForTests, instrumentWorker } from "./otel";
+import {
+  _resetBootStateForTests,
+  flushObservability,
+  instrumentWorker,
+  instrumentWorkflowRun,
+} from "./otel";
 import * as adapters from "./otelAdapters";
 import { createClickhouseCollectorAdapter } from "./otelAdapters/clickhouseCollector";
 
@@ -522,5 +527,62 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     await Promise.all(ctx.waited);
 
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("instrumentWorkflowRun / flushObservability — Workflow entrypoints", () => {
+  beforeEach(() => {
+    _resetBootStateForTests();
+  });
+
+  afterEach(() => {
+    _resetBootStateForTests();
+  });
+
+  it("flushObservability resolves without throwing when no adapters are configured", async () => {
+    await expect(flushObservability()).resolves.toBeUndefined();
+  });
+
+  it("instrumentWorkflowRun returns fn's result and does not throw with no OTel env vars set", async () => {
+    const fn = vi.fn().mockResolvedValue("step-result");
+    const result = await instrumentWorkflowRun({}, undefined, fn);
+
+    expect(result).toBe("step-result");
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("rethrows fn's error and still flushes", async () => {
+    const fn = vi.fn().mockRejectedValue(new Error("workflow step failed"));
+
+    await expect(instrumentWorkflowRun({}, undefined, fn)).rejects.toThrow(
+      "workflow step failed",
+    );
+  });
+
+  it("wires and flushes the OTLP metrics exporter, same as instrumentWorker's channel", async () => {
+    const calls: Array<{ url: string; body: string }> = [];
+    const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const fn = vi.fn(async () => {
+      observability.recordRequestMetric("WORKFLOW", "/batch-product", 200, 12);
+      return "done";
+    });
+
+    const env = {
+      DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics",
+    } as unknown as Record<string, unknown>;
+
+    const result = await instrumentWorkflowRun(
+      env,
+      { serviceName: "workflow-smoke", otlpMetricsFetchImpl: impl },
+      fn,
+    );
+
+    expect(result).toBe("done");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://ingest.test/v1/metrics");
   });
 });

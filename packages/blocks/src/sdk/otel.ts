@@ -446,32 +446,75 @@ export function instrumentWorker(
         // ctx.waitUntil so no POST blocks the response. Each exporter
         // throttles itself per isolate — calling on every request is
         // cheap; the network only fires when the cooldown elapses or
-        // the buffer fills.
+        // the buffer fills. Skip the waitUntil call entirely when no
+        // adapter is configured (nothing to flush).
         const state = getBootState();
-        if (state.otlpMeter) {
+        if (state.otlpMeter || state.otlpLog || state.otlpTracer) {
           try {
-            ctx.waitUntil(state.otlpMeter.flush());
+            ctx.waitUntil(flushObservability());
           } catch {
             /* ctx.waitUntil throwing is benign — never block the response */
-          }
-        }
-        if (state.otlpLog) {
-          try {
-            ctx.waitUntil(state.otlpLog.flush());
-          } catch {
-            /* swallow */
-          }
-        }
-        if (state.otlpTracer) {
-          try {
-            ctx.waitUntil(state.otlpTracer.flush());
-          } catch {
-            /* swallow */
           }
         }
       }
     },
   };
+}
+
+/**
+ * Drains the OTLP metrics + error-log + traces buffers (whichever are
+ * configured for this isolate). Extracted out of `instrumentWorker`'s
+ * `finally` block so callers without a `{fetch}`/`ctx.waitUntil` lifecycle —
+ * e.g. Cloudflare Workflow `run()` handlers — can flush explicitly too. See
+ * `instrumentWorkflowRun` below.
+ */
+export async function flushObservability(): Promise<void> {
+  const state = getBootState();
+  await Promise.allSettled([
+    state.otlpMeter?.flush(),
+    state.otlpLog?.flush(),
+    state.otlpTracer?.flush(),
+  ]);
+}
+
+/**
+ * Boots observability (same env-var-driven wiring `instrumentWorker` uses)
+ * and runs `fn`, flushing on the way out — the Workflow-entrypoint
+ * equivalent of `instrumentWorker`. Cloudflare Workflows have no `{fetch}` /
+ * `ctx.waitUntil` lifecycle, so this awaits the flush directly instead.
+ *
+ * Deliberately does NOT open a root span around `fn()`. Code in a
+ * `WorkflowEntrypoint.run(event, step)` outside `step.do`/`step.sleep`
+ * re-executes on every hibernate/wake replay — a span opened here would get
+ * a fresh random trace ID on every replay leg, producing disconnected
+ * traces instead of one coherent run. Create spans for individual
+ * `step.do(...)` callbacks with `withTracing` instead (each step only truly
+ * runs once, since `step.do` memoizes across replays), tagging them with
+ * `event.instanceId` so a backend can group replay legs under one logical
+ * run.
+ *
+ * @example
+ * ```ts
+ * async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
+ *   return instrumentWorkflowRun(this.env, undefined, async () => {
+ *     await step.do("fetch-product", () =>
+ *       withTracing("deco.workflow.step", () => fetchProduct(), {
+ *         "workflow.instance_id": event.instanceId,
+ *         "workflow.step": "fetch-product",
+ *       }),
+ *     );
+ *   });
+ * }
+ * ```
+ */
+export function instrumentWorkflowRun<T>(
+  env: Record<string, unknown>,
+  options: OtelOptions | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  configureTracer(buildOtelApiTracer());
+  bootObservability(options ?? {}, env);
+  return fn().finally(() => flushObservability());
 }
 
 /**
@@ -639,7 +682,18 @@ function patchConsole(state: BootState): void {
   console.debug = (...args: unknown[]) => forward("debug", args);
 }
 
-function bootObservability(opts: OtelOptions, env: Record<string, unknown>): void {
+/**
+ * Boots the observability stack for the current isolate: resolves the
+ * `DECO_OTEL` on/off/auto switch, builds the resource-attribute floor
+ * (service name/version/instance, deployment environment, cloud platform),
+ * and — gated per env var — wires the AE meter and OTLP metrics/logs/traces
+ * adapters. Idempotent per isolate (`BootState.booted` guards re-entry).
+ *
+ * Exported so callers with a lifecycle `instrumentWorker` doesn't fit
+ * (Cloudflare Workflows — see `instrumentWorkflowRun`) can boot the same
+ * stack directly.
+ */
+export function bootObservability(opts: OtelOptions, env: Record<string, unknown>): void {
   const state = getBootState();
   if (state.booted) return;
 
