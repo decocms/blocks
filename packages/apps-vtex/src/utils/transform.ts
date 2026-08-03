@@ -576,6 +576,7 @@ const buildOfferShelf = (offer: Offer): Offer => {
 const SHELF_PROPERTY_NAMES = new Set([
 	"category",
 	"cluster",
+	"Campanha",
 	"Cor",
 	"Tamanho",
 	"Voltagem",
@@ -621,23 +622,6 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 	const bestOffer = allOffers[0];
 	const leanOffers = bestOffer ? [buildOfferShelf(bestOffer)] : [];
 
-	// isVariantOf: single in-stock variant at level 0
-	const isVariantOf =
-		level < 1
-			? (() => {
-					const inStockSku = findFirstAvailable(items) ?? items[0];
-					const singleVariant = inStockSku ? [toProductShelf(product, inStockSku, 1, options)] : [];
-					return {
-						"@type": "ProductGroup" as const,
-						productGroupID: productId,
-						hasVariant: singleVariant,
-						url: getProductGroupURL(baseUrl, product).href,
-						name: product.productName,
-						additionalProperty: [],
-					} satisfies ProductGroup;
-				})()
-			: undefined;
-
 	// additionalProperty: filter to known-used names
 	const specificationsAdditionalProperty = isLegacySku(sku)
 		? toAdditionalPropertiesLegacy(sku)
@@ -650,6 +634,26 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 		...categoryAdditionalProperties,
 		...clusterAdditionalProperties,
 	].filter((prop) => SHELF_PROPERTY_NAMES.has(prop.name ?? ""));
+
+	// isVariantOf: single in-stock variant at level 0
+	const isVariantOf =
+		level < 1
+			? (() => {
+					const inStockSku = findFirstAvailable(items) ?? items[0];
+					const singleVariant = inStockSku ? [toProductShelf(product, inStockSku, 1, options)] : [];
+					return {
+						"@type": "ProductGroup" as const,
+						productGroupID: productId,
+						hasVariant: singleVariant,
+						url: getProductGroupURL(baseUrl, product).href,
+						name: product.productName,
+						// Carry the shelf-safe group props (incl. "Campanha") so ProductCard
+						// flags that read isVariantOf.additionalProperty (e.g. ReleaseFlag ->
+						// "Lançamento") still fire on shelf/carousel cards.
+						additionalProperty,
+					} satisfies ProductGroup;
+				})()
+			: undefined;
 
 	const categoriesString = splitCategory(product.categories[0]).join(DEFAULT_CATEGORY_SEPARATOR);
 

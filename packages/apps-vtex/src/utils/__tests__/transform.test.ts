@@ -23,6 +23,7 @@ import {
 	toAdditionalPropertySpecification,
 	toBrand,
 	toPostalAddress,
+	toProductShelf,
 	toProductVariant,
 } from "../transform";
 
@@ -694,5 +695,70 @@ describe("toProductVariant", () => {
 		// Should still return a valid product, offers may be undefined (no sellers)
 		expect(result["@type"]).toBe("Product");
 		expect(result.productID).toBe("SKU1");
+	});
+});
+
+describe("toProductShelf", () => {
+	const makeSku = (overrides: Record<string, unknown> = {}) =>
+		({
+			itemId: "SKU1",
+			name: "Test SKU",
+			referenceId: [{ Key: "RefId", Value: "REF-SKU1" }],
+			images: [{ imageUrl: "https://img.com/1.jpg", imageText: "Front", imageLabel: "front" }],
+			sellers: [
+				{
+					sellerId: "1",
+					sellerName: "Seller One",
+					commertialOffer: {
+						AvailableQuantity: 10,
+						Price: 99.9,
+						ListPrice: 129.9,
+						spotPrice: 89.9,
+						PriceValidUntil: "2025-12-31",
+						Installments: [],
+						GiftSkuIds: [],
+						teasers: [],
+					},
+				},
+			],
+			// Campanha is the VTEX spec MonteCarlo uses to tag launches ("Lançamentos").
+			variations: [
+				{ name: "Cor", values: ["Preto"] },
+				{ name: "Campanha", values: ["Lançamentos"] },
+			],
+		}) as any;
+
+	const makeProduct = (overrides: Record<string, unknown> = {}) =>
+		({
+			origin: "intelligent-search",
+			productId: "PROD1",
+			productName: "Test Product",
+			brand: "TestBrand",
+			linkText: "test-product",
+			categories: ["/Electronics/"],
+			categoriesIds: ["/1/"],
+			categoryId: "1",
+			productClusters: [{ id: "100", name: "Sale" }],
+			clusterHighlights: [],
+			items: [makeSku()],
+			...overrides,
+		}) as any;
+
+	const options = { baseUrl: "https://example.com", priceCurrency: "BRL" };
+
+	it("keeps the Campanha launch spec in product-level additionalProperty", () => {
+		const result = toProductShelf(makeProduct(), makeSku(), 0, options);
+		expect(result.additionalProperty).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ name: "Campanha", value: "Lançamentos" }),
+			]),
+		);
+	});
+
+	it("populates isVariantOf.additionalProperty with the launch spec (ReleaseFlag reads it)", () => {
+		const result = toProductShelf(makeProduct(), makeSku(), 0, options);
+		const groupProps = result.isVariantOf?.additionalProperty ?? [];
+		expect(groupProps.length).toBeGreaterThan(0);
+		expect(groupProps.some((p) => p.value === "Lançamentos")).toBe(true);
 	});
 });
