@@ -12,16 +12,24 @@ export {
   revisionKey,
   snapshotKey,
 } from "./blockSource";
-export type { DraftPointer, ResolveDraftOptions } from "./draftSource";
+export type {
+  DraftPointer,
+  ResolveDraftForRequestOptions,
+  ResolveDraftOptions,
+} from "./draftSource";
 export {
   clearDraftCache,
   DEFAULT_PREVIEW_API_DOMAINS,
+  DRAFT_COOKIE_NAME,
+  DRAFT_QUERY_PARAM,
+  draftPointerFromRequest,
   getRequestDraftOverride,
   isDraftHostAllowed,
   isDraftPreviewEnabled,
   parseDraftPointer,
   previewApiOriginForHost,
   resolveDraftDecofile,
+  resolveDraftForRequest,
   setDraftOverrideGetter,
   setDraftPreviewHosts,
 } from "./draftSource";

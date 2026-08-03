@@ -259,6 +259,84 @@ export async function resolveDraftDecofile(
 }
 
 // ---------------------------------------------------------------------------
+// Request-level resolution (framework-agnostic; for secondary endpoints)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cookie the draft pointer travels in across navigation. The Next binding's
+ * middleware sets it on entry; a SECONDARY endpoint that must honour the same
+ * draft — `/deco/invoke`, which is a separate request from the page render —
+ * reads it back off the raw Request here.
+ *
+ * Duplicated (as a plain literal) in `@decocms/nextjs`'s client-safe
+ * `draftConstants`, because the client badge cannot import this server-only
+ * module. A parity test keeps the two in lock-step.
+ */
+export const DRAFT_COOKIE_NAME = "__deco_draft";
+/** Query param that enters draft mode; `off` leaves it. */
+export const DRAFT_QUERY_PARAM = "__draft";
+
+/** Read one cookie value out of a raw `Cookie:` header. */
+function readCookieValue(cookieHeader: string | null | undefined, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    }
+  }
+  return null;
+}
+
+/**
+ * The draft pointer a raw Request is carrying: `?__draft=` wins, the cookie
+ * carries navigation, `off` exits. Same precedence as the Next binding's
+ * page-side `selectDraftPointer`, but reads straight off the Request so it
+ * works in a plain route handler (no `next/headers`, no React scope).
+ */
+export function draftPointerFromRequest(request: Request): string | null {
+  const url = new URL(request.url);
+  const param = url.searchParams.get(DRAFT_QUERY_PARAM);
+  if (param === "off") return null;
+  if (param) return param;
+  return readCookieValue(request.headers.get("cookie"), DRAFT_COOKIE_NAME);
+}
+
+export interface ResolveDraftForRequestOptions {
+  env?: Record<string, string | undefined>;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Resolve the draft decofile a raw Request is asking for, or null to fall back
+ * to published blocks.
+ *
+ * Applies the SAME gate as the page path — allowlist non-empty, request host
+ * allowed, pointer valid, origin allowed, fetch OK — so a secondary endpoint
+ * can bind the identical draft the page is rendering instead of silently
+ * serving published content. Wrap the endpoint's work in
+ * `withBlocksOverride(blocks, ...)` with the result; null means "don't wrap".
+ *
+ * This is what lets `/deco/invoke` (client-fetched lazy sections, self-fetched
+ * section loaders) honour a draft: the draft binding lives in per-request state
+ * that does not travel across an HTTP hop, so the endpoint must re-resolve it
+ * from the request it received.
+ */
+export async function resolveDraftForRequest(
+  request: Request,
+  options: ResolveDraftForRequestOptions = {},
+): Promise<Record<string, unknown> | null> {
+  const env = envOrProcess(options.env);
+  if (readAllowedHosts(env).length === 0) return null;
+  const pointer = draftPointerFromRequest(request);
+  if (!pointer) return null;
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (!isDraftHostAllowed(host, env)) return null;
+  return resolveDraftDecofile({ pointer, env, fetchImpl: options.fetchImpl });
+}
+
+// ---------------------------------------------------------------------------
 // Request binding (dependency-injected by the framework binding)
 // ---------------------------------------------------------------------------
 

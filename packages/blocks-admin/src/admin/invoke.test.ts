@@ -15,6 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { clearDraftCache, loadBlocks, setBlocks } from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import {
   clearInvokeHandlers,
@@ -137,5 +138,83 @@ describe("handleInvoke — Set-Cookie propagation (batch)", () => {
     expect(cookies).toContain(COOKIE_A);
     expect(cookies).toContain(COOKIE_B);
     expect(cookies).toContain(COOKIE_C);
+  });
+});
+
+/**
+ * Draft binding: /deco/invoke is a separate request from the page render, so
+ * the page's request-scoped draft never reaches it. handleInvoke must
+ * re-resolve the draft from the request it received and bind it, or a
+ * client-fetched (lazy) section resolves its loaders against PUBLISHED blocks.
+ */
+describe("handleInvoke — draft binding", () => {
+  const origFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    clearInvokeHandlers();
+    clearDraftCache();
+    setBlocks({ "site/x": { value: "published" } });
+    registerInvokeHandlers({
+      "site/loaders/x.ts": async () => (loadBlocks() as Record<string, any>)["site/x"],
+    });
+  });
+  afterEach(() => {
+    clearInvokeHandlers();
+    clearDraftCache();
+    globalThis.fetch = origFetch;
+    delete process.env.DECO_ALLOWED_PREVIEW_HOSTS;
+  });
+
+  function invokeReq(headers: Record<string, string>): Request {
+    return new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: "{}",
+    });
+  }
+
+  it("resolves loaders against the DRAFT when the request carries an allowed draft cookie", async () => {
+    process.env.DECO_ALLOWED_PREVIEW_HOSTS = "preview.example";
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ "site/x": { value: "draft" } }), {
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+
+    const res = await handleInvoke(
+      invokeReq({
+        "x-forwarded-host": "preview.example",
+        cookie: "__deco_draft=abc.preview-studio.decocms.com@vX",
+      }),
+    );
+    expect(await res.json()).toEqual({ value: "draft" });
+  });
+
+  it("resolves against PUBLISHED blocks when no draft cookie is present — no network", async () => {
+    process.env.DECO_ALLOWED_PREVIEW_HOSTS = "preview.example";
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response("{}");
+    }) as unknown as typeof fetch;
+
+    const res = await handleInvoke(invokeReq({ "x-forwarded-host": "preview.example" }));
+    expect(await res.json()).toEqual({ value: "published" });
+    expect(called).toBe(false);
+  });
+
+  it("ignores a draft cookie on a non-allowed host (production stays published)", async () => {
+    process.env.DECO_ALLOWED_PREVIEW_HOSTS = "preview.example";
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ "site/x": { value: "draft" } }), {
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+
+    const res = await handleInvoke(
+      invokeReq({
+        "x-forwarded-host": "prod.example",
+        cookie: "__deco_draft=abc.preview-studio.decocms.com@vX",
+      }),
+    );
+    expect(await res.json()).toEqual({ value: "published" });
   });
 });

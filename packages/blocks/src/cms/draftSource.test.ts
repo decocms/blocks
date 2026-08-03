@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearDraftCache,
   DEFAULT_PREVIEW_API_DOMAINS,
+  draftPointerFromRequest,
   isDraftHostAllowed,
   isDraftPreviewEnabled,
   parseDraftPointer,
   previewApiOriginForHost,
   resolveDraftDecofile,
+  resolveDraftForRequest,
   setDraftPreviewHosts,
 } from "./draftSource";
 
@@ -254,5 +256,88 @@ describe("site-block preview hosts", () => {
     } finally {
       setDraftPreviewHosts([]);
     }
+  });
+});
+
+describe("draftPointerFromRequest", () => {
+  it("reads the pointer from the __deco_draft cookie (in-preview navigation)", () => {
+    const req = new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
+      headers: { cookie: "a=1; __deco_draft=abc.preview-studio.decocms.com@v1; b=2" },
+    });
+    expect(draftPointerFromRequest(req)).toBe("abc.preview-studio.decocms.com@v1");
+  });
+
+  it("lets ?__draft= win over the cookie", () => {
+    const req = new Request("https://preview.example/p?__draft=h@v2", {
+      headers: { cookie: "__deco_draft=h@v1" },
+    });
+    expect(draftPointerFromRequest(req)).toBe("h@v2");
+  });
+
+  it("returns null on ?__draft=off even with a cookie set", () => {
+    const req = new Request("https://preview.example/p?__draft=off", {
+      headers: { cookie: "__deco_draft=h@v1" },
+    });
+    expect(draftPointerFromRequest(req)).toBeNull();
+  });
+
+  it("returns null with neither param nor cookie", () => {
+    expect(draftPointerFromRequest(new Request("https://preview.example/p"))).toBeNull();
+  });
+});
+
+describe("resolveDraftForRequest", () => {
+  const ENV = { DECO_ALLOWED_PREVIEW_HOSTS: "preview.example" };
+  function invokeReq(host = "preview.example"): Request {
+    return new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
+      method: "POST",
+      headers: {
+        "x-forwarded-host": host,
+        cookie: "__deco_draft=abc.preview-studio.decocms.com@v1",
+      },
+    });
+  }
+
+  it("binds the draft when host is allowed and the pointer resolves", async () => {
+    const fetchImpl = (async () =>
+      jsonResponse({ "site/x": { value: "draft" } })) as unknown as typeof fetch;
+    expect(await resolveDraftForRequest(invokeReq(), { env: ENV, fetchImpl })).toEqual({
+      "site/x": { value: "draft" },
+    });
+  });
+
+  it("is inert with no allowlist — never touches the network", async () => {
+    let called = false;
+    const fetchImpl = (async () => {
+      called = true;
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    expect(await resolveDraftForRequest(invokeReq(), { env: {}, fetchImpl })).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  it("returns null when the request host is not on the allowlist (prod stays published)", async () => {
+    let called = false;
+    const fetchImpl = (async () => {
+      called = true;
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    expect(
+      await resolveDraftForRequest(invokeReq("prod.example"), { env: ENV, fetchImpl }),
+    ).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  it("returns null when the request carries no draft pointer", async () => {
+    const req = new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
+      headers: { "x-forwarded-host": "preview.example" },
+    });
+    let called = false;
+    const fetchImpl = (async () => {
+      called = true;
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    expect(await resolveDraftForRequest(req, { env: ENV, fetchImpl })).toBeNull();
+    expect(called).toBe(false);
   });
 });
