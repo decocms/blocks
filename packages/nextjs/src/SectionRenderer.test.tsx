@@ -1,6 +1,6 @@
+import { registerSection, registerSections, registerSectionsSync } from "@decocms/blocks/cms";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { registerSection, registerSections, registerSectionsSync } from "@decocms/blocks/cms";
 import { SectionRenderer } from "./SectionRenderer";
 
 function Hero({ label }: { label?: string }) {

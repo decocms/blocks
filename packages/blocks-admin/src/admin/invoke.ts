@@ -13,6 +13,7 @@
  * copies those headers into the final HTTP Response.
  */
 
+import { resolveDraftForRequest, withBlocksOverride } from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 
 export type InvokeLoader = (props: any, request: Request) => Promise<any>;
@@ -213,7 +214,27 @@ function warnMissingHandlerOnce(key: string): void {
   console.warn(`[invoke] ${unknownHandlerMessage(key)}`);
 }
 
+/**
+ * Bind a draft, if the request carries one, for the whole invoke resolution.
+ *
+ * A loader/action reaches `loadBlocks()` while resolving its `__resolveType`
+ * refs; without this, `/deco/invoke` — a separate request from the page render,
+ * so the page's request-scoped draft binding never reaches it — would resolve
+ * against PUBLISHED blocks and hand a reviewer stale content in any
+ * client-fetched (lazy/on-scroll) or self-fetched section. `withBlocksOverride`
+ * uses AsyncLocalStorage, so each concurrent invoke gets its own override with
+ * no cross-request bleed (the same isolation the layout-cache race taught us to
+ * keep). Inert unless the draft gate passes — no draft, no wrap, published path
+ * untouched.
+ */
 export async function handleInvoke(request: Request): Promise<Response> {
+  const draftBlocks = await resolveDraftForRequest(request);
+  return draftBlocks
+    ? withBlocksOverride(draftBlocks, () => dispatchInvoke(request))
+    : dispatchInvoke(request);
+}
+
+async function dispatchInvoke(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const pathParts = url.pathname.split("/deco/invoke/");
   const invokeKey = pathParts[1] || "";

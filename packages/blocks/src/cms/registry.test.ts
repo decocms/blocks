@@ -1,11 +1,11 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
-  registerSection,
-  registerSectionsSync,
+  getResolvedComponent,
   getSection,
   getSectionOptions,
   getSyncComponent,
-  getResolvedComponent,
+  registerSection,
+  registerSectionsSync,
 } from "./registry";
 
 // Reset globalThis.__deco between tests to avoid cross-test pollution
@@ -34,44 +34,36 @@ describe("registerSection + getSection", () => {
 describe("registerSection with options", () => {
   it("stores loadingFallback in section options", () => {
     const fallback = () => null;
-    registerSection(
-      "site/sections/Shelf.tsx",
-      async () => ({ default: () => null }),
-      { loadingFallback: fallback },
-    );
+    registerSection("site/sections/Shelf.tsx", async () => ({ default: () => null }), {
+      loadingFallback: fallback,
+    });
 
     const opts = getSectionOptions("site/sections/Shelf.tsx");
     expect(opts?.loadingFallback).toBe(fallback);
   });
 
   it("stores clientOnly flag in section options", () => {
-    registerSection(
-      "site/sections/Analytics.tsx",
-      async () => ({ default: () => null }),
-      { clientOnly: true },
-    );
+    registerSection("site/sections/Analytics.tsx", async () => ({ default: () => null }), {
+      clientOnly: true,
+    });
 
     const opts = getSectionOptions("site/sections/Analytics.tsx");
     expect(opts?.clientOnly).toBe(true);
   });
 
   it("clientOnly defaults to undefined when not set", () => {
-    registerSection(
-      "site/sections/Normal.tsx",
-      async () => ({ default: () => null }),
-      { loadingFallback: () => null },
-    );
+    registerSection("site/sections/Normal.tsx", async () => ({ default: () => null }), {
+      loadingFallback: () => null,
+    });
 
     const opts = getSectionOptions("site/sections/Normal.tsx");
     expect(opts?.clientOnly).toBeUndefined();
   });
 
   it("clientOnly false is preserved", () => {
-    registerSection(
-      "site/sections/Explicit.tsx",
-      async () => ({ default: () => null }),
-      { clientOnly: false },
-    );
+    registerSection("site/sections/Explicit.tsx", async () => ({ default: () => null }), {
+      clientOnly: false,
+    });
 
     const opts = getSectionOptions("site/sections/Explicit.tsx");
     expect(opts?.clientOnly).toBe(false);

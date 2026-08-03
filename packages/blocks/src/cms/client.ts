@@ -49,8 +49,6 @@ export {
   registerSectionsSync,
   setResolvedComponent,
 } from "./registry";
-export type { SectionLoaderFn } from "./sectionLoaders";
-export { compose, withDevice, withMobile, withSearchParam, withSectionLoader } from "./sectionMixins";
 export type {
   ActionConfig,
   AppSchemas,
@@ -72,3 +70,11 @@ export {
   registerMatcherSchema,
   registerMatcherSchemas,
 } from "./schema";
+export type { SectionLoaderFn } from "./sectionLoaders";
+export {
+  compose,
+  withDevice,
+  withMobile,
+  withSearchParam,
+  withSectionLoader,
+} from "./sectionMixins";

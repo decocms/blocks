@@ -1,6 +1,6 @@
+import { registerSectionsSync } from "@decocms/blocks/cms";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { registerSectionsSync } from "@decocms/blocks/cms";
 import { DeferredSectionBoundary } from "./DeferredSection";
 
 function Hero({ label }: { label?: string }) {

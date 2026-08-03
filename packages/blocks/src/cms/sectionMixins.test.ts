@@ -17,8 +17,7 @@ import {
 // request must opt in by setting this flag — and `compose` must propagate
 // it whenever any input has it.
 const isRequestDependent = (fn: unknown): boolean =>
-  typeof fn === "function" &&
-  (fn as { __requestDependent?: boolean }).__requestDependent === true;
+  typeof fn === "function" && (fn as { __requestDependent?: boolean }).__requestDependent === true;
 
 const makeReq = (url = "https://store.example/foo?q=hello") =>
   new Request(url, { headers: { "user-agent": "vitest" } });
@@ -87,12 +86,10 @@ describe("withSectionLoader", () => {
 
   it("composes alongside mixins: mixins run first, then the section loader sees the enriched props", async () => {
     const seen: Array<Record<string, unknown>> = [];
-    const sectionLoader = vi.fn(
-      async (props: Record<string, unknown>) => {
-        seen.push({ ...props });
-        return { ...props, sectionLoaderRan: true };
-      },
-    );
+    const sectionLoader = vi.fn(async (props: Record<string, unknown>) => {
+      seen.push({ ...props });
+      return { ...props, sectionLoaderRan: true };
+    });
 
     const composed = compose(
       withSearchParam(),
@@ -154,7 +151,14 @@ describe("request-dependent tagging (#206)", () => {
   });
 
   it("compose does NOT set the flag when no input is request-dependent", () => {
-    expect(isRequestDependent(compose(async (p) => p, async (p) => p))).toBe(false);
+    expect(
+      isRequestDependent(
+        compose(
+          async (p) => p,
+          async (p) => p,
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("empty compose() is not request-dependent", () => {

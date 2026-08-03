@@ -1,14 +1,18 @@
-import { cache } from "react";
-import { notFound } from "next/navigation";
-import type { Metadata } from "next";
 import {
+  type DecoPageResult,
   extractSeoFromProps,
   extractSeoFromSections,
-  resolveDecoPage,
-  type DecoPageResult,
+  isDraftPreviewEnabled,
   type PageSeo,
+  resolveDecoPage,
 } from "@decocms/blocks/cms";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { connection } from "next/server";
+import { cache } from "react";
 import { DecoPageRenderer } from "./DecoPageRenderer";
+import { DraftPreviewIndicator } from "./DraftPreviewIndicator";
+import { type DraftSearchParams, ensureDraft } from "./draft";
 
 interface CreateDecoPageOptions {
   siteName: string;
@@ -16,6 +20,12 @@ interface CreateDecoPageOptions {
 
 interface PageProps {
   params: Promise<{ slug?: string[] }>;
+  /**
+   * Next always supplies this; optional here so existing callers (and unit
+   * tests) that construct props by hand keep compiling. Draft preview reads
+   * `?__draft=` from it — see bindDraftOnce.
+   */
+  searchParams?: Promise<DraftSearchParams>;
 }
 
 function pathFromSlug(slug: string[] | undefined): string {
@@ -67,8 +77,48 @@ export function createDecoPage({ siteName }: CreateDecoPageOptions) {
 
   const resolveForPath = cache(async (pathname: string) => resolveDecoPage(pathname, {}));
 
-  async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  /**
+   * Bind this request's draft decofile, at most once, BEFORE anything resolves
+   * a page.
+   *
+   * Ordering is load-bearing twice over:
+   *
+   *  1. `resolveDecoPage` calls `loadBlocks()`, so a draft bound afterwards
+   *     would resolve the page against published content and silently render
+   *     the wrong thing.
+   *  2. `resolveForPath` is `cache()`d per request and Next may run
+   *     `generateMetadata` and the page body concurrently — whichever resolves
+   *     first wins for both. So this must be awaited at the top of BOTH, not
+   *     just the page. `cache()` here makes the second call free.
+   *
+   * Gated on `isDraftPreviewEnabled()` (DECO_ALLOWED_PREVIEW_HOSTS non-empty) — a
+   * plain env read, not a dynamic API —
+   * so sites that never opt in behave exactly as before. That gate is doing
+   * real work: `cookies()` and `searchParams` are both dynamic, and touching
+   * them unconditionally would opt EVERY page out of static/ISR rendering.
+   *
+   * KNOWN COST: with the flag on, every page served by this route becomes
+   * dynamic, because reading the pointer requires `cookies()`. Acceptable
+   * while the feature is opt-in; the fix, when it needs to run on a
+   * statically-rendered production site, is for middleware to rewrite draft
+   * requests onto a separate dynamic route so ordinary traffic keeps its cache.
+   */
+  const bindDraftOnce = cache(async (searchParams?: DraftSearchParams): Promise<boolean> => {
+    if (!isDraftPreviewEnabled()) return false;
+
+    const bound = await ensureDraft(searchParams);
+
+    // A draft render must never be cached — ISR or the Full Route Cache would
+    // hand unpublished content to a real visitor. `revalidate` is a static
+    // export and cannot vary per request, so opt out at runtime instead.
+    if (bound) await connection();
+
+    return bound;
+  });
+
+  async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
     const { slug } = await params;
+    await bindDraftOnce(await searchParams);
     const page = await resolveForPath(pathFromSlug(slug));
     if (!page) return {};
 
@@ -81,9 +131,11 @@ export function createDecoPage({ siteName }: CreateDecoPageOptions) {
     };
   }
 
-  async function Page({ params }: PageProps) {
+  async function Page({ params, searchParams }: PageProps) {
     const { slug } = await params;
     const pathname = pathFromSlug(slug);
+    // Before resolveForPath — see bindDraftOnce.
+    const isDraft = await bindDraftOnce(await searchParams);
     const page = await resolveForPath(pathname);
     if (!page) notFound();
 
@@ -96,11 +148,25 @@ export function createDecoPage({ siteName }: CreateDecoPageOptions) {
     // suspends outside a <Suspense> boundary. Awaiting it here directly
     // keeps both paths working, matching the same convention
     // DecoPageRenderer itself uses for SectionRenderer.
-    return await DecoPageRenderer({
+    const content = await DecoPageRenderer({
       sections: page.resolvedSections,
       deferredSections: page.deferredSections,
       pagePath: pathname,
     });
+
+    // In draft mode, float the preview-mode badge over the page so the
+    // reviewer can never mistake unpublished content for what is live.
+    // `DraftPreviewIndicator` self-gates on the request-scoped pointer; the
+    // `isDraft` short-circuit keeps the extra element out of every published
+    // render. Rendered here (page subtree, after bindDraftOnce) — not a layout,
+    // whose children render concurrently — so the pointer slot is already set.
+    if (!isDraft) return content;
+    return (
+      <>
+        {content}
+        <DraftPreviewIndicator />
+      </>
+    );
   }
 
   return { generateMetadata, default: Page };

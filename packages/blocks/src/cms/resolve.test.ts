@@ -20,6 +20,10 @@ vi.mock("./registry", () => ({
   getOnBeforeResolveProps: vi.fn(),
 }));
 
+import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
+import { findPageByPath } from "./loader";
+import { getSection } from "./registry";
+import type { AsyncRenderingConfig, DeferredSection } from "./resolve";
 import {
   clearCommerceLoaders,
   DEFAULT_FOLD_THRESHOLD,
@@ -29,8 +33,8 @@ import {
   registerCommerceLoader,
   registerEagerSections,
   registerNeverDeferSections,
-  resolveDeferredSectionFull,
   resolveDecoPage,
+  resolveDeferredSectionFull,
   resolvePageSeoBlock,
   resolveSectionsList,
   resolveValue,
@@ -39,10 +43,6 @@ import {
   WELL_KNOWN_TYPES,
 } from "./resolve";
 import { runSingleSectionLoader } from "./sectionLoaders";
-import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
-import { findPageByPath } from "./loader";
-import { getSection } from "./registry";
-import type { AsyncRenderingConfig, DeferredSection } from "./resolve";
 
 describe("resolveDeferredSectionFull", () => {
   it("resolves a deferred section and preserves index", async () => {
@@ -217,14 +217,10 @@ describe("commerce loader auto-injects URL search params as props", () => {
       return null;
     });
 
-    await resolveValue(
-      { __resolveType: KEY, slug: "sabonete" },
-      undefined,
-      {
-        url: "https://store.com/produto/sabonete/p?skuId=12345&size=M",
-        path: "/produto/sabonete/p",
-      },
-    );
+    await resolveValue({ __resolveType: KEY, slug: "sabonete" }, undefined, {
+      url: "https://store.com/produto/sabonete/p?skuId=12345&size=M",
+      path: "/produto/sabonete/p",
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
@@ -243,11 +239,10 @@ describe("commerce loader auto-injects URL search params as props", () => {
       return null;
     });
 
-    await resolveValue(
-      { __resolveType: KEY, skuId: "cms-locked-sku" },
-      undefined,
-      { url: "https://store.com/p?skuId=url-value", path: "/p" },
-    );
+    await resolveValue({ __resolveType: KEY, skuId: "cms-locked-sku" }, undefined, {
+      url: "https://store.com/p?skuId=url-value",
+      path: "/p",
+    });
 
     expect(calls[0]?.skuId).toBe("cms-locked-sku");
   });
@@ -358,7 +353,10 @@ describe("commerce loader resolves legacy .ts-suffixed resolveType", () => {
     await resolveValue(
       { __resolveType: "shopify/loaders/ProductDetailsPage.ts", slug: "oversize-t-shirt-123" },
       undefined,
-      { url: "https://store.com/products/oversize-t-shirt-123", path: "/products/oversize-t-shirt-123" },
+      {
+        url: "https://store.com/products/oversize-t-shirt-123",
+        path: "/products/oversize-t-shirt-123",
+      },
     );
 
     expect(calls).toHaveLength(1);
@@ -509,9 +507,9 @@ describe("isEagerRequest — programmatic fetch detection", () => {
   });
 
   it("falls back to matcherCtx.headers when no Request is present", () => {
-    expect(
-      isEagerRequest({ userAgent: HUMAN_UA, headers: { "sec-fetch-dest": "empty" } }),
-    ).toBe(true);
+    expect(isEagerRequest({ userAgent: HUMAN_UA, headers: { "sec-fetch-dest": "empty" } })).toBe(
+      true,
+    );
   });
 
   it("a request with no Sec-Fetch headers stays deferred (no UA bot, no override)", () => {

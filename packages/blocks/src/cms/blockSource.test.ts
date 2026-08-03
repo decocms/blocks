@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { djb2Hex } from "../sdk/djb2";
 import {
   BundledBlockSource,
   computeRevision,
@@ -8,7 +9,6 @@ import {
   revisionKey,
   snapshotKey,
 } from "./blockSource";
-import { djb2Hex } from "../sdk/djb2";
 
 describe("computeRevision", () => {
   it("matches loader.ts computeRevision (djb2Hex of JSON.stringify)", () => {

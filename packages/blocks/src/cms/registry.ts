@@ -1,8 +1,6 @@
 import type { ComponentType } from "react";
 
-export type OnBeforeResolveProps = (
-  props: Record<string, unknown>,
-) => Record<string, unknown>;
+export type OnBeforeResolveProps = (props: Record<string, unknown>) => Record<string, unknown>;
 
 export type SectionModule = {
   default: ComponentType<any>;
@@ -35,8 +33,7 @@ if (!G.__deco.sectionRegistry) G.__deco.sectionRegistry = {};
 if (!G.__deco.sectionOptions) G.__deco.sectionOptions = {};
 if (!G.__deco.resolvedComponents) G.__deco.resolvedComponents = {};
 if (!G.__deco.syncComponents) G.__deco.syncComponents = {};
-if (!G.__deco.onBeforeResolvePropsRegistry)
-  G.__deco.onBeforeResolvePropsRegistry = {};
+if (!G.__deco.onBeforeResolvePropsRegistry) G.__deco.onBeforeResolvePropsRegistry = {};
 
 const registry: Record<string, RegistryEntry> = G.__deco.sectionRegistry;
 const sectionOptions: Record<string, SectionOptions> = G.__deco.sectionOptions;
@@ -194,9 +191,7 @@ export function registerSectionsSync(sections: Record<string, SyncSectionEntry>)
     ];
     const component =
       typeof raw === "function" ||
-      (raw != null &&
-        typeof raw === "object" &&
-        REACT_WRAPPERS.includes((raw as any).$$typeof))
+      (raw != null && typeof raw === "object" && REACT_WRAPPERS.includes((raw as any).$$typeof))
         ? raw
         : undefined;
     if (!component) {
@@ -229,17 +224,12 @@ export function getSyncComponent(key: string): ComponentType<any> | undefined {
  * BEFORE the resolution engine resolves them. Use to extract metadata from
  * resolvable structures that would be lost after resolution.
  */
-export function registerOnBeforeResolveProps(
-  sectionKey: string,
-  fn: OnBeforeResolveProps,
-): void {
+export function registerOnBeforeResolveProps(sectionKey: string, fn: OnBeforeResolveProps): void {
   onBeforeResolvePropsRegistry[sectionKey] = fn;
 }
 
 /** Get the registered onBeforeResolveProps for a section, if any. */
-export function getOnBeforeResolveProps(
-  sectionKey: string,
-): OnBeforeResolveProps | undefined {
+export function getOnBeforeResolveProps(sectionKey: string): OnBeforeResolveProps | undefined {
   return onBeforeResolvePropsRegistry[sectionKey];
 }
 

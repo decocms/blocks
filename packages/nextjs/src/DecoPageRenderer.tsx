@@ -1,8 +1,8 @@
 import type { DeferredSection, ResolvedSection } from "@decocms/blocks/cms";
 import { resolveDeferredSection } from "@decocms/blocks/cms";
-import { SectionRenderer } from "./SectionRenderer";
-import { DeferredSectionBoundary } from "./DeferredSection";
 import { cloneElement, type ReactElement, type ReactNode } from "react";
+import { DeferredSectionBoundary } from "./DeferredSection";
+import { SectionRenderer } from "./SectionRenderer";
 
 interface DecoPageRendererProps {
   sections: ResolvedSection[];
@@ -19,7 +19,9 @@ type PageItem =
 
 function mergeSections(resolved: ResolvedSection[], deferred: DeferredSection[]): PageItem[] {
   const items: PageItem[] = [];
-  resolved.forEach((section, i) => items.push({ type: "eager", section, sort: section.index ?? i }));
+  resolved.forEach((section, i) =>
+    items.push({ type: "eager", section, sort: section.index ?? i }),
+  );
   for (const d of deferred) items.push({ type: "deferred", deferred: d, sort: d.index });
   items.sort((a, b) => a.sort - b.sort);
   return items;
@@ -54,10 +56,12 @@ export async function DecoPageRenderer({
   for (const d of deferredSections) {
     deferredPromises.set(
       d.index,
-      resolveDeferredSection(d.component, d.rawProps ?? {}, pagePath, matcherCtx).then((resolved) => {
-        if (!resolved) return null;
-        return { ...resolved, index: d.index };
-      }),
+      resolveDeferredSection(d.component, d.rawProps ?? {}, pagePath, matcherCtx).then(
+        (resolved) => {
+          if (!resolved) return null;
+          return { ...resolved, index: d.index };
+        },
+      ),
     );
   }
 

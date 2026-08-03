@@ -1,11 +1,7 @@
-import { createElement, type ReactNode } from "react";
-import {
-  getSection,
-  getSectionOptions,
-  getSyncComponent,
-} from "@decocms/blocks/cms";
 import type { ResolvedSection } from "@decocms/blocks/cms";
+import { getSection, getSectionOptions, getSyncComponent } from "@decocms/blocks/cms";
 import { SectionErrorBoundary } from "@decocms/blocks/hooks";
+import { createElement, type ReactNode } from "react";
 import { ClientOnlySection } from "./ClientOnlySection";
 
 interface SectionRendererProps {

@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // esbuild's JS API relies on `new TextEncoder().encode("") instanceof
