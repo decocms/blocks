@@ -721,13 +721,11 @@ describe("toProductShelf", () => {
 					},
 				},
 			],
-			// Campanha is the VTEX spec MonteCarlo uses to tag launches ("Lançamentos").
-			variations: [
-				{ name: "Cor", values: ["Preto"] },
-				{ name: "Campanha", values: ["Lançamentos"] },
-			],
+			variations: [{ name: "Cor", values: ["Preto"] }],
 		}) as any;
 
+	// Campanha is a PRODUCT specification (in specificationGroups), NOT a sku.variation.
+	// It is the marker MonteCarlo uses to tag launches ("Lançamentos").
 	const makeProduct = (overrides: Record<string, unknown> = {}) =>
 		({
 			origin: "intelligent-search",
@@ -740,25 +738,32 @@ describe("toProductShelf", () => {
 			categoryId: "1",
 			productClusters: [{ id: "100", name: "Sale" }],
 			clusterHighlights: [],
+			specificationGroups: [
+				{ name: "Campanha", specifications: [{ name: "Campanha", values: ["Lançamentos"] }] },
+			],
 			items: [makeSku()],
 			...overrides,
 		}) as any;
 
 	const options = { baseUrl: "https://example.com", priceCurrency: "BRL" };
 
-	it("keeps the Campanha launch spec in product-level additionalProperty", () => {
+	it("surfaces the Campanha launch spec in isVariantOf.additionalProperty (ReleaseFlag reads it)", () => {
 		const result = toProductShelf(makeProduct(), makeSku(), 0, options);
-		expect(result.additionalProperty).toEqual(
+		const groupProps = result.isVariantOf?.additionalProperty ?? [];
+		expect(groupProps).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ name: "Campanha", value: "Lançamentos" }),
 			]),
 		);
 	});
 
-	it("populates isVariantOf.additionalProperty with the launch spec (ReleaseFlag reads it)", () => {
-		const result = toProductShelf(makeProduct(), makeSku(), 0, options);
-		const groupProps = result.isVariantOf?.additionalProperty ?? [];
-		expect(groupProps.length).toBeGreaterThan(0);
-		expect(groupProps.some((p) => p.value === "Lançamentos")).toBe(true);
+	it("leaves isVariantOf.additionalProperty empty when there is no shelf-safe group spec", () => {
+		const result = toProductShelf(
+			makeProduct({ specificationGroups: [] }),
+			makeSku(),
+			0,
+			options,
+		);
+		expect(result.isVariantOf?.additionalProperty).toEqual([]);
 	});
 });

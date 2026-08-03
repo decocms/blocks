@@ -635,6 +635,15 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 		...clusterAdditionalProperties,
 	].filter((prop) => SHELF_PROPERTY_NAMES.has(prop.name ?? ""));
 
+	// Product-group specs (from specificationGroups) filtered to shelf-safe names.
+	// Launch markers like "Campanha" live here, NOT in sku.variations, so they only
+	// reach the card through the ProductGroup's additionalProperty (mirrors toProduct).
+	const groupAdditionalProperty = (
+		isLegacyProduct(product)
+			? legacyToProductGroupAdditionalProperties(product)
+			: toProductGroupAdditionalProperties(product)
+	).filter((prop) => SHELF_PROPERTY_NAMES.has(prop.name ?? ""));
+
 	// isVariantOf: single in-stock variant at level 0
 	const isVariantOf =
 		level < 1
@@ -647,10 +656,10 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 						hasVariant: singleVariant,
 						url: getProductGroupURL(baseUrl, product).href,
 						name: product.productName,
-						// Carry the shelf-safe group props (incl. "Campanha") so ProductCard
+						// Carry the shelf-safe group specs (incl. "Campanha") so ProductCard
 						// flags that read isVariantOf.additionalProperty (e.g. ReleaseFlag ->
 						// "Lançamento") still fire on shelf/carousel cards.
-						additionalProperty,
+						additionalProperty: groupAdditionalProperty,
 					} satisfies ProductGroup;
 				})()
 			: undefined;
