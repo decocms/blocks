@@ -9,6 +9,13 @@ export { DecoPageRenderer } from "./DecoPageRenderer";
 export { DecoRootLayout, type DecoRootLayoutProps } from "./DecoRootLayout";
 export { DeferredSectionBoundary } from "./DeferredSection";
 export {
+  buildExitUrl,
+  buildShareUrl,
+  DraftPreviewBadge,
+  type DraftPreviewBadgeProps,
+} from "./DraftPreviewBadge";
+export { DraftPreviewIndicator } from "./DraftPreviewIndicator";
+export {
   DRAFT_COOKIE,
   DRAFT_COOKIE_OPTIONS,
   DRAFT_PARAM,
@@ -16,6 +23,7 @@ export {
   type DraftSearchParams,
   decideDraft,
   ensureDraft,
+  getActiveDraftPointer,
   registerDraftOverride,
   selectDraftPointer,
 } from "./draft";

@@ -29,11 +29,11 @@ import {
 } from "@decocms/blocks/cms";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
+import { DRAFT_COOKIE, DRAFT_PARAM } from "./draftConstants";
 
-/** Cookie that carries the pointer across in-preview navigation. */
-export const DRAFT_COOKIE = "__deco_draft";
-/** Query param that enters draft mode (and, with `off`, leaves it). */
-export const DRAFT_PARAM = "__draft";
+// Re-exported for back-compat: these used to live here, but the client badge
+// needs DRAFT_PARAM and cannot import this module (it pulls in `next/headers`).
+export { DRAFT_COOKIE, DRAFT_PARAM } from "./draftConstants";
 
 /**
  * Request-scoped slot.
@@ -42,9 +42,17 @@ export const DRAFT_PARAM = "__draft";
  * same object and a different one per request. Mutable by design: the page
  * fills it before returning its subtree, and nested sections read it
  * synchronously through `loadBlocks()`.
+ *
+ * `pointer` is the raw `<host>@<version>` token this render is bound to, kept
+ * so the UI can surface an explicit "you are in preview" indicator and build a
+ * shareable link — see {@link getActiveDraftPointer}.
  */
-const draftSlot = cache((): { blocks: Record<string, unknown> | null } => ({
+const draftSlot = cache((): {
+  blocks: Record<string, unknown> | null;
+  pointer: string | null;
+} => ({
   blocks: null,
+  pointer: null,
 }));
 
 /**
@@ -131,8 +139,25 @@ export async function ensureDraft(searchParams?: DraftSearchParams): Promise<boo
   const blocks = await resolveDraftDecofile({ pointer });
   if (!blocks) return false;
 
-  draftSlot().blocks = blocks;
+  const slot = draftSlot();
+  slot.blocks = blocks;
+  slot.pointer = pointer;
   return true;
+}
+
+/**
+ * The raw draft pointer bound to this request, or null if the request is not
+ * rendering a draft.
+ *
+ * Synchronous — reads the same request-scoped slot `ensureDraft` fills, so it
+ * must be called AFTER `ensureDraft` has been awaited in this request (i.e.
+ * from inside the page subtree, not a concurrently-rendered layout). Powers
+ * the preview-mode indicator: a bound pointer is the signal that the visitor
+ * is looking at unpublished content, and it is exactly what a "share this
+ * draft" link must carry.
+ */
+export function getActiveDraftPointer(): string | null {
+  return draftSlot().pointer;
 }
 
 // ---------------------------------------------------------------------------

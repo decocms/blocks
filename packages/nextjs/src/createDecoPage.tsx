@@ -11,6 +11,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { cache } from "react";
 import { DecoPageRenderer } from "./DecoPageRenderer";
+import { DraftPreviewIndicator } from "./DraftPreviewIndicator";
 import { type DraftSearchParams, ensureDraft } from "./draft";
 
 interface CreateDecoPageOptions {
@@ -134,7 +135,7 @@ export function createDecoPage({ siteName }: CreateDecoPageOptions) {
     const { slug } = await params;
     const pathname = pathFromSlug(slug);
     // Before resolveForPath — see bindDraftOnce.
-    await bindDraftOnce(await searchParams);
+    const isDraft = await bindDraftOnce(await searchParams);
     const page = await resolveForPath(pathname);
     if (!page) notFound();
 
@@ -147,11 +148,25 @@ export function createDecoPage({ siteName }: CreateDecoPageOptions) {
     // suspends outside a <Suspense> boundary. Awaiting it here directly
     // keeps both paths working, matching the same convention
     // DecoPageRenderer itself uses for SectionRenderer.
-    return await DecoPageRenderer({
+    const content = await DecoPageRenderer({
       sections: page.resolvedSections,
       deferredSections: page.deferredSections,
       pagePath: pathname,
     });
+
+    // In draft mode, float the preview-mode badge over the page so the
+    // reviewer can never mistake unpublished content for what is live.
+    // `DraftPreviewIndicator` self-gates on the request-scoped pointer; the
+    // `isDraft` short-circuit keeps the extra element out of every published
+    // render. Rendered here (page subtree, after bindDraftOnce) — not a layout,
+    // whose children render concurrently — so the pointer slot is already set.
+    if (!isDraft) return content;
+    return (
+      <>
+        {content}
+        <DraftPreviewIndicator />
+      </>
+    );
   }
 
   return { generateMetadata, default: Page };
