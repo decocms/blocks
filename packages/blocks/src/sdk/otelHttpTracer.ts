@@ -233,8 +233,8 @@ export interface OtlpHttpTracerOptions {
 }
 
 export interface OtlpHttpTracer extends TracerAdapter {
-  /** Drain the buffer (subject to cooldown). */
-  flush(): Promise<void>;
+  /** Drain the buffer, subject to cooldown unless `force` is true. */
+  flush(force?: boolean): Promise<void>;
   /** For tests + the audit channel. */
   pendingSpanCount(): number;
   /**
@@ -433,11 +433,11 @@ export function createOtlpHttpTracerAdapter(options: OtlpHttpTracerOptions): Otl
     }
   }
 
-  async function flush(): Promise<void> {
+  async function flush(force = false): Promise<void> {
     if (inflight) return inflight;
     const elapsed = now() - lastFlushAt;
     const overCap = spans.length >= maxBuffer;
-    if (!overCap && elapsed < minFlushIntervalMs) return;
+    if (!force && !overCap && elapsed < minFlushIntervalMs) return;
     inflight = doFlush().finally(() => {
       lastFlushAt = now();
       inflight = null;

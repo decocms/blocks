@@ -467,13 +467,18 @@ export function instrumentWorker(
  * `finally` block so callers without a `{fetch}`/`ctx.waitUntil` lifecycle —
  * e.g. Cloudflare Workflow `run()` handlers — can flush explicitly too. See
  * `instrumentWorkflowRun` below.
+ *
+ * Each adapter's `flush()` is throttled by a per-isolate cooldown (default
+ * 5s) so a busy fetch handler doesn't fire a POST per request — pass
+ * `force: true` to bypass that cooldown for callers that only get one flush
+ * attempt with no next request to retry on (Workflow `run()` exit).
  */
-export async function flushObservability(): Promise<void> {
+export async function flushObservability(force = false): Promise<void> {
   const state = getBootState();
   await Promise.allSettled([
-    state.otlpMeter?.flush(),
-    state.otlpLog?.flush(),
-    state.otlpTracer?.flush(),
+    state.otlpMeter?.flush(force),
+    state.otlpLog?.flush(force),
+    state.otlpTracer?.flush(force),
   ]);
 }
 
@@ -493,6 +498,15 @@ export async function flushObservability(): Promise<void> {
  * `event.instanceId` so a backend can group replay legs under one logical
  * run.
  *
+ * The exit-time flush is `force`d (bypasses the per-isolate cooldown other
+ * `flush()` callers respect) — a Workflow `run()` invocation gets exactly
+ * one flush attempt on the way out, unlike a fetch handler where the next
+ * request's `ctx.waitUntil(flush())` can pick up whatever a cooldown-skipped
+ * flush left behind. Without forcing, a workflow with several replay legs in
+ * quick succession could have its final leg's flush silently skipped by the
+ * cooldown, losing that leg's buffered spans/metrics if the isolate is torn
+ * down before the next wake.
+ *
  * @example
  * ```ts
  * async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
@@ -507,14 +521,21 @@ export async function flushObservability(): Promise<void> {
  * }
  * ```
  */
-export function instrumentWorkflowRun<T>(
+export async function instrumentWorkflowRun<T>(
   env: Record<string, unknown>,
   options: OtelOptions | undefined,
   fn: () => Promise<T>,
 ): Promise<T> {
   configureTracer(buildOtelApiTracer());
   bootObservability(options ?? {}, env);
-  return fn().finally(() => flushObservability());
+  try {
+    // Awaiting inside this try (rather than `return fn().finally(...)`)
+    // ensures a synchronous throw from `fn` — not just a rejected promise —
+    // still reaches the `finally` below instead of skipping it.
+    return await fn();
+  } finally {
+    await flushObservability(true);
+  }
 }
 
 /**
