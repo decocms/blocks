@@ -20,6 +20,28 @@ name: Release
 # References:
 #  - https://docs.github.com/en/actions/managing-workflow-runs/skipping-workflow-runs
 
+# GOTCHA: commit-analyzer (.releaserc.json) scans the ENTIRE squash-merge
+# commit message — not just its first line — for `!` breaking markers and
+# `BREAKING CHANGE:` footers. PR #409 squash-merged with the repo's old
+# squash setting (title + every individual commit message concatenated into
+# the body); two intermediate WIP commits on that branch used `feat!:`/
+# `BREAKING CHANGE:` before the design settled, and those survived into the
+# squash body even though the PR's own title was a plain `feat:`. Result: an
+# accidental blocks-v8.0.0 major release (git tag, GitHub Release, and real
+# `npm publish` for all 5 packages) instead of the intended 7.x minor.
+#
+# Fixed at the repo-settings level, not here: squash_merge_commit_message is
+# now PR_BODY (was COMMIT_MESSAGES) and squash_merge_commit_title is
+# PR_TITLE, so the commit landing on main — the one this workflow's
+# commit-analyzer sees — is only ever the PR title + PR description, never
+# per-commit WIP diary text. A deliberate breaking change still works: state
+# it once, directly in the PR description.
+#
+# commit-analyzer has no per-commit override (it can't be told "ignore this
+# one historical commit's BREAKING CHANGE"), so if this setting is ever
+# reverted, the fix is repo Settings > General > Pull Requests, or
+# `gh api -X PATCH repos/decocms/blocks -f squash_merge_commit_message=PR_BODY`.
+
 on:
   push:
     # main releases the 14 lockstep @decocms/* packages under blocks-v*.*.*
