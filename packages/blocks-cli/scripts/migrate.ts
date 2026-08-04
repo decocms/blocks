@@ -25,6 +25,7 @@
  */
 
 import { execSync } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { banner, green, red, stat, yellow } from "./migrate/colors";
 import { loadConfig, validateConfig } from "./migrate/config";
@@ -194,6 +195,7 @@ async function main() {
     // Phase 7: Bootstrap (install + generate)
     if (!ctx.dryRun) {
       bootstrap(ctx);
+      await provisionAnalytics(ctx.sourceDir);
     }
 
     // Phase 8: Compile (typecheck + optional build)
@@ -277,6 +279,62 @@ function bootstrap(ctx: { sourceDir: string }) {
   } else {
     console.log(`\n  ${green("Ready!")} Run \`${pm} run dev\` to start the dev server.\n`);
   }
+}
+
+// Supabase project ref for decocms — the central platform DB that tracks all sites.
+const DECOCMS_SUPABASE_REF = "ozksgdmyrqcxcwhnbepg";
+
+async function provisionAnalytics(sourceDir: string): Promise<void> {
+  logPhase("Provision analytics (decocms Supabase)");
+
+  let siteName: string;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(sourceDir, "package.json"), "utf8"));
+    siteName = pkg.name;
+  } catch {
+    console.log(`  ${yellow("⚠")} Could not read package.json — skipping analytics provision`);
+    return;
+  }
+
+  const token = process.env.SUPABASE_ACCESS_TOKEN;
+  if (!token) {
+    console.log(`  ${yellow("⚠")} SUPABASE_ACCESS_TOKEN not set — skipping analytics provision`);
+    printAnalyticsSQL(siteName);
+    return;
+  }
+
+  const sql = `UPDATE public.sites SET metadata = metadata || '{"analytics": "onedollarstats"}'::jsonb WHERE name = '${siteName}'`;
+
+  try {
+    const res = await fetch(
+      `https://api.supabase.com/v1/projects/${DECOCMS_SUPABASE_REF}/database/query`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: sql }),
+      },
+    );
+    if (res.ok) {
+      console.log(`  ${green("✓")} ${siteName} → analytics: onedollarstats`);
+    } else {
+      const body = await res.text();
+      console.log(`  ${yellow("⚠")} Supabase update failed (${res.status}): ${body.slice(0, 120)}`);
+      printAnalyticsSQL(siteName);
+    }
+  } catch (err: any) {
+    console.log(`  ${yellow("⚠")} Supabase request failed: ${err.message}`);
+    printAnalyticsSQL(siteName);
+  }
+}
+
+function printAnalyticsSQL(siteName: string): void {
+  console.log(`  Run manually on decocms Supabase (${DECOCMS_SUPABASE_REF}):`);
+  console.log(
+    `  UPDATE public.sites SET metadata = metadata || '{"analytics": "onedollarstats"}'::jsonb WHERE name = '${siteName}';`,
+  );
 }
 
 main();
