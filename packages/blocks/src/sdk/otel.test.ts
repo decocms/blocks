@@ -14,7 +14,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as composite from "./composite";
 import * as logger from "./logger";
 import * as observability from "./observability";
-import { _resetBootStateForTests, instrumentWorker } from "./otel";
+import {
+  _resetBootStateForTests,
+  flushObservability,
+  instrumentWorker,
+  instrumentWorkflowRun,
+} from "./otel";
 import * as adapters from "./otelAdapters";
 import { createClickhouseCollectorAdapter } from "./otelAdapters/clickhouseCollector";
 
@@ -522,5 +527,110 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     await Promise.all(ctx.waited);
 
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("instrumentWorkflowRun / flushObservability — Workflow entrypoints", () => {
+  beforeEach(() => {
+    _resetBootStateForTests();
+  });
+
+  afterEach(() => {
+    _resetBootStateForTests();
+  });
+
+  it("flushObservability resolves without throwing when no adapters are configured", async () => {
+    await expect(flushObservability()).resolves.toBeUndefined();
+  });
+
+  it("instrumentWorkflowRun returns fn's result and does not throw with no OTel env vars set", async () => {
+    const fn = vi.fn().mockResolvedValue("step-result");
+    const result = await instrumentWorkflowRun({}, undefined, fn);
+
+    expect(result).toBe("step-result");
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  function makeFetchSpy() {
+    const calls: Array<{ url: string; body: string }> = [];
+    const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response("{}", { status: 200 });
+    });
+    return { impl: impl as unknown as typeof fetch, calls };
+  }
+
+  it("rethrows fn's rejection but still flushes buffered metrics", async () => {
+    const { impl, calls } = makeFetchSpy();
+    const fn = vi.fn(async () => {
+      observability.recordRequestMetric("WORKFLOW", "/batch-product", 500, 9);
+      throw new Error("workflow step failed");
+    });
+    const env = { DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics" };
+
+    await expect(
+      instrumentWorkflowRun(env, { otlpMetricsFetchImpl: impl }, fn),
+    ).rejects.toThrow("workflow step failed");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://ingest.test/v1/metrics");
+  });
+
+  it("still flushes when fn throws synchronously instead of returning a rejected promise", async () => {
+    const { impl, calls } = makeFetchSpy();
+    const fn = vi.fn(() => {
+      observability.recordRequestMetric("WORKFLOW", "/batch-product", 500, 9);
+      throw new Error("sync boom");
+    }) as unknown as () => Promise<string>;
+    const env = { DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics" };
+
+    await expect(
+      instrumentWorkflowRun(env, { otlpMetricsFetchImpl: impl }, fn),
+    ).rejects.toThrow("sync boom");
+
+    expect(calls).toHaveLength(1);
+  });
+
+  it("wires and flushes the OTLP metrics exporter, same as instrumentWorker's channel", async () => {
+    const { impl, calls } = makeFetchSpy();
+    const fn = vi.fn(async () => {
+      observability.recordRequestMetric("WORKFLOW", "/batch-product", 200, 12);
+      return "done";
+    });
+
+    const env = {
+      DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics",
+    } as unknown as Record<string, unknown>;
+
+    const result = await instrumentWorkflowRun(
+      env,
+      { serviceName: "workflow-smoke", otlpMetricsFetchImpl: impl },
+      fn,
+    );
+
+    expect(result).toBe("done");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://ingest.test/v1/metrics");
+  });
+
+  it("forces the flush past the per-isolate cooldown across consecutive replay legs", async () => {
+    // Regression test: instrumentWorkflowRun forces its exit-time flush past
+    // the ~5s default cooldown each OTLP adapter otherwise enforces, since a
+    // Workflow run() only gets one flush attempt per leg — no next request
+    // to retry on like a fetch handler has.
+    const { impl, calls } = makeFetchSpy();
+    const env = { DECO_OTEL_METRICS_ENDPOINT: "https://ingest.test/v1/metrics" };
+    const opts = { otlpMetricsFetchImpl: impl };
+
+    await instrumentWorkflowRun(env, opts, async () => {
+      observability.recordRequestMetric("WORKFLOW", "/leg-1", 200, 5);
+    });
+    // A second replay leg immediately after — well within the default
+    // cooldown window — must still flush, not get silently skipped.
+    await instrumentWorkflowRun(env, opts, async () => {
+      observability.recordRequestMetric("WORKFLOW", "/leg-2", 200, 5);
+    });
+
+    expect(calls).toHaveLength(2);
   });
 });

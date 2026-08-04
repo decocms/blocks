@@ -107,8 +107,8 @@ export interface OtlpHttpLogOptions {
 
 export interface OtlpHttpLog {
   adapter: LoggerAdapter;
-  /** Force a flush, subject to the per-isolate cooldown. */
-  flush(): Promise<void>;
+  /** Flush, subject to the per-isolate cooldown unless `force` is true. */
+  flush(force?: boolean): Promise<void>;
   /** Pending log record count. For tests + audit. */
   pendingRecordCount(): number;
 }
@@ -324,12 +324,12 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
     }
   }
 
-  async function flush(): Promise<void> {
+  async function flush(force = false): Promise<void> {
     if (inflight) return inflight;
 
     const elapsed = now() - lastFlushAt;
     const overCap = buffer.length >= maxBuffer;
-    if (!overCap && elapsed < minFlushIntervalMs) return;
+    if (!force && !overCap && elapsed < minFlushIntervalMs) return;
 
     inflight = doFlush().finally(() => {
       lastFlushAt = now();

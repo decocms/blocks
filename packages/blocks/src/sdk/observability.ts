@@ -78,7 +78,13 @@ export {
   withTracing,
 } from "../middleware/observability";
 // Worker-entry wrapper + adapter wiring
-export { instrumentWorker, type OtelOptions } from "./otel";
+export {
+  bootObservability,
+  flushObservability,
+  instrumentWorker,
+  instrumentWorkflowRun,
+  type OtelOptions,
+} from "./otel";
 // Direct-POST OTLP trace exporter (Phase 3 / D-12). Exported for sites
 // that need to wire a custom traces endpoint outside `instrumentWorker`,
 // and for the audit tooling that asserts framework spans are flowing.

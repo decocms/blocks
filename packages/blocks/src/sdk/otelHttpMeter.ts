@@ -93,8 +93,8 @@ export interface OtlpHttpMeter extends MeterAdapter {
   gaugeSet(name: string, value: number, labels?: Labels): void;
   /** Always defined on this adapter — declared required to drop the `?.` at call sites. */
   histogramRecord(name: string, value: number, labels?: Labels): void;
-  /** Force a flush, subject to the per-isolate cooldown. */
-  flush(): Promise<void>;
+  /** Flush, subject to the per-isolate cooldown unless `force` is true. */
+  flush(force?: boolean): Promise<void>;
   /** Pending datapoint count across all metric kinds. For tests + audit. */
   pendingDatapointCount(): number;
 }
@@ -341,7 +341,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     }
   }
 
-  async function flush(): Promise<void> {
+  async function flush(force = false): Promise<void> {
     // If a flush is in flight, reuse it — concurrent requests should not
     // pile up POSTs. The in-flight POST already snapshotted the buffer at
     // its enqueue time; new datapoints land in the buffer and will go out
@@ -350,8 +350,11 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
 
     const elapsed = now() - lastFlushAt;
     const overCap = pendingDatapointCount() >= maxBuffer;
-    if (!overCap && elapsed < minFlushIntervalMs) {
-      // Cooldown not elapsed and buffer is not at the cap — skip.
+    if (!force && !overCap && elapsed < minFlushIntervalMs) {
+      // Cooldown not elapsed and buffer is not at the cap — skip. `force`
+      // bypasses this for callers with no next-request opportunity to
+      // retry the flush (e.g. a Cloudflare Workflow's `run()` exit — see
+      // `instrumentWorkflowRun` in `otel.ts`).
       return;
     }
 
