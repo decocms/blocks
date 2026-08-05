@@ -108,7 +108,7 @@ useEffect(() => {
 
 The effect has cleanup logic and imperative DOM manipulation. `useQuery` only manages data — the DOM side effects still need `useEffect`. Refactoring would require separating fetch from DOM manipulation, which changes the architecture. Leave as-is.
 
-### ❌ Paginated / Accumulating Data
+### ❌ Paginated / Accumulating Data (generic cursor-based)
 
 ```tsx
 // MyOrdersListPage.tsx — appends pages, doesn't replace
@@ -121,7 +121,63 @@ async function getOrderingOrders(cursor) {
 }
 ```
 
-`useQuery` replaces data on each fetch. Accumulation requires `useInfiniteQuery`. Converting is a larger refactor and changes the UX (load-more vs infinite scroll semantics). Leave as-is unless doing a full pagination refactor.
+`useQuery` replaces data on each fetch. Accumulation requires `useInfiniteQuery`. Converting is a larger refactor. Leave as-is unless doing a full pagination refactor.
+
+### ✅ "Ver mais" / Load More (Fresh `usePartialSection` pattern)
+
+This is the most common accumulation pattern in migrated storefronts. Fresh used `usePartialSection({ mode: "append" })` to append HTML without reload. In TanStack, use `useLoadMore` from `@decocms/blocks/hooks`:
+
+```tsx
+// BEFORE (Fresh)
+export default function ProductGallery({ page }: Props) {
+  const products = page?.products ?? []
+  return (
+    <>
+      {products.map(p => <ProductCard key={p.productID} product={p} />)}
+      {page?.pageInfo?.nextPage && (
+        <a href={page.pageInfo.nextPage} {...usePartialSection({ mode: "append" })}>
+          Ver mais
+        </a>
+      )}
+    </>
+  )
+}
+```
+
+```tsx
+// AFTER (TanStack) — add "use client" at the top
+"use client"
+import { useLoadMore } from "@decocms/blocks/hooks"
+
+interface Props { page?: ProductListingPage; pageUrl?: string }
+
+export default function ProductGallery({ page, pageUrl }: Props) {
+  // Pass pageUrl as resetKey so accumulated pages clear when the user changes
+  // filters or sort (which changes the URL and triggers a new server render).
+  const { pages, loadMore, loading, hasMore, error } = useLoadMore(
+    page ?? { products: [], pageInfo: {} },
+    "apps/vtex.ts/loaders/intelligentSearch/productListingPage.ts",
+    pageUrl // resetKey
+  )
+  const products = pages.flatMap(p => p.products ?? [])
+
+  return (
+    <>
+      {products.map(p => <ProductCard key={p.productID} product={p} />)}
+      {error && <p>Erro ao carregar mais produtos.</p>}
+      {hasMore && (
+        <button onClick={loadMore} disabled={loading}>
+          {loading ? "Carregando..." : "Ver mais"}
+        </button>
+      )}
+    </>
+  )
+}
+```
+
+`useLoadMore` returns `{ pages, loadMore, loading, hasMore, error }` and calls `POST /deco/invoke` passing the `nextPage` URL as `__pageUrl`, so the loader correctly reconstructs query, sort, and all active filter params — no state is lost between pages. The loader key is the apps import path for the loader that populates `props.page`.
+
+**`resetKey`**: pass any value that changes when the search context changes (e.g. the page URL). When `resetKey` changes, accumulated pages reset to `[initial]`. Without it, use `key={pageUrl}` on the section element instead — both approaches work, `resetKey` is more ergonomic when the section is rendered by the CMS and you can't easily control `key`.
 
 ### ❌ useReducer State (Complex Orchestration)
 

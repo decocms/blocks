@@ -15,6 +15,7 @@ export {
 	type FitOptions,
 } from "./Image";
 export { Picture, Source, type PictureProps, type SourceProps } from "./Picture";
+export { useLoadMore } from "./useLoadMore";
 export {
 	ProductJsonLd,
 	PLPJsonLd,
