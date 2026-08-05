@@ -79,6 +79,8 @@ export const CLASS_RENAMES: Record<string, string> = {
 export const DAISYUI_RENAMES: Record<string, string> = {
   "badge-ghost": "badge-soft",
   "card-compact": "card-sm",
+  "card-normal": "card-md",
+  "tabs-boxed": "tabs-box",
 };
 
 /**
@@ -180,6 +182,38 @@ export function detectDaisyUiV5StructuralIssues(content: string): GotchaFinding[
       gotcha: 37,
       message:
         "DaisyUI v4 `form-control` was removed in v5 with no drop-in class — rebuild with `fieldset` + `label`/`legend` per DaisyUI v5's form pattern.",
+    });
+  }
+
+  if (/\bmenu-compact\b/.test(content)) {
+    findings.push({
+      gotcha: 37,
+      message:
+        "DaisyUI v4 `menu-compact` was removed in v5 with no drop-in class — use `menu-sm` for a smaller menu or remove the modifier.",
+    });
+  }
+
+  if (/\btab-bordered\b/.test(content)) {
+    findings.push({
+      gotcha: 37,
+      message:
+        "DaisyUI v4 `tab-bordered` was removed in v5 — use `tabs-bordered` on the `tabs` wrapper instead of a modifier on each `tab` element.",
+    });
+  }
+
+  // Detect bare `alert` without a color modifier — DaisyUI v5 changed the
+  // default alert background; alerts without alert-info/success/warning/error
+  // may appear with no background color.
+  // Scoped to className= / class= attribute values to avoid matching the JS
+  // global `alert()` function, variable names, or comments in the same file.
+  if (
+    /className=["'][^"']*\balert\b[^"']*["']/.test(content) &&
+    !/\balert-(?:info|success|warning|error)\b/.test(content)
+  ) {
+    findings.push({
+      gotcha: 37,
+      message:
+        "DaisyUI v5 changed `alert` default styling — a bare `alert` without a color modifier (alert-info/success/warning/error) may render with no background. Add an explicit color modifier or use `alert-soft` for a neutral variant.",
     });
   }
 
