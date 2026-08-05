@@ -51,16 +51,25 @@ function generateRoot(ctx: MigrationContext, siteTitle: string, vtexAccount: str
     preconnects.push(`      { rel: "preconnect", href: "https://${vtexAccount}.vtexassets.com", crossOrigin: "anonymous" as const },`);
   }
 
-  // Font preloads
+  const googleFontLinks = [
+    ...ctx.googleFonts.preconnects.map((href) =>
+      `      { rel: "preconnect", href: "${href}"${href.includes("gstatic") ? ', crossOrigin: "anonymous" as const' : ""} },`
+    ),
+    ...ctx.googleFonts.stylesheets.map((href) =>
+      `      { rel: "stylesheet", href: "${href}" },`
+    ),
+  ];
+
   const fontPreloads = fonts.map((f) =>
     `      { rel: "preload", href: "${f}", as: "font", type: "font/woff2", crossOrigin: "anonymous" as const },`
   );
 
-  // DNS prefetch for common third-party services
   const dnsPrefetch: string[] = [];
   if (isVtex) {
     dnsPrefetch.push(`      { rel: "dns-prefetch", href: "https://sp.vtex.com" },`);
   }
+
+  const linkLines = [...preconnects, ...googleFontLinks, ...fontPreloads].filter(Boolean);
 
   return `import { createRootRoute } from "@tanstack/react-router";
 import { DecoRootLayout } from "@decocms/tanstack";
@@ -83,8 +92,7 @@ export const Route = createRootRoute({
       { property: "og:locale", content: "pt_BR" },
     ],
     links: [
-${preconnects.join("\n")}
-${fontPreloads.join("\n")}
+${linkLines.join("\n")}
       { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.ico" },
 ${dnsPrefetch.join("\n")}
