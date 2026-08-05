@@ -418,7 +418,7 @@ function scanDir(
   }
 }
 
-function extractGoogleFonts(
+export function extractGoogleFonts(
   sourceDir: string,
 ): { preconnects: string[]; stylesheets: string[] } {
   const preconnects: string[] = [];
@@ -672,6 +672,19 @@ export function analyze(ctx: MigrationContext): void {
   ctx.vtexAccount = ctx.platform === "vtex" ? extractVtexAccount(ctx.sourceDir) : null;
   ctx.gtmId = extractGtmId(ctx.sourceDir);
   ctx.googleFonts = extractGoogleFonts(ctx.sourceDir);
+  // If no font URLs were extracted but the file mentions googleapis (likely a
+  // JSX expression like href={URL_CONST}), flag it for manual review.
+  if (ctx.googleFonts.preconnects.length === 0 && ctx.googleFonts.stylesheets.length === 0) {
+    const appPath = path.join(ctx.sourceDir, "routes", "_app.tsx");
+    if (fs.existsSync(appPath) && fs.readFileSync(appPath, "utf-8").includes("fonts.googleapis")) {
+      ctx.manualReviewItems.push({
+        file: "routes/_app.tsx",
+        reason:
+          "Google Fonts reference found but could not be extracted automatically (may use a JSX expression or variable). Add the font preconnect and stylesheet links manually to src/routes/__root.tsx.",
+        severity: "warning",
+      });
+    }
+  }
 
   // Extract theme colors and font from CMS
   const theme = extractThemeFromCms(ctx.sourceDir);
