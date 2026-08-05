@@ -15,6 +15,13 @@
  * the host site's CSS/Tailwind), and a very high z-index, so it renders the
  * same on any consumer site. Only mounted when a draft is active
  * (`DraftPreviewIndicator` gates it), so it never costs ordinary traffic.
+ *
+ * Hidden inside an iframe (`isFramed`): Studio's own preview surface embeds
+ * this exact draft render in an iframe that already has its own chrome
+ * (toolbar, version status) — floating a second "you're in preview" badge
+ * inside that frame would be redundant clutter, not a signal a reviewer
+ * needs. A reviewer following a shared preview link in their own top-level
+ * tab still sees it; only the embedded case is suppressed.
  */
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { DECO_MARK_DATA_URI } from "./decoMark";
@@ -47,6 +54,19 @@ export function buildExitUrl(href: string): string {
   const url = new URL(href);
   url.searchParams.set(DRAFT_PARAM, "off");
   return url.toString();
+}
+
+/**
+ * Whether this render is embedded in another page's iframe — Studio's own
+ * preview surface, primarily. `window.top !== window` is a same-origin
+ * reference comparison, so it never throws cross-origin (unlike reading a
+ * cross-origin frame's properties). No `window` (SSR, or a consumer site
+ * that never hydrates this component) reports not-framed — fails open,
+ * matching the badge's "renders the same on any consumer site" guarantee.
+ * Pure and exported for tests.
+ */
+export function isFramed(win: typeof window | undefined = globalThis.window): boolean {
+  return typeof win !== "undefined" && win.top !== win;
 }
 
 const DECO_GREEN = "#0b3d1e";
@@ -136,6 +156,12 @@ export function DraftPreviewBadge({ pointer }: DraftPreviewBadgeProps) {
       window.prompt("Copy preview link:", link);
     }
   }, [pointer]);
+
+  // Checked inline, not cached in state behind an effect: it's a free
+  // reference compare, and computing it during render means the client's
+  // first (hydration) pass already agrees with what it will show — no
+  // post-hydration flash for the common (unframed) case.
+  if (isFramed()) return null;
 
   return (
     <div
