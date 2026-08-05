@@ -231,6 +231,7 @@ function generateWranglerConfig(ctx: MigrationContext): string {
       main: "src/worker-entry.ts",
       compatibility_date: "2025-05-01",
       compatibility_flags: ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+      cache: { enabled: true },
       kv_namespaces: [{ binding: "SITES_KV", id: "dev-sites-kv" }],
     },
     null,
