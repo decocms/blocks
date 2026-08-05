@@ -1702,9 +1702,22 @@ const ruleVtexProxyHandlerMissing: Rule = {
 const MODULE_SIGNAL_RE =
   /^(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:\w+\.)?signal\s*\(/m;
 
+// Well-known signals returned by useUI(). These are never declared with
+// `const x = signal(...)` at module scope — they come from a hook — so
+// MODULE_SIGNAL_RE won't catch them. The list is stable: it's the public
+// API surface of useUI() across all deco storefronts.
+const WELL_KNOWN_UI_SIGNALS = new Set([
+  "displayCart",
+  "displayMenu",
+  "displayNav",
+  "displaySearchbar",
+  "displaySearchPopup",
+  "cartLoading",
+]);
+
 const ruleSignalValueReads: Rule = {
   id: "signal-value-reads",
-  title: "Module-level signal .value reads without useStore()",
+  title: "Signal .value reads without subscription (freezes UI)",
   run({ siteDir, fs }: RuleContext): Finding[] {
     const tsFiles = fs.glob(siteDir, "src/**/*.{ts,tsx}", SRC_GLOB_EXCLUDES);
 
@@ -1724,6 +1737,14 @@ const ruleSignalValueReads: Rule = {
       }
     }
 
+    // Also check well-known useUI() signals — they never appear as module-level
+    // declarations, so MODULE_SIGNAL_RE never picks them up.
+    for (const name of WELL_KNOWN_UI_SIGNALS) {
+      if (!moduleSignals.has(name)) {
+        moduleSignals.set(name, "useUI()");
+      }
+    }
+
     if (moduleSignals.size === 0) return [];
 
     // Pre-compile per-signal regexes once — avoids N×M compilations in Pass 2.
@@ -1732,7 +1753,8 @@ const ruleSignalValueReads: Rule = {
     );
 
     // Pass 2: for each .tsx file, check per-signal whether .value is read
-    // without a matching useStore(name.store call in the same file.
+    // without a matching subscription in the same file.
+    // Accepts either useStore(name.store or useSignalValue(name as subscriptions.
     const tsxFiles = tsFiles.filter((f) => f.endsWith(".tsx"));
     const findings: Finding[] = [];
 
@@ -1743,18 +1765,17 @@ const ruleSignalValueReads: Rule = {
       for (const [name, declaredIn] of moduleSignals) {
         const valueRe = valueReMap.get(name)!;
         if (!valueRe.test(content)) continue;
-        // Per-signal subscription check: useStore(name.store is the canonical
-        // subscription pattern. A file that subscribes to a different signal
-        // is not considered subscribed to this one.
-        const subscribedRe = new RegExp(`\\buseStore\\s*\\(\\s*${name}\\.store\\b`);
+        const subscribedRe = new RegExp(
+          `\\buseStore\\s*\\(\\s*${name}\\.store\\b|\\buseSignalValue\\s*\\(\\s*${name}\\b`,
+        );
         if (subscribedRe.test(content)) continue;
 
         findings.push({
           rule: "signal-value-reads",
           severity: "warning",
           file: rel,
-          message: `'${name}.value' read without useStore() — component will not re-render when the signal changes`,
-          fix: `Use useStore(${name}.store, (s) => s) to subscribe, or replace with useQuery / useMutation`,
+          message: `'${name}.value' read without subscription — component will not re-render when the signal changes`,
+          fix: `Replace with \`const ${name}Value = useSignalValue(${name})\` (from ~/sdk/signal) or \`useStore(${name}.store)\``,
           meta: { signalName: name, declaredIn },
         });
       }

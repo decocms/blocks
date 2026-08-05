@@ -341,7 +341,7 @@ export default debounce;
 }
 
 function generateSignalShim(): string {
-  return `import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+  return `import { useState, useRef, useEffect, useMemo, useCallback, useSyncExternalStore } from "react";
 export { signal, type ReactiveSignal } from "@decocms/blocks/sdk/signal";
 
 /** Run a function immediately. Kept for legacy module-level side effects. */
@@ -386,6 +386,24 @@ export function useComputed<T>(compute: () => T): { readonly value: T } {
  */
 export function useSignalEffect(cb: () => void | (() => void)): void {
   useEffect(cb);
+}
+
+/**
+ * Subscribe to a ReactiveSignal and re-render when it changes.
+ * Required for signals from useUI() (displayCart, displayMenu, etc.) —
+ * reading .value directly in render is a dead read in React and freezes the UI.
+ *
+ * @example
+ *   const { displayCart } = useUI();
+ *   const open = useSignalValue(displayCart);
+ *   return <Drawer open={open} />;
+ */
+export function useSignalValue<T>(sig: ReactiveSignal<T>): T {
+  return useSyncExternalStore(
+    (cb) => sig.subscribe(cb),
+    () => sig.value,
+    () => sig.value,
+  );
 }
 `;
 }
