@@ -418,6 +418,50 @@ function scanDir(
   }
 }
 
+function extractGoogleFonts(
+  sourceDir: string,
+): { preconnects: string[]; stylesheets: string[] } {
+  const preconnects: string[] = [];
+  const stylesheets: string[] = [];
+  const seen = new Set<string>();
+
+  const hrefRe = /href=["'](https:\/\/fonts\.(?:googleapis|gstatic)\.com[^"']*)["']/g;
+
+  // Read _app.tsx and _layout.tsx for <link> declarations
+  for (const candidate of ["routes/_app.tsx", "routes/_layout.tsx"]) {
+    const fp = path.join(sourceDir, candidate);
+    if (!fs.existsSync(fp)) continue;
+    const content = fs.readFileSync(fp, "utf-8");
+    for (const m of content.matchAll(hrefRe)) {
+      const href = m[1];
+      if (seen.has(href)) continue;
+      seen.add(href);
+      if (href.includes("/css")) {
+        stylesheets.push(href);
+      } else {
+        preconnects.push(href);
+      }
+    }
+  }
+
+  // Also check tailwind.css for @import url(https://fonts.googleapis.com/...)
+  for (const cssCandidate of ["tailwind.css", "styles/app.css", "styles/global.css"]) {
+    const fp = path.join(sourceDir, cssCandidate);
+    if (!fs.existsSync(fp)) continue;
+    const content = fs.readFileSync(fp, "utf-8");
+    const importRe = /@import\s+url\(['"]?(https:\/\/fonts\.googleapis\.com[^'")\s]+)/g;
+    for (const m of content.matchAll(importRe)) {
+      const href = m[1];
+      if (!seen.has(href)) {
+        seen.add(href);
+        stylesheets.push(href);
+      }
+    }
+  }
+
+  return { preconnects, stylesheets };
+}
+
 function extractGtmId(sourceDir: string): string | null {
   const appPath = path.join(sourceDir, "routes", "_app.tsx");
   if (!fs.existsSync(appPath)) return null;
@@ -627,6 +671,7 @@ export function analyze(ctx: MigrationContext): void {
   ctx.platform = extractPlatform(ctx.sourceDir);
   ctx.vtexAccount = ctx.platform === "vtex" ? extractVtexAccount(ctx.sourceDir) : null;
   ctx.gtmId = extractGtmId(ctx.sourceDir);
+  ctx.googleFonts = extractGoogleFonts(ctx.sourceDir);
 
   // Extract theme colors and font from CMS
   const theme = extractThemeFromCms(ctx.sourceDir);

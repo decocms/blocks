@@ -51,6 +51,16 @@ function generateRoot(ctx: MigrationContext, siteTitle: string, vtexAccount: str
     preconnects.push(`      { rel: "preconnect", href: "https://${vtexAccount}.vtexassets.com", crossOrigin: "anonymous" as const },`);
   }
 
+  // Google Fonts preconnects + stylesheets
+  const googleFontLinks = [
+    ...ctx.googleFonts.preconnects.map((href) =>
+      `      { rel: "preconnect", href: "${href}"${href.includes("gstatic") ? ', crossOrigin: "anonymous" as const' : ""} },`
+    ),
+    ...ctx.googleFonts.stylesheets.map((href) =>
+      `      { rel: "stylesheet", href: "${href}" },`
+    ),
+  ];
+
   // Font preloads
   const fontPreloads = fonts.map((f) =>
     `      { rel: "preload", href: "${f}", as: "font", type: "font/woff2", crossOrigin: "anonymous" as const },`
@@ -84,6 +94,7 @@ export const Route = createRootRoute({
     ],
     links: [
 ${preconnects.join("\n")}
+${googleFontLinks.join("\n")}
 ${fontPreloads.join("\n")}
       { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.ico" },
