@@ -41,6 +41,7 @@ import {
   setDraftPreviewHosts,
 } from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+import { DRAFT_POINTER_BAG_KEY } from "./draftShared";
 
 /** RequestContext bag key the resolved draft decofile is stashed under. */
 const DRAFT_BAG_KEY = "deco:draftBlocks";
@@ -170,7 +171,13 @@ export async function bindRequestDraft(
   if (!pointer) return INERT;
 
   const blocks = await resolveDraftForRequest(request, { fetchImpl });
-  if (blocks) RequestContext.setBag(DRAFT_BAG_KEY, blocks);
+  if (blocks) {
+    RequestContext.setBag(DRAFT_BAG_KEY, blocks);
+    // Expose the pointer to the SSR React tree so the preview badge can render
+    // and build its share/exit links. Only when the draft actually bound —
+    // the badge means "you're looking at draft content", matching Next.
+    RequestContext.setBag(DRAFT_POINTER_BAG_KEY, pointer);
+  }
 
   // Persist only on entry (`?__draft=`); in-preview navigation rides the cookie
   // already present.
