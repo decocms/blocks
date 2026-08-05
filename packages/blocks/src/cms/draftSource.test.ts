@@ -75,27 +75,45 @@ describe("previewApiOriginForHost", () => {
     expect(previewApiOriginForHost("abc.local.studio.decocms.com", {})).toBe(
       "https://abc.local.studio.decocms.com",
     );
-    expect(previewApiOriginForHost("abc.localhost:60534", {})).toBe("http://abc.localhost:60534");
+    expect(previewApiOriginForHost("abc.localhost:60534", {})).toBe(
+      "http://abc.localhost:60534",
+    );
+    // -stg is its own suffix, not a substring match of .preview-studio.decocms.com —
+    // both must be listed explicitly (regressed once: staging draft pointers
+    // silently fell back to published content with no visible error).
+    expect(
+      previewApiOriginForHost("abc.preview-studio-stg.decocms.com", {}),
+    ).toBe("https://abc.preview-studio-stg.decocms.com");
   });
 
   it("rejects hosts outside the domains — the token proposes, config disposes", () => {
     expect(previewApiOriginForHost("evil.example", {})).toBeNull();
     // Dot-prefixed suffixes guarantee a label boundary: a lookalike domain
     // that merely ends with the same characters cannot pass.
-    expect(previewApiOriginForHost("evil-preview-studio.decocms.com", {})).toBeNull();
+    expect(
+      previewApiOriginForHost("evil-preview-studio.decocms.com", {}),
+    ).toBeNull();
     // The domain itself (no label in front) is not a draft host.
-    expect(previewApiOriginForHost("preview-studio.decocms.com", {})).toBeNull();
+    expect(
+      previewApiOriginForHost("preview-studio.decocms.com", {}),
+    ).toBeNull();
   });
 
   it("allows an explicit port only under localhost-ish domains", () => {
     // A public-domain token must not steer the fetch at odd ports.
-    expect(previewApiOriginForHost("abc.preview-studio.decocms.com:8500", {})).toBeNull();
+    expect(
+      previewApiOriginForHost("abc.preview-studio.decocms.com:8500", {}),
+    ).toBeNull();
   });
 
   it("honours a configured override instead of the defaults", () => {
     const env = { DECO_PREVIEW_API_DOMAINS: ".staging.example" };
-    expect(previewApiOriginForHost("abc.staging.example", env)).toBe("https://abc.staging.example");
-    expect(previewApiOriginForHost("abc.preview-studio.decocms.com", env)).toBeNull();
+    expect(previewApiOriginForHost("abc.staging.example", env)).toBe(
+      "https://abc.staging.example",
+    );
+    expect(
+      previewApiOriginForHost("abc.preview-studio.decocms.com", env),
+    ).toBeNull();
   });
 });
 
@@ -129,7 +147,9 @@ describe("resolveDraftDecofile", () => {
     });
 
     expect(blocks).toEqual({ "pages-home": { title: "draft" } });
-    expect(calls).toEqual(["https://abc.preview-studio.decocms.com/_sandbox/decofile"]);
+    expect(calls).toEqual([
+      "https://abc.preview-studio.decocms.com/_sandbox/decofile",
+    ]);
   });
 
   it("is inert without a host allowlist — no fetch at all", async () => {
@@ -168,8 +188,16 @@ describe("resolveDraftDecofile", () => {
     }) as unknown as typeof fetch;
     const P = "abc.preview-studio.decocms.com";
 
-    const a = await resolveDraftDecofile({ pointer: `${P}@v1`, env: ENV_ON, fetchImpl });
-    const b = await resolveDraftDecofile({ pointer: `${P}@v1`, env: ENV_ON, fetchImpl });
+    const a = await resolveDraftDecofile({
+      pointer: `${P}@v1`,
+      env: ENV_ON,
+      fetchImpl,
+    });
+    const b = await resolveDraftDecofile({
+      pointer: `${P}@v1`,
+      env: ENV_ON,
+      fetchImpl,
+    });
     expect(fetches).toBe(1);
     expect(b).toBe(a);
 
@@ -186,7 +214,11 @@ describe("resolveDraftDecofile", () => {
     const P = "abc.preview-studio.decocms.com";
 
     for (const v of ["v1", "v2", "v3", "v4"]) {
-      await resolveDraftDecofile({ pointer: `${P}@${v}`, env: ENV_ON, fetchImpl });
+      await resolveDraftDecofile({
+        pointer: `${P}@${v}`,
+        env: ENV_ON,
+        fetchImpl,
+      });
     }
     expect(fetches).toBe(4);
     await resolveDraftDecofile({ pointer: `${P}@v1`, env: ENV_ON, fetchImpl });
@@ -225,6 +257,7 @@ describe("DEFAULT_PREVIEW_API_DOMAINS", () => {
   it("ships the deco-operated origins, dot-prefixed", () => {
     expect(DEFAULT_PREVIEW_API_DOMAINS).toEqual([
       ".preview-studio.decocms.com",
+      ".preview-studio-stg.decocms.com",
       ".local.studio.decocms.com",
       ".localhost",
     ]);
@@ -261,10 +294,17 @@ describe("site-block preview hosts", () => {
 
 describe("draftPointerFromRequest", () => {
   it("reads the pointer from the __deco_draft cookie (in-preview navigation)", () => {
-    const req = new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
-      headers: { cookie: "a=1; __deco_draft=abc.preview-studio.decocms.com@v1; b=2" },
-    });
-    expect(draftPointerFromRequest(req)).toBe("abc.preview-studio.decocms.com@v1");
+    const req = new Request(
+      "https://preview.example/deco/invoke/site/loaders/x.ts",
+      {
+        headers: {
+          cookie: "a=1; __deco_draft=abc.preview-studio.decocms.com@v1; b=2",
+        },
+      },
+    );
+    expect(draftPointerFromRequest(req)).toBe(
+      "abc.preview-studio.decocms.com@v1",
+    );
   });
 
   it("lets ?__draft= win over the cookie", () => {
@@ -282,26 +322,35 @@ describe("draftPointerFromRequest", () => {
   });
 
   it("returns null with neither param nor cookie", () => {
-    expect(draftPointerFromRequest(new Request("https://preview.example/p"))).toBeNull();
+    expect(
+      draftPointerFromRequest(new Request("https://preview.example/p")),
+    ).toBeNull();
   });
 });
 
 describe("resolveDraftForRequest", () => {
   const ENV = { DECO_ALLOWED_PREVIEW_HOSTS: "preview.example" };
   function invokeReq(host = "preview.example"): Request {
-    return new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
-      method: "POST",
-      headers: {
-        "x-forwarded-host": host,
-        cookie: "__deco_draft=abc.preview-studio.decocms.com@v1",
+    return new Request(
+      "https://preview.example/deco/invoke/site/loaders/x.ts",
+      {
+        method: "POST",
+        headers: {
+          "x-forwarded-host": host,
+          cookie: "__deco_draft=abc.preview-studio.decocms.com@v1",
+        },
       },
-    });
+    );
   }
 
   it("binds the draft when host is allowed and the pointer resolves", async () => {
     const fetchImpl = (async () =>
-      jsonResponse({ "site/x": { value: "draft" } })) as unknown as typeof fetch;
-    expect(await resolveDraftForRequest(invokeReq(), { env: ENV, fetchImpl })).toEqual({
+      jsonResponse({
+        "site/x": { value: "draft" },
+      })) as unknown as typeof fetch;
+    expect(
+      await resolveDraftForRequest(invokeReq(), { env: ENV, fetchImpl }),
+    ).toEqual({
       "site/x": { value: "draft" },
     });
   });
@@ -312,7 +361,9 @@ describe("resolveDraftForRequest", () => {
       called = true;
       return jsonResponse({});
     }) as unknown as typeof fetch;
-    expect(await resolveDraftForRequest(invokeReq(), { env: {}, fetchImpl })).toBeNull();
+    expect(
+      await resolveDraftForRequest(invokeReq(), { env: {}, fetchImpl }),
+    ).toBeNull();
     expect(called).toBe(false);
   });
 
@@ -323,21 +374,29 @@ describe("resolveDraftForRequest", () => {
       return jsonResponse({});
     }) as unknown as typeof fetch;
     expect(
-      await resolveDraftForRequest(invokeReq("prod.example"), { env: ENV, fetchImpl }),
+      await resolveDraftForRequest(invokeReq("prod.example"), {
+        env: ENV,
+        fetchImpl,
+      }),
     ).toBeNull();
     expect(called).toBe(false);
   });
 
   it("returns null when the request carries no draft pointer", async () => {
-    const req = new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
-      headers: { "x-forwarded-host": "preview.example" },
-    });
+    const req = new Request(
+      "https://preview.example/deco/invoke/site/loaders/x.ts",
+      {
+        headers: { "x-forwarded-host": "preview.example" },
+      },
+    );
     let called = false;
     const fetchImpl = (async () => {
       called = true;
       return jsonResponse({});
     }) as unknown as typeof fetch;
-    expect(await resolveDraftForRequest(req, { env: ENV, fetchImpl })).toBeNull();
+    expect(
+      await resolveDraftForRequest(req, { env: ENV, fetchImpl }),
+    ).toBeNull();
     expect(called).toBe(false);
   });
 });
