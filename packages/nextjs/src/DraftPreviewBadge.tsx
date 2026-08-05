@@ -22,6 +22,15 @@
  * inside that frame would be redundant clutter, not a signal a reviewer
  * needs. A reviewer following a shared preview link in their own top-level
  * tab still sees it; only the embedded case is suppressed.
+ *
+ * Renders NOTHING until a client-side effect confirms it's safe to show —
+ * fails closed, not open. `isFramed()` needs `window`, so it can only ever
+ * be evaluated in the browser; rendering the badge by default and hiding it
+ * once framing is detected would flash it for a beat inside Studio's own
+ * iframe before it disappeared, and would hydration-mismatch (server has no
+ * `window`, so it would always render the "unframed" branch). Starting
+ * hidden on both the server and the client's matching first render, then
+ * revealing via `useEffect` only when confirmed unframed, avoids both.
  */
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { DECO_MARK_DATA_URI } from "./decoMark";
@@ -60,10 +69,10 @@ export function buildExitUrl(href: string): string {
  * Whether this render is embedded in another page's iframe — Studio's own
  * preview surface, primarily. `window.top !== window` is a same-origin
  * reference comparison, so it never throws cross-origin (unlike reading a
- * cross-origin frame's properties). No `window` (SSR, or a consumer site
- * that never hydrates this component) reports not-framed — fails open,
- * matching the badge's "renders the same on any consumer site" guarantee.
- * Pure and exported for tests.
+ * cross-origin frame's properties). No `window` reports not-framed — a safe
+ * default for the function itself, though the badge only ever calls this
+ * from a `useEffect`, where `window` always exists. Pure and exported for
+ * tests.
  */
 export function isFramed(win: typeof window | undefined = globalThis.window): boolean {
   return typeof win !== "undefined" && win.top !== win;
@@ -119,7 +128,17 @@ function ShareIcon() {
 export function DraftPreviewBadge({ pointer }: DraftPreviewBadgeProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [visible, setVisible] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // Reveal only after mount, and only when confirmed unframed — fails
+  // closed. Server and client's matching first render both start at this
+  // same `false`, so there's no hydration mismatch; this effect (client
+  // only, runs once) is the sole place `isFramed()` is ever evaluated. See
+  // the module doc for why the alternative (render then hide) is worse.
+  useEffect(() => {
+    if (!isFramed()) setVisible(true);
+  }, []);
 
   // Dismiss on outside click or Escape — standard popover behaviour, and it
   // keeps the badge from trapping focus on a reviewer's own page.
@@ -157,11 +176,7 @@ export function DraftPreviewBadge({ pointer }: DraftPreviewBadgeProps) {
     }
   }, [pointer]);
 
-  // Checked inline, not cached in state behind an effect: it's a free
-  // reference compare, and computing it during render means the client's
-  // first (hydration) pass already agrees with what it will show — no
-  // post-hydration flash for the common (unframed) case.
-  if (isFramed()) return null;
+  if (!visible) return null;
 
   return (
     <div
