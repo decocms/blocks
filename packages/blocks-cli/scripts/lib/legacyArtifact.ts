@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 /**
  * Generator default output paths flipped from `src/server/{cms,admin}/` to
  * `.deco/` (framework artifacts live in the framework's folder, not mixed
@@ -15,6 +18,17 @@
  */
 export function warnLegacyArtifact(oldPath: string, newPath: string): void {
   console.warn(
-    `[deco] Generator default output moved: ${oldPath} -> ${newPath}. Move the file and update its importers.`,
+    `[deco] Generator default output moved: ${oldPath} -> ${newPath}. Update importers to use the new path, then delete the old file.`,
   );
+}
+
+/**
+ * Copies the freshly-generated file at `newPath` back to `oldPath` so that
+ * sites mid-migration whose imports still point at the old location see
+ * up-to-date output without requiring a full migration first.
+ * Call this after generation completes, only when the old file was detected.
+ */
+export function syncLegacyArtifact(oldPath: string, newPath: string): void {
+  fs.mkdirSync(path.dirname(oldPath), { recursive: true });
+  fs.copyFileSync(newPath, oldPath);
 }

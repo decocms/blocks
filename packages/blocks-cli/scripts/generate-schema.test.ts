@@ -323,10 +323,17 @@ describe("generate-schema default output path (.deco/)", () => {
 
     expect(stderr).toContain("src/server/admin/meta.gen.json");
     expect(stderr).toContain(".deco/meta.gen.json");
-    expect(stderr).toContain("Move the file and update its importers");
+    expect(stderr).toContain("Update importers to use the new path");
 
     const newDefault = path.join(tmpDir, ".deco", "meta.gen.json");
     expect(fs.existsSync(newDefault)).toBe(true);
+
+    // Old file must be kept in sync so mid-migration imports still work.
+    const oldDefault = path.join(tmpDir, "src", "server", "admin", "meta.gen.json");
+    expect(fs.existsSync(oldDefault)).toBe(true);
+    const oldContent = JSON.parse(fs.readFileSync(oldDefault, "utf-8"));
+    const newContent = JSON.parse(fs.readFileSync(newDefault, "utf-8"));
+    expect(oldContent).toEqual(newContent);
   }, 30_000);
 
   it("does not warn when an explicit --out is passed, even if the OLD default file exists", () => {

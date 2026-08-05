@@ -14,8 +14,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve(__dirname, "generate-loaders.ts");
 
-function run(cwd: string): { stdout: string; stderr: string; code: number } {
-  const r = cp.spawnSync("npx", ["tsx", SCRIPT], { encoding: "utf8", cwd });
+function run(cwd: string, args: string[] = []): { stdout: string; stderr: string; code: number } {
+  const r = cp.spawnSync("npx", ["tsx", SCRIPT, ...args], { encoding: "utf8", cwd });
   return { stdout: r.stdout || "", stderr: r.stderr || "", code: r.status ?? -1 };
 }
 
@@ -61,4 +61,57 @@ describe("generate-loaders — loader vs action emit", () => {
     expect(out).toContain('"site/actions/addToCart": async (props: any, request?: Request) => {');
     expect(out).not.toContain('createLoaderEntry("site/actions/addToCart"');
   });
+});
+
+describe("generate-loaders legacy artifact sync", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-loaders-legacy-"));
+    const write = (rel: string, content: string) => {
+      const abs = path.join(tmpDir, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, content);
+    };
+    write("src/loaders/related.ts", "export default async () => [];\n");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("syncs to the old path when legacy file is detected", () => {
+    const oldDir = path.join(tmpDir, "src", "server", "cms");
+    fs.mkdirSync(oldDir, { recursive: true });
+    fs.writeFileSync(path.join(oldDir, "loaders.gen.ts"), "// stale\n");
+
+    const { code, stderr } = run(tmpDir);
+    expect(code).toBe(0);
+
+    expect(stderr).toContain("src/server/cms/loaders.gen.ts");
+    expect(stderr).toContain(".deco/loaders.gen.ts");
+    expect(stderr).toContain("Update importers to use the new path");
+
+    // New path must exist.
+    expect(fs.existsSync(path.join(tmpDir, ".deco", "loaders.gen.ts"))).toBe(true);
+
+    // Old file must be synced (not stale placeholder).
+    const oldContent = fs.readFileSync(path.join(oldDir, "loaders.gen.ts"), "utf-8");
+    expect(oldContent).not.toBe("// stale\n");
+    expect(oldContent).toContain("site/loaders/related");
+  }, 30_000);
+
+  it("does not warn and does not sync when an explicit --out-file is passed", () => {
+    const oldDir = path.join(tmpDir, "src", "server", "cms");
+    fs.mkdirSync(oldDir, { recursive: true });
+    fs.writeFileSync(path.join(oldDir, "loaders.gen.ts"), "// stale\n");
+
+    const explicitOut = path.join(tmpDir, "custom", "loaders.gen.ts");
+    const { code, stderr } = run(tmpDir, ["--out-file", explicitOut]);
+    expect(code).toBe(0);
+
+    expect(stderr).not.toContain("Generator default output moved");
+    expect(fs.existsSync(explicitOut)).toBe(true);
+    expect(fs.readFileSync(path.join(oldDir, "loaders.gen.ts"), "utf-8")).toBe("// stale\n");
+  }, 30_000);
 });

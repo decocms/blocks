@@ -47,7 +47,7 @@ import {
   type Type,
 } from "ts-morph";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
-import { warnLegacyArtifact } from "./lib/legacyArtifact";
+import { syncLegacyArtifact, warnLegacyArtifact } from "./lib/legacyArtifact";
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -90,6 +90,8 @@ let COMPOSE = false;
 // Value written to the composed meta's `framework` field (only used with
 // --compose). Defaults to composeMeta's historical "tanstack-start".
 let FRAMEWORK = "tanstack-start";
+let _hasLegacySchema = false;
+let _oldSchemaPath = "";
 
 if (isMainModule()) {
   SITE_NAMESPACE = arg("namespace", SITE_NAMESPACE);
@@ -104,7 +106,9 @@ if (isMainModule()) {
   PLATFORM = arg("platform", PLATFORM);
   COMPOSE = argv.includes("--compose");
   FRAMEWORK = arg("framework", FRAMEWORK);
-  if (!outFileExplicit && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_REL))) {
+  _oldSchemaPath = path.resolve(process.cwd(), OLD_DEFAULT_OUT_REL);
+  _hasLegacySchema = !outFileExplicit && fs.existsSync(_oldSchemaPath);
+  if (_hasLegacySchema) {
     warnLegacyArtifact(OLD_DEFAULT_OUT_REL, NEW_DEFAULT_OUT_REL);
   }
 }
@@ -1537,6 +1541,7 @@ if (isMainModule()) {
     const outPath = path.resolve(process.cwd(), OUT_REL);
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
+    if (_hasLegacySchema) syncLegacyArtifact(_oldSchemaPath, outPath);
 
     const defCount = Object.keys(meta.schema.definitions).length;
     const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;

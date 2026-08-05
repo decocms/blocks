@@ -50,7 +50,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { warnLegacyArtifact } from "./lib/legacyArtifact";
+import { syncLegacyArtifact, warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -64,7 +64,9 @@ const OUT_FILE_EXPLICIT = args.includes("--out-file");
 const NEW_DEFAULT_OUT_FILE = ".deco/loaders.gen.ts";
 const OLD_DEFAULT_OUT_FILE = "src/server/cms/loaders.gen.ts";
 const outFile = path.resolve(process.cwd(), arg("out-file", NEW_DEFAULT_OUT_FILE));
-if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE))) {
+const oldLoadersPath = path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE);
+const hasLegacy = !OUT_FILE_EXPLICIT && fs.existsSync(oldLoadersPath);
+if (hasLegacy) {
   warnLegacyArtifact(OLD_DEFAULT_OUT_FILE, NEW_DEFAULT_OUT_FILE);
 }
 const excludeRaw = arg("exclude", "");
@@ -254,6 +256,7 @@ lines.push("");
 
 fs.mkdirSync(path.dirname(outFile), { recursive: true });
 fs.writeFileSync(outFile, lines.join("\n"));
+if (hasLegacy) syncLegacyArtifact(oldLoadersPath, outFile);
 
 const filterNote = cmsReferences
   ? ` (filtered against ${cmsReferences.size} CMS __resolveType references; pruned ${prunedCount} dead entries)`

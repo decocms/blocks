@@ -36,7 +36,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
-import { warnLegacyArtifact } from "./lib/legacyArtifact";
+import { syncLegacyArtifact, warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -49,7 +49,9 @@ const OUT_FILE_EXPLICIT = args.includes("--out-file");
 const NEW_DEFAULT_OUT_FILE = ".deco/sections.gen.ts";
 const OLD_DEFAULT_OUT_FILE = "src/server/cms/sections.gen.ts";
 const outFile = path.resolve(process.cwd(), arg("out-file", NEW_DEFAULT_OUT_FILE));
-if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE))) {
+const oldSectionsPath = path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE);
+const hasLegacy = !OUT_FILE_EXPLICIT && fs.existsSync(oldSectionsPath);
+if (hasLegacy) {
   warnLegacyArtifact(OLD_DEFAULT_OUT_FILE, NEW_DEFAULT_OUT_FILE);
 }
 const EMIT_REGISTRY = args.includes("--registry");
@@ -291,6 +293,7 @@ fs.writeFileSync(
   outFile,
   lines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n*$/, "\n"),
 );
+if (hasLegacy) syncLegacyArtifact(oldSectionsPath, outFile);
 
 console.log(
   `Generated section metadata for ${entries.length} sections → ${path.relative(process.cwd(), outFile)}`,
