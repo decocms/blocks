@@ -35,15 +35,7 @@ export function createSalesforceFetch(
     name: "salesforce",
     baseFetch,
     resolveOperation: salesforceOperationRouter,
-    onComplete: disableHistogram
-      ? undefined
-      : ({ operation, status, durationMs, cached }) => {
-          recordCommerceMetric(durationMs, {
-            provider: "salesforce",
-            operation,
-            status_class: statusClassFor(status),
-            cached,
-          });
-        },
+    onComplete: disableHistogram ? undefined : (r) =>
+      recordCommerceMetric(r.durationMs, { provider: "salesforce", operation: r.operation, status_class: statusClassFor(r.status), cached: r.cached }),
   });
 }

@@ -51,15 +51,7 @@ export function createMagentoFetch(options: CreateMagentoFetchOptions = {}): Ins
     name: "magento",
     baseFetch,
     resolveOperation: magentoOperationRouter,
-    onComplete: disableHistogram
-      ? undefined
-      : ({ operation, status, durationMs, cached }) => {
-          recordCommerceMetric(durationMs, {
-            provider: "magento",
-            operation,
-            status_class: statusClassFor(status),
-            cached,
-          });
-        },
+    onComplete: disableHistogram ? undefined : (r) =>
+      recordCommerceMetric(r.durationMs, { provider: "magento", operation: r.operation, status_class: statusClassFor(r.status), cached: r.cached }),
   });
 }

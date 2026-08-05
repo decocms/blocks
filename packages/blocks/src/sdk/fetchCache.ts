@@ -18,7 +18,7 @@
  *
  * **Provider isolation:** every {@link createFetchCache} call owns its own
  * `store`/`inflight` Maps, so VTEX / Magento / Shopify caches never collide in
- * a shared isolate. The `provider` string rides on `deco.cache.profile` so
+ * a shared isolate. The `provider` string rides on the `provider` metric label so
  * dashboards can slice hit ratio per backend.
  *
  * Note on why the SWR cache — not `createInstrumentedFetch` — must emit the
