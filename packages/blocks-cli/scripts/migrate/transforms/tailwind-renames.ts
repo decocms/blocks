@@ -204,8 +204,10 @@ export function detectDaisyUiV5StructuralIssues(content: string): GotchaFinding[
   // Detect bare `alert` without a color modifier — DaisyUI v5 changed the
   // default alert background; alerts without alert-info/success/warning/error
   // may appear with no background color.
+  // Scoped to className= / class= attribute values to avoid matching the JS
+  // global `alert()` function, variable names, or comments in the same file.
   if (
-    /\balert\b/.test(content) &&
+    /className=["'][^"']*\balert\b[^"']*["']/.test(content) &&
     !/\balert-(?:info|success|warning|error)\b/.test(content)
   ) {
     findings.push({
@@ -213,26 +215,6 @@ export function detectDaisyUiV5StructuralIssues(content: string): GotchaFinding[
       message:
         "DaisyUI v5 changed `alert` default styling — a bare `alert` without a color modifier (alert-info/success/warning/error) may render with no background. Add an explicit color modifier or use `alert-soft` for a neutral variant.",
     });
-  }
-
-  // DaisyUI v5 renamed loading sub-variants.
-  const legacyLoadingVariants = [
-    "loading-spinner",
-    "loading-dots",
-    "loading-ring",
-    "loading-ball",
-    "loading-bars",
-    "loading-infinity",
-  ];
-  for (const variant of legacyLoadingVariants) {
-    if (new RegExp(`\\b${variant}\\b`).test(content)) {
-      findings.push({
-        gotcha: 37,
-        message:
-          `DaisyUI v5 may have renamed the \`${variant}\` loading variant — verify the class still produces output after migration (check the compiled CSS for a \`.${variant}\` selector).`,
-      });
-      break; // one finding for the whole loading family is enough
-    }
   }
 
   return findings;

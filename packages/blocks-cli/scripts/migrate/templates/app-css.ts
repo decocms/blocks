@@ -373,11 +373,11 @@ section[data-deferred="true"] {
   }
 
   /* Tailwind v3 -> v4 compat: restore the default border-color.
-     TW4 Preflight changed border-color from gray-200 to currentColor --
-     any element with "border" but no explicit "border-{color}" now renders
-     black. --color-base-300 is the DaisyUI semantic equivalent of gray-200. */
+     TW4 Preflight changed border-color from gray-200 (#e5e7eb) to currentColor --
+     any element with "border" but no explicit "border-{color}" now renders black.
+     --color-gray-200 is always defined in the ported @theme (gray scale compat block). */
   *, *::before, *::after {
-    border-color: var(--color-base-300, #e5e7eb);
+    border-color: var(--color-gray-200, #e5e7eb);
   }
 
   /* Tailwind v3 → v4 compat: restore the default cursor:pointer on interactive

@@ -253,7 +253,15 @@ function extractKeyframes(
           cssParts.push(`${kebab}: ${cssVal.getLiteralText()}`);
         }
       }
-      if (cssParts.length > 0) stops[stopKey] = cssParts.join("; ");
+      if (cssParts.length > 0) {
+        stops[stopKey] = cssParts.join("; ");
+      } else {
+        reviewItems.push({
+          file: CONFIG_REL_PATH,
+          reason: `theme.extend.keyframes.${frameName}["${stopKey}"] has no static string literal properties — port this keyframe stop manually to @keyframes ${frameName} { ... } in src/styles/app.css`,
+          severity: "warning",
+        });
+      }
     }
     if (Object.keys(stops).length > 0) result[frameName] = stops;
   }
