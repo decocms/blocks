@@ -226,6 +226,24 @@ const navigate = useNavigate();
 <button onClick={() => navigate({ to: relative(url) })} />
 ```
 
+### `usePartialSection` / "Ver mais" (load-more pagination)
+
+The most common migration break. Fresh's `usePartialSection({ mode: "append" })` appended HTML without reload. In TanStack it is a no-op stub — the button falls back to a full navigation that replaces products instead of appending.
+
+Fix: use `useLoadMore` from `@decocms/blocks/hooks`. See react-hooks-patterns.md "Ver mais / Load More" for the full before/after example.
+
+```tsx
+"use client"
+import { useLoadMore } from "@decocms/blocks/hooks"
+
+const { pages, loadMore, loading, hasMore } = useLoadMore(
+  props.page ?? { products: [], pageInfo: {} },
+  "apps/vtex.ts/loaders/intelligentSearch/productListingPage.ts"
+)
+```
+
+The migration script flags `usePartialSection` occurrences with this recipe in the migration report.
+
 ### `MouseEvent` vs `React.MouseEvent`
 
 React 19 requires `React.MouseEvent<HTMLButtonElement>` instead of native `MouseEvent` in onClick handlers.

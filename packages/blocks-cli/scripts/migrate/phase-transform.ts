@@ -146,6 +146,37 @@ export function transform(ctx: MigrationContext): void {
       });
     }
 
+    // Flag usePartialSection (Fresh load-more / "Ver mais" pattern) with an
+    // actionable useLoadMore recipe instead of a generic HTMX warning.
+    if (/usePartialSection/.test(result.content)) {
+      const hasAppend = /mode\s*:\s*["']append["']/.test(result.content);
+      ctx.manualReviewItems.push({
+        file: targetPath,
+        reason:
+          `usePartialSection${hasAppend ? " (mode:append)" : ""} detected — ` +
+          "this is the Fresh load-more / \"Ver mais\" pagination pattern. " +
+          "In TanStack it is a no-op stub; the button navigates replacing all products instead of appending. " +
+          "Convert to useLoadMore from @decocms/blocks/hooks:\n\n" +
+          '  import { useLoadMore } from "@decocms/blocks/hooks"\n\n' +
+          '  // At the top of your component (must be "use client"):\n' +
+          "  const { pages, loadMore, loading, hasMore } = useLoadMore(\n" +
+          "    props.page ?? { products: [], pageInfo: {} },\n" +
+          '    "LOADER_KEY" // replace with your loader path, e.g.\n' +
+          '    // "apps/vtex.ts/loaders/intelligentSearch/productListingPage.ts"\n' +
+          "  )\n" +
+          "  const allProducts = pages.flatMap(p => p.products ?? [])\n\n" +
+          "  // Replace the usePartialSection anchor/button with:\n" +
+          "  {hasMore && (\n" +
+          '    <button onClick={loadMore} disabled={loading}>\n' +
+          '      {loading ? "Carregando..." : "Ver mais"}\n' +
+          "    </button>\n" +
+          "  )}\n\n" +
+          "Add \"use client\" to the top of the file. " +
+          "See deco-to-tanstack-migration skill, 'Ver mais / Load More' section.",
+        severity: "warning",
+      });
+    }
+
     // Flag files with hx-on:click that use useScript (simpler pattern)
     if (/hx-on:click=\{useScript/.test(result.content)) {
       ctx.manualReviewItems.push({
