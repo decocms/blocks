@@ -71,6 +71,14 @@ import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
 import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
+import {
+  applyDraftCookieAndHeaders,
+  bindRequestDraft,
+  type DraftDecision,
+  installPreviewHostsFromBlocks,
+  registerDraftOverride,
+  requestCarriesDraft,
+} from "./draft";
 import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 
@@ -803,6 +811,22 @@ function installAutoGeoListener(): void {
   update(loadBlocks());
 }
 
+let _draftPreviewInstalled = false;
+
+/**
+ * Wire draft preview once: register the request-scoped draft getter with the
+ * runtime and keep the `previewHosts` allowlist in sync with the base decofile.
+ * Registered unconditionally (idempotent), but the feature stays fully inert
+ * until an allowlist names the request's host — see `./draft`.
+ */
+function installDraftPreviewListener(): void {
+  if (_draftPreviewInstalled) return;
+  _draftPreviewInstalled = true;
+  registerDraftOverride();
+  onChange((blocks) => installPreviewHostsFromBlocks(blocks));
+  installPreviewHostsFromBlocks(loadBlocks());
+}
+
 const IMMUTABLE_HEADERS: Record<string, string> = {
   "Cache-Control": `public, max-age=${ONE_YEAR}, immutable`,
   Vary: "Accept-Encoding",
@@ -882,6 +906,10 @@ export function createDecoWorkerEntry(
   if (geoCacheKeyOpt === "auto") {
     installAutoGeoListener();
   }
+
+  // Draft preview (pull-based): getter DI + previewHosts sync. Inert unless
+  // the site opts in via `previewHosts` / DECO_ALLOWED_PREVIEW_HOSTS.
+  installDraftPreviewListener();
 
   /** Resolve the effective geo granularity for the current request. */
   function effectiveGeoKey(): "off" | "country" | "region" | "city" {
@@ -963,7 +991,10 @@ export function createDecoWorkerEntry(
   function isCacheable(request: Request, url: URL): boolean {
     if (request.method !== "GET") return false;
     if (isBypassPath(url.pathname)) return false;
-    if (url.searchParams.has("__deco_draft")) return false;
+    // Draft preview: never cache a request in draft mode. Keys on the real
+    // `?__draft=` param OR the navigation cookie (SPA nav after entry), gated
+    // on an allowed preview host — see requestCarriesDraft.
+    if (requestCarriesDraft(request, url)) return false;
     if (url.searchParams.has("__deco_preview")) return false;
     if (url.searchParams.has("pathTemplate")) return false;
     // Forced matcher results must never be served from (or stored in) the
@@ -1452,6 +1483,12 @@ export function createDecoWorkerEntry(
       // become no-ops.
       const identity = { requestId: "", traceId: "" };
 
+      // Draft-preview decision — resolved inside RequestContext.run (below) so
+      // the resolved decofile binds to the request bag before the render, then
+      // lifted here so the cookie + no-store/noindex headers can be stamped on
+      // the final response. Inert on non-preview builds/hosts.
+      let draftDecision: DraftDecision = { previewing: false, setCookie: null, clearCookie: false };
+
       // Wrap the entire request in a RequestContext so that all code
       // in the call stack (loaders, invoke handlers, vtexFetchWithCookies)
       // can access the request and write response headers.
@@ -1479,6 +1516,11 @@ export function createDecoWorkerEntry(
         // regardless of headSamplingRate. Lets operators trace a specific
         // production request without changing global sampling rates.
         if (new URL(request.url).searchParams.has("__d")) _setDebugSampled();
+
+        // Resolve + bind any draft preview BEFORE the render, so every
+        // loadBlocks() in the call stack sees the merged draft decofile via
+        // the request bag. Cheap no-op unless the site opts in.
+        draftDecision = await bindRequestDraft(request);
 
         // Wrap inner handler in a single root span carrying our normalized
         // path/method attributes. The framework span flows BOTH ways:
@@ -1590,6 +1632,11 @@ export function createDecoWorkerEntry(
           /* sealed headers (cached replay) — identification is best-effort */
         }
       }
+
+      // Draft preview: persist/clear the navigation cookie and stamp the
+      // no-store/noindex headers so a drafted response is never cached under
+      // its shared (cookie-only) URL. No-op when not previewing.
+      applyDraftCookieAndHeaders(finalResponse, draftDecision);
 
       // Metrics + structured request log. Done after security headers so
       // the recorded status reflects what the client actually receives.
@@ -1828,6 +1875,20 @@ export function createDecoWorkerEntry(
         : typeof caches !== "undefined"
           ? ((caches as unknown as { default?: Cache }).default ?? null)
           : null;
+
+      // Draft preview: a drafted SPA navigation fetches its section data via
+      // this POST, carrying the draft cookie. The draft is already bound to the
+      // request bag (bindRequestDraft, above), so origin renders it — but the
+      // body-hash cache key does not vary on the cookie, so it must bypass the
+      // shared cache entirely or it would leak drafts / serve stale published.
+      if (requestCarriesDraft(request, url)) {
+        const origin = await serverEntry.fetch(request, env, ctx);
+        const resp = new Response(origin.body, origin);
+        resp.headers.set("Cache-Control", "no-store, private");
+        resp.headers.set("X-Cache", "BYPASS");
+        resp.headers.set("X-Cache-Reason", "draft-preview");
+        return resp;
+      }
 
       // Build segment once — used for logged-in check and cache key
       const sfnSegment = buildSegment ? buildSegment(request) : undefined;

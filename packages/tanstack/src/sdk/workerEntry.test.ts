@@ -493,3 +493,113 @@ describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
     expect(res.headers.get("X-Cache-Segment")).toBe("desktop|sc=1|f=a,b");
   });
 });
+
+describe("draft preview (pull-based)", () => {
+  const POINTER = "abc.localhost:1234@v1";
+  const SANDBOX_URL = "http://abc.localhost:1234/_sandbox/decofile";
+  const DRAFT_BLOCKS = { "pages-home": { name: "home", path: "/", title: "DRAFTED" } };
+
+  // A serverEntry that reflects the currently-loaded home title, so a test can
+  // prove the draft override actually reached the render (not just the headers).
+  const REFLECT_ENTRY = {
+    fetch: async () => {
+      const { loadBlocks } = await import("@decocms/blocks/cms");
+      const home = (loadBlocks()["pages-home"] as { title?: string } | undefined) ?? {};
+      return new Response(home.title ?? "PUBLISHED", { status: 200 });
+    },
+  };
+
+  let realFetch: typeof fetch;
+  afterEach(async () => {
+    globalThis.fetch = realFetch;
+    const { setDraftPreviewHosts, clearDraftCache } = await import("@decocms/blocks/cms");
+    setDraftPreviewHosts([]);
+    clearDraftCache();
+    __resetKvHydrationStateForTests();
+    setBlocks({});
+  });
+
+  async function enable() {
+    const { setDraftPreviewHosts, clearDraftCache } = await import("@decocms/blocks/cms");
+    setBlocks({ "pages-home": { name: "home", path: "/", title: "PUBLISHED" } });
+    setDraftPreviewHosts(["example.com"]);
+    clearDraftCache();
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (String(input) === SANDBOX_URL) {
+        return new Response(JSON.stringify(DRAFT_BLOCKS), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    }) as unknown as typeof fetch;
+  }
+
+  it("binds the draft, bypasses the edge cache, and stamps the anti-leak headers", async () => {
+    await enable();
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request(`https://example.com/?__draft=${POINTER}`, {
+        headers: { host: "example.com" },
+      }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+
+    // The render saw the merged draft decofile.
+    expect(await res.text()).toBe("DRAFTED");
+    // Never cached under the shared URL.
+    expect(res.headers.get("X-Cache")).toBe("BYPASS");
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+    expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    // Entry persists the navigation cookie.
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("__deco_draft=");
+    expect(cookie).toContain("SameSite=None");
+    expect(cookie).toContain("Partitioned");
+  });
+
+  it("carries the draft across navigation via the cookie alone", async () => {
+    await enable();
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/other", {
+        headers: { host: "example.com", cookie: `__deco_draft=${POINTER}` },
+      }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(await res.text()).toBe("DRAFTED");
+    expect(res.headers.get("X-Cache")).toBe("BYPASS");
+  });
+
+  it("is structurally inert on a non-preview host", async () => {
+    await enable(); // allowlist = example.com only
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request(`https://prod.example/?__draft=${POINTER}`, {
+        headers: { host: "prod.example" },
+      }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(await res.text()).toBe("PUBLISHED");
+    expect(res.headers.get("X-Robots-Tag")).toBeNull();
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("stays inert on any host when no allowlist is configured", async () => {
+    setBlocks({ "pages-home": { name: "home", path: "/", title: "PUBLISHED" } });
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    const res = await worker.fetch(
+      new Request(`https://example.com/?__draft=${POINTER}`, {
+        headers: { host: "example.com" },
+      }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(await res.text()).toBe("PUBLISHED");
+    expect(res.headers.get("X-Robots-Tag")).toBeNull();
+  });
+});
