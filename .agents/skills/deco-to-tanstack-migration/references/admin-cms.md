@@ -152,3 +152,25 @@ Key rules:
 3. Set devContentUrl: `localStorage.setItem('deco::devContentUrl::YOUR_SITE_NAME', 'http://localhost:PORT')`
 4. Navigate to `http://localhost:4200/sites/YOUR_SITE_NAME/spaces/pages`
 5. After schema changes: clear admin cache and hard-refresh
+
+## #51 Codegen output path change (≥ v7.20) — props not editable mid-migration
+
+**Symptom:** After upgrading `@decocms/blocks` to ≥ 7.20, new section props don't appear in the admin editor. Running `gen` produces a ~400k-line diff. The warning `[deco] Generator default output moved` appears in stderr.
+
+**Root cause:** The generators moved their default output from `src/server/{cms,admin}/` to `.deco/`:
+
+| Generator | Old path | New path |
+|---|---|---|
+| generate-blocks | `src/server/cms/blocks.gen.ts` | `.deco/blocks.gen.ts` |
+| generate-sections | `src/server/cms/sections.gen.ts` | `.deco/sections.gen.ts` |
+| generate-loaders | `src/server/cms/loaders.gen.ts` | `.deco/loaders.gen.ts` |
+| generate-schema | `src/server/admin/meta.gen.json` | `.deco/meta.gen.json` |
+
+Sites mid-migration still import from the old paths, so fresh codegen never reaches the running app.
+
+**Mitigation (≥ v7.20 with the fix):** When the old file is detected on disk, the generator now writes to both paths automatically, so existing imports stay up to date during the transition.
+
+**Full migration (do this to finish):**
+1. Update all imports that reference `src/server/cms/blocks.gen`, `src/server/cms/sections.gen`, `src/server/cms/loaders.gen`, `src/server/admin/meta.gen.json` to use the `.deco/` paths (or the `deco/*` tsconfig alias).
+2. Delete the old files from `src/server/cms/` and `src/server/admin/`.
+3. Verify `tsconfig.json` has a `deco` path alias pointing to `.deco/` (the scaffolded template includes this).
