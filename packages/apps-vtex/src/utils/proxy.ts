@@ -45,6 +45,14 @@ export interface VtexProxyOptions {
 	 * Custom headers to inject into every proxied request.
 	 */
 	extraHeaders?: Record<string, string>;
+
+	/**
+	 * Force `Cache-Control: private, no-store` + `CDN-Cache-Control: no-store`
+	 * on authenticated proxy responses (everything except static assets), so a
+	 * personalized VTEX response can never be cached and served across users.
+	 * @default true
+	 */
+	hardenAuthenticatedCache?: boolean;
 }
 
 const DEFAULT_PROXY_PATHS = [
@@ -78,6 +86,42 @@ const HOP_BY_HOP_HEADERS = new Set([
 	"transfer-encoding",
 	"upgrade",
 ]);
+
+/**
+ * Path prefixes whose proxied responses are safe to cache publicly — genuinely
+ * public static assets (media files, VTEX store-theme bundles). Everything else
+ * routed through the VTEX proxy is authenticated/personalized by nature
+ * (account, checkout, /api/sessions, orders, graphql, VTEX ID) and MUST NOT be
+ * cached by shared/edge layers.
+ */
+const PUBLIC_PROXY_ASSET_PREFIXES = [
+	"/files/",
+	"/arquivos/",
+	"/assets/vtex",
+	"/XMLData/",
+];
+
+function isPublicProxyAsset(pathname: string): boolean {
+	return PUBLIC_PROXY_ASSET_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+/**
+ * Force authenticated proxy responses to be non-cacheable on every shared layer.
+ *
+ * VTEX marks some endpoints `no-store` (e.g. `/api/sessions`) but not all
+ * (`/account` comes back `public`), and the raw origin `Cache-Control` must
+ * never let a personalized response be cached across users. Without this, a
+ * logged-in user's response can be stored at the edge and served to another
+ * user — the root cause of a cross-customer data leak (see decocms/blocks#412).
+ * Static assets are exempt so store-theme/media caching is preserved.
+ */
+function hardenProxyCacheHeaders(headers: Headers, pathname: string): void {
+	if (isPublicProxyAsset(pathname)) return;
+	headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
+	// CDN-Cache-Control takes precedence for Cloudflare's CDN layer.
+	headers.set("CDN-Cache-Control", "no-store");
+	headers.delete("Surrogate-Control");
+}
 
 /**
  * Returns all path prefixes that should be proxied to VTEX.
@@ -199,6 +243,10 @@ export async function proxyToVtex(request: Request, options?: VtexProxyOptions):
 		}
 	}
 
+	if (options?.hardenAuthenticatedCache !== false) {
+		hardenProxyCacheHeaders(responseHeaders, requestUrl.pathname);
+	}
+
 	return new Response(originResponse.body, {
 		status: originResponse.status,
 		statusText: originResponse.statusText,
@@ -254,6 +302,14 @@ export interface VtexCheckoutProxyConfig {
 	 * Receives the full HTML string and should return the modified version.
 	 */
 	htmlTransform?: (html: string) => string;
+
+	/**
+	 * Force `Cache-Control: private, no-store` + `CDN-Cache-Control: no-store`
+	 * on authenticated proxy responses (everything except static assets), so a
+	 * personalized VTEX response can never be cached and served across users.
+	 * @default true
+	 */
+	hardenAuthenticatedCache?: boolean;
 }
 
 const CF_INTERNAL_HEADERS = new Set([
@@ -412,6 +468,10 @@ export function createVtexCheckoutProxy(
 						.replace(myvtexOrigin, url.origin),
 				);
 			}
+		}
+
+		if (config.hardenAuthenticatedCache !== false) {
+			hardenProxyCacheHeaders(resHeaders, url.pathname);
 		}
 
 		// HTML transform for checkout pages
