@@ -1,14 +1,16 @@
 /**
- * VTEX SWR fetch cache — a thin binding over the shared, instrumented
+ * Magento SWR fetch cache — a thin binding over the shared, instrumented
  * `createFetchCache` in `@decocms/blocks/sdk/fetchCache`.
  *
- * The implementation (in-flight dedup, stale-while-revalidate, stale-if-error,
- * inflight backstop) now lives ONCE in the framework so every commerce app
- * shares it and emits `deco.cache.requests{layer="swr"}` automatically. This
- * module just wires VTEX's tuning constants (`./constants`) and the
- * `provider: "vtex"` label into a single module-level instance, preserving the
- * public surface (`fetchWithCache` / `clearFetchCache` / `getFetchCacheStats` /
- * `FetchCacheOptions`) that `client.ts` and existing tests depend on.
+ * Same shared implementation VTEX uses (in-flight dedup, stale-while-
+ * revalidate, stale-if-error, inflight backstop), wired with Magento's tuning
+ * constants and the `provider: "magento"` label. Every call emits
+ * `deco.cache.requests{layer="swr",profile="magento"}` automatically.
+ *
+ * Cache key is caller-supplied (not required to be a URL): REST GETs key by
+ * their URL; GraphQL POSTs can key by a hash of `query + variables`. Callers
+ * pass the closure that performs the actual `magentoFetch`, so a HIT never
+ * touches the network.
  */
 
 import {
@@ -25,7 +27,7 @@ import {
 export type FetchCacheOptions = SharedFetchCacheOptions;
 
 const cache = createFetchCache({
-  provider: "vtex",
+  provider: "magento",
   maxEntries: FETCH_CACHE_MAX_ENTRIES,
   freshTtlMs: FETCH_CACHE_FRESH_TTL_MS,
   staleIfErrorMs: FETCH_CACHE_STALE_IF_ERROR_MS,
@@ -33,12 +35,10 @@ const cache = createFetchCache({
 });
 
 /**
- * Wrap a GET fetch call with SWR caching and in-flight dedup.
- *
- * Returns `null` for non-2xx responses that are cached (e.g. 404).
- * 5xx responses throw so the caller can handle them explicitly.
+ * Wrap a Magento GET with SWR caching + in-flight dedup. Returns the parsed
+ * JSON body, or `null` for cacheable non-2xx responses (e.g. 404). 5xx throw.
  */
-export function fetchWithCache<T>(
+export function magentoCachedFetch<T>(
   cacheKey: string,
   doFetch: () => Promise<Response>,
   opts?: FetchCacheOptions,

@@ -25,6 +25,10 @@ export type {
 	SalesforceProduct,
 } from "./types";
 export { createHttpClient, type HttpClientOptions } from "./utils/httpClient";
+export {
+	type CreateSalesforceFetchOptions,
+	createSalesforceFetch,
+} from "./utils/instrumentedFetch";
 export { parseUserCookie } from "./utils/parseUserCookie";
 export {
 	createProductTransformer,

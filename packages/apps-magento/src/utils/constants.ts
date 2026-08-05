@@ -12,6 +12,31 @@
 
 import type { FiltersGraphQL } from "../client";
 
+// ---------------------------------------------------------------------------
+// SWR fetch-cache tuning (consumed by utils/fetchCache.ts via the shared
+// `createFetchCache` in @decocms/blocks/sdk/fetchCache). Mirrors the shape of
+// VTEX's constants so Magento's cache posture is tuned in one place.
+// ---------------------------------------------------------------------------
+
+/** Max distinct cache keys kept in memory; oldest `createdAt` evicted first. */
+export const FETCH_CACHE_MAX_ENTRIES = 500;
+
+/** How long a cached Magento response stays FRESH, keyed by status class. */
+export const FETCH_CACHE_FRESH_TTL_MS = {
+	/** 2xx — 3 min. Catalog/price data doesn't need to be second-fresh. */
+	success: 180_000,
+	/** 404 — 10s. A just-published product shouldn't 404 for long. */
+	notFound: 10_000,
+	/** 5xx — never treated as a good cache hit. */
+	serverError: 0,
+} as const;
+
+/** Stale-if-error window: serve last-good this long past freshness on outage. */
+export const FETCH_CACHE_STALE_IF_ERROR_MS = 86_400_000; // 24h
+
+/** Inflight-slot backstop: bounds how long one hung fetch holds a dedup slot. */
+export const FETCH_CACHE_INFLIGHT_BACKSTOP_MS = 15_000;
+
 export const URL_KEY = "url_key";
 
 // Schema.org availability mapping (used by utils/transform.ts to

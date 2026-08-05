@@ -184,15 +184,31 @@ describe("recordCacheMetric — cache_layer label", () => {
     });
   });
 
-  it("distinguishes cachedLoader vs edge vs vtex-swr layers", () => {
+  it("distinguishes cachedLoader vs edge vs swr layers", () => {
     const { adapter, counters } = captureMeter();
     configureMeter(adapter);
 
     recordCacheMetric(true, "loader-x", "HIT", "cachedLoader");
-    recordCacheMetric(true, "vtex-product", "HIT", "vtex-swr");
+    recordCacheMetric(true, undefined, "HIT", "swr", "vtex");
 
     expect(counters[0]?.labels?.["deco.cache.layer"]).toBe("cachedLoader");
-    expect(counters[1]?.labels?.["deco.cache.layer"]).toBe("vtex-swr");
+    expect(counters[1]?.labels?.["deco.cache.layer"]).toBe("swr");
+  });
+
+  it("keeps provider (swr backend) on a separate label from profile (edge page-type)", () => {
+    const { adapter, counters } = captureMeter();
+    configureMeter(adapter);
+
+    // edge: profile carries the page-type; no provider.
+    recordCacheMetric(true, "product", "HIT", "edge");
+    // swr: provider carries the backend; profile left unset so a
+    // `sum by (profile)` panel never blends page-types with backend names.
+    recordCacheMetric(true, undefined, "HIT", "swr", "magento");
+
+    expect(counters[0]?.labels?.["deco.cache.profile"]).toBe("product");
+    expect(counters[0]?.labels?.["deco.cache.provider"]).toBeUndefined();
+    expect(counters[1]?.labels?.["deco.cache.profile"]).toBeUndefined();
+    expect(counters[1]?.labels?.["deco.cache.provider"]).toBe("magento");
   });
 });
 

@@ -398,7 +398,7 @@ export function recordRequestMetric(
   //   - `status_class`: 5-element enum (2xx / 3xx / 4xx / 5xx / unknown).
   //   - `outcome`: CF outcome enum (~7 values).
   //   - `cache_decision`: 5-element enum.
-  //   - `cache_layer`: 3-element enum (edge / cachedLoader / vtex-swr).
+  //   - `cache_layer`: 3-element enum (edge / cachedLoader / swr).
   //   - `region`: ~250 CF colo codes worldwide.
   // Total combinations are bounded — safe for unbounded series on
   // ClickHouse but operators should still avoid grouping by `region`
@@ -457,10 +457,15 @@ export type CacheDecision = "HIT" | "STALE-HIT" | "STALE-ERROR" | "MISS" | "BYPA
  *  - `edge`         — Cloudflare Cache API (HTML pages, server-fn responses)
  *  - `cachedLoader` — In-memory per-isolate via `sdk/cachedLoader.ts`
  *                     (loader-level SWR, dedup, in-flight)
- *  - `vtex-swr`     — Apps-side in-memory cache shared by VTEX clients
- *                     (intelligent-search, cross-selling, etc.)
+ *  - `swr`          — Apps-side in-memory SWR fetch cache shared by commerce
+ *                     clients (VTEX intelligent-search, Magento GraphQL,
+ *                     Shopify, etc.) via `sdk/fetchCache.ts`. Provider-agnostic;
+ *                     the specific backend rides on `deco.cache.provider`
+ *                     (e.g. `vtex` / `magento` / `shopify`), a separate label
+ *                     from `deco.cache.profile` (page-type, set by `edge`).
+ *                     Renamed from the old `vtex-swr` once the util was shared.
  */
-export type CacheLayer = "edge" | "cachedLoader" | "vtex-swr";
+export type CacheLayer = "edge" | "cachedLoader" | "swr";
 
 /**
  * Record a cache hit/miss metric. Also stamps the decision on the active
@@ -471,18 +476,28 @@ export type CacheLayer = "edge" | "cachedLoader" | "vtex-swr";
  * Backward-compatible signature:
  *   recordCacheMetric(hit, profile?, decision?)
  *   recordCacheMetric(hit, profile?, decision?, layer?)
+ *   recordCacheMetric(hit, profile?, decision?, layer?, provider?)
  *
  * `decision` is optional — when omitted, the metric still records HIT
  * vs MISS but dashboards can't distinguish SWR/SIE paths. Pass it
  * whenever known. `layer` defaults to `edge` when called from
- * workerEntry; cachedLoader / vtex-swr call sites should pass their
+ * workerEntry; cachedLoader / swr call sites should pass their
  * value explicitly.
+ *
+ * `profile` and `provider` are DISTINCT dimensions and must not be
+ * conflated: `profile` is the page/route type (`product` / `listing` /
+ * `search`, set by the `edge` layer) or loader name (`cachedLoader`);
+ * `provider` is the commerce backend (`vtex` / `magento` / `shopify`, set
+ * by the `swr` layer). Keeping them on separate labels means a
+ * `sum by (deco.cache.profile)` panel never blends page-types with backend
+ * names. The `swr` layer passes `provider` and leaves `profile` unset.
  */
 export function recordCacheMetric(
   hit: boolean,
   profile?: string,
   decision?: CacheDecision,
   layer?: CacheLayer,
+  provider?: string,
 ) {
   // Stamp on the active span FIRST so the attribute survives even if the
   // meter is a no-op (e.g. on tests, or in dev without DECO_METRICS).
@@ -491,6 +506,7 @@ export function recordCacheMetric(
     if (decision) active.setAttribute?.("deco.cache.status", decision);
     if (profile) active.setAttribute?.("deco.cache.profile", profile);
     if (layer) active.setAttribute?.("deco.cache.layer", layer);
+    if (provider) active.setAttribute?.("deco.cache.provider", provider);
   }
 
   const m = getState().meter;
@@ -504,6 +520,7 @@ export function recordCacheMetric(
   };
   if (profile) labels["deco.cache.profile"] = profile;
   if (layer) labels["deco.cache.layer"] = layer;
+  if (provider) labels["deco.cache.provider"] = provider;
   m.counterInc(MetricNames.CACHE_REQUESTS, 1, labels);
 }
 
