@@ -332,7 +332,12 @@ if (isMainModule()) {
   }
 
   generateBlocks({ blocksDir, outFile }).then((result) => {
-    if (hasLegacy) syncLegacyArtifact(oldFilePath, result.outFile);
+    if (hasLegacy) {
+      syncLegacyArtifact(oldFilePath, result.outFile);
+      // The .ts is a Vite stub — the plugin reads the .json sibling by suffix.
+      // Sync the JSON too so the Vite interceptor at the old path finds it.
+      syncLegacyArtifact(oldFilePath.replace(/\.ts$/, ".json"), result.jsonFile);
+    }
   }).catch((err) => {
     console.error(err);
     process.exit(1);
