@@ -149,16 +149,22 @@ export default function ProductGallery({ page }: Props) {
 "use client"
 import { useLoadMore } from "@decocms/blocks/hooks"
 
-export default function ProductGallery({ page }: Props) {
-  const { pages, loadMore, loading, hasMore } = useLoadMore(
+interface Props { page?: ProductListingPage; pageUrl?: string }
+
+export default function ProductGallery({ page, pageUrl }: Props) {
+  // Pass pageUrl as resetKey so accumulated pages clear when the user changes
+  // filters or sort (which changes the URL and triggers a new server render).
+  const { pages, loadMore, loading, hasMore, error } = useLoadMore(
     page ?? { products: [], pageInfo: {} },
-    "apps/vtex.ts/loaders/intelligentSearch/productListingPage.ts"
+    "apps/vtex.ts/loaders/intelligentSearch/productListingPage.ts",
+    pageUrl // resetKey
   )
   const products = pages.flatMap(p => p.products ?? [])
 
   return (
     <>
       {products.map(p => <ProductCard key={p.productID} product={p} />)}
+      {error && <p>Erro ao carregar mais produtos.</p>}
       {hasMore && (
         <button onClick={loadMore} disabled={loading}>
           {loading ? "Carregando..." : "Ver mais"}
@@ -169,14 +175,9 @@ export default function ProductGallery({ page }: Props) {
 }
 ```
 
-`useLoadMore` calls `POST /deco/invoke` passing the `nextPage` URL as `__pageUrl`, so the loader correctly reconstructs query, sort, and all active filter params — no state is lost between pages. The loader key is the apps import path for the loader that populates `props.page`.
+`useLoadMore` returns `{ pages, loadMore, loading, hasMore, error }` and calls `POST /deco/invoke` passing the `nextPage` URL as `__pageUrl`, so the loader correctly reconstructs query, sort, and all active filter params — no state is lost between pages. The loader key is the apps import path for the loader that populates `props.page`.
 
-**Reset on filter/sort change**: Because the component is `"use client"`, React re-renders with new `page` props when the URL changes (filter applied, sort changed). Pass a `key` to the section to force a full reset:
-
-```tsx
-// In the route/page that renders the section — add key so state resets on URL change
-<ProductGallery key={pageUrl} page={plpData} />
-```
+**`resetKey`**: pass any value that changes when the search context changes (e.g. the page URL). When `resetKey` changes, accumulated pages reset to `[initial]`. Without it, use `key={pageUrl}` on the section element instead — both approaches work, `resetKey` is more ergonomic when the section is rendered by the CMS and you can't easily control `key`.
 
 ### ❌ useReducer State (Complex Orchestration)
 
