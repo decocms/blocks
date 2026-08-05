@@ -230,6 +230,8 @@ export function createContext(
       colors: {},
       fontFamily: {},
       screens: {},
+      animations: {},
+      keyframes: {},
       safelist: [],
       safelistPatterns: [],
       plugins: [],

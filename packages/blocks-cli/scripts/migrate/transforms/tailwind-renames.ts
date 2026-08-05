@@ -79,6 +79,8 @@ export const CLASS_RENAMES: Record<string, string> = {
 export const DAISYUI_RENAMES: Record<string, string> = {
   "badge-ghost": "badge-soft",
   "card-compact": "card-sm",
+  "card-normal": "card-md",
+  "tabs-boxed": "tabs-box",
 };
 
 /**
@@ -181,6 +183,56 @@ export function detectDaisyUiV5StructuralIssues(content: string): GotchaFinding[
       message:
         "DaisyUI v4 `form-control` was removed in v5 with no drop-in class — rebuild with `fieldset` + `label`/`legend` per DaisyUI v5's form pattern.",
     });
+  }
+
+  if (/\bmenu-compact\b/.test(content)) {
+    findings.push({
+      gotcha: 37,
+      message:
+        "DaisyUI v4 `menu-compact` was removed in v5 with no drop-in class — use `menu-sm` for a smaller menu or remove the modifier.",
+    });
+  }
+
+  if (/\btab-bordered\b/.test(content)) {
+    findings.push({
+      gotcha: 37,
+      message:
+        "DaisyUI v4 `tab-bordered` was removed in v5 — use `tabs-bordered` on the `tabs` wrapper instead of a modifier on each `tab` element.",
+    });
+  }
+
+  // Detect bare `alert` without a color modifier — DaisyUI v5 changed the
+  // default alert background; alerts without alert-info/success/warning/error
+  // may appear with no background color.
+  if (
+    /\balert\b/.test(content) &&
+    !/\balert-(?:info|success|warning|error)\b/.test(content)
+  ) {
+    findings.push({
+      gotcha: 37,
+      message:
+        "DaisyUI v5 changed `alert` default styling — a bare `alert` without a color modifier (alert-info/success/warning/error) may render with no background. Add an explicit color modifier or use `alert-soft` for a neutral variant.",
+    });
+  }
+
+  // DaisyUI v5 renamed loading sub-variants.
+  const legacyLoadingVariants = [
+    "loading-spinner",
+    "loading-dots",
+    "loading-ring",
+    "loading-ball",
+    "loading-bars",
+    "loading-infinity",
+  ];
+  for (const variant of legacyLoadingVariants) {
+    if (new RegExp(`\\b${variant}\\b`).test(content)) {
+      findings.push({
+        gotcha: 37,
+        message:
+          `DaisyUI v5 may have renamed the \`${variant}\` loading variant — verify the class still produces output after migration (check the compiled CSS for a \`.${variant}\` selector).`,
+      });
+      break; // one finding for the whole loading family is enough
+    }
   }
 
   return findings;

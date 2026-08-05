@@ -24,6 +24,10 @@ export interface TailwindConfigExtract {
   fontFamily: Record<string, string>;
   /** Custom breakpoints, e.g. "3xl" -> "1920px" */
   screens: Record<string, string>;
+  /** Custom animations, e.g. "fade-in" -> "fadeIn 0.5s ease-in" */
+  animations: Record<string, string>;
+  /** Custom keyframe stops, e.g. "fadeIn" -> { "0%": "opacity: 0", "100%": "opacity: 1" } */
+  keyframes: Record<string, Record<string, string>>;
   /** Literal safelist entries (string class names) */
   safelist: string[];
   /** Safelist regex patterns, kept as their source text */
@@ -40,6 +44,8 @@ function emptyExtract(): TailwindConfigExtract {
     colors: {},
     fontFamily: {},
     screens: {},
+    animations: {},
+    keyframes: {},
     safelist: [],
     safelistPatterns: [],
     plugins: [],
@@ -184,6 +190,76 @@ function extractScreens(obj: ObjectLiteralExpression): Record<string, string> {
   return result;
 }
 
+function extractAnimations(
+  obj: ObjectLiteralExpression,
+  reviewItems: ReviewItem[],
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const prop of obj.getProperties()) {
+    if (!prop.isKind(SyntaxKind.PropertyAssignment)) continue;
+    const name = stripQuotes(prop.getName());
+    const init = prop.getInitializer();
+    if (!init) continue;
+    if (
+      init.isKind(SyntaxKind.StringLiteral) ||
+      init.isKind(SyntaxKind.NoSubstitutionTemplateLiteral)
+    ) {
+      result[name] = init.getLiteralText();
+    } else {
+      reviewItems.push({
+        file: CONFIG_REL_PATH,
+        reason: `theme.extend.animation.${name} is not a static string literal (${init.getKindName()}) — port manually to @theme { --animate-${name}: ...; } in src/styles/app.css`,
+        severity: "warning",
+      });
+    }
+  }
+  return result;
+}
+
+function extractKeyframes(
+  obj: ObjectLiteralExpression,
+  reviewItems: ReviewItem[],
+): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {};
+  for (const frameProp of obj.getProperties()) {
+    if (!frameProp.isKind(SyntaxKind.PropertyAssignment)) continue;
+    const frameName = stripQuotes(frameProp.getName());
+    const frameInit = frameProp.getInitializer();
+    if (!frameInit?.isKind(SyntaxKind.ObjectLiteralExpression)) {
+      reviewItems.push({
+        file: CONFIG_REL_PATH,
+        reason: `theme.extend.keyframes.${frameName} is not an object literal — port manually to @keyframes ${frameName} { ... } in src/styles/app.css`,
+        severity: "warning",
+      });
+      continue;
+    }
+    const stops: Record<string, string> = {};
+    for (const stopProp of frameInit.getProperties()) {
+      if (!stopProp.isKind(SyntaxKind.PropertyAssignment)) continue;
+      const stopKey = stripQuotes(stopProp.getName()); // "0%", "100%", "from", "to"
+      const stopInit = stopProp.getInitializer();
+      if (!stopInit?.isKind(SyntaxKind.ObjectLiteralExpression)) continue;
+      const cssParts: string[] = [];
+      for (const cssProp of stopInit.getProperties()) {
+        if (!cssProp.isKind(SyntaxKind.PropertyAssignment)) continue;
+        const cssName = stripQuotes(cssProp.getName());
+        const cssVal = cssProp.getInitializer();
+        if (
+          cssVal?.isKind(SyntaxKind.StringLiteral) ||
+          cssVal?.isKind(SyntaxKind.NoSubstitutionTemplateLiteral)
+        ) {
+          // camelCase -> kebab-case (e.g. "transformOrigin" -> "transform-origin")
+          const kebab = cssName.replace(/([A-Z])/g, "-$1").toLowerCase();
+          cssParts.push(`${kebab}: ${cssVal.getLiteralText()}`);
+        }
+      }
+      if (cssParts.length > 0) stops[stopKey] = cssParts.join("; ");
+    }
+    if (Object.keys(stops).length > 0) result[frameName] = stops;
+  }
+  return result;
+}
+
 function extractSafelist(
   arr: import("ts-morph").ArrayLiteralExpression,
   reviewItems: ReviewItem[],
@@ -258,6 +334,16 @@ export function extractTailwindConfig(sourceDir: string): TailwindConfigExtract 
     (themeObj && getObjectChild(themeObj, "screens"));
   const screens = screensObj ? extractScreens(screensObj) : {};
 
+  const animationObj =
+    (extendObj && getObjectChild(extendObj, "animation")) ||
+    (themeObj && getObjectChild(themeObj, "animation"));
+  const animations = animationObj ? extractAnimations(animationObj, reviewItems) : {};
+
+  const keyframesObj =
+    (extendObj && getObjectChild(extendObj, "keyframes")) ||
+    (themeObj && getObjectChild(themeObj, "keyframes"));
+  const keyframes = keyframesObj ? extractKeyframes(keyframesObj, reviewItems) : {};
+
   let safelist: string[] = [];
   let safelistPatterns: string[] = [];
   const safelistProp = root.getProperty("safelist");
@@ -279,5 +365,5 @@ export function extractTailwindConfig(sourceDir: string): TailwindConfigExtract 
     }
   }
 
-  return { colors, fontFamily, screens, safelist, safelistPatterns, plugins, reviewItems };
+  return { colors, fontFamily, screens, animations, keyframes, safelist, safelistPatterns, plugins, reviewItems };
 }
