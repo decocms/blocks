@@ -156,9 +156,9 @@ describe("recordCacheMetric — cache_layer label", () => {
     expect(counters).toHaveLength(1);
     expect(counters[0]?.name).toBe(MetricNames.CACHE_REQUESTS);
     expect(counters[0]?.labels).toMatchObject({
-      "deco.cache.profile": "product",
+      "profile": "product",
       "deco.cache.status": "HIT",
-      "deco.cache.layer": "edge",
+      "layer": "edge",
     });
   });
 
@@ -180,7 +180,7 @@ describe("recordCacheMetric — cache_layer label", () => {
 
     expect(counters[0]?.labels).toEqual({
       "deco.cache.status": "HIT",
-      "deco.cache.profile": "static",
+      "profile": "static",
     });
   });
 
@@ -191,8 +191,8 @@ describe("recordCacheMetric — cache_layer label", () => {
     recordCacheMetric(true, "loader-x", "HIT", "cachedLoader");
     recordCacheMetric(true, undefined, "HIT", "swr", "vtex");
 
-    expect(counters[0]?.labels?.["deco.cache.layer"]).toBe("cachedLoader");
-    expect(counters[1]?.labels?.["deco.cache.layer"]).toBe("swr");
+    expect(counters[0]?.labels?.["layer"]).toBe("cachedLoader");
+    expect(counters[1]?.labels?.["layer"]).toBe("swr");
   });
 
   it("keeps provider (swr backend) on a separate label from profile (edge page-type)", () => {
@@ -205,10 +205,10 @@ describe("recordCacheMetric — cache_layer label", () => {
     // `sum by (profile)` panel never blends page-types with backend names.
     recordCacheMetric(true, undefined, "HIT", "swr", "magento");
 
-    expect(counters[0]?.labels?.["deco.cache.profile"]).toBe("product");
-    expect(counters[0]?.labels?.["deco.cache.provider"]).toBeUndefined();
-    expect(counters[1]?.labels?.["deco.cache.profile"]).toBeUndefined();
-    expect(counters[1]?.labels?.["deco.cache.provider"]).toBe("magento");
+    expect(counters[0]?.labels?.["profile"]).toBe("product");
+    expect(counters[0]?.labels?.["provider"]).toBeUndefined();
+    expect(counters[1]?.labels?.["profile"]).toBeUndefined();
+    expect(counters[1]?.labels?.["provider"]).toBe("magento");
   });
 });
 

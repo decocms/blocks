@@ -489,7 +489,7 @@ export type CacheLayer = "edge" | "cachedLoader" | "swr";
  * `search`, set by the `edge` layer) or loader name (`cachedLoader`);
  * `provider` is the commerce backend (`vtex` / `magento` / `shopify`, set
  * by the `swr` layer). Keeping them on separate labels means a
- * `sum by (deco.cache.profile)` panel never blends page-types with backend
+ * `sum by (profile)` panel never blends page-types with backend
  * names. The `swr` layer passes `provider` and leaves `profile` unset.
  */
 export function recordCacheMetric(
@@ -518,9 +518,9 @@ export function recordCacheMetric(
   const labels: Labels = {
     "deco.cache.status": decision ?? (hit ? "HIT" : "MISS"),
   };
-  if (profile) labels["deco.cache.profile"] = profile;
-  if (layer) labels["deco.cache.layer"] = layer;
-  if (provider) labels["deco.cache.provider"] = provider;
+  if (profile) labels["profile"] = profile;
+  if (layer) labels["layer"] = layer;
+  if (provider) labels["provider"] = provider;
   m.counterInc(MetricNames.CACHE_REQUESTS, 1, labels);
 }
 

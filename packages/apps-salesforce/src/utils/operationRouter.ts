@@ -8,14 +8,10 @@
  * framework falls back to `salesforce.fetch`.
  */
 
+import { extractPathname } from "@decocms/blocks/sdk/urlUtils";
+
 export function salesforceOperationRouter(url: string, _method: string): string | undefined {
-  let pathname: string;
-  try {
-    pathname = new URL(url).pathname;
-  } catch {
-    const qs = url.indexOf("?");
-    pathname = qs >= 0 ? url.slice(0, qs) : url;
-  }
+  const pathname = extractPathname(url);
 
   // SCAPI: /shopper/<api>/v1/... ; OCAPI: /s/<site>/dw/shop/<version>/<resource>/...
   const scapi = pathname.match(/\/shopper\/([^/]+)/);

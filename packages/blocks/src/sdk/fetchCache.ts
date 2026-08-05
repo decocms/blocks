@@ -140,10 +140,9 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
   }
 
   function evictIfNeeded() {
-    if (store.size <= maxEntries) return;
-    const sorted = [...store.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
-    const toRemove = sorted.slice(0, store.size - maxEntries);
-    for (const [key] of toRemove) store.delete(key);
+    // ponytail: Map preserves insertion order ≈ createdAt order — holds as long
+    // as updates always re-insert via store.set(key, fresh), never mutate in-place.
+    while (store.size > maxEntries) store.delete(store.keys().next().value!);
   }
 
   // Single attempt on purpose — the underlying fetch (resilience layer) owns

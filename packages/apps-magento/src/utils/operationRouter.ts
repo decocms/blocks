@@ -29,16 +29,10 @@ const MATCHERS: ReadonlyArray<Matcher> = [
  * Resolve an operation name for a Magento URL. Returns `undefined` when no
  * matcher fires, so the framework falls back to `magento.fetch`.
  */
+import { extractPathname } from "@decocms/blocks/sdk/urlUtils";
+
 export function magentoOperationRouter(url: string, _method: string): string | undefined {
-  let pathname: string;
-  try {
-    pathname = new URL(url).pathname;
-  } catch {
-    const qs = url.indexOf("?");
-    const hash = url.indexOf("#");
-    const end = [qs, hash].filter((i) => i >= 0).sort((a, b) => a - b)[0];
-    pathname = end === undefined ? url : url.slice(0, end);
-  }
+  const pathname = extractPathname(url);
 
   for (const { pattern, operation } of MATCHERS) {
     const match = pathname.match(pattern);
