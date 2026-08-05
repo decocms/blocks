@@ -39,7 +39,8 @@ export interface DraftPointer {
 }
 
 /** Lowercase DNS hostname, at least two labels (a bare label can't match any domain). */
-const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const HOST_RE =
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 const PORT_RE = /^[0-9]{1,5}$/;
 const VERSION_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -48,7 +49,9 @@ const VERSION_RE = /^[A-Za-z0-9._-]{1,64}$/;
  * back to published content. Requires EXACTLY one `@`: a naive split accepts
  * `a@b@c` and silently uses the first two segments.
  */
-export function parseDraftPointer(raw: string | null | undefined): DraftPointer | null {
+export function parseDraftPointer(
+  raw: string | null | undefined,
+): DraftPointer | null {
   if (!raw) return null;
   const parts = raw.split("@");
   if (parts.length !== 2) return null;
@@ -71,6 +74,7 @@ export function parseDraftPointer(raw: string | null | undefined): DraftPointer 
  */
 export const DEFAULT_PREVIEW_API_DOMAINS = [
   ".preview-studio.decocms.com",
+  ".preview-studio-stg.decocms.com",
   ".local.studio.decocms.com",
   ".localhost",
 ];
@@ -161,7 +165,9 @@ export function isDraftHostAllowed(
   env?: Record<string, string | undefined>,
 ): boolean {
   if (!host) return false;
-  return readAllowedHosts(envOrProcess(env)).includes(host.trim().toLowerCase());
+  return readAllowedHosts(envOrProcess(env)).includes(
+    host.trim().toLowerCase(),
+  );
 }
 
 /**
@@ -170,7 +176,9 @@ export function isDraftHostAllowed(
  * unconfigured site never loses static/ISR rendering. The per-request host
  * match happens later, in `isDraftHostAllowed`.
  */
-export function isDraftPreviewEnabled(env?: Record<string, string | undefined>): boolean {
+export function isDraftPreviewEnabled(
+  env?: Record<string, string | undefined>,
+): boolean {
   return readAllowedHosts(envOrProcess(env)).length > 0;
 }
 
@@ -179,7 +187,8 @@ function envOrProcess(
 ): Record<string, string | undefined> {
   return (
     env ??
-    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ??
+    (globalThis as { process?: { env?: Record<string, string | undefined> } })
+      .process?.env ??
     {}
   );
 }
@@ -277,7 +286,10 @@ export const DRAFT_COOKIE_NAME = "__deco_draft";
 export const DRAFT_QUERY_PARAM = "__draft";
 
 /** Read one cookie value out of a raw `Cookie:` header. */
-function readCookieValue(cookieHeader: string | null | undefined, name: string): string | null {
+function readCookieValue(
+  cookieHeader: string | null | undefined,
+  name: string,
+): string | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(";")) {
     const eq = part.indexOf("=");
@@ -331,7 +343,8 @@ export async function resolveDraftForRequest(
   if (readAllowedHosts(env).length === 0) return null;
   const pointer = draftPointerFromRequest(request);
   if (!pointer) return null;
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const host =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
   if (!isDraftHostAllowed(host, env)) return null;
   return resolveDraftDecofile({ pointer, env, fetchImpl: options.fetchImpl });
 }
@@ -357,6 +370,9 @@ export function setDraftOverrideGetter(getter: DraftOverrideGetter): void {
 }
 
 /** The current request's draft blocks, if a binding registered one. */
-export function getRequestDraftOverride(): Record<string, unknown> | null | undefined {
+export function getRequestDraftOverride():
+  | Record<string, unknown>
+  | null
+  | undefined {
   return getDraftOverride();
 }
