@@ -1712,7 +1712,6 @@ const WELL_KNOWN_UI_SIGNALS = new Set([
   "displayNav",
   "displaySearchbar",
   "displaySearchPopup",
-  "cartLoading",
 ]);
 
 const ruleSignalValueReads: Rule = {
@@ -1744,8 +1743,6 @@ const ruleSignalValueReads: Rule = {
         moduleSignals.set(name, "useUI()");
       }
     }
-
-    if (moduleSignals.size === 0) return [];
 
     // Pre-compile per-signal regexes once — avoids N×M compilations in Pass 2.
     const valueReMap = new Map<string, RegExp>(
