@@ -263,6 +263,8 @@ export const MetricNames = {
   // Single cache counter dimensioned by `deco.cache.status` — follows the OTel
   // semconv pattern (cf. nfs.server.repcache.requests + .status). deco-cx/deco
   // uses the same name so both frameworks aggregate together.
+  // Labels on this counter use short keys (status/profile/layer/provider) —
+  // the metric name already provides the deco.cache.* namespace.
   CACHE_REQUESTS: "deco.cache.requests",
   RESOLVE_DURATION: "deco.cms.resolve.duration",
   LOADER_DURATION: "deco.loader.duration",
@@ -288,7 +290,7 @@ export const METRIC_METADATA: Record<string, { description: string; unit: string
     unit: "s",
   },
   [MetricNames.CACHE_REQUESTS]: {
-    description: "Cache lookups, dimensioned by deco.cache.status (hit/stale/miss/bypass).",
+    description: "Cache lookups, dimensioned by status (hit/stale/miss/bypass).",
     unit: "{request}",
   },
   [MetricNames.RESOLVE_DURATION]: {
@@ -511,12 +513,12 @@ export function recordCacheMetric(
 
   const m = getState().meter;
   if (!m) return;
-  // Single counter dimensioned by deco.cache.status — unified with deco-cx/deco
-  // (follows the semconv nfs.server.repcache.requests + .status pattern). status
-  // is the decision when known (HIT/STALE-HIT/STALE-ERROR/MISS/BYPASS), else the
-  // hit boolean. Same key on span + metric.
+  // Single counter dimensioned by status — the metric name deco.cache.requests
+  // already scopes the label, so the deco.cache. prefix is redundant on labels.
+  // Span attribute keeps the full deco.cache.status key (spans mix attrs from
+  // many sources, so the namespace is needed there).
   const labels: Labels = {
-    "deco.cache.status": decision ?? (hit ? "HIT" : "MISS"),
+    status: decision ?? (hit ? "HIT" : "MISS"),
   };
   if (profile) labels["profile"] = profile;
   if (layer) labels["layer"] = layer;

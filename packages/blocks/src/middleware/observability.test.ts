@@ -157,7 +157,7 @@ describe("recordCacheMetric — cache_layer label", () => {
     expect(counters[0]?.name).toBe(MetricNames.CACHE_REQUESTS);
     expect(counters[0]?.labels).toMatchObject({
       "profile": "product",
-      "deco.cache.status": "HIT",
+      "status": "HIT",
       "layer": "edge",
     });
   });
@@ -169,7 +169,7 @@ describe("recordCacheMetric — cache_layer label", () => {
     recordCacheMetric(false, "search", "MISS", "edge");
 
     expect(counters[0]?.name).toBe(MetricNames.CACHE_REQUESTS);
-    expect(counters[0]?.labels?.["deco.cache.status"]).toBe("MISS");
+    expect(counters[0]?.labels?.["status"]).toBe("MISS");
   });
 
   it("supports the legacy 3-arg signature for backward compat", () => {
@@ -179,7 +179,7 @@ describe("recordCacheMetric — cache_layer label", () => {
     recordCacheMetric(true, "static");
 
     expect(counters[0]?.labels).toEqual({
-      "deco.cache.status": "HIT",
+      "status": "HIT",
       "profile": "static",
     });
   });

@@ -56,7 +56,7 @@ afterEach(() => {
 const statuses = () =>
   counters
     .filter((c) => c.name === "deco.cache.requests")
-    .map((c) => c.labels?.["deco.cache.status"]);
+    .map((c) => c.labels?.["status"]);
 
 describe("createFetchCache — behavior", () => {
   it("cold call is a MISS, second call is a HIT with the cached body", async () => {
@@ -151,7 +151,7 @@ describe("createFetchCache — telemetry labels", () => {
     expect(emitted[0]?.labels?.["provider"]).toBe("magento");
     // profile is reserved for the edge layer's page-type — must NOT be set here.
     expect(emitted[0]?.labels?.["profile"]).toBeUndefined();
-    expect(emitted[0]?.labels?.["deco.cache.status"]).toBe("MISS");
+    expect(emitted[0]?.labels?.["status"]).toBe("MISS");
   });
 
   it("is a no-op with no meter configured (never throws)", async () => {
