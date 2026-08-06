@@ -611,10 +611,33 @@ export function recordLoaderError(name: string) {
  */
 export function normalizePath(path: string): string {
   // Collapse dynamic segments to reduce cardinality
-  return path
+  const collapsed = path
     .replace(/\/[0-9a-f]{8,}/gi, "/:id")
     .replace(/\/\d+/g, "/:id")
     .replace(/\/[^/]+\/p$/, "/:slug/p");
+
+  // Content slugs are the case none of the rules above catch: they carry no
+  // digits, no hex id and no `/p` suffix, so a CMS page passes through as its
+  // own literal path and becomes its own series.
+  //
+  //   /mochila-de-couro
+  //   /moveis/quarto-infantil
+  //   /granado/eau-de-toilette-spritz-100ml
+  //
+  // Measured on the production ClickHouse, `http.route` reached 20,714
+  // distinct values across only 6 tenants — on `http.server.request.duration`,
+  // the highest-volume metric in the pipeline (19M rows / 3h).
+  //
+  // A hyphen is the discriminator. CMS slugs are hyphenated by construction,
+  // while framework and API segments are single words (`api`, `sessions`,
+  // `deco`, `invoke`, `loaders`, `render`). Dotfile segments such as
+  // `.well-known` are excluded so they keep their meaning.
+  return collapsed
+    .split("/")
+    .map((segment) =>
+      segment.includes("-") && !segment.startsWith(".") ? ":slug" : segment,
+    )
+    .join("/");
 }
 
 // ---------------------------------------------------------------------------
