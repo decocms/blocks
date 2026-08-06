@@ -14,6 +14,7 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
+import { DRAFT_POINTER_BAG_KEY } from "./draftShared";
 
 const HOST = "preview.example";
 const DRAFT_BLOCKS = { "pages-home": { title: "draft" } };
@@ -110,6 +111,25 @@ describe("bindRequestDraft", () => {
     expect(decision).toEqual({ previewing: true, setCookie: null, clearCookie: false });
   });
 
+  it("decodes a URL-encoded cookie so the badge pointer round-trips (no double-encode)", async () => {
+    // The cookie is written with encodeURIComponent (`:`→%3A, `@`→%40); the
+    // pointer stashed for the badge must be the DECODED value, or the badge's
+    // share link would re-encode an already-encoded string.
+    registerDraftOverride();
+    const decoded = "abc.localhost:60534@v7";
+    const request = req({
+      url: `https://${HOST}/other`,
+      cookie: `__deco_draft=${encodeURIComponent(decoded)}`,
+    });
+
+    const stored = await RequestContext.run(request, async () => {
+      await bindRequestDraft(request, sandboxFetch());
+      return RequestContext.getBag<string>(DRAFT_POINTER_BAG_KEY);
+    });
+
+    expect(stored).toBe(decoded);
+  });
+
   it("stays previewing (uncacheable) even when the draft fails to resolve", async () => {
     const request = req({ url: `https://${HOST}/p?__draft=abc.preview-studio.decocms.com@v1` });
     const decision = await RequestContext.run(request, () =>
@@ -168,6 +188,12 @@ describe("applyDraftCookieAndHeaders", () => {
 
   it("merges Cookie into an existing Vary instead of clobbering it", () => {
     const res = new Response("ok", { headers: { Vary: "Accept-Encoding" } });
+    applyDraftCookieAndHeaders(res, { previewing: true, setCookie: null, clearCookie: false });
+    expect(res.headers.get("vary")).toBe("Accept-Encoding, Cookie");
+  });
+
+  it("leaves a Vary that already lists Cookie untouched (no token dropped)", () => {
+    const res = new Response("ok", { headers: { Vary: "Accept-Encoding, Cookie" } });
     applyDraftCookieAndHeaders(res, { previewing: true, setCookie: null, clearCookie: false });
     expect(res.headers.get("vary")).toBe("Accept-Encoding, Cookie");
   });

@@ -94,13 +94,29 @@ export function installPreviewHostsFromBlocks(blocks: Record<string, unknown> | 
 // Per-request resolution + response decoration
 // ---------------------------------------------------------------------------
 
-/** Read one cookie value out of a raw `Cookie:` header. */
+/**
+ * Read one cookie value out of a raw `Cookie:` header.
+ *
+ * Decodes the value — the cookie is written with `encodeURIComponent` (see
+ * `draftCookie`), and `@decocms/blocks`'s own cookie reader decodes too, so a
+ * cookie-carried pointer must round-trip identically or the badge's share link
+ * would double-encode it. Decode defensively: a malformed `%` sequence
+ * (a crafted cookie) falls back to the raw value rather than throwing and
+ * 500-ing the request.
+ */
 function readCookie(cookieHeader: string | null, name: string): string | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(";")) {
     const eq = part.indexOf("=");
     if (eq === -1) continue;
-    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+    if (part.slice(0, eq).trim() === name) {
+      const raw = part.slice(eq + 1).trim();
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
   }
   return null;
 }
@@ -224,12 +240,15 @@ export function applyDraftCookieAndHeaders(response: Response, decision: DraftDe
 
   if (decision.previewing) {
     trySet(response, "cache-control", "no-store, private");
+    // Add Cookie to Vary without dropping tokens already there (e.g.
+    // Accept-Encoding). Moot under no-store, but correct for any intermediary
+    // that honours Vary anyway.
     const existingVary = response.headers.get("vary");
-    trySet(
-      response,
-      "vary",
-      existingVary && !/\bcookie\b/i.test(existingVary) ? `${existingVary}, Cookie` : "Cookie",
-    );
+    if (!existingVary) {
+      trySet(response, "vary", "Cookie");
+    } else if (!/\bcookie\b/i.test(existingVary)) {
+      trySet(response, "vary", `${existingVary}, Cookie`);
+    }
     trySet(response, "x-robots-tag", "noindex, nofollow");
   }
 }
