@@ -4,7 +4,7 @@ import { djb2Hex } from "../sdk/djb2";
 import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } from "../sdk/flags";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
-import { findPageByPath, loadBlocks } from "./loader";
+import { findPageByPath, hasActiveBlocksOverride, loadBlocks } from "./loader";
 import { getOnBeforeResolveProps, getSection, registerOnBeforeResolveProps } from "./registry";
 import {
   type ActionConfig,
@@ -2039,7 +2039,13 @@ async function resolveDecoPageImpl(
         try {
           const layoutKey = isRawSectionLayout(section);
 
-          if (layoutKey) {
+          // Skip the process-wide layout cache during a preview (admin
+          // POST-render or pull-based draft): it is keyed on published content
+          // by block name alone, so serving from it would mask the preview's
+          // own Header/Footer edits, and writing into it would leak unpublished
+          // layout content to real visitors. Previews are low-volume + uncached,
+          // so resolving fresh is cheap.
+          if (layoutKey && !hasActiveBlocksOverride()) {
             const cached = getCachedResolvedLayout(layoutKey);
             if (cached) return cached;
 
@@ -2136,7 +2142,10 @@ export async function resolvePageSections(
       try {
         const layoutKey = isRawSectionLayout(section);
 
-        if (layoutKey) {
+        // See the note in resolveDecoPage: never serve/store the shared layout
+        // cache during a preview (admin override or draft), or the preview
+        // masks its own layout edits and can leak unpublished content.
+        if (layoutKey && !hasActiveBlocksOverride()) {
           const cached = getCachedResolvedLayout(layoutKey);
           if (cached) return cached;
 

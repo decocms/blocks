@@ -121,6 +121,22 @@ export function getRevision(): string | null {
 }
 
 /**
+ * Whether the current request is resolving against an override rather than the
+ * plain published blocks — an admin POST-render preview (`withBlocksOverride`)
+ * or a pull-based draft (`getRequestDraftOverride`). Same signal `loadBlocks()`
+ * uses to decide whether to merge.
+ *
+ * Callers that key process-wide caches by block name alone (the resolved-layout
+ * cache in `resolve.ts`) must consult this: those caches are keyed on published
+ * content, so serving from — or writing into — them during a preview would both
+ * mask the preview's own edits AND risk leaking unpublished content to real
+ * visitors. Previews are low-volume and uncached, so bypassing is cheap.
+ */
+export function hasActiveBlocksOverride(): boolean {
+  return (blocksOverrideStorage.getStore() ?? getRequestDraftOverride()) != null;
+}
+
+/**
  * Run a function with a temporary blocks overlay.
  *
  * Used by admin preview: the admin sends a partial decofile (only the

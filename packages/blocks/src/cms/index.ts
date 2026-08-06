@@ -39,6 +39,7 @@ export {
   getAllPages,
   getRevision,
   getSiteSeo,
+  hasActiveBlocksOverride,
   loadBlocks,
   onChange,
   setBlocks,
