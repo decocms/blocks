@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   configureMeter,
+  normalizePath,
   type MeterAdapter,
   MetricNames,
   recordCacheMetric,
@@ -254,5 +255,39 @@ describe("recordCommerceMetric (D-11)", () => {
     expect(() =>
       recordCommerceMetric(1, { provider: "vtex", operation: "test" }),
     ).not.toThrow();
+  });
+});
+
+/**
+ * `http.route` is the highest-cardinality risk on the highest-volume metric.
+ * These cases are the real paths measured on production when the label reached
+ * 20,714 distinct values across 6 tenants.
+ */
+describe("normalizePath cardinality", () => {
+  it("collapses CMS content slugs", () => {
+    expect(normalizePath("/mochila-de-couro")).toBe("/:slug");
+    expect(normalizePath("/moveis/quarto-infantil")).toBe("/moveis/:slug");
+    expect(normalizePath("/granado/eau-de-toilette-spritz-100ml")).toBe("/granado/:slug");
+    expect(normalizePath("/moveis/quarto-adulto/cabeceiras-mesa-de-cabeceiras")).toBe(
+      "/moveis/:slug/:slug",
+    );
+  });
+
+  it("leaves bounded framework and API routes intact", () => {
+    expect(normalizePath("/")).toBe("/");
+    expect(normalizePath("/api/sessions")).toBe("/api/sessions");
+    expect(normalizePath("/deco/invoke/magento/loaders/features")).toBe(
+      "/deco/invoke/magento/loaders/features",
+    );
+  });
+
+  it("keeps dotfile segments readable", () => {
+    expect(normalizePath("/.well-known/passkey-endpoints")).toBe("/.well-known/:slug");
+  });
+
+  it("still collapses ids and product pages", () => {
+    expect(normalizePath("/produto/12345")).toBe("/produto/:id");
+    expect(normalizePath("/a/deadbeefcafe")).toBe("/a/:id");
+    expect(normalizePath("/some-product/p")).toBe("/:slug/p");
   });
 });
