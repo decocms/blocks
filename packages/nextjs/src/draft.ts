@@ -29,11 +29,11 @@ import {
 } from "@decocms/blocks/cms";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
-import { DRAFT_COOKIE, DRAFT_PARAM } from "./draftConstants";
+import { DRAFT_COOKIE, DRAFT_HEADER, DRAFT_PARAM } from "./draftConstants";
 
 // Re-exported for back-compat: these used to live here, but the client badge
 // needs DRAFT_PARAM and cannot import this module (it pulls in `next/headers`).
-export { DRAFT_COOKIE, DRAFT_PARAM } from "./draftConstants";
+export { DRAFT_COOKIE, DRAFT_HEADER, DRAFT_PARAM } from "./draftConstants";
 
 /**
  * Request-scoped slot.
@@ -124,15 +124,21 @@ export function selectDraftPointer(
 export async function ensureDraft(searchParams?: DraftSearchParams): Promise<boolean> {
   registerDraftOverride();
 
-  const cookieStore = await cookies();
-  const pointer = selectDraftPointer(searchParams, cookieStore.get(DRAFT_COOKIE)?.value);
+  const [cookieStore, requestHeaders] = await Promise.all([cookies(), headers()]);
+
+  // Pointer precedence: the page's own `?__draft=` param wins; then the
+  // middleware-forwarded header (the only source a LAYOUT can see on the entry
+  // request — see DRAFT_HEADER); then the navigation cookie. This is what lets
+  // `ensureDraft()` bind from a layout so shell-resolved Header/Footer reflect
+  // the draft, not just page sections.
+  const carried = requestHeaders.get(DRAFT_HEADER) ?? cookieStore.get(DRAFT_COOKIE)?.value ?? null;
+  const pointer = selectDraftPointer(searchParams, carried);
   if (!pointer) return false;
 
   // Host gate, checked only once a pointer exists (headers() is a dynamic
   // API): the same build may serve the preview domain and the production
   // domain, and only hosts named in DECO_ALLOWED_PREVIEW_HOSTS may render
   // drafts — production stays published no matter what the URL carries.
-  const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
   if (!isDraftHostAllowed(host)) return false;
 
