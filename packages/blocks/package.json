@@ -18,6 +18,7 @@
 		"./cms/client": "./src/cms/client.ts",
 		"./cms/loadDecofileDirectory": "./src/cms/loadDecofileDirectory.ts",
 		"./hooks": "./src/hooks/index.ts",
+		"./preview": "./src/preview/index.ts",
 		"./types": "./src/types/index.ts",
 		"./types/widgets": "./src/types/widgets.ts",
 		"./setup": "./src/setup.ts",

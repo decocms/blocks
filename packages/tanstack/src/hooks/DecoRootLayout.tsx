@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { HeadContent, Scripts, ScriptOnce } from "@tanstack/react-router";
 import { LiveControls } from "@decocms/blocks/hooks";
 import { ANALYTICS_SCRIPT } from "@decocms/blocks/sdk/analytics";
+import { DraftPreviewIndicator } from "./DraftPreviewIndicator";
 import { NavigationProgress } from "./NavigationProgress";
 import { StableOutlet } from "./StableOutlet";
 
@@ -102,6 +103,7 @@ export function DecoRootLayout({
 					<StableOutlet />
 				</main>
 				{children}
+				<DraftPreviewIndicator />
 				<LiveControls site={siteName} />
 				<ScriptOnce children={ANALYTICS_SCRIPT} />
 				<Scripts />
