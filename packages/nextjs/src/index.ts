@@ -18,6 +18,7 @@ export { DraftPreviewIndicator } from "./DraftPreviewIndicator";
 export {
   DRAFT_COOKIE,
   DRAFT_COOKIE_OPTIONS,
+  DRAFT_HEADER,
   DRAFT_PARAM,
   type DraftMiddlewareDecision,
   type DraftSearchParams,
@@ -30,6 +31,7 @@ export {
 export {
   applyDraft,
   DRAFT_ROUTE_PREFIX,
+  draftRequestHeaders,
   prepareDraft,
   rewriteToDraftRoute,
 } from "./draftMiddleware";

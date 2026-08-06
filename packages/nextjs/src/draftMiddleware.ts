@@ -25,6 +25,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   DRAFT_COOKIE,
   DRAFT_COOKIE_OPTIONS,
+  DRAFT_HEADER,
   type DraftMiddlewareDecision,
   decideDraft,
 } from "./draft";
@@ -127,10 +128,36 @@ export function applyDraft(
 }
 
 /**
- * Convenience for sites with no middleware of their own: prepare, continue,
- * apply. Sites that already have middleware should call the two halves
- * directly so their own logic sits in between.
+ * Request headers to forward downstream, carrying the active pointer on
+ * `x-deco-draft` (see {@link DRAFT_HEADER}) so the RSC tree — including the app
+ * shell — can bind the draft via `ensureDraft()` and reflect it in
+ * shell-resolved Header/Footer, not only page sections.
+ *
+ * Pass to `NextResponse.next({ request: { headers } })`. Strips any
+ * client-supplied `x-deco-draft` when this request is not previewing, so the
+ * header is only ever present on a legitimately-gated preview request.
+ */
+export function draftRequestHeaders(
+  request: NextRequest,
+  decision: DraftMiddlewareDecision,
+): Headers {
+  const headers = new Headers(request.headers);
+  if (decision.pointer) headers.set(DRAFT_HEADER, decision.pointer);
+  else headers.delete(DRAFT_HEADER);
+  return headers;
+}
+
+/**
+ * Convenience for sites with no middleware of their own: prepare, forward the
+ * pointer header, continue, apply. Sites that already have middleware should
+ * call the halves directly (`prepareDraft` → `draftRequestHeaders` on the
+ * `NextResponse.next({ request: { headers } })` → `applyDraft`) so their own
+ * logic sits in between.
  */
 export function draftMiddleware(request: NextRequest): NextResponse {
-  return applyDraft(NextResponse.next(), prepareDraft(request));
+  const decision = prepareDraft(request);
+  const response = NextResponse.next({
+    request: { headers: draftRequestHeaders(request, decision) },
+  });
+  return applyDraft(response, decision);
 }
