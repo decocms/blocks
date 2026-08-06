@@ -7,6 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   configureMeter,
+  DURATION_BUCKET_BOUNDARIES_SECONDS,
+  METRIC_METADATA,
   type MeterAdapter,
   MetricNames,
   recordCacheMetric,
@@ -254,5 +256,45 @@ describe("recordCommerceMetric (D-11)", () => {
     expect(() =>
       recordCommerceMetric(1, { provider: "vtex", operation: "test" }),
     ).not.toThrow();
+  });
+});
+
+/**
+ * Guards the unit/bucket agreement. Durations are recorded in seconds, but the
+ * OTel SDK's default explicit buckets are milliseconds
+ * (`[0, 5, 10, 25, 50, 75, 100, 250, 500, 1000]`). A duration metric that ships
+ * without `boundaries` inherits those defaults and files ~100% of real traffic
+ * into the first bucket, which silently destroys every quantile computed from
+ * it. These assertions exist so that regression fails here instead of in a
+ * dashboard six months later.
+ */
+describe("METRIC_METADATA duration buckets", () => {
+  it("declares second-scale boundaries for every metric measured in seconds", () => {
+    const secondValued = Object.entries(METRIC_METADATA).filter(
+      ([, meta]) => meta.unit === "s",
+    );
+
+    expect(secondValued.length).toBeGreaterThan(0);
+
+    for (const [name, meta] of secondValued) {
+      expect(meta.boundaries, `${name} must declare boundaries`).toBeDefined();
+      // A millisecond-scaled bucket set starts at 5; a second-scaled one starts
+      // well below 1. This is the exact mistake being guarded against.
+      expect(meta.boundaries![0], `${name} boundaries look like milliseconds`)
+        .toBeLessThan(1);
+    }
+  });
+
+  it("keeps boundaries sorted ascending and free of duplicates", () => {
+    const b = DURATION_BUCKET_BOUNDARIES_SECONDS;
+    expect([...b]).toEqual([...new Set(b)]);
+    expect([...b]).toEqual([...b].sort((x, y) => x - y));
+  });
+
+  it("covers the latency range real traffic falls in", () => {
+    // Observed production averages sat between 0.14s and 0.49s, with a tail
+    // past 10s on uncached loader paths. Buckets must resolve both ends.
+    expect(DURATION_BUCKET_BOUNDARIES_SECONDS.some((x) => x <= 0.05)).toBe(true);
+    expect(DURATION_BUCKET_BOUNDARIES_SECONDS.some((x) => x >= 10)).toBe(true);
   });
 });
