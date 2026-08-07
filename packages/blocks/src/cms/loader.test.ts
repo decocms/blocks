@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { findPageByPath, matchPath, setBlocks } from "./loader";
+import { setDraftOverrideGetter } from "./draftSource";
+import { findPageByPath, loadBlocks, matchPath, setBlocks } from "./loader";
 
 // Mirrors the behavior of the original deco-cx/deco Fresh framework
 // (runtime/features/render.tsx), which uses native `URLPattern` directly
@@ -196,5 +197,87 @@ describe("findPageByPath specificity", () => {
       },
     });
     expect(findPageByPath("/nope")).toBeNull();
+  });
+});
+
+describe("loadBlocks draft override — key percent-encoding", () => {
+  // The published decofile encodes special characters in block keys
+  // (`pages-Home%20(principal)-1`); the Studio draft-preview sandbox emits them
+  // raw (`pages-Home (principal)-1`). A naive key-merge ADDS the raw-keyed
+  // draft block instead of REPLACING the encoded published one, leaving two
+  // `pages-` blocks with path "/" — and findPageByPath returns the first
+  // (published) one, so the draft edit silently never renders. This shipped and
+  // made ~73% of casaevideo's pages (home + afiliados included) ignore drafts.
+
+  afterEach(() => {
+    setBlocks({});
+    setDraftOverrideGetter(() => undefined);
+  });
+
+  it("replaces an encoded base key with its raw-encoded draft twin (home)", () => {
+    setBlocks({
+      "pages-Home%20(principal)-1": {
+        name: "Home",
+        path: "/",
+        sections: [{ __resolveType: "published" }],
+      },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-Home (principal)-1": {
+        name: "Home",
+        path: "/",
+        sections: [{ __resolveType: "draft" }],
+      },
+    }));
+
+    // Exactly one page for "/" survives the merge — no encoded/raw duplicate.
+    const pageBlocks = Object.keys(loadBlocks()).filter((k) =>
+      k.startsWith("pages-"),
+    );
+    expect(pageBlocks).toHaveLength(1);
+
+    const match = findPageByPath("/");
+    const sections = match?.page.sections as Array<{ __resolveType: string }>;
+    expect(sections[0].__resolveType).toBe("draft");
+  });
+
+  it("still replaces a plain (unescaped) base key", () => {
+    setBlocks({
+      "pages-disney-1": {
+        name: "Disney",
+        path: "/disney",
+        sections: [{ __resolveType: "published" }],
+      },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-disney-1": {
+        name: "Disney",
+        path: "/disney",
+        sections: [{ __resolveType: "draft" }],
+      },
+    }));
+
+    const match = findPageByPath("/disney");
+    const sections = match?.page.sections as Array<{ __resolveType: string }>;
+    expect(sections[0].__resolveType).toBe("draft");
+  });
+
+  it("a null draft value removes the encoded base twin too", () => {
+    setBlocks({
+      "pages-Home%20(principal)-1": {
+        name: "Home",
+        path: "/",
+        sections: [{ __resolveType: "published" }],
+      },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-Home (principal)-1": null,
+    }));
+
+    expect(findPageByPath("/")).toBeNull();
+    const pageBlocks = Object.keys(loadBlocks()).filter((k) =>
+      k.startsWith("pages-"),
+    );
+    expect(pageBlocks).toHaveLength(0);
   });
 });

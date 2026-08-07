@@ -86,6 +86,59 @@ export function setBlocks(blocks: Record<string, unknown>) {
 }
 
 /**
+ * Canonicalise a block key so an override block matches its base twin even when
+ * the two decofiles disagree on percent-encoding of the key.
+ *
+ * The site's published decofile encodes special characters in block keys
+ * (`pages-Home%20(principal)-287364`); the Studio draft-preview sandbox emits
+ * them raw (`pages-Home (principal)-287364`). Decoding collapses both spellings
+ * to the same canonical form. Defensive: a malformed `%` sequence makes
+ * `decodeURIComponent` throw, so fall back to the raw key rather than 500 the
+ * merge.
+ */
+function canonicalBlockKey(key: string): string {
+  try {
+    return decodeURIComponent(key);
+  } catch {
+    return key;
+  }
+}
+
+/**
+ * Merge an override decofile on top of the base blocks.
+ *
+ * An override entry REPLACES the base block of the same logical key — including
+ * a base twin spelled with different percent-encoding. A naive key-merge would
+ * instead ADD the differently-encoded override block, leaving two `pages-`
+ * blocks with the same `.path`; `findPageByPath` returns the first (base) one,
+ * so a draft-preview edit would silently never render. Canonicalising the base
+ * keys lets the override find and displace its twin.
+ *
+ * A `null`/`undefined` override value deletes the block (its twin too), so a
+ * draft that removes a block is honoured.
+ */
+function mergeOverride(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...base };
+  const baseByCanonical = new Map<string, string>();
+  for (const baseKey of Object.keys(merged)) {
+    baseByCanonical.set(canonicalBlockKey(baseKey), baseKey);
+  }
+  for (const [key, value] of Object.entries(override)) {
+    const twin = baseByCanonical.get(canonicalBlockKey(key));
+    if (twin !== undefined && twin !== key) delete merged[twin];
+    if (value === null || value === undefined) {
+      delete merged[key];
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+/**
  * Load the current blocks. If running inside a `withBlocksOverride` scope
  * (admin preview) or a request carrying a draft-preview override, that
  * override is merged on top of the base blocks.
@@ -101,17 +154,7 @@ export function loadBlocks(): Record<string, unknown> {
   // over an ambient draft: the caller named the exact blocks to render, so a
   // draft pointer on the same request must not silently replace them.
   const override = blocksOverrideStorage.getStore() ?? getRequestDraftOverride();
-  if (override) {
-    const merged = { ...blockData };
-    for (const [key, value] of Object.entries(override)) {
-      if (value === null || value === undefined) {
-        delete merged[key];
-      } else {
-        merged[key] = value;
-      }
-    }
-    return merged;
-  }
+  if (override) return mergeOverride(blockData, override);
   return blockData;
 }
 
