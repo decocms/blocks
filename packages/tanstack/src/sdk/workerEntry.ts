@@ -68,6 +68,7 @@ import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { cleanPathForCacheKey } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
+import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
@@ -1497,6 +1498,14 @@ export function createDecoWorkerEntry(
         // future binding-driven destinations) can resolve their bindings
         // via getRuntimeEnv() in sdk/otelAdapters.ts.
         setRuntimeEnv(env);
+
+        // First-request re-configuration of apps. autoconfigApps() runs at
+        // module init (setup.ts), before `env` — and thus DECO_CRYPTO_KEY —
+        // is available, so encrypted app credentials (VTEX appKey/appToken,
+        // etc.) decrypt to null at startup. Now that env is in the ALS,
+        // getEnvVar() can reach the key; re-run configure once so apps pick up
+        // real credentials. No-op on every request after the first.
+        await reconfigureAppsOnce();
 
         // RequestContext.run already resolved request.id from the
         // inbound headers (precedence: x-request-id → cf-ray → UUID).

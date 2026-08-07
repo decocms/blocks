@@ -15,6 +15,8 @@
  *   const apiKey = await resolveSecret(block.apiKey, "RESEND_API_KEY");
  */
 
+import { getRuntimeEnv } from "./otelAdapters";
+
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 
@@ -150,10 +152,13 @@ export async function resolveSecret(
 }
 
 /**
- * Get an environment variable, checking process.env first, then .dev.vars file.
+ * Get an environment variable, checking process.env first, then .dev.vars file,
+ * then the Cloudflare Workers `env` binding stashed in RequestContext.
  * Cloudflare Workers dev mode stores env vars in .dev.vars but they're only
  * accessible via the `env` binding inside request handlers. During setup.ts
- * (module-level init), we need to read the file directly.
+ * (module-level init), we need to read the file directly. In production/preview
+ * there is no .dev.vars and no process.env — the only source is the `env` object
+ * passed to the fetch handler, which workerEntry.ts stashes via setRuntimeEnv().
  */
 function getEnvVar(name: string): string | undefined {
 	// 1. process.env (works in Node, may work in Workers with nodejs_compat)
@@ -180,6 +185,15 @@ function getEnvVar(name: string): string | undefined {
 	} catch {
 		// fs not available (e.g., pure Worker runtime) — ignore
 	}
+
+	// 3. CF Workers `env` binding, stashed per-request in RequestContext by
+	// workerEntry.ts's setRuntimeEnv(env). This is the ONLY source in a real
+	// Workers production/preview deploy (no process.env, no .dev.vars). Returns
+	// undefined at module-init time (no active request) — that's why apps are
+	// re-configured on the first request via reconfigureAppsOnce().
+	const runtimeEnv = getRuntimeEnv();
+	const v = runtimeEnv?.[name];
+	if (typeof v === "string" && v) return v;
 
 	return undefined;
 }
