@@ -325,7 +325,14 @@ export async function vtexFetchResponse(
 		headers: mergeHeaders(authHeaders(), segmentCookie, init?.headers),
 	});
 	if (!response.ok) {
-		throw new Error(`VTEX API error: ${response.status} ${response.statusText} - ${url}`);
+		// Include the response body: VTEX returns actionable detail here
+		// (e.g. MasterData "duplicated entry"), and without it callers can't
+		// distinguish error kinds and are forced to reimplement the fetch to
+		// read the body themselves. Safe to consume — we throw, not return.
+		const body = await response.text().catch(() => "");
+		throw new Error(
+			`VTEX API error: ${response.status} ${response.statusText} - ${url}${body ? ` - ${body}` : ""}`,
+		);
 	}
 	return response;
 }
