@@ -659,8 +659,25 @@ export function initVtexFromBlocks(blocks: Record<string, any>) {
 		console.warn("[VTEX] No vtex.json block found.");
 		return;
 	}
-	const appKey = typeof vtexBlock.appKey === "string" ? vtexBlock.appKey : undefined;
-	const appToken = typeof vtexBlock.appToken === "string" ? vtexBlock.appToken : undefined;
+	// This runs on every resolve (wired as `initPlatform` → `onBeforeResolve`)
+	// and only understands PLAIN-STRING appKey/appToken. The CMS stores secrets
+	// encrypted (`{ encrypted }`), which `autoconfigApps`' async `configure()`
+	// decrypts via `resolveSecret` and installs through `configureVtex`. If we
+	// blindly wrote `undefined` for the non-string (encrypted) case, every
+	// resolve would clobber those decrypted credentials and privileged VTEX
+	// calls (e.g. MasterData writes) would go out anonymous → 403. So when the
+	// block's value isn't a usable string, PRESERVE whatever credential is
+	// already configured instead of overwriting it.
+	let existing: Partial<VtexConfig> = {};
+	try {
+		existing = getVtexConfig();
+	} catch {
+		// VTEX not configured yet (first init) — nothing to preserve.
+	}
+	const appKey =
+		typeof vtexBlock.appKey === "string" ? vtexBlock.appKey : existing.appKey;
+	const appToken =
+		typeof vtexBlock.appToken === "string" ? vtexBlock.appToken : existing.appToken;
 	configureVtex({
 		account: vtexBlock.account,
 		publicUrl: vtexBlock.publicUrl,
