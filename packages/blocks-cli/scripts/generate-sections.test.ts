@@ -72,6 +72,22 @@ describe("generate-sections walkDir exclusions", () => {
     expect(generated).not.toContain("Hero.stories.tsx");
     expect(generated).not.toContain("sections.gen.ts");
   }, 30_000);
+
+  it("extracts `export const deferred = true` into sectionMeta", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "HeavyPLP.tsx"),
+      "export const deferred = true;\nexport default function HeavyPLP() { return null; }\n",
+    );
+
+    const { code } = runGenerator(["--sections-dir", sectionsDir, "--out-file", outFile]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    // The per-section deferral flag must survive the regex scan → sectionMeta,
+    // or applySectionConventions can never register it as always-defer.
+    expect(generated).toMatch(/"site\/sections\/HeavyPLP\.tsx":\s*\{[^}]*deferred:\s*true/);
+    expect(generated).toContain("deferred?: boolean;");
+  }, 30_000);
 });
 
 describe("generate-sections default output path (.deco/)", () => {
