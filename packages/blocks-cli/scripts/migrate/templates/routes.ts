@@ -115,7 +115,8 @@ function RootLayout() {
 
 function generateIndex(ctx: MigrationContext, siteTitle: string): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { cmsHomeRouteConfig, DecoPageRenderer, loadDeferredSection } from "@decocms/tanstack";
+import { cmsHomeRouteConfig, DecoPageRenderer } from "@decocms/tanstack";
+import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
 
 // MIGRATION TODO: customize defaultTitle / defaultDescription / fallback
 // copy below for ${siteTitle}. CMS \`Site.seo\` overrides these once block
@@ -151,7 +152,7 @@ function HomePage() {
       deferredPromises={data.deferredPromises}
       pagePath={data.pagePath}
       pageUrl={data.pageUrl}
-      loadDeferredSectionFn={loadDeferredSection}
+      loadDeferredSectionFn={deferredSectionLoader}
     />
   );
 }
@@ -160,7 +161,8 @@ function HomePage() {
 
 function generateCatchAll(ctx: MigrationContext, siteTitle: string): string {
   return `import { createFileRoute } from "@tanstack/react-router";
-import { cmsRouteConfig, DecoPageRenderer, loadDeferredSection } from "@decocms/tanstack";
+import { cmsRouteConfig, DecoPageRenderer } from "@decocms/tanstack";
+import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
 
 // MIGRATION TODO: customize defaultTitle / defaultDescription for ${siteTitle}
 // (CMS \`Site.seo\` overrides these per-page once block resolution kicks in).
@@ -188,7 +190,7 @@ function CmsPage() {
       deferredPromises={data.deferredPromises}
       pagePath={data.pagePath}
       pageUrl={data.pageUrl}
-      loadDeferredSectionFn={loadDeferredSection}
+      loadDeferredSectionFn={deferredSectionLoader}
     />
   );
 }

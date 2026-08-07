@@ -95,10 +95,12 @@ describe("generate-loaders legacy artifact sync", () => {
     // New path must exist.
     expect(fs.existsSync(path.join(tmpDir, ".deco", "loaders.gen.ts"))).toBe(true);
 
-    // Old file must be synced (not stale placeholder).
+    // Old file must be synced as a re-export shim (not the stale placeholder,
+    // and not a verbatim copy — a byte copy would carry `.deco/`-relative
+    // import paths that break at the deeper legacy location).
     const oldContent = fs.readFileSync(path.join(oldDir, "loaders.gen.ts"), "utf-8");
     expect(oldContent).not.toBe("// stale\n");
-    expect(oldContent).toContain("site/loaders/related");
+    expect(oldContent).toContain('export * from "../../../.deco/loaders.gen"');
   }, 30_000);
 
   it("does not warn and does not sync when an explicit --out-file is passed", () => {

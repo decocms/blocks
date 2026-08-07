@@ -10,6 +10,7 @@ import { registerSection, registerSectionsSync } from "./registry";
 import {
   type AsyncRenderingConfig,
   getAsyncRenderingConfig,
+  registerAlwaysDeferSections,
   registerEagerSections,
   registerNeverDeferSections,
   registerSeoSections,
@@ -24,6 +25,7 @@ import {
 export interface SectionMetaEntry {
   eager?: boolean;
   neverDefer?: boolean;
+  deferred?: boolean;
   cache?: string;
   layout?: boolean;
   sync?: boolean;
@@ -48,6 +50,7 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
 
   const eagerSections: string[] = [];
   const neverDeferSections: string[] = [];
+  const alwaysDeferSections: string[] = [];
   const layoutSections: string[] = [];
   const seoSections: string[] = [];
   const cacheableSections: Record<string, CacheableSectionInput> = {};
@@ -55,6 +58,7 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
   for (const [key, entry] of Object.entries(meta)) {
     if (entry.eager) eagerSections.push(key);
     if (entry.neverDefer) neverDeferSections.push(key);
+    if (entry.deferred) alwaysDeferSections.push(key);
     if (entry.layout) layoutSections.push(key);
     if (entry.seo) seoSections.push(key);
     if (entry.cache) cacheableSections[key] = entry.cache as CacheableSectionInput;
@@ -86,6 +90,10 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
 
   if (neverDeferSections.length > 0) {
     registerNeverDeferSections(neverDeferSections);
+  }
+
+  if (alwaysDeferSections.length > 0) {
+    registerAlwaysDeferSections(alwaysDeferSections);
   }
 
   // Always initialize asyncConfig so CMS Lazy deferral (`respectCmsLazy`) is

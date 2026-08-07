@@ -72,6 +72,22 @@ describe("generate-sections walkDir exclusions", () => {
     expect(generated).not.toContain("Hero.stories.tsx");
     expect(generated).not.toContain("sections.gen.ts");
   }, 30_000);
+
+  it("extracts `export const deferred = true` into sectionMeta", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "HeavyPLP.tsx"),
+      "export const deferred = true;\nexport default function HeavyPLP() { return null; }\n",
+    );
+
+    const { code } = runGenerator(["--sections-dir", sectionsDir, "--out-file", outFile]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+    // The per-section deferral flag must survive the regex scan → sectionMeta,
+    // or applySectionConventions can never register it as always-defer.
+    expect(generated).toMatch(/"site\/sections\/HeavyPLP\.tsx":\s*\{[^}]*deferred:\s*true/);
+    expect(generated).toContain("deferred?: boolean;");
+  }, 30_000);
 });
 
 describe("generate-sections default output path (.deco/)", () => {
@@ -119,9 +135,14 @@ describe("generate-sections default output path (.deco/)", () => {
     expect(fs.existsSync(newDefault)).toBe(true);
     expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
 
-    // Old file must be kept in sync so mid-migration imports still work.
+    // Old file is kept in sync as a re-export shim (NOT a verbatim copy — a
+    // byte copy would carry `.deco/`-relative import paths that break at the
+    // deeper legacy location). It re-exports the new file so mid-migration
+    // imports still resolve at any depth.
     const oldDefault = path.join(tmpDir, "src", "server", "cms", "sections.gen.ts");
-    expect(fs.readFileSync(oldDefault, "utf-8")).toContain("site/sections/Hero.tsx");
+    const oldContent = fs.readFileSync(oldDefault, "utf-8");
+    expect(oldContent).toContain('export * from "../../../.deco/sections.gen"');
+    expect(oldContent).not.toContain("site/sections/Hero.tsx");
   }, 30_000);
 
   it("does not warn when an explicit --out-file is passed, even if the OLD default file exists", () => {

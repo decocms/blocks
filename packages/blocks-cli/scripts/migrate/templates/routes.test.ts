@@ -57,3 +57,34 @@ describe("scaffolded deco admin routes use HMR-safe factories", () => {
     });
   }
 });
+
+/**
+ * Regression guard: the page renderers must wire `loadDeferredSectionFn` to the
+ * `deferredSectionLoader` shim, never the raw `loadDeferredSection` server fn.
+ * `loadDeferredSection` is a createServerFn with an inputValidator, so it must
+ * be called as `fn({ data })`; DeferredSectionWrapper calls `loadFn(bareArgs)`,
+ * so passing the raw fn leaves `ctx.data` undefined and the deferred section
+ * renders blank. The shim wraps the `{ data }` envelope.
+ */
+describe("scaffolded page routes wire the deferred-loader shim, not the raw server fn", () => {
+  for (const platform of ["vtex", "custom"] as const) {
+    describe(`platform: ${platform}`, () => {
+      const files = generateRoutes(makeCtx(platform));
+
+      for (const file of ["src/routes/index.tsx", "src/routes/$.tsx"] as const) {
+        it(`${file} passes deferredSectionLoader from the sdk subpath`, () => {
+          const content = files[file];
+          expect(content, `${file} must be emitted`).toBeTypeOf("string");
+
+          expect(content).toContain(
+            'import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader"',
+          );
+          expect(content).toContain("loadDeferredSectionFn={deferredSectionLoader}");
+
+          // The broken form: the raw server fn passed directly.
+          expect(content).not.toContain("loadDeferredSectionFn={loadDeferredSection}");
+        });
+      }
+    });
+  }
+});

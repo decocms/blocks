@@ -59,6 +59,7 @@ const EMIT_REGISTRY = args.includes("--registry");
 interface SectionMeta {
   eager?: boolean;
   neverDefer?: boolean;
+  deferred?: boolean;
   cache?: string;
   layout?: boolean;
   sync?: boolean;
@@ -67,7 +68,7 @@ interface SectionMeta {
   hasLoadingFallback?: boolean;
 }
 
-const EXPORT_CONST_RE = /export\s+const\s+(eager|neverDefer|cache|layout|sync|clientOnly|seo)\s*=\s*(.+?)(?:;|\n)/g;
+const EXPORT_CONST_RE = /export\s+const\s+(eager|neverDefer|deferred|cache|layout|sync|clientOnly|seo)\s*=\s*(.+?)(?:;|\n)/g;
 // Detects `export function LoadingFallback(...)`, `export const LoadingFallback = ...`, etc.
 const LOADING_FALLBACK_INLINE_RE = /export\s+(?:function|const|let|var)\s+LoadingFallback\b/;
 // Detects re-exports like:
@@ -209,6 +210,7 @@ lines.push("");
 lines.push("export interface SectionMetaEntry {");
 lines.push("  eager?: boolean;");
 lines.push("  neverDefer?: boolean;");
+lines.push("  deferred?: boolean;");
 lines.push("  cache?: string;");
 lines.push("  layout?: boolean;");
 lines.push("  sync?: boolean;");
