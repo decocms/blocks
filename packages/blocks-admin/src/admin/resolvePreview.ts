@@ -162,7 +162,11 @@ export async function resolvePreviewRequest(request: Request): Promise<PreviewRe
       return { type: "unknown", component };
     }
 
-    const resolvedProps = (await resolveValue(props)) as Record<string, unknown>;
+    const resolvedProps = (await resolveValue(
+      props,
+      undefined,
+      buildPreviewMatcherCtx(request),
+    )) as Record<string, unknown>;
     const { __resolveType: _, ...cleanProps } = resolvedProps;
     return {
       type: "sections",

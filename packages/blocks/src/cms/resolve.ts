@@ -244,6 +244,28 @@ function isNeverDeferSection(key: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Permanent alwaysDefer section registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Register sections that declared `export const deferred = true`.
+ * These sections are ALWAYS deferred (rendered client-side on scroll),
+ * independent of the global `respectCmsLazy` config — the per-section opt-in
+ * for async-rendering a single heavy section (e.g. a PLP grid) without
+ * turning on deferral site-wide. Bots stay eager via the `isBotReq`
+ * short-circuit in {@link shouldDeferSection}.
+ */
+export function registerAlwaysDeferSections(keys: string[]): void {
+  G.__deco.alwaysDeferSectionKeys ??= new Set();
+  const set: Set<string> = G.__deco.alwaysDeferSectionKeys;
+  for (const k of keys) set.add(k);
+}
+
+function isAlwaysDeferSection(key: string): boolean {
+  return (G.__deco.alwaysDeferSectionKeys as Set<string> | undefined)?.has(key) ?? false;
+}
+
+// ---------------------------------------------------------------------------
 // Deferred rawProps cache — keeps rawProps server-side to trim HTML payload
 // ---------------------------------------------------------------------------
 
@@ -1496,6 +1518,12 @@ export function shouldDeferSection(
 
   const finalKey = resolveFinalSectionKey(section, matcherCtx);
   if (!finalKey) return false;
+
+  // ── PER-SECTION FORCE-DEFER (`export const deferred = true`) ───────────────
+  // Explicit code-level opt-in to defer one section regardless of the global
+  // `respectCmsLazy` config — lets a site async-render a single heavy section
+  // without a site-wide skeleton sweep. Bots already returned eager above.
+  if (isAlwaysDeferSection(finalKey)) return true;
 
   // ── ADMIN IS THE SOURCE OF TRUTH ──────────────────────────────────────────
   // If the editor marked the section ⚡ (wrapped in CMS Lazy/Deferred at any

@@ -119,9 +119,14 @@ describe("generate-sections default output path (.deco/)", () => {
     expect(fs.existsSync(newDefault)).toBe(true);
     expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
 
-    // Old file must be kept in sync so mid-migration imports still work.
+    // Old file is kept in sync as a re-export shim (NOT a verbatim copy — a
+    // byte copy would carry `.deco/`-relative import paths that break at the
+    // deeper legacy location). It re-exports the new file so mid-migration
+    // imports still resolve at any depth.
     const oldDefault = path.join(tmpDir, "src", "server", "cms", "sections.gen.ts");
-    expect(fs.readFileSync(oldDefault, "utf-8")).toContain("site/sections/Hero.tsx");
+    const oldContent = fs.readFileSync(oldDefault, "utf-8");
+    expect(oldContent).toContain('export * from "../../../.deco/sections.gen"');
+    expect(oldContent).not.toContain("site/sections/Hero.tsx");
   }, 30_000);
 
   it("does not warn when an explicit --out-file is passed, even if the OLD default file exists", () => {
