@@ -682,3 +682,105 @@ Measured on `espacosmart-storefront`:
 - [ ] Verify with `curl` that bots get full eager pages
 - [ ] Measure payload reduction with `curl -o /dev/null -w "%{size_download}"`
 - [ ] Run dev mode and fix all red "Missing LoadingFallback" warnings
+
+---
+
+## #52 Fresh-era 3-arg section loaders (`props, req, ctx`) silently never receive `ctx` — no error, no log
+
+**Severity**: BLOCKER — resolves to unenriched/default props on every request, across every migrated site, with zero signal.
+
+`SectionLoaderFn` in `@decocms/blocks/cms/sectionLoaders.ts` is `(props, req) => ...` — 2 arguments, no `ctx`. Fresh-era loaders carried over as `(props, req, ctx) => ({ ...props, device: ctx.device })` (or reading `ctx.invoke`, `ctx.get`) always resolve `ctx` as `undefined`. `runSingleSectionLoaderImpl` wraps every loader call in a try/catch, so the resulting crash (or silent `ctx.device` → `undefined`) never surfaces anywhere — the section just renders with default/empty values.
+
+**Symptom**: CMS content doesn't enrich props; device-conditional rendering always picks one branch; a component that reads a ctx-provided flag behaves as if the flag is always off. On farmrio this was the root cause of a **site-wide dead legal-compliance cookie-consent banner** (OneTrust/Optanon never rendered anywhere, `isProduction` always `undefined`) and of `BannerCollection.tsx` always serving the desktop image to mobile UAs.
+
+**Fix** — rewrite the ctx-dependent line to a ctx-free equivalent, reusing the framework's own primitives instead of inventing new ones:
+
+```typescript
+// Before (dead — ctx is always undefined)
+export const loader = (props, req, ctx) => ({ ...props, device: ctx.device });
+
+// After
+import { detectDevice } from "@decocms/blocks/sdk/useDevice";
+export const loader = (props, req) => ({
+  ...props,
+  device: detectDevice(req.headers.get("user-agent")),
+});
+```
+
+Other `ctx.*` replacements found across the farmrio sweep: `ctx.get/invoke({__resolveType})` → `resolveValue({__resolveType, ...}, undefined, {userAgent, url, path, request})` from `@decocms/blocks/cms`; `ctx.invoke.vtex.loaders/actions.X` → the direct function export from `@decocms/apps-vtex`.
+
+**Discovery command**:
+```bash
+grep -rn "^export \(const\|function\|async function\) loader" src | grep -E "\(props.*req.*ctx"
+```
+Cross-reference each match's real CMS key (see #53 — file path and registration key can diverge) against `.deco/blocks.gen.json` and the `registerSectionLoaders(...)` call in `src/setup/section-loaders.ts` before assuming a fix landed.
+
+**Empirical evidence (farmrio-storefront)**: repo-wide sweep of ~28 candidate files found 18 confirmed live bugs, including a site-wide dead cookie-consent banner and 4 independent `ctx.device`/`ctx.isMobile` occurrences on eager-rendered sections. See `migration/learnings/T42.md`, `T41.md`.
+
+**Proposed codemod** (`packages/blocks-cli`): AST walk for arrow/function `loader` exports of arity 3, cross-reference the resolved section key against `registerSectionLoaders` calls, flag any 3-arg loader whose resolved key is unregistered or whose `ctx` param is read. Would have caught all 28 candidate files at migration time instead of via a manual sweep.
+
+---
+
+## #53 CMS section registration key can differ from the component's file path
+
+**Severity**: MEDIUM — makes a "fix" for #52 silently re-create the exact same bug if the wrong key is used.
+
+`registerSectionLoaders()`/`withSectionLoader()` key on the component's CMS `__resolveType`, not its file path. A component can live at `src/components/ui/alert/Alert.tsx` but resolve under `"site/sections/Content/Alert.tsx"` — guessing the key from the file path silently recreates the exact same "loader never runs" failure mode as #52, with the same zero-error signature.
+
+**Fix**: before registering, check the component's actual resolveType:
+```bash
+grep -n "Alert.tsx" .deco/blocks.gen.json
+```
+Register under whatever string appears as `__resolveType`, not the file's on-disk path.
+
+**Discovery command**: diff every loader-exporting file's path against its real `__resolveType` in `.deco/blocks.gen.json` before wiring a registration.
+
+**Empirical evidence (farmrio-storefront)**: found during the same 28-file #52 sweep; also found a component (`OrderStatus.tsx`) that was never a CMS section at all (absent from `blocks.gen.json` entirely) — `registerSectionLoaders` can never make that one run, regardless of key. See `migration/learnings/T42.md`.
+
+---
+
+## #54 A resolved nested `Section`'s `.Component` is a **string**, never a function — `typeof Component === "function"` is always false
+
+**Severity**: HIGH — silently drops entire conditional/nested render branches; recurred independently across at least 6 files in one migration.
+
+Some Fresh→React ports of a nested-`Section[]`-rendering component guard with `.filter((s) => typeof s?.Component === "function")` before rendering `<Component {...props} />` directly — a defensive pattern usually added to avoid an earlier SSR crash from rendering an unresolved string as a JSX tag. In this resolver, a resolved section's `Component` field is the manifest **registry key string**, never an actual function reference — so the filter always evaluates false and the branch always renders empty, with no error.
+
+**Fix**: don't gate on `typeof`, and don't render `Component` directly — filter falsy values and delegate to the framework's own section renderer:
+```tsx
+// Before — always false, entire branch silently dropped
+sections.filter((s) => typeof s?.Component === "function")
+  .map((s) => <s.Component {...s.props} />)
+
+// After
+sections.filter(Boolean)
+  .map((s, i) => <RenderSection key={i} section={s} />)
+```
+
+**Discovery command**:
+```bash
+rg "typeof.*Component.*===.*[\"']function[\"']" src --type ts
+```
+
+**Empirical evidence (farmrio-storefront)**: found independently in `SearchContainer.tsx` (search empty-state, T44), `Layout/Flex.tsx` (PLP controls block missing site-wide, T58), and `Header.tsx`'s `CountdownComponent` guard (T62) — plus 3 further latent occurrences found by a repo-wide sweep (`List/Sections.tsx`, `Gallery.tsx`, `Layout/Container.tsx`, `Animation/Animation.tsx`), all fixed the same way and verified via `vite preview` + Playwright with zero console errors before/after. See `migration/learnings/T44.md`, `T58.md`, `T62.md`.
+
+**Proposed codemod** (`packages/blocks-cli`): flag `typeof <expr>.Component === "function"` / `typeof <expr> === "function"` guards on a value that originates from CMS section resolution — this pattern is categorically dead in every version of this resolver.
+
+---
+
+## #73 Section loaders have no sink for response mutation — no cookies, no headers, no redirects
+
+**Severity**: HIGH — Fresh-era loader logic that forced a redirect or set a response cookie/header has no restoration path today, not even after fixing #52's `ctx` arity.
+
+`RequestContext.responseHeaders` (`@decocms/blocks/sdk/requestContext.ts`) exists and is populated during section-loader execution (`RequestContext.run()` wraps it in `@decocms/tanstack`'s `workerEntry.ts`), but nothing in the full-page SSR render path reads it back into the outgoing `Response` — only the generated `src/server/invoke.gen.ts` client-invoke/action path consumes it. Separately, `~/types/deco`'s `redirect()` is a hard-coded stub that throws `"redirect is not supported in TanStack Start — use router navigation instead."`
+
+**Symptom**: a section loader that used to call `setResponseCookie(...)`/`ctx.response.headers.append(...)` for a real purpose (sticky popup dismissal, analytics cookie, `Link: rel=preload`) or force a campaign-takeover redirect has no way to do either on initial page load — silently a no-op, not an error.
+
+**Discovery command**:
+```bash
+grep -rn "responseHeaders" node_modules/@decocms/blocks node_modules/@decocms/tanstack
+grep -rn "not supported in TanStack Start" node_modules -r
+```
+
+**Fix**: none available in site code today. Proposed upstream (either would close the gap): (a) have the TanStack Start page-render route copy `RequestContext.responseHeaders` into its `Response` before returning, mirroring what `invoke.gen.ts` already does for the action path; or (b) a documented `withResponseHeaders`/`withRedirect` mixin so authors discover the missing capability explicitly instead of via a silent no-op.
+
+**Empirical evidence (farmrio-storefront)**: 3 affected files found in one sweep (`FarmetePopup.tsx`, `Analytics/AllPages.tsx`, `Theme/Fonts.tsx`) plus 2 dead `redirect()` branches in a campaign-takeover component (`Tapume.tsx`) — none restorable within a section loader on the current framework version. See `migration/learnings/T42.md`.

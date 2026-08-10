@@ -1007,3 +1007,20 @@ export default defineConfig({
 - **Fix #1 (`esbuildOptions.jsx: "automatic"`)**: `@decocms/start` ships raw `.tsx` source. Vite's esbuild pre-bundler uses the classic transform by default. `jsx: "automatic"` makes it emit `import { jsx } from "react/jsx-runtime"` instead of `React.createElement`.
 - **Fix #2 (virtual module fallback)**: The import chain `cmsRoute.ts → @tanstack/react-start → @tanstack/start-server-core → router-manifest.js` reaches the client bundle. The `tanstack-start-injected-head-scripts:v` virtual is registered with `applyToEnvironment: server` only.
 - **Fix #3 (dedupe)**: Prevents duplicate TanStack instances when hoisting from peer deps.
+
+---
+
+## #72 `sitemap.xml` is not wired by default — must be manually connected to `worker-entry.ts`
+
+**Severity**: HIGH (SEO) — 404 on `/sitemap.xml`, easy to miss since it's not a page a human clicks through during manual QA.
+
+TanStack has no native sitemap renderer — a Fresh/Deco site got this free from the `website`/`commerce` apps. The pieces exist in the installed packages (`@decocms/apps-vtex/utils/sitemap.ts`'s `createVtexSitemapProxy()`, `@decocms/blocks/sdk/sitemap.ts`'s `getCMSSitemapEntries()`/`generateSitemapXml()`) but are never auto-wired into `worker-entry.ts`'s `proxyHandler`.
+
+**Fix**: wire `createVtexSitemapProxy()` plus a `/sitemap/deco.xml` route as an `extraSitemaps` entry, matching the source site's sitemap index structure.
+
+**Discovery command**:
+```bash
+curl -sI <candidate>/sitemap.xml   # run early in any migration, before it's forgotten
+```
+
+**Empirical evidence (farmrio-storefront)**: without the fix, 11 journey pages (lookbook, institucional, parcerias, farm-etc/*) were missing from the candidate sitemap per a `sitemap-priority-pages` parity check. See `migration/learnings/T22.md`.

@@ -272,3 +272,79 @@ Tailwind v4 only allows `@apply` to reference *utility classes* (built-ins or th
 ```
 
 Then `@apply container-pdp` works, and so do variants (`hover:container-pdp`).
+
+---
+
+## #65 Theme-conversion mismaps DaisyUI semantic color slots — inverted `base-100`, invented `accent`, missed source-field rename
+
+**Severity**: HIGH — visually wrong theme (e.g. black header/dark-purple footer instead of white/white) shipped through 3 separate migration targets before being caught, since no build/type/parity-exit gate checks color values.
+
+Converting a source `Theme.tsx` (`mainColors`/`complementaryColors`) into a `@plugin "daisyui/theme"` block is a manual value-by-value mapping with no schema enforcement — slots can silently mismap (`base-100` inverted white↔near-black, an `accent` value invented where the source defines none). The non-obvious trap: the source theme may rename its "Accent" field internally (e.g. `mainColors.tertiary` feeding DaisyUI's `--a` slot) — so the correct source value isn't discoverable under any key literally named `accent`.
+
+**Fix**: reconcile every DaisyUI color slot in `app.css` against the source theme block field-by-field, explicitly checking for renamed fields rather than assuming a name match:
+```diff
+- --color-base-100: oklch(0.09 0 0);   /* #09090b — wrong, inverted */
++ --color-base-100: oklch(1 0 0);       /* #ffffff — from source mainColors.base100 */
+- --color-accent: oklch(0.32 0.05 330); /* #513448 — invented, no source field */
++ --color-accent: <value from source mainColors.tertiary>;  /* renamed field */
+```
+
+**Discovery command**: diff every `mainColors`/`complementaryColors` key in the source Theme block against the generated `--color-*` custom properties in `app.css`; flag any generated color with no traceable source origin.
+
+**Empirical evidence (farmrio-storefront)**: full before/after slot table (base-100, base-300, primary, neutral, accent) confirmed the mismap; shipped `done` through T10/T15/T16 before caught in T27. See `migration/learnings/T27.md`.
+
+**Proposed audit rule** (`packages/blocks-cli`): a theme-conversion check that flags any generated `--color-*` value with no traceable 1:1 source field, and separately flags any `--color-*` value with no source field at all (item #66 below covers where those extras come from).
+
+---
+
+## #66 DaisyUI v5's default plugin config silently bundles a second dark theme via `prefers-color-scheme` — invisible without forcing dark colorScheme
+
+**Severity**: HIGH — a "fixed" theme (per #65) can still render with the wrong colors in any headless/browser context with a dark OS/browser preference, looking exactly like the fix didn't take.
+
+`@plugin "daisyui";` with no explicit `themes:` config uses DaisyUI v5's default theme set, which bundles a second theme (`dark --prefersdark`) applied via `@media (prefers-color-scheme: dark)`. Any visitor or headless testing tool with a dark-mode preference gets DaisyUI's stock dark palette as a full override — not a per-color diff, an entire theme swap. Fresh/Deco sites typically have no equivalent failure mode: `Theme.tsx` injects colors via an inline `<style>` tag on `:root`, and inline styles always beat an external stylesheet's media-query rule regardless of `prefers-color-scheme`.
+
+**Fix**: pin the theme explicitly whenever the source site has no dark-mode UI of its own:
+```css
+@plugin "daisyui" {
+  themes: light --default;
+}
+```
+
+**Discovery command**:
+```bash
+grep -c "prefers-color-scheme" dist/**/*.css
+```
+Or screenshot the same build under a browser context forced to `colorScheme: 'dark'` vs `'light'` and diff.
+
+**Empirical evidence (farmrio-storefront)**: compiled CSS had 3 duplicate `--color-accent` declarations — 1 correct (`#fff`), 2 stock-DaisyUI teal `oklch(...)` values inside the dark media block. Found in the same investigation as #65. See `migration/learnings/T27.md`.
+
+---
+
+## #67 A CLS-safety-net fallback aspect ratio for banners with missing CMS dimensions forces a portrait crop onto wide banners
+
+**Severity**: MEDIUM — silent, no error; produces an unreadable sliver of a wide title/CTA banner instead of a visible layout shift, so it can go unnoticed longer than the CLS regression it was designed to prevent.
+
+A `DEFAULT_ASPECT_RATIO` fallback (e.g. `"3 / 4"`) applied whenever CMS content omits `width`/`height` is a reasonable CLS safety net for near-square source images, but an ultra-wide title/CTA banner (e.g. 1920×150, 1920×960) forced through a 3:4 box gets `object-cover`-zoomed 10-13x, showing only a fragment of the text/image.
+
+**Fix**: the fallback logic itself is correct — the durable fix is populating the missing `width`/`height` in CMS content, not changing the fallback ratio (a single ratio can never be right for both near-square banners and wide title strips). For bulk backfill, parse the real dimensions directly from each image's own file header rather than guessing or screenshotting:
+
+```typescript
+// Bulk image-dimension backfill — walks every image field missing width/height,
+// fetches the file once, and reads its intrinsic size from the JPEG SOF0 marker
+// or PNG IHDR chunk, then writes width/height back into the CMS content JSON.
+async function getIntrinsicDimensions(url: string): Promise<{ width: number; height: number }> {
+  const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  // PNG: IHDR chunk at fixed offset; JPEG: walk markers to SOF0 (0xFFC0)
+  // ...
+}
+```
+
+**Discovery command**:
+```bash
+grep -rn 'DEFAULT_ASPECT_RATIO\|aspectRatio ??' src/components   # find the fallback site
+grep -c '"width"' .deco/blocks/*.json   # cross-reference against actual image headers to find un-backfilled content
+```
+
+**Empirical evidence (farmrio-storefront)**: hand-patched 2 banners on one page (before: forced `height:1920` at `width:1440`; after: natural `height:112.5`); scaled to 108 image fields across a full page via the header-parsing script (page height 16385px → 6446px desktop / 5684px mobile, matching prod's ~6594-8919px range). See `migration/learnings/T67.md`, `T68.md`.
+
+**Proposed codemod** (migrator tooling, `packages/blocks-cli`): "backfill missing image dimensions from source headers" as a generic migration-time step — parses real dimensions once per unique URL rather than leaving every CMS-authored image without explicit `width`/`height` to hit this fallback one page at a time.

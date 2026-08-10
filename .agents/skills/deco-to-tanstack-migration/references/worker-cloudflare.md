@@ -326,3 +326,82 @@ the OTel collector gateway lands (Worker → OTLP/HTTP → collector →
 ClickHouse), this file will get the real exporter wiring back. Site
 code never wires it today; the symbol exists only so the future API
 surface is committed.
+
+---
+
+## #68 Cloudflare Workers Static Assets bypasses in-worker `Cache-Control` logic for matched asset paths
+
+**Severity**: HIGH — fingerprinted static assets (JS/CSS bundles) served with platform-default headers instead of the intended `immutable, max-age=31536000`, silently failing a cache-coverage check.
+
+Cloudflare Workers Static Assets serves matched files (e.g. `/assets/*`) from its own asset-serving layer **before** the Worker's `fetch()` runs, using Cloudflare's own platform-default headers — in-worker header logic (e.g. an `isStaticAsset()` branch explicitly setting `immutable`) never executes for those requests, regardless of how correct the code looks.
+
+**Fix**: set the header at the infrastructure level instead of in-worker — a `public/_headers` file (Cloudflare Pages/Workers convention):
+```
+/assets/*  Cache-Control: public, max-age=31536000, immutable
+```
+
+**Discovery command**:
+```bash
+curl -sI <deployed-url>/assets/<fingerprinted-file>.js   # run twice, check CF-Cache-Status and Cache-Control
+```
+MISS→HIT with the wrong `Cache-Control` header confirms the platform bypass (not a code bug in the Worker).
+
+**Empirical evidence (farmrio-storefront)**: a 1.4MB `vendor-router-*.js` chunk flagged by a `cache-coverage` parity check despite code explicitly intending an immutable header; verified MISS→HIT with the correct header after adding `public/_headers`. See `migration/learnings/T22.md`.
+
+---
+
+## #69 Device-segmented edge-cache background revalidation appears to lose the triggering request's User-Agent, poisoning the wrong device segment
+
+**Severity**: HIGH — cross-cutting: affects every section loader using `withDevice()`/`withMobile()`, site-wide, wherever this response cache layer is active.
+
+A response cache keyed with a device segment (`x-cache-segment: mobile|desktop`, derived from User-Agent) plus `stale-while-revalidate` can, under investigation, show the raw SSR `<img>`/device-conditional attributes flip from correct-for-segment to the *other* segment's content over time on the same cached URL — while end-user visual rendering stays correct throughout (client-side `<picture>`/`<source>` selection masks it). Leading hypothesis (not fully pinned to one line in `@decocms/tanstack`'s `workerEntry.ts` `revalidateInBackground()`): the SWR background-revalidation fetch for one segment doesn't preserve the original request's UA, resolves `device` on its own terms, and overwrites the cached entry for the wrong segment.
+
+**Symptom**: a `banner-aspect-ratio`-style check flips between correct and incorrect crop attributes across repeated checks of the same URL, non-deterministically, with no code change in between.
+
+**Fix**: none available at the app level — this is inside the shared caching-middleware layer (`@decocms/tanstack`), not `src/`. Workaround: `parity`'s `--warmup` flag (pre-fetches each URL with a cache-buster immediately before measurement) side-steps the flakiness for verification purposes without fixing the underlying mechanism.
+
+**Discovery command**:
+```bash
+rg "revalidateInBackground" node_modules/@decocms/tanstack/src/sdk/workerEntry.ts
+rg "isDevMode" node_modules/@decocms/blocks/sdk/env.ts   # confirm whether local dev actually bypasses this cache tier
+```
+
+**Empirical evidence (farmrio-storefront)**: reproduced non-deterministically via direct Playwright repro (fresh incognito-like `browser.newContext()` per check, device presets matching parity's own `VIEWPORT_PRESETS`) — correct on a fresh server, flipped to wrong after longer uptime, 3/3 repeat. A separate two-tier repro (isolated mechanism-level call to `createDecoWorkerEntry` with an in-memory `caches.default` polyfill, plus 8 sequential live checks spanning a STALE-HIT→HIT sequence) could **not** reproduce actual poisoning under controlled conditions — the live symptom is confirmed real, but the exact trigger remains only a leading hypothesis, not a pinned root cause. See `migration/learnings/T60.md`, `T65.md` (spun off to investigate further).
+
+---
+
+## #70 `registerCacheableSections()`'s cache key omits request-dependent context — no guard against device/cookie/geo cache poisoning if ever combined with a `withDevice()`/`withMobile()` loader
+
+**Severity**: HIGH if triggered — currently a dormant gap, not a reproduced bug in any known site today.
+
+`runCacheableSectionLoader()`'s cache key (`@decocms/blocks/src/cms/sectionLoaders.ts`, `sectionCacheKey(component, props)`) hashes only the section's CMS-resolved `props`, never the triggering `Request` (no UA, cookies, or geo) — a separate, in-process module-global cache tier from the edge HTTP cache (#69). `registerSectionLoaders()` already has a dev-mode guard warning when a `withDevice()`/`withMobile()`/`withSearchParam()`-tagged loader (`__requestDependent`) is also registered as a layout section — but there is no equivalent guard for `registerCacheableSections()`. If a section is ever registered via both a request-dependent mixin AND `registerCacheableSections()`, the first request's resolved props get cached and served to every other device/cookie/geo variant until stale — the same bug *class* as the already-fixed `layoutCacheRace` bug (`@decocms/blocks` 6.12.1→6.12.2), in a different cache tier.
+
+**Discovery command**:
+```bash
+rg "registerCacheableSections\(" src/setup/section-loaders.ts
+rg "withDevice\(|withMobile\(|withSearchParam\(" src/setup/section-loaders.ts   # flag any component name appearing in both lists
+```
+
+**Fix**: none applied — confirmed dormant on the one repo checked (no component was registered via both mechanisms). Proposed upstream: extend `registerSectionLoaders()`'s existing dev-mode `__requestDependent` warning to also fire when a request-dependent loader is registered via `registerCacheableSections()`, mirroring the existing layout-section guard.
+
+**Empirical evidence (farmrio-storefront)**: confirmed dormant — the one section registered via `registerCacheableSections()` (`Organization.tsx`, 24h TTL) uses no request-dependent mixin; every `withDevice`/`withMobile` site in the file was confirmed not also cacheable-registered. See `migration/learnings/T65.md`.
+
+---
+
+## #71 Server-only secret/credential code is reachable from the client bundle via the generated invoke dispatch table
+
+**Severity**: BLOCKER (security) — full OAuth/JWT mechanism (or, in one instance, literal secret material) shipped to every visitor's browser bundle.
+
+`src/setup.ts` imports the CMS dynamic-import dispatch registry (`.deco/loaders.gen.ts`) unconditionally, and it's pulled in by an isomorphic router used by both client and server entries. Vite code-splits the dynamic `import()` into its own chunk but still must emit it into `dist/client` because the import is reachable from the client build graph — even though nothing client-side actually calls it (the client only POSTs to `/deco/invoke/...`). Any action/loader reachable through this generic invoke-by-dotted-path table, if it does module-level secret reads, ships to the client bundle.
+
+**Symptom**: `grep` of `dist/client/assets/*.js` matches secret-shaped strings (`BEGIN PRIVATE KEY`, an OAuth/JWT library's internals, or literal admin credentials baked in as source-level constants by the dispatch table) — even when no literal key bytes are present, the entire mechanism (endpoint, algorithm, credential variable names) is exposed to client-side reconnaissance.
+
+**Fix**: convert affected actions to `createServerFn` entries — TanStack's compiler strips handler bodies from the client bundle by design, replacing them with a thin RPC stub. For entries that can't be converted immediately, exclude them from the dispatch table via `generate-loaders.ts`'s `--exclude` flag.
+
+**Discovery command**:
+```bash
+grep -rlE "BEGIN PRIVATE KEY|SecretLoader|process\.env\.\w*(SECRET|TOKEN|KEY|PASSWORD)" dist/client   # after `npm run build`
+```
+Also grep every `site/actions/*`/`site/loaders/*` entry in `.deco/loaders.gen.ts` for module-level secret-reading calls.
+
+**Empirical evidence (farmrio-storefront)**: found independently twice — a Google Vertex AI OAuth/JWT code path (`tryOn-*.js` chunk disappeared from `dist/client`, stayed under `dist/server` post-fix) and a third-party admin email + encrypted password embedded as source-level constants (two entries added to the `--exclude` list; grep across `dist/client` JS+sourcemaps clean post-fix). See `migration/learnings/T18.md`, `T19.md`.
