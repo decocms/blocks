@@ -188,7 +188,7 @@ for (let i = 0; i < syncEntries.length; i++) {
   const e = syncEntries[i];
   const importPath = relativeImportPath(outFile, e.filePath);
   const varName = `_sync${i}`;
-  lines.push(`import * as ${varName} from "${importPath}";`);
+  lines.push(`import * as ${varName} from ${JSON.stringify(importPath)};`);
 }
 
 // LoadingFallback imports — sections with LoadingFallback that aren't sync-imported
@@ -196,7 +196,7 @@ const nonSyncFallbacks = fallbackEntries.filter((e) => !e.meta.sync);
 for (let i = 0; i < nonSyncFallbacks.length; i++) {
   const e = nonSyncFallbacks[i];
   const importPath = relativeImportPath(outFile, e.filePath);
-  lines.push(`import { LoadingFallback as _fb${i} } from "${importPath}";`);
+  lines.push(`import { LoadingFallback as _fb${i} } from ${JSON.stringify(importPath)};`);
 }
 
 lines.push("");
@@ -221,10 +221,13 @@ lines.push("}");
 lines.push("");
 lines.push("export const sectionMeta: Record<string, SectionMetaEntry> = {");
 for (const e of entries) {
+  // JSON.stringify both the meta values and the section key so a hostile
+  // section filename or `@cache` annotation cannot break out of the generated
+  // string literal. Field names (`k`) are fixed SectionMetaEntry keys.
   const props = Object.entries(e.meta)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? `"${v}"` : v}`)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
     .join(", ");
-  lines.push(`  "${e.key}": { ${props} },`);
+  lines.push(`  ${JSON.stringify(e.key)}: { ${props} },`);
 }
 lines.push("};");
 lines.push("");
@@ -233,7 +236,7 @@ lines.push("");
 if (syncEntries.length > 0) {
   lines.push("export const syncComponents: Record<string, any> = {");
   for (let i = 0; i < syncEntries.length; i++) {
-    lines.push(`  "${syncEntries[i].key}": _sync${i},`);
+    lines.push(`  ${JSON.stringify(syncEntries[i].key)}: _sync${i},`);
   }
   lines.push("};");
 } else {
@@ -248,10 +251,10 @@ if (allFallbacks.length > 0) {
   for (const e of allFallbacks) {
     if (e.meta.sync) {
       const syncIdx = syncEntries.indexOf(e);
-      lines.push(`  "${e.key}": _sync${syncIdx}.LoadingFallback,`);
+      lines.push(`  ${JSON.stringify(e.key)}: _sync${syncIdx}.LoadingFallback,`);
     } else {
       const fbIdx = nonSyncFallbacks.indexOf(e);
-      lines.push(`  "${e.key}": _fb${fbIdx},`);
+      lines.push(`  ${JSON.stringify(e.key)}: _fb${fbIdx},`);
     }
   }
   lines.push("};");
@@ -277,7 +280,7 @@ if (EMIT_REGISTRY) {
   for (const filePath of sectionFiles) {
     const rel = path.relative(sectionsDir, filePath).replace(/\\/g, "/");
     const importPath = relativeImportPath(outFile, filePath);
-    lines.push(`  "./sections/${rel}": () => import("${importPath}"),`);
+    lines.push(`  ${JSON.stringify(`./sections/${rel}`)}: () => import(${JSON.stringify(importPath)}),`);
   }
   lines.push("};");
 }

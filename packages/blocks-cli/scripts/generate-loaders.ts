@@ -230,22 +230,25 @@ lines.push(
 // `(props, req, ctx)` Fresh/Deno loaders still type-check. Any ctx-dependent
 // path in the loader body throws at runtime and must be refactored.
 for (const entry of entries) {
+  // Emit every filename-derived value via JSON.stringify so a hostile file name
+  // (containing `"`, `)`, `;`, a newline, ...) cannot break out of the string
+  // literal into executable generated code. For ordinary paths the output is
+  // byte-identical to a plain double-quoted string.
+  const keyLit = JSON.stringify(entry.key);
+  const aliasLit = JSON.stringify(`${entry.key}.ts`);
+  const importLit = JSON.stringify(entry.importPath);
   if (entry.kind === "loader") {
     // Both alias keys share the same dedup namespace (the non-.ts name) so a
     // render that references either collapses onto one in-flight call.
-    lines.push(
-      `  "${entry.key}": createLoaderEntry("${entry.key}", () => import("${entry.importPath}")),`,
-    );
-    lines.push(
-      `  "${entry.key}.ts": createLoaderEntry("${entry.key}", () => import("${entry.importPath}")),`,
-    );
+    lines.push(`  ${keyLit}: createLoaderEntry(${keyLit}, () => import(${importLit})),`);
+    lines.push(`  ${aliasLit}: createLoaderEntry(${keyLit}, () => import(${importLit})),`);
   } else {
-    lines.push(`  "${entry.key}": async (props: any, request?: Request) => {`);
-    lines.push(`    const mod = await import("${entry.importPath}");`);
+    lines.push(`  ${keyLit}: async (props: any, request?: Request) => {`);
+    lines.push(`    const mod = await import(${importLit});`);
     lines.push("    return (mod.default as any)(props, request);");
     lines.push("  },");
-    lines.push(`  "${entry.key}.ts": async (props: any, request?: Request) => {`);
-    lines.push(`    const mod = await import("${entry.importPath}");`);
+    lines.push(`  ${aliasLit}: async (props: any, request?: Request) => {`);
+    lines.push(`    const mod = await import(${importLit});`);
     lines.push("    return (mod.default as any)(props, request);");
     lines.push("  },");
   }
