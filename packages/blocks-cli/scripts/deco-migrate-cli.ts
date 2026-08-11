@@ -152,58 +152,81 @@ function extractRepoName(source: string): string {
   return base || "site";
 }
 
-function run(cmd: string, cwd?: string, label?: string): boolean {
-  if (label) console.log(`  ${dim("$")} ${dim(cmd)}`);
-  try {
-    execSync(cmd, {
-      cwd,
-      stdio: label ? "pipe" : "inherit",
-      timeout: 120_000,
-    });
+/**
+ * Run an external program WITHOUT a shell — `file` + `args` are passed straight
+ * to execve, so no argument is ever re-parsed for `;`, `|`, `$(...)`, backticks,
+ * whitespace, etc. Every command whose arguments derive from untrusted input
+ * (repo URLs, branch names, source paths) MUST go through here, never through a
+ * shell-interpolated string.
+ */
+function runArgv(file: string, args: string[], cwd?: string, label?: string): boolean {
+  if (label) console.log(`  ${dim("$")} ${dim([file, ...args].join(" "))}`);
+  const result = spawnSync(file, args, {
+    cwd,
+    stdio: label ? "pipe" : "inherit",
+    timeout: 120_000,
+    shell: false, // explicit: never interpret arguments through a shell
+  });
+  if (result.status === 0) {
     if (label) console.log(`  ${icons.success} ${label}`);
     return true;
-  } catch (e: any) {
-    if (label) {
-      console.log(`  ${icons.error} ${label}: ${e.message?.split("\n")[0] || "failed"}`);
-    }
-    return false;
   }
+  if (label) {
+    const msg = result.error?.message || result.stderr?.toString().split("\n")[0] || "failed";
+    console.log(`  ${icons.error} ${label}: ${msg}`);
+  }
+  return false;
+}
+
+/**
+ * Build the argv for `git clone` as a discrete array. `source`, `dest`, and
+ * `branch` become individual argv elements, so shell metacharacters in any of
+ * them are inert — git receives them as literal, single arguments. Exported for
+ * the injection regression test.
+ */
+export function buildCloneArgs(source: string, dest: string, branch: string | null): string[] {
+  const args = ["clone", "--depth", "1"];
+  if (branch) args.push("--branch", branch);
+  args.push(source, dest);
+  return args;
+}
+
+/** Build the argv for the `rsync` copy. See buildCloneArgs for the rationale. */
+export function buildRsyncArgs(source: string, dest: string): string[] {
+  return [
+    "-a",
+    "--exclude=.git",
+    "--exclude=node_modules",
+    "--exclude=_fresh",
+    "--exclude=.wrangler",
+    `${source}/`,
+    `${dest}/`,
+  ];
 }
 
 function cloneRepo(source: string, dest: string, branch: string | null): boolean {
   console.log(`\n  Cloning ${cyan(source)}...`);
-  const branchArg = branch ? ` --branch ${branch}` : "";
-  const depthArg = " --depth 1";
-  const ok = run(
-    `git clone${depthArg}${branchArg} "${source}" "${dest}"`,
-    undefined,
-    "Clone repository",
-  );
+  const ok = runArgv("git", buildCloneArgs(source, dest, branch), undefined, "Clone repository");
   if (!ok) return false;
 
   // Strip remote to prevent accidental pushes
-  run(`git remote remove origin`, dest, "Remove git remote");
+  runArgv("git", ["remote", "remove", "origin"], dest, "Remove git remote");
   return true;
 }
 
 function copyLocal(source: string, dest: string): boolean {
   console.log(`\n  Copying ${cyan(source)} → ${cyan(dest)}...`);
-  try {
-    // Use cp -r, excluding .git and node_modules
-    execSync(
-      `rsync -a --exclude='.git' --exclude='node_modules' --exclude='_fresh' --exclude='.wrangler' "${source}/" "${dest}/"`,
-      { stdio: "pipe", timeout: 120_000 },
-    );
-    console.log(`  ${icons.success} Copied source directory`);
-
-    // Init fresh git so the migration has a clean baseline
-    run(`git init`, dest);
-    run(`git add -A && git commit -m "pre-migration snapshot" --allow-empty`, dest);
-    return true;
-  } catch (e: any) {
-    console.log(`  ${icons.error} Copy failed: ${e.message?.split("\n")[0]}`);
+  const copied = runArgv("rsync", buildRsyncArgs(source, dest), undefined, "Copy source directory");
+  if (!copied) {
+    console.log(`  ${icons.error} Copy failed`);
     return false;
   }
+
+  // Init fresh git so the migration has a clean baseline
+  runArgv("git", ["init"], dest);
+  runArgv("git", ["add", "-A"], dest);
+  runArgv("git", ["commit", "-m", "pre-migration snapshot", "--allow-empty"], dest);
+  return true;
 }
 
 function runMigration(
@@ -441,4 +464,17 @@ async function main() {
   console.log("");
 }
 
-main();
+/** True when this file is the process entry point (invoked directly, not imported). */
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === new URL(`file://${path.resolve(entry)}`).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  main();
+}
