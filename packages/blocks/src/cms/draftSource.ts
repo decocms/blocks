@@ -1,11 +1,12 @@
 /**
- * Draft preview — pull-based decofile override.
+ * Draft preview — pull-based decofile snapshot.
  *
- * A Studio preview serves the working-tree draft at
- * `GET <origin>/_sandbox/decofile`; a production site pulls it and renders its
- * own real pages against it. This replaces pushing the decofile into a POST
- * body, which only deco's own runtime honours — Next.js and most frameworks
- * render on GET only.
+ * Studio serves the draft decofile (the merged `.deco/blocks/*.json` at the
+ * branch head) from its decofile API
+ * (`GET <origin>/api/<org>/decofile/<virtualMcpId>/<branch>?token=…`); a
+ * production site pulls it and renders its own real pages against it. This
+ * replaces pushing the decofile into a POST body, which only deco's own
+ * runtime honours — Next.js and most frameworks render on GET only.
  *
  * This module is the framework-agnostic half: token parsing, origin
  * validation, fetching, and version caching. Binding a resolved draft to a
@@ -23,60 +24,83 @@
  */
 
 /**
- * A parsed `?__draft=` token: `<host[:port]>@<version>`.
+ * A parsed `?__draft=` token: `<host[:port]><path[?query]>@<version>`.
  *
- * The token carries the AUTHORITY of the draft content API, never a scheme or
- * path — a full URL would be an SSRF vector, and the scheme is derived from
- * the matched domain instead. Reserved evolution: a future signed token uses a
- * distinguishable prefix (e.g. `s1.`), so this strict two-part parse rejects
- * it cleanly rather than half-reading it.
+ * The token carries the AUTHORITY + PATH of the draft content API, never a
+ * scheme — a full URL would be an SSRF vector, and the scheme is derived from
+ * the matched domain instead. The path is REQUIRED and typically addresses
+ * Studio's decofile API (`/api/<org>/decofile/<virtualMcpId>/<branch>?token=…`);
+ * its query carries the signed draft grant.
  */
 export interface DraftPointer {
-  /** Content-API authority, e.g. `abc.preview-studio.decocms.com` or `abc.localhost:60534`. */
+  /** Content-API authority, e.g. `studio.decocms.com` or `localhost:4000`. */
   host: string;
-  /** Opaque content version (the server's ETag). Immutable → safe cache key. */
+  /** Path (+ query) on that authority serving the decofile JSON. */
+  path: string;
+  /** Opaque content version (the branch head sha / server ETag). Immutable → safe cache key. */
   version: string;
 }
 
-/** Lowercase DNS hostname, at least two labels (a bare label can't match any domain). */
+/** Lowercase DNS hostname. A single label is allowed — exact-host domain
+ * entries (`localhost`, `local.studio.decocms.com`) can admit it. */
 const HOST_RE =
-  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
 const PORT_RE = /^[0-9]{1,5}$/;
 const VERSION_RE = /^[A-Za-z0-9._-]{1,64}$/;
+/** Rooted path with an optional query; conservative charset, no `@`/`#`/space. */
+const PATH_RE = /^\/[A-Za-z0-9/_.%~=&?-]*$/;
 
 /**
- * Parse `<host[:port]>@<version>`. Null on anything unexpected — callers fall
- * back to published content. Requires EXACTLY one `@`: a naive split accepts
- * `a@b@c` and silently uses the first two segments.
+ * Parse `<host[:port]><path>@<version>`. Null on anything unexpected — callers
+ * fall back to published content. Splits on the LAST `@` (neither the path
+ * charset nor a signed token may contain one, so a stray `@` fails validation
+ * rather than being half-read).
  */
 export function parseDraftPointer(
   raw: string | null | undefined,
 ): DraftPointer | null {
   if (!raw) return null;
-  const parts = raw.split("@");
-  if (parts.length !== 2) return null;
-  const [authority, version] = parts;
-  if (!authority || !version || !VERSION_RE.test(version)) return null;
+  const at = raw.lastIndexOf("@");
+  if (at <= 0 || at === raw.length - 1) return null;
+  const authorityAndPath = raw.slice(0, at);
+  const version = raw.slice(at + 1);
+  if (!VERSION_RE.test(version)) return null;
 
-  const [host, port, extra] = authority.toLowerCase().split(":");
+  const slash = authorityAndPath.indexOf("/");
+  if (slash === -1) return null;
+  const authority = authorityAndPath.slice(0, slash).toLowerCase();
+  const path = authorityAndPath.slice(slash);
+  if (!PATH_RE.test(path)) return null;
+
+  const [host, port, extra] = authority.split(":");
   if (extra !== undefined) return null;
   if (!host || !HOST_RE.test(host)) return null;
   if (port !== undefined && !PORT_RE.test(port)) return null;
 
-  return { host: port === undefined ? host : `${host}:${port}`, version };
+  return {
+    host: port === undefined ? host : `${host}:${port}`,
+    path,
+    version,
+  };
 }
 
 /**
  * Domains the draft content API may live under — deco-operated, so shipping
  * them as defaults adds no SSRF surface. `DECO_PREVIEW_API_DOMAINS` overrides
- * the whole list when set. Entries are dot-prefixed suffixes, which guarantees
- * a label boundary on match (`evil-preview-studio.decocms.com` cannot pass).
+ * the whole list when set.
+ *
+ * Two entry shapes: a dot-prefixed entry is a suffix match with a guaranteed
+ * label boundary (`evil-decocms.com` cannot pass `.decocms.com`); a bare entry
+ * is an exact-host match (needed for `localhost` and dev origins, which no
+ * suffix can admit). Order matters only for the local/port rule: the first
+ * matching entry decides whether a port and `http` are allowed.
  */
 export const DEFAULT_PREVIEW_API_DOMAINS = [
-  ".preview-studio.decocms.com",
-  ".preview-studio-stg.decocms.com",
-  ".local.studio.decocms.com",
+  "local.studio.decocms.com", // native/web dev origin (http, explicit port)
+  "localhost",
+  "127.0.0.1", // loopback dev — `localhost` can resolve to a different (IPv6) server
   ".localhost",
+  ".decocms.com", // hosted Studio (decofile API) + preview daemons
 ];
 
 function readApiDomains(env: Record<string, string | undefined>): string[] {
@@ -103,13 +127,26 @@ export function previewApiOriginForHost(
 ): string | null {
   const [host, port] = authority.toLowerCase().split(":");
   if (!host) return null;
-  const domain = readApiDomains(envOrProcess(env)).find(
-    (d) => host.length > d.length && host.endsWith(d),
+  const domain = readApiDomains(envOrProcess(env)).find((d) =>
+    d.startsWith(".") ? host.length > d.length && host.endsWith(d) : host === d,
   );
   if (!domain) return null;
-  const local = domain.includes("localhost");
+  // Local entries may carry an explicit port; public domains may not (a
+  // public-domain token must not steer the fetch at odd ports).
+  const local =
+    domain === "localhost" ||
+    domain === "127.0.0.1" ||
+    domain.endsWith(".localhost") ||
+    domain === "local.studio.decocms.com";
   if (port !== undefined && !local) return null;
-  return `${local ? "http" : "https"}://${host}${port === undefined ? "" : `:${port}`}`;
+  // Scheme is derived, never taken from the token. Plain-loopback dev hosts
+  // are http; local.studio.decocms.com is the native app's TLS dev origin
+  // (locally-trusted cert), so it — like every public domain — is https.
+  const insecure =
+    domain === "localhost" ||
+    domain === "127.0.0.1" ||
+    domain.endsWith(".localhost");
+  return `${insecure ? "http" : "https"}://${host}${port === undefined ? "" : `:${port}`}`;
 }
 
 /**
@@ -217,7 +254,7 @@ export function clearDraftCache(): void {
 }
 
 export interface ResolveDraftOptions {
-  /** Raw `<host[:port]>@<version>` token from the request. */
+  /** Raw `<host[:port]><path>@<version>` token from the request. */
   pointer: string | null | undefined;
   /** Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
@@ -241,16 +278,18 @@ export async function resolveDraftDecofile(
   const parsed = parseDraftPointer(options.pointer);
   if (!parsed) return null;
 
-  const cached = byVersion.get(parsed.version);
-  if (cached) return cached;
-
+  // Origin validation BEFORE the cache: a cached version must never be served
+  // for a pointer whose authority the configuration would reject.
   const origin = previewApiOriginForHost(parsed.host, env);
   if (!origin) return null;
+
+  const cached = byVersion.get(parsed.version);
+  if (cached) return cached;
 
   const doFetch = options.fetchImpl ?? fetch;
   let res: Response;
   try {
-    res = await doFetch(`${origin}/_sandbox/decofile`, { cache: "no-store" });
+    res = await doFetch(`${origin}${parsed.path}`, { cache: "no-store" });
   } catch {
     return null;
   }
@@ -355,7 +394,12 @@ export async function resolveDraftForRequest(
 
 type DraftOverrideGetter = () => Record<string, unknown> | null | undefined;
 
-let getDraftOverride: DraftOverrideGetter = () => undefined;
+// globalThis-backed like the hosts above: bundlers can duplicate this module
+// across graphs (nested node_modules installs, RSC layer splits), and a getter
+// registered on one instance's module variable is invisible to the copy
+// `loadBlocks()` imports — the framework binding then resolves the draft while
+// the render silently serves published content.
+const GG = globalThis as { __decoDraftOverrideGetter?: DraftOverrideGetter };
 
 /**
  * Inject the request-scoped draft getter.
@@ -366,7 +410,7 @@ let getDraftOverride: DraftOverrideGetter = () => undefined;
  * Never called → returns undefined → `loadBlocks()` behaves exactly as before.
  */
 export function setDraftOverrideGetter(getter: DraftOverrideGetter): void {
-  getDraftOverride = getter;
+  GG.__decoDraftOverrideGetter = getter;
 }
 
 /** The current request's draft blocks, if a binding registered one. */
@@ -374,5 +418,5 @@ export function getRequestDraftOverride():
   | Record<string, unknown>
   | null
   | undefined {
-  return getDraftOverride();
+  return GG.__decoDraftOverrideGetter?.();
 }
