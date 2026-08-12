@@ -163,8 +163,11 @@ describe("resolveDraftDecofile", () => {
     });
 
     expect(blocks).toEqual({ "pages-home": { title: "draft" } });
+    // The pointer's version rides along as `v=`, making the URL fully
+    // content-addressed so Studio can answer with CDN-cacheable immutable
+    // headers when it matches the served sha.
     expect(calls).toEqual([
-      "https://studio.decocms.com/api/fila/decofile/vm-1/main?token=tok.abc",
+      "https://studio.decocms.com/api/fila/decofile/vm-1/main?token=tok.abc&v=v1",
     ]);
   });
 

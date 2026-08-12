@@ -287,9 +287,16 @@ export async function resolveDraftDecofile(
   if (cached) return cached;
 
   const doFetch = options.fetchImpl ?? fetch;
+  // The pointer's version rides along as `v=`: it makes the fetch URL fully
+  // content-addressed (path + token + version), which is what lets Studio
+  // answer with `immutable` caching headers a CDN can hold — the server only
+  // does so when `v` matches the sha it actually serves, so a stale pointer
+  // degrades to an uncached response rather than poisoning an edge entry.
+  const url = new URL(parsed.path, origin);
+  url.searchParams.append("v", parsed.version);
   let res: Response;
   try {
-    res = await doFetch(`${origin}${parsed.path}`, { cache: "no-store" });
+    res = await doFetch(url.toString(), { cache: "no-store" });
   } catch {
     return null;
   }
