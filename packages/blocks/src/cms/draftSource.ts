@@ -287,11 +287,14 @@ export async function resolveDraftDecofile(
   if (cached) return cached;
 
   const doFetch = options.fetchImpl ?? fetch;
-  // The pointer's version rides along as `v=`: it makes the fetch URL fully
-  // content-addressed (path + token + version), which is what lets Studio
-  // answer with `immutable` caching headers a CDN can hold — the server only
-  // does so when `v` matches the sha it actually serves, so a stale pointer
-  // degrades to an uncached response rather than poisoning an edge entry.
+  // The pointer's version rides along as `v=`, making the fetch URL fully
+  // content-addressed (path + token + version). Today the server serves it
+  // no-store either way — token-protected drafts are deliberately NOT
+  // shared-cacheable (edge caches can't re-validate the grant, so revocation
+  // wouldn't propagate). The param still earns its place: version-tagged
+  // access logs, and it's the prerequisite for edge-validated caching later
+  // (a CDN worker checking the token per request, keyed on path+version)
+  // without another runtime deploy.
   const url = new URL(parsed.path, origin);
   url.searchParams.append("v", parsed.version);
   let res: Response;
