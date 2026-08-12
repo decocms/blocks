@@ -13,6 +13,12 @@ import type { Product as ProductVTEX } from "../../utils/types";
 
 export interface ProductListProps {
 	props?: CollectionProps | QueryProps | ProductIDProps | FacetsProps;
+	/**
+	 * Include every SKU as a lean variant in each product's isVariantOf.hasVariant[]
+	 * so shelf cards can render the full size/color grid. Default false (lean shelf:
+	 * a single in-stock variant per product).
+	 */
+	completeVariants?: boolean;
 }
 
 interface CollectionProps {
@@ -139,7 +145,11 @@ export default async function vtexProductListShelf(
 			const preferredSku = fetchedSkus
 				? (p.items.find((item) => fetchedSkus.has(item.itemId)) ?? pickSku(p))
 				: pickSku(p);
-			return toProductShelf(p, preferredSku, 0, { baseUrl, priceCurrency: "BRL" });
+			return toProductShelf(p, preferredSku, 0, {
+				baseUrl,
+				priceCurrency: "BRL",
+				shelfCompleteVariants: props.completeVariants,
+			});
 		});
 
 		if (ids) {
