@@ -429,8 +429,7 @@ async function main() {
       console.log(`\n  ${bold("Next steps:")}`);
       console.log(`    cd ${outputDir}`);
       console.log(`    npm install`);
-      console.log(`    npm run generate:blocks`);
-      console.log(`    npm run generate:schema`);
+      console.log(`    npm run generate`);
       console.log(`    npx tsr generate`);
       console.log(`    npm run dev`);
     }

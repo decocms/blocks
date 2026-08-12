@@ -115,47 +115,8 @@ describe("generate-sections default output path (.deco/)", () => {
     const newDefault = path.join(tmpDir, ".deco", "sections.gen.ts");
     expect(fs.existsSync(newDefault)).toBe(true);
     expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
-    // No legacy file present, so no warning is expected.
+    // No legacy default path is written anymore, so no warning is expected.
     expect(stderr).not.toContain("Generator default output moved");
-  }, 30_000);
-
-  it("warns once to stderr naming both paths when the OLD default file exists and no --out-file is passed, but still writes the NEW default", () => {
-    const oldDefaultDir = path.join(tmpDir, "src", "server", "cms");
-    fs.mkdirSync(oldDefaultDir, { recursive: true });
-    fs.writeFileSync(path.join(oldDefaultDir, "sections.gen.ts"), "// stale\n");
-
-    const { code, stderr } = runGenerator([], { cwd: tmpDir });
-    expect(code).toBe(0);
-
-    expect(stderr).toContain("src/server/cms/sections.gen.ts");
-    expect(stderr).toContain(".deco/sections.gen.ts");
-    expect(stderr).toContain("Update importers to use the new path");
-
-    const newDefault = path.join(tmpDir, ".deco", "sections.gen.ts");
-    expect(fs.existsSync(newDefault)).toBe(true);
-    expect(fs.readFileSync(newDefault, "utf-8")).toContain("site/sections/Hero.tsx");
-
-    // Old file is kept in sync as a re-export shim (NOT a verbatim copy — a
-    // byte copy would carry `.deco/`-relative import paths that break at the
-    // deeper legacy location). It re-exports the new file so mid-migration
-    // imports still resolve at any depth.
-    const oldDefault = path.join(tmpDir, "src", "server", "cms", "sections.gen.ts");
-    const oldContent = fs.readFileSync(oldDefault, "utf-8");
-    expect(oldContent).toContain('export * from "../../../.deco/sections.gen"');
-    expect(oldContent).not.toContain("site/sections/Hero.tsx");
-  }, 30_000);
-
-  it("does not warn when an explicit --out-file is passed, even if the OLD default file exists", () => {
-    const oldDefaultDir = path.join(tmpDir, "src", "server", "cms");
-    fs.mkdirSync(oldDefaultDir, { recursive: true });
-    fs.writeFileSync(path.join(oldDefaultDir, "sections.gen.ts"), "// stale\n");
-
-    const explicitOut = path.join(tmpDir, "custom", "sections.gen.ts");
-    const { code, stderr } = runGenerator(["--out-file", explicitOut], { cwd: tmpDir });
-    expect(code).toBe(0);
-
-    expect(stderr).not.toContain("Generator default output moved");
-    expect(fs.existsSync(explicitOut)).toBe(true);
   }, 30_000);
 });
 

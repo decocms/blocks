@@ -33,10 +33,6 @@ import { fileURLToPath } from "node:url";
  *                 from disk with no runtime (FS-based Studio / Eitri stack).
  *   --framework   With --compose, the value written to the `framework` field
  *                 (default: "tanstack-start").
- *
- * If no `--out` is passed and the OLD default (src/server/admin/meta.gen.json)
- * still exists on disk, a one-line legacy warning is printed to stderr and the
- * NEW default is written anyway — see lib/legacyArtifact.ts.
  */
 import {
   type Symbol as MorphSymbol,
@@ -47,7 +43,6 @@ import {
   type Type,
 } from "ts-morph";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
-import { syncLegacyArtifact, warnLegacyArtifact } from "./lib/legacyArtifact";
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -56,12 +51,9 @@ import { syncLegacyArtifact, warnLegacyArtifact } from "./lib/legacyArtifact";
 // here) so that importing this module for its pure exports
 // (definitionIdForPath, applyWidgetFormat, typeToJsonSchema — see
 // generate-schema.test.ts) never reads argv or touches the filesystem.
-// Without the guard, every import used to run an `fs.existsSync` check
-// against the *importing process's* cwd and could print a legacy-artifact
-// warning to stderr as an import-time side effect, unrelated to whatever
-// the test actually wanted to exercise. generateMeta() (below) and the
-// final write are themselves only reached inside `if (isMainModule())`, so
-// these vars only need real values in that same case.
+// generateMeta() (below) and the final write are themselves only reached
+// inside `if (isMainModule())`, so these vars only need real values in that
+// same case.
 // ---------------------------------------------------------------------------
 const argv = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -70,7 +62,6 @@ function arg(name: string, fallback: string): string {
 }
 
 const NEW_DEFAULT_OUT_REL = ".deco/meta.gen.json";
-const OLD_DEFAULT_OUT_REL = "src/server/admin/meta.gen.json";
 
 let SITE_NAMESPACE = "site";
 let SITE_NAME = "storefront";
@@ -90,8 +81,6 @@ let COMPOSE = false;
 // Value written to the composed meta's `framework` field (only used with
 // --compose). Defaults to composeMeta's historical "tanstack-start".
 let FRAMEWORK = "tanstack-start";
-let _hasLegacySchema = false;
-let _oldSchemaPath = "";
 
 if (isMainModule()) {
   SITE_NAMESPACE = arg("namespace", SITE_NAMESPACE);
@@ -101,16 +90,10 @@ if (isMainModule()) {
   LOADERS_REL = arg("loaders", LOADERS_REL);
   APPS_REL = arg("apps", APPS_REL);
   SKIP_APPS = argv.includes("--skip-apps");
-  const outFileExplicit = argv.includes("--out");
   OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
   PLATFORM = arg("platform", PLATFORM);
   COMPOSE = argv.includes("--compose");
   FRAMEWORK = arg("framework", FRAMEWORK);
-  _oldSchemaPath = path.resolve(process.cwd(), OLD_DEFAULT_OUT_REL);
-  _hasLegacySchema = !outFileExplicit && fs.existsSync(_oldSchemaPath);
-  if (_hasLegacySchema) {
-    warnLegacyArtifact(OLD_DEFAULT_OUT_REL, NEW_DEFAULT_OUT_REL);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1541,7 +1524,6 @@ if (isMainModule()) {
     const outPath = path.resolve(process.cwd(), OUT_REL);
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
-    if (_hasLegacySchema) syncLegacyArtifact(_oldSchemaPath, outPath);
 
     const defCount = Object.keys(meta.schema.definitions).length;
     const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
