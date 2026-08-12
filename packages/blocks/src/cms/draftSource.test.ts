@@ -28,79 +28,94 @@ beforeEach(() => {
 });
 
 describe("parseDraftPointer", () => {
-  it("parses authority@version, lowercasing the authority", () => {
-    expect(parseDraftPointer("ABC.Preview-Studio.decocms.com@FF00")).toEqual({
-      host: "abc.preview-studio.decocms.com",
-      version: "FF00",
+  it("parses <authority><path>@<version>, lowercasing the authority", () => {
+    expect(
+      parseDraftPointer(
+        "Studio.decocms.com/api/fila/decofile/vm-1/main?token=Tok.abc@8c1d44e",
+      ),
+    ).toEqual({
+      host: "studio.decocms.com",
+      path: "/api/fila/decofile/vm-1/main?token=Tok.abc",
+      version: "8c1d44e",
     });
   });
 
-  it("keeps an explicit port on the authority", () => {
-    expect(parseDraftPointer("abc.localhost:60534@v1")).toEqual({
-      host: "abc.localhost:60534",
+  it("keeps an explicit port on the authority, incl. bare localhost", () => {
+    expect(parseDraftPointer("localhost:4000/api/o/decofile/m/b@v1")).toEqual({
+      host: "localhost:4000",
+      path: "/api/o/decofile/m/b",
       version: "v1",
     });
   });
 
-  it("rejects more than one @", () => {
-    // A naive split("@") accepts this and silently uses the first two
-    // segments — the exact hole found while spiking the fetch path.
-    expect(parseDraftPointer("a.example@b@c")).toBeNull();
+  it("splits on the LAST @ — an earlier @ fails validation, never half-reads", () => {
+    // The path charset excludes `@`, so a smuggled one lands in `path` and
+    // fails PATH_RE rather than shifting the version boundary.
+    expect(parseDraftPointer("a.example/x@y/z@v1")).toBeNull();
+    expect(parseDraftPointer("a@b@c")).toBeNull();
   });
 
-  it("rejects anything that could escape the authority", () => {
-    // No scheme, no path, no userinfo — the token carries an authority only,
-    // so `javascript:`/`file:`/full URLs fail structurally at parse time.
-    expect(parseDraftPointer("https://evil.example@v1")).toBeNull();
-    expect(parseDraftPointer("evil.example/x@v1")).toBeNull();
-    expect(parseDraftPointer("a.example:80:80@v1")).toBeNull();
-    expect(parseDraftPointer("a.example:abc@v1")).toBeNull();
-    expect(parseDraftPointer(".leading.dot@v1")).toBeNull();
-    expect(parseDraftPointer("bare-label@v1")).toBeNull();
+  it("requires a rooted path — authority-only tokens are gone", () => {
+    // Non-backcompat: the daemon-era `<authority>@<version>` form is invalid.
+    expect(parseDraftPointer("abc.preview-studio.decocms.com@v1")).toBeNull();
+    expect(parseDraftPointer("a.example@v1")).toBeNull();
+  });
+
+  it("rejects anything that could escape the authority or path", () => {
+    // No scheme, no userinfo, no fragment/space in the path — a full URL
+    // fails structurally at parse time.
+    expect(parseDraftPointer("https://evil.example/x@v1")).toBeNull();
+    expect(parseDraftPointer("a.example:80:80/x@v1")).toBeNull();
+    expect(parseDraftPointer("a.example:abc/x@v1")).toBeNull();
+    expect(parseDraftPointer(".leading.dot/x@v1")).toBeNull();
+    expect(parseDraftPointer("a.example/x#frag@v1")).toBeNull();
+    expect(parseDraftPointer("a.example/x y@v1")).toBeNull();
   });
 
   it("validates the version charset — it becomes a cache key", () => {
-    expect(parseDraftPointer("a.example@")).toBeNull();
-    expect(parseDraftPointer(`a.example@${"x".repeat(65)}`)).toBeNull();
-    expect(parseDraftPointer("a.example@v 1")).toBeNull();
+    expect(parseDraftPointer("a.example/x@")).toBeNull();
+    expect(parseDraftPointer(`a.example/x@${"x".repeat(65)}`)).toBeNull();
+    expect(parseDraftPointer("a.example/x@v 1")).toBeNull();
     expect(parseDraftPointer(null)).toBeNull();
   });
 });
 
 describe("previewApiOriginForHost", () => {
   it("admits authorities under the default deco domains", () => {
+    // Hosted Studio (the decofile API origin) via the .decocms.com suffix.
+    expect(previewApiOriginForHost("studio.decocms.com", {})).toBe(
+      "https://studio.decocms.com",
+    );
+    // Preview daemons keep working under the same suffix.
     expect(previewApiOriginForHost("abc.preview-studio.decocms.com", {})).toBe(
       "https://abc.preview-studio.decocms.com",
     );
-    expect(previewApiOriginForHost("abc.local.studio.decocms.com", {})).toBe(
-      "https://abc.local.studio.decocms.com",
+    // Local dev: exact-host entries, http, explicit port allowed.
+    expect(previewApiOriginForHost("localhost:4000", {})).toBe(
+      "http://localhost:4000",
+    );
+    // The native app's dev origin serves TLS (locally-trusted cert): https,
+    // but the explicit port is still allowed.
+    expect(previewApiOriginForHost("local.studio.decocms.com:4420", {})).toBe(
+      "https://local.studio.decocms.com:4420",
     );
     expect(previewApiOriginForHost("abc.localhost:60534", {})).toBe(
       "http://abc.localhost:60534",
     );
-    // -stg is its own suffix, not a substring match of .preview-studio.decocms.com —
-    // both must be listed explicitly (regressed once: staging draft pointers
-    // silently fell back to published content with no visible error).
-    expect(
-      previewApiOriginForHost("abc.preview-studio-stg.decocms.com", {}),
-    ).toBe("https://abc.preview-studio-stg.decocms.com");
   });
 
   it("rejects hosts outside the domains — the token proposes, config disposes", () => {
     expect(previewApiOriginForHost("evil.example", {})).toBeNull();
     // Dot-prefixed suffixes guarantee a label boundary: a lookalike domain
     // that merely ends with the same characters cannot pass.
-    expect(
-      previewApiOriginForHost("evil-preview-studio.decocms.com", {}),
-    ).toBeNull();
-    // The domain itself (no label in front) is not a draft host.
-    expect(
-      previewApiOriginForHost("preview-studio.decocms.com", {}),
-    ).toBeNull();
+    expect(previewApiOriginForHost("evil-decocms.com", {})).toBeNull();
+    // The suffix domain itself (no label in front) is not admitted.
+    expect(previewApiOriginForHost("decocms.com", {})).toBeNull();
   });
 
-  it("allows an explicit port only under localhost-ish domains", () => {
+  it("allows an explicit port only for local entries", () => {
     // A public-domain token must not steer the fetch at odd ports.
+    expect(previewApiOriginForHost("studio.decocms.com:8500", {})).toBeNull();
     expect(
       previewApiOriginForHost("abc.preview-studio.decocms.com:8500", {}),
     ).toBeNull();
@@ -111,9 +126,7 @@ describe("previewApiOriginForHost", () => {
     expect(previewApiOriginForHost("abc.staging.example", env)).toBe(
       "https://abc.staging.example",
     );
-    expect(
-      previewApiOriginForHost("abc.preview-studio.decocms.com", env),
-    ).toBeNull();
+    expect(previewApiOriginForHost("studio.decocms.com", env)).toBeNull();
   });
 });
 
@@ -134,11 +147,14 @@ describe("gating", () => {
   });
 });
 
+// Canonical Studio decofile-API pointer prefix (authority + path, no version).
+const P = "studio.decocms.com/api/fila/decofile/vm-1/main?token=tok.abc";
+
 describe("resolveDraftDecofile", () => {
-  it("fetches exactly the token's validated origin", async () => {
+  it("fetches the token's path on its validated origin", async () => {
     const calls: string[] = [];
     const blocks = await resolveDraftDecofile({
-      pointer: "abc.preview-studio.decocms.com@v1",
+      pointer: `${P}@v1`,
       env: ENV_ON,
       fetchImpl: (async (url: string) => {
         calls.push(String(url));
@@ -147,15 +163,18 @@ describe("resolveDraftDecofile", () => {
     });
 
     expect(blocks).toEqual({ "pages-home": { title: "draft" } });
+    // The pointer's version rides along as `v=`, making the URL fully
+    // content-addressed so Studio can answer with CDN-cacheable immutable
+    // headers when it matches the served sha.
     expect(calls).toEqual([
-      "https://abc.preview-studio.decocms.com/_sandbox/decofile",
+      "https://studio.decocms.com/api/fila/decofile/vm-1/main?token=tok.abc&v=v1",
     ]);
   });
 
   it("is inert without a host allowlist — no fetch at all", async () => {
     let called = false;
     const blocks = await resolveDraftDecofile({
-      pointer: "abc.preview-studio.decocms.com@v1",
+      pointer: `${P}@v1`,
       env: {},
       fetchImpl: (async () => {
         called = true;
@@ -166,18 +185,32 @@ describe("resolveDraftDecofile", () => {
     expect(called).toBe(false);
   });
 
-  it("refuses a parseable token whose origin no domain admits — no fetch", async () => {
+  it("refuses a parseable token whose origin no domain admits — no fetch, no cache", async () => {
     let called = false;
-    const blocks = await resolveDraftDecofile({
-      pointer: "abc.evil.example@v1",
-      env: ENV_ON,
-      fetchImpl: (async () => {
-        called = true;
-        return jsonResponse({});
-      }) as unknown as typeof fetch,
-    });
-    expect(blocks).toBeNull();
+    const fetchImpl = (async () => {
+      called = true;
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    expect(
+      await resolveDraftDecofile({
+        pointer: "abc.evil.example/x@v1",
+        env: ENV_ON,
+        fetchImpl,
+      }),
+    ).toBeNull();
     expect(called).toBe(false);
+
+    // Origin validation runs BEFORE the cache: a version already cached from
+    // an allowed origin must not be served for a disallowed authority.
+    await resolveDraftDecofile({ pointer: `${P}@vX`, env: ENV_ON, fetchImpl });
+    expect(called).toBe(true);
+    expect(
+      await resolveDraftDecofile({
+        pointer: "abc.evil.example/x@vX",
+        env: ENV_ON,
+        fetchImpl,
+      }),
+    ).toBeNull();
   });
 
   it("caches by version — one fetch per version, not per request", async () => {
@@ -186,7 +219,6 @@ describe("resolveDraftDecofile", () => {
       fetches++;
       return jsonResponse({ n: fetches });
     }) as unknown as typeof fetch;
-    const P = "abc.preview-studio.decocms.com";
 
     const a = await resolveDraftDecofile({
       pointer: `${P}@v1`,
@@ -211,7 +243,6 @@ describe("resolveDraftDecofile", () => {
       fetches++;
       return jsonResponse({ n: fetches });
     }) as unknown as typeof fetch;
-    const P = "abc.preview-studio.decocms.com";
 
     for (const v of ["v1", "v2", "v3", "v4"]) {
       await resolveDraftDecofile({
@@ -228,7 +259,6 @@ describe("resolveDraftDecofile", () => {
   });
 
   it("degrades to published on unreachable / non-2xx / unparseable", async () => {
-    const P = "abc.preview-studio.decocms.com";
     for (const fetchImpl of [
       async () => {
         throw new Error("ECONNREFUSED");
@@ -254,12 +284,13 @@ describe("resolveDraftDecofile", () => {
 
 // DEFAULT_PREVIEW_API_DOMAINS is part of the public contract — pin it.
 describe("DEFAULT_PREVIEW_API_DOMAINS", () => {
-  it("ships the deco-operated origins, dot-prefixed", () => {
+  it("ships the deco-operated origins plus local-dev exact hosts", () => {
     expect(DEFAULT_PREVIEW_API_DOMAINS).toEqual([
-      ".preview-studio.decocms.com",
-      ".preview-studio-stg.decocms.com",
-      ".local.studio.decocms.com",
+      "local.studio.decocms.com",
+      "localhost",
+      "127.0.0.1",
       ".localhost",
+      ".decocms.com",
     ]);
   });
 });
@@ -337,7 +368,7 @@ describe("resolveDraftForRequest", () => {
         method: "POST",
         headers: {
           "x-forwarded-host": host,
-          cookie: "__deco_draft=abc.preview-studio.decocms.com@v1",
+          cookie: `__deco_draft=${encodeURIComponent(`${P}@v1`)}`,
         },
       },
     );

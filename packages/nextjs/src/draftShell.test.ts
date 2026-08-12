@@ -15,14 +15,15 @@ let cookieState: Record<string, string> = {};
 vi.mock("next/headers", () => ({
   headers: async () => headerState,
   cookies: async () => ({
-    get: (name: string) => (name in cookieState ? { name, value: cookieState[name] } : undefined),
+    get: (name: string) =>
+      name in cookieState ? { name, value: cookieState[name] } : undefined,
   }),
 }));
 
 const { ensureDraft, DRAFT_HEADER, DRAFT_COOKIE } = await import("./draft");
 
 const DRAFT_BLOCKS = { "pages-home": { title: "DRAFT" } };
-const POINTER = "abc.localhost:60534@v1";
+const POINTER = "abc.localhost:60534/api/o/decofile/m/main?token=t@v1";
 
 beforeEach(() => {
   headerState = new Headers({ host: "site.example" });
@@ -32,7 +33,10 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
-      if (String(url) === "http://abc.localhost:60534/_sandbox/decofile") {
+      if (
+        String(url) ===
+        "http://abc.localhost:60534/api/o/decofile/m/main?token=t"
+      ) {
         return new Response(JSON.stringify(DRAFT_BLOCKS), {
           status: 200,
           headers: { "content-type": "application/json" },

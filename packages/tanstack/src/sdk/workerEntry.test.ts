@@ -59,7 +59,10 @@ describe("injectGeoCookies", () => {
   });
 
   it("strips cf-ipcity from the outgoing Request headers while preserving the value in __cf_geo_city cookie", () => {
-    const req = makeRequest({ city: "Brasília", country: "BR" }, { "cf-ipcity": "Brasília" });
+    const req = makeRequest(
+      { city: "Brasília", country: "BR" },
+      { "cf-ipcity": "Brasília" },
+    );
 
     const out = injectGeoCookies(req);
 
@@ -88,7 +91,10 @@ describe("injectGeoCookies", () => {
   });
 
   it("preserves a pre-existing cookie header", () => {
-    const req = makeRequest({ region: "São Paulo" }, { cookie: "vtex_segment=abc; another=xyz" });
+    const req = makeRequest(
+      { region: "São Paulo" },
+      { cookie: "vtex_segment=abc; another=xyz" },
+    );
 
     const out = injectGeoCookies(req);
 
@@ -143,7 +149,9 @@ describe("buildGeoCacheParam", () => {
 
   it("omits missing fields gracefully", () => {
     expect(buildGeoCacheParam({ country: "BR" }, "city")).toBe("BR");
-    expect(buildGeoCacheParam({ country: "BR", region: "MG" }, "city")).toBe("BR|MG");
+    expect(buildGeoCacheParam({ country: "BR", region: "MG" }, "city")).toBe(
+      "BR|MG",
+    );
   });
 
   it("returns undefined when cf has none of country/region/city", () => {
@@ -214,8 +222,14 @@ describe("CMS redirects", () => {
         redirects: [{ from: "/old", to: "/new", type: "permanent" }],
       },
     });
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(new Request("https://example.com/old"), EMPTY_ENV, MOCK_CTX);
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
+    const res = await worker.fetch(
+      new Request("https://example.com/old"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res.status).toBe(301);
     expect(res.headers.get("Location")).toBe("/new");
   });
@@ -227,7 +241,9 @@ describe("CMS redirects", () => {
         redirects: [{ from: "/old", to: "/new", type: "permanent" }],
       },
     });
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
     const res = await worker.fetch(
       new Request("https://example.com/old?asJson"),
       EMPTY_ENV,
@@ -244,8 +260,14 @@ describe("CMS redirects", () => {
         redirects: [{ from: "/promo", to: "/promoção", type: "temporary" }],
       },
     });
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
+    const res = await worker.fetch(
+      new Request("https://example.com/promo"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
   });
@@ -257,8 +279,14 @@ describe("CMS redirects", () => {
         redirects: [{ from: "/promo", to: "/sale", type: "temporary" }],
       },
     });
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
+    const res = await worker.fetch(
+      new Request("https://example.com/promo"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/sale");
   });
@@ -270,17 +298,29 @@ describe("CMS redirects", () => {
         redirects: [{ from: "/old", to: "/new", type: "permanent" }],
       },
     });
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
-    const res = await worker.fetch(new Request("https://example.com/other"), EMPTY_ENV, MOCK_CTX);
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
+    const res = await worker.fetch(
+      new Request("https://example.com/other"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res.status).toBe(200);
   });
 
   it("picks up new redirects after setBlocks hot-reload", async () => {
     setBlocks({});
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
 
     // First request with no redirects — falls through
-    const res1 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
+    const res1 = await worker.fetch(
+      new Request("https://example.com/v1"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res1.status).toBe(200);
 
     // Hot-reload: add a redirect
@@ -292,7 +332,11 @@ describe("CMS redirects", () => {
     });
 
     // Same path should now redirect
-    const res2 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
+    const res2 = await worker.fetch(
+      new Request("https://example.com/v1"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res2.status).toBe(301);
     expect(res2.headers.get("Location")).toBe("/v2");
   });
@@ -313,7 +357,9 @@ describe("degraded origin (anti-cache-poisoning)", () => {
           headers: { "X-Deco-Degraded": "true" },
         }),
     };
-    const worker = createDecoWorkerEntry(degradedEntry, { observability: false });
+    const worker = createDecoWorkerEntry(degradedEntry, {
+      observability: false,
+    });
     const res = await worker.fetch(
       new Request("https://example.com/some-category"),
       EMPTY_ENV,
@@ -327,7 +373,9 @@ describe("degraded origin (anti-cache-poisoning)", () => {
 
   it("serves a healthy 200 origin without the degraded bypass", async () => {
     setBlocks({});
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
     const res = await worker.fetch(
       new Request("https://example.com/some-category"),
       EMPTY_ENV,
@@ -365,8 +413,14 @@ describe("security headers — frame-ancestors default", () => {
 
   it("applies the default frame-ancestors CSP on HTML responses and drops X-Frame-Options", async () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY);
-    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
-    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
+    const res = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.headers.get("Content-Security-Policy")).toBe(
+      DEFAULT_FRAME_ANCESTORS_CSP,
+    );
     expect(res.headers.get("X-Frame-Options")).toBeNull();
     // Other defaults are still present.
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
@@ -376,24 +430,42 @@ describe("security headers — frame-ancestors default", () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       securityHeaders: { "Content-Security-Policy": "frame-ancestors 'none'" },
     });
-    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
-    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
+    const res = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.headers.get("Content-Security-Policy")).toBe(
+      "frame-ancestors 'none'",
+    );
   });
 
   it("emits the full site CSP report-only alongside the enforced frame-ancestors", async () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       csp: ["default-src 'self'", "img-src 'self' https:"],
     });
-    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
-    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
+    const res = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.headers.get("Content-Security-Policy")).toBe(
+      DEFAULT_FRAME_ANCESTORS_CSP,
+    );
     expect(res.headers.get("Content-Security-Policy-Report-Only")).toBe(
       "default-src 'self'; img-src 'self' https:",
     );
   });
 
   it("omits all security headers when securityHeaders is false", async () => {
-    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, { securityHeaders: false });
-    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      securityHeaders: false,
+    });
+    const res = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res.headers.get("Content-Security-Policy")).toBeNull();
     expect(res.headers.get("X-Content-Type-Options")).toBeNull();
   });
@@ -405,10 +477,18 @@ describe("POST /_cache/purge-loaders", () => {
     setBlocks({});
   });
 
-  const purge = (env: Record<string, unknown>, headers: Record<string, string> = {}) => {
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+  const purge = (
+    env: Record<string, unknown>,
+    headers: Record<string, string> = {},
+  ) => {
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
     return worker.fetch(
-      new Request("https://example.com/_cache/purge-loaders", { method: "POST", headers }),
+      new Request("https://example.com/_cache/purge-loaders", {
+        method: "POST",
+        headers,
+      }),
       env,
       MOCK_CTX,
     );
@@ -420,12 +500,18 @@ describe("POST /_cache/purge-loaders", () => {
   });
 
   it("401s with the wrong token", async () => {
-    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer nope" });
+    const res = await purge(
+      { PURGE_TOKEN: "secret" },
+      { Authorization: "Bearer nope" },
+    );
     expect(res.status).toBe(401);
   });
 
   it("clears the loader cache with a valid token", async () => {
-    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer secret" });
+    const res = await purge(
+      { PURGE_TOKEN: "secret" },
+      { Authorization: "Bearer secret" },
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ cleared: true, scope: "isolate" });
   });
@@ -436,7 +522,9 @@ describe("POST /_cache/purge-loaders", () => {
       purgeTokenEnv: false,
     });
     const res = await worker.fetch(
-      new Request("https://example.com/_cache/purge-loaders", { method: "POST" }),
+      new Request("https://example.com/_cache/purge-loaders", {
+        method: "POST",
+      }),
       EMPTY_ENV,
       MOCK_CTX,
     );
@@ -461,10 +549,20 @@ describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
   it("includes a custom segment field in X-Cache-Segment instead of dropping it", async () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       observability: false,
-      buildSegment: () => ({ device: "desktop", regionId: "RJ", delivery: "store-42" }),
+      buildSegment: () => ({
+        device: "desktop",
+        regionId: "RJ",
+        delivery: "store-42",
+      }),
     });
-    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
-    expect(res.headers.get("X-Cache-Segment")).toBe("desktop|r=RJ|delivery=store-42");
+    const res = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.headers.get("X-Cache-Segment")).toBe(
+      "desktop|r=RJ|delivery=store-42",
+    );
   });
 
   it("produces different X-Cache-Segment hashes for requests that only differ by a custom field", async () => {
@@ -474,11 +572,19 @@ describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
       buildSegment: () => ({ device: "desktop", delivery }),
     });
 
-    const first = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const first = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     const firstSegment = first.headers.get("X-Cache-Segment");
 
     delivery = "store-2";
-    const second = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const second = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     const secondSegment = second.headers.get("X-Cache-Segment");
 
     expect(firstSegment).not.toBe(secondSegment);
@@ -487,24 +593,35 @@ describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
   it("keeps the existing hash format for segments using only known fields (back-compat)", async () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       observability: false,
-      buildSegment: () => ({ device: "desktop", salesChannel: "1", flags: ["b", "a"] }),
+      buildSegment: () => ({
+        device: "desktop",
+        salesChannel: "1",
+        flags: ["b", "a"],
+      }),
     });
-    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const res = await worker.fetch(
+      new Request("https://example.com/"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res.headers.get("X-Cache-Segment")).toBe("desktop|sc=1|f=a,b");
   });
 });
 
 describe("draft preview (pull-based)", () => {
-  const POINTER = "abc.localhost:1234@v1";
-  const SANDBOX_URL = "http://abc.localhost:1234/_sandbox/decofile";
-  const DRAFT_BLOCKS = { "pages-home": { name: "home", path: "/", title: "DRAFTED" } };
+  const POINTER = "abc.localhost:1234/api/o/decofile/m/main?token=t@v1";
+  const SANDBOX_URL = "http://abc.localhost:1234/api/o/decofile/m/main?token=t";
+  const DRAFT_BLOCKS = {
+    "pages-home": { name: "home", path: "/", title: "DRAFTED" },
+  };
 
   // A serverEntry that reflects the currently-loaded home title, so a test can
   // prove the draft override actually reached the render (not just the headers).
   const REFLECT_ENTRY = {
     fetch: async () => {
       const { loadBlocks } = await import("@decocms/blocks/cms");
-      const home = (loadBlocks()["pages-home"] as { title?: string } | undefined) ?? {};
+      const home =
+        (loadBlocks()["pages-home"] as { title?: string } | undefined) ?? {};
       return new Response(home.title ?? "PUBLISHED", { status: 200 });
     },
   };
@@ -512,7 +629,9 @@ describe("draft preview (pull-based)", () => {
   let realFetch: typeof fetch;
   afterEach(async () => {
     globalThis.fetch = realFetch;
-    const { setDraftPreviewHosts, clearDraftCache } = await import("@decocms/blocks/cms");
+    const { setDraftPreviewHosts, clearDraftCache } = await import(
+      "@decocms/blocks/cms"
+    );
     setDraftPreviewHosts([]);
     clearDraftCache();
     __resetKvHydrationStateForTests();
@@ -520,8 +639,12 @@ describe("draft preview (pull-based)", () => {
   });
 
   async function enable() {
-    const { setDraftPreviewHosts, clearDraftCache } = await import("@decocms/blocks/cms");
-    setBlocks({ "pages-home": { name: "home", path: "/", title: "PUBLISHED" } });
+    const { setDraftPreviewHosts, clearDraftCache } = await import(
+      "@decocms/blocks/cms"
+    );
+    setBlocks({
+      "pages-home": { name: "home", path: "/", title: "PUBLISHED" },
+    });
     setDraftPreviewHosts(["example.com"]);
     clearDraftCache();
     realFetch = globalThis.fetch;
@@ -538,7 +661,9 @@ describe("draft preview (pull-based)", () => {
 
   it("binds the draft, bypasses the edge cache, and stamps the anti-leak headers", async () => {
     await enable();
-    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, {
+      observability: false,
+    });
     const res = await worker.fetch(
       new Request(`https://example.com/?__draft=${POINTER}`, {
         headers: { host: "example.com" },
@@ -562,7 +687,9 @@ describe("draft preview (pull-based)", () => {
 
   it("carries the draft across navigation via the cookie alone", async () => {
     await enable();
-    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, {
+      observability: false,
+    });
     const res = await worker.fetch(
       new Request("https://example.com/other", {
         headers: { host: "example.com", cookie: `__deco_draft=${POINTER}` },
@@ -576,7 +703,9 @@ describe("draft preview (pull-based)", () => {
 
   it("is structurally inert on a non-preview host", async () => {
     await enable(); // allowlist = example.com only
-    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, {
+      observability: false,
+    });
     const res = await worker.fetch(
       new Request(`https://prod.example/?__draft=${POINTER}`, {
         headers: { host: "prod.example" },
@@ -590,8 +719,12 @@ describe("draft preview (pull-based)", () => {
   });
 
   it("stays inert on any host when no allowlist is configured", async () => {
-    setBlocks({ "pages-home": { name: "home", path: "/", title: "PUBLISHED" } });
-    const worker = createDecoWorkerEntry(REFLECT_ENTRY, { observability: false });
+    setBlocks({
+      "pages-home": { name: "home", path: "/", title: "PUBLISHED" },
+    });
+    const worker = createDecoWorkerEntry(REFLECT_ENTRY, {
+      observability: false,
+    });
     const res = await worker.fetch(
       new Request(`https://example.com/?__draft=${POINTER}`, {
         headers: { host: "example.com" },

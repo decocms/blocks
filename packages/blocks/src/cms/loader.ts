@@ -31,7 +31,21 @@ interface ALSLike<T> {
 // node:async_hooks with an empty shim). The namespace import avoids Rollup's
 // named-export validation, and the runtime check prevents construction errors.
 const ALS = (asyncHooks as any).AsyncLocalStorage;
-const blocksOverrideStorage: ALSLike<Record<string, unknown>> = ALS
+
+/**
+ * A scoped blocks override, tagged with how it composes over the base:
+ * - `merge`: a PARTIAL decofile (admin preview payloads) — entries replace or
+ *   delete their base twins, everything else survives (see mergeOverride).
+ * - `snapshot`: a COMPLETE decofile (draft preview) — it replaces the
+ *   file-backed base entirely; only synthetic base blocks survive (see
+ *   applyDraftSnapshot).
+ */
+interface BlocksOverride {
+  mode: "merge" | "snapshot";
+  blocks: Record<string, unknown>;
+}
+
+const blocksOverrideStorage: ALSLike<BlocksOverride> = ALS
   ? new ALS()
   : { getStore: () => undefined, run: (_s: any, fn: any) => fn() };
 
@@ -39,7 +53,10 @@ const blocksOverrideStorage: ALSLike<Record<string, unknown>> = ALS
 // Change listeners
 // ---------------------------------------------------------------------------
 
-type ChangeListener = (blocks: Record<string, unknown>, revision: string) => void;
+type ChangeListener = (
+  blocks: Record<string, unknown>,
+  revision: string,
+) => void;
 const changeListeners: ChangeListener[] = [];
 
 /** Register a callback invoked whenever setBlocks() changes the decofile. */
@@ -139,9 +156,40 @@ function mergeOverride(
 }
 
 /**
- * Load the current blocks. If running inside a `withBlocksOverride` scope
- * (admin preview) or a request carrying a draft-preview override, that
- * override is merged on top of the base blocks.
+ * Base blocks that are NOT file-backed: synthesized by the generator (CSV
+ * redirect loaders, keyed `__csv_redirects__<file>`). A draft snapshot is the
+ * complete truth of `.deco/blocks/` but knows nothing about these, so they
+ * survive the snapshot instead of vanishing from the preview.
+ */
+const SYNTHETIC_BLOCK_KEY_PREFIX = "__csv_redirects__";
+
+/**
+ * Compose a draft SNAPSHOT over the base blocks: the draft is the complete
+ * decofile at the branch head, so it REPLACES every file-backed base block —
+ * a block absent from the draft was deleted and must not render. Only
+ * synthetic base blocks (see SYNTHETIC_BLOCK_KEY_PREFIX) survive. `null`
+ * draft values are tolerated as deletions for defensiveness.
+ */
+function applyDraftSnapshot(
+  base: Record<string, unknown>,
+  draft: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (key.startsWith(SYNTHETIC_BLOCK_KEY_PREFIX)) out[key] = value;
+  }
+  for (const [key, value] of Object.entries(draft)) {
+    if (value === null || value === undefined) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Load the current blocks. If running inside a `withBlocksOverride` /
+ * `withDraftBlocks` scope (admin preview / draft endpoints) or a request
+ * carrying an ambient draft, that override composes over the base blocks
+ * according to its mode.
  */
 export function loadBlocks(): Record<string, unknown> {
   // Re-sync from globalThis in case setBlocks was called in another module instance
@@ -150,11 +198,17 @@ export function loadBlocks(): Record<string, unknown> {
     revision = G.__deco.revision ?? null;
   }
 
-  // `withBlocksOverride` (an explicit admin render of a specific payload) wins
-  // over an ambient draft: the caller named the exact blocks to render, so a
-  // draft pointer on the same request must not silently replace them.
-  const override = blocksOverrideStorage.getStore() ?? getRequestDraftOverride();
-  if (override) return mergeOverride(blockData, override);
+  // An explicit scope (the caller named the exact blocks to render) wins over
+  // an ambient draft: a draft pointer on the same request must not silently
+  // replace it.
+  const scoped = blocksOverrideStorage.getStore();
+  if (scoped) {
+    return scoped.mode === "merge"
+      ? mergeOverride(blockData, scoped.blocks)
+      : applyDraftSnapshot(blockData, scoped.blocks);
+  }
+  const draft = getRequestDraftOverride();
+  if (draft) return applyDraftSnapshot(blockData, draft);
   return blockData;
 }
 
@@ -171,8 +225,25 @@ export function getRevision(): string | null {
  * for the duration of the render. Other concurrent requests are not
  * affected (AsyncLocalStorage is per-request scoped).
  */
-export function withBlocksOverride<T>(override: Record<string, unknown>, fn: () => T): T {
-  return blocksOverrideStorage.run(override, fn);
+export function withBlocksOverride<T>(
+  override: Record<string, unknown>,
+  fn: () => T,
+): T {
+  return blocksOverrideStorage.run({ mode: "merge", blocks: override }, fn);
+}
+
+/**
+ * Run a function with a COMPLETE draft decofile (snapshot semantics — see
+ * applyDraftSnapshot). Used by secondary endpoints (`/deco/invoke`) that
+ * re-resolve the page's draft from the raw request: the draft must compose
+ * exactly like the page render, deletions included, or a lazy section could
+ * render a block the page no longer has.
+ */
+export function withDraftBlocks<T>(
+  draft: Record<string, unknown>,
+  fn: () => T,
+): T {
+  return blocksOverrideStorage.run({ mode: "snapshot", blocks: draft }, fn);
 }
 
 // Higher key wins. Compared lexicographically:
@@ -213,7 +284,11 @@ function pathSpecificityKey(path: string): [number, number, number] {
 
 export function getAllPages(): Array<{ key: string; page: DecoPage }> {
   const blocks = loadBlocks();
-  const pages: Array<{ key: string; page: DecoPage; key2: [number, number, number] }> = [];
+  const pages: Array<{
+    key: string;
+    page: DecoPage;
+    key2: [number, number, number];
+  }> = [];
 
   for (const [key, block] of Object.entries(blocks)) {
     if (!key.startsWith("pages-")) continue;
@@ -281,7 +356,10 @@ declare const URLPattern: {
  * `URLPattern` is native in browsers, workerd, Deno, and Node >= 24 (this
  * package's `engines` floor). Node 22 and older lack it.
  */
-export function matchPath(pattern: string, urlPath: string): Record<string, string> | null {
+export function matchPath(
+  pattern: string,
+  urlPath: string,
+): Record<string, string> | null {
   if (typeof URLPattern === "undefined") {
     throw new Error(
       "@decocms/blocks: this runtime has no URLPattern Web API, so CMS page " +
