@@ -20,6 +20,7 @@ import { generateSectionLoaders } from "./templates/section-loaders";
 import { generateCacheConfig } from "./templates/cache-config";
 import { generateSdkFiles } from "./templates/sdk-gen";
 import { generateMigrationPolicyPointerRule } from "./templates/cursor-rules";
+import { generatePerfFiles } from "./templates/perf-yml";
 // `lib-utils` is imported lazily — see end of phase-cleanup. Eager
 // generation of all 11 shims left every site with dead code that had
 // to be cleaned up by hand.
@@ -86,6 +87,11 @@ export function scaffold(ctx: MigrationContext): void {
     ".github/workflows/lockfile-check.yml",
     generateLockfileCheckYml(CANONICAL_BUN_VERSION),
   );
+
+  // Advisory per-PR performance workflow: detects which sections changed,
+  // maps them to CMS page paths, runs Lighthouse against the CF preview URL
+  // (PR vs main), and posts a comparison comment. Gate = CLS + TBT only.
+  writeMultiFile(ctx, generatePerfFiles(ctx.siteName));
 
   // Server entry files (server.ts, worker-entry.ts, router.tsx, runtime.ts, context.ts)
   writeMultiFile(ctx, generateServerEntry(ctx));
