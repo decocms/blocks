@@ -27,7 +27,23 @@
  *
  * configureMeter({
  *   counterInc: (name, value, labels) => metrics.getMeter("deco").createCounter(name).add(value, labels),
- *   histogramRecord: (name, value, labels) => metrics.getMeter("deco").createHistogram(name).record(value, labels),
+ *   histogramRecord: (name, value, labels) => {
+ *     // METRIC_METADATA carries the unit AND the bucket boundaries. Forwarding
+ *     // `boundaries` to `advice` is required, not optional: durations are
+ *     // recorded in seconds and the SDK's default buckets are milliseconds, so
+ *     // an adapter that omits it files everything into the first bucket and
+ *     // every quantile reads back as ~0.
+ *     const meta = METRIC_METADATA[name];
+ *     metrics.getMeter("deco")
+ *       .createHistogram(name, {
+ *         unit: meta?.unit,
+ *         description: meta?.description,
+ *         advice: meta?.boundaries
+ *           ? { explicitBucketBoundaries: [...meta.boundaries] }
+ *           : undefined,
+ *       })
+ *       .record(value, labels);
+ *   },
  * });
  * ```
  */
@@ -272,22 +288,68 @@ export const MetricNames = {
 } as const;
 
 /**
+ * Explicit bucket boundaries, in SECONDS, for every duration histogram declared
+ * in {@link METRIC_METADATA}.
+ *
+ * These exist because the unit and the buckets are configured in two different
+ * places and had drifted apart. The record helpers divide by 1000, so values
+ * arrive in seconds — correct per SemConv. But the OTel SDK's *default*
+ * boundaries are `[0, 5, 10, 25, 50, 75, 100, 250, 500, 1000]`, which are
+ * milliseconds. An adapter that calls `createHistogram(name)` without an
+ * `advice` therefore files every sub-5-second observation into the first bucket.
+ *
+ * Measured on the production ClickHouse before this change: 99.8%–99.95% of all
+ * observations on `http.server.request.duration` (78.7M/hour),
+ * `http.client.request.duration`, `deco.loader.duration` and
+ * `deco.cms.resolve.duration` sat in bucket 1, so every quantile read back as
+ * ~0 and the latency dashboards had to fall back to tail-sampled traces.
+ *
+ * Values are the SemConv-recommended defaults for HTTP duration histograms.
+ */
+export const DURATION_BUCKET_BOUNDARIES_SECONDS: readonly number[] = [
+  0.005,
+  0.01,
+  0.025,
+  0.05,
+  0.075,
+  0.1,
+  0.25,
+  0.5,
+  0.75,
+  1,
+  2.5,
+  5,
+  7.5,
+  10,
+];
+
+/**
  * Per-metric metadata emitted in the OTLP payload's `description` and
  * `unit` fields. Durations are normalized to **seconds at the source** (OTel
  * semconv), matching the deco-cx/deco framework — NOT converted downstream in
  * the collector. Callers still pass milliseconds; the record helpers divide.
  *
+ * `boundaries`, when present, MUST be forwarded to the histogram's `advice` at
+ * creation time — the unit alone does not tell the SDK how to bucket, and its
+ * defaults assume milliseconds. See
+ * {@link DURATION_BUCKET_BOUNDARIES_SECONDS}.
+ *
  * Keep keys aligned with `MetricNames` values so a missing entry is a
  * type error at compile time when a new metric ships without metadata.
  */
-export const METRIC_METADATA: Record<string, { description: string; unit: string }> = {
+export const METRIC_METADATA: Record<
+  string,
+  { description: string; unit: string; boundaries?: readonly number[] }
+> = {
   [MetricNames.HTTP_SERVER_REQUEST_DURATION]: {
     description: "Duration of HTTP server requests handled at the Worker entry point.",
     unit: "s",
+    boundaries: DURATION_BUCKET_BOUNDARIES_SECONDS,
   },
   [MetricNames.HTTP_CLIENT_REQUEST_DURATION]: {
     description: "Duration of outbound HTTP client requests (commerce, generic fetch).",
     unit: "s",
+    boundaries: DURATION_BUCKET_BOUNDARIES_SECONDS,
   },
   [MetricNames.CACHE_REQUESTS]: {
     description: "Cache lookups, dimensioned by status (hit/stale/miss/bypass).",
@@ -296,10 +358,12 @@ export const METRIC_METADATA: Record<string, { description: string; unit: string
   [MetricNames.RESOLVE_DURATION]: {
     description: "Duration of `deco.cms.resolvePage` — CMS route to block tree resolution.",
     unit: "s",
+    boundaries: DURATION_BUCKET_BOUNDARIES_SECONDS,
   },
   [MetricNames.LOADER_DURATION]: {
     description: "Per-loader execution duration, emitted by cachedLoader.",
     unit: "s",
+    boundaries: DURATION_BUCKET_BOUNDARIES_SECONDS,
   },
   [MetricNames.LOADER_ERRORS]: {
     description: "Per-loader error count.",
