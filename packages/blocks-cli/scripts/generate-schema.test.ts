@@ -191,6 +191,68 @@ describe("typeToJsonSchema with intersection types", () => {
   }, 30_000);
 });
 
+describe("typeToJsonSchema Section-typed props", () => {
+  // The framework's `Section` is opaque (`export type Section = any`), so a
+  // Section-typed prop is a "pick any section" reference emitted as a
+  // __SECTION_REF__ picker. This must keep working.
+  it("emits a __SECTION_REF__ picker for the framework's opaque Section[]", () => {
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { skipLibCheck: true },
+    });
+    const sf = project.createSourceFile(
+      "props.ts",
+      `
+        type Section = any;
+        export interface Props {
+          children?: Section[] | null;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+
+    expect(schema.properties.children).toMatchObject({
+      type: "array",
+      items: { $ref: "#/definitions/__SECTION_REF__" },
+    });
+  }, 30_000);
+
+  // Regression (casaevideo footer): a component that declares its own local
+  // `type Section = { label; items }` used to collide with the magic name and
+  // collapse into a non-editable __SECTION_REF__ picker — the footer columns
+  // showed only a drag handle, no expand arrow, no form. A concretely-shaped
+  // local type is user data and must render as an inline editable object.
+  it("keeps a user-defined local `type Section` as an inline editable object", () => {
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { skipLibCheck: true },
+    });
+    const sf = project.createSourceFile(
+      "props.ts",
+      `
+        interface Item { label: string; href: string; }
+        type Section = { label: string; items: Item[] };
+        export interface Props {
+          sections?: Section[];
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+
+    const sections = schema.properties.sections;
+    // Editable array of objects — NOT a section-picker reference.
+    expect(sections.type).toBe("array");
+    expect(JSON.stringify(sections)).not.toContain("__SECTION_REF__");
+
+    const item = sections.items;
+    expect(item.type).toBe("object");
+    expect(item.properties.label).toMatchObject({ type: "string" });
+    expect(item.properties.items.type).toBe("array");
+    expect(item.properties.items.items.type).toBe("object");
+    expect(item.properties.items.items.properties.href).toMatchObject({ type: "string" });
+  }, 30_000);
+});
+
 describe("typeToJsonSchema loader block-ref matching", () => {
   // Regression: a loader that returns an array whose element type has no
   // resolvable name (`VNode[]`, `string[]`, …) used to be bucketed under the
