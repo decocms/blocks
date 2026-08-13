@@ -35,5 +35,33 @@
   },
   "files": {
     "includes": ["packages/*/src/**", "packages/*/scripts/**"]
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "packages/apps-vtex/src/**",
+        "packages/apps-magento/src/**",
+        "packages/apps-resend/src/**",
+        "packages/apps-shopify/src/**",
+        "packages/apps-website/src/**",
+        "!packages/apps-vtex/src/hooks/**",
+        "!packages/*/src/**/*.test.ts",
+        "!packages/*/src/**/__tests__/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "fetch": "Bare fetch() skips the request timeout. Use this package's timeout-wrapped client (e.g. fetchSafe/vtexFetch/magentoFetch/withFetchTimeout from @decocms/blocks/sdk/fetchTimeout) instead."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

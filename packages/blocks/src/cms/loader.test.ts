@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { findPageByPath, matchPath, setBlocks } from "./loader";
+import { setDraftOverrideGetter } from "./draftSource";
+import {
+  findPageByPath,
+  loadBlocks,
+  matchPath,
+  setBlocks,
+  withBlocksOverride,
+  withDraftBlocks,
+} from "./loader";
 
 // Mirrors the behavior of the original deco-cx/deco Fresh framework
 // (runtime/features/render.tsx), which uses native `URLPattern` directly
@@ -27,7 +35,9 @@ describe("matchPath", () => {
 
   describe("named params (:slug)", () => {
     it("captures a single param", () => {
-      expect(matchPath("/foo/:slug", "/foo/sabonete")).toEqual({ slug: "sabonete" });
+      expect(matchPath("/foo/:slug", "/foo/sabonete")).toEqual({
+        slug: "sabonete",
+      });
     });
 
     it("captures a param sandwiched between literals (VTEX PDP)", () => {
@@ -74,7 +84,9 @@ describe("matchPath", () => {
     });
 
     it("matches with the optional group absent", () => {
-      expect(matchPath("/{granado/}?*", "/perfumaria")).toEqual({ "0": "perfumaria" });
+      expect(matchPath("/{granado/}?*", "/perfumaria")).toEqual({
+        "0": "perfumaria",
+      });
     });
 
     it("matches root when optional prefix and splat collapse to empty", () => {
@@ -82,17 +94,26 @@ describe("matchPath", () => {
     });
 
     it("matches with an optional prefix before a literal segment", () => {
-      expect(matchPath("/{granado/}?campanhas/*", "/granado/campanhas/destaques-2023")).toEqual({
+      expect(
+        matchPath(
+          "/{granado/}?campanhas/*",
+          "/granado/campanhas/destaques-2023",
+        ),
+      ).toEqual({
         "0": "destaques-2023",
       });
-      expect(matchPath("/{granado/}?campanhas/*", "/campanhas/destaques-2023")).toEqual({
+      expect(
+        matchPath("/{granado/}?campanhas/*", "/campanhas/destaques-2023"),
+      ).toEqual({
         "0": "destaques-2023",
       });
     });
 
     it("matches an optional suffix group present and absent", () => {
       expect(matchPath("/black-friday{/70-off}?", "/black-friday")).toEqual({});
-      expect(matchPath("/black-friday{/70-off}?", "/black-friday/70-off")).toEqual({});
+      expect(
+        matchPath("/black-friday{/70-off}?", "/black-friday/70-off"),
+      ).toEqual({});
     });
   });
 
@@ -112,7 +133,9 @@ describe("matchPath", () => {
       // biome-ignore lint/performance/noDelete: restoring exact global state
       delete g.URLPattern;
       try {
-        expect(() => matchPath("/foo/:slug", "/foo/bar")).toThrow(/URLPattern.*Node\.js >= 24/s);
+        expect(() => matchPath("/foo/:slug", "/foo/bar")).toThrow(
+          /URLPattern.*Node\.js >= 24/s,
+        );
       } finally {
         if (saved !== undefined) g.URLPattern = saved;
       }
@@ -196,5 +219,159 @@ describe("findPageByPath specificity", () => {
       },
     });
     expect(findPageByPath("/nope")).toBeNull();
+  });
+});
+
+describe("loadBlocks draft override — key percent-encoding", () => {
+  // The published decofile encodes special characters in block keys
+  // (`pages-Home%20(principal)-1`); the Studio draft emits them raw
+  // (`pages-Home (principal)-1`). Under snapshot semantics the draft REPLACES
+  // the file-backed base wholesale, so an encoded/raw twin pair can never
+  // coexist — these regression tests (from the merge era, when ~73% of
+  // casaevideo's pages silently ignored drafts) now pin that property.
+
+  afterEach(() => {
+    setBlocks({});
+    setDraftOverrideGetter(() => undefined);
+  });
+
+  it("replaces an encoded base key with its raw-encoded draft twin (home)", () => {
+    setBlocks({
+      "pages-Home%20(principal)-1": {
+        name: "Home",
+        path: "/",
+        sections: [{ __resolveType: "published" }],
+      },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-Home (principal)-1": {
+        name: "Home",
+        path: "/",
+        sections: [{ __resolveType: "draft" }],
+      },
+    }));
+
+    // Exactly one page for "/" survives the merge — no encoded/raw duplicate.
+    const pageBlocks = Object.keys(loadBlocks()).filter((k) =>
+      k.startsWith("pages-"),
+    );
+    expect(pageBlocks).toHaveLength(1);
+
+    const match = findPageByPath("/");
+    const sections = match?.page.sections as Array<{ __resolveType: string }>;
+    expect(sections[0].__resolveType).toBe("draft");
+  });
+
+  it("still replaces a plain (unescaped) base key", () => {
+    setBlocks({
+      "pages-disney-1": {
+        name: "Disney",
+        path: "/disney",
+        sections: [{ __resolveType: "published" }],
+      },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-disney-1": {
+        name: "Disney",
+        path: "/disney",
+        sections: [{ __resolveType: "draft" }],
+      },
+    }));
+
+    const match = findPageByPath("/disney");
+    const sections = match?.page.sections as Array<{ __resolveType: string }>;
+    expect(sections[0].__resolveType).toBe("draft");
+  });
+
+  it("a null draft value removes the encoded base twin too", () => {
+    setBlocks({
+      "pages-Home%20(principal)-1": {
+        name: "Home",
+        path: "/",
+        sections: [{ __resolveType: "published" }],
+      },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-Home (principal)-1": null,
+    }));
+
+    expect(findPageByPath("/")).toBeNull();
+    const pageBlocks = Object.keys(loadBlocks()).filter((k) =>
+      k.startsWith("pages-"),
+    );
+    expect(pageBlocks).toHaveLength(0);
+  });
+});
+
+describe("loadBlocks draft snapshot semantics", () => {
+  afterEach(() => {
+    setBlocks({});
+    setDraftOverrideGetter(() => undefined);
+  });
+
+  it("a block absent from the draft is deleted — the draft is the complete truth", () => {
+    setBlocks({
+      "pages-home-1": { name: "Home", path: "/", sections: [{}] },
+      "pages-old-2": { name: "Old", path: "/old", sections: [{}] },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-home-1": { name: "Home", path: "/", sections: [{}] },
+    }));
+
+    const keys = Object.keys(loadBlocks());
+    expect(keys).toEqual(["pages-home-1"]);
+    expect(findPageByPath("/old")).toBeNull();
+  });
+
+  it("synthetic CSV-redirect base blocks survive the snapshot", () => {
+    setBlocks({
+      "__csv_redirects__bulk.csv": { redirects: [{ from: "/a", to: "/b" }] },
+      "pages-home-1": { name: "Home", path: "/", sections: [{}] },
+    });
+    setDraftOverrideGetter(() => ({
+      "pages-home-1": { name: "Home", path: "/", sections: [{}] },
+    }));
+
+    const blocks = loadBlocks();
+    expect(blocks["__csv_redirects__bulk.csv"]).toEqual({
+      redirects: [{ from: "/a", to: "/b" }],
+    });
+  });
+
+  it("withDraftBlocks applies snapshot semantics; withBlocksOverride keeps merge", () => {
+    setBlocks({
+      "pages-home-1": { name: "Home", path: "/", sections: [{}] },
+      "pages-other-2": { name: "Other", path: "/other", sections: [{}] },
+    });
+    const draft = {
+      "pages-home-1": { name: "Home", path: "/", sections: [{}] },
+    };
+
+    // Snapshot: the base-only block is gone.
+    withDraftBlocks(draft, () => {
+      expect(Object.keys(loadBlocks())).toEqual(["pages-home-1"]);
+    });
+
+    // Merge (admin partial payloads): the base-only block survives.
+    withBlocksOverride(draft, () => {
+      expect(Object.keys(loadBlocks()).sort()).toEqual([
+        "pages-home-1",
+        "pages-other-2",
+      ]);
+    });
+  });
+
+  it("an explicit scope wins over the ambient draft", () => {
+    setBlocks({ "pages-home-1": { name: "Home", path: "/", sections: [{}] } });
+    setDraftOverrideGetter(() => ({
+      "pages-ambient-9": { name: "A", path: "/a", sections: [{}] },
+    }));
+
+    withDraftBlocks(
+      { "pages-scoped-3": { name: "S", path: "/s", sections: [{}] } },
+      () => {
+        expect(Object.keys(loadBlocks())).toEqual(["pages-scoped-3"]);
+      },
+    );
   });
 });

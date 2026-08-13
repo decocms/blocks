@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildExitUrl, buildShareUrl } from "./DraftPreviewBadge";
+import { buildExitUrl, buildShareUrl, isFramed } from "./DraftPreviewBadge";
 
 describe("buildShareUrl", () => {
   it("pins the exact draft version so a recipient sees the same working tree", () => {
@@ -33,5 +33,23 @@ describe("buildExitUrl", () => {
     expect(buildExitUrl("https://fila.vtex.app/p?__draft=h@v1")).toBe(
       "https://fila.vtex.app/p?__draft=off",
     );
+  });
+});
+
+describe("isFramed", () => {
+  it("is false for a same top window — the ordinary top-level tab case", () => {
+    const win = {} as typeof window;
+    win.top = win;
+    expect(isFramed(win)).toBe(false);
+  });
+
+  it("is true when top differs — embedded in another page's iframe", () => {
+    const win = {} as typeof window;
+    win.top = {} as typeof window; // a distinct object: the parent frame
+    expect(isFramed(win)).toBe(true);
+  });
+
+  it("fails open (not framed) with no window — SSR / no hydration", () => {
+    expect(isFramed(undefined)).toBe(false);
   });
 });

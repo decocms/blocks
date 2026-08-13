@@ -240,6 +240,15 @@ ${colorLines}
     }
   }
 
+  const twAnimations = ctx.tailwindConfig.animations;
+  const twAnimationKeys = Object.keys(twAnimations);
+  if (twAnimationKeys.length > 0) {
+    themeBlock += `\n\n  /* Custom animations ported from tailwind.config.ts */`;
+    for (const key of twAnimationKeys) {
+      themeBlock += `\n  --animate-${key}: ${twAnimations[key]};`;
+    }
+  }
+
   // Gray scale compat (Tailwind v3 had gray-50..gray-950 by default) — uses
   // the site's own tailwind.config.ts gray-* override when present, falling
   // back to the v3 default otherwise.
@@ -253,6 +262,16 @@ ${colorLines}
   }
   themeBlock += `\n}`;
   sections.push(themeBlock);
+
+  // Emit @keyframes for each extracted keyframe from tailwind.config.ts.
+  // TW4 has no keyframes config — they must live in CSS directly.
+  const twKeyframes = ctx.tailwindConfig.keyframes;
+  for (const [name, stops] of Object.entries(twKeyframes)) {
+    const stopLines = Object.entries(stops)
+      .map(([pct, props]) => `  ${pct} { ${props}; }`)
+      .join("\n");
+    sections.push(`@keyframes ${name} {\n${stopLines}\n}`);
+  }
 
   // ── DaisyUI v5 compat ─────────────────────────────────────────────
   sections.push(`/* DaisyUI v5: flatten depth/noise to match v4 look */
@@ -351,6 +370,14 @@ section[data-deferred="true"] {
   body:has(dialog[open]),
   body:has(.drawer-toggle:checked) {
     overflow: hidden;
+  }
+
+  /* Tailwind v3 -> v4 compat: restore the default border-color.
+     TW4 Preflight changed border-color from gray-200 (#e5e7eb) to currentColor --
+     any element with "border" but no explicit "border-{color}" now renders black.
+     --color-gray-200 is always defined in the ported @theme (gray scale compat block). */
+  *, *::before, *::after {
+    border-color: var(--color-gray-200, #e5e7eb);
   }
 
   /* Tailwind v3 → v4 compat: restore the default cursor:pointer on interactive

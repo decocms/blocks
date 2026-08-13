@@ -32,6 +32,7 @@ import {
   isEagerRequest,
   registerCommerceLoader,
   registerEagerSections,
+  registerAlwaysDeferSections,
   registerNeverDeferSections,
   resolveDecoPage,
   resolveDeferredSectionFull,
@@ -467,6 +468,22 @@ describe("shouldDeferSection — admin is the source of truth", () => {
     const section = { __resolveType: "site/sections/Shelf.tsx" };
     expect(shouldDeferSection(section, 5, mkCfg({ foldThreshold: 3 }), false)).toBe(true);
     expect(shouldDeferSection(section, 1, mkCfg({ foldThreshold: 3 }), false)).toBe(false);
+  });
+
+  it("`export const deferred = true` defers one section even with respectCmsLazy off", () => {
+    const key = "site/sections/HeavyPLP.tsx";
+    registerAlwaysDeferSections([key]);
+    const section = { __resolveType: key };
+    // Not ⚡-wrapped and respectCmsLazy disabled — the per-section flag is the
+    // only thing forcing deferral here.
+    expect(shouldDeferSection(section, 0, mkCfg({ respectCmsLazy: false }), false)).toBe(true);
+  });
+
+  it("`export const deferred = true` still stays eager for bots (SEO)", () => {
+    const key = "site/sections/HeavyPLPBot.tsx";
+    registerAlwaysDeferSections([key]);
+    const section = { __resolveType: key };
+    expect(shouldDeferSection(section, 0, mkCfg({ respectCmsLazy: false }), true)).toBe(false);
   });
 });
 

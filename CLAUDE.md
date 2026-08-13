@@ -133,6 +133,15 @@ Three, each with a distinct scope:
 
 Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework* (Fresh → TanStack), the third migrates a site's *package dependency* on an already-TanStack-or-Next site.
 
+## Cache & upstream observability (apps must follow this to be covered)
+
+Cache/upstream telemetry reaches ClickHouse only through two shared chokepoints in `@decocms/blocks`. A new commerce app is instrumented **for free** iff it uses both — there is no per-metric wiring beyond this:
+
+1. **Upstream HTTP** (`http.client.request.duration`, `provider`/`operation`/`status_class`/`cached` labels) — route every egress fetch through `createInstrumentedFetch` (`@decocms/blocks/sdk/instrumentedFetch`) with an `onComplete` that calls `recordCommerceMetric`. The per-provider factory pattern is `createVtexFetch` / `createShopifyFetch` / `createMagentoFetch` / `createSalesforceFetch` (each in that app's `src/utils/instrumentedFetch.ts`, plus a `src/utils/operationRouter.ts`). **The factory existing is not enough — the site must actually wire it**: call `setXFetch(createXFetch())` once at boot (VTEX/Shopify/Magento default to an uninstrumented `globalThis.fetch` until you do, so a site that forgets stays dark). Salesforce is the exception: `createHttpClient` defaults its `fetcher` to the instrumented fetch, so its loaders are covered without per-site wiring.
+2. **In-memory SWR cache hit/miss** (`deco.cache.requests`, `deco.cache.layer="swr"`, `deco.cache.provider=<provider>`) — cache upstream GETs via `createFetchCache` from `@decocms/blocks/sdk/fetchCache` (the single shared SWR/dedup/stale-if-error impl). Do **not** copy-paste a per-app fetch cache — that's how VTEX and the granadobr Magento cache went dark. The metric MUST be emitted inside the cache (not in `createInstrumentedFetch`): on a HIT the cache returns before `doFetch` runs, so the instrumented fetch never sees it. The `swr` layer joins the framework's `edge` (Cloudflare Cache API, `workerEntry.ts`) and `cachedLoader` (`sdk/cachedLoader.ts`) layers on the same `deco.cache.requests` counter — note the backend rides on `deco.cache.provider`, distinct from `deco.cache.profile` (page-type, set by `edge`), so the two never blend in a `sum by` panel.
+
+A guardrail test (`packages/apps-commerce/src/instrumentation-guardrail.test.ts`) checks that each listed commerce app *ships* an instrumented `src/utils/instrumentedFetch.ts` (it greps for the two required symbols; it does **not** verify the site wired `setXFetch`) — add new providers to its `REQUIRED` list. Exception: `apps-algolia` uses the `algoliasearch` SDK's own transport/cache and is intentionally not instrumented here.
+
 ## Important Constraints
 
 1. **No compat layers in a package** — if a site needs a symbol a package should export, add the export; don't let sites accumulate local reimplementations (see "Known gaps" above).
@@ -142,3 +151,4 @@ Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework*
 5. **Base64 encoding** — `toBase64()` must produce padded output matching `btoa()` — admin uses `btoa()` for definition refs.
 6. **ETag** — content-based DJB2 hash, not string length.
 7. **Dependency graph direction** — see "Key Boundaries" above; this is enforced by convention, not tooling, so review new imports across package boundaries carefully.
+8. **Cache/upstream observability** — a new commerce app MUST route egress through `createInstrumentedFetch` and cache upstream GETs via `createFetchCache` (`@decocms/blocks/sdk/fetchCache`). See "Cache & upstream observability" above; the guardrail test enforces the first half.

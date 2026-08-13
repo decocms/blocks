@@ -12,6 +12,8 @@ describe("generateAppCss — tailwind.config.ts porting", () => {
       colors: { perola: "#F5F0E8", "brand-500": "#B10200" },
       fontFamily: { "bebas-neue": "Bebas Neue, sans-serif" },
       screens: { "3xl": "1920px" },
+      animations: {},
+      keyframes: {},
       safelist: ["bg-red-500", "text-brand-500"],
       safelistPatterns: [],
       plugins: [],
@@ -25,6 +27,28 @@ describe("generateAppCss — tailwind.config.ts porting", () => {
     expect(css).toContain("--font-bebas-neue: Bebas Neue, sans-serif;");
     expect(css).toContain("--breakpoint-3xl: 1920px;");
     expect(css).toContain('@source inline("bg-red-500 text-brand-500");');
+  });
+
+  it("emits --animate-* in @theme and @keyframes blocks from tailwind.config.ts", () => {
+    const ctx = createContext("/tmp/does-not-exist");
+    ctx.tailwindConfig = {
+      colors: {},
+      fontFamily: {},
+      screens: {},
+      animations: { "fade-in": "fadeIn 0.5s ease-in" },
+      keyframes: { fadeIn: { "0%": "opacity: 0", "100%": "opacity: 1" } },
+      safelist: [],
+      safelistPatterns: [],
+      plugins: [],
+      reviewItems: [],
+    };
+
+    const css = generateAppCss(ctx);
+
+    expect(css).toContain("--animate-fade-in: fadeIn 0.5s ease-in;");
+    expect(css).toContain("@keyframes fadeIn {");
+    expect(css).toContain("0% { opacity: 0; }");
+    expect(css).toContain("100% { opacity: 1; }");
   });
 
   it("does not duplicate a custom color that collides with a daisyUI semantic key", () => {

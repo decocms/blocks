@@ -252,10 +252,10 @@ describe("typeToJsonSchema loader block-ref matching", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Default output path (.deco/) + legacy warning — subprocess, mirrors the
-// pattern in generate-sections.test.ts. generate-schema.ts IS guarded by
-// isMainModule(), but it's still driven as a subprocess here so the CLI's
-// argv-parsed OUT_REL/legacy-check top-level code runs against a real cwd.
+// Default output path (.deco/) — subprocess, mirrors the pattern in
+// generate-sections.test.ts. generate-schema.ts IS guarded by isMainModule(),
+// but it's still driven as a subprocess here so the CLI's argv-parsed OUT_REL
+// top-level code runs against a real cwd.
 // ---------------------------------------------------------------------------
 
 const SCRIPT = path.resolve(__dirname, "generate-schema.ts");
@@ -313,32 +313,9 @@ describe("generate-schema default output path (.deco/)", () => {
     expect(meta.manifest.blocks.sections).toHaveProperty("site/sections/Hero.tsx");
   }, 30_000);
 
-  it("warns once to stderr naming both paths when the OLD default file exists and no --out is passed, but still writes the NEW default", () => {
-    const oldDefaultDir = path.join(tmpDir, "src", "server", "admin");
-    fs.mkdirSync(oldDefaultDir, { recursive: true });
-    fs.writeFileSync(path.join(oldDefaultDir, "meta.gen.json"), "{}");
-
+  it("does not warn about a legacy default path", () => {
     const { code, stderr } = runGenerator(["--skip-apps"], { cwd: tmpDir });
     expect(code).toBe(0);
-
-    expect(stderr).toContain("src/server/admin/meta.gen.json");
-    expect(stderr).toContain(".deco/meta.gen.json");
-    expect(stderr).toContain("Move the file and update its importers");
-
-    const newDefault = path.join(tmpDir, ".deco", "meta.gen.json");
-    expect(fs.existsSync(newDefault)).toBe(true);
-  }, 30_000);
-
-  it("does not warn when an explicit --out is passed, even if the OLD default file exists", () => {
-    const oldDefaultDir = path.join(tmpDir, "src", "server", "admin");
-    fs.mkdirSync(oldDefaultDir, { recursive: true });
-    fs.writeFileSync(path.join(oldDefaultDir, "meta.gen.json"), "{}");
-
-    const explicitOut = path.join(tmpDir, "custom", "meta.gen.json");
-    const { code, stderr } = runGenerator(["--skip-apps", "--out", explicitOut], { cwd: tmpDir });
-    expect(code).toBe(0);
-
     expect(stderr).not.toContain("Generator default output moved");
-    expect(fs.existsSync(explicitOut)).toBe(true);
   }, 30_000);
 });

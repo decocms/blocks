@@ -156,6 +156,8 @@ export interface MigrationContext {
   themeColors: Record<string, string>;
   /** Font family from CMS config */
   fontFamily: string | null;
+  /** Google Fonts URLs extracted from routes/_app.tsx or CSS @import */
+  googleFonts: { preconnects: string[]; stylesheets: string[] };
 
   /**
    * Statically-extracted content of the source site's `tailwind.config.ts`
@@ -226,10 +228,13 @@ export function createContext(
     discoveredNpmDeps: {},
     themeColors: {},
     fontFamily: null,
+    googleFonts: { preconnects: [], stylesheets: [] },
     tailwindConfig: {
       colors: {},
       fontFamily: {},
       screens: {},
+      animations: {},
+      keyframes: {},
       safelist: [],
       safelistPatterns: [],
       plugins: [],

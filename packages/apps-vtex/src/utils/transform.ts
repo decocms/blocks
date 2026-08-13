@@ -113,6 +113,13 @@ interface ProductOptions {
 	variantIncludeImage?: boolean;
 	/** When leanVariants is true, still include inventoryLevel on each variant offer. Default true. */
 	variantIncludeInventory?: boolean;
+	/**
+	 * Shelf: include every SKU as a lean variant in isVariantOf.hasVariant[] (via
+	 * toProductVariant) instead of a single in-stock one. Lets shelf cards render
+	 * the full size/color grid without pulling the heavy toProduct payload.
+	 * Default false — preserves the lean single-variant shelf other sites rely on.
+	 */
+	shelfCompleteVariants?: boolean;
 }
 
 /** Returns first available sku */
@@ -649,11 +656,19 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 		level < 1
 			? (() => {
 					const inStockSku = findFirstAvailable(items) ?? items[0];
-					const singleVariant = inStockSku ? [toProductShelf(product, inStockSku, 1, options)] : [];
+					// Opt-in: every SKU as a lean variant (size/color grid on shelf cards).
+					// Default: a single in-stock variant (lean shelf payload).
+					const hasVariant = options.shelfCompleteVariants
+						? items.map((variantSku) =>
+								toProductVariant(product, variantSku, options),
+							)
+						: inStockSku
+							? [toProductShelf(product, inStockSku, 1, options)]
+							: [];
 					return {
 						"@type": "ProductGroup" as const,
 						productGroupID: productId,
-						hasVariant: singleVariant,
+						hasVariant,
 						url: getProductGroupURL(baseUrl, product).href,
 						name: product.productName,
 						// Carry the shelf-safe group specs (incl. "Campanha") so ProductCard

@@ -14,6 +14,7 @@ export {
 export {
   DecoPageRenderer,
   DecoRootLayout,
+  DraftPreviewIndicator,
   NavigationProgress,
   PreviewProviders,
   SectionList,

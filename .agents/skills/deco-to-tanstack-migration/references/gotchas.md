@@ -12,6 +12,7 @@ This file is an index. Each topic has its own focused file.
 | [css-styling.md](css-styling.md) | Tailwind v4, oklch, DaisyUI, custom palettes | #15, #17, #31, #37, #40, #42–43, #48–49 |
 | [admin-cms.md](admin-cms.md) | Admin routes, schema, device context | #16, #18, #23, #26, #29 |
 | [vtex-commerce.md](vtex-commerce.md) | Section loader composition (`withSectionLoader`) | #50 |
+| [admin-cms.md](admin-cms.md) | Codegen output path change (`src/server/cms/` → `.deco/`) | #51 |
 
 ## #50 Quick Reference — Section Loader Composition
 

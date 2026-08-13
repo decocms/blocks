@@ -35,3 +35,32 @@ describe("renameToken", () => {
     expect(renameToken("md:bg-red-500")).toBe("md:bg-red-500");
   });
 });
+
+import { detectDaisyUiV5StructuralIssues } from "./tailwind-renames";
+
+describe("detectDaisyUiV5StructuralIssues", () => {
+  it("detects menu-compact removal", () => {
+    const findings = detectDaisyUiV5StructuralIssues(`<ul className="menu menu-compact">`);
+    expect(findings.some((f) => f.message.includes("menu-compact"))).toBe(true);
+  });
+
+  it("detects tab-bordered removal", () => {
+    const findings = detectDaisyUiV5StructuralIssues(`<a className="tab tab-bordered">`);
+    expect(findings.some((f) => f.message.includes("tab-bordered"))).toBe(true);
+  });
+
+  it("detects bare alert in className without a color modifier", () => {
+    const findings = detectDaisyUiV5StructuralIssues(`<div className="alert">`);
+    expect(findings.some((f) => f.message.includes("alert"))).toBe(true);
+  });
+
+  it("does not flag alert when a color modifier is present", () => {
+    const findings = detectDaisyUiV5StructuralIssues(`<div className="alert alert-info">`);
+    expect(findings.some((f) => f.message.includes("alert default styling"))).toBe(false);
+  });
+
+  it("does not flag alert() JS function calls as a DaisyUI alert", () => {
+    const findings = detectDaisyUiV5StructuralIssues(`window.alert("something went wrong");`);
+    expect(findings.some((f) => f.message.includes("alert default styling"))).toBe(false);
+  });
+});

@@ -11,6 +11,7 @@ import {
   METRIC_METADATA,
   type MeterAdapter,
   MetricNames,
+  normalizePath,
   recordCacheMetric,
   recordCommerceMetric,
   recordRequestMetric,
@@ -158,9 +159,9 @@ describe("recordCacheMetric — cache_layer label", () => {
     expect(counters).toHaveLength(1);
     expect(counters[0]?.name).toBe(MetricNames.CACHE_REQUESTS);
     expect(counters[0]?.labels).toMatchObject({
-      "deco.cache.profile": "product",
-      "deco.cache.status": "HIT",
-      "deco.cache.layer": "edge",
+      "profile": "product",
+      "status": "HIT",
+      "layer": "edge",
     });
   });
 
@@ -171,7 +172,7 @@ describe("recordCacheMetric — cache_layer label", () => {
     recordCacheMetric(false, "search", "MISS", "edge");
 
     expect(counters[0]?.name).toBe(MetricNames.CACHE_REQUESTS);
-    expect(counters[0]?.labels?.["deco.cache.status"]).toBe("MISS");
+    expect(counters[0]?.labels?.["status"]).toBe("MISS");
   });
 
   it("supports the legacy 3-arg signature for backward compat", () => {
@@ -181,20 +182,36 @@ describe("recordCacheMetric — cache_layer label", () => {
     recordCacheMetric(true, "static");
 
     expect(counters[0]?.labels).toEqual({
-      "deco.cache.status": "HIT",
-      "deco.cache.profile": "static",
+      "status": "HIT",
+      "profile": "static",
     });
   });
 
-  it("distinguishes cachedLoader vs edge vs vtex-swr layers", () => {
+  it("distinguishes cachedLoader vs edge vs swr layers", () => {
     const { adapter, counters } = captureMeter();
     configureMeter(adapter);
 
     recordCacheMetric(true, "loader-x", "HIT", "cachedLoader");
-    recordCacheMetric(true, "vtex-product", "HIT", "vtex-swr");
+    recordCacheMetric(true, undefined, "HIT", "swr", "vtex");
 
-    expect(counters[0]?.labels?.["deco.cache.layer"]).toBe("cachedLoader");
-    expect(counters[1]?.labels?.["deco.cache.layer"]).toBe("vtex-swr");
+    expect(counters[0]?.labels?.["layer"]).toBe("cachedLoader");
+    expect(counters[1]?.labels?.["layer"]).toBe("swr");
+  });
+
+  it("keeps provider (swr backend) on a separate label from profile (edge page-type)", () => {
+    const { adapter, counters } = captureMeter();
+    configureMeter(adapter);
+
+    // edge: profile carries the page-type; no provider.
+    recordCacheMetric(true, "product", "HIT", "edge");
+    // swr: provider carries the backend; profile left unset so a
+    // `sum by (profile)` panel never blends page-types with backend names.
+    recordCacheMetric(true, undefined, "HIT", "swr", "magento");
+
+    expect(counters[0]?.labels?.["profile"]).toBe("product");
+    expect(counters[0]?.labels?.["provider"]).toBeUndefined();
+    expect(counters[1]?.labels?.["profile"]).toBeUndefined();
+    expect(counters[1]?.labels?.["provider"]).toBe("magento");
   });
 });
 
@@ -280,5 +297,39 @@ describe("METRIC_METADATA duration buckets", () => {
     // past 10s on uncached loader paths. Buckets must resolve both ends.
     expect(DURATION_BUCKET_BOUNDARIES_SECONDS.some((x) => x <= 0.05)).toBe(true);
     expect(DURATION_BUCKET_BOUNDARIES_SECONDS.some((x) => x >= 10)).toBe(true);
+  });
+});
+
+/**
+ * `http.route` is the highest-cardinality risk on the highest-volume metric.
+ * These cases are the real paths measured on production when the label reached
+ * 20,714 distinct values across 6 tenants.
+ */
+describe("normalizePath cardinality", () => {
+  it("collapses CMS content slugs", () => {
+    expect(normalizePath("/mochila-de-couro")).toBe("/:slug");
+    expect(normalizePath("/moveis/quarto-infantil")).toBe("/moveis/:slug");
+    expect(normalizePath("/granado/eau-de-toilette-spritz-100ml")).toBe("/granado/:slug");
+    expect(normalizePath("/moveis/quarto-adulto/cabeceiras-mesa-de-cabeceiras")).toBe(
+      "/moveis/:slug/:slug",
+    );
+  });
+
+  it("leaves bounded framework and API routes intact", () => {
+    expect(normalizePath("/")).toBe("/");
+    expect(normalizePath("/api/sessions")).toBe("/api/sessions");
+    expect(normalizePath("/deco/invoke/magento/loaders/features")).toBe(
+      "/deco/invoke/magento/loaders/features",
+    );
+  });
+
+  it("keeps dotfile segments readable", () => {
+    expect(normalizePath("/.well-known/passkey-endpoints")).toBe("/.well-known/:slug");
+  });
+
+  it("still collapses ids and product pages", () => {
+    expect(normalizePath("/produto/12345")).toBe("/produto/:id");
+    expect(normalizePath("/a/deadbeefcafe")).toBe("/a/:id");
+    expect(normalizePath("/some-product/p")).toBe("/:slug/p");
   });
 });

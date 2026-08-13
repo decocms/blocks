@@ -279,6 +279,8 @@ export const MetricNames = {
   // Single cache counter dimensioned by `deco.cache.status` — follows the OTel
   // semconv pattern (cf. nfs.server.repcache.requests + .status). deco-cx/deco
   // uses the same name so both frameworks aggregate together.
+  // Labels on this counter use short keys (status/profile/layer/provider) —
+  // the metric name already provides the deco.cache.* namespace.
   CACHE_REQUESTS: "deco.cache.requests",
   RESOLVE_DURATION: "deco.cms.resolve.duration",
   LOADER_DURATION: "deco.loader.duration",
@@ -350,7 +352,7 @@ export const METRIC_METADATA: Record<
     boundaries: DURATION_BUCKET_BOUNDARIES_SECONDS,
   },
   [MetricNames.CACHE_REQUESTS]: {
-    description: "Cache lookups, dimensioned by deco.cache.status (hit/stale/miss/bypass).",
+    description: "Cache lookups, dimensioned by status (hit/stale/miss/bypass).",
     unit: "{request}",
   },
   [MetricNames.RESOLVE_DURATION]: {
@@ -462,7 +464,7 @@ export function recordRequestMetric(
   //   - `status_class`: 5-element enum (2xx / 3xx / 4xx / 5xx / unknown).
   //   - `outcome`: CF outcome enum (~7 values).
   //   - `cache_decision`: 5-element enum.
-  //   - `cache_layer`: 3-element enum (edge / cachedLoader / vtex-swr).
+  //   - `cache_layer`: 3-element enum (edge / cachedLoader / swr).
   //   - `region`: ~250 CF colo codes worldwide.
   // Total combinations are bounded — safe for unbounded series on
   // ClickHouse but operators should still avoid grouping by `region`
@@ -521,10 +523,15 @@ export type CacheDecision = "HIT" | "STALE-HIT" | "STALE-ERROR" | "MISS" | "BYPA
  *  - `edge`         — Cloudflare Cache API (HTML pages, server-fn responses)
  *  - `cachedLoader` — In-memory per-isolate via `sdk/cachedLoader.ts`
  *                     (loader-level SWR, dedup, in-flight)
- *  - `vtex-swr`     — Apps-side in-memory cache shared by VTEX clients
- *                     (intelligent-search, cross-selling, etc.)
+ *  - `swr`          — Apps-side in-memory SWR fetch cache shared by commerce
+ *                     clients (VTEX intelligent-search, Magento GraphQL,
+ *                     Shopify, etc.) via `sdk/fetchCache.ts`. Provider-agnostic;
+ *                     the specific backend rides on `deco.cache.provider`
+ *                     (e.g. `vtex` / `magento` / `shopify`), a separate label
+ *                     from `deco.cache.profile` (page-type, set by `edge`).
+ *                     Renamed from the old `vtex-swr` once the util was shared.
  */
-export type CacheLayer = "edge" | "cachedLoader" | "vtex-swr";
+export type CacheLayer = "edge" | "cachedLoader" | "swr";
 
 /**
  * Record a cache hit/miss metric. Also stamps the decision on the active
@@ -535,18 +542,28 @@ export type CacheLayer = "edge" | "cachedLoader" | "vtex-swr";
  * Backward-compatible signature:
  *   recordCacheMetric(hit, profile?, decision?)
  *   recordCacheMetric(hit, profile?, decision?, layer?)
+ *   recordCacheMetric(hit, profile?, decision?, layer?, provider?)
  *
  * `decision` is optional — when omitted, the metric still records HIT
  * vs MISS but dashboards can't distinguish SWR/SIE paths. Pass it
  * whenever known. `layer` defaults to `edge` when called from
- * workerEntry; cachedLoader / vtex-swr call sites should pass their
+ * workerEntry; cachedLoader / swr call sites should pass their
  * value explicitly.
+ *
+ * `profile` and `provider` are DISTINCT dimensions and must not be
+ * conflated: `profile` is the page/route type (`product` / `listing` /
+ * `search`, set by the `edge` layer) or loader name (`cachedLoader`);
+ * `provider` is the commerce backend (`vtex` / `magento` / `shopify`, set
+ * by the `swr` layer). Keeping them on separate labels means a
+ * `sum by (profile)` panel never blends page-types with backend
+ * names. The `swr` layer passes `provider` and leaves `profile` unset.
  */
 export function recordCacheMetric(
   hit: boolean,
   profile?: string,
   decision?: CacheDecision,
   layer?: CacheLayer,
+  provider?: string,
 ) {
   // Stamp on the active span FIRST so the attribute survives even if the
   // meter is a no-op (e.g. on tests, or in dev without DECO_METRICS).
@@ -555,19 +572,21 @@ export function recordCacheMetric(
     if (decision) active.setAttribute?.("deco.cache.status", decision);
     if (profile) active.setAttribute?.("deco.cache.profile", profile);
     if (layer) active.setAttribute?.("deco.cache.layer", layer);
+    if (provider) active.setAttribute?.("deco.cache.provider", provider);
   }
 
   const m = getState().meter;
   if (!m) return;
-  // Single counter dimensioned by deco.cache.status — unified with deco-cx/deco
-  // (follows the semconv nfs.server.repcache.requests + .status pattern). status
-  // is the decision when known (HIT/STALE-HIT/STALE-ERROR/MISS/BYPASS), else the
-  // hit boolean. Same key on span + metric.
+  // Single counter dimensioned by status — the metric name deco.cache.requests
+  // already scopes the label, so the deco.cache. prefix is redundant on labels.
+  // Span attribute keeps the full deco.cache.status key (spans mix attrs from
+  // many sources, so the namespace is needed there).
   const labels: Labels = {
-    "deco.cache.status": decision ?? (hit ? "HIT" : "MISS"),
+    status: decision ?? (hit ? "HIT" : "MISS"),
   };
-  if (profile) labels["deco.cache.profile"] = profile;
-  if (layer) labels["deco.cache.layer"] = layer;
+  if (profile) labels["profile"] = profile;
+  if (layer) labels["layer"] = layer;
+  if (provider) labels["provider"] = provider;
   m.counterInc(MetricNames.CACHE_REQUESTS, 1, labels);
 }
 
@@ -656,10 +675,33 @@ export function recordLoaderError(name: string) {
  */
 export function normalizePath(path: string): string {
   // Collapse dynamic segments to reduce cardinality
-  return path
+  const collapsed = path
     .replace(/\/[0-9a-f]{8,}/gi, "/:id")
     .replace(/\/\d+/g, "/:id")
     .replace(/\/[^/]+\/p$/, "/:slug/p");
+
+  // Content slugs are the case none of the rules above catch: they carry no
+  // digits, no hex id and no `/p` suffix, so a CMS page passes through as its
+  // own literal path and becomes its own series.
+  //
+  //   /mochila-de-couro
+  //   /moveis/quarto-infantil
+  //   /granado/eau-de-toilette-spritz-100ml
+  //
+  // Measured on the production ClickHouse, `http.route` reached 20,714
+  // distinct values across only 6 tenants — on `http.server.request.duration`,
+  // the highest-volume metric in the pipeline (19M rows / 3h).
+  //
+  // A hyphen is the discriminator. CMS slugs are hyphenated by construction,
+  // while framework and API segments are single words (`api`, `sessions`,
+  // `deco`, `invoke`, `loaders`, `render`). Dotfile segments such as
+  // `.well-known` are excluded so they keep their meaning.
+  return collapsed
+    .split("/")
+    .map((segment) =>
+      segment.includes("-") && !segment.startsWith(".") ? ":slug" : segment,
+    )
+    .join("/");
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@
  * extractor returns `undefined`.
  */
 
+import type { FetchFn } from "@decocms/blocks/sdk/fetchTimeout";
 import {
 	createInstrumentedFetch,
 	type InstrumentedFetch,
@@ -31,7 +32,7 @@ import { recordCommerceMetric } from "@decocms/blocks/sdk/observability";
 import { shopifyOperationRouter } from "./operationRouter";
 
 export interface CreateShopifyFetchOptions {
-	baseFetch?: typeof fetch;
+	baseFetch?: FetchFn;
 	disableHistogram?: boolean;
 }
 

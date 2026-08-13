@@ -14,8 +14,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve(__dirname, "generate-loaders.ts");
 
-function run(cwd: string): { stdout: string; stderr: string; code: number } {
-  const r = cp.spawnSync("npx", ["tsx", SCRIPT], { encoding: "utf8", cwd });
+function run(cwd: string, args: string[] = []): { stdout: string; stderr: string; code: number } {
+  const r = cp.spawnSync("npx", ["tsx", SCRIPT, ...args], { encoding: "utf8", cwd });
   return { stdout: r.stdout || "", stderr: r.stderr || "", code: r.status ?? -1 };
 }
 

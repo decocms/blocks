@@ -20,6 +20,7 @@ import { generateSectionLoaders } from "./templates/section-loaders";
 import { generateCacheConfig } from "./templates/cache-config";
 import { generateSdkFiles } from "./templates/sdk-gen";
 import { generateMigrationPolicyPointerRule } from "./templates/cursor-rules";
+import { generatePerfFiles } from "./templates/perf-yml";
 // `lib-utils` is imported lazily — see end of phase-cleanup. Eager
 // generation of all 11 shims left every site with dead code that had
 // to be cleaned up by hand.
@@ -86,6 +87,11 @@ export function scaffold(ctx: MigrationContext): void {
     ".github/workflows/lockfile-check.yml",
     generateLockfileCheckYml(CANONICAL_BUN_VERSION),
   );
+
+  // Advisory per-PR performance workflow: detects which sections changed,
+  // maps them to CMS page paths, runs Lighthouse against the CF preview URL
+  // (PR vs main), and posts a comparison comment. Gate = CLS + TBT only.
+  writeMultiFile(ctx, generatePerfFiles(ctx.siteName));
 
   // Server entry files (server.ts, worker-entry.ts, router.tsx, runtime.ts, context.ts)
   writeMultiFile(ctx, generateServerEntry(ctx));
@@ -231,6 +237,7 @@ function generateWranglerConfig(ctx: MigrationContext): string {
       main: "src/worker-entry.ts",
       compatibility_date: "2025-05-01",
       compatibility_flags: ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+      cache: { enabled: true },
       kv_namespaces: [{ binding: "SITES_KV", id: "dev-sites-kv" }],
     },
     null,
@@ -340,7 +347,7 @@ export default debounce;
 }
 
 function generateSignalShim(): string {
-  return `import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+  return `import { useState, useRef, useEffect, useMemo, useCallback, useSyncExternalStore } from "react";
 export { signal, type ReactiveSignal } from "@decocms/blocks/sdk/signal";
 
 /** Run a function immediately. Kept for legacy module-level side effects. */
@@ -385,6 +392,24 @@ export function useComputed<T>(compute: () => T): { readonly value: T } {
  */
 export function useSignalEffect(cb: () => void | (() => void)): void {
   useEffect(cb);
+}
+
+/**
+ * Subscribe to a ReactiveSignal and re-render when it changes.
+ * Required for signals from useUI() (displayCart, displayMenu, etc.) —
+ * reading .value directly in render is a dead read in React and freezes the UI.
+ *
+ * @example
+ *   const { displayCart } = useUI();
+ *   const open = useSignalValue(displayCart);
+ *   return <Drawer open={open} />;
+ */
+export function useSignalValue<T>(sig: ReactiveSignal<T>): T {
+  return useSyncExternalStore(
+    (cb) => sig.subscribe(cb),
+    () => sig.value,
+    () => sig.value,
+  );
 }
 `;
 }

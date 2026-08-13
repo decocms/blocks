@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DRAFT_COOKIE } from "./draft";
-import { applyDraft, prepareDraft, rewriteToDraftRoute } from "./draftMiddleware";
+import {
+  applyDraft,
+  draftRequestHeaders,
+  prepareDraft,
+  rewriteToDraftRoute,
+} from "./draftMiddleware";
 
 beforeEach(() => {
   // The middleware is host-gated; these tests run as the allowed host.
@@ -48,13 +53,40 @@ describe("prepareDraft", () => {
     expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
   });
 
-  it("ignores a client-supplied draft header — the page owns the decision", () => {
-    // There is no request-header path any more; the page reads searchParams
-    // and cookies itself, so a forged header is simply not an input.
+  it("does not read a client-supplied draft header — the decision is param/cookie only", () => {
+    // The forwarded `x-deco-draft` header (read by `ensureDraft` in the layout)
+    // is an OUTPUT of the middleware decision, never an input to it: prepareDraft
+    // still decides purely from the param + cookie. A client that forges the
+    // header directly can't manufacture a decision here (and `draftRequestHeaders`
+    // strips it when not previewing).
     const req = new NextRequest(new URL("https://site.example/p"), {
       headers: { "x-deco-draft": "attacker.localhost@v1" },
     });
     expect(prepareDraft(req).pointer).toBeNull();
+  });
+});
+
+describe("draftRequestHeaders", () => {
+  it("forwards the active pointer on x-deco-draft so a layout can bind it", () => {
+    const req = request("https://site.example/p?__draft=abc.localhost@v1");
+    const headers = draftRequestHeaders(req, prepareDraft(req));
+    expect(headers.get("x-deco-draft")).toBe("abc.localhost@v1");
+  });
+
+  it("forwards the cookie-carried pointer on plain navigation", () => {
+    const req = request("https://site.example/p", "abc.localhost@v1");
+    const headers = draftRequestHeaders(req, prepareDraft(req));
+    expect(headers.get("x-deco-draft")).toBe("abc.localhost@v1");
+  });
+
+  it("strips a client-forged header when the request is not previewing", () => {
+    // Direct-to-origin request carrying a forged header but no real pointer:
+    // the forwarded headers must not carry it downstream.
+    const req = new NextRequest(new URL("https://site.example/p"), {
+      headers: { "x-deco-draft": "attacker.localhost@v1" },
+    });
+    const headers = draftRequestHeaders(req, prepareDraft(req));
+    expect(headers.get("x-deco-draft")).toBeNull();
   });
 });
 

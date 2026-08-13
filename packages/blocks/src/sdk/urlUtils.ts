@@ -119,6 +119,23 @@ export function canonicalUrl(request: Request, baseUrl?: string): string {
 }
 
 /**
+ * Extract the pathname from an absolute or relative URL, stripping query
+ * string and hash. Falls back to manual slicing when `new URL()` would
+ * throw (relative URL without a base). Used by operation routers that
+ * need to match against URL structure without caring about the host.
+ */
+export function extractPathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    const qs = url.indexOf("?");
+    const hash = url.indexOf("#");
+    const end = [qs, hash].filter((i) => i >= 0).sort((a, b) => a - b)[0];
+    return end === undefined ? url : url.slice(0, end);
+  }
+}
+
+/**
  * Check if a URL has any tracking/UTM parameters.
  */
 export function hasTrackingParams(urlString: string): boolean {

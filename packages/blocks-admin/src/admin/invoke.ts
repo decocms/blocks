@@ -13,7 +13,7 @@
  * copies those headers into the final HTTP Response.
  */
 
-import { resolveDraftForRequest, withBlocksOverride } from "@decocms/blocks/cms";
+import { resolveDraftForRequest, withDraftBlocks } from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 
 export type InvokeLoader = (props: any, request: Request) => Promise<any>;
@@ -95,11 +95,13 @@ function forwardCtxHeadersTo(response: Response): void {
 }
 
 const isDev =
-  typeof globalThis.process !== "undefined" && globalThis.process.env?.NODE_ENV === "development";
+  typeof globalThis.process !== "undefined" &&
+  globalThis.process.env?.NODE_ENV === "development";
 
 function selectFields(data: unknown, select?: string[]): unknown {
   if (!select?.length || !data || typeof data !== "object") return data;
-  if (Array.isArray(data)) return data.map((item) => selectFields(item, select));
+  if (Array.isArray(data))
+    return data.map((item) => selectFields(item, select));
   const result: Record<string, unknown> = {};
   for (const key of select) {
     if (key in (data as Record<string, unknown>)) {
@@ -131,7 +133,9 @@ async function parseBody(request: Request): Promise<any> {
       for (const [key, value] of formData.entries()) {
         if (obj[key] !== undefined) {
           // Multiple values → array
-          const existing = Array.isArray(obj[key]) ? (obj[key] as unknown[]) : [obj[key]];
+          const existing = Array.isArray(obj[key])
+            ? (obj[key] as unknown[])
+            : [obj[key]];
           existing.push(value);
           obj[key] = existing;
         } else {
@@ -193,10 +197,9 @@ function unknownHandlerMessage(key: string): string {
   const kind = isAction ? "action" : isLoader ? "loader" : "loader/action";
   const dir = isAction ? "src/actions/" : "src/loaders/";
   const cliHint = "npm run generate:loaders";
-  const setupHint =
-    isAction
-      ? "setInvokeActions(() => COMMERCE_ACTIONS)"
-      : "setInvokeLoaders(() => COMMERCE_LOADERS)";
+  const setupHint = isAction
+    ? "setInvokeActions(() => COMMERCE_ACTIONS)"
+    : "setInvokeLoaders(() => COMMERCE_LOADERS)";
   return (
     `Unknown handler: ${key}. ` +
     `Check that the ${kind} exists in ${dir} (file path must match the key — ` +
@@ -221,16 +224,17 @@ function warnMissingHandlerOnce(key: string): void {
  * refs; without this, `/deco/invoke` — a separate request from the page render,
  * so the page's request-scoped draft binding never reaches it — would resolve
  * against PUBLISHED blocks and hand a reviewer stale content in any
- * client-fetched (lazy/on-scroll) or self-fetched section. `withBlocksOverride`
+ * client-fetched (lazy/on-scroll) or self-fetched section. `withDraftBlocks`
  * uses AsyncLocalStorage, so each concurrent invoke gets its own override with
  * no cross-request bleed (the same isolation the layout-cache race taught us to
- * keep). Inert unless the draft gate passes — no draft, no wrap, published path
- * untouched.
+ * keep) — and composes the draft as a SNAPSHOT, the same semantics the page
+ * render applies, so a block deleted in the draft is deleted here too. Inert
+ * unless the draft gate passes — no draft, no wrap, published path untouched.
  */
 export async function handleInvoke(request: Request): Promise<Response> {
   const draftBlocks = await resolveDraftForRequest(request);
   return draftBlocks
-    ? withBlocksOverride(draftBlocks, () => dispatchInvoke(request))
+    ? withDraftBlocks(draftBlocks, () => dispatchInvoke(request))
     : dispatchInvoke(request);
 }
 
@@ -258,7 +262,10 @@ async function dispatchInvoke(request: Request): Promise<Response> {
         return result;
       }
       const filtered = selectFields(result, select);
-      const response = new Response(JSON.stringify(filtered), { status: 200, headers: JSON_HEADERS });
+      const response = new Response(JSON.stringify(filtered), {
+        status: 200,
+        headers: JSON_HEADERS,
+      });
       forwardCtxHeadersTo(response);
       return response;
     } catch (error) {
@@ -267,7 +274,12 @@ async function dispatchInvoke(request: Request): Promise<Response> {
   }
 
   // Batch invoke
-  if (request.method === "POST" && body && typeof body === "object" && !Array.isArray(body)) {
+  if (
+    request.method === "POST" &&
+    body &&
+    typeof body === "object" &&
+    !Array.isArray(body)
+  ) {
     const results: Record<string, unknown> = {};
 
     const entries = Object.entries(body as Record<string, unknown>);
@@ -286,7 +298,11 @@ async function dispatchInvoke(request: Request): Promise<Response> {
             // RequestContext.responseHeaders (which forwardCtxHeadersTo()
             // below propagates onto the batch response).
             if (result instanceof Response) {
-              try { result = await result.json(); } catch { result = null; }
+              try {
+                result = await result.json();
+              } catch {
+                result = null;
+              }
             }
             results[key] = selectFields(result, select);
           } catch (error) {
@@ -299,7 +315,10 @@ async function dispatchInvoke(request: Request): Promise<Response> {
       }),
     );
 
-    const response = new Response(JSON.stringify(results), { status: 200, headers: JSON_HEADERS });
+    const response = new Response(JSON.stringify(results), {
+      status: 200,
+      headers: JSON_HEADERS,
+    });
     // All batch handlers share the same RequestContext, so any Set-Cookie
     // they appended (e.g. from VTEX vtexFetchWithCookies) is in
     // `responseHeaders` by now. Forward it as N distinct Set-Cookie headers.

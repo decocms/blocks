@@ -262,8 +262,12 @@ interface CachePattern {
   profile: CacheProfileName;
 }
 
+// Authenticated / per-user areas that must never be edge-cached. Includes the
+// hyphenless `myaccount` (VTEX My Account wrapper path) and common pt-BR routes
+// (`minha-conta`, `meus-pedidos`, `pedidos`) — omitting these let account pages
+// fall through to the cacheable `listing` default (see decocms/blocks#412).
 const PRIVATE_PREFIX_RE =
-  /^\/(cart|checkout|account|login|my-account)(\/|$)/;
+  /^\/(cart|checkout|account|myaccount|my-account|minha-conta|meus-pedidos|pedidos|login)(\/|$)/;
 
 const builtinPatterns: CachePattern[] = [
   {

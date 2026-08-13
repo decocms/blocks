@@ -70,6 +70,30 @@ export interface AppRegistryEntry {
 
 export type AppRegistry = readonly AppRegistryEntry[];
 
+// One-shot re-configuration registered by autoconfigApps() and triggered by the
+// first request (reconfigureAppsOnce). See reconfigureAppsOnce() below for why.
+let pendingReinit: (() => Promise<void>) | null = null;
+let reinitPromise: Promise<void> | null = null;
+
+/**
+ * Re-run app configuration once, the first time it's called from within a
+ * request scope. Idempotent — subsequent calls await the same in-flight promise
+ * (or return immediately once done).
+ *
+ * Why this exists: autoconfigApps() runs at module-init (setup.ts), BEFORE any
+ * request. In CF Workers production/preview the `env` binding (holding
+ * DECO_CRYPTO_KEY) is only available inside the fetch handler, so the startup
+ * pass decrypts nothing and configures apps with null credentials. workerEntry
+ * calls this after setRuntimeEnv(env) so configure() re-runs with the real key
+ * now reachable via getRuntimeEnv() inside crypto.ts's getEnvVar().
+ */
+export function reconfigureAppsOnce(): Promise<void> {
+  if (reinitPromise) return reinitPromise;
+  if (!pendingReinit) return Promise.resolve(); // nothing registered yet
+  reinitPromise = pendingReinit();
+  return reinitPromise;
+}
+
 async function configureAllApps(
   blocks: Record<string, unknown>,
   registry: AppRegistry,
@@ -137,12 +161,27 @@ export async function autoconfigApps(
     await setupApps(apps);
   }
 
+  // Latest blocks, kept current by onChange so the first-request re-init below
+  // uses fresh content if the decofile was reloaded before the first request.
+  let latestBlocks = blocks;
+
   // Re-configure on admin hot-reload
   onChange(async (newBlocks) => {
     if (typeof document !== "undefined") return;
+    latestBlocks = newBlocks;
     const updatedApps = await configureAllApps(newBlocks, registry);
     if (updatedApps.length > 0) {
       await setupApps(updatedApps);
     }
   });
+
+  // Register the one-shot re-init fired on the first request (where the CF
+  // Workers `env` — and thus DECO_CRYPTO_KEY — becomes reachable). See
+  // reconfigureAppsOnce() for the full rationale.
+  pendingReinit = async () => {
+    const reconfigured = await configureAllApps(latestBlocks, registry);
+    if (reconfigured.length > 0) {
+      await setupApps(reconfigured);
+    }
+  };
 }

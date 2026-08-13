@@ -1,4 +1,7 @@
-export type { ApplySectionConventionsInput, SectionMetaEntry } from "./applySectionConventions";
+export type {
+  ApplySectionConventionsInput,
+  SectionMetaEntry,
+} from "./applySectionConventions";
 export { applySectionConventions } from "./applySectionConventions";
 export type { BlockSnapshot, BlockSource, KVNamespace } from "./blockSource";
 export {
@@ -43,8 +46,13 @@ export {
   onChange,
   setBlocks,
   withBlocksOverride,
+  withDraftBlocks,
 } from "./loader";
-export type { OnBeforeResolveProps, SectionModule, SectionOptions } from "./registry";
+export type {
+  OnBeforeResolveProps,
+  SectionModule,
+  SectionOptions,
+} from "./registry";
 export {
   getResolvedComponent,
   getSection,

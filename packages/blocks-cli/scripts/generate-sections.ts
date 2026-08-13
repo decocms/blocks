@@ -28,15 +28,10 @@
  *                   Built from every scanned section file, not just the ones
  *                   carrying convention exports. Off by default so existing
  *                   Vite sites regenerating sections.gen.ts in CI see zero diff.
- *
- * If no `--out-file` is passed and the OLD default (src/server/cms/sections.gen.ts)
- * still exists on disk, a one-line legacy warning is printed to stderr and the
- * NEW default is written anyway — see lib/legacyArtifact.ts.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
-import { warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -45,18 +40,14 @@ function arg(name: string, fallback: string): string {
 }
 
 const sectionsDir = path.resolve(process.cwd(), arg("sections-dir", "src/sections"));
-const OUT_FILE_EXPLICIT = args.includes("--out-file");
 const NEW_DEFAULT_OUT_FILE = ".deco/sections.gen.ts";
-const OLD_DEFAULT_OUT_FILE = "src/server/cms/sections.gen.ts";
 const outFile = path.resolve(process.cwd(), arg("out-file", NEW_DEFAULT_OUT_FILE));
-if (!OUT_FILE_EXPLICIT && fs.existsSync(path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE))) {
-  warnLegacyArtifact(OLD_DEFAULT_OUT_FILE, NEW_DEFAULT_OUT_FILE);
-}
 const EMIT_REGISTRY = args.includes("--registry");
 
 interface SectionMeta {
   eager?: boolean;
   neverDefer?: boolean;
+  deferred?: boolean;
   cache?: string;
   layout?: boolean;
   sync?: boolean;
@@ -65,7 +56,7 @@ interface SectionMeta {
   hasLoadingFallback?: boolean;
 }
 
-const EXPORT_CONST_RE = /export\s+const\s+(eager|neverDefer|cache|layout|sync|clientOnly|seo)\s*=\s*(.+?)(?:;|\n)/g;
+const EXPORT_CONST_RE = /export\s+const\s+(eager|neverDefer|deferred|cache|layout|sync|clientOnly|seo)\s*=\s*(.+?)(?:;|\n)/g;
 // Detects `export function LoadingFallback(...)`, `export const LoadingFallback = ...`, etc.
 const LOADING_FALLBACK_INLINE_RE = /export\s+(?:function|const|let|var)\s+LoadingFallback\b/;
 // Detects re-exports like:
@@ -207,6 +198,7 @@ lines.push("");
 lines.push("export interface SectionMetaEntry {");
 lines.push("  eager?: boolean;");
 lines.push("  neverDefer?: boolean;");
+lines.push("  deferred?: boolean;");
 lines.push("  cache?: string;");
 lines.push("  layout?: boolean;");
 lines.push("  sync?: boolean;");

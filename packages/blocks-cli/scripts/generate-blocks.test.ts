@@ -1,8 +1,19 @@
+import * as cp from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readBlockDelta } from "./generate-blocks";
+
+const SCRIPT = path.resolve(__dirname, "generate-blocks.ts");
+
+function runGenerator(
+  args: string[],
+  opts: { cwd?: string } = {},
+): { stdout: string; stderr: string; code: number } {
+  const r = cp.spawnSync("npx", ["tsx", SCRIPT, ...args], { encoding: "utf8", cwd: opts.cwd });
+  return { stdout: r.stdout || "", stderr: r.stderr || "", code: r.status ?? 0 };
+}
 
 describe("readBlockDelta", () => {
   let dir: string;

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { extractPlatform } from "./phase-analyze";
+import { extractGoogleFonts, extractPlatform } from "./phase-analyze";
 
 // `extractPlatform` runs four strategies in order:
 //   1. deno.json imports referencing apps/{platform}/
@@ -15,6 +15,68 @@ import { extractPlatform } from "./phase-analyze";
 // declared via `apps/magento.ts`. The fix adds "magento" to the platforms
 // list so Strategy 2 fires first and short-circuits before Strategy 3 can
 // over-match.
+
+describe("extractGoogleFonts", () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "extract-gfonts-"));
+    fs.mkdirSync(path.join(tmp, "routes"), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("extracts preconnects and stylesheet from _app.tsx", () => {
+    fs.writeFileSync(
+      path.join(tmp, "routes", "_app.tsx"),
+      `<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" />`,
+    );
+    const result = extractGoogleFonts(tmp);
+    expect(result.preconnects).toEqual([
+      "https://fonts.googleapis.com",
+      "https://fonts.gstatic.com",
+    ]);
+    expect(result.stylesheets).toEqual([
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap",
+    ]);
+  });
+
+  it("deduplicates URLs present in both _app.tsx and _layout.tsx", () => {
+    const sharedUrl = "https://fonts.googleapis.com/css2?family=Roboto&display=swap";
+    fs.writeFileSync(
+      path.join(tmp, "routes", "_app.tsx"),
+      `<link rel="stylesheet" href="${sharedUrl}" />`,
+    );
+    fs.writeFileSync(
+      path.join(tmp, "routes", "_layout.tsx"),
+      `<link rel="stylesheet" href="${sharedUrl}" />`,
+    );
+    const result = extractGoogleFonts(tmp);
+    expect(result.stylesheets).toHaveLength(1);
+  });
+
+  it("extracts Google Fonts @import from tailwind.css", () => {
+    fs.writeFileSync(
+      path.join(tmp, "tailwind.css"),
+      `@import url('https://fonts.googleapis.com/css2?family=Poppins&display=swap');`,
+    );
+    const result = extractGoogleFonts(tmp);
+    expect(result.stylesheets).toEqual([
+      "https://fonts.googleapis.com/css2?family=Poppins&display=swap",
+    ]);
+  });
+
+  it("returns empty arrays when no Google Fonts are declared", () => {
+    fs.writeFileSync(path.join(tmp, "routes", "_app.tsx"), `<link rel="icon" href="/favicon.ico" />`);
+    const result = extractGoogleFonts(tmp);
+    expect(result.preconnects).toHaveLength(0);
+    expect(result.stylesheets).toHaveLength(0);
+  });
+});
 
 describe("extractPlatform", () => {
   let tmp: string;

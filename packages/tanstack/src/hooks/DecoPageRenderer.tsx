@@ -406,9 +406,22 @@ function DeferredSectionWrapper({
     .replace(/\.tsx$/, "")
     .replace(/^site-sections-/, "");
 
+  // Wrap in the same SectionErrorBoundary the resolved branches use above.
+  // Without this, the child at this position goes straight from `skeleton`
+  // to `<SectionErrorBoundary>...</SectionErrorBoundary>` once `section` is
+  // set — a type change React can't reconcile, forcing a full unmount of
+  // the skeleton subtree and mount of the resolved subtree even when the
+  // section's own LoadingFallback renders the real component with reduced
+  // props (a documented convention — see Footer.tsx/ETCImageContent.tsx in
+  // the farmrio-storefront migration's T64). That unmount/remount is what
+  // produces a hard rect-collapse-to-{0,0,0,0} layout-shift entry instead
+  // of an ordinary prop-driven resize. Keeping the wrapper identical across
+  // both branches lets React diff by type at the child position instead.
   return (
     <section ref={ref} id={sectionId} data-manifest-key={deferred.key} data-deferred="true">
-      {skeleton}
+      <SectionErrorBoundary sectionKey={deferred.key} fallback={errorFallback}>
+        {skeleton}
+      </SectionErrorBoundary>
     </section>
   );
 }
