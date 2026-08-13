@@ -1,7 +1,5 @@
 import * as cp from "node:child_process";
-import * as fs from "node:fs";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import * as os from "node:os";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -104,67 +102,4 @@ describe("readBlockDelta", () => {
 
     expect(delta).toEqual({});
   });
-});
-
-describe("generate-blocks legacy artifact sync", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-blocks-legacy-"));
-    // Minimal .deco/blocks/ dir with one block so output is non-empty.
-    fs.mkdirSync(path.join(tmpDir, ".deco", "blocks"), { recursive: true });
-    fs.writeFileSync(
-      path.join(tmpDir, ".deco", "blocks", "pages-Home.json"),
-      JSON.stringify({ path: "/" }),
-    );
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("syncs .ts and .json to the old path when legacy file is detected", () => {
-    const oldDir = path.join(tmpDir, "src", "server", "cms");
-    fs.mkdirSync(oldDir, { recursive: true });
-    fs.writeFileSync(path.join(oldDir, "blocks.gen.ts"), "// stale\n");
-
-    const { code, stderr } = runGenerator([], { cwd: tmpDir });
-    expect(code).toBe(0);
-
-    expect(stderr).toContain("src/server/cms/blocks.gen.ts");
-    expect(stderr).toContain(".deco/blocks.gen.ts");
-    expect(stderr).toContain("Update importers to use the new path");
-
-    // New path must exist.
-    expect(fs.existsSync(path.join(tmpDir, ".deco", "blocks.gen.ts"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, ".deco", "blocks.gen.json"))).toBe(true);
-
-    // Old .ts must be synced (stub content, not the stale placeholder).
-    const oldTs = fs.readFileSync(path.join(oldDir, "blocks.gen.ts"), "utf-8");
-    expect(oldTs).not.toBe("// stale\n");
-
-    // Old .json sibling must be synced — the Vite plugin reads it by suffix.
-    const oldJson = path.join(oldDir, "blocks.gen.json");
-    expect(fs.existsSync(oldJson)).toBe(true);
-    const oldContent = JSON.parse(fs.readFileSync(oldJson, "utf-8"));
-    const newContent = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, ".deco", "blocks.gen.json"), "utf-8"),
-    );
-    expect(oldContent).toEqual(newContent);
-  }, 30_000);
-
-  it("does not warn and does not sync when an explicit --out-file is passed", () => {
-    const oldDir = path.join(tmpDir, "src", "server", "cms");
-    fs.mkdirSync(oldDir, { recursive: true });
-    fs.writeFileSync(path.join(oldDir, "blocks.gen.ts"), "// stale\n");
-
-    const explicitOut = path.join(tmpDir, "custom", "blocks.gen.ts");
-    const { code, stderr } = runGenerator(["--out-file", explicitOut], { cwd: tmpDir });
-    expect(code).toBe(0);
-
-    expect(stderr).not.toContain("Generator default output moved");
-    expect(fs.existsSync(explicitOut)).toBe(true);
-    // Old file must be untouched.
-    expect(fs.readFileSync(path.join(oldDir, "blocks.gen.ts"), "utf-8")).toBe("// stale\n");
-  }, 30_000);
 });

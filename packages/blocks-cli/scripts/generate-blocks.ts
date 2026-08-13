@@ -27,10 +27,6 @@
  *                 --out-file by swapping its extension, so passing --out-file
  *                 moves both artifacts together)
  *
- * If no `--out-file` is passed and the OLD default (src/server/cms/blocks.gen.ts)
- * still exists on disk, a one-line legacy warning is printed to stderr and the
- * NEW default is written anyway — see lib/legacyArtifact.ts.
- *
  * Programmatic:
  *   import { generateBlocks } from "@decocms/blocks-cli/generate-blocks";
  *   await generateBlocks({ blocksDir, outFile });
@@ -49,7 +45,6 @@ import {
   singleDecodeBlockName,
 } from "./lib/blocks-dedupe";
 import { buildCsvRedirectBlocks } from "./lib/csv-redirects";
-import { syncLegacyArtifact, warnLegacyArtifact } from "./lib/legacyArtifact";
 
 const TS_STUB = [
   "// Auto-generated — thin wrapper around blocks.gen.json.",
@@ -321,24 +316,10 @@ if (isMainModule()) {
   };
 
   const blocksDir = path.resolve(process.cwd(), arg("blocks-dir", ".deco/blocks"));
-  const OUT_FILE_EXPLICIT = args.includes("--out-file");
   const NEW_DEFAULT_OUT_FILE = ".deco/blocks.gen.ts";
-  const OLD_DEFAULT_OUT_FILE = "src/server/cms/blocks.gen.ts";
   const outFile = path.resolve(process.cwd(), arg("out-file", NEW_DEFAULT_OUT_FILE));
-  const oldFilePath = path.resolve(process.cwd(), OLD_DEFAULT_OUT_FILE);
-  const hasLegacy = !OUT_FILE_EXPLICIT && fs.existsSync(oldFilePath);
-  if (hasLegacy) {
-    warnLegacyArtifact(OLD_DEFAULT_OUT_FILE, NEW_DEFAULT_OUT_FILE);
-  }
 
-  generateBlocks({ blocksDir, outFile }).then((result) => {
-    if (hasLegacy) {
-      syncLegacyArtifact(oldFilePath, result.outFile);
-      // The .ts is a Vite stub — the plugin reads the .json sibling by suffix.
-      // Sync the JSON too so the Vite interceptor at the old path finds it.
-      syncLegacyArtifact(oldFilePath.replace(/\.ts$/, ".json"), result.jsonFile);
-    }
-  }).catch((err) => {
+  generateBlocks({ blocksDir, outFile }).catch((err) => {
     console.error(err);
     process.exit(1);
   });

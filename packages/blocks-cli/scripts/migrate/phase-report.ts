@@ -199,7 +199,7 @@ export function report(ctx: MigrationContext): void {
   lines.push("- [ ] `src/hooks/useCart.ts` — wire to actual server functions for your platform");
   lines.push("- [ ] `src/worker-entry.ts` — verify CSP, proxy, and segment builder");
   lines.push("- [ ] See the **CSS Migration** section above for DaisyUI v4→v5 / Tailwind v3→v4 findings specific to this site");
-  lines.push("- [ ] Run `npm run generate:blocks` and `npm run generate:schema` after migration");
+  lines.push("- [ ] Run `npm run generate` (unified: blocks, sections, loaders, schema) after migration");
   lines.push("");
 
   // Known Issues
@@ -250,9 +250,8 @@ export function report(ctx: MigrationContext): void {
   lines.push("# 1. Install dependencies (bun is the canonical PM)");
   lines.push("bun install");
   lines.push("");
-  lines.push("# 2. Generate CMS blocks and schema");
-  lines.push("bun run generate:blocks");
-  lines.push("bun run generate:schema");
+  lines.push("# 2. Generate CMS artifacts (blocks, sections, loaders, schema)");
+  lines.push("bun run generate");
   lines.push("");
   lines.push("# 3. Generate routes");
   lines.push("bunx tsr generate");
