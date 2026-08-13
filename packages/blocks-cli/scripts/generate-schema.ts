@@ -306,6 +306,33 @@ const SECTION_REF_DEF_KEY = "__SECTION_REF__";
 // Well-known definition key for Resolvable (saved blocks picker)
 const RESOLVABLE_KEY = "Resolvable";
 
+/**
+ * Whether a prop annotated `Section` / `Section[]` is the framework's opaque
+ * Section type (a "pick any section" reference) rather than a user-defined type
+ * that merely happens to be named `Section`.
+ *
+ * The framework's `Section` is opaque — `export type Section = any` in the
+ * scaffolded `~/types/deco.ts` — so it resolves to `any` (or `unknown`). A
+ * component that declares its own local `type Section = { label; items }`
+ * (e.g. a footer column list) resolves to a concrete object with properties;
+ * that is user data and must render as an inline editable object, NOT a picker.
+ *
+ * Discriminates by the resolved shape after stripping `| null | undefined` and
+ * the array wrapper: only the opaque type is a section reference.
+ */
+function isOpaqueSectionType(propType: Type): boolean {
+  let type = propType;
+  if (type.isUnion()) {
+    const nonNull = type.getUnionTypes().filter((u) => !u.isNull() && !u.isUndefined());
+    if (nonNull.length === 1) type = nonNull[0];
+  }
+  if (type.isArray()) {
+    const el = type.getArrayElementType();
+    if (el) type = el;
+  }
+  return type.isAny() || type.isUnknown();
+}
+
 // Only truly React-internal props that are never user-defined.
 // Do NOT include "children", "type", "props", or "key" — those are commonly
 // used as legitimate property names in data interfaces (e.g. SelectedFacet
@@ -560,9 +587,16 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
           if (tn) typeHint = tn.getText();
         }
 
-        // Section type → section picker reference (resolved by composeMeta)
+        // Section type → section picker reference (resolved by composeMeta).
+        // Guard on the resolved shape: the name `Section` is not reserved, so a
+        // component may declare its own local `type Section = { label; items }`
+        // (e.g. a footer column list). Only the framework's opaque Section type
+        // becomes a picker; a concretely-shaped local type falls through to the
+        // normal inline-object handling below (`isOpaqueSectionType`).
         const baseHint = typeHint.replace(/\s*\|\s*(null|undefined)/g, "").trim();
-        if (baseHint === "Section" || baseHint === "Section[]" || baseHint === "Section[] | null") {
+        const isSectionName =
+          baseHint === "Section" || baseHint === "Section[]" || baseHint === "Section[] | null";
+        if (isSectionName && isOpaqueSectionType(propType)) {
           const isArray = baseHint.includes("[]");
           const sectionSchema: any = isArray
             ? {
