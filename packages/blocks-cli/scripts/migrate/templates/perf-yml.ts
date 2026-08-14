@@ -3,14 +3,16 @@
  *   .github/workflows/perf.yml     — GitHub Actions workflow
  *   tools/perf/changed-paths.sh    — maps edited sections → CMS page paths
  *   tools/perf/compare.mjs         — compares two LHCI result dirs, emits markdown
- *   lighthouserc.json              — LHCI collect settings (3 runs, mobile UA)
+ *   lighthouserc.json              — LHCI collect settings (3 runs, mobile UA, 4 categories)
  *
  * Design rationale:
  *   - CF Workers Builds generates a per-PR preview URL (workers.dev). Both the
  *     PR and main previews are workers.dev — no edge cache — so the delta is
  *     purely code, not cache state.
- *   - Gate signal = CLS + TBT (layout stability / JS work; cache-insensitive).
- *     LCP and score are informational only (noisy on cold SSR).
+ *   - Gate signal = CLS + TBT + a11y/best-practices/SEO scores. CLS/TBT are
+ *     layout stability / JS work; the three category scores are static-analysis
+ *     audits. All cache-insensitive, so a regression is real code, not cold SSR.
+ *     LCP and performance score are informational only (noisy on cold SSR).
  *   - Advisory: `continue-on-error: true`. Remove it once the site stabilises.
  *   - LHCI 0.15 does not write manifest.json; compare.mjs reads lhr-*.json
  *     directly and selects the median run by performance score.
@@ -40,7 +42,7 @@ function generatePerfYml(workerName: string): string {
 # preview URL do output — sem token CF nem build local.
 #
 # Baseline: URL fixa da preview do main (https://${workerName}.deco-cx.workers.dev).
-# Gate: CLS + TBT (estrutura/JS, insensíveis a cache). LCP/score: informativos.
+# Gate: CLS + TBT + A11y/BP/SEO (estrutura/JS + auditorias estáticas, insensíveis a cache). LCP/score: informativos.
 
 on:
   pull_request:
@@ -297,8 +299,10 @@ const COMPARE_MJS = `#!/usr/bin/env node
 // cache, same runner/region, same mobile UA — so the delta is the PR's code
 // effect, not cache warm/cold.
 //
-// Gate signal = CLS + TBT (page structure / JS work — cache-insensitive).
-// LCP / score are shown but informative only (noisy on cold workers.dev SSR).
+// Gate signal = CLS + TBT + a11y/best-practices/SEO scores. CLS/TBT are page
+// structure / JS work; the three category scores are static-analysis audits.
+// All are cache-insensitive, so a regression is real code, not cold SSR.
+// LCP / performance score are shown but informative only (noisy on cold workers.dev SSR).
 //
 // LHCI 0.15 does not write manifest.json; we read lhr-*.json directly.
 //
@@ -312,7 +316,12 @@ const TBT_ABS = 50; // ms — deltas below this are noise
 const TBT_REL = 0.15; // 15% relative change
 const CLS_ABS = 0.02; // absolute CLS delta that matters
 const CLS_FLOOR = 0.1; // only flag CLS regression when PR is above "good"
+const SCORE_DROP = 3; // pts — a11y/bp/seo score drop that gates (tolerates 1–2pt audit jitter)
+const SCORES = ["a11y", "bp", "seo"]; // gated category scores (0–100)
 
+// base/pr = { tbt, cls, a11y, bp, seo }. Called from selftest with only
+// { tbt, cls }: the SCORES deltas become NaN and NaN comparisons are false,
+// so score gating is simply inert there.
 function verdict(base, pr) {
   const tbtUp = pr.tbt - base.tbt;
   const tbtBad = tbtUp > TBT_ABS && tbtUp > base.tbt * TBT_REL;
@@ -320,8 +329,10 @@ function verdict(base, pr) {
   const clsUp = pr.cls - base.cls;
   const clsBad = clsUp > CLS_ABS && pr.cls > CLS_FLOOR;
   const clsGood = -clsUp > CLS_ABS && base.cls > CLS_FLOOR;
-  if (tbtBad || clsBad) return { icon: "🔴", gate: true };
-  if (tbtGood || clsGood) return { icon: "🟢", gate: false };
+  const scoreBad = SCORES.some((k) => pr[k] - base[k] <= -SCORE_DROP);
+  const scoreGood = !scoreBad && SCORES.some((k) => pr[k] - base[k] >= SCORE_DROP);
+  if (tbtBad || clsBad || scoreBad) return { icon: "🔴", gate: true };
+  if (tbtGood || clsGood || scoreGood) return { icon: "🟢", gate: false };
   return { icon: "⚪", gate: false };
 }
 
@@ -340,7 +351,10 @@ function loadDir(dir) {
     const lhr = runs[Math.floor(runs.length / 2)];
     const a = lhr.audits;
     byPath[new URL(url).pathname] = {
-      score: Math.round((lhr.categories.performance.score ?? 0) * 100),
+      score: Math.round((lhr.categories.performance?.score ?? 0) * 100),
+      a11y: Math.round((lhr.categories.accessibility?.score ?? 0) * 100),
+      bp: Math.round((lhr.categories["best-practices"]?.score ?? 0) * 100),
+      seo: Math.round((lhr.categories.seo?.score ?? 0) * 100),
       lcp: a["largest-contentful-paint"].numericValue,
       cls: a["cumulative-layout-shift"].numericValue,
       tbt: a["total-blocking-time"].numericValue,
@@ -351,11 +365,14 @@ function loadDir(dir) {
 
 const ms = (v) => \`\${Math.round(v)}ms\`;
 const cls = (v) => v.toFixed(3);
+const pts = (v) => \`\${Math.round(v)}\`;
 function delta(base, pr, fmt) {
   const d = pr - base;
   const arrow = d < 0 ? "↓" : d > 0 ? "↑" : "";
   return \`\${d > 0 ? "+" : ""}\${fmt(d)} \${arrow}\`.trim();
 }
+// base→PR (Δ) for a 0–100 category score.
+const scoreCell = (b, p) => \`\${b}→\${p} (\${delta(b, p, pts)})\`;
 
 function render(base, pr) {
   const paths = [...new Set([...Object.keys(base), ...Object.keys(pr)])].sort();
@@ -365,29 +382,29 @@ function render(base, pr) {
     "",
     "Ambas as previews rodam em \`*.workers.dev\` (sem edge cache), mesmo runner e UA mobile — o delta é efeito do código, não de cache quente/frio.",
     "",
-    "**Gate:** CLS + TBT (estrutura / JS). LCP e score são informativos (ruído esperado em SSR frio).",
+    "**Gate:** CLS + TBT + A11y/BP/SEO (estrutura/JS + auditorias estáticas). LCP e score de performance são informativos (ruído esperado em SSR frio).",
     "",
-    "| Página | | CLS (base→PR) | TBT (base→PR) | LCP | Score |",
-    "|---|:--:|---|---|---|---|",
+    "| Página | | CLS (base→PR) | TBT (base→PR) | A11y | BP | SEO | LCP | Score |",
+    "|---|:--:|---|---|---|---|---|---|---|",
   ];
   for (const p of paths) {
     const b = base[p];
     const r = pr[p];
     if (!b || !r) {
-      lines.push(\`| \\\`\${p}\\\` | ⚠️ | \${b ? "faltou PR" : "faltou base"} | | | |\`);
+      lines.push(\`| \\\`\${p}\\\` | ⚠️ | \${b ? "faltou PR" : "faltou base"} | | | | | | |\`);
       continue;
     }
     const v = verdict(b, r);
     anyGate = anyGate || v.gate;
     lines.push(
-      \`| \\\`\${p}\\\` | \${v.icon} | \${cls(b.cls)}→\${cls(r.cls)} (\${delta(b.cls, r.cls, cls)}) | \${ms(b.tbt)}→\${ms(r.tbt)} (\${delta(b.tbt, r.tbt, ms)}) | \${ms(b.lcp)}→\${ms(r.lcp)} | \${b.score}→\${r.score} |\`,
+      \`| \\\`\${p}\\\` | \${v.icon} | \${cls(b.cls)}→\${cls(r.cls)} (\${delta(b.cls, r.cls, cls)}) | \${ms(b.tbt)}→\${ms(r.tbt)} (\${delta(b.tbt, r.tbt, ms)}) | \${scoreCell(b.a11y, r.a11y)} | \${scoreCell(b.bp, r.bp)} | \${scoreCell(b.seo, r.seo)} | \${ms(b.lcp)}→\${ms(r.lcp)} | \${b.score}→\${r.score} |\`,
     );
   }
   lines.push("");
   lines.push(
     anyGate
-      ? "🔴 **Regressão de CLS/TBT detectada** (advisory — não trava o merge)."
-      : "🟢 Sem regressão de CLS/TBT.",
+      ? "🔴 **Regressão detectada em CLS/TBT/A11y/BP/SEO** (advisory — não trava o merge)."
+      : "🟢 Sem regressão nas métricas gateadas (CLS/TBT/A11y/BP/SEO).",
   );
   return { md: lines.join("\\n"), anyGate };
 }
@@ -400,6 +417,13 @@ function selftest() {
   ok(!verdict({ tbt: 100, cls: 0.02 }, { tbt: 100, cls: 0.08 }).gate, "cls under 0.1 floor no gate");
   ok(verdict({ tbt: 300, cls: 0.01 }, { tbt: 100, cls: 0.01 }).icon === "🟢", "tbt drop is green");
   ok(verdict({ tbt: 100, cls: 0.01 }, { tbt: 105, cls: 0.01 }).icon === "⚪", "tiny change is neutral");
+  // Category-score gating. S() supplies a neutral CLS/TBT baseline plus perfect scores.
+  const S = (o) => ({ tbt: 100, cls: 0.01, a11y: 100, bp: 100, seo: 100, ...o });
+  ok(verdict(S({}), S({ seo: 96 })).gate, "seo 100→96 (-4) should gate");
+  ok(verdict(S({ a11y: 90 }), S({ a11y: 87 })).gate, "a11y -3 should gate");
+  ok(!verdict(S({}), S({ bp: 98 })).gate, "bp -2 is jitter, no gate");
+  ok(verdict(S({ a11y: 90 }), S({ a11y: 95 })).icon === "🟢", "a11y +5 is green");
+  ok(verdict(S({}), S({ a11y: 99, seo: 97 })).icon === "🔴", "seo -3 gates even with a11y -1");
   console.log("compare.mjs selftest: OK");
 }
 
@@ -411,12 +435,12 @@ process.stdout.write(render(loadDir(baseDir), loadDir(prDir)).md + "\\n");
 `;
 
 const LIGHTHOUSERC_JSON = `{
-  "//": "Lighthouse CI config for the per-PR perf workflow (.github/workflows/perf.yml). Mobile UA matches worker-entry.ts buildSegment (MOBILE_RE) so warmup and measurement hit the same device cache key.",
+  "//": "Lighthouse CI config for the per-PR perf workflow (.github/workflows/perf.yml). Mobile UA matches worker-entry.ts buildSegment (MOBILE_RE) so warmup and measurement hit the same device cache key. accessibility/best-practices/seo são análise estática determinística (não sofrem ruído de SSR frio como LCP/score), então compare.mjs os gateia por regressão de score.",
   "ci": {
     "collect": {
       "numberOfRuns": 3,
       "settings": {
-        "onlyCategories": ["performance"],
+        "onlyCategories": ["performance", "accessibility", "best-practices", "seo"],
         "emulatedUserAgent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
       }
     }
