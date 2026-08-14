@@ -687,9 +687,11 @@ Measured on `espacosmart-storefront`:
 
 ## #52 Fresh-era 3-arg section loaders (`props, req, ctx`) silently never receive `ctx` — no error, no log
 
-**Severity**: BLOCKER — resolves to unenriched/default props on every request, across every migrated site, with zero signal.
+> **Framework updated since this was written**: `SectionLoaderFn` now takes an optional 3rd `ctx` arg (issue #305, `sectionLoaders.ts:28`), and `withPageContext` builds it via `buildSectionLoaderContext(req)` for every loader that goes through the registry (`sectionLoaders.ts:433`). A 3-arg loader reading `ctx.device` **already works** as long as it's registered via `registerSectionLoaders`/`registerSectionLoader` — it is no longer dead code. The Fix below is now a ctx-free alternative for loaders that prefer not to depend on `ctx`, not a mandatory rewrite. Keep this gotcha for sites still pinned to a pre-#305 `@decocms/blocks` version, or for loaders that were never registered (see #53).
 
-`SectionLoaderFn` in `@decocms/blocks/cms/sectionLoaders.ts` is `(props, req) => ...` — 2 arguments, no `ctx`. Fresh-era loaders carried over as `(props, req, ctx) => ({ ...props, device: ctx.device })` (or reading `ctx.invoke`, `ctx.get`) always resolve `ctx` as `undefined`. `runSingleSectionLoaderImpl` wraps every loader call in a try/catch, so the resulting crash (or silent `ctx.device` → `undefined`) never surfaces anywhere — the section just renders with default/empty values.
+**Severity**: BLOCKER *(on pre-#305 `@decocms/blocks` versions, or for unregistered loaders — see note above)* — resolves to unenriched/default props on every request, across every migrated site, with zero signal.
+
+`SectionLoaderFn` in `@decocms/blocks/cms/sectionLoaders.ts` was `(props, req) => ...` — 2 arguments, no `ctx`. Fresh-era loaders carried over as `(props, req, ctx) => ({ ...props, device: ctx.device })` (or reading `ctx.invoke`, `ctx.get`) resolved `ctx` as `undefined`. `runSingleSectionLoaderImpl` wraps every loader call in a try/catch, so the resulting crash (or silent `ctx.device` → `undefined`) never surfaced anywhere — the section just rendered with default/empty values.
 
 **Symptom**: CMS content doesn't enrich props; device-conditional rendering always picks one branch; a component that reads a ctx-provided flag behaves as if the flag is always off. On farmrio this was the root cause of a **site-wide dead legal-compliance cookie-consent banner** (OneTrust/Optanon never rendered anywhere, `isProduction` always `undefined`) and of `BannerCollection.tsx` always serving the desktop image to mobile UAs.
 

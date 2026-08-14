@@ -289,7 +289,16 @@ Converting a source `Theme.tsx` (`mainColors`/`complementaryColors`) into a `@pl
 + --color-accent: <value from source mainColors.tertiary>;  /* renamed field */
 ```
 
-**Discovery command**: diff every `mainColors`/`complementaryColors` key in the source Theme block against the generated `--color-*` custom properties in `app.css`; flag any generated color with no traceable source origin.
+**Discovery command**:
+```bash
+# generated CSS color vars
+grep -oE "\-\-color-[a-z0-9-]+" dist/**/*.css | sort -u
+
+# source theme keys (compare manually against the list above)
+jq -r ".. | objects | select(has(\"mainColors\")) | .mainColors | keys[]" \
+  .deco/blocks/*.json 2>/dev/null | sort -u
+```
+Diff the two key lists by hand; flag any generated `--color-*` with no traceable source origin.
 
 **Empirical evidence (farmrio-storefront)**: full before/after slot table (base-100, base-300, primary, neutral, accent) confirmed the mismap; shipped `done` through T10/T15/T16 before caught in T27. See `migration/learnings/T27.md`.
 
@@ -298,6 +307,8 @@ Converting a source `Theme.tsx` (`mainColors`/`complementaryColors`) into a `@pl
 ---
 
 ## #66 DaisyUI v5's default plugin config silently bundles a second dark theme via `prefers-color-scheme` — invisible without forcing dark colorScheme
+
+> Applies when the migrated site targets **DaisyUI v5** — the rest of this file (§15, #37, #65) documents v4 behavior. Check the site's DaisyUI version before applying this fix; it does not contradict the v4 gotchas above.
 
 **Severity**: HIGH — a "fixed" theme (per #65) can still render with the wrong colors in any headless/browser context with a dark OS/browser preference, looking exactly like the fix didn't take.
 

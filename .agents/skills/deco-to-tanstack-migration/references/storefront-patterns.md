@@ -1016,7 +1016,27 @@ export default defineConfig({
 
 TanStack has no native sitemap renderer — a Fresh/Deco site got this free from the `website`/`commerce` apps. The pieces exist in the installed packages (`@decocms/apps-vtex/utils/sitemap.ts`'s `createVtexSitemapProxy()`, `@decocms/blocks/sdk/sitemap.ts`'s `getCMSSitemapEntries()`/`generateSitemapXml()`) but are never auto-wired into `worker-entry.ts`'s `proxyHandler`.
 
-**Fix**: wire `createVtexSitemapProxy()` plus a `/sitemap/deco.xml` route as an `extraSitemaps` entry, matching the source site's sitemap index structure.
+**Fix**: wire `createVtexSitemapProxy()` plus a `/sitemap/deco.xml` route as an `extraSitemaps` entry, matching the source site's sitemap index structure:
+
+```typescript
+// worker-entry.ts
+import { createVtexSitemapProxy } from "@decocms/apps-vtex/utils/sitemap";
+
+const proxySitemap = createVtexSitemapProxy({
+  extraSitemaps: ["/sitemap/deco.xml"], // CMS-managed sitemap
+});
+
+createDecoWorkerEntry(serverEntry, {
+  proxyHandler: async (request, url) => {
+    const sitemap = await proxySitemap(request, url);
+    if (sitemap) return sitemap;
+    // ... rest of proxyHandler
+    return null;
+  },
+});
+```
+
+Note: `createVtexSitemapProxy`'s own JSDoc example imports from `@decocms/apps/vtex/utils/sitemap`, which doesn't match the package's actual name (`@decocms/apps-vtex`, per `package.json`) — use `@decocms/apps-vtex/utils/sitemap` as above.
 
 **Discovery command**:
 ```bash

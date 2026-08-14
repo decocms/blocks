@@ -274,7 +274,8 @@ export const loader = (props: Props, req: Request) => {
 
 **Discovery command**:
 ```bash
-rg "props\.\w+ ?? .*[Pp]age|Number.isFinite(rawPage|Number.isFinite(props\." packages/apps-vtex/src
+rg "props\.\w+ \?\? .*[Pp]age" packages/apps-vtex/src
+rg "Number\.isFinite\(props\." packages/apps-vtex/src
 ```
 Any loader with a `props.<name> ?? parseFromUrl()` pattern for a numeric canonical prop hits the identical landmine — not specific to `page` or to VTEX.
 
@@ -333,7 +334,12 @@ export function leanVariant(v: Product) {
       ...v.offers,
       offers: v.offers?.offers?.map((o) => ({
         ...o,
-        priceSpecification: o.priceSpecification?.filter((p) => p["@type"] !== "InstallmentPriceSpecification"),
+        // filter on priceComponentType, NOT "@type" — every installment entry's
+        // "@type" is "UnitPriceSpecification" (see buildPriceSpecification, gotcha #35);
+        // filtering on "@type" matches nothing and silently no-ops the trim
+        priceSpecification: o.priceSpecification?.filter(
+          (p) => p.priceComponentType !== "https://schema.org/Installment",
+        ),
       })),
     },
   };
