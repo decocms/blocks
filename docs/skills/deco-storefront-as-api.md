@@ -1,3 +1,9 @@
+---
+title: Storefront as an API (mobile apps)
+description: Serve Deco CMS pages as JSON for native apps via ?renderJson — a lean, per-section-projected page envelope with lazy sections, ETag/CORS — plus how it compares to /deco/invoke and the legacy ?asJson.
+tags: [renderjson, mobile, api, json, cms, deferred, etag]
+---
+
 # Storefront as an API (mobile apps): `invoke`, `?asJson`, `?renderJson`
 
 A Deco storefront on TanStack Start can serve its data as JSON — so a native
