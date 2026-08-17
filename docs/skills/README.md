@@ -29,6 +29,11 @@ Combine HTML prefetch-on-hover (nav links, using bagaggio/instant.page) with SPA
 
 **Benefit:** Category pages prefetch on nav hover; PDPs prefetch on card hover.
 
+### [Storefront as an API (mobile apps)](./deco-storefront-as-api.md)
+Serve CMS pages as JSON for native apps via `?renderJson` — a lean, per-section-projected page envelope with ETag/CORS — plus how it compares to `/deco/invoke` and the legacy `?asJson`.
+
+**Pattern:** `export const renderJson = false | (props) => deepOmit(props, ...)` per section; `renderJson.sectionsToIgnore` on the Website app.
+
 ## Using These Skills
 
 1. Pick a skill relevant to your use case.

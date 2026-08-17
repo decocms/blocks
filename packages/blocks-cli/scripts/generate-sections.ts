@@ -54,9 +54,19 @@ interface SectionMeta {
   clientOnly?: boolean;
   seo?: boolean;
   hasLoadingFallback?: boolean;
+  renderJson?: false;
+  hasRenderJson?: boolean;
 }
 
 const EXPORT_CONST_RE = /export\s+const\s+(eager|neverDefer|deferred|cache|layout|sync|clientOnly|seo)\s*=\s*(.+?)(?:;|\n)/g;
+// renderJson (?renderJson mobile path). `= false` drops the section; a function
+// (`export const renderJson = (props) => ...` / `export function renderJson`)
+// projects its props. Kept separate from EXPORT_CONST_RE because the value is a
+// literal `false` OR a function, not the `= true` booleans that regex handles.
+const RENDER_JSON_FALSE_RE = /export\s+const\s+renderJson\s*=\s*false\b/;
+const RENDER_JSON_FN_INLINE_RE =
+  /export\s+(?:function\s+renderJson\b|const\s+renderJson\s*=\s*(?!false\b)\S)/;
+const RENDER_JSON_REEXPORT_RE = /export\s*\{[^}]*\brenderJson\b[^}]*\}/;
 // Detects `export function LoadingFallback(...)`, `export const LoadingFallback = ...`, etc.
 const LOADING_FALLBACK_INLINE_RE = /export\s+(?:function|const|let|var)\s+LoadingFallback\b/;
 // Detects re-exports like:
@@ -93,6 +103,14 @@ function extractMeta(content: string): SectionMeta | null {
 
   if (hasLoadingFallbackExport(content)) {
     meta.hasLoadingFallback = true;
+    found = true;
+  }
+
+  if (RENDER_JSON_FALSE_RE.test(content)) {
+    meta.renderJson = false;
+    found = true;
+  } else if (RENDER_JSON_FN_INLINE_RE.test(content) || RENDER_JSON_REEXPORT_RE.test(content)) {
+    meta.hasRenderJson = true;
     found = true;
   }
 
@@ -168,6 +186,8 @@ const lines: string[] = [
   "//   export const clientOnly = true  → skip SSR (client-only rendering)",
   "//   export const seo = true         → SEO section (provides page head data)",
   "//   export function LoadingFallback → skeleton shown while section loads",
+  "//   export const renderJson = false → drop section from ?renderJson (mobile)",
+  "//   export const renderJson = (p)=> → project props for ?renderJson (mobile)",
   "",
 ];
 
@@ -185,6 +205,16 @@ for (let i = 0; i < nonSyncFallbacks.length; i++) {
   const e = nonSyncFallbacks[i];
   const importPath = relativeImportPath(outFile, e.filePath);
   lines.push(`import { LoadingFallback as _fb${i} } from "${importPath}";`);
+}
+
+// renderJson projection-function imports — sections whose renderJson is a
+// function (not `= false`) and aren't sync-imported.
+const renderJsonEntries = entries.filter((e) => e.meta.hasRenderJson);
+const nonSyncRenderJsons = renderJsonEntries.filter((e) => !e.meta.sync);
+for (let i = 0; i < nonSyncRenderJsons.length; i++) {
+  const e = nonSyncRenderJsons[i];
+  const importPath = relativeImportPath(outFile, e.filePath);
+  lines.push(`import { renderJson as _rj${i} } from "${importPath}";`);
 }
 
 lines.push("");
@@ -205,6 +235,8 @@ lines.push("  sync?: boolean;");
 lines.push("  clientOnly?: boolean;");
 lines.push("  seo?: boolean;");
 lines.push("  hasLoadingFallback?: boolean;");
+lines.push("  renderJson?: false;");
+lines.push("  hasRenderJson?: boolean;");
 lines.push("}");
 lines.push("");
 lines.push("export const sectionMeta: Record<string, SectionMetaEntry> = {");
@@ -245,6 +277,28 @@ if (allFallbacks.length > 0) {
   lines.push("};");
 } else {
   lines.push("export const loadingFallbacks: Record<string, React.ComponentType<any>> = {};");
+}
+lines.push("");
+
+// renderJson projection-functions map (?renderJson mobile path). `= false`
+// sections are NOT here — they carry `renderJson: false` in sectionMeta, which
+// applySectionConventions reads directly. Only projection functions need a live
+// reference. Typed `any` (like syncComponents) to avoid importing the RenderJson
+// type into the generated file.
+if (renderJsonEntries.length > 0) {
+  lines.push("export const renderJsons: Record<string, any> = {");
+  for (const e of renderJsonEntries) {
+    if (e.meta.sync) {
+      const syncIdx = syncEntries.indexOf(e);
+      lines.push(`  "${e.key}": _sync${syncIdx}.renderJson,`);
+    } else {
+      const rjIdx = nonSyncRenderJsons.indexOf(e);
+      lines.push(`  "${e.key}": _rj${rjIdx},`);
+    }
+  }
+  lines.push("};");
+} else {
+  lines.push("export const renderJsons: Record<string, any> = {};");
 }
 lines.push("");
 

@@ -67,7 +67,17 @@ export {
   registerSections,
   registerSectionsSync,
   setResolvedComponent,
+  setSectionRenderJson,
 } from "./registry";
+export type {
+  DeferredRef,
+  RenderJson,
+  RenderJsonModule,
+  SerializableSection,
+  SerializedSection,
+  SerializeOptions,
+} from "./renderJson";
+export { serializeRenderJson } from "./renderJson";
 export type {
   AsyncRenderingConfig,
   CommerceLoader,

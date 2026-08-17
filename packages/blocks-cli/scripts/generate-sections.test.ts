@@ -336,6 +336,89 @@ describe("generate-sections neverDefer convention", () => {
   }, 60_000);
 });
 
+describe("generate-sections renderJson convention", () => {
+  let tmpDir: string;
+  let sectionsDir: string;
+  let outFile: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-sections-renderjson-"));
+    sectionsDir = path.join(tmpDir, "sections");
+    outFile = path.join(tmpDir, "out", "sections.gen.ts");
+    fs.mkdirSync(sectionsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("emits `renderJson: false` into sectionMeta and a `renderJsons` map for projection fns; the output typechecks + imports", () => {
+    // `= false` opt-out: web-only section dropped from ?renderJson.
+    fs.writeFileSync(
+      path.join(sectionsDir, "Theme.tsx"),
+      "export const renderJson = false;\nexport default function Theme() { return null; }\n",
+    );
+    // projection function: trims props for the mobile app.
+    fs.writeFileSync(
+      path.join(sectionsDir, "ProductDetails.tsx"),
+      [
+        "export const renderJson = (props: Record<string, unknown>) => {",
+        "  const { storeConfig: _s, ...rest } = props;",
+        "  return rest;",
+        "};",
+        "export default function ProductDetails() { return null; }",
+        "",
+      ].join("\n"),
+    );
+
+    const { code } = runGenerator(["--sections-dir", sectionsDir, "--out-file", outFile]);
+    expect(code).toBe(0);
+
+    const generated = fs.readFileSync(outFile, "utf-8");
+
+    // The `= false` section carries the literal false flag; the fn section
+    // carries hasRenderJson (its actual fn lives in the renderJsons map).
+    expect(generated).toMatch(/"site\/sections\/Theme\.tsx":\s*\{[^}]*renderJson:\s*false/);
+    expect(generated).toMatch(/"site\/sections\/ProductDetails\.tsx":\s*\{[^}]*hasRenderJson:\s*true/);
+    // The emitted interface declares both (excess-property guard, cf. neverDefer).
+    expect(generated).toContain("renderJson?: false;");
+    expect(generated).toContain("hasRenderJson?: boolean;");
+    // The fn is imported and wired into renderJsons; the `= false` one is NOT.
+    expect(generated).toContain("import { renderJson as _rj0 }");
+    expect(generated).toMatch(/export const renderJsons: Record<string, any> = \{[\s\S]*ProductDetails\.tsx": _rj0/);
+    expect(generated).not.toMatch(/renderJsons: Record<string, any> = \{[\s\S]*Theme\.tsx/);
+
+    // Typecheck the output (the real failure mode for a bad emit is TS2353, not
+    // a runtime error) and confirm it imports with a working projection fn.
+    // --jsx: the generated file imports a projection fn from a `.tsx` section,
+    // so tsc needs jsx set (a real site's tsconfig always does; the standalone
+    // invocation must too, or it fails with TS6142).
+    const tscResult = cp.spawnSync(
+      "npx",
+      ["tsc", "--noEmit", "--strict", "--skipLibCheck", "--jsx", "react-jsx", outFile],
+      { encoding: "utf8" },
+    );
+    expect(tscResult.status, tscResult.stdout + tscResult.stderr).toBe(0);
+
+    const checkerFile = path.join(tmpDir, "check-import.mjs");
+    fs.writeFileSync(
+      checkerFile,
+      [
+        `const m = await import(${JSON.stringify(pathToFileURL(outFile).href)});`,
+        `if (m.sectionMeta?.["site/sections/Theme.tsx"]?.renderJson !== false) {`,
+        `  throw new Error("Theme renderJson:false missing from sectionMeta");`,
+        `}`,
+        `const fn = m.renderJsons?.["site/sections/ProductDetails.tsx"];`,
+        `if (typeof fn !== "function") throw new Error("ProductDetails renderJson fn missing");`,
+        `const out = fn({ storeConfig: 1, page: 2 });`,
+        `if (out.storeConfig !== undefined || out.page !== 2) throw new Error("projection fn wrong");`,
+      ].join("\n"),
+    );
+    const importResult = cp.spawnSync("npx", ["tsx", checkerFile], { encoding: "utf8" });
+    expect(importResult.status, importResult.stderr).toBe(0);
+  }, 60_000);
+});
+
 describe("generate-sections output hygiene (non-registry)", () => {
   let tmpDir: string;
   let sectionsDir: string;

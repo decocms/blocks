@@ -27,16 +27,20 @@
 
 import {
   getRevision,
+  getSectionOptions,
   isBot,
   loadBlocks,
   type MatcherContext,
   onChange,
   resolveDecoPage,
+  resolveDeferredSectionFull,
   runSectionLoaders,
   runSingleSectionLoader,
+  serializeRenderJson,
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
 import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
+import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -1734,6 +1738,133 @@ export function createDecoWorkerEntry(
         status: cmsRedirect.status,
         headers: { Location: encodeURI(cmsRedirect.to) },
       });
+    }
+
+    // ?renderJson — structured JSON of the page for the mobile app. Lean shape
+    // ({ name, path, sections:[{ component, props }] }), each section projected
+    // through its `renderJson` export. Wins over ?asJson when both are present.
+    if (url.searchParams.has("renderJson") && request.method === "GET") {
+      const basePath = url.pathname;
+      const cookies: Record<string, string> = {};
+      for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
+        const [k, ...v] = pair.split("=");
+        if (k?.trim()) cookies[k.trim()] = v.join("=").trim();
+      }
+      const matcherCtx: MatcherContext = {
+        userAgent: request.headers.get("user-agent") ?? "",
+        url: url.toString(),
+        path: basePath,
+        cookies,
+        request,
+      };
+
+      // Reflect Origin (not literal "*") so credentialed mobile fetches work.
+      const corsHeaders: Record<string, string> = {
+        "Access-Control-Allow-Origin": request.headers.get("origin") ?? "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, If-None-Match, Authorization",
+        "Access-Control-Expose-Headers": "ETag",
+      };
+
+      const page = await resolveDecoPage(basePath, matcherCtx);
+      if (!page) {
+        // Stable error envelope — the app gets a predictable "not found".
+        return Response.json(
+          { status: 404, notFound: true },
+          { status: 404, headers: corsHeaders },
+        );
+      }
+
+      // Drop web-only / app-owned sections BEFORE running their loaders so a
+      // dropped section never triggers its (expensive) VTEX call. Dual-sourced:
+      //   - the section's own `export const renderJson = false`
+      //   - the website app's renderJson.sectionsToIgnore (resolveType suffix)
+      const rjBlocks = loadBlocks();
+      const rjSite = rjBlocks["Site"] as Record<string, unknown> | undefined;
+      const rawIgnore = (rjSite?.renderJson as { sectionsToIgnore?: unknown })?.sectionsToIgnore;
+      const ignoreSuffixes = (Array.isArray(rawIgnore) ? rawIgnore : [])
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      const isDropped = (component: string) =>
+        getSectionOptions(component)?.renderJson === false ||
+        ignoreSuffixes.some((suffix) => component.endsWith(suffix));
+      const getSectionModule = (component: string) => ({
+        renderJson: getSectionOptions(component)?.renderJson,
+      });
+
+      const jsonHeaders = {
+        ...corsHeaders,
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=0, must-revalidate",
+      };
+      const withEtag = (body: string): Response => {
+        // Contract-stable ETag over the serialized body: identical → 304.
+        const etag = `"rj-${djb2Hex(body)}"`;
+        if (request.headers.get("if-none-match") === etag) {
+          return new Response(null, { status: 304, headers: { ...corsHeaders, ETag: etag } });
+        }
+        return new Response(body, { headers: { ...jsonHeaders, ETag: etag } });
+      };
+
+      // Lazy single-section fetch: `?renderJson&__section=<index>` resolves ONE
+      // deferred section (the placeholder the whole-page envelope emitted) and
+      // returns its serialized `{ component, props }`.
+      const sectionParam = url.searchParams.get("__section");
+      if (sectionParam !== null) {
+        const sectionIndex = Number(sectionParam);
+        const ds = page.deferredSections.find((d) => d.index === sectionIndex);
+        if (!ds || isDropped(ds.component)) {
+          return Response.json(
+            { status: 404, notFound: true },
+            { status: 404, headers: corsHeaders },
+          );
+        }
+        const resolved = await resolveDeferredSectionFull(ds, basePath, request, matcherCtx);
+        if (!resolved) {
+          return Response.json(
+            { status: 404, notFound: true },
+            { status: 404, headers: corsHeaders },
+          );
+        }
+        const [serialized] = serializeRenderJson(
+          [{ component: resolved.component, props: resolved.props }],
+          { getSectionModule, sectionsToIgnore: ignoreSuffixes },
+        );
+        if (!serialized) {
+          return Response.json(
+            { status: 404, notFound: true },
+            { status: 404, headers: corsHeaders },
+          );
+        }
+        return withEtag(JSON.stringify(serialized));
+      }
+
+      // Whole page: eager sections are resolved + projected inline; deferred
+      // sections become `{ component, lazyUrl }` placeholders the app fetches on
+      // demand (interleaved by their position in the page).
+      const keptSections = page.resolvedSections.filter((s) => !isDropped(s.component));
+      const enrichedSections = await runSectionLoaders(keptSections, request);
+      const lazyUrlFor = (ref: { index: number }): string => {
+        const u = new URL(url.toString());
+        u.searchParams.set("__section", String(ref.index));
+        return u.pathname + u.search;
+      };
+
+      const sections = serializeRenderJson(
+        enrichedSections.map((s) => ({ component: s.component, props: s.props, index: s.index })),
+        {
+          getSectionModule,
+          // Belt-and-suspenders: keptSections already dropped these, but the
+          // serializer re-checks so a section that slipped through is still cut.
+          sectionsToIgnore: ignoreSuffixes,
+          deferred: page.deferredSections.map((d) => ({ component: d.component, index: d.index })),
+          lazyUrlFor,
+        },
+      );
+
+      return withEtag(JSON.stringify({ name: page.name, path: page.path, sections }));
     }
 
     // ?asJson — return resolved page data as JSON (legacy deco compat)
