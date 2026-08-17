@@ -13,6 +13,14 @@ import type { MigrationContext } from "../types";
 export const CANONICAL_BUN_VERSION = "1.3.5";
 
 /**
+ * Fleet-wide canonical Node version. Used by the scaffolded CI / Playwright
+ * workflows' setup-node step (kept in lockstep with the perf workflow's pinned
+ * node-version). 22.15 is the floor for @cloudflare/vite-plugin's
+ * module.registerHooks.
+ */
+export const CANONICAL_NODE_VERSION = "22.15.0";
+
+/**
  * Get the latest published version of an npm package.
  * Falls back to the provided default if the lookup fails.
  */
@@ -145,6 +153,7 @@ export function generatePackageJson(ctx: MigrationContext): string {
       format: 'prettier --write "src/**/*.{ts,tsx}"',
       "format:check": 'prettier --check "src/**/*.{ts,tsx}"',
       knip: "knip",
+      "test:e2e": "playwright test",
       clean:
         "rm -rf node_modules .cache dist .wrangler/state node_modules/.vite && bun install",
       "tailwind:lint":
@@ -174,6 +183,7 @@ export function generatePackageJson(ctx: MigrationContext): string {
     devDependencies: {
       "@cloudflare/vite-plugin": "^1.27.0",
       "@decocms/blocks-cli": `^${frameworkVersion}`,
+      "@playwright/test": "^1.62.1",
       // CLI build of src/styles/app.css — used by the migration's own
       // css-compile-check.ts (phase-compile) and by `tailwind:lint`, so a
       // dropped custom theme token fails migration/CI instead of shipping
