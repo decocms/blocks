@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { RenderJson } from "./renderJson";
 
 export type OnBeforeResolveProps = (props: Record<string, unknown>) => Record<string, unknown>;
 
@@ -8,6 +9,8 @@ export type SectionModule = {
   onBeforeResolveProps?: OnBeforeResolveProps;
   LoadingFallback?: ComponentType<any>;
   ErrorFallback?: ComponentType<{ error: Error }>;
+  /** How this section renders to JSON for the mobile app (?renderJson). */
+  renderJson?: RenderJson;
 };
 
 type RegistryEntry = () => Promise<SectionModule>;
@@ -17,6 +20,12 @@ export interface SectionOptions {
   loadingFallback?: ComponentType<any>;
   /** Custom error fallback component for this section. */
   errorFallback?: ComponentType<{ error: Error }>;
+  /**
+   * The section's `renderJson` export (?renderJson mobile path): `false` drops
+   * the section from the JSON, a function projects its props. Populated by the
+   * generated section conventions and, as a fallback, on module preload.
+   */
+  renderJson?: RenderJson;
   /**
    * When true, the section is wrapped in `<ClientOnly>` from TanStack Router.
    * It renders only on the client — no SSR, no hydration mismatch.
@@ -72,6 +81,15 @@ export function registerSections(
   }
 }
 
+/**
+ * Set a section's `renderJson` option (?renderJson mobile path) without touching
+ * its loader/component registration. Called from the generated section
+ * conventions for `export const renderJson = false | (props) => ...`.
+ */
+export function setSectionRenderJson(key: string, renderJson: RenderJson): void {
+  sectionOptions[key] = { ...sectionOptions[key], renderJson };
+}
+
 export function getSection(resolveType: string): RegistryEntry | undefined {
   return registry[resolveType];
 }
@@ -99,6 +117,7 @@ export async function preloadSectionModule(
     const opts: SectionOptions = { ...existing };
     if (mod.LoadingFallback) opts.loadingFallback = mod.LoadingFallback;
     if (mod.ErrorFallback) opts.errorFallback = mod.ErrorFallback;
+    if (mod.renderJson !== undefined) opts.renderJson = mod.renderJson;
     sectionOptions[resolveType] = opts;
     return opts;
   } catch (e) {
@@ -146,6 +165,7 @@ export async function preloadSectionComponents(keys: string[]): Promise<void> {
         const opts: SectionOptions = { ...sectionOptions[key] };
         if (mod.LoadingFallback) opts.loadingFallback = mod.LoadingFallback;
         if (mod.ErrorFallback) opts.errorFallback = mod.ErrorFallback;
+        if (mod.renderJson !== undefined) opts.renderJson = mod.renderJson;
         sectionOptions[key] = opts;
       } catch (e) {
         console.warn(`[Registry] Failed to preload component "${key}":`, e);
@@ -167,6 +187,7 @@ export type SyncSectionEntry =
       default: ComponentType<any>;
       LoadingFallback?: ComponentType<any>;
       ErrorFallback?: ComponentType<{ error: Error }>;
+      renderJson?: RenderJson;
     };
 
 /**
@@ -205,6 +226,7 @@ export function registerSectionsSync(sections: Record<string, SyncSectionEntry>)
       const opts: SectionOptions = { ...sectionOptions[key] };
       if (entry.LoadingFallback) opts.loadingFallback = entry.LoadingFallback;
       if (entry.ErrorFallback) opts.errorFallback = entry.ErrorFallback;
+      if (entry.renderJson !== undefined) opts.renderJson = entry.renderJson;
       sectionOptions[key] = opts;
     }
   }

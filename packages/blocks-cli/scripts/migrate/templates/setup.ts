@@ -103,7 +103,7 @@ import { createInstrumentedFetch } from "@decocms/blocks/sdk/instrumentedFetch";
 import { initVtexFromBlocks, setVtexFetch } from "@decocms/apps-vtex";` : ""}${hasLocationMatcher ? `
 import { registerLocationMatcher } from "./matchers/location";` : ""}
 import { blocks as generatedBlocks } from "../.deco/blocks.gen";
-import { sectionMeta, syncComponents, loadingFallbacks } from "../.deco/sections.gen";
+import { sectionMeta, syncComponents, loadingFallbacks, renderJsons } from "../.deco/sections.gen";
 import { PreviewProviders } from "@decocms/tanstack";
 // @ts-ignore Vite ?url import
 import appCss from "./styles/app.css?url";
@@ -140,6 +140,7 @@ applySectionConventions({
   meta: sectionMeta,
   syncComponents,
   loadingFallbacks,
+  renderJsons,
   sectionGlob: import.meta.glob("./sections/**/*.tsx") as Record<string, () => Promise<any>>,
 });
 

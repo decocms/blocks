@@ -108,6 +108,18 @@ export interface Props {
 
 	/** @title Whilelist URL Patterns */
 	whilelistURLs?: string[];
+
+	/**
+	 * @title renderJson
+	 * @description Structured JSON rendering of pages for the mobile app (?renderJson).
+	 */
+	renderJson?: {
+		/**
+		 * @title Ignored Sections
+		 * @description App-owned sections excluded from the ?renderJson response, matched by resolveType suffix (e.g. "SeoV2.tsx"). Site-owned sections should prefer `export const renderJson = false` in their own file.
+		 */
+		sectionsToIgnore?: string[];
+	};
 }
 
 /** Alias for site app bridges that extend website Props. */

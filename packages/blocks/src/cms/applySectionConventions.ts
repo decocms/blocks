@@ -6,7 +6,8 @@
  * registerSectionsSync, setAsyncRenderingConfig, registerCacheableSections,
  * registerLayoutSections, registerSeoSections, and registerSection.
  */
-import { registerSection, registerSectionsSync } from "./registry";
+import { registerSection, registerSectionsSync, setSectionRenderJson } from "./registry";
+import type { RenderJson } from "./renderJson";
 import {
   type AsyncRenderingConfig,
   getAsyncRenderingConfig,
@@ -32,6 +33,10 @@ export interface SectionMetaEntry {
   clientOnly?: boolean;
   seo?: boolean;
   hasLoadingFallback?: boolean;
+  /** `export const renderJson = false` — drop the section from ?renderJson. */
+  renderJson?: false;
+  /** `export const renderJson = (props) => ...` — a projection fn (in `renderJsons`). */
+  hasRenderJson?: boolean;
 }
 
 export interface ApplySectionConventionsInput {
@@ -41,12 +46,14 @@ export interface ApplySectionConventionsInput {
   syncComponents?: Record<string, any>;
   /** LoadingFallback components from sections.gen.ts */
   loadingFallbacks?: Record<string, React.ComponentType<any>>;
+  /** renderJson projection functions from sections.gen.ts (?renderJson mobile path) */
+  renderJsons?: Record<string, RenderJson>;
   /** Lazy section loaders from import.meta.glob (used for clientOnly/loadingFallback registration) */
   sectionGlob?: Record<string, () => Promise<any>>;
 }
 
 export function applySectionConventions(input: ApplySectionConventionsInput): void {
-  const { meta, syncComponents, loadingFallbacks, sectionGlob } = input;
+  const { meta, syncComponents, loadingFallbacks, renderJsons, sectionGlob } = input;
 
   const eagerSections: string[] = [];
   const neverDeferSections: string[] = [];
@@ -77,6 +84,15 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
           loadingFallback: loadingFallbacks[key],
         });
       }
+    }
+
+    // renderJson (?renderJson mobile path): a `= false` opt-out drops the
+    // section; a projection function trims its props. Set as a section option so
+    // the serializer reads it via getSectionOptions without loading the module.
+    if (entry.renderJson === false) {
+      setSectionRenderJson(key, false);
+    } else if (entry.hasRenderJson && renderJsons?.[key]) {
+      setSectionRenderJson(key, renderJsons[key]);
     }
   }
 
