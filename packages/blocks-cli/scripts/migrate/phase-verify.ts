@@ -21,6 +21,12 @@ const REQUIRED_FILES = [
   // Workers Builds (D6.3) -- configured in the CF dashboard, not via
   // GitHub workflow files in the site repo.
   ".github/workflows/lockfile-check.yml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/main-push-guard.yml",
+  ".github/workflows/playwright.yml",
+  ".github/workflows/react-doctor.yml",
+  "tools/gates/no-suppressions.sh",
+  "playwright.config.ts",
   "knip.config.ts",
   ".prettierrc",
   "src/server.ts",

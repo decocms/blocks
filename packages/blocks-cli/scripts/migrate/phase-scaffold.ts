@@ -2,7 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MigrationContext } from "./types";
 import { log, logPhase } from "./types";
-import { CANONICAL_BUN_VERSION, generatePackageJson } from "./templates/package-json";
+import {
+  CANONICAL_BUN_VERSION,
+  CANONICAL_NODE_VERSION,
+  generatePackageJson,
+} from "./templates/package-json";
 import { generateLockfileCheckYml } from "./templates/lockfile-check-yml";
 import { generateTsconfig } from "./templates/tsconfig";
 import { generateViteConfig } from "./templates/vite-config";
@@ -21,6 +25,10 @@ import { generateCacheConfig } from "./templates/cache-config";
 import { generateSdkFiles } from "./templates/sdk-gen";
 import { generateMigrationPolicyPointerRule } from "./templates/cursor-rules";
 import { generatePerfFiles } from "./templates/perf-yml";
+import { generateCiFiles } from "./templates/ci-yml";
+import { generateMainPushGuardYml } from "./templates/main-push-guard-yml";
+import { generatePlaywrightFiles } from "./templates/playwright-yml";
+import { generateReactDoctorYml } from "./templates/react-doctor-yml";
 // `lib-utils` is imported lazily — see end of phase-cleanup. Eager
 // generation of all 11 shims left every site with dead code that had
 // to be cleaned up by hand.
@@ -92,6 +100,22 @@ export function scaffold(ctx: MigrationContext): void {
   // maps them to CMS page paths, runs Lighthouse against the CF preview URL
   // (PR vs main), and posts a comparison comment. Gate = CLS + TBT only.
   writeMultiFile(ctx, generatePerfFiles(ctx.siteName));
+
+  // Per-PR quality pipeline (ci.yml) + its no-suppressions gate. BLOCKS on
+  // generate + build; the migration-cleanliness gates (no-suppressions,
+  // typecheck, format, knip) ship advisory so day-one CI is green. Node pinned
+  // in lockstep with the perf/playwright workflows.
+  writeMultiFile(ctx, generateCiFiles(CANONICAL_NODE_VERSION, CANONICAL_BUN_VERSION));
+
+  // Branch-protection surrogate: fails visibly if a commit reaches main
+  // without a PR (never blocks the push itself).
+  writeFile(ctx, ".github/workflows/main-push-guard.yml", generateMainPushGuardYml());
+
+  // Functional E2E harness (chromium + webkit) + self-contained config/smoke.
+  writeMultiFile(ctx, generatePlaywrightFiles(CANONICAL_BUN_VERSION));
+
+  // Advisory React lint (react-doctor): comments on PRs, never fails.
+  writeFile(ctx, ".github/workflows/react-doctor.yml", generateReactDoctorYml());
 
   // Server entry files (server.ts, worker-entry.ts, router.tsx, runtime.ts, context.ts)
   writeMultiFile(ctx, generateServerEntry(ctx));
