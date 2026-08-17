@@ -18,6 +18,7 @@ export {
 export { clx } from "./clx";
 export { decodeCookie, deleteCookie, getCookie, getServerSideCookie, setCookie } from "./cookie";
 export { buildCSPHeaderValue, type CSPOptions, setCSPHeaders } from "./csp";
+export { deepOmit } from "./deepOmit";
 export { djb2, djb2Hex } from "./djb2";
 export { isDevMode } from "./env";
 export {
