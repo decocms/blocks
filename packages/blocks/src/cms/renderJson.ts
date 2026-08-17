@@ -38,12 +38,20 @@ export interface RenderJsonModule {
 export interface SerializableSection {
   component: string;
   props?: Record<string, unknown>;
+  /** Position in the page's flat section list (used to interleave with lazy ones). */
+  index?: number;
 }
 
-export interface SerializedSection {
+/** A deferred section that isn't resolved eagerly — emitted as a lazy placeholder. */
+export interface DeferredRef {
   component: string;
-  props: Record<string, unknown>;
+  index: number;
 }
+
+/** An eager section carries `props`; a lazy one carries a `lazyUrl` to fetch it. */
+export type SerializedSection =
+  | { component: string; props: Record<string, unknown> }
+  | { component: string; lazyUrl: string };
 
 export interface SerializeOptions {
   /**
@@ -57,13 +65,25 @@ export interface SerializeOptions {
    * endsWith-match every section.
    */
   sectionsToIgnore?: string[];
+  /**
+   * Deferred sections to emit as `{ component, lazyUrl }` placeholders,
+   * interleaved with the eager ones by `index`. Dropped sections
+   * (`renderJson === false` / `sectionsToIgnore`) are omitted here too. When
+   * set, the output is ordered by `index`.
+   */
+  deferred?: DeferredRef[];
+  /** Builds the lazy-fetch URL for a deferred section. Required when `deferred` is set. */
+  lazyUrlFor?: (ref: DeferredRef) => string;
 }
 
 /**
- * Projects a list of eagerly-resolved sections into the lean renderJson shape.
- * A section is dropped when its resolveType matches a `sectionsToIgnore` suffix
- * OR its module exports `renderJson === false`. A `renderJson` function projects
- * the props; otherwise props pass through unchanged.
+ * Projects a page's sections into the lean renderJson shape. Eager sections
+ * become `{ component, props }` (a `renderJson` function projects the props;
+ * otherwise props pass through). Deferred sections become
+ * `{ component, lazyUrl }`, interleaved by `index`. A section is dropped when
+ * its resolveType matches a `sectionsToIgnore` suffix OR its module exports
+ * `renderJson === false` (for a deferred section, dropping avoids emitting a
+ * lazyUrl the app would fetch for nothing).
  */
 export function serializeRenderJson(
   sections: SerializableSection[],
@@ -80,12 +100,27 @@ export function serializeRenderJson(
     ignore.some((suffix) => component.endsWith(suffix)) ||
     renderJsonOf(component) === false;
 
-  const out: SerializedSection[] = [];
-  for (const section of sections) {
-    if (isDropped(section.component)) continue;
-    const rj = renderJsonOf(section.component);
-    const props = typeof rj === "function" ? rj(section.props ?? {}) : section.props ?? {};
-    out.push({ component: section.component, props });
+  const eager = sections
+    .filter((s) => !isDropped(s.component))
+    .map((section) => {
+      const rj = renderJsonOf(section.component);
+      const props = typeof rj === "function" ? rj(section.props ?? {}) : section.props ?? {};
+      return { index: section.index, out: { component: section.component, props } as SerializedSection };
+    });
+
+  // No deferred sections → preserve input order (backward compatible).
+  if (!opts.deferred || opts.deferred.length === 0) {
+    return eager.map((e) => e.out);
   }
-  return out;
+
+  const lazyUrlFor = opts.lazyUrlFor;
+  const lazy = opts.deferred
+    .filter((ref) => !isDropped(ref.component) && !!lazyUrlFor)
+    .map((ref) => ({
+      index: ref.index,
+      out: { component: ref.component, lazyUrl: lazyUrlFor!(ref) } as SerializedSection,
+    }));
+
+  // Interleave eager + lazy by their position in the page's flat section list.
+  return [...eager, ...lazy].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).map((e) => e.out);
 }

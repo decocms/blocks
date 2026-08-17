@@ -33,6 +33,7 @@ import {
   type MatcherContext,
   onChange,
   resolveDecoPage,
+  resolveDeferredSectionFull,
   runSectionLoaders,
   runSingleSectionLoader,
   serializeRenderJson,
@@ -1789,36 +1790,81 @@ export function createDecoWorkerEntry(
       const isDropped = (component: string) =>
         getSectionOptions(component)?.renderJson === false ||
         ignoreSuffixes.some((suffix) => component.endsWith(suffix));
+      const getSectionModule = (component: string) => ({
+        renderJson: getSectionOptions(component)?.renderJson,
+      });
 
+      const jsonHeaders = {
+        ...corsHeaders,
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=0, must-revalidate",
+      };
+      const withEtag = (body: string): Response => {
+        // Contract-stable ETag over the serialized body: identical → 304.
+        const etag = `"rj-${djb2Hex(body)}"`;
+        if (request.headers.get("if-none-match") === etag) {
+          return new Response(null, { status: 304, headers: { ...corsHeaders, ETag: etag } });
+        }
+        return new Response(body, { headers: { ...jsonHeaders, ETag: etag } });
+      };
+
+      // Lazy single-section fetch: `?renderJson&__section=<index>` resolves ONE
+      // deferred section (the placeholder the whole-page envelope emitted) and
+      // returns its serialized `{ component, props }`.
+      const sectionParam = url.searchParams.get("__section");
+      if (sectionParam !== null) {
+        const sectionIndex = Number(sectionParam);
+        const ds = page.deferredSections.find((d) => d.index === sectionIndex);
+        if (!ds || isDropped(ds.component)) {
+          return Response.json(
+            { status: 404, notFound: true },
+            { status: 404, headers: corsHeaders },
+          );
+        }
+        const resolved = await resolveDeferredSectionFull(ds, basePath, request, matcherCtx);
+        if (!resolved) {
+          return Response.json(
+            { status: 404, notFound: true },
+            { status: 404, headers: corsHeaders },
+          );
+        }
+        const [serialized] = serializeRenderJson(
+          [{ component: resolved.component, props: resolved.props }],
+          { getSectionModule, sectionsToIgnore: ignoreSuffixes },
+        );
+        if (!serialized) {
+          return Response.json(
+            { status: 404, notFound: true },
+            { status: 404, headers: corsHeaders },
+          );
+        }
+        return withEtag(JSON.stringify(serialized));
+      }
+
+      // Whole page: eager sections are resolved + projected inline; deferred
+      // sections become `{ component, lazyUrl }` placeholders the app fetches on
+      // demand (interleaved by their position in the page).
       const keptSections = page.resolvedSections.filter((s) => !isDropped(s.component));
       const enrichedSections = await runSectionLoaders(keptSections, request);
+      const lazyUrlFor = (ref: { index: number }): string => {
+        const u = new URL(url.toString());
+        u.searchParams.set("__section", String(ref.index));
+        return u.pathname + u.search;
+      };
 
       const sections = serializeRenderJson(
-        enrichedSections.map((s) => ({ component: s.component, props: s.props })),
+        enrichedSections.map((s) => ({ component: s.component, props: s.props, index: s.index })),
         {
-          getSectionModule: (component) => ({
-            renderJson: getSectionOptions(component)?.renderJson,
-          }),
+          getSectionModule,
           // Belt-and-suspenders: keptSections already dropped these, but the
           // serializer re-checks so a section that slipped through is still cut.
           sectionsToIgnore: ignoreSuffixes,
+          deferred: page.deferredSections.map((d) => ({ component: d.component, index: d.index })),
+          lazyUrlFor,
         },
       );
 
-      const body = JSON.stringify({ name: page.name, path: page.path, sections });
-      // Contract-stable ETag over the serialized body: identical page → 304.
-      const etag = `"rj-${djb2Hex(body)}"`;
-      if (request.headers.get("if-none-match") === etag) {
-        return new Response(null, { status: 304, headers: { ...corsHeaders, ETag: etag } });
-      }
-      return new Response(body, {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json; charset=utf-8",
-          ETag: etag,
-          "Cache-Control": "public, max-age=0, must-revalidate",
-        },
-      });
+      return withEtag(JSON.stringify({ name: page.name, path: page.path, sections }));
     }
 
     // ?asJson — return resolved page data as JSON (legacy deco compat)

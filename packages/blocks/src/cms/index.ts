@@ -70,6 +70,7 @@ export {
   setSectionRenderJson,
 } from "./registry";
 export type {
+  DeferredRef,
   RenderJson,
   RenderJsonModule,
   SerializableSection,

@@ -93,8 +93,24 @@ file over a store opinion in `sectionsToIgnore`.
   public, max-age=0, must-revalidate`.
 - **Not found**: a stable `{ status: 404, notFound: true }` (HTTP 404), so the
   app has a predictable "page doesn't exist" shape.
-- All sections are resolved **eagerly** — the app receives the whole page in one
-  request (no lazy `/deco/render` follow-ups).
+
+### Lazy sections
+
+Sections the CMS marks as deferred (⚡ / below-the-fold) are NOT resolved in the
+page response. Instead they appear as a placeholder, interleaved in page order:
+
+```jsonc
+{ "component": "site/sections/home/shelf.tsx",
+  "lazyUrl": "/feminino/bolsas?renderJson&__section=3" }
+```
+
+The app fetches `lazyUrl` (a plain GET, same origin) when it needs that section
+— e.g. as it scrolls — and gets the resolved `{ component, props }`. This
+mirrors the web's on-scroll deferral: above-the-fold sections arrive inline,
+heavy ones (shelves, carousels) load on demand instead of bloating the first
+response. Treat `lazyUrl` as opaque; only its shape (`{ component, lazyUrl }` vs
+`{ component, props }`) is the contract. A deferred section that opts out
+(`renderJson = false` / `sectionsToIgnore`) emits no placeholder at all.
 
 ### Mobile fetch example
 

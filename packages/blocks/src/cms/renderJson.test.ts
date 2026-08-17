@@ -67,4 +67,36 @@ describe("serializeRenderJson", () => {
     const out = serializeRenderJson([{ component: "a" }]);
     expect(out).toEqual([{ component: "a", props: {} }]);
   });
+
+  it("interleaves deferred sections as { component, lazyUrl } by index", () => {
+    const out = serializeRenderJson(
+      [
+        { component: "site/sections/Footer/Footer.tsx", props: { y: 2 }, index: 2 },
+        { component: "site/sections/Header.tsx", props: { h: 1 }, index: 0 },
+      ],
+      {
+        getSectionModule,
+        deferred: [{ component: "site/sections/Shelf.tsx", index: 1 }],
+        lazyUrlFor: (ref) => `/p?renderJson&__lazy=${ref.index}`,
+      },
+    );
+    expect(out).toEqual([
+      { component: "site/sections/Header.tsx", props: { h: 1 } },
+      { component: "site/sections/Shelf.tsx", lazyUrl: "/p?renderJson&__lazy=1" },
+      { component: "site/sections/Footer/Footer.tsx", props: { y: 2 } },
+    ]);
+  });
+
+  it("does not emit a lazyUrl for a dropped deferred section", () => {
+    const out = serializeRenderJson([{ component: "site/sections/Header.tsx", props: {}, index: 0 }], {
+      getSectionModule,
+      sectionsToIgnore: ["SeoV2.tsx"],
+      deferred: [
+        { component: "website/sections/Seo/SeoV2.tsx", index: 1 }, // suffix-dropped
+        { component: "site/sections/Theme/Theme.tsx", index: 2 }, // renderJson === false
+      ],
+      lazyUrlFor: (ref) => `/p?renderJson&__lazy=${ref.index}`,
+    });
+    expect(out).toEqual([{ component: "site/sections/Header.tsx", props: {} }]);
+  });
 });
