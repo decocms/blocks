@@ -68,6 +68,33 @@ describe("serializeRenderJson", () => {
     expect(out).toEqual([{ component: "a", props: {} }]);
   });
 
+  it("strips framework-injected keys (__page*, device, isMobile) from props", () => {
+    const out = serializeRenderJson(
+      [
+        {
+          component: "a",
+          props: {
+            title: "keep",
+            __pageUrl: "https://x/y",
+            __pagePath: "/y",
+            device: "mobile",
+            isMobile: true,
+            currentSearchParam: "q",
+          },
+        },
+      ],
+      // no projection → pass-through, but injected keys must still be stripped
+    );
+    expect(out).toEqual([{ component: "a", props: { title: "keep" } }]);
+  });
+
+  it("strips injected keys even when a projection rest-spreads them through", () => {
+    const out = serializeRenderJson([{ component: "a", props: { keep: 1, __pageUrl: "u", device: "d" } }], {
+      getSectionModule: () => ({ renderJson: (p: Record<string, unknown>) => p }), // identity passes __ through
+    });
+    expect(out).toEqual([{ component: "a", props: { keep: 1 } }]);
+  });
+
   it("interleaves deferred sections as { component, lazyUrl } by index", () => {
     const out = serializeRenderJson(
       [
