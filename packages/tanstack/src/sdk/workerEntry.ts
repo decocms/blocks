@@ -229,6 +229,21 @@ export interface DecoWorkerEntryOptions {
   deviceSpecificKeys?: boolean;
 
   /**
+   * Serve pages as structured per-section JSON on `?renderJson` (the mobile
+   * page-as-JSON path). Set to `false` to disable the endpoint site-wide —
+   * `?renderJson` then just renders the normal HTML page.
+   * @default true
+   */
+  renderJson?: boolean;
+
+  /**
+   * Serve the raw resolved page as JSON on `?asJson` (legacy admin-preview
+   * path). Set to `false` to disable it site-wide.
+   * @default true
+   */
+  asJson?: boolean;
+
+  /**
    * Build a full segment key from the incoming request.
    *
    * When provided, the segment key replaces the simple device-only
@@ -1743,7 +1758,11 @@ export function createDecoWorkerEntry(
     // ?renderJson — structured JSON of the page for the mobile app. Lean shape
     // ({ name, path, sections:[{ component, props }] }), each section projected
     // through its `renderJson` export. Wins over ?asJson when both are present.
-    if (url.searchParams.has("renderJson") && request.method === "GET") {
+    if (
+      options.renderJson !== false &&
+      url.searchParams.has("renderJson") &&
+      request.method === "GET"
+    ) {
       const basePath = url.pathname;
       const cookies: Record<string, string> = {};
       for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
@@ -1868,7 +1887,11 @@ export function createDecoWorkerEntry(
     }
 
     // ?asJson — return resolved page data as JSON (legacy deco compat)
-    if (url.searchParams.has("asJson") && request.method === "GET") {
+    if (
+      options.asJson !== false &&
+      url.searchParams.has("asJson") &&
+      request.method === "GET"
+    ) {
       const basePath = url.pathname;
       const cookies: Record<string, string> = {};
       for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
