@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type RenderJsonModule, serializeRenderJson } from "./renderJson";
+import {
+  isSecretValue,
+  type RenderJsonModule,
+  serializeRenderJson,
+  stringifyWithoutSecrets,
+} from "./renderJson";
 
 const modules: Record<string, RenderJsonModule> = {
   "site/sections/Product/ProductDetails.tsx": {
@@ -125,5 +130,38 @@ describe("serializeRenderJson", () => {
       lazyUrlFor: (ref) => `/p?renderJson&__lazy=${ref.index}`,
     });
     expect(out).toEqual([{ component: "site/sections/Header.tsx", props: {} }]);
+  });
+});
+
+describe("isSecretValue / stringifyWithoutSecrets", () => {
+  it("detects a resolved Secret ({ get: fn }) and an unresolved secret block", () => {
+    expect(isSecretValue({ get: () => "plaintext" })).toBe(true);
+    expect(isSecretValue({ __resolveType: "website/loaders/secret.ts", encrypted: "x" })).toBe(true);
+  });
+
+  it("does not flag content that merely has a `get` method or other shapes", () => {
+    expect(isSecretValue({ get: () => 1, other: true })).toBe(false); // extra key
+    expect(isSecretValue({ token: "abc" })).toBe(false); // plaintext (undetectable by shape)
+    expect(isSecretValue("just a string")).toBe(false);
+    expect(isSecretValue(null)).toBe(false);
+  });
+
+  it("strips Secret-shaped values anywhere in the tree", () => {
+    const payload = {
+      title: "keep",
+      apiKey: { get: () => "SECRET" }, // resolved Secret → dropped
+      nested: { token: { get: () => "SECRET2" }, keep: 1 },
+      list: [{ get: () => "S" }, { real: "item" }],
+      block: { __resolveType: "website/loaders/secret.ts", encrypted: "enc" }, // dropped
+    };
+    const out = JSON.parse(stringifyWithoutSecrets(payload));
+    expect(out).toEqual({
+      title: "keep",
+      nested: { keep: 1 },
+      list: [null, { real: "item" }], // Secret element → null (array slot preserved)
+      // apiKey and block are gone entirely
+    });
+    expect("apiKey" in out).toBe(false);
+    expect("block" in out).toBe(false);
   });
 });

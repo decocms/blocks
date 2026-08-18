@@ -37,6 +37,7 @@ import {
   runSectionLoaders,
   runSingleSectionLoader,
   serializeRenderJson,
+  stringifyWithoutSecrets,
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
 import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
@@ -242,6 +243,15 @@ export interface DecoWorkerEntryOptions {
    * @default true
    */
   asJson?: boolean;
+
+  /**
+   * Cross-origin origins allowed to read the `?renderJson` response. CORS only
+   * matters for browser clients on another origin — a native app needs none.
+   *   - unset (default) → no CORS headers (same-origin + native apps only).
+   *   - `string[]`      → reflect a matching request Origin, with credentials.
+   *   - `"*"`           → allow any origin (without credentials, per the spec).
+   */
+  pageJsonCors?: string[] | "*";
 
   /**
    * Build a full segment key from the incoming request.
@@ -872,6 +882,37 @@ let _redirectMapRevision: string | null = null;
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
+
+/**
+ * CORS headers for the `?renderJson` response, from
+ * {@link DecoWorkerEntryOptions.pageJsonCors}. Off by default (native apps need
+ * no CORS); a list reflects an allow-listed request Origin with credentials;
+ * `"*"` allows any origin without credentials (per the CORS spec).
+ */
+function pageJsonCorsHeaders(
+  request: Request,
+  cors: string[] | "*" | undefined,
+): Record<string, string> {
+  if (!cors) return {};
+  const base = {
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, If-None-Match, Authorization",
+    "Access-Control-Expose-Headers": "ETag",
+  };
+  if (cors === "*") {
+    return { ...base, "Access-Control-Allow-Origin": "*" };
+  }
+  const origin = request.headers.get("origin");
+  if (origin && cors.includes(origin)) {
+    return {
+      ...base,
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Credentials": "true",
+      Vary: "Origin",
+    };
+  }
+  return {}; // origin not allow-listed → no CORS headers
+}
 
 /**
  * Creates a Cloudflare Worker fetch handler that wraps a TanStack Start
@@ -1758,6 +1799,18 @@ export function createDecoWorkerEntry(
     // ?renderJson — structured JSON of the page for the mobile app. Lean shape
     // ({ name, path, sections:[{ component, props }] }), each section projected
     // through its `renderJson` export. Wins over ?asJson when both are present.
+    // CORS preflight for ?renderJson (only emits headers when pageJsonCors is set).
+    if (
+      options.renderJson !== false &&
+      request.method === "OPTIONS" &&
+      url.searchParams.has("renderJson")
+    ) {
+      return new Response(null, {
+        status: 204,
+        headers: pageJsonCorsHeaders(request, options.pageJsonCors),
+      });
+    }
+
     if (
       options.renderJson !== false &&
       url.searchParams.has("renderJson") &&
@@ -1777,14 +1830,9 @@ export function createDecoWorkerEntry(
         request,
       };
 
-      // Reflect Origin (not literal "*") so credentialed mobile fetches work.
-      const corsHeaders: Record<string, string> = {
-        "Access-Control-Allow-Origin": request.headers.get("origin") ?? "*",
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, If-None-Match, Authorization",
-        "Access-Control-Expose-Headers": "ETag",
-      };
+      // CORS for ?renderJson — off unless the site allow-lists origins via
+      // options.pageJsonCors (native apps need none; browsers get same-origin).
+      const corsHeaders = pageJsonCorsHeaders(request, options.pageJsonCors);
 
       const page = await resolveDecoPage(basePath, matcherCtx);
       if (!page) {
@@ -1857,7 +1905,7 @@ export function createDecoWorkerEntry(
             { status: 404, headers: corsHeaders },
           );
         }
-        return withEtag(JSON.stringify(serialized));
+        return withEtag(stringifyWithoutSecrets(serialized));
       }
 
       // Whole page: eager sections are resolved + projected inline; deferred
@@ -1883,7 +1931,7 @@ export function createDecoWorkerEntry(
         },
       );
 
-      return withEtag(JSON.stringify({ name: page.name, path: page.path, sections }));
+      return withEtag(stringifyWithoutSecrets({ name: page.name, path: page.path, sections }));
     }
 
     // ?asJson — return resolved page data as JSON (legacy deco compat)

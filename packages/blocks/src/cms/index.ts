@@ -77,7 +77,7 @@ export type {
   SerializedSection,
   SerializeOptions,
 } from "./renderJson";
-export { serializeRenderJson } from "./renderJson";
+export { isSecretValue, serializeRenderJson, stringifyWithoutSecrets } from "./renderJson";
 export type {
   AsyncRenderingConfig,
   CommerceLoader,
