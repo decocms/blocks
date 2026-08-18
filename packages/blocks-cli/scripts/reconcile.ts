@@ -13,17 +13,19 @@
  *
  * Usage:
  *   npx -p @decocms/blocks-cli deco-reconcile \
- *     --source ../site-fresh --base <cut sha> \
- *     --target ../site-tanstack --target-base <migration commit sha>
+ *     --source ../site-fresh --target ../site-tanstack --snapshot <cut sha>
  *
  * Options:
- *   --source <dir>       Fresh/Deno repo checkout (required)
- *   --base <sha>         Last reconciled source commit — the cut (required)
- *   --target <dir>       Migrated TanStack repo checkout (required)
- *   --target-base <sha>  The migration commit on the target (required)
- *   --out <dir>          Output dir (default: <target>/.reconcile/<sourceHead:7>)
- *   --verbose            Log every file
- *   --help, -h           Show this help
+ *   --source <dir>           Fresh/Deno repo checkout (required)
+ *   --target <dir>           Migrated TanStack repo checkout (required)
+ *   --snapshot <sha>         Last reconciled source commit — the cut (required)
+ *   --target-snapshot <sha>  The migration commit on the target. Defaults to the
+ *                            commit that added MIGRATION_REPORT.md, else HEAD.
+ *                            Everything after it counts as a hand-fix, so a wrong
+ *                            value silently empties the collision list.
+ *   --out <dir>              Output dir (default: <target>/.reconcile/<sourceHead:7>)
+ *   --verbose                Log every file
+ *   --help, -h               Show this help
  *
  * Output: <out>/manifest.json (machine, also the resume state via `done`),
  *         <out>/INDEX.md (human), <out>/patches/NNN-<slug>.patch (one per file).
@@ -62,10 +64,10 @@ export interface ReconcileFile {
 export interface ReconcileManifest {
   source: string;
   target: string;
-  base: string;
-  /** Feed this back as --base on the next round. */
+  snapshot: string;
+  /** Feed this back as --snapshot on the next round. */
   sourceHead: string;
-  targetBase: string;
+  targetSnapshot: string;
   files: ReconcileFile[];
 }
 
@@ -117,9 +119,20 @@ export function targetCandidates(
 function usage(msg?: string): never {
   if (msg) console.error(`error: ${msg}\n`);
   console.error(
-    "usage: deco-reconcile --source <dir> --base <sha> --target <dir> --target-base <sha> [--out <dir>] [--verbose]",
+    "usage: deco-reconcile --source <dir> --target <dir> --snapshot <sha> [--target-snapshot <sha>] [--out <dir>] [--verbose]",
   );
   process.exit(msg ? 2 : 0);
+}
+
+/**
+ * The migration commit on the target — everything after it is a hand-fix.
+ * `deco-migrate` leaves no provenance except MIGRATION_REPORT.md, so the commit
+ * that added it is the marker. No marker: fall back to HEAD, which makes every
+ * collision range empty — loudly, because a silent empty list reads as "nobody
+ * touched anything" and that is exactly the wrong thing to believe.
+ */
+export function detectTargetSnapshot(log: string): string | undefined {
+  return log.split("\n").filter(Boolean).pop();
 }
 
 function main() {
@@ -132,16 +145,33 @@ function main() {
   const verbose = argv.includes("--verbose");
 
   const source = flag("source");
-  const base = flag("base");
   const target = flag("target");
-  const targetBase = flag("target-base");
-  if (!source || !base || !target || !targetBase) {
-    usage("--source, --base, --target and --target-base are all required");
+  const snapshot = flag("snapshot");
+  if (!source || !target || !snapshot) {
+    usage("--source, --target and --snapshot are all required");
+  }
+
+  const targetSnapshot = flag("target-snapshot") ??
+    detectTargetSnapshot(
+      git(target, [
+        "log",
+        "--diff-filter=A",
+        "--format=%H",
+        "--",
+        "MIGRATION_REPORT.md",
+      ]),
+    ) ?? git(target, ["rev-parse", "HEAD"]).trim();
+  if (!flag("target-snapshot")) {
+    console.log(
+      `--target-snapshot not given, using ${targetSnapshot.slice(0, 7)} (${
+        git(target, ["log", "-1", "--format=%s", targetSnapshot]).trim()
+      })`,
+    );
   }
 
   const sourceHead = git(source, ["rev-parse", "HEAD"]).trim();
-  if (sourceHead === git(source, ["rev-parse", base]).trim()) {
-    console.log("Nothing to reconcile — source HEAD is already the base.");
+  if (sourceHead === git(source, ["rev-parse", snapshot]).trim()) {
+    console.log("Nothing to reconcile — source HEAD is already the snapshot.");
     return;
   }
 
@@ -156,7 +186,7 @@ function main() {
   }
 
   const changes = parseNameStatus(
-    git(source, ["diff", "--name-status", "-M", `${base}..${sourceHead}`]),
+    git(source, ["diff", "--name-status", "-M", `${snapshot}..${sourceHead}`]),
   );
   const files: ReconcileFile[] = [];
 
@@ -172,7 +202,7 @@ function main() {
       git(source, [
         "diff",
         "-M",
-        `${base}..${sourceHead}`,
+        `${snapshot}..${sourceHead}`,
         "--",
         ...(change.oldPath ? [change.oldPath, change.path] : [change.path]),
       ]),
@@ -185,7 +215,7 @@ function main() {
       git(target, [
         "log",
         "--format=%h %s",
-        `${targetBase}..HEAD`,
+        `${targetSnapshot}..HEAD`,
         "--",
         c,
       ]).split("\n").filter(Boolean).map((l) => `${c}: ${l}`)
@@ -212,9 +242,9 @@ function main() {
   const manifest: ReconcileManifest = {
     source,
     target,
-    base,
+    snapshot,
     sourceHead,
-    targetBase,
+    targetSnapshot,
     files,
   };
   fs.writeFileSync(
@@ -226,9 +256,11 @@ function main() {
   fs.writeFileSync(
     path.join(outDir, "INDEX.md"),
     [
-      `# Reconcile ${base.slice(0, 7)}..${sourceHead.slice(0, 7)}`,
+      `# Reconcile ${snapshot.slice(0, 7)}..${sourceHead.slice(0, 7)}`,
       "",
-      `SOURCE_HEAD \`${sourceHead}\` — feed this back as \`--base\` next round.`,
+      `SOURCE_HEAD \`${sourceHead}\` — feed this back as \`--snapshot\` next round.`,
+      "",
+      `Target snapshot \`${targetSnapshot}\` — commits after it count as hand-fixes.`,
       "",
       `${files.length} files, ${collided.length} with collisions.`,
       "",

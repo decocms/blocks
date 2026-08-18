@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  detectTargetSnapshot,
   isSkipped,
   parseNameStatus,
   type ReconcileManifest,
@@ -45,6 +46,13 @@ describe("targetCandidates", () => {
   });
 });
 
+describe("detectTargetSnapshot", () => {
+  it("takes the OLDEST add — git log is newest-first, re-adds must not win", () => {
+    expect(detectTargetSnapshot("bbb\naaa\n")).toBe("aaa");
+    expect(detectTargetSnapshot("")).toBeUndefined();
+  });
+});
+
 describe("reconcile end to end", () => {
   let tmp: string;
   const git = (cwd: string, ...args: string[]) =>
@@ -74,12 +82,12 @@ describe("reconcile end to end", () => {
   });
   afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-  it("emits one patch per changed file and flags hand-fixed targets", () => {
+  it("auto-detects the target snapshot, emits one patch per file, flags hand-fixes", () => {
     const source = init("source");
     write(source, "sections/Header.tsx", "export default () => <h1>a</h1>;\n");
     write(source, "sections/Footer.tsx", "export default () => <footer/>;\n");
     write(source, "deno.lock", "{}\n");
-    const base = commit(source, "cut");
+    const snapshot = commit(source, "cut");
 
     write(source, "sections/Header.tsx", "export default () => <h1>b</h1>;\n");
     write(source, "sections/Footer.tsx", "export default () => <footer id='f'/>;\n");
@@ -89,7 +97,9 @@ describe("reconcile end to end", () => {
     const target = init("target");
     write(target, "src/sections/Header.tsx", "export default () => <h1>a</h1>;\n");
     write(target, "src/sections/Footer.tsx", "export default () => <footer/>;\n");
-    const targetBase = commit(target, "migrate to tanstack");
+    // The marker deco-migrate leaves behind — this is what auto-detection finds.
+    write(target, "MIGRATION_REPORT.md", "# Migration\n");
+    const targetSnapshot = commit(target, "migrate to tanstack");
 
     // A hand-fix on the target, after the migration commit → collision.
     write(target, "src/sections/Header.tsx", "export default () => <h1>a fixed</h1>;\n");
@@ -101,9 +111,9 @@ describe("reconcile end to end", () => {
       [
         path.join(__dirname, "reconcile.ts"),
         "--source", source,
-        "--base", base,
         "--target", target,
-        "--target-base", targetBase,
+        "--snapshot", snapshot,
+        // no --target-snapshot: exercise the MIGRATION_REPORT.md auto-detection
         "--out", out,
       ],
       { encoding: "utf8" },
@@ -114,6 +124,7 @@ describe("reconcile end to end", () => {
     );
 
     expect(manifest.sourceHead).toBe(sourceHead);
+    expect(manifest.targetSnapshot).toBe(targetSnapshot);
     // deno.lock filtered out.
     expect(manifest.files.map((f) => f.sourcePath).sort()).toEqual([
       "sections/Footer.tsx",

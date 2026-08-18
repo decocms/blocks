@@ -19,10 +19,15 @@ consertado.
 
 ```bash
 npx -p @decocms/blocks-cli deco-reconcile \
-  --source <clone Fresh/Deno> --base <SHA do corte> \
-  --target <clone TanStack> --target-base <SHA do commit de migração> \
-  --verbose
+  --source <clone Fresh/Deno> --target <clone TanStack> \
+  --snapshot <SHA do corte> --verbose
 ```
+
+Um hash só. `--target-snapshot` é opcional: por padrão o script acha o commit de
+migração pelo `MIGRATION_REPORT.md` que o `deco-migrate` deixou, e imprime qual
+escolheu. Passe explícito se a migração veio por squash ou rebase e o marcador
+não bater — tudo depois desse commit conta como correção manual, então valor
+errado esvazia a lista de colisão em silêncio.
 
 Saída em `<target>/.reconcile/<sourceHead:7>/`:
 
@@ -33,8 +38,8 @@ Saída em `<target>/.reconcile/<sourceHead:7>/`:
 O script não escreve nada no alvo e não emite julgamento. `targetCandidates` é
 palpite (basename + convenção), não mapeamento — confirme.
 
-Se `--base` não for conhecido: é o `SOURCE_HEAD` do relatório da rodada anterior.
-Primeira rodada, é o commit de origem em que a migração foi feita.
+Se `--snapshot` não for conhecido: é o `SOURCE_HEAD` do relatório da rodada
+anterior. Primeira rodada, é o commit de origem em que a migração foi feita.
 
 ## O loop
 
@@ -52,7 +57,7 @@ Para cada arquivo, na ordem:
 
 **1. Onde ele cai no alvo?** O layout mudou na migração. Confira os
 `targetCandidates` contra a árvore do alvo; se não bater, descubra o mapeamento
-comparando `BASE_SHA` com o commit de migração do alvo — não presuma convenção.
+comparando o commit do snapshot com o commit de migração do alvo — não presuma convenção.
 Lista vazia normalmente é arquivo novo: migre inteiro.
 
 **2. Alguém já mexeu nele?** `collision` já responde (`git log` do alvo, do commit
@@ -127,7 +132,7 @@ que você enxergar vira nota, não commit.
 
 Relatório, antes de qualquer commit:
 
-1. `SOURCE_HEAD` — vira o `BASE_SHA` da próxima rodada
+1. `SOURCE_HEAD` — vira o `--snapshot` da próxima rodada
 2. As regras de tradução que você extraiu do par de commits
 3. Arquivos aplicados sem colisão: origem → alvo → regras usadas
 4. **Uma seção por colisão**: hunk upstream, correção local, qual prevaleceu, por quê
