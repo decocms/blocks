@@ -35,6 +35,7 @@
 
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import { isDeletedByMigration } from "./migrate/delete-sets";
 import * as path from "node:path";
 
 /** Paths whose upstream changes never reconcile into the target. */
@@ -93,7 +94,7 @@ export function parseNameStatus(
 }
 
 export function isSkipped(relPath: string): boolean {
-  return SKIP.some((re) => re.test(relPath));
+  return SKIP.some((re) => re.test(relPath)) || isDeletedByMigration(relPath);
 }
 
 /**
@@ -185,13 +186,20 @@ function main() {
     byBasename.set(key, [...(byBasename.get(key) ?? []), p]);
   }
 
+  // Submodules (mode 160000) diff as a one-line gitlink bump — no source to port.
+  const submodules = new Set(
+    git(source, ["ls-files", "--stage"]).split("\n")
+      .filter((l) => l.startsWith("160000"))
+      .map((l) => l.split("\t")[1]),
+  );
+
   const changes = parseNameStatus(
     git(source, ["diff", "--name-status", "-M", `${snapshot}..${sourceHead}`]),
   );
   const files: ReconcileFile[] = [];
 
   for (const change of changes) {
-    if (isSkipped(change.path)) {
+    if (isSkipped(change.path) || submodules.has(change.path)) {
       if (verbose) console.log(`  skip  ${change.path}`);
       continue;
     }
@@ -211,15 +219,25 @@ function main() {
     const candidates = targetCandidates(change.path, byBasename);
     // A target file touched since the migration commit is a hand-fix. The agent
     // must reconcile hunk by hunk instead of applying the upstream change whole.
-    const collision = candidates.flatMap((c) =>
-      git(target, [
-        "log",
-        "--format=%h %s",
-        `${targetSnapshot}..HEAD`,
-        "--",
-        c,
-      ]).split("\n").filter(Boolean).map((l) => `${c}: ${l}`)
-    );
+    // Deduped by SHA: one commit touching two candidates (the island/section
+    // re-export pair) is one hand-fix, not two — an inflated count misreads the
+    // "does this fit one human review sitting" gate.
+    const bySha = new Map<string, string>();
+    for (const c of candidates) {
+      for (
+        const line of git(target, [
+          "log",
+          "--format=%h %s",
+          `${targetSnapshot}..HEAD`,
+          "--",
+          c,
+        ]).split("\n").filter(Boolean)
+      ) {
+        const sha = line.split(" ")[0];
+        if (!bySha.has(sha)) bySha.set(sha, `${c}: ${line}`);
+      }
+    }
+    const collision = [...bySha.values()];
 
     files.push({
       status: change.status,

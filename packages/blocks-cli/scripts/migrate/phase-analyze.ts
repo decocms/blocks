@@ -11,6 +11,14 @@ import { extractSectionMetadata } from "./analyzers/section-metadata";
 import { classifyIslands } from "./analyzers/island-classifier";
 import { inventoryLoaders } from "./analyzers/loader-inventory";
 import { extractTailwindConfig } from "./analyzers/tailwind-config";
+import {
+  COMPONENT_DELETE,
+  GENERATED_FILES,
+  LOADER_DELETE,
+  ROOT_DELETE,
+  SDK_DELETE,
+  STATIC_DELETE,
+} from "./delete-sets";
 
 const PATTERN_DETECTORS: Array<[DetectedPattern, RegExp]> = [
   ["preact-hooks", /from\s+["']preact\/hooks["']/],
@@ -78,61 +86,6 @@ const SKIP_FILES = new Set([
   "bun.lockb",
 ]);
 
-/** Files that are generated and should be deleted */
-const GENERATED_FILES = new Set([
-  "fresh.gen.ts",
-  "manifest.gen.ts",
-  "fresh.config.ts",
-]);
-
-/** SDK files that have framework equivalents or are scaffolded fresh */
-const SDK_DELETE = new Set([
-  "sdk/clx.ts",
-  "sdk/useId.ts",
-  // sdk/useOffer.ts — kept: sites often customize offer logic
-  // sdk/useVariantPossiblities.ts — kept: sites often customize variant logic
-  "sdk/usePlatform.tsx",
-  "sdk/signal.ts",
-  "sdk/format.ts",
-]);
-
-/** Component files that are scaffolded fresh (old versions must not overwrite) */
-const COMPONENT_DELETE = new Set([
-  "components/ui/Image.tsx",
-  "components/ui/Picture.tsx",
-  "components/ui/Video.tsx",
-]);
-
-/** Loaders that depend on deleted admin tooling */
-const LOADER_DELETE = new Set([
-  "loaders/availableIcons.ts",
-  "loaders/icons.ts",
-]);
-
-/** Root config/infra files to delete */
-const ROOT_DELETE = new Set([
-  "main.ts",
-  "dev.ts",
-  "deno.json",
-  "deno.lock",
-  "tailwind.css",
-  "tailwind.config.ts",
-  "runtime.ts",
-  "constants.ts",
-  "fresh.gen.ts",
-  "manifest.gen.ts",
-  "fresh.config.ts",
-  "browserslist",
-  "bw_stats.json",
-  "islands.ts",
-]);
-
-/** Static files that are code/tooling, not assets — should be deleted */
-const STATIC_DELETE = new Set([
-  "static/adminIcons.ts",
-  "static/generate-icons.ts",
-  "static/tailwind.css",
-]);
 
 /**
  * Scan file content for inline npm: imports and return { name: version } pairs.

@@ -28,6 +28,16 @@ describe("isSkipped", () => {
     expect(isSkipped("static/logo.png")).toBe(true);
     expect(isSkipped("sections/Header.tsx")).toBe(false);
   });
+
+  it("drops what the migration deletes — no target file to port into", () => {
+    expect(isSkipped("fresh.gen.ts")).toBe(true);
+    expect(isSkipped("manifest.gen.ts")).toBe(true);
+    expect(isSkipped("deno.json")).toBe(true);
+    expect(isSkipped("sdk/cart/vtex.ts")).toBe(true);
+    // routes/ is rescaffolded but a NEW upstream route is a real change — keep it.
+    expect(isSkipped("routes/blog.tsx")).toBe(false);
+    expect(isSkipped("redirects.csv")).toBe(false);
+  });
 });
 
 describe("targetCandidates", () => {
@@ -96,13 +106,16 @@ describe("reconcile end to end", () => {
 
     const target = init("target");
     write(target, "src/sections/Header.tsx", "export default () => <h1>a</h1>;\n");
+    // The island/section re-export pair — Header has TWO target candidates.
+    write(target, "src/components/Header.tsx", "export default () => <h1>a</h1>;\n");
     write(target, "src/sections/Footer.tsx", "export default () => <footer/>;\n");
     // The marker deco-migrate leaves behind — this is what auto-detection finds.
     write(target, "MIGRATION_REPORT.md", "# Migration\n");
     const targetSnapshot = commit(target, "migrate to tanstack");
 
-    // A hand-fix on the target, after the migration commit → collision.
+    // One hand-fix touching both candidates → must count as ONE collision.
     write(target, "src/sections/Header.tsx", "export default () => <h1>a fixed</h1>;\n");
+    write(target, "src/components/Header.tsx", "export default () => <h1>a fixed</h1>;\n");
     commit(target, "fix: codemod ate the heading");
 
     const out = path.join(tmp, "out");
@@ -132,8 +145,11 @@ describe("reconcile end to end", () => {
     ]);
 
     const header = manifest.files.find((f) => f.sourcePath === "sections/Header.tsx")!;
-    expect(header.targetCandidates).toEqual(["src/sections/Header.tsx"]);
-    expect(header.collision).toHaveLength(1);
+    expect(header.targetCandidates).toEqual([
+      "src/sections/Header.tsx", // conventional guess ranks first
+      "src/components/Header.tsx",
+    ]);
+    expect(header.collision).toHaveLength(1); // deduped by SHA, not 2
     expect(header.collision[0]).toContain("codemod ate the heading");
     expect(fs.readFileSync(path.join(out, header.patch), "utf8")).toContain("<h1>b</h1>");
 
