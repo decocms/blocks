@@ -20,6 +20,7 @@ import type {
 	SiteNavigationElement,
 	UnitPriceSpecification,
 } from "@decocms/apps-commerce/types";
+import { bestInstallment } from "@decocms/apps-commerce/sdk/useOffer";
 import { DEFAULT_IMAGE } from "@decocms/apps-commerce/utils/constants";
 import { formatRange } from "@decocms/apps-commerce/utils/filters";
 import { pick } from "./pickAndOmit";
@@ -510,60 +511,47 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 };
 
 /**
- * Determines if an installment has no interest by checking if
- * billingDuration * billingIncrement ≈ total price (within 1 cent tolerance).
- */
-const isNoInterest = (spec: UnitPriceSpecification): boolean => {
-	if (spec.billingDuration == null || spec.billingIncrement == null || spec.price == null) {
-		return false;
-	}
-	return Math.abs(spec.billingDuration * spec.billingIncrement - spec.price) < 0.01;
-};
-
-/**
  * Build a lean offer for shelf display. Keeps only:
  * - ListPrice, SalePrice, SRP price types
  * - PIX installment (name?.toUpperCase() === "PIX")
- * - Best no-interest installment (highest billingDuration)
+ * - Best installment, chosen with the SAME `bestInstallment` heuristic `useOffer`
+ *   applies on PLP/PDP (lowest total price, tie-broken by highest billingDuration).
+ *   Reusing it means shelf cards and detail pages always show the same installment.
  * Drops: inventoryLevel, giftSkuIds, priceValidUntil
  */
-const buildOfferShelf = (offer: Offer): Offer => {
+export const buildOfferShelf = (offer: Offer): Offer => {
 	const leanSpecs: UnitPriceSpecification[] = [];
-
-	let bestNoInterest: UnitPriceSpecification | null = null;
+	const installmentSpecs: UnitPriceSpecification[] = [];
 
 	for (const spec of offer.priceSpecification ?? []) {
-		// Keep base price types
+		// Keep base (non-installment) price types
 		if (
-			spec.priceType === SCHEMA_LIST_PRICE ||
-			spec.priceType === SCHEMA_SALE_PRICE ||
-			spec.priceType === SCHEMA_SRP
+			(spec.priceType === SCHEMA_LIST_PRICE ||
+				spec.priceType === SCHEMA_SALE_PRICE ||
+				spec.priceType === SCHEMA_SRP) &&
+			spec.priceComponentType !== SCHEMA_INSTALLMENT
 		) {
-			if (spec.priceComponentType !== SCHEMA_INSTALLMENT) {
-				leanSpecs.push(spec);
-				continue;
-			}
+			leanSpecs.push(spec);
+			continue;
 		}
 
-		// Keep PIX installment
+		// Keep PIX installment (also feeds the bestInstallment reducer below via leanSpecs)
 		if (spec.priceComponentType === SCHEMA_INSTALLMENT && spec.name?.toUpperCase() === "PIX") {
 			leanSpecs.push(spec);
 			continue;
 		}
 
-		// Track best no-interest installment (highest billingDuration)
-		if (
-			spec.priceComponentType === SCHEMA_INSTALLMENT &&
-			isNoInterest(spec) &&
-			(bestNoInterest == null ||
-				(spec.billingDuration ?? 0) > (bestNoInterest.billingDuration ?? 0))
-		) {
-			bestNoInterest = spec;
+		if (spec.priceComponentType === SCHEMA_INSTALLMENT) {
+			installmentSpecs.push(spec);
 		}
 	}
 
-	if (bestNoInterest) {
-		leanSpecs.push(bestNoInterest);
+	// Keep the single installment useOffer would pick from the full list. PIX is kept
+	// separately above, so useOffer on the lean offer still reduces over {PIX, best}
+	// and matches the detail page's reduce over the full set.
+	const best = installmentSpecs.reduce(bestInstallment, null as UnitPriceSpecification | null);
+	if (best) {
+		leanSpecs.push(best);
 	}
 
 	return {
