@@ -1,6 +1,15 @@
 import type { AggregateOffer, UnitPriceSpecification } from "../types/commerce";
 
-const bestInstallment = (acc: UnitPriceSpecification | null, curr: UnitPriceSpecification) => {
+/**
+ * Reducer that selects the "best" installment: lowest total price, tie-broken by
+ * highest billingDuration. This is the single source of truth for installment
+ * selection — PLP/PDP use it here via `useOffer`, and the VTEX shelf transform
+ * (`buildOfferShelf`) reuses it so shelf cards and detail pages never disagree.
+ */
+export const bestInstallment = (
+	acc: UnitPriceSpecification | null,
+	curr: UnitPriceSpecification,
+) => {
 	if (curr.priceComponentType !== "https://schema.org/Installment") {
 		return acc;
 	}
