@@ -85,6 +85,28 @@ export interface SerializeOptions {
  * `renderJson === false` (for a deferred section, dropping avoids emitting a
  * lazyUrl the app would fetch for nothing).
  */
+/**
+ * Keys the section loader / mixins inject into props at request time — page
+ * context (`__pageUrl`/`__pagePath`, `runSectionLoaders`) and device
+ * (`device`/`isMobile`/`currentSearchParam`, the withDevice/withMobile/
+ * withSearchParam mixins). They are request-derived framework internals, NOT
+ * content, so they are stripped from the JSON: they would bust the ETag per
+ * request/device and leak internals the mobile app shouldn't cache. Any
+ * `__`-prefixed key is treated as internal by convention (mirrors `__section`).
+ */
+const FRAMEWORK_INJECTED_KEYS = new Set(["device", "isMobile", "currentSearchParam"]);
+
+function stripFrameworkKeys(props: Record<string, unknown>): Record<string, unknown> {
+  let out: Record<string, unknown> | null = null;
+  for (const k of Object.keys(props)) {
+    if (k.startsWith("__") || FRAMEWORK_INJECTED_KEYS.has(k)) {
+      out ??= { ...props };
+      delete out[k];
+    }
+  }
+  return out ?? props;
+}
+
 export function serializeRenderJson(
   sections: SerializableSection[],
   opts: SerializeOptions = {},
@@ -104,7 +126,8 @@ export function serializeRenderJson(
     .filter((s) => !isDropped(s.component))
     .map((section) => {
       const rj = renderJsonOf(section.component);
-      const props = typeof rj === "function" ? rj(section.props ?? {}) : section.props ?? {};
+      const projected = typeof rj === "function" ? rj(section.props ?? {}) : section.props ?? {};
+      const props = stripFrameworkKeys(projected);
       return { index: section.index, out: { component: section.component, props } as SerializedSection };
     });
 
