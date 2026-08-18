@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateCiFiles } from "./ci-yml";
 import { generateMainPushGuardYml } from "./main-push-guard-yml";
+import { generateParityYml } from "./parity-yml";
 import { generatePlaywrightFiles } from "./playwright-yml";
 import { generateReactDoctorYml } from "./react-doctor-yml";
 
@@ -25,7 +26,9 @@ describe("generateCiFiles", () => {
 
   it("blocks on generate + build, keeps cleanliness gates advisory", () => {
     // generate + build have NO continue-on-error
-    expect(ci).toMatch(/Generate artifacts[\s\S]*?run: bun run generate && bun run generate:routes/);
+    expect(ci).toMatch(
+      /Generate artifacts[\s\S]*?run: bun run generate && bun run generate:routes/,
+    );
     expect(ci).toMatch(/Build \(vite\)\n\s+run: bun run build\n/);
     // the four cleanliness gates are advisory
     for (const advisory of ["Typecheck", "Format check", "Knip", "no new suppression"]) {
@@ -104,5 +107,19 @@ describe("generateReactDoctorYml", () => {
     expect(yml).toContain("millionco/react-doctor@v2");
     expect(yml).toContain("fetch-depth: 0");
     expect(yml).not.toMatch(/^\s*blocking: error/m);
+  });
+});
+
+describe("generateParityYml", () => {
+  const yml = generateParityYml("loja-tanstack");
+  it("runs parity journey advisory, gated on PARITY_PROD_URL", () => {
+    expect(yml).toContain("name: Parity");
+    expect(yml).toContain("continue-on-error: true"); // advisory, never blocks
+    expect(yml).toContain("vars.PARITY_PROD_URL"); // prod = original storefront
+    expect(yml).toContain("bunx @decocms/parity journey");
+    expect(yml).toContain("--junit parity-results.xml");
+    expect(yml).toContain("--github");
+    expect(yml).toContain("Workers Builds: loja-tanstack"); // worker name interpolated
+    expect(yml).toContain("secrets.ANTHROPIC_API_KEY"); // optional LLM key
   });
 });
