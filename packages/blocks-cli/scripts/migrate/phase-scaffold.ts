@@ -1,38 +1,39 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MigrationContext } from "./types";
-import { log, logPhase } from "./types";
+// `lib-utils` is imported lazily — see end of phase-cleanup. Eager
+// generation of all 11 shims left every site with dead code that had
+// to be cleaned up by hand.
+import { extractTheme } from "./analyzers/theme-extractor";
+import { generateAppCss } from "./templates/app-css";
+import { generateCacheConfig } from "./templates/cache-config";
+import { generateCiFiles } from "./templates/ci-yml";
+import { generateCommerceInit } from "./templates/commerce-init";
+import { generateCommerceLoaders } from "./templates/commerce-loaders";
+import { generateMigrationPolicyPointerRule } from "./templates/cursor-rules";
+import { generateHooks } from "./templates/hooks";
+import { generateKnipConfig } from "./templates/knip-config";
+import { generateLockfileCheckYml } from "./templates/lockfile-check-yml";
+import { generateMainPushGuardYml } from "./templates/main-push-guard-yml";
 import {
   CANONICAL_BUN_VERSION,
   CANONICAL_NODE_VERSION,
   generatePackageJson,
 } from "./templates/package-json";
-import { generateLockfileCheckYml } from "./templates/lockfile-check-yml";
-import { generateTsconfig } from "./templates/tsconfig";
-import { generateViteConfig } from "./templates/vite-config";
-import { generateKnipConfig } from "./templates/knip-config";
-import { generateRoutes } from "./templates/routes";
-import { generateSetup } from "./templates/setup";
-import { generateServerEntry } from "./templates/server-entry";
-import { generateAppCss } from "./templates/app-css";
-import { generateTypeFiles } from "./templates/types-gen";
-import { generateUiComponents } from "./templates/ui-components";
-import { generateHooks } from "./templates/hooks";
-import { generateCommerceInit } from "./templates/commerce-init";
-import { generateCommerceLoaders } from "./templates/commerce-loaders";
-import { generateSectionLoaders } from "./templates/section-loaders";
-import { generateCacheConfig } from "./templates/cache-config";
-import { generateSdkFiles } from "./templates/sdk-gen";
-import { generateMigrationPolicyPointerRule } from "./templates/cursor-rules";
+import { generateParityYml } from "./templates/parity-yml";
 import { generatePerfFiles } from "./templates/perf-yml";
-import { generateCiFiles } from "./templates/ci-yml";
-import { generateMainPushGuardYml } from "./templates/main-push-guard-yml";
 import { generatePlaywrightFiles } from "./templates/playwright-yml";
 import { generateReactDoctorYml } from "./templates/react-doctor-yml";
-// `lib-utils` is imported lazily — see end of phase-cleanup. Eager
-// generation of all 11 shims left every site with dead code that had
-// to be cleaned up by hand.
-import { extractTheme } from "./analyzers/theme-extractor";
+import { generateRoutes } from "./templates/routes";
+import { generateSdkFiles } from "./templates/sdk-gen";
+import { generateSectionLoaders } from "./templates/section-loaders";
+import { generateServerEntry } from "./templates/server-entry";
+import { generateSetup } from "./templates/setup";
+import { generateTsconfig } from "./templates/tsconfig";
+import { generateTypeFiles } from "./templates/types-gen";
+import { generateUiComponents } from "./templates/ui-components";
+import { generateViteConfig } from "./templates/vite-config";
+import type { MigrationContext } from "./types";
+import { log, logPhase } from "./types";
 
 function writeFile(ctx: MigrationContext, relPath: string, content: string) {
   const fullPath = path.join(ctx.sourceDir, relPath);
@@ -78,13 +79,21 @@ export function scaffold(ctx: MigrationContext): void {
   // does NOT scaffold deploy/preview/sync-secrets workflows in the site
   // repo; the operator wires the repo<->worker connection in the CF
   // dashboard once after the first push.
-  writeFile(ctx, ".prettierrc", JSON.stringify({
-    semi: true,
-    singleQuote: false,
-    trailingComma: "all" as const,
-    printWidth: 100,
-    tabWidth: 2,
-  }, null, 2) + "\n");
+  writeFile(
+    ctx,
+    ".prettierrc",
+    JSON.stringify(
+      {
+        semi: true,
+        singleQuote: false,
+        trailingComma: "all" as const,
+        printWidth: 100,
+        tabWidth: 2,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 
   // PR-time lockfile guardrail. Lives in the site repo (per-site, not
   // a centralised reusable workflow) because per D6.3 we are not
@@ -116,6 +125,10 @@ export function scaffold(ctx: MigrationContext): void {
 
   // Advisory React lint (react-doctor): comments on PRs, never fails.
   writeFile(ctx, ".github/workflows/react-doctor.yml", generateReactDoctorYml());
+
+  // Advisory parity validation: compares each PR preview against the original
+  // live storefront (@decocms/parity). Inert until PARITY_PROD_URL is set.
+  writeFile(ctx, ".github/workflows/parity.yml", generateParityYml(ctx.siteName));
 
   // Server entry files (server.ts, worker-entry.ts, router.tsx, runtime.ts, context.ts)
   writeMultiFile(ctx, generateServerEntry(ctx));
@@ -255,18 +268,20 @@ export { type Font as SiteThemeFont };
 }
 
 function generateWranglerConfig(ctx: MigrationContext): string {
-  return JSON.stringify(
-    {
-      name: ctx.siteName,
-      main: "src/worker-entry.ts",
-      compatibility_date: "2025-05-01",
-      compatibility_flags: ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
-      cache: { enabled: true },
-      kv_namespaces: [{ binding: "SITES_KV", id: "dev-sites-kv" }],
-    },
-    null,
-    2,
-  ) + "\n";
+  return (
+    JSON.stringify(
+      {
+        name: ctx.siteName,
+        main: "src/worker-entry.ts",
+        compatibility_date: "2025-05-01",
+        compatibility_flags: ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+        cache: { enabled: true },
+        kv_namespaces: [{ binding: "SITES_KV", id: "dev-sites-kv" }],
+      },
+      null,
+      2,
+    ) + "\n"
+  );
 }
 
 function generateGitignore(): string {
@@ -580,10 +595,7 @@ ${entries.join("\n")}
 }
 
 function hasLocationMatcher(ctx: MigrationContext): boolean {
-  const dirs = [
-    path.join(ctx.sourceDir, "matchers"),
-    path.join(ctx.sourceDir, "src", "matchers"),
-  ];
+  const dirs = [path.join(ctx.sourceDir, "matchers"), path.join(ctx.sourceDir, "src", "matchers")];
   for (const dir of dirs) {
     if (fs.existsSync(dir)) {
       const files = fs.readdirSync(dir);
@@ -598,7 +610,9 @@ function hasLocationMatcher(ctx: MigrationContext): boolean {
       try {
         const content = fs.readFileSync(path.join(blocksDir, file), "utf-8");
         if (content.includes("website/matchers/location")) return true;
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     }
   }
   return false;

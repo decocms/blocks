@@ -25,6 +25,7 @@ const REQUIRED_FILES = [
   ".github/workflows/main-push-guard.yml",
   ".github/workflows/playwright.yml",
   ".github/workflows/react-doctor.yml",
+  ".github/workflows/parity.yml",
   "tools/gates/no-suppressions.sh",
   "playwright.config.ts",
   "knip.config.ts",
@@ -74,9 +75,7 @@ export const checks: Check[] = [
     name: "All scaffolded files exist",
     severity: "error",
     fn: (ctx) => {
-      const missing = REQUIRED_FILES.filter(
-        (f) => !fs.existsSync(path.join(ctx.sourceDir, f)),
-      );
+      const missing = REQUIRED_FILES.filter((f) => !fs.existsSync(path.join(ctx.sourceDir, f)));
       if (missing.length > 0) {
         console.log(`    Missing: ${missing.join(", ")}`);
         return false;
@@ -88,9 +87,7 @@ export const checks: Check[] = [
     name: "Old artifacts removed",
     severity: "error",
     fn: (ctx) => {
-      const remaining = MUST_NOT_EXIST.filter(
-        (f) => fs.existsSync(path.join(ctx.sourceDir, f)),
-      );
+      const remaining = MUST_NOT_EXIST.filter((f) => fs.existsSync(path.join(ctx.sourceDir, f)));
       if (remaining.length > 0) {
         console.log(`    Still exists: ${remaining.join(", ")}`);
         return false;
@@ -141,14 +138,16 @@ export const checks: Check[] = [
     },
   },
   {
-    name: 'No class= in JSX (should be className=)',
+    name: "No class= in JSX (should be className=)",
     severity: "warning",
     fn: (ctx) => {
       const srcDir = path.join(ctx.sourceDir, "src");
       if (!fs.existsSync(srcDir)) return true;
       const bad = findFilesWithPattern(srcDir, /<[a-zA-Z][^>]*\sclass\s*=/);
       if (bad.length > 0) {
-        console.log(`    Still has class= in JSX: ${bad.slice(0, 5).join(", ")}${bad.length > 5 ? ` (+${bad.length - 5} more)` : ""}`);
+        console.log(
+          `    Still has class= in JSX: ${bad.slice(0, 5).join(", ")}${bad.length > 5 ? ` (+${bad.length - 5} more)` : ""}`,
+        );
         return false;
       }
       return true;
@@ -163,12 +162,8 @@ export const checks: Check[] = [
         console.log("    public/ directory missing");
         return false;
       }
-      const hasSprites = fs.existsSync(
-        path.join(publicDir, "sprites.svg"),
-      );
-      const hasFavicon = fs.existsSync(
-        path.join(publicDir, "favicon.ico"),
-      );
+      const hasSprites = fs.existsSync(path.join(publicDir, "sprites.svg"));
+      const hasFavicon = fs.existsSync(path.join(publicDir, "favicon.ico"));
       if (!hasSprites) console.log("    Missing: public/sprites.svg");
       if (!hasFavicon) console.log("    Missing: public/favicon.ico");
       return hasSprites && hasFavicon;
@@ -277,7 +272,9 @@ export const checks: Check[] = [
       const bad = findFilesWithPattern(srcDir, /(?<!<(?:img|Image)[^>]*)-z-\d+/);
       if (bad.length > 0) {
         console.log(`    Negative z-index on non-image elements: ${bad.join(", ")}`);
-        console.log(`    These may be invisible due to stacking contexts. Replace with z-0 or positive z-index.`);
+        console.log(
+          `    These may be invisible due to stacking contexts. Replace with z-0 or positive z-index.`,
+        );
         return false;
       }
       return true;
@@ -324,7 +321,9 @@ export const checks: Check[] = [
         // Check that runtime.ts exists and has the invoke proxy
         const runtimePath = path.join(srcDir, "runtime.ts");
         if (!fs.existsSync(runtimePath)) {
-          console.log(`    Files use invoke.* but src/runtime.ts is missing: ${hasInvoke.join(", ")}`);
+          console.log(
+            `    Files use invoke.* but src/runtime.ts is missing: ${hasInvoke.join(", ")}`,
+          );
           return false;
         }
       }
@@ -379,7 +378,10 @@ export const checks: Check[] = [
     fn: (ctx) => {
       const srcDir = path.join(ctx.sourceDir, "src");
       if (!fs.existsSync(srcDir)) return true;
-      const bad = findFilesWithPattern(srcDir, /\bhx-(?:get|post|put|delete|patch|trigger|target|swap|on|indicator|sync|select)\b/);
+      const bad = findFilesWithPattern(
+        srcDir,
+        /\bhx-(?:get|post|put|delete|patch|trigger|target|swap|on|indicator|sync|select)\b/,
+      );
       if (bad.length > 0) {
         console.log(`    HTMX attributes found (needs manual React migration): ${bad.join(", ")}`);
         return false;
@@ -433,7 +435,9 @@ export const checks: Check[] = [
       ];
       const unique = [...new Set(bad)];
       if (unique.length > 0) {
-        console.log(`    Still references frozen @decocms/start or @decocms/apps/* specifiers: ${unique.join(", ")}`);
+        console.log(
+          `    Still references frozen @decocms/start or @decocms/apps/* specifiers: ${unique.join(", ")}`,
+        );
         return false;
       }
       return true;
@@ -450,9 +454,7 @@ export const checks: Check[] = [
         "src/setup/commerce-init.ts",
         "src/setup/section-loaders.ts",
       ];
-      const missing = setupFiles.filter(
-        (f) => !fs.existsSync(path.join(ctx.sourceDir, f)),
-      );
+      const missing = setupFiles.filter((f) => !fs.existsSync(path.join(ctx.sourceDir, f)));
       if (missing.length > 0) {
         console.log(`    Missing setup infrastructure: ${missing.join(", ")}`);
         return false;
@@ -468,9 +470,13 @@ export const checks: Check[] = [
       if (fs.existsSync(islandsDir)) {
         try {
           const files = fs.readdirSync(islandsDir, { recursive: true });
-          const tsxFiles = (files as string[]).filter((f: string) => f.endsWith(".tsx") || f.endsWith(".ts"));
+          const tsxFiles = (files as string[]).filter(
+            (f: string) => f.endsWith(".tsx") || f.endsWith(".ts"),
+          );
           if (tsxFiles.length > 0) {
-            console.log(`    src/islands/ still has ${tsxFiles.length} files — should be moved to components/`);
+            console.log(
+              `    src/islands/ still has ${tsxFiles.length} files — should be moved to components/`,
+            );
             return false;
           }
         } catch {}
@@ -487,9 +493,7 @@ export const checks: Check[] = [
         "src/hooks/useUser.ts",
         "src/hooks/useWishlist.ts",
       ];
-      const missing = hookFiles.filter(
-        (f) => !fs.existsSync(path.join(ctx.sourceDir, f)),
-      );
+      const missing = hookFiles.filter((f) => !fs.existsSync(path.join(ctx.sourceDir, f)));
       if (missing.length > 0) {
         console.log(`    Missing hooks: ${missing.join(", ")}`);
         return false;
@@ -507,9 +511,7 @@ export const checks: Check[] = [
         "src/types/deco.ts",
         "src/types/commerce-app.ts",
       ];
-      const missing = typeFiles.filter(
-        (f) => !fs.existsSync(path.join(ctx.sourceDir, f)),
-      );
+      const missing = typeFiles.filter((f) => !fs.existsSync(path.join(ctx.sourceDir, f)));
       if (missing.length > 0) {
         console.log(`    Missing type files: ${missing.join(", ")}`);
         return false;
@@ -530,7 +532,8 @@ function findFilesWithPattern(
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "server") continue;
+      if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "server")
+        continue;
       findFilesWithPattern(fullPath, pattern, results, root);
     } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
       const content = fs.readFileSync(fullPath, "utf-8");
@@ -563,7 +566,8 @@ function findMatchesWithPattern(
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "server") continue;
+      if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "server")
+        continue;
       findMatchesWithPattern(fullPath, pattern, results, root);
     } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
       const content = fs.readFileSync(fullPath, "utf-8");
@@ -591,7 +595,11 @@ export function verify(ctx: MigrationContext): boolean {
 
   for (const check of checks) {
     const pass = check.fn(ctx);
-    const icon = pass ? "\x1b[32m✓\x1b[0m" : check.severity === "error" ? "\x1b[31m✗\x1b[0m" : "\x1b[33m⚠\x1b[0m";
+    const icon = pass
+      ? "\x1b[32m✓\x1b[0m"
+      : check.severity === "error"
+        ? "\x1b[31m✗\x1b[0m"
+        : "\x1b[33m⚠\x1b[0m";
     console.log(`  ${icon} ${check.name}`);
     if (!pass) {
       if (check.severity === "error") errors++;
