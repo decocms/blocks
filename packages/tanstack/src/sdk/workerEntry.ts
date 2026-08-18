@@ -245,13 +245,13 @@ export interface DecoWorkerEntryOptions {
   asJson?: boolean;
 
   /**
-   * Cross-origin origins allowed to read the `?renderJson` response. CORS only
-   * matters for browser clients on another origin — a native app needs none.
-   *   - unset (default) → no CORS headers (same-origin + native apps only).
-   *   - `string[]`      → reflect a matching request Origin, with credentials.
-   *   - `"*"`           → allow any origin (without credentials, per the spec).
+   * Cross-origin access to the `?renderJson` response. It is public page data
+   * (secrets + request-derived keys are stripped), so it defaults to open.
+   *   - unset (default) / `"*"` → any origin, without credentials (public API).
+   *   - `string[]`              → reflect a matching request Origin, *with* credentials.
+   *   - `false`                 → no CORS headers (same-origin + native apps only).
    */
-  pageJsonCors?: string[] | "*";
+  pageJsonCors?: string[] | "*" | false;
 
   /**
    * Build a full segment key from the incoming request.
@@ -885,25 +885,27 @@ let _redirectMapRevision: string | null = null;
 
 /**
  * CORS headers for the `?renderJson` response, from
- * {@link DecoWorkerEntryOptions.pageJsonCors}. Off by default (native apps need
- * no CORS); a list reflects an allow-listed request Origin with credentials;
- * `"*"` allows any origin without credentials (per the CORS spec).
+ * {@link DecoWorkerEntryOptions.pageJsonCors}. `?renderJson` is public page data
+ * (secrets + request-derived keys are stripped), so the default is `"*"` — any
+ * origin, no credentials (the standard public-API CORS). `false` turns it off;
+ * a list reflects an allow-listed request Origin *with* credentials.
  */
 function pageJsonCorsHeaders(
   request: Request,
-  cors: string[] | "*" | undefined,
+  cors: string[] | "*" | false | undefined,
 ): Record<string, string> {
-  if (!cors) return {};
+  if (cors === false) return {}; // explicitly disabled
+  const effective = cors ?? "*"; // default: any origin (no credentials)
   const base = {
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, If-None-Match, Authorization",
     "Access-Control-Expose-Headers": "ETag",
   };
-  if (cors === "*") {
+  if (effective === "*") {
     return { ...base, "Access-Control-Allow-Origin": "*" };
   }
   const origin = request.headers.get("origin");
-  if (origin && cors.includes(origin)) {
+  if (origin && effective.includes(origin)) {
     return {
       ...base,
       "Access-Control-Allow-Origin": origin,
