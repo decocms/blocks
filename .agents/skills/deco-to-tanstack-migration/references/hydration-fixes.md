@@ -603,3 +603,163 @@ rg "useDevice" src/sections/ src/components/header/ src/components/footer/ --glo
 ```
 
 Any result in a component that's always-eager and renders different element types/counts based on `isMobile` needs one of the fix patterns above.
+
+---
+
+## #55 `DeferredSectionWrapper`'s skeleton→resolved transition is a React element-type change — forces a full unmount/remount, non-deterministic CLS
+
+**Severity**: BLOCKER — visible, non-deterministic layout shift (CLS measured 0 to 1.34 across identical loads of the same build) on any section using the documented `LoadingFallback = same component with reduced props` convention.
+
+**Status**: fixed upstream, **[decocms/blocks#448](https://github.com/decocms/blocks/pull/448)** (open at time of writing) — kept here as a numbered gotcha because the framework patch alone does **not** fully close this class; see the caveat below.
+
+`DecoPageRenderer.tsx`'s `DeferredSectionWrapper` returns the unresolved skeleton bare (`{skeleton}`), while every resolved branch wraps its content in `<SectionErrorBoundary>`. That's a React element-type change at the same fiber position across the skeleton→resolved transition, so React unmounts the skeleton subtree and mounts a fresh instance — even when the section's `LoadingFallback` renders the real component with reduced/empty props (a documented convention where the "skeleton" already has correct real markup/dimensions). Confirmed via a React mount/unmount trace correlated 1:1 with the Layout Instability API entry's timestamp, not just geometry — the shift is an unmount, not a resize (`currentRect: {0,0,0,0}`).
+
+**Fix (framework, PR #448)**: wrap the unresolved skeleton branch in the same `SectionErrorBoundary` the resolved branches already use, so the wrapper shape stays identical across the transition and React can diff by type.
+
+**Caveat — the framework fix alone is not sufficient**: when a *second*, independently-timed deferred section on the same page (e.g. a different Lazy-wrapped section racing its own `IntersectionObserver`) also remounts, it can still shift the page around an otherwise-stable section. With PR #448's patch installed and active, a farmrio page still regressed from CLS 0.0002 → 0.95 after a routine content refresh re-wrapped a *different* section in `Rendering/Lazy.tsx` (see the companion content-level fix below). Treat the framework patch and the content-level `Lazy.tsx`-unwrap workaround as complementary, not redundant, until proven otherwise.
+
+**Discovery command**:
+```bash
+rg "DeferredSectionWrapper" node_modules/@decocms/tanstack/src
+rg "Rendering/Lazy.tsx" .deco/blocks.gen.json  # count of sections still deferred
+```
+
+**Empirical evidence (farmrio-storefront, before/after CLS)**:
+- Before fix: non-deterministic **0 to 1.34** across identical runs of the same build (Footer + `EtcSearchContainer` independently-timed `IntersectionObserver` race).
+- Partial mitigation attempted first (unwrapping only the Footer's `Lazy.tsx`, without the framework fix) made it *worse*: **1.34** (two compounding shift events).
+- Content-level per-page unwrap of every `Lazy.tsx` node on the 3 affected pages (see reference doc below): **0.0000–0.0009**, 10/10 clean.
+- Framework fix (#448) verified against a real deployed Worker: 5/5 runs at **~0.0002** — until a content refresh re-wrapped a different section and CLS regressed to **0.95** even with the patch active; re-applying the content-level unwrap brought it back to **0.0045**.
+
+See `migration/learnings/T64.md`, `T66.md`, `T70.md` for the full investigation chain.
+
+### Reference: content-refresh-safe `Lazy.tsx` unwrap (companion to #55)
+
+A full-tree `.deco/blocks` content mirror pull (the standard CMS content-refresh method) has no way to know a specific page was deliberately exempted from deferred rendering — it silently re-wraps sections in `Rendering/Lazy.tsx` on every pull, undoing a prior CLS fix. The durable fix is a `postgenerate` script, chained into `package.json`'s `generate` step, that recursively unwraps `Rendering/Lazy.tsx` nodes **only** within a maintained list of page paths (matched by the block's `path` field, not filename — on-disk filenames are inconsistently URL-encoded):
+
+```typescript
+const LAZY_RESOLVE_TYPE = "website/sections/Rendering/Lazy.tsx";
+const TARGET_PATHS = new Set([
+  "/farm-etc/alto-verao",
+  "/sustentabilidade/cultura",
+  "/produtos/acessorios/garrafas-e-copos",
+]);
+
+function unwrap(value: unknown, seen: Set<object>): [unknown, number] {
+  if (!value || typeof value !== "object") return [value, 0];
+  if (seen.has(value as object)) return [value, 0];
+  seen.add(value as object);
+  if (Array.isArray(value)) {
+    let count = 0;
+    const result = value.map((item) => {
+      const [next, c] = unwrap(item, seen);
+      count += c;
+      return next;
+    });
+    return [result, count];
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.__resolveType === LAZY_RESOLVE_TYPE && "section" in obj) {
+    const [unwrapped, c] = unwrap(obj.section, seen);
+    return [unwrapped, c + 1];
+  }
+  let count = 0;
+  for (const key of Object.keys(obj)) {
+    const [next, c] = unwrap(obj[key], seen);
+    obj[key] = next;
+    count += c;
+  }
+  return [obj, count];
+}
+```
+
+Deliberately scoped to a specific page list, not sitewide — `Lazy.tsx` is the intentional deferred-loading mechanism on the rest of the site (~2300 other wrapped nodes on farmrio) and stripping it everywhere would be an unauthorized, large behavior change. Full source: `migration/scripts/fix-relazy-wrappers.ts` in farmrio-storefront (`migration/learnings/T70.md`).
+
+**Proposed audit rule** (`packages/blocks-cli`): "any page previously content-patched to remove `Lazy.tsx` wrappers must have 0 such wrappers after `generate`" — encode the same check this script performs as a `deco-post-cleanup --strict` rule, keyed off a small manifest file instead of a hardcoded path list.
+
+---
+
+## #56 `LoadingFallback` exported as a wrapper *function* around the real component defeats React reconciliation, even after #55's framework fix
+
+**Severity**: MEDIUM, but a hard blocker for #55's fix to actually work on a given section.
+
+`export function LoadingFallback(props) { return <Real {...props} />; }` looks equivalent to an alias but isn't, at the React fiber-type level — the wrapper function and the real component are different types occupying the same position, so a resolved transition still forces a remount even with `SectionErrorBoundary` correctly wrapping both branches (#55).
+
+**Fix**:
+```tsx
+// Before — different type than the resolved branch's <Real>, still remounts
+export function LoadingFallback(props) {
+  return <Real {...props} />;
+}
+
+// After — literal alias, same type across the transition
+export const LoadingFallback = Real;
+```
+
+**Discovery command**:
+```bash
+rg "export function LoadingFallback\(" src/sections
+```
+
+**Empirical evidence (farmrio-storefront)**: required in combination with #55's framework patch for `Footer.tsx` to actually stop remounting; two further instances found by the same grep but not yet verified (`ETCImageContent.tsx`, `ETCBannerContentText.tsx`). See `migration/learnings/T64.md`.
+
+**Proposed codemod** (`packages/blocks-cli`): detect the `export function LoadingFallback(props) { return <X {...props} />; }` shape and rewrite to `export const LoadingFallback = X;` wherever `X`'s prop type is a superset of the wrapper's own prop type.
+
+---
+
+## #57 A native `addEventListener` + `stopPropagation()` anywhere on the page silently kills every React `onClick` past that point in the load sequence
+
+**Severity**: BLOCKER — every `onClick`/`onMouseEnter` etc. on any element the native listener's ancestor scope reaches stops firing, with zero console error.
+
+React attaches one delegated listener at the document/root level; a native `click` listener attached directly to a target element fires *before* the event bubbles to React's delegated listener. Calling `e.stopPropagation()` inside that native listener prevents React's root listener from ever seeing the event — killing every React click handler on that element (or, if attached broadly via `querySelectorAll(...).forEach(el => el.addEventListener(...))`, on every matched element) from that point on. This is easy to introduce when porting an analytics/tracking snippet that attaches per-node native listeners to tagged elements (e.g. `[data-event]`).
+
+**Fix**: use event delegation instead of per-node native listeners, and drop `stopPropagation()`:
+```tsx
+// Before — kills React's onClick on every [data-event] element once window "load" fires
+window.addEventListener("load", () => {
+  document.querySelectorAll("[data-event]").forEach((node) => {
+    node.addEventListener("click", (e) => {
+      e.stopPropagation();
+      sendDomEvent(node);
+    });
+  });
+});
+
+// After — single delegated listener, no stopPropagation, closest-ancestor semantics preserved
+document.body.addEventListener("click", (e) => {
+  const el = (e.target as Element).closest("[data-event][data-event-trigger='click']");
+  if (el) sendDomEvent(el);
+});
+```
+
+**Discovery command**:
+```bash
+rg "addEventListener\(.?click.?" -g'*.tsx' -A3   # then check for stopPropagation in the same handler
+rg "querySelectorAll\(.\[data-event\]" -g'*.tsx'
+```
+
+**Empirical evidence (farmrio-storefront)**: broke the header search trigger and the login trigger site-wide; 12-run headless Playwright repro, 0/12 toggled pre-fix, 12/12 post-fix, across 3 independent verification batches (36/36 total). See `migration/learnings/T33.md`, `T34.md`.
+
+---
+
+## #58 Controlled `checked={...}` with no matching `onChange` never responds to a real click — recurring across independent ports
+
+**Severity**: MEDIUM, but user-facing and non-obvious: DOM devtools shows `checked` flipping on click (native browser behavior), while the actual UI never updates.
+
+A native, uncontrolled `<input type="radio"/"checkbox">` ported to React as `checked={someExpression}` with no `onChange` becomes React-controlled — React reasserts `someExpression`'s value on every render, so a click never actually flips application state even though the DOM's own `checked` attribute may appear to toggle transiently. React additionally warns in the console ("you provided a `checked` prop to a form field without an `onChange` handler") — easy to miss if console warnings aren't being watched.
+
+**Fix**: back the input with real state:
+```tsx
+// Before — frozen; checked is reasserted to the same value every render
+<input type="radio" checked={isSingleVariant} />
+
+// After
+const [selected, setSelected] = useState(isSingleVariant ? defaultValue : null);
+<input type="radio" checked={selected === value} onChange={() => setSelected(value)} />
+```
+
+**Discovery command**:
+```bash
+rg -l "checked=\{" src/components src/sections | xargs rg -L "onChange"
+```
+
+**Empirical evidence (farmrio-storefront)**: found and fixed independently 3 separate times across different files during one migration (`ButtonFastBuy.tsx` PLP/shelf quick-add, T46; `EtcOutOfStockForm.tsx`, T51; `Modal.tsx`'s checkbox reveal, flagged but unfixed, T54) — each grep pass that found one instance did not surface the others, since the exact expression and element differed each time.

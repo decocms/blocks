@@ -13,6 +13,12 @@ This file is an index. Each topic has its own focused file.
 | [admin-cms.md](admin-cms.md) | Admin routes, schema, device context | #16, #18, #23, #26, #29 |
 | [vtex-commerce.md](vtex-commerce.md) | Section loader composition (`withSectionLoader`) | #50 |
 | [admin-cms.md](admin-cms.md) | Codegen output path change (`src/server/cms/` → `.deco/`) | #51 |
+| [async-rendering.md](async-rendering.md) | Dead 3-arg `ctx` section loaders, registration-key mismatch, `typeof Component === "function"`, no response-mutation sink | #52–54, #73 |
+| [hydration-fixes.md](hydration-fixes.md) | `DeferredSectionWrapper` remount/CLS, `LoadingFallback` aliasing, native listener kills React events, controlled input missing `onChange` | #55–58 |
+| [vtex-commerce.md](vtex-commerce.md) | Multivariate-flag resolveType hardcoding, redirect self-loop, raw URL-param injection, missing `similars`, oversized hydration payload, `publicUrl` protocol mismatch | #59–64 |
+| [css-styling.md](css-styling.md) | DaisyUI theme slot mismapping, v5 dark-theme auto-bundling, CLS aspect-ratio fallback cropping wide banners | #65–67 |
+| [worker-cloudflare.md](worker-cloudflare.md) | CF Static Assets cache-control bypass, device-segmented cache poisoning, cacheable-section request-context gap, client-bundle secret leak | #68–71 |
+| [storefront-patterns.md](storefront-patterns.md) | Sitemap not auto-wired | #72 |
 
 ## #50 Quick Reference — Section Loader Composition
 

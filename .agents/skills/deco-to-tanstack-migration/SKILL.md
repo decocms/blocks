@@ -382,6 +382,7 @@ For sites with 100+ sections:
 | VTEX commerce gotchas | `references/vtex-commerce.md` |
 | Worker / Cloudflare / build | `references/worker-cloudflare.md` |
 | CSS / Tailwind / DaisyUI | `references/css-styling.md` |
+| Staging learnings for an epic-scale migration (index-per-target-file, from day one) | `references/migration-learnings-staging.md` |
 | setup.ts template | `templates/setup-ts.md` |
 | vite.config.ts template | `templates/vite-config.md` |
 | worker-entry template | `templates/worker-entry.md` |
