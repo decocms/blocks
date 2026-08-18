@@ -49,3 +49,22 @@ describe("VTEX invoke scaffold wires vtex.loaders + wishlist actions (#368)", ()
     expect(invokeSrc).toContain("parseVtexAuthJwt");
   });
 });
+
+describe("scaffolds ?renderJson / ?asJson OFF by default (opt-in)", () => {
+  const workerKey = "src/worker-entry.ts";
+
+  it("VTEX worker-entry disables both page-as-JSON endpoints", () => {
+    const worker = generateServerEntry(makeVtexCtx())[workerKey];
+    expect(worker).toContain("renderJson: false");
+    expect(worker).toContain("asJson: false");
+  });
+
+  it("non-VTEX worker-entry disables both too", () => {
+    const ctx = createContext("/tmp/custom-scaffold-fixture-site");
+    ctx.siteName = "acme-custom";
+    ctx.platform = "custom";
+    const worker = generateServerEntry(ctx)[workerKey];
+    expect(worker).toContain("renderJson: false");
+    expect(worker).toContain("asJson: false");
+  });
+});

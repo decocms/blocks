@@ -86,6 +86,11 @@ ${isCommerce ? `
 const serverEntry = createServerEntry({ fetch: handler.fetch });
 
 const decoWorker = createDecoWorkerEntry(serverEntry, {
+  // Page-as-JSON endpoints are OFF by default — opt in when you build a mobile
+  // app that consumes the storefront (see the renderJson docs). ?asJson is the
+  // legacy raw path; ?renderJson is the lean per-section one.
+  renderJson: false,
+  asJson: false,
   admin: {
     handleMeta,
     handleDecofileRead,
@@ -161,6 +166,11 @@ const serverEntry = createServerEntry({ fetch: handler.fetch });
 const MOBILE_RE = /mobile|android|iphone/i;
 
 const decoWorker = createDecoWorkerEntry(serverEntry, {
+  // Page-as-JSON endpoints are OFF by default — opt in when you build a mobile
+  // app that consumes the storefront (see the renderJson docs). ?asJson is the
+  // legacy raw path; ?renderJson is the lean per-section one.
+  renderJson: false,
+  asJson: false,
   csp: CSP_DIRECTIVES,
   buildSegment: (request) => {
     const vtx = extractVtexContext(request);
