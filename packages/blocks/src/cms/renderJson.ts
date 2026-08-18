@@ -147,3 +147,33 @@ export function serializeRenderJson(
   // Interleave eager + lazy by their position in the page's flat section list.
   return [...eager, ...lazy].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).map((e) => e.out);
 }
+
+/**
+ * A resolved Deco `Secret` is `{ get: () => string | null }` (apps-website
+ * `loaders/secret.ts`) — the plaintext lives behind a function, so JSON.stringify
+ * already drops it to `{}`. An unresolved secret block is `{ __resolveType:
+ * ".../secret.ts", encrypted, ... }`. Neither has any place in a page-as-JSON
+ * payload, so we remove the whole field. Matches by shape, so no content field
+ * is caught by accident.
+ *
+ * Limitation: a *plaintext* secret a loader extracted into a string prop (the
+ * deprecated `SecretString` or a manual `secret.get()`) is indistinguishable from
+ * content — keep secrets as `Secret`, never resolve them into a serialized prop.
+ */
+export function isSecretValue(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const o = value as Record<string, unknown>;
+  // Resolved Secret: an object whose only own key is a `get` function.
+  if (typeof o.get === "function" && Object.keys(o).length === 1) return true;
+  // Unresolved secret block (defensive — resolved props usually drop __resolveType).
+  const rt = o.__resolveType;
+  return typeof rt === "string" && /secret/i.test(rt);
+}
+
+/**
+ * `JSON.stringify` that drops any Secret-shaped value ({@link isSecretValue})
+ * anywhere in the tree. Used for both `?renderJson` and `?asJson` bodies.
+ */
+export function stringifyWithoutSecrets(value: unknown): string {
+  return JSON.stringify(value, (_key, v) => (isSecretValue(v) ? undefined : v));
+}
