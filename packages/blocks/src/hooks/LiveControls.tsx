@@ -86,8 +86,9 @@ function LiveControlsScript() {
       });
 
       if (window.self === window.top) {
-        document.body.addEventListener("keydown", function(e) {
-          if (e.target !== document.body) return;
+        document.addEventListener("keydown", function(e) {
+          var t = e.target;
+          if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
           if (e.defaultPrevented) return;
 
           if (
