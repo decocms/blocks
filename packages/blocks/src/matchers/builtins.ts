@@ -115,10 +115,96 @@ function isSafePattern(pattern: string): boolean {
   return true;
 }
 
+// --- Route-template matching (CMS `type: "Template"`) --------------------
+//
+// The CMS emits route syntax (`/:slug/p`, `/*/p`) under `type: "Template"`.
+// Before this was handled, `Template` fell through to the `Includes` default
+// and tested `path.includes("/:slug/p")` — never true, so every PDP-scoped
+// variant silently lost to its fallback.
+//
+// `URLPattern` is native in workerd and Node >= 23. Older Node (the
+// @decocms/nextjs target) has no global, so we compile an equivalent regex
+// rather than returning false and reintroducing the same silent miss.
+//
+// Compilation is cached: the pattern set per site is tiny and bounded, but
+// recompiling per request measured ~6% of CPU on farmrio.
+
+const PATTERN_CACHE_MAX = 100;
+type PathTest = (path: string) => boolean;
+
+/** Compiled-pattern LRU. A `null` value memoizes "this pattern is invalid". */
+const patternCache = new Map<string, PathTest | null>();
+
+interface URLPatternLike {
+  test(input: { pathname: string }): boolean;
+}
+type URLPatternCtorLike = new (init: { pathname: string }) => URLPatternLike;
+
+function compileRouteTemplate(pattern: string): PathTest | null {
+  if (!isSafePattern(pattern)) return null;
+
+  const URLPatternCtor = (globalThis as { URLPattern?: URLPatternCtorLike }).URLPattern;
+  if (URLPatternCtor) {
+    try {
+      const compiled = new URLPatternCtor({ pathname: pattern });
+      return (path: string) => {
+        try {
+          return compiled.test({ pathname: path });
+        } catch {
+          return false;
+        }
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Fallback: `:param` -> one path segment, `*` -> anything, everything else
+  // literal. Covers the route syntax the CMS actually emits; modifiers
+  // (`:p?`, `{...}` groups) are not supported here.
+  try {
+    let source = "";
+    for (const part of pattern.split(/(:[A-Za-z0-9_]+|\*)/)) {
+      if (!part) continue;
+      if (part === "*") source += ".*";
+      else if (part.startsWith(":")) source += "[^/]+";
+      else source += part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+    const regex = new RegExp(`^${source}$`);
+    return (path: string) => regex.test(path);
+  } catch {
+    return null;
+  }
+}
+
+function getRouteTemplateTest(pattern: string): PathTest | null {
+  const cached = patternCache.get(pattern);
+  if (cached !== undefined) {
+    // Touch for LRU recency.
+    patternCache.delete(pattern);
+    patternCache.set(pattern, cached);
+    return cached;
+  }
+
+  const compiled = compileRouteTemplate(pattern);
+  if (patternCache.size >= PATTERN_CACHE_MAX) {
+    const oldest = patternCache.keys().next().value;
+    if (oldest !== undefined) patternCache.delete(oldest);
+  }
+  patternCache.set(pattern, compiled);
+  return compiled;
+}
+
+/** @internal test-only */
+export function __resetPathnamePatternCache(): void {
+  patternCache.clear();
+}
+
 function pathnameMatcher(rule: Record<string, unknown>, ctx: MatcherContext): boolean {
   const path = ctx.path ?? "";
 
-  // CMS "case" format: { type: "Includes" | "Equals" | "Not Includes" | "Starts With", pathname: "/..." }
+  // CMS "case" format:
+  // { type: "Includes" | "Equals" | "Not Includes" | "Starts With" | "Template", pathname: "/..." }
   const caseObj = rule.case as { type?: string; pathname?: string } | undefined;
   if (caseObj?.pathname) {
     switch (caseObj.type) {
@@ -128,6 +214,10 @@ function pathnameMatcher(rule: Record<string, unknown>, ctx: MatcherContext): bo
         return !path.includes(caseObj.pathname);
       case "Starts With":
         return path.startsWith(caseObj.pathname);
+      case "Template": {
+        const test = getRouteTemplateTest(caseObj.pathname);
+        return test ? test(path) : false;
+      }
       case "Includes":
       default:
         return path.includes(caseObj.pathname);
@@ -186,25 +276,93 @@ function pathnameMatcher(rule: Record<string, unknown>, ctx: MatcherContext): bo
 // Query string matcher
 // -------------------------------------------------------------------------
 
+interface QueryCase {
+  type?: string;
+  value?: string;
+}
+
+interface QueryCondition {
+  param: string;
+  case: QueryCase;
+}
+
+/**
+ * The CMS emits `{ conditions: [{ param: "brand", case: { type: "Equals",
+ * value: "farmetc" } }] }` — the param name sits *beside* `case` and the
+ * value *inside* it. The flat `{ key, value }` shape is the older hand-written
+ * form and is still accepted.
+ *
+ * Reading only the flat shape meant `key` was always `undefined` for
+ * CMS-authored rules, so the matcher returned false unconditionally.
+ */
+function normalizeQueryConditions(rule: Record<string, unknown>): QueryCondition[] {
+  const raw = rule.conditions;
+  if (Array.isArray(raw)) {
+    const out: QueryCondition[] = [];
+    for (const entry of raw as Array<Record<string, unknown>>) {
+      if (!entry) continue;
+      const param = (entry.param ?? entry.key) as string | undefined;
+      if (!param) continue;
+      const caseObj = entry.case as QueryCase | undefined;
+      out.push({
+        param,
+        case: caseObj ?? { type: "Equals", value: entry.value as string | undefined },
+      });
+    }
+    return out;
+  }
+
+  const param = (rule.key ?? rule.param) as string | undefined;
+  if (!param) return [];
+  const caseObj = rule.case as QueryCase | undefined;
+  return [{ param, case: caseObj ?? { type: "Equals", value: rule.value as string | undefined } }];
+}
+
+/**
+ * Evaluate one condition against the request's query string.
+ *
+ * A repeated param (`?a=1&a=2`) satisfies a positive condition when *any*
+ * value matches, and a negated one when *no* value matches — which also makes
+ * an absent param satisfy "Not Equals" / "Not Includes".
+ */
+function matchQueryCondition(params: URLSearchParams, condition: QueryCondition): boolean {
+  const { param } = condition;
+  const { type, value } = condition.case;
+  const values = params.getAll(param);
+
+  switch (type) {
+    case "Not Equals":
+      return !values.some((v) => v === value);
+    case "Not Includes":
+      return !values.some((v) => v.includes(value ?? ""));
+    case "Includes":
+      return values.some((v) => v.includes(value ?? ""));
+    case "Equals":
+    default:
+      // No value configured — presence check (pre-existing behavior).
+      if (value === undefined) return values.length > 0;
+      return values.some((v) => v === value);
+  }
+}
+
 function queryStringMatcher(rule: Record<string, unknown>, ctx: MatcherContext): boolean {
-  const key = (rule.key ?? rule.param) as string | undefined;
-  const value = rule.value as string | undefined;
-
-  if (!key) return false;
-
   const currentUrl = ctx.url;
   if (!currentUrl) return false;
 
+  let params: URLSearchParams;
   try {
-    const url = new URL(currentUrl);
-    const paramValue = url.searchParams.get(key);
-
-    if (paramValue === null) return false;
-    if (value === undefined) return true;
-    return paramValue === value;
+    // Base makes a path-relative ctx.url (some bindings pass one) parse
+    // instead of throwing straight to `false`.
+    params = new URL(currentUrl, "http://localhost").searchParams;
   } catch {
     return false;
   }
+
+  const conditions = normalizeQueryConditions(rule);
+  if (conditions.length === 0) return false;
+
+  // Every condition must hold — the CMS renders `conditions[]` as an AND.
+  return conditions.every((condition) => matchQueryCondition(params, condition));
 }
 
 // -------------------------------------------------------------------------
@@ -440,20 +598,25 @@ function negateMatcher(rule: Record<string, unknown>, ctx: MatcherContext): bool
 /**
  * Register all built-in matchers with the CMS resolver.
  *
- * Call once during app setup (in setup.ts or similar).
- * These cover the matchers from deco-cx/apps that weren't
- * handled inline in resolve.ts.
+ * Called for you by `createSiteSetup()`. Every registration here is marked
+ * `builtin`, which means **it never overwrites a matcher a site registered
+ * for the same key** — a site's `registerMatcher("website/matchers/host.ts",
+ * mine)` wins whether it runs before or after `createSiteSetup()`. Previously
+ * this function overwrote unconditionally, so whether an override survived
+ * depended on module evaluation order in the bundle: it could work in
+ * `vite dev` and be lost in the production build of the same site.
  */
 export function registerBuiltinMatchers(): void {
-  registerMatcher("website/matchers/cookie.ts", cookieMatcher);
-  registerMatcher("website/matchers/cron.ts", cronMatcher);
-  registerMatcher("website/matchers/date.ts", dateMatcher);
-  registerMatcher("website/matchers/host.ts", hostMatcher);
-  registerMatcher("website/matchers/pathname.ts", pathnameMatcher);
-  registerMatcher("website/matchers/queryString.ts", queryStringMatcher);
-  registerMatcher("website/matchers/location.ts", locationMatcher);
-  registerMatcher("website/matchers/userAgent.ts", userAgentMatcher);
-  registerMatcher("website/matchers/environment.ts", environmentMatcher);
-  registerMatcher("website/matchers/multi.ts", multiMatcher);
-  registerMatcher("website/matchers/negate.ts", negateMatcher);
+  const builtin = { builtin: true } as const;
+  registerMatcher("website/matchers/cookie.ts", cookieMatcher, builtin);
+  registerMatcher("website/matchers/cron.ts", cronMatcher, builtin);
+  registerMatcher("website/matchers/date.ts", dateMatcher, builtin);
+  registerMatcher("website/matchers/host.ts", hostMatcher, builtin);
+  registerMatcher("website/matchers/pathname.ts", pathnameMatcher, builtin);
+  registerMatcher("website/matchers/queryString.ts", queryStringMatcher, builtin);
+  registerMatcher("website/matchers/location.ts", locationMatcher, builtin);
+  registerMatcher("website/matchers/userAgent.ts", userAgentMatcher, builtin);
+  registerMatcher("website/matchers/environment.ts", environmentMatcher, builtin);
+  registerMatcher("website/matchers/multi.ts", multiMatcher, builtin);
+  registerMatcher("website/matchers/negate.ts", negateMatcher, builtin);
 }

@@ -64,6 +64,7 @@ export {
   canonicalUrl,
   cleanPathForCacheKey,
   hasTrackingParams,
+  isTrackingParam,
   registerTrackingParam,
   registerTrackingParams,
   stripTrackingParams,

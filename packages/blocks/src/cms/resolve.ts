@@ -545,11 +545,61 @@ const customMatchers: Record<
   (rule: Record<string, unknown>, ctx: MatcherContext) => boolean
 > = G.__deco.customMatchers;
 
+/**
+ * Keys whose current implementation is framework-owned (registered by the
+ * built-in registration paths). A key present in {@link customMatchers} but
+ * absent here was registered by a *site* and must never be clobbered by a
+ * later builtin registration.
+ *
+ * This is what makes the override contract order-independent, and therefore
+ * identical in `vite dev` and in a production build — see
+ * {@link registerMatcher}.
+ */
+const builtinMatcherKeys: Set<string> = (G.__deco.builtinMatcherKeys ??= new Set<string>());
+
+export interface RegisterMatcherOptions {
+  /**
+   * @internal Framework-owned registration. Yields to a site override that is
+   * already registered for this key; overwrites another builtin. Sites must
+   * never pass this.
+   */
+  builtin?: boolean;
+}
+
+/**
+ * Register a matcher implementation for a `__resolveType`.
+ *
+ * **This is the extension point for site-defined matchers, and site
+ * registrations always win.** A plain `registerMatcher(key, fn)` call takes
+ * precedence over every built-in for that key, whether it runs *before* or
+ * *after* `createSiteSetup()` / `registerBuiltinMatchers()` — module
+ * evaluation order in the bundle does not change the outcome. The last site
+ * registration for a key wins over earlier site registrations.
+ */
 export function registerMatcher(
   key: string,
   fn: (rule: Record<string, unknown>, ctx: MatcherContext) => boolean,
+  options?: RegisterMatcherOptions,
 ) {
+  if (options?.builtin) {
+    // A site already claimed this key — keep the site's implementation.
+    if (customMatchers[key] && !builtinMatcherKeys.has(key)) return;
+    builtinMatcherKeys.add(key);
+  } else {
+    builtinMatcherKeys.delete(key);
+  }
   customMatchers[key] = fn;
+}
+
+/**
+ * Remove the matcher registered for a key. No-op if absent.
+ *
+ * After this, the next builtin registration for the key is free to claim it
+ * again — use it to drop a site override without restarting the process.
+ */
+export function unregisterMatcher(key: string): void {
+  delete customMatchers[key];
+  builtinMatcherKeys.delete(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -591,10 +641,8 @@ if (!G.__deco._builtinMatchersRegistered) {
   };
 
   for (const [key, fn] of Object.entries(builtinMatchers)) {
-    // Only register if not already overridden by consumer
-    if (!customMatchers[key]) {
-      customMatchers[key] = fn;
-    }
+    // `builtin: true` — never clobbers a site override, whichever ran first.
+    registerMatcher(key, fn, { builtin: true });
   }
 }
 

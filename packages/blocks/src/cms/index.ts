@@ -120,6 +120,7 @@ export {
   setDanglingReferenceHandler,
   setResolveErrorHandler,
   unregisterCommerceLoader,
+  unregisterMatcher,
   WELL_KNOWN_TYPES,
 } from "./resolve";
 export type {

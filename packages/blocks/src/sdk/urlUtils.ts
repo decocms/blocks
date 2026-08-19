@@ -45,6 +45,16 @@ export function registerTrackingParams(params: string[]): void {
 }
 
 /**
+ * Whether a single query param is a known tracking/attribution param.
+ *
+ * Same registry as {@link stripTrackingParams} — use this when building a
+ * cache key by hand so `utm_*` variants don't fragment the cache.
+ */
+export function isTrackingParam(param: string): boolean {
+  return UTM_PARAMS.has(param.toLowerCase());
+}
+
+/**
  * Strip UTM and tracking parameters from a URL.
  *
  * Used to normalize URLs for caching -- two requests that differ
