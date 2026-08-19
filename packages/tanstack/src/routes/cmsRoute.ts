@@ -202,7 +202,7 @@ async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
   // empty client-bundled `blocks.gen.ts`.
   const [{ enrichedSections, enrichedSeoSection }, globals] = await Promise.all([
     runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
-    resolveGlobals ? resolveSiteGlobals() : Promise.resolve(EMPTY_GLOBALS),
+    resolveGlobals ? resolveSiteGlobals(matcherCtx) : Promise.resolve(EMPTY_GLOBALS),
   ]);
 
   // Page sections take precedence over globals — dedupe drops any global
@@ -332,7 +332,7 @@ export const loadCmsHomePage = createServerFn({ method: "GET" })
     const flags = persistFlags(matcherCtx);
     const [{ enrichedSections, enrichedSeoSection }, globals] = await Promise.all([
       runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
-      resolveGlobals ? resolveSiteGlobals() : Promise.resolve(EMPTY_GLOBALS),
+      resolveGlobals ? resolveSiteGlobals(matcherCtx) : Promise.resolve(EMPTY_GLOBALS),
     ]);
 
     const mergedSections: ResolvedSection[] = [

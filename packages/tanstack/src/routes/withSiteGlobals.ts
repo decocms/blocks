@@ -25,8 +25,11 @@
  * ```
  */
 
-import type { ResolvedSection } from "@decocms/blocks/cms";
+import type { MatcherContext, ResolvedSection } from "@decocms/blocks/cms";
 import { loadBlocks, onChange, resolvePageSections } from "@decocms/blocks/cms";
+import { SEGMENT_COOKIE } from "@decocms/blocks/sdk/flags";
+import { isTrackingParam } from "@decocms/blocks/sdk/urlUtils";
+import { detectDevice } from "@decocms/blocks/sdk/useDevice";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,13 +76,88 @@ interface CacheEntry {
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 const cacheTtlMs = DEFAULT_CACHE_TTL_MS;
 
-let cache: CacheEntry | null = null;
-let inflight: Promise<CacheEntry> | null = null;
+/**
+ * Cap on distinct cache keys held per isolate. Globals now vary by URL, so an
+ * unbounded map would grow with the site's URL space (and with any attacker's
+ * junk query strings). LRU-evict the oldest key past this.
+ */
+const CACHE_MAX_ENTRIES = 64;
+
+const cache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<CacheEntry>>();
+
+/** `undefined` = not looked up yet, `null` = this site declares no globals. */
+let refsMemo: SiteGlobalRef[] | null | undefined;
 
 onChange(() => {
-  cache = null;
-  inflight = null;
+  cache.clear();
+  inflight.clear();
+  refsMemo = undefined;
 });
+
+function urlKeyPart(matcherCtx: MatcherContext): string {
+  const path = matcherCtx.path ?? "";
+  if (!matcherCtx.url) return path;
+  try {
+    const params = [...new URL(matcherCtx.url, "http://localhost").searchParams]
+      .filter(([key]) => !isTrackingParam(key))
+      .sort(([aKey, aVal], [bKey, bVal]) => aKey.localeCompare(bKey) || aVal.localeCompare(bVal));
+    if (params.length === 0) return path;
+    return `${path}?${params.map(([key, value]) => `${key}=${value}`).join("&")}`;
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * Cache key for one request's site globals.
+ *
+ * **The query string must be part of it.** Site globals can hold
+ * URL-dependent variants (the multivariate Alerta/topbar section lives in
+ * `site.global`), and a path-only key made `/x/p?brand=farm` and
+ * `/x/p?brand=farmetc` collide: whichever request warmed a cold path decided
+ * the variant for both. Params are sorted so the key is stable, and tracking
+ * params are dropped so `utm_*` traffic doesn't fragment the cache into one
+ * entry per campaign.
+ *
+ * Device class and the sticky-flag segment cookie are in the key for the same
+ * reason — device and A/B matchers are common in `site.global`, and both are
+ * already how the edge splits its own cache.
+ *
+ * **Known limit:** matchers reading *other* cookies, geo, or wall-clock time
+ * are not represented here, so two requests that differ only on one of those
+ * share an entry for up to the TTL. Cookie/geo-varying globals need a wider
+ * key (or no cache) — this covers the axes the CMS actually exposes on the
+ * multivariate section today.
+ */
+export function siteGlobalsCacheKey(matcherCtx?: MatcherContext): string {
+  if (!matcherCtx) return "";
+  const device = detectDevice(matcherCtx.userAgent ?? "");
+  const segment = matcherCtx.cookies?.[SEGMENT_COOKIE] ?? "";
+  return `${urlKeyPart(matcherCtx)}|${device}|${segment}`;
+}
+
+function readCache(key: string): CacheEntry | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  // Touch for LRU recency.
+  cache.delete(key);
+  cache.set(key, entry);
+  return entry;
+}
+
+function writeCache(key: string, entry: CacheEntry): void {
+  cache.delete(key);
+  if (cache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, entry);
+}
 
 function readSiteBlock(): SiteBlock | null {
   const blocks = loadBlocks();
@@ -96,6 +174,20 @@ function gatherSectionRefs(site: SiteBlock): SiteGlobalRef[] {
   return refs;
 }
 
+/**
+ * The raw refs are the same for every request — only their *resolution* varies
+ * by matcher context. Memoizing them separately from the per-key resolution
+ * cache keeps the "no Site block / no globals" fast path from consuming a
+ * cache slot per URL. Cleared by the same `onChange` invalidation.
+ */
+function siteGlobalRefs(): SiteGlobalRef[] | null {
+  if (refsMemo !== undefined) return refsMemo;
+  const site = readSiteBlock();
+  const refs = site ? gatherSectionRefs(site) : [];
+  refsMemo = refs.length > 0 ? refs : null;
+  return refsMemo;
+}
+
 const EMPTY_ENTRY: CacheEntry = {
   resolvedSections: [],
   rawRefs: [],
@@ -109,52 +201,52 @@ const EMPTY_ENTRY: CacheEntry = {
  * Cache is invalidated by `onChange()` from the CMS loader, so admin edits
  * and decofile reloads are reflected on the next request.
  *
+ * Pass the request's `matcherCtx` so global sections can carry URL-, date-
+ * and cookie-dependent variants — without it every matcher in `site.global`
+ * evaluates against an empty context, and multivariate globals (the Alerta /
+ * topbar block) silently collapse to their fallback variant. Results are
+ * cached per {@link siteGlobalsCacheKey}, i.e. per path **and** query string.
+ *
  * Exposed as a util so sites can call it directly if they need globals
  * outside the route loader path (rare).
  */
-export async function resolveSiteGlobals(): Promise<{
+export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
   resolvedSections: ResolvedSection[];
   rawRefs: SiteGlobalRef[];
 }> {
-  const now = Date.now();
-  if (cache && cache.expiresAt > now) return cache;
-  if (inflight) return inflight;
+  // No Site block, or no globals declared on it — context-independent, so it
+  // short-circuits ahead of the per-key cache.
+  const rawRefs = siteGlobalRefs();
+  if (!rawRefs) return EMPTY_ENTRY;
 
-  const site = readSiteBlock();
-  if (!site) {
-    // Cache the empty result so subsequent requests don't re-walk the
-    // block registry. `onChange` invalidation still applies — if a Site
-    // block appears later, the listener nulls `cache` and we re-check.
-    cache = EMPTY_ENTRY;
-    return EMPTY_ENTRY;
-  }
+  const key = siteGlobalsCacheKey(matcherCtx);
 
-  const rawRefs = gatherSectionRefs(site);
-  if (rawRefs.length === 0) {
-    cache = EMPTY_ENTRY;
-    return EMPTY_ENTRY;
-  }
+  const cached = readCache(key);
+  if (cached) return cached;
+  const pending = inflight.get(key);
+  if (pending) return pending;
 
-  inflight = (async () => {
+  const promise = (async () => {
     try {
-      const resolvedSections = await resolvePageSections(rawRefs);
+      const resolvedSections = await resolvePageSections(rawRefs, matcherCtx);
       const entry: CacheEntry = {
         resolvedSections,
         rawRefs,
         expiresAt: Date.now() + cacheTtlMs,
       };
-      cache = entry;
+      writeCache(key, entry);
       return entry;
     } catch (err) {
       console.error("[site-globals] failed to resolve:", err);
       // Don't cache failures — let the next request retry.
       return { resolvedSections: [], rawRefs, expiresAt: 0 };
     } finally {
-      inflight = null;
+      inflight.delete(key);
     }
   })();
 
-  return inflight;
+  inflight.set(key, promise);
+  return promise;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +309,7 @@ export function withSiteGlobals<T extends { loader: AnyLoader }>(routeConfig: T)
 
 /** @internal */
 export function __resetSiteGlobalsCache() {
-  cache = null;
-  inflight = null;
+  cache.clear();
+  inflight.clear();
+  refsMemo = undefined;
 }

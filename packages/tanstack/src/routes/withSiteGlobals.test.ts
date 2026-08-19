@@ -17,6 +17,7 @@ import {
   __resetSiteGlobalsCache,
   dedupeGlobals,
   resolveSiteGlobals,
+  siteGlobalsCacheKey,
   withSiteGlobals,
 } from "./withSiteGlobals";
 
@@ -153,6 +154,168 @@ describe("withSiteGlobals", () => {
       expect(second.resolvedSections).toHaveLength(1);
       expect(mockedResolvePageSections).toHaveBeenCalledTimes(2);
       errSpy.mockRestore();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Matcher context (#3)
+  //
+  // Global sections can hold URL-dependent variants — the multivariate
+  // Alerta/topbar block lives in `site.global`. Resolving without a matcher
+  // context, or caching by path alone, silently collapses those variants.
+  // -------------------------------------------------------------------------
+
+  describe("matcher context", () => {
+    function siteWithGlobal() {
+      mockedLoadBlocks.mockReturnValue({
+        site: { global: [{ __resolveType: "Alerta" }] },
+      });
+      mockedResolvePageSections.mockResolvedValue([{ component: "Alerta.tsx", props: {}, key: "k0" }]);
+    }
+
+    const farmCtx = {
+      path: "/vestido/p",
+      url: "https://www.farmrio.com.br/vestido/p?brand=farm",
+    };
+    const etcCtx = {
+      path: "/vestido/p",
+      url: "https://www.farmrio.com.br/vestido/p?brand=farmetc",
+    };
+
+    it("forwards the matcher context to resolvePageSections", async () => {
+      siteWithGlobal();
+      await resolveSiteGlobals(etcCtx);
+      expect(mockedResolvePageSections).toHaveBeenCalledWith(
+        [{ __resolveType: "Alerta" }],
+        etcCtx,
+      );
+    });
+
+    it("does NOT share a cache entry between same path + different query", async () => {
+      siteWithGlobal();
+
+      // Cold path, ETC first — pre-fix this poisoned the entry for both URLs.
+      await resolveSiteGlobals(etcCtx);
+      await resolveSiteGlobals(farmCtx);
+
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(2);
+      expect(mockedResolvePageSections).toHaveBeenNthCalledWith(1, expect.anything(), etcCtx);
+      expect(mockedResolvePageSections).toHaveBeenNthCalledWith(2, expect.anything(), farmCtx);
+    });
+
+    it("shares one cache entry for the identical path + query", async () => {
+      siteWithGlobal();
+      await resolveSiteGlobals(etcCtx);
+      await resolveSiteGlobals({ ...etcCtx });
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(1);
+    });
+
+    it("treats param order as irrelevant (sorted key)", async () => {
+      siteWithGlobal();
+      await resolveSiteGlobals({ path: "/p", url: "https://x.com/p?a=1&b=2" });
+      await resolveSiteGlobals({ path: "/p", url: "https://x.com/p?b=2&a=1" });
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not fragment the cache across utm_* variants", async () => {
+      siteWithGlobal();
+      await resolveSiteGlobals({ path: "/p", url: "https://x.com/p?brand=farmetc" });
+      await resolveSiteGlobals({
+        path: "/p",
+        url: "https://x.com/p?brand=farmetc&utm_source=google&gclid=xyz",
+      });
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(1);
+    });
+
+    it("separates different paths", async () => {
+      siteWithGlobal();
+      await resolveSiteGlobals({ path: "/a", url: "https://x.com/a" });
+      await resolveSiteGlobals({ path: "/b", url: "https://x.com/b" });
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the no-context call on its own key (back-compat)", async () => {
+      siteWithGlobal();
+      await resolveSiteGlobals();
+      await resolveSiteGlobals();
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(1);
+      expect(mockedResolvePageSections).toHaveBeenCalledWith([{ __resolveType: "Alerta" }], undefined);
+    });
+
+    it("dedups concurrent in-flight calls per key, not globally", async () => {
+      mockedLoadBlocks.mockReturnValue({
+        site: { global: [{ __resolveType: "Alerta" }] },
+      });
+      mockedResolvePageSections.mockImplementation(async (_refs: unknown, ctx: any) => [
+        { component: "Alerta.tsx", props: { brand: new URL(ctx.url).searchParams.get("brand") }, key: "k0" },
+      ]);
+
+      const [etc, farm, etcAgain] = await Promise.all([
+        resolveSiteGlobals(etcCtx),
+        resolveSiteGlobals(farmCtx),
+        resolveSiteGlobals(etcCtx),
+      ]);
+
+      expect(etc.resolvedSections[0].props).toEqual({ brand: "farmetc" });
+      expect(farm.resolvedSections[0].props).toEqual({ brand: "farm" });
+      expect(etcAgain).toBe(etc);
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(2);
+    });
+
+    it("evicts old keys instead of growing without bound", async () => {
+      siteWithGlobal();
+      // CACHE_MAX_ENTRIES is 64 — walk well past it, then re-request the first.
+      for (let i = 0; i < 80; i++) {
+        await resolveSiteGlobals({ path: "/p", url: `https://x.com/p?i=${i}` });
+      }
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(80);
+
+      await resolveSiteGlobals({ path: "/p", url: "https://x.com/p?i=0" });
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(81); // key 0 was evicted
+    });
+  });
+
+  describe("siteGlobalsCacheKey", () => {
+    it("is empty for no context", () => {
+      expect(siteGlobalsCacheKey()).toBe("");
+    });
+
+    it("starts with the path alone when there is no query", () => {
+      expect(siteGlobalsCacheKey({ path: "/p", url: "https://x.com/p" })).toBe("/p|desktop|");
+      expect(siteGlobalsCacheKey({ path: "/p" })).toBe("/p|desktop|");
+    });
+
+    it("includes sorted, tracking-free query params", () => {
+      expect(siteGlobalsCacheKey({ path: "/p", url: "https://x.com/p?b=2&utm_source=g&a=1" })).toBe(
+        "/p?a=1&b=2|desktop|",
+      );
+    });
+
+    it("distinguishes brand=farm from brand=farmetc", () => {
+      expect(siteGlobalsCacheKey({ path: "/x/p", url: "https://x.com/x/p?brand=farm" })).not.toBe(
+        siteGlobalsCacheKey({ path: "/x/p", url: "https://x.com/x/p?brand=farmetc" }),
+      );
+    });
+
+    it("distinguishes device class", () => {
+      const mobile = siteGlobalsCacheKey({
+        path: "/p",
+        url: "https://x.com/p",
+        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148",
+      });
+      expect(mobile).not.toBe(siteGlobalsCacheKey({ path: "/p", url: "https://x.com/p" }));
+    });
+
+    it("distinguishes the sticky-flag segment cohort", () => {
+      expect(
+        siteGlobalsCacheKey({ path: "/p", url: "https://x.com/p", cookies: { deco_segment: "a" } }),
+      ).not.toBe(
+        siteGlobalsCacheKey({ path: "/p", url: "https://x.com/p", cookies: { deco_segment: "b" } }),
+      );
+    });
+
+    it("falls back to the path for an unparseable url", () => {
+      expect(siteGlobalsCacheKey({ path: "/p", url: "::::" })).toBe("/p|desktop|");
     });
   });
 
