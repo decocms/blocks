@@ -31,19 +31,46 @@ const RECOGNISED_DIRS = ["sections", "islands", "components", "loaders", "action
 
 export interface FsLike {
   existsSync(p: string): boolean;
+  /**
+   * True when `p` is a directory containing at least one FILE (recursively).
+   * An empty leftover dir (e.g. a `sections/` stub next to a populated
+   * `src/sections/`) must NOT count as a layout, or it triggers a false
+   * "mixed layout" abort. Optional so existing `{ existsSync }` stubs keep
+   * working — when absent, mere existence counts (previous behaviour).
+   */
+  hasFiles?(p: string): boolean;
 }
 
-const realFs: FsLike = { existsSync: fs.existsSync };
+/** Recursively: does this dir hold at least one file? Empty dirs → false. */
+function realHasFiles(p: string): boolean {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(p, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const e of entries) {
+    if (e.isFile()) return true;
+    if (e.isDirectory() && realHasFiles(path.join(p, e.name))) return true;
+  }
+  return false;
+}
+
+const realFs: FsLike = { existsSync: fs.existsSync, hasFiles: realHasFiles };
 
 /**
  * Classify the source directory's layout. Pure function — accepts
  * a `FsLike` so unit tests can stub the disk without mocking node:fs.
  */
 export function detectSourceLayout(sourceDir: string, fsAdapter: FsLike = realFs): SourceLayout {
-  const hasRootDir = RECOGNISED_DIRS.some((d) => fsAdapter.existsSync(path.join(sourceDir, d)));
-  const hasSrcDir = RECOGNISED_DIRS.some((d) =>
-    fsAdapter.existsSync(path.join(sourceDir, "src", d)),
-  );
+  // A recognised dir only "counts" if it exists AND holds files — an empty
+  // leftover `sections/` next to a populated `src/sections/` is not a real
+  // second layout and must not trigger a "mixed" abort. Falls back to mere
+  // existence when the adapter doesn't implement hasFiles (old test stubs).
+  const counts = (p: string): boolean =>
+    fsAdapter.existsSync(p) && (fsAdapter.hasFiles ? fsAdapter.hasFiles(p) : true);
+  const hasRootDir = RECOGNISED_DIRS.some((d) => counts(path.join(sourceDir, d)));
+  const hasSrcDir = RECOGNISED_DIRS.some((d) => counts(path.join(sourceDir, "src", d)));
 
   if (hasRootDir && hasSrcDir) return "mixed";
   if (hasSrcDir) return "modern";

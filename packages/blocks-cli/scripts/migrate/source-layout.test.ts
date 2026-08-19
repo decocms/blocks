@@ -19,6 +19,26 @@ function makeFs(paths: string[]): FsLike {
   };
 }
 
+/**
+ * FsLike where each dir path is tagged as populated (has files) or empty.
+ * `dirsWithFiles` exist AND report `hasFiles: true`; `emptyDirs` exist but
+ * report `hasFiles: false` (leftover stubs).
+ */
+function makeFsWithFiles(dirsWithFiles: string[], emptyDirs: string[] = []): FsLike {
+  const norm = (p: string) => p.replace(/\\/g, "/");
+  const populated = new Set(dirsWithFiles.map(norm));
+  const empty = new Set(emptyDirs.map(norm));
+  return {
+    existsSync(p) {
+      const n = norm(p);
+      return populated.has(n) || empty.has(n);
+    },
+    hasFiles(p) {
+      return populated.has(norm(p));
+    },
+  };
+}
+
 const SITE = "/site";
 
 describe("detectSourceLayout — classic layout", () => {
@@ -61,6 +81,29 @@ describe("detectSourceLayout — mixed layout", () => {
   it("flags partial overlap as mixed (root islands + src sections)", () => {
     const fs = makeFs(["/site/islands", "/site/src/sections"]);
     expect(detectSourceLayout(SITE, fs)).toBe("mixed");
+  });
+});
+
+describe("detectSourceLayout — empty leftover dirs (hasFiles)", () => {
+  it("ignores an EMPTY root sections/ next to a populated src/sections/ → modern", () => {
+    // The real portal-davinci case: leftover empty `sections/` + real `src/sections/`.
+    const fs = makeFsWithFiles(["/site/src/sections"], ["/site/sections"]);
+    expect(detectSourceLayout(SITE, fs)).toBe("modern");
+  });
+
+  it("ignores an EMPTY src/sections/ next to a populated root sections/ → classic", () => {
+    const fs = makeFsWithFiles(["/site/sections"], ["/site/src/sections"]);
+    expect(detectSourceLayout(SITE, fs)).toBe("classic");
+  });
+
+  it("still flags genuinely mixed (both populated) as mixed", () => {
+    const fs = makeFsWithFiles(["/site/sections", "/site/src/sections"]);
+    expect(detectSourceLayout(SITE, fs)).toBe("mixed");
+  });
+
+  it("empty dirs on both sides → empty", () => {
+    const fs = makeFsWithFiles([], ["/site/sections", "/site/src/sections"]);
+    expect(detectSourceLayout(SITE, fs)).toBe("empty");
   });
 });
 
