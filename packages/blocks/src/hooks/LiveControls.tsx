@@ -39,10 +39,11 @@ function LiveControlsScript() {
       if (window.__DECO_LIVE_CONTROLS__) return;
       window.__DECO_LIVE_CONTROLS__ = true;
 
-      var TRUSTED_ORIGINS = ["https://deco.cx", "https://admin.deco.cx", "https://play.deco.cx"];
+      var TRUSTED_ORIGINS = ["https://deco.cx", "https://admin.deco.cx", "https://play.deco.cx", "https://decocms.com", "https://studio.decocms.com"];
       function isTrustedOrigin(origin) {
         return TRUSTED_ORIGINS.indexOf(origin) !== -1 ||
           (origin.startsWith("https://") && origin.endsWith(".deco.cx")) ||
+          (origin.startsWith("https://") && origin.endsWith(".decocms.com")) ||
           origin === window.location.origin;
       }
 
@@ -100,12 +101,12 @@ function LiveControlsScript() {
             var pageId = (window.LIVE.page && window.LIVE.page.id) || "";
             var pathTemplate = (window.LIVE.page && window.LIVE.page.pathTemplate) || "/*";
 
-            var href = new URL("/choose-editor", "https://admin.deco.cx");
+            var href = new URL("/choose-editor", "https://studio.decocms.com");
             href.searchParams.set("site", siteName);
             href.searchParams.set("domain", window.location.origin);
             if (pageId) href.searchParams.set("pageId", pageId);
-            href.searchParams.set("path", encodeURIComponent(window.location.pathname + window.location.search));
-            href.searchParams.set("pathTemplate", encodeURIComponent(pathTemplate));
+            href.searchParams.set("path", window.location.pathname + window.location.search);
+            href.searchParams.set("pathTemplate", pathTemplate);
 
             if ((e.ctrlKey || e.metaKey) && e.key === ".") {
               window.open(href.toString(), "_blank");
