@@ -105,8 +105,8 @@ function LiveControlsScript() {
             href.searchParams.set("site", siteName);
             href.searchParams.set("domain", window.location.origin);
             if (pageId) href.searchParams.set("pageId", pageId);
-            href.searchParams.set("path", encodeURIComponent(window.location.pathname + window.location.search));
-            href.searchParams.set("pathTemplate", encodeURIComponent(pathTemplate));
+            href.searchParams.set("path", window.location.pathname + window.location.search);
+            href.searchParams.set("pathTemplate", pathTemplate);
 
             if ((e.ctrlKey || e.metaKey) && e.key === ".") {
               window.open(href.toString(), "_blank");
