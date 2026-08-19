@@ -1976,7 +1976,7 @@ export function createDecoWorkerEntry(
 
       // Merge site-wide SEO defaults into seo props
       const blocks = loadBlocks();
-      const site = blocks["Site"] as Record<string, unknown> | undefined;
+      const site = (blocks["Site"] ?? blocks["site"]) as Record<string, unknown> | undefined;
       const fullSiteSeo = (site?.seo as Record<string, unknown>) ?? {};
 
       // When SeoV2 loader ran, use its output as base (preserves key order)
