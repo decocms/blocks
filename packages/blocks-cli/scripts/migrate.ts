@@ -29,6 +29,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { banner, green, red, stat, yellow } from "./migrate/colors";
 import { loadConfig, validateConfig } from "./migrate/config";
+import { escapeSqlLiteral, isValidNpmPackageName } from "./migrate/sql-safety";
 import { analyze } from "./migrate/phase-analyze";
 import { cleanup } from "./migrate/phase-cleanup";
 import { cleanupAudit } from "./migrate/phase-cleanup-audit";
@@ -296,6 +297,17 @@ async function provisionAnalytics(sourceDir: string): Promise<void> {
     return;
   }
 
+  // `siteName` comes from the untrusted repo's package.json and is spliced into
+  // a raw SQL statement against the central platform DB. Reject anything that is
+  // not a valid npm package name before it can reach the query (blocks SQL
+  // injection via a crafted `name`).
+  if (!isValidNpmPackageName(siteName)) {
+    console.log(
+      `  ${yellow("⚠")} Invalid package name — skipping analytics provision: ${JSON.stringify(siteName)}`,
+    );
+    return;
+  }
+
   const token = process.env.SUPABASE_ACCESS_TOKEN;
   if (!token) {
     console.log(`  ${yellow("⚠")} SUPABASE_ACCESS_TOKEN not set — skipping analytics provision`);
@@ -303,7 +315,7 @@ async function provisionAnalytics(sourceDir: string): Promise<void> {
     return;
   }
 
-  const sql = `UPDATE public.sites SET metadata = metadata || '{"analytics": "onedollarstats"}'::jsonb WHERE name = '${siteName}'`;
+  const sql = `UPDATE public.sites SET metadata = metadata || '{"analytics": "onedollarstats"}'::jsonb WHERE name = '${escapeSqlLiteral(siteName)}'`;
 
   try {
     const res = await fetch(
@@ -333,7 +345,7 @@ async function provisionAnalytics(sourceDir: string): Promise<void> {
 function printAnalyticsSQL(siteName: string): void {
   console.log(`  Run manually on decocms Supabase (${DECOCMS_SUPABASE_REF}):`);
   console.log(
-    `  UPDATE public.sites SET metadata = metadata || '{"analytics": "onedollarstats"}'::jsonb WHERE name = '${siteName}';`,
+    `  UPDATE public.sites SET metadata = metadata || '{"analytics": "onedollarstats"}'::jsonb WHERE name = '${escapeSqlLiteral(siteName)}';`,
   );
 }
 
