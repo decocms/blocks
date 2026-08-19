@@ -5,6 +5,7 @@ import type { MigrationContext, TransformResult, SectionMeta } from "./types";
 import { log, logPhase } from "./types";
 import { transformImports } from "./transforms/imports";
 import { transformJsx } from "./transforms/jsx";
+import { transformPicture } from "./transforms/picture";
 import { transformFreshApis } from "./transforms/fresh-apis";
 import { transformCtxCompat } from "./transforms/ctx-compat";
 import { transformDenoIsms } from "./transforms/deno-isms";
@@ -71,6 +72,7 @@ function applyTransforms(content: string, filePath: string, ctx?: MigrationConte
     { name: "ctx-compat", fn: transformCtxCompat },
     { name: "dead-code", fn: (c) => transformDeadCode(c, ctx?.platform) },
     { name: "deno-isms", fn: transformDenoIsms },
+    { name: "picture", fn: transformPicture },
     { name: "tailwind", fn: transformTailwind },
   ];
 
