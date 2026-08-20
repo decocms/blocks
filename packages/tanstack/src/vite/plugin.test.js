@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decoVitePlugin } from "./plugin.js";
+import { decoVitePlugin, generateSchemaArgs } from "./plugin.js";
 
 /**
  * The Vite plugin's `resolveId` / `load` hooks are pure functions over their
@@ -50,6 +50,22 @@ describe("decoVitePlugin client stubs (regression guard)", () => {
     const p = getPlugin();
     const id = p.resolveId.call({}, "react-dom/server", undefined, { ssr: true });
     expect(id).toBeUndefined();
+  });
+});
+
+describe("generateSchemaArgs (regression: meta.gen.json must be composed)", () => {
+  // Both generate-schema.ts invocations in configureServer (watch regen + cold
+  // start) derive their args from this helper. --compose is mandatory: without
+  // it the manifest is written UNCOMPOSED — missing every framework website/*
+  // block (matchers/Page/Resolvable) — and Studio, which reads meta.gen.json
+  // as-is, silently loses editors (e.g. the variant date matcher). See
+  // casaevideo-tanstack #633.
+  it("always includes --compose", () => {
+    expect(generateSchemaArgs("casaevideo")).toContain("--compose");
+  });
+
+  it("targets the given site", () => {
+    expect(generateSchemaArgs("my-site")).toEqual(["--site", "my-site", "--compose"]);
   });
 });
 
