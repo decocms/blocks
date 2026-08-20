@@ -154,6 +154,25 @@ const STUB_SOURCE = {
   "\0stub:bare-fs": "export const promises = {}; export default { promises };",
 };
 
+/**
+ * Argv (after the generate-schema.ts script path) for a meta.gen.json run.
+ *
+ * `--compose` is MANDATORY. Without it generate-schema emits an UNCOMPOSED
+ * manifest missing every framework `website/*` block (Page, matchers,
+ * __SECTION_REF__, Resolvable). meta.gen.json is committed and Studio reads it
+ * as-is (no composeMeta at read time), so an uncomposed rewrite silently breaks
+ * the admin editors — e.g. the date matcher powering variant rules disappears
+ * (casaevideo-tanstack #633). Mirrors `npm run generate`'s schema step
+ * (`blocks-cli generate --compose`). Both invocation sites in configureServer
+ * derive their args here so the flag can never drift off one of them.
+ *
+ * @param {string} siteName
+ * @returns {string[]}
+ */
+export function generateSchemaArgs(siteName) {
+  return ["--site", siteName, "--compose"];
+}
+
 /** @returns {import("vite").PluginOption} */
 export function decoVitePlugin() {
   /** @type {import("vite").Plugin} */
@@ -454,6 +473,8 @@ export function decoVitePlugin() {
       // re-run generate-schema.ts so meta.gen.json stays in sync during dev.
       // No --out is passed to the generator below, so it writes to its own
       // default (.deco/meta.gen.json) — this constant must track that default.
+      // Both invocations get their args from generateSchemaArgs(), which pins
+      // the mandatory --compose flag (see its doc comment).
       const schemaWatchDirs = ["src"];
       const schemaOutFile = path.resolve(cwd, ".deco/meta.gen.json");
 
@@ -477,7 +498,7 @@ export function decoVitePlugin() {
           cwd,
           "node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
         );
-        const cmd = `npx tsx ${JSON.stringify(scriptPath)} --site ${schemaSiteName}`;
+        const cmd = `npx tsx ${JSON.stringify(scriptPath)} ${generateSchemaArgs(schemaSiteName).join(" ")}`;
         exec(cmd, { cwd }, (err) => {
             schemaInFlight = false;
             if (err) {
@@ -526,7 +547,7 @@ export function decoVitePlugin() {
             cwd,
             "node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
           );
-          execFileSync("npx", ["tsx", scriptPath, "--site", schemaSiteName], {
+          execFileSync("npx", ["tsx", scriptPath, ...generateSchemaArgs(schemaSiteName)], {
             cwd,
             stdio: "inherit",
           });
