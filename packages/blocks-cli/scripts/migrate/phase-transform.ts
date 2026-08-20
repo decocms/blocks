@@ -12,6 +12,7 @@ import { transformDenoIsms } from "./transforms/deno-isms";
 import { transformTailwind } from "./transforms/tailwind";
 import { transformDeadCode } from "./transforms/dead-code";
 import { transformHtmxOnEvents } from "./transforms/htmx-on-events";
+import { transformUseScriptHandlers } from "./transforms/use-script-handlers";
 import { createSectionConventionsTransform } from "./transforms/section-conventions";
 
 /** Map of section path → metadata, populated per-run */
@@ -68,6 +69,7 @@ function applyTransforms(content: string, filePath: string, ctx?: MigrationConte
     { name: "imports", fn: (c) => transformImports(c, ctx?.islandWrapperTargets) },
     { name: "jsx", fn: transformJsx },
     { name: "htmx-on-events", fn: transformHtmxOnEvents },
+    { name: "use-script-handlers", fn: transformUseScriptHandlers },
     { name: "fresh-apis", fn: transformFreshApis },
     { name: "ctx-compat", fn: transformCtxCompat },
     { name: "dead-code", fn: (c) => transformDeadCode(c, ctx?.platform) },
