@@ -121,6 +121,43 @@ describe("withSiteGlobals", () => {
       expect(mockedResolvePageSections).toHaveBeenCalledTimes(1);
     });
 
+    it("threads matcherCtx to resolvePageSections", async () => {
+      mockedLoadBlocks.mockReturnValue({
+        site: { global: [{ __resolveType: "Alert" }] },
+      });
+      mockedResolvePageSections.mockResolvedValue([{ component: "A.tsx", props: {}, key: "k0" }]);
+
+      const ctx = { path: "/farm-etc" } as any;
+      await resolveSiteGlobals(ctx);
+
+      expect(mockedResolvePageSections).toHaveBeenCalledWith(
+        [{ __resolveType: "Alert" }],
+        ctx,
+      );
+    });
+
+    it("caches per path — different routes don't share a matched variant", async () => {
+      mockedLoadBlocks.mockReturnValue({
+        site: { global: [{ __resolveType: "Alert" }] },
+      });
+      mockedResolvePageSections
+        .mockResolvedValueOnce([{ component: "EtcAlert.tsx", props: {}, key: "etc" }])
+        .mockResolvedValueOnce([{ component: "HomeAlert.tsx", props: {}, key: "home" }]);
+
+      const etc = await resolveSiteGlobals({ path: "/farm-etc" } as any);
+      const home = await resolveSiteGlobals({ path: "/" } as any);
+
+      // Distinct paths resolve independently (no cross-route leak)...
+      expect(etc.resolvedSections[0].key).toBe("etc");
+      expect(home.resolvedSections[0].key).toBe("home");
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(2);
+
+      // ...and the same path is still served from cache.
+      const etcAgain = await resolveSiteGlobals({ path: "/farm-etc" } as any);
+      expect(etcAgain.resolvedSections[0].key).toBe("etc");
+      expect(mockedResolvePageSections).toHaveBeenCalledTimes(2);
+    });
+
     it("invalidates cache when onChange fires", async () => {
       mockedLoadBlocks.mockReturnValue({
         site: { global: [{ __resolveType: "Analytics" }] },
