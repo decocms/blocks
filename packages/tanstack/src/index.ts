@@ -29,6 +29,15 @@ export {
   decoStringifySearch,
 } from "./sdk/router";
 export type { CreateDecoRouterOptions } from "./sdk/router";
+export {
+  buildSpeculationRules,
+  DEFAULT_EXCLUDED_HREF_MATCHES,
+} from "./sdk/speculationRules";
+export type {
+  SpeculationAction,
+  SpeculationEagerness,
+  SpeculationRulesConfig,
+} from "./sdk/speculationRules";
 // createInvokeFn is intentionally NOT re-exported from this root barrel.
 // Its body contains a `createServerFn(...).handler(...)` call that is not a
 // top-level variable declarator (it's returned from a factory function) --

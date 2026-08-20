@@ -77,6 +77,7 @@ import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
+import { setSpeculationRules, type SpeculationRulesConfig } from "./speculationRules";
 import {
   applyDraftCookieAndHeaders,
   bindRequestDraft,
@@ -243,6 +244,20 @@ export interface DecoWorkerEntryOptions {
    * @default true
    */
   asJson?: boolean;
+
+  /**
+   * Opt-in Speculation Rules API. When set, a `<script type="speculationrules">`
+   * is emitted in every page's <head> (via DecoRootLayout, so it's cache-safe)
+   * telling the browser to prerender/prefetch the next document on intent.
+   *
+   * Ships DISABLED (undefined). Only activate on sites whose analytics/pixel
+   * loaders are prerender-guarded (see ANALYTICS_SCRIPT / gtmScript in
+   * @decocms/blocks/sdk/analytics), otherwise a prerender can double-count.
+   * Scope candidates to hard-navigation links via `linkSelector` so client-
+   * routed `<Link>`s are excluded.
+   * @default undefined (disabled)
+   */
+  speculationRules?: SpeculationRulesConfig;
 
   /**
    * Cross-origin access to the `?renderJson` response. It is public page data
@@ -951,7 +966,12 @@ export function createDecoWorkerEntry(
     cdnCacheControl: cdnCacheControlOpt = "no-store",
     observability: observabilityOpt,
     outboundUserAgent: outboundUserAgentOpt,
+    speculationRules: speculationRulesOpt,
   } = options;
+
+  // Speculation Rules — store the site-wide config in the shared singleton so
+  // DecoRootLayout (SSR) emits the tag in <head>. Inert unless the site opts in.
+  setSpeculationRules(speculationRulesOpt);
 
   // Patch global fetch once so every outbound request — apps calling
   // `fetch` directly, RequestContext.fetch, instrumentedFetch — carries a

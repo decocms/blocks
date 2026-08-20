@@ -1,7 +1,16 @@
 import { useEffect, type ReactNode } from "react";
 import { HeadContent, Scripts, ScriptOnce } from "@tanstack/react-router";
 import { LiveControls } from "@decocms/blocks/hooks";
-import { ANALYTICS_SCRIPT } from "@decocms/blocks/sdk/analytics";
+import {
+	ANALYTICS_SCRIPT,
+	SPECULATION_DEV_WARN_SCRIPT,
+} from "@decocms/blocks/sdk/analytics";
+import { isDevMode } from "@decocms/blocks/sdk/env";
+import {
+	buildSpeculationRules,
+	getSpeculationRules,
+	type SpeculationRulesConfig,
+} from "../sdk/speculationRules";
 import { DraftPreviewIndicator } from "./DraftPreviewIndicator";
 import { NavigationProgress } from "./NavigationProgress";
 import { StableOutlet } from "./StableOutlet";
@@ -51,6 +60,17 @@ export interface DecoRootLayoutProps {
 	/** Delay in ms before firing deco:ready event. Default: 500 */
 	decoReadyDelay?: number;
 	/**
+	 * Opt-in Speculation Rules API config override. Normally activated site-wide
+	 * via `createDecoWorkerEntry({ speculationRules })` (like `asJson` /
+	 * `renderJson`) and read from that shared config; pass this prop only to
+	 * override it for a specific root. When set, emits a
+	 * `<script type="speculationrules">` in <head> so the browser prerenders/
+	 * prefetches the next document on intent. Ships DISABLED — only activate on
+	 * sites whose analytics/pixel loaders are prerender-guarded.
+	 * @see buildSpeculationRules
+	 */
+	speculationRules?: SpeculationRulesConfig;
+	/**
 	 * Extra content rendered inside <body> after the main outlet
 	 * (e.g. Toast, custom analytics components).
 	 */
@@ -81,6 +101,7 @@ export function DecoRootLayout({
 	account,
 	bodyClassName = "bg-base-200 text-base-content",
 	decoReadyDelay = 500,
+	speculationRules,
 	children,
 }: DecoRootLayoutProps) {
 	useEffect(() => {
@@ -91,10 +112,30 @@ export function DecoRootLayout({
 		return () => clearTimeout(id);
 	}, [decoReadyDelay]);
 
+	// Worker-entry option wins; prop is a per-root override. Undefined → disabled.
+	const speculation = speculationRules ?? getSpeculationRules();
+
 	return (
 		<html lang={lang} data-theme={dataTheme} suppressHydrationWarning>
 			<head>
 				<HeadContent />
+				{speculation && (
+					<script
+						type="speculationrules"
+						// JSON is inert; dangerouslySetInnerHTML avoids React escaping
+						// `>` in selectors (e.g. "nav > a"). Same pattern as JSON-LD.
+						dangerouslySetInnerHTML={{
+							__html: buildSpeculationRules(speculation),
+						}}
+					/>
+				)}
+				{/* Dev-only: console.error when analytics fire during a prerender
+				    so the dev fixes unguarded loaders before shipping. */}
+				{speculation && isDevMode() && (
+					<script
+						dangerouslySetInnerHTML={{ __html: SPECULATION_DEV_WARN_SCRIPT }}
+					/>
+				)}
 			</head>
 			<body className={bodyClassName} suppressHydrationWarning>
 				<ScriptOnce children={buildDecoEventsBootstrap(account)} />
