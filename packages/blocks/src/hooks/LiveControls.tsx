@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 
 interface LiveControlsProps {
   site?: string;
@@ -15,6 +15,21 @@ interface LiveControlsProps {
  * 3. "." opens admin in same tab, Ctrl/Cmd+"." opens in new tab, Ctrl+Shift+E also works
  */
 export function LiveControls({ site, page, flags }: LiveControlsProps) {
+  // Keep `window.LIVE.page` in sync with the CURRENT page across SPA
+  // navigations. The bootstrap script below reads __DECO_STATE only once (on
+  // initial load), so without this effect a client-side navigation would leave
+  // window.LIVE.page pointing at the first page rendered — and the "." shortcut
+  // would send that page's pathTemplate/id (or the "/*" fallback) instead of the
+  // route the user is actually looking at.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const w = window as unknown as { LIVE?: Record<string, unknown> };
+    w.LIVE = w.LIVE || {};
+    w.LIVE.page = page || {};
+    w.LIVE.site = { name: site || "storefront" };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site, page?.id, page?.pathTemplate]);
+
   return (
     <>
       <script

@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { HeadContent, Scripts, ScriptOnce } from "@tanstack/react-router";
+import { HeadContent, Scripts, ScriptOnce, useRouterState } from "@tanstack/react-router";
 import { LiveControls } from "@decocms/blocks/hooks";
 import {
 	ANALYTICS_SCRIPT,
@@ -112,6 +112,28 @@ export function DecoRootLayout({
 		return () => clearTimeout(id);
 	}, [decoReadyDelay]);
 
+	// Pull the resolved CMS page's route pattern (`path` = pathTemplate) and block
+	// id (`blockKey`) out of the current route's loader data so LiveControls sends
+	// the admin the page the user is actually on — not the hardcoded "/*" fallback.
+	// The CMS page loader (cmsRoute) spreads both fields onto its loader data;
+	// we scan matches deepest-first to find the one that carries them.
+	const page = useRouterState({
+		select: (state) => {
+			for (let i = state.matches.length - 1; i >= 0; i--) {
+				const data = state.matches[i]?.loaderData as
+					| { path?: unknown; blockKey?: unknown }
+					| undefined;
+				if (data && typeof data.path === "string") {
+					return {
+						id: typeof data.blockKey === "string" ? data.blockKey : undefined,
+						pathTemplate: data.path,
+					};
+				}
+			}
+			return undefined;
+		},
+	});
+
 	// Worker-entry option wins; prop is a per-root override. Undefined → disabled.
 	const speculation = speculationRules ?? getSpeculationRules();
 
@@ -145,7 +167,7 @@ export function DecoRootLayout({
 				</main>
 				{children}
 				<DraftPreviewIndicator />
-				<LiveControls site={siteName} />
+				<LiveControls site={siteName} page={page} />
 				<ScriptOnce children={ANALYTICS_SCRIPT} />
 				<Scripts />
 			</body>
