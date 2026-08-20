@@ -387,7 +387,12 @@ export default debounce;
 
 function generateSignalShim(): string {
   return `import { useState, useRef, useEffect, useMemo, useCallback, useSyncExternalStore } from "react";
-export { signal, type ReactiveSignal } from "@decocms/blocks/sdk/signal";
+// Import locally (so \`ReactiveSignal\` is in scope for useSignalValue below) AND
+// re-export for consumers. A bare \`export { … } from\` re-export does NOT bind the
+// name locally — using it as a type then fails with "Cannot find name".
+import { signal, type ReactiveSignal } from "@decocms/blocks/sdk/signal";
+export { signal };
+export type { ReactiveSignal };
 
 /** Run a function immediately. Kept for legacy module-level side effects. */
 export function effect(fn: () => void | (() => void)): () => void {

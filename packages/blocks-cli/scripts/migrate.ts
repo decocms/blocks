@@ -157,17 +157,20 @@ async function main() {
     config: siteConfig,
   });
 
-  // Phase 0: Source-layout detection (early-abort for unsupported layouts).
-  // The analyzer assumes a classic root layout (sections/, islands/, ...);
-  // running it on a modern src/ layout silently yields a near-empty
-  // migration. Detect-and-abort here so the user gets an actionable error
-  // before we touch any files.
+  // Phase 0: Source-layout detection. `classic` (root sections/) and `modern`
+  // (src/sections/) are both supported — the analyzer scans src/ natively for
+  // modern layouts. Only genuinely ambiguous (`mixed`) or unrecognizable
+  // (`empty`) layouts abort with an actionable error before we touch files.
   const layout = detectSourceLayout(sourceDir);
-  if (layout !== "classic") {
+  ctx.layout = layout;
+  if (layout === "mixed" || layout === "empty") {
     console.error(red(`Error: ${layout} source layout`));
     console.error("");
     console.error(explainNonClassicLayout(layout, sourceDir));
     process.exit(2);
+  }
+  if (layout === "modern") {
+    console.log(`  Source layout: modern (src/) — scanning src/ natively`);
   }
 
   try {

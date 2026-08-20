@@ -25,7 +25,7 @@
  * ```
  */
 
-import type { ResolvedSection } from "@decocms/blocks/cms";
+import type { MatcherContext, ResolvedSection } from "@decocms/blocks/cms";
 import { loadBlocks, onChange, resolvePageSections } from "@decocms/blocks/cms";
 
 // ---------------------------------------------------------------------------
@@ -73,12 +73,18 @@ interface CacheEntry {
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 const cacheTtlMs = DEFAULT_CACHE_TTL_MS;
 
-let cache: CacheEntry | null = null;
-let inflight: Promise<CacheEntry> | null = null;
+// Keyed by request path — site.global/site.pageSections can contain
+// path-dependent matchers (pathname, multi(ETC Segment), date, etc.), so a
+// single process-wide cache entry would leak one route's matched variant onto
+// every other route (e.g. a /section-only alert winning on "/"). Caching a
+// resolvedSections array per path preserves the original 5-minute SWR behavior
+// while keeping each route's matcher evaluation correct.
+const cache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<CacheEntry>>();
 
 onChange(() => {
-  cache = null;
-  inflight = null;
+  cache.clear();
+  inflight.clear();
 });
 
 function readSiteBlock(): SiteBlock | null {
@@ -112,49 +118,56 @@ const EMPTY_ENTRY: CacheEntry = {
  * Exposed as a util so sites can call it directly if they need globals
  * outside the route loader path (rare).
  */
-export async function resolveSiteGlobals(): Promise<{
+export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
   resolvedSections: ResolvedSection[];
   rawRefs: SiteGlobalRef[];
 }> {
+  // Path/date/segment matchers inside site-global sections (e.g. a multivariate
+  // `Alert` gated by a pathname matcher) must evaluate against the actual
+  // request, and the result is cached per path so routes don't share variants.
+  const cacheKey = matcherCtx?.path ?? "";
   const now = Date.now();
-  if (cache && cache.expiresAt > now) return cache;
-  if (inflight) return inflight;
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached;
+  const inflightEntry = inflight.get(cacheKey);
+  if (inflightEntry) return inflightEntry;
 
   const site = readSiteBlock();
   if (!site) {
     // Cache the empty result so subsequent requests don't re-walk the
     // block registry. `onChange` invalidation still applies — if a Site
-    // block appears later, the listener nulls `cache` and we re-check.
-    cache = EMPTY_ENTRY;
+    // block appears later, the listener clears `cache` and we re-check.
+    cache.set(cacheKey, EMPTY_ENTRY);
     return EMPTY_ENTRY;
   }
 
   const rawRefs = gatherSectionRefs(site);
   if (rawRefs.length === 0) {
-    cache = EMPTY_ENTRY;
+    cache.set(cacheKey, EMPTY_ENTRY);
     return EMPTY_ENTRY;
   }
 
-  inflight = (async () => {
+  const p = (async () => {
     try {
-      const resolvedSections = await resolvePageSections(rawRefs);
+      const resolvedSections = await resolvePageSections(rawRefs, matcherCtx);
       const entry: CacheEntry = {
         resolvedSections,
         rawRefs,
         expiresAt: Date.now() + cacheTtlMs,
       };
-      cache = entry;
+      cache.set(cacheKey, entry);
       return entry;
     } catch (err) {
       console.error("[site-globals] failed to resolve:", err);
       // Don't cache failures — let the next request retry.
       return { resolvedSections: [], rawRefs, expiresAt: 0 };
     } finally {
-      inflight = null;
+      inflight.delete(cacheKey);
     }
   })();
 
-  return inflight;
+  inflight.set(cacheKey, p);
+  return p;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +230,6 @@ export function withSiteGlobals<T extends { loader: AnyLoader }>(routeConfig: T)
 
 /** @internal */
 export function __resetSiteGlobalsCache() {
-  cache = null;
-  inflight = null;
+  cache.clear();
+  inflight.clear();
 }
