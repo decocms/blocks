@@ -5,12 +5,15 @@ import type { MigrationContext, TransformResult, SectionMeta } from "./types";
 import { log, logPhase } from "./types";
 import { transformImports } from "./transforms/imports";
 import { transformJsx } from "./transforms/jsx";
+import { transformPicture } from "./transforms/picture";
+import { transformTimerTypes } from "./transforms/timer-types";
 import { transformFreshApis } from "./transforms/fresh-apis";
 import { transformCtxCompat } from "./transforms/ctx-compat";
 import { transformDenoIsms } from "./transforms/deno-isms";
 import { transformTailwind } from "./transforms/tailwind";
 import { transformDeadCode } from "./transforms/dead-code";
 import { transformHtmxOnEvents } from "./transforms/htmx-on-events";
+import { transformUseScriptHandlers } from "./transforms/use-script-handlers";
 import { createSectionConventionsTransform } from "./transforms/section-conventions";
 
 /** Map of section path → metadata, populated per-run */
@@ -67,10 +70,13 @@ function applyTransforms(content: string, filePath: string, ctx?: MigrationConte
     { name: "imports", fn: (c) => transformImports(c, ctx?.islandWrapperTargets) },
     { name: "jsx", fn: transformJsx },
     { name: "htmx-on-events", fn: transformHtmxOnEvents },
+    { name: "use-script-handlers", fn: transformUseScriptHandlers },
     { name: "fresh-apis", fn: transformFreshApis },
     { name: "ctx-compat", fn: transformCtxCompat },
     { name: "dead-code", fn: (c) => transformDeadCode(c, ctx?.platform) },
     { name: "deno-isms", fn: transformDenoIsms },
+    { name: "timer-types", fn: transformTimerTypes },
+    { name: "picture", fn: transformPicture },
     { name: "tailwind", fn: transformTailwind },
   ];
 
@@ -264,6 +270,74 @@ export function transform(ctx: MigrationContext): void {
   // the actual file and rewrite the import.
   if (!ctx.dryRun) {
     fixIslandImports(ctx);
+    reconcileIconCasing(ctx);
+  }
+}
+
+/**
+ * `<Icon id="close">` → `<Icon id="Close">`. Deco-fresh (Deno) didn't strictly
+ * typecheck, so sites often used lowercase icon ids that don't match their own
+ * PascalCase `AvailableIcons` union — the stricter TanStack typecheck then fails
+ * ("Type '\"close\"' is not assignable to type 'AvailableIcons'"). This
+ * case-corrects any `<Icon id="X">` whose name matches an AvailableIcons entry
+ * case-insensitively. Names with NO match (a genuinely missing icon) are left
+ * as-is and flagged for manual review — adding them to the type + sprite is a
+ * design decision, not a rename.
+ */
+export function reconcileIconCasing(ctx: MigrationContext): void {
+  const srcDir = path.join(ctx.sourceDir, "src");
+  if (!fs.existsSync(srcDir)) return;
+
+  const walk = (dir: string, visit: (file: string, content: string) => void) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === ".git") continue;
+        walk(path.join(dir, entry.name), visit);
+      } else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) {
+        visit(path.join(dir, entry.name), fs.readFileSync(path.join(dir, entry.name), "utf-8"));
+      }
+    }
+  };
+
+  // 1. Canonical icon names from the declared `AvailableIcons` union (if any).
+  const canonical = new Map<string, string>(); // lowercased → canonical casing
+  walk(srcDir, (_file, content) => {
+    const m = content.match(/export type AvailableIcons\s*=\s*([\s\S]*?);/);
+    if (m) for (const n of m[1].matchAll(/["']([A-Za-z0-9_-]+)["']/g)) canonical.set(n[1].toLowerCase(), n[1]);
+  });
+  if (canonical.size === 0) return;
+
+  // 2. Case-correct `<Icon id="X">` usages; flag unmatched names once per file.
+  const iconIdRe = /(<Icon\b[^>]*?\bid=["'])([A-Za-z0-9_-]+)(["'])/g;
+  let corrected = 0;
+  walk(srcDir, (file, content) => {
+    let modified = false;
+    const flagged = new Set<string>();
+    const next = content.replace(iconIdRe, (whole, pre, name, post) => {
+      const canon = canonical.get(name.toLowerCase());
+      if (canon) {
+        if (canon !== name) {
+          modified = true;
+          corrected++;
+          return `${pre}${canon}${post}`;
+        }
+        return whole;
+      }
+      if (!flagged.has(name)) {
+        flagged.add(name);
+        ctx.manualReviewItems.push({
+          file: path.relative(ctx.sourceDir, file).replace(/\\/g, "/"),
+          reason: `<Icon id="${name}"> is not in AvailableIcons — add it to the type in Icon.tsx and the sprite, or the icon renders blank.`,
+          severity: "warning",
+        });
+      }
+      return whole;
+    });
+    if (modified) fs.writeFileSync(file, next, "utf-8");
+  });
+
+  if (corrected > 0) {
+    console.log(`  Icon casing: corrected ${corrected} <Icon id> to match AvailableIcons`);
   }
 }
 

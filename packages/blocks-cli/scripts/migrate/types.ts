@@ -132,6 +132,12 @@ export interface LoaderInfo {
 
 export interface MigrationContext {
   sourceDir: string;
+  /**
+   * Source directory layout: `"classic"` (sections/ at root) or `"modern"`
+   * (src/sections/). Drives whether the analyzer also scans `src/`. Set in
+   * migrate.ts after detection; defaults to `"classic"`.
+   */
+  layout: import("./source-layout").SourceLayout;
   siteName: string;
   platform: Platform;
   /** VTEX account name (e.g. "casaevideonewio") — extracted from source code */
@@ -219,6 +225,7 @@ export function createContext(
 ): MigrationContext {
   return {
     sourceDir,
+    layout: "classic",
     siteName: "",
     platform: "custom",
     vtexAccount: null,

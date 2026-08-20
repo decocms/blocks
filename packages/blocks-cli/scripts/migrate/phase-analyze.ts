@@ -666,8 +666,16 @@ export function analyze(ctx: MigrationContext): void {
     console.log(`  Font: ${ctx.fontFamily}`);
   }
 
-  // Scan all files
+  // Scan all files. The root scan skips `src/` (SKIP_DIRS) — for a MODERN
+  // layout the code lives there, so scan `src/` separately with baseDir=src so
+  // its files categorize as if they were at root (`src/sections/X` → `sections/X`
+  // → section → targetPath `src/sections/X`). The root scan still handles config
+  // + static/ at the repo root.
   scanDir(ctx.sourceDir, ctx.sourceDir, ctx.files);
+  if (ctx.layout === "modern") {
+    const srcDir = path.join(ctx.sourceDir, "src");
+    if (fs.existsSync(srcDir)) scanDir(srcDir, srcDir, ctx.files);
+  }
 
   // Summary
   const byAction = { transform: 0, delete: 0, move: 0, scaffold: 0, "manual-review": 0 };

@@ -195,6 +195,16 @@ export function transformJsx(content: string): TransformResult {
     notes.push("Replaced 'class' in interface definitions with 'className'");
   }
 
+  // `class?:` MID-LINE, inside an INLINE type literal
+  // (e.g. `{ height: string; class?: string }`). The `?` marks it as a type
+  // property — runtime objects never use `?:` — so this can't hit a real
+  // `class:` value. The line-start rule above misses the inline form.
+  if (/[{;,|(]\s*class\?\s*:/.test(result)) {
+    result = result.replace(/([{;,|(]\s*)class(\?\s*:)/g, "$1className$2");
+    changed = true;
+    notes.push("Replaced inline 'class?:' type property with 'className?:'");
+  }
+
   // Remove `alt` prop from non-img elements (<a>, <iframe>, <div>, etc.)
   // In React, `alt` is only valid on <img>, <input type="image">, <area>
   const altOnNonImgRegex = /(<(?:a|iframe|div|span|button|section)\s[^>]*?)\s+alt=(?:\{[^}]*\}|"[^"]*"|'[^']*')/g;
