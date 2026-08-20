@@ -403,7 +403,7 @@ export function getSiteSeo(): {
   noIndexing?: boolean;
 } {
   const blocks = loadBlocks();
-  const site = blocks["Site"] as Record<string, unknown> | undefined;
+  const site = (blocks["Site"] ?? blocks["site"]) as Record<string, unknown> | undefined;
   if (!site) return {};
   const seo = site.seo as Record<string, unknown> | undefined;
   if (!seo) return {};
