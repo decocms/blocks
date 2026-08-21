@@ -12,14 +12,14 @@ const S3_URL = "https://deco-sites-assets.s3.sa-east-1.amazonaws.com/";
 // Configurable CDN domain
 // -------------------------------------------------------------------------
 
-let imageCdnDomain = "decoims.com";
+let imageCdnDomain = "assets.decocms.com";
 
 /**
  * Register the image CDN domain used by `getOptimizedMediaUrl`.
  * Call once in your site's setup.ts before any page loads.
  *
  * Available domains:
- * - `decoims.com` (Cloudflare, default — best compression, same edge as Workers)
+ * - `assets.decocms.com` (Cloudflare, default — best compression, same edge as Workers)
  * - `deco-assets.edgedeco.com` (Azion IMS)
  * - `deco-assets.decoazn.com` (Azion IMS, legacy)
  */
