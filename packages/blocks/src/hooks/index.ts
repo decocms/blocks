@@ -10,6 +10,7 @@ export {
 	getImageCdnDomain,
 	registerImageQuality,
 	getImageQuality,
+	type ImageQuality,
 	getOptimizedMediaUrl,
 	getSrcSet,
 	FACTORS,

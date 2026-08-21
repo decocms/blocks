@@ -10,9 +10,12 @@ export function generateUiComponents(_ctx: MigrationContext): Record<string, str
   getSrcSet,
   registerImageCdnDomain,
   getImageCdnDomain,
+  registerImageQuality,
+  getImageQuality,
   FACTORS,
   type ImageProps,
   type FitOptions,
+  type ImageQuality,
 } from "@decocms/blocks/hooks";
 `;
 

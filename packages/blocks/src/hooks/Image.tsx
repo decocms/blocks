@@ -35,7 +35,21 @@ export function getImageCdnDomain(): string {
 // Configurable image quality
 // -------------------------------------------------------------------------
 
-let imageQuality: string | undefined;
+/**
+ * Quality levels the image CDN actually implements.
+ *
+ * Deliberately narrow. Probing `decoims.com` with a lossy-encodable asset,
+ * `quality=high` is the only value that changes the response — `low`,
+ * `medium-low`, `medium-high`, and every numeric value (`85`, `50`, `10`,
+ * the form Cloudflare's own docs lead with) return output byte-identical to
+ * sending no parameter at all. Typing this as `string` would invite
+ * `registerImageQuality("85")`: no effect, no warning, and a `quality=` in
+ * the URL that makes it look configured. Widen this union if the CDN grows
+ * support for more.
+ */
+export type ImageQuality = "high";
+
+let imageQuality: ImageQuality | undefined;
 
 /**
  * Register the quality level passed to the image CDN.
@@ -43,13 +57,14 @@ let imageQuality: string | undefined;
  *
  * Unset by default, so the CDN applies its own default and existing sites
  * keep the exact URLs they render today. Sites that would rather trade
- * bandwidth for fidelity opt in, e.g. `registerImageQuality("high")`.
+ * bandwidth for fidelity opt in with `registerImageQuality("high")`; pass
+ * `undefined` to unset.
  */
-export function registerImageQuality(quality: string) {
+export function registerImageQuality(quality: ImageQuality | undefined) {
 	imageQuality = quality;
 }
 
-export function getImageQuality(): string | undefined {
+export function getImageQuality(): ImageQuality | undefined {
 	return imageQuality;
 }
 

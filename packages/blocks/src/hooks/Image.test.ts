@@ -4,7 +4,7 @@ import { getOptimizedMediaUrl, getSrcSet, registerImageQuality } from "./Image";
 describe("registerImageQuality", () => {
 	// Module-level setting, like the CDN domain — reset so it cannot leak into
 	// the other suites in this file.
-	afterEach(() => registerImageQuality(undefined as unknown as string));
+	afterEach(() => registerImageQuality(undefined));
 
 	const url = () =>
 		getOptimizedMediaUrl({
