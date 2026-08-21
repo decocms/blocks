@@ -61,9 +61,13 @@ Peças: `packages/blocks-cli/scripts/pull-decofile.ts` (bin
 ## Setup num site (3 passos)
 
 1. Ter o workflow: sites migrados a partir de agora já vêm com
-   `.github/workflows/content-sync.yml`. Num site que já existe, copie o
-   arquivo gerado pelo template (e garanta `@decocms/blocks-cli` numa versão que
-   traga `scripts/pull-decofile.ts`).
+   `.github/workflows/content-sync.yml`. Num site que já existe, copie o arquivo
+   gerado pelo template. Se o site ainda está numa versão antiga de `@decocms/*`,
+   gere com `generateContentSyncYml(bun, "<versão>")`: o passo de pull roda via
+   `bunx -y @decocms/blocks-cli@<versão>`, sem bumpar a runtime contra a qual o
+   site builda (o `blocks-cli` pina `@decocms/blocks` em versão exata, então
+   bumpar o devDep arrastaria uma segunda runtime para a árvore). Tire o pin
+   quando o site subir de versão.
 2. Definir a **variável de repo** `CONTENT_SYNC_ORIGIN` com o origin da loja de
    produção (ex.: `https://www.minhaloja.com.br`). Sem ela o job pula limpo —
    o workflow é inerte até alguém ligar, igual ao `PARITY_PROD_URL` do

@@ -158,4 +158,11 @@ describe("generateContentSyncYml", () => {
   it("is de-projectized — no real site/customer names", () => {
     expect(yml).not.toMatch(/oficina|miess|colombo/i);
   });
+
+  it("runs the site's own installed CLI, or a pinned one when given", () => {
+    expect(yml).toContain("bunx tsx node_modules/@decocms/blocks-cli/scripts/pull-decofile.ts");
+    const pinned = generateContentSyncYml("1.3.5", "7.50.0");
+    expect(pinned).toContain("bunx -y @decocms/blocks-cli@7.50.0 deco-pull-decofile");
+    expect(pinned).not.toContain("node_modules/@decocms/blocks-cli");
+  });
 });

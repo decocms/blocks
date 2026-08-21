@@ -24,9 +24,19 @@
  * Docs: docs/content-sync.md
  *
  * @param bunVersion  Pinned bun version, in lockstep with package.json.
+ * @param cliVersion  Optional `@decocms/blocks-cli` version to run the pull
+ *   with, via `bunx`. Omit for a freshly scaffolded site: the site's own
+ *   installed copy is by definition in-version, so the local file path is used.
+ *   Pass a version for a site still on an older `@decocms/*` — pinning only the
+ *   sync step gets the script without bumping the runtime the site builds
+ *   against (blocks-cli pins `@decocms/blocks` exactly, so bumping the devDep
+ *   drags a second runtime version into the tree). Drop it when the site bumps.
  */
-export function generateContentSyncYml(bunVersion: string): string {
+export function generateContentSyncYml(bunVersion: string, cliVersion?: string): string {
   const bun = bunVersion.replace(/^bun@/, "");
+  const pullCmd = cliVersion
+    ? `bunx -y @decocms/blocks-cli@${cliVersion} deco-pull-decofile`
+    : "bunx tsx node_modules/@decocms/blocks-cli/scripts/pull-decofile.ts";
   return `name: content-sync
 
 # Puxa o conteúdo publicado na loja de produção (Fresh/Deno) para \`.deco/blocks\`
@@ -113,7 +123,7 @@ jobs:
           PRUNE: \${{ github.event.inputs.prune == 'false' && ' ' || '--prune' }}
           DRY_RUN: \${{ github.event.inputs.dry_run == 'true' && '--dry-run' || ' ' }}
         run: |
-          bunx tsx node_modules/@decocms/blocks-cli/scripts/pull-decofile.ts \\
+          ${pullCmd} \\
             --origin "$ORIGIN" \\
             --out .deco/blocks \\
             --deny "$DENY_KEYS" \\
