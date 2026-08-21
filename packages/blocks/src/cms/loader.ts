@@ -392,6 +392,24 @@ export function matchPath(
  * SEO configuration that provides fallback title, description, and templates
  * when page-level seo blocks don't supply them.
  */
+/**
+ * The site-level block, however the decofile happens to spell its key.
+ *
+ * The key comes from the filename in `.deco/blocks/`, so a site with
+ * `site.json` yields `"site"` while one with `Site.json` yields `"Site"`.
+ * Reading `blocks["Site"]` directly silently returns `undefined` on the former
+ * — no error, no warning, the feature just does nothing.
+ *
+ * That has bitten twice now (PR #479 fixed `getSiteSeo` and the `?asJson` SEO
+ * merge; the `?renderJson` `sectionsToIgnore` lookup was missed and stayed
+ * broken in production). Route every site-block read through here so there is
+ * one place to get it right.
+ */
+export function getSiteBlock(): Record<string, unknown> | undefined {
+  const blocks = loadBlocks();
+  return (blocks["Site"] ?? blocks["site"]) as Record<string, unknown> | undefined;
+}
+
 export function getSiteSeo(): {
   title?: string;
   description?: string;
@@ -402,8 +420,7 @@ export function getSiteSeo(): {
   themeColor?: string;
   noIndexing?: boolean;
 } {
-  const blocks = loadBlocks();
-  const site = (blocks["Site"] ?? blocks["site"]) as Record<string, unknown> | undefined;
+  const site = getSiteBlock();
   if (!site) return {};
   const seo = site.seo as Record<string, unknown> | undefined;
   if (!seo) return {};

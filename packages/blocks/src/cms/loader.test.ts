@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDraftOverrideGetter } from "./draftSource";
 import {
   findPageByPath,
+  getSiteBlock,
+  getSiteSeo,
   loadBlocks,
   matchPath,
   setBlocks,
@@ -373,5 +375,57 @@ describe("loadBlocks draft snapshot semantics", () => {
         expect(Object.keys(loadBlocks())).toEqual(["pages-scoped-3"]);
       },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Site block key casing
+// ---------------------------------------------------------------------------
+
+/**
+ * The site block's key comes from its filename in `.deco/blocks/`, so real
+ * sites ship both spellings: `site.json` -> "site", `Site.json` -> "Site".
+ *
+ * Reading `blocks["Site"]` directly returns `undefined` on the lowercase ones —
+ * no error, no warning, the feature just silently does nothing. That shipped
+ * twice: PR #479 fixed `getSiteSeo` and the `?asJson` SEO merge but missed the
+ * `?renderJson` `sectionsToIgnore` lookup, which stayed dead in production
+ * (a live site had three entries configured and none applied).
+ *
+ * If this fails, do not "fix" it by special-casing one caller — every site-block
+ * read must go through `getSiteBlock()`.
+ */
+describe("getSiteBlock — key casing", () => {
+  afterEach(() => setBlocks({}));
+
+  it('finds the block under the capitalized "Site" key', () => {
+    setBlocks({ Site: { seo: { title: "Capitalized" } } });
+    expect(getSiteBlock()).toEqual({ seo: { title: "Capitalized" } });
+    expect(getSiteSeo().title).toBe("Capitalized");
+  });
+
+  it('finds the block under the lowercase "site" key', () => {
+    setBlocks({ site: { seo: { title: "Lowercase" } } });
+    expect(getSiteBlock()).toEqual({ seo: { title: "Lowercase" } });
+    expect(getSiteSeo().title).toBe("Lowercase");
+  });
+
+  it("prefers the capitalized key when a decofile somehow has both", () => {
+    setBlocks({ Site: { seo: { title: "Capitalized" } }, site: { seo: { title: "Lowercase" } } });
+    expect(getSiteSeo().title).toBe("Capitalized");
+  });
+
+  it("returns undefined when there is no site block at all", () => {
+    setBlocks({ "pages-home": { name: "Home", sections: [] } });
+    expect(getSiteBlock()).toBeUndefined();
+    expect(getSiteSeo()).toEqual({});
+  });
+
+  it("exposes renderJson.sectionsToIgnore from a lowercase site block", () => {
+    // The exact shape `workerEntry`'s ?renderJson path reads — the call site
+    // that PR #479 missed.
+    setBlocks({ site: { renderJson: { sectionsToIgnore: ["SeoV2.tsx"] } } });
+    const rj = getSiteBlock()?.renderJson as { sectionsToIgnore?: string[] };
+    expect(rj?.sectionsToIgnore).toEqual(["SeoV2.tsx"]);
   });
 });

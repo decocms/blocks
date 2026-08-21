@@ -41,6 +41,7 @@ export {
   findPageByPath,
   getAllPages,
   getRevision,
+  getSiteBlock,
   getSiteSeo,
   loadBlocks,
   onChange,
