@@ -53,22 +53,22 @@ cron diário  →  GET <origin>/.decofile  →  .deco/blocks/*.json  →  guard 
   conteúdo real e 114 de formatação. Arquivos com conteúdo igual não são tocados;
   os que mudaram são gravados pretty-printed, para o diff ser legível.
 
-Peças: `packages/blocks-cli/scripts/pull-decofile.ts` (bin
-`deco-pull-decofile`) e o template
-`packages/blocks-cli/scripts/migrate/templates/content-sync-yml.ts`, que o
-`migrate` escreve em `.github/workflows/content-sync.yml`.
+Peças: `packages/blocks-cli/scripts/sync-blocks-bot.ts` (bin
+`deco-sync-blocks-bot`) e o template
+`packages/blocks-cli/scripts/migrate/templates/sync-blocks-bot-yml.ts`, que o
+`migrate` escreve em `.github/workflows/sync-blocks-bot.yml`.
 
 ## Setup num site (3 passos)
 
 1. Ter o workflow: sites migrados a partir de agora já vêm com
-   `.github/workflows/content-sync.yml`. Num site que já existe, copie o arquivo
+   `.github/workflows/sync-blocks-bot.yml`. Num site que já existe, copie o arquivo
    gerado pelo template. Se o site ainda está numa versão antiga de `@decocms/*`,
-   gere com `generateContentSyncYml(bun, "<versão>")`: o passo de pull roda via
+   gere com `generateSyncBlocksBotYml(bun, "<versão>")`: o passo de pull roda via
    `bunx -y @decocms/blocks-cli@<versão>`, sem bumpar a runtime contra a qual o
    site builda (o `blocks-cli` pina `@decocms/blocks` em versão exata, então
    bumpar o devDep arrastaria uma segunda runtime para a árvore). Tire o pin
    quando o site subir de versão.
-2. Definir a **variável de repo** `CONTENT_SYNC_ORIGIN` com o origin da loja de
+2. Definir a **variável de repo** `SYNC_BLOCKS_ORIGIN` com o origin da loja de
    produção (ex.: `https://www.minhaloja.com.br`). Sem ela o job pula limpo —
    o workflow é inerte até alguém ligar, igual ao `PARITY_PROD_URL` do
    `parity.yml`. Confirme antes que `GET <origin>/.decofile` devolve `200` com

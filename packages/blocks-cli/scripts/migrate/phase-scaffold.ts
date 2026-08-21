@@ -9,7 +9,7 @@ import { generateCacheConfig } from "./templates/cache-config";
 import { generateCiFiles } from "./templates/ci-yml";
 import { generateCommerceInit } from "./templates/commerce-init";
 import { generateCommerceLoaders } from "./templates/commerce-loaders";
-import { generateContentSyncYml } from "./templates/content-sync-yml";
+import { generateSyncBlocksBotYml } from "./templates/sync-blocks-bot-yml";
 import { generateMigrationPolicyPointerRule } from "./templates/cursor-rules";
 import { generateHooks } from "./templates/hooks";
 import { generateKnipConfig } from "./templates/knip-config";
@@ -133,11 +133,11 @@ export function scaffold(ctx: MigrationContext): void {
 
   // Daily content pull from the still-live storefront (`<origin>/.decofile` ->
   // `.deco/blocks` -> PR). Replaces the legacy cross-repo-PAT push sync; inert
-  // until the operator sets the repo variable CONTENT_SYNC_ORIGIN.
+  // until the operator sets the repo variable SYNC_BLOCKS_ORIGIN.
   writeFile(
     ctx,
-    ".github/workflows/content-sync.yml",
-    generateContentSyncYml(CANONICAL_BUN_VERSION),
+    ".github/workflows/sync-blocks-bot.yml",
+    generateSyncBlocksBotYml(CANONICAL_BUN_VERSION),
   );
 
   // Server entry files (server.ts, worker-entry.ts, router.tsx, runtime.ts, context.ts)

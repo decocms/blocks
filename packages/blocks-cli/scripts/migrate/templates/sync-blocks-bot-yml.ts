@@ -1,5 +1,5 @@
 /**
- * Scaffolds `.github/workflows/content-sync.yml` — the secure content channel
+ * Scaffolds `.github/workflows/sync-blocks-bot.yml` — the secure content channel
  * from the still-live Fresh/Deno storefront into the migrated repo.
  *
  * Replaces the legacy push-based sync (a workflow in the *legacy* repo holding a
@@ -9,7 +9,7 @@
  *
  * Direction is inverted — this repo pulls, on its own schedule, with its own
  * `GITHUB_TOKEN`, and gates the result:
- *   - `pull-decofile.ts` fetches `<origin>/.decofile` (public, unauthenticated)
+ *   - `sync-blocks-bot.ts` fetches `<origin>/.decofile` (public, unauthenticated)
  *     and writes `.deco/blocks/`, denying the `Site` block and anything holding
  *     encrypted credentials, and aborting on a plaintext credential;
  *   - a path guard fails the run if anything outside `.deco/blocks/` changed;
@@ -18,37 +18,44 @@
  *     `pull_request` workflows, so gating on the PR's own CI would need a PAT
  *     and would never fire on its own.
  *
- * Inert until the operator sets the repo variable `CONTENT_SYNC_ORIGIN` (same
+ * Inert until the operator sets the repo variable `SYNC_BLOCKS_ORIGIN` (same
  * one-knob pattern as parity.yml's `PARITY_PROD_URL`) — the job skips cleanly.
  *
- * Docs: docs/content-sync.md
+ * Docs: docs/sync-blocks-bot.md
  *
  * @param bunVersion  Pinned bun version, in lockstep with package.json.
  * @param cliVersion  Optional `@decocms/blocks-cli` version to run the pull
- *   with, via `bunx`. Omit for a freshly scaffolded site: the site's own
- *   installed copy is by definition in-version, so the local file path is used.
- *   Pass a version for a site still on an older `@decocms/*` — pinning only the
- *   sync step gets the script without bumping the runtime the site builds
- *   against (blocks-cli pins `@decocms/blocks` exactly, so bumping the devDep
- *   drags a second runtime version into the tree). Drop it when the site bumps.
+ *   with. Omit for a freshly scaffolded site: the site's own installed copy is
+ *   by definition in-version, so the local file path is used. Pass a version
+ *   for a site still on an older `@decocms/*` — pinning only the sync step gets
+ *   the script without bumping the runtime the site builds against (blocks-cli
+ *   pins `@decocms/blocks` exactly, so bumping the devDep drags a second
+ *   runtime version into the tree). Drop it when the site bumps.
+ *
+ *   GOTCHA: the pinned form uses `npx --package=<pkg> <bin>`, NOT
+ *   `bunx <pkg> <bin>`. `bunx pkg@ver some-bin` treats `some-bin` as an
+ *   *argument* and runs the package's first bin instead — in this package that
+ *   is `deco-migrate`, which rewrites the whole site and exits 0 in dry-run, so
+ *   the job goes green having run the wrong tool. Observed on a real run. The
+ *   `--json`-report assertion below is the second line of defence.
  */
-export function generateContentSyncYml(bunVersion: string, cliVersion?: string): string {
+export function generateSyncBlocksBotYml(bunVersion: string, cliVersion?: string): string {
   const bun = bunVersion.replace(/^bun@/, "");
   const pullCmd = cliVersion
-    ? `bunx -y @decocms/blocks-cli@${cliVersion} deco-pull-decofile`
-    : "bunx tsx node_modules/@decocms/blocks-cli/scripts/pull-decofile.ts";
-  return `name: content-sync
+    ? `npx --yes --package=@decocms/blocks-cli@${cliVersion} deco-sync-blocks-bot`
+    : "bunx tsx node_modules/@decocms/blocks-cli/scripts/sync-blocks-bot.ts";
+  return `name: sync-blocks-bot
 
 # Puxa o conteúdo publicado na loja de produção (Fresh/Deno) para \`.deco/blocks\`
 # e abre um PR. Sem token cross-repo: o repo legado não tem permissão nenhuma
 # aqui — este repo busca sozinho, valida e só então mergeia.
 #
-# Configuração (uma vez): variável de repo \`CONTENT_SYNC_ORIGIN\` = origin da
+# Configuração (uma vez): variável de repo \`SYNC_BLOCKS_ORIGIN\` = origin da
 # loja de produção (ex.: https://www.minhaloja.com.br). Sem ela o job pula limpo.
 # Para revisão humana em vez de merge automático, mude \`AUTO_MERGE\` para "false".
 #
 # Depois de ligar isto, APAGUE o workflow de push no repo legado e REVOGUE o
-# token cross-repo — o pull não fecha aquela porta sozinho. Ver docs/content-sync.md.
+# token cross-repo — o pull não fecha aquela porta sozinho. Ver docs/sync-blocks-bot.md.
 
 on:
   schedule:
@@ -57,7 +64,7 @@ on:
   workflow_dispatch:
     inputs:
       origin:
-        description: "Origin da loja de produção (sobrepõe CONTENT_SYNC_ORIGIN)"
+        description: "Origin da loja de produção (sobrepõe SYNC_BLOCKS_ORIGIN)"
         required: false
       prune:
         description: "Apagar blocos que não existem mais em produção"
@@ -75,7 +82,7 @@ permissions:
 # Publicações do CMS acontecem em rajada; uma sync por vez, sem cancelar a que
 # já está no gate de build.
 concurrency:
-  group: content-sync
+  group: sync-blocks-bot
   cancel-in-progress: false
 
 env:
@@ -94,11 +101,11 @@ jobs:
         id: cfg
         env:
           INPUT_ORIGIN: \${{ github.event.inputs.origin }}
-          VAR_ORIGIN: \${{ vars.CONTENT_SYNC_ORIGIN }}
+          VAR_ORIGIN: \${{ vars.SYNC_BLOCKS_ORIGIN }}
         run: |
           origin="\${INPUT_ORIGIN:-$VAR_ORIGIN}"
           if [ -z "$origin" ]; then
-            echo "::notice::variável de repo CONTENT_SYNC_ORIGIN não configurada — content-sync inerte."
+            echo "::notice::variável de repo SYNC_BLOCKS_ORIGIN não configurada — sync-blocks-bot inerte."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "origin=$origin" >> "$GITHUB_OUTPUT"
@@ -123,12 +130,22 @@ jobs:
           PRUNE: \${{ github.event.inputs.prune == 'false' && ' ' || '--prune' }}
           DRY_RUN: \${{ github.event.inputs.dry_run == 'true' && '--dry-run' || ' ' }}
         run: |
+          # pipefail é obrigatório: sem ele o \`| tee\` mascara o exit 1 do gate
+          # de plaintext secret e o job passa mesmo tendo abortado o pull.
+          set -o pipefail
           ${pullCmd} \\
             --origin "$ORIGIN" \\
             --out .deco/blocks \\
             --deny "$DENY_KEYS" \\
             --fail-on-plaintext-secret \\
-            --github $PRUNE $DRY_RUN
+            --json --github $PRUNE $DRY_RUN | tee /tmp/sync-blocks-report.json
+          # Prova de que foi ESTE script que rodou, e que ele viu conteúdo. Sem
+          # isso, uma invocação errada que resolva para outro bin do pacote
+          # termina 0 e o job fica verde tendo rodado a ferramenta errada.
+          grep -q '"remoteBlocks"' /tmp/sync-blocks-report.json || {
+            echo "::error::o passo de pull não produziu o relatório esperado — comando errado?"
+            exit 1
+          }
 
       - name: Guard — só .deco/blocks pode mudar
         id: guard
@@ -137,19 +154,19 @@ jobs:
           {
             git -c core.quotepath=false diff --name-only HEAD
             git -c core.quotepath=false ls-files --others --exclude-standard
-          } | sort -u > /tmp/content-sync-changed.txt
-          offending="$(grep -v '^\\.deco/blocks/' /tmp/content-sync-changed.txt || true)"
+          } | sort -u > /tmp/sync-blocks-changed.txt
+          offending="$(grep -v '^\\.deco/blocks/' /tmp/sync-blocks-changed.txt || true)"
           if [ -n "$offending" ]; then
             echo "::error::a sync mexeu fora de .deco/blocks — abortando:"
             echo "$offending"
             exit 1
           fi
-          if [ ! -s /tmp/content-sync-changed.txt ]; then
+          if [ ! -s /tmp/sync-blocks-changed.txt ]; then
             echo "::notice::conteúdo já está em dia, nada a sincronizar."
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "$(wc -l < /tmp/content-sync-changed.txt) arquivo(s) de bloco alterado(s)"
+            echo "$(wc -l < /tmp/sync-blocks-changed.txt) arquivo(s) de bloco alterado(s)"
           fi
 
       # Gate de verdade. Roda AQUI porque PR aberto com GITHUB_TOKEN não dispara
@@ -164,7 +181,7 @@ jobs:
           GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           ORIGIN: \${{ steps.cfg.outputs.origin }}
         run: |
-          branch="content-sync/$(date -u +%Y-%m-%dT%H%M%SZ)"
+          branch="sync-blocks/$(date -u +%Y-%m-%dT%H%M%SZ)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
@@ -173,7 +190,7 @@ jobs:
           git push origin "$branch"
           url="$(gh pr create \\
             --title "chore(content): sync .deco/blocks de produção" \\
-            --body "Conteúdo puxado de \\\`$ORIGIN/.decofile\\\` pelo workflow \\\`content-sync\\\`. Só \\\`.deco/blocks/**\\\` mudou (guard) e \\\`generate + build\\\` passou antes deste PR existir." \\
+            --body "Conteúdo puxado de \\\`$ORIGIN/.decofile\\\` pelo workflow \\\`sync-blocks-bot\\\`. Só \\\`.deco/blocks/**\\\` mudou (guard) e \\\`generate + build\\\` passou antes deste PR existir." \\
             --head "$branch")"
           echo "PR: $url"
           if [ "$AUTO_MERGE" = "true" ]; then
