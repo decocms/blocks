@@ -17,6 +17,7 @@
     "deco-audit-observability": "./scripts/audit-observability-config.ts",
     "deco-migrate-blocks-to-kv": "./scripts/migrate-blocks-to-kv.ts",
     "deco-sync-blocks-to-kv": "./scripts/sync-blocks-to-kv.ts",
+    "deco-pull-decofile": "./scripts/pull-decofile.ts",
     "deco-upgrade-6-to-7": "./scripts/upgrade-6-to-7.ts",
     "deco-reconcile": "./scripts/reconcile.ts"
   },
