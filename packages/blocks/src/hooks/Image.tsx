@@ -32,6 +32,28 @@ export function getImageCdnDomain(): string {
 }
 
 // -------------------------------------------------------------------------
+// Configurable image quality
+// -------------------------------------------------------------------------
+
+let imageQuality: string | undefined;
+
+/**
+ * Register the quality level passed to the image CDN.
+ * Call once in your site's setup.ts before any page loads.
+ *
+ * Unset by default, so the CDN applies its own default and existing sites
+ * keep the exact URLs they render today. Sites that would rather trade
+ * bandwidth for fidelity opt in, e.g. `registerImageQuality("high")`.
+ */
+export function registerImageQuality(quality: string) {
+	imageQuality = quality;
+}
+
+export function getImageQuality(): string | undefined {
+	return imageQuality;
+}
+
+// -------------------------------------------------------------------------
 // Fit options & optimization types
 // -------------------------------------------------------------------------
 
@@ -126,6 +148,7 @@ export function getOptimizedMediaUrl(opts: OptimizationOptions): string {
 	params.set("fit", fit);
 	params.set("width", `${width}`);
 	if (height) params.set("height", `${height}`);
+	if (imageQuality) params.set("quality", imageQuality);
 
 	return `https://${imageCdnDomain}/image?${params}&src=${imageSource}`;
 }
