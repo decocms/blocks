@@ -49,6 +49,7 @@ import {
   detectCacheProfile,
   routeCacheDefaults,
 } from "@decocms/blocks/sdk/cacheHeaders";
+import { takeExperimentAssignments } from "@decocms/blocks/sdk/experiments";
 import {
   parseSegmentCookie,
   SEGMENT_COOKIE,
@@ -116,9 +117,16 @@ const SEGMENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
  *
  * `encode: (v) => v` keeps the raw base64 intact — @decocms/apps
  * OneDollarStats reads the cookie with `atob()` directly.
+ *
+ * Experiment assignments (`sdk/experiments.ts`) merge in through the same
+ * writer rather than setting their own cookie — one `deco_segment`, one
+ * Set-Cookie. That is why this runs AFTER the section loaders: CMS matchers
+ * decide during page resolution, but an experiment is resolved inside a
+ * loader, so persisting before the loaders ran would drop the assignment and
+ * the visitor would re-roll on every request.
  */
-function persistFlags(matcherCtx: MatcherContext): StoredFlag[] {
-  const recorded = matcherCtx.flags ?? [];
+function persistFlags(matcherCtx: MatcherContext, experiments: StoredFlag[] = []): StoredFlag[] {
+  const recorded = [...(matcherCtx.flags ?? []), ...experiments];
   if (!recorded.length) return [];
 
   const raw = matcherCtx.cookies?.[SEGMENT_COOKIE];
@@ -188,7 +196,6 @@ async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
   };
   const page = await resolveDecoPage(basePath, matcherCtx);
   if (!page) return null;
-  const flags = persistFlags(matcherCtx);
 
   const request = new Request(urlWithSearch, {
     headers: originRequest.headers,
@@ -204,6 +211,10 @@ async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
     runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
     resolveGlobals ? resolveSiteGlobals(matcherCtx) : Promise.resolve(EMPTY_GLOBALS),
   ]);
+
+  // After the loaders — a loader-resolved experiment assignment must be in the
+  // cookie this response sets. See persistFlags.
+  const flags = persistFlags(matcherCtx, takeExperimentAssignments());
 
   // Page sections take precedence over globals — dedupe drops any global
   // whose component is already rendered by the page.
@@ -329,11 +340,11 @@ export const loadCmsHomePage = createServerFn({ method: "GET" })
     };
     const page = await resolveDecoPage("/", matcherCtx);
     if (!page) return null;
-    const flags = persistFlags(matcherCtx);
     const [{ enrichedSections, enrichedSeoSection }, globals] = await Promise.all([
       runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
       resolveGlobals ? resolveSiteGlobals(matcherCtx) : Promise.resolve(EMPTY_GLOBALS),
     ]);
+    const flags = persistFlags(matcherCtx, takeExperimentAssignments());
 
     const mergedSections: ResolvedSection[] = [
       ...dedupeGlobals(globals.resolvedSections, enrichedSections),

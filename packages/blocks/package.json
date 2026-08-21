@@ -56,6 +56,7 @@
 		"./sdk/env": "./src/sdk/env.ts",
 		"./sdk/fetchCache": "./src/sdk/fetchCache.ts",
 		"./sdk/fetchTimeout": "./src/sdk/fetchTimeout.ts",
+		"./sdk/experiments": "./src/sdk/experiments.ts",
 		"./sdk/flags": "./src/sdk/flags.ts",
 		"./sdk/http": "./src/sdk/http.ts",
 		"./sdk/instrumentedFetch": "./src/sdk/instrumentedFetch.ts",

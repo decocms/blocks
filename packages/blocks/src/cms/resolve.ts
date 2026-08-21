@@ -1,6 +1,7 @@
 import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
 import { djb2Hex } from "../sdk/djb2";
+import { stickyDecide } from "../sdk/experiments";
 import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } from "../sdk/flags";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
@@ -758,21 +759,20 @@ function evaluateVariantRule(
   // production concern (previews aren't cached), so skipping it here is fine.
   if (!meta || hasMatchersOverride(ctx)) return evaluateMatcher(rule, ctx);
 
-  // Reuse a decision already made this request so every resolve pass (page,
-  // shallow section-key, deferred) selects the same variant.
-  const already = ctx.flags?.find((f) => f.name === meta.name && f.pct === meta.pct);
-  if (already) return already.value;
-
-  const stored = parseSegmentCookie(ctx.cookies?.[SEGMENT_COOKIE]).find(
-    (f) => f.name === meta.name,
-  );
-  // pct === -1 marks a classic-deco segment without a fingerprint — honor it
-  // (stay sticky) instead of re-rolling. A stale fingerprint re-rolls.
-  const useStored = stored && (stored.pct === -1 || stored.pct === meta.pct);
-  const value = useStored ? stored.value : Math.random() < meta.traffic;
-
-  ctx.flags?.push({ name: meta.name, value, pct: meta.pct });
-  return value;
+  // Shared with sdk/experiments.ts' N-way resolution — same reuse / stay-sticky
+  // / re-roll precedence, so the two assignment paths cannot drift. This path
+  // keeps its own `trafficToPct` fingerprint: swapping it for the experiment
+  // weight hash would re-roll every live visitor on the next deploy.
+  return stickyDecide<boolean>({
+    name: meta.name,
+    fingerprint: meta.pct,
+    recorded: ctx.flags,
+    stored: parseSegmentCookie(ctx.cookies?.[SEGMENT_COOKIE]),
+    roll: () => Math.random() < meta.traffic,
+    // A matcher decision is always boolean; a string here means an experiment
+    // took the same cookie slot. Re-roll rather than coerce a variant id.
+    accepts: (v) => typeof v === "boolean",
+  }).value;
 }
 
 // ---------------------------------------------------------------------------
