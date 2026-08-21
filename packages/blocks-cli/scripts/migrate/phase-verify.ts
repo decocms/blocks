@@ -26,7 +26,7 @@ const REQUIRED_FILES = [
   ".github/workflows/playwright.yml",
   ".github/workflows/react-doctor.yml",
   ".github/workflows/parity.yml",
-  ".github/workflows/content-sync.yml",
+  ".github/workflows/sync-blocks-bot.yml",
   "tools/gates/no-suppressions.sh",
   "playwright.config.ts",
   "knip.config.ts",

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -9,10 +10,10 @@ import {
   hasEncryptedSecretRef,
   matchesGlob,
   writeDecofileToDir,
-} from "./pull-decofile";
+} from "./sync-blocks-bot";
 
 function tmpBlocksDir(files: Record<string, unknown> = {}): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pull-decofile-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sync-blocks-bot-"));
   const out = path.join(dir, ".deco", "blocks");
   fs.mkdirSync(out, { recursive: true });
   for (const [file, content] of Object.entries(files)) {
@@ -97,7 +98,7 @@ describe("writeDecofileToDir", () => {
   });
 
   it("compares content, not bytes — minified or reordered locals are not churn", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pull-decofile-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sync-blocks-bot-"));
     const out = path.join(dir, "blocks");
     fs.mkdirSync(out, { recursive: true });
     // how the Studio daemon / old sync bot write it: one minified line, no newline
@@ -254,5 +255,22 @@ describe("fetchDecofile", () => {
     await expect(fetchDecofile("https://x.com/.decofile", { maxBytes: 4 })).rejects.toThrow(
       /over the 4 byte cap/,
     );
+  });
+});
+
+describe("CLI entrypoint", () => {
+  // Regression: invoked through the package `bin`, argv[1] is the
+  // node_modules/.bin symlink while import.meta.url is the real file. A string
+  // compare of the two fails, main() never runs, and the CLI exits 0 having
+  // printed nothing — a silently green CI job. Exercise the symlink path.
+  it("runs when invoked through a bin symlink", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sync-blocks-bin-"));
+    const link = path.join(dir, "deco-sync-blocks-bot");
+    fs.symlinkSync(path.join(__dirname, "sync-blocks-bot.ts"), link);
+
+    const out = execFileSync(process.execPath, [require.resolve("tsx/cli"), link, "--help"], {
+      encoding: "utf-8",
+    });
+    expect(out).toContain("--fail-on-plaintext-secret");
   });
 });

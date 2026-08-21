@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { generateCiFiles } from "./ci-yml";
-import { generateContentSyncYml } from "./content-sync-yml";
 import { generateMainPushGuardYml } from "./main-push-guard-yml";
 import { generateParityYml } from "./parity-yml";
 import { generatePlaywrightFiles } from "./playwright-yml";
 import { generateReactDoctorYml } from "./react-doctor-yml";
+import { generateSyncBlocksBotYml } from "./sync-blocks-bot-yml";
 
 describe("generateCiFiles", () => {
   const files = generateCiFiles("22.15.0", "1.3.5");
@@ -125,15 +125,15 @@ describe("generateParityYml", () => {
   });
 });
 
-describe("generateContentSyncYml", () => {
-  const yml = generateContentSyncYml("bun@1.3.5");
+describe("generateSyncBlocksBotYml", () => {
+  const yml = generateSyncBlocksBotYml("bun@1.3.5");
 
-  it("pulls on a daily cron, gated on CONTENT_SYNC_ORIGIN", () => {
-    expect(yml).toContain("name: content-sync");
+  it("pulls on a daily cron, gated on SYNC_BLOCKS_ORIGIN", () => {
+    expect(yml).toContain("name: sync-blocks-bot");
     expect(yml).toContain('BUN_VERSION: "1.3.5"'); // bun@ prefix stripped
     expect(yml).toContain('- cron: "0 6 * * *"');
-    expect(yml).toContain("vars.CONTENT_SYNC_ORIGIN");
-    expect(yml).toContain("scripts/pull-decofile.ts");
+    expect(yml).toContain("vars.SYNC_BLOCKS_ORIGIN");
+    expect(yml).toContain("scripts/sync-blocks-bot.ts");
     expect(yml).toContain("--fail-on-plaintext-secret");
   });
 
@@ -160,9 +160,20 @@ describe("generateContentSyncYml", () => {
   });
 
   it("runs the site's own installed CLI, or a pinned one when given", () => {
-    expect(yml).toContain("bunx tsx node_modules/@decocms/blocks-cli/scripts/pull-decofile.ts");
-    const pinned = generateContentSyncYml("1.3.5", "7.50.0");
-    expect(pinned).toContain("bunx -y @decocms/blocks-cli@7.50.0 deco-pull-decofile");
+    expect(yml).toContain("bunx tsx node_modules/@decocms/blocks-cli/scripts/sync-blocks-bot.ts");
+    const pinned = generateSyncBlocksBotYml("1.3.5", "7.51.0");
+    // `npx --package=<pkg> <bin>`, never `bunx <pkg> <bin>` — the latter treats
+    // the bin name as an argument and silently runs deco-migrate instead.
+    expect(pinned).toContain("npx --yes --package=@decocms/blocks-cli@7.51.0 deco-sync-blocks-bot");
+    expect(pinned).not.toMatch(/bunx\s+(-y\s+)?@decocms\/blocks-cli/);
     expect(pinned).not.toContain("node_modules/@decocms/blocks-cli");
+  });
+
+  it("cannot pass green having run the wrong tool", () => {
+    // pipefail so `| tee` doesn't swallow the plaintext-secret exit 1, plus a
+    // grep on the report that only this script emits.
+    expect(yml).toContain("set -o pipefail");
+    expect(yml).toContain("--json --github");
+    expect(yml).toContain(`grep -q '"remoteBlocks"'`);
   });
 });

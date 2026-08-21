@@ -11,7 +11,7 @@
  * live site (`GET <origin>/.decofile`, public and unauthenticated) on a daily
  * cron, materialises one file per block, and opens a PR. No cross-repo token,
  * no write permission handed to anyone, and the content passes a build gate
- * before reaching `main`. See `docs/content-sync.md`.
+ * before reaching `main`. See `docs/sync-blocks-bot.md`.
  *
  * Three filters decide what may be overwritten:
  *   1. `--deny <globs>`      — deny by block key (default: the `Site` block).
@@ -25,8 +25,8 @@
  *      committed into git.
  *
  * Usage (from a site root):
- *   tsx pull-decofile.ts --origin https://www.minhaloja.com.br --prune
- *   tsx pull-decofile.ts --url https://www.minhaloja.com.br/.decofile --dry-run --json
+ *   tsx sync-blocks-bot.ts --origin https://www.minhaloja.com.br --prune
+ *   tsx sync-blocks-bot.ts --url https://www.minhaloja.com.br/.decofile --dry-run --json
  *
  * Exit codes:
  *   0 — done (with or without changes)
@@ -36,6 +36,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { decodeBlockNameWithPasses } from "./lib/blocks-dedupe";
 
 /** Block keys never overwritten by a sync unless `--deny` is overridden. */
@@ -447,7 +448,7 @@ function showHelp(): void {
   @decocms/blocks-cli — pull the production decofile into .deco/blocks/
 
   Usage:
-    tsx pull-decofile.ts --origin https://www.minhaloja.com.br [options]
+    tsx sync-blocks-bot.ts --origin https://www.minhaloja.com.br [options]
 
   Options:
     --origin <url>               Site origin; fetches <origin>/.decofile
@@ -494,7 +495,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
   if (!opts.url) {
-    console.error("pull-decofile: --origin or --url is required (see --help)");
+    console.error("sync-blocks-bot: --origin or --url is required (see --help)");
     process.exit(2);
   }
 
@@ -502,7 +503,7 @@ async function main(): Promise<void> {
   try {
     fetched = await fetchDecofile(opts.url, { maxBytes: opts.maxBytes, timeoutMs: opts.timeoutMs });
   } catch (e) {
-    console.error(`pull-decofile: ${(e as Error).message}`);
+    console.error(`sync-blocks-bot: ${(e as Error).message}`);
     process.exit(2);
   }
 
@@ -510,7 +511,7 @@ async function main(): Promise<void> {
   try {
     report = writeDecofileToDir(fetched.blocks, opts);
   } catch (e) {
-    console.error(`pull-decofile: ${(e as Error).message}`);
+    console.error(`sync-blocks-bot: ${(e as Error).message}`);
     process.exit(2);
   }
   report.revision = fetched.revision;
@@ -533,25 +534,34 @@ async function main(): Promise<void> {
 
   if (report.plaintextSecrets.length > 0 && opts.failOnPlaintextSecret) {
     console.error(
-      `pull-decofile: ${report.plaintextSecrets.length} plaintext credential(s) in the pulled content — refusing to commit it. Move them to encrypted secrets upstream, or deny the block with --deny.`,
+      `sync-blocks-bot: ${report.plaintextSecrets.length} plaintext credential(s) in the pulled content — refusing to commit it. Move them to encrypted secrets upstream, or deny the block with --deny.`,
     );
     process.exit(1);
   }
   process.exit(0);
 }
 
-const isCjsEntry =
-  typeof require !== "undefined" && typeof module !== "undefined" && require.main === module;
-let isEsmEntry = false;
-try {
-  isEsmEntry =
-    typeof process !== "undefined" &&
-    Array.isArray(process.argv) &&
-    process.argv[1] !== undefined &&
-    import.meta.url === `file://${process.argv[1]}`;
-} catch {
-  // ignore in CJS
+/**
+ * Entry detection must resolve symlinks. Invoked through the package `bin`
+ * (`npx --package=@decocms/blocks-cli deco-sync-blocks-bot`), `process.argv[1]`
+ * is the `node_modules/.bin/...` symlink while `import.meta.url` is the real
+ * file — a plain string compare fails, `main()` never runs, and the CLI exits 0
+ * having printed nothing. Observed on a real CI run; the workflow's report
+ * assertion is what surfaced it.
+ */
+function isMainModule(): boolean {
+  if (typeof require !== "undefined" && typeof module !== "undefined" && require.main === module) {
+    return true;
+  }
+  try {
+    const arg = process.argv?.[1];
+    if (!arg) return false;
+    return fs.realpathSync(arg) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }
-if (isCjsEntry || isEsmEntry) {
+
+if (isMainModule()) {
   void main();
 }
