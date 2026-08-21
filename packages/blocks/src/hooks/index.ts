@@ -8,10 +8,13 @@ export {
 	default as Image,
 	registerImageCdnDomain,
 	getImageCdnDomain,
+	registerImageQuality,
+	getImageQuality,
 	getOptimizedMediaUrl,
 	getSrcSet,
 	FACTORS,
 	type ImageProps,
+	type ImageQuality,
 	type FitOptions,
 } from "./Image";
 export { Picture, Source, type PictureProps, type SourceProps } from "./Picture";
