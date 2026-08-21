@@ -1,5 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getOptimizedMediaUrl, getSrcSet } from "./Image";
+import { getOptimizedMediaUrl, getSrcSet, registerImageQuality } from "./Image";
+
+describe("registerImageQuality", () => {
+	// Module-level setting, like the CDN domain — reset so it cannot leak into
+	// the other suites in this file.
+	afterEach(() => registerImageQuality(undefined));
+
+	const url = () =>
+		getOptimizedMediaUrl({
+			originalSrc: "https://example.com/a.png",
+			width: 100,
+			fit: "cover",
+		});
+
+	it("omits quality by default, leaving existing URLs untouched", () => {
+		expect(url()).not.toContain("quality");
+	});
+
+	it("adds the registered quality to the CDN url", () => {
+		registerImageQuality("high");
+		expect(url()).toContain("quality=high");
+	});
+});
 
 describe("getOptimizedMediaUrl", () => {
 	let warnSpy: ReturnType<typeof vi.spyOn>;
