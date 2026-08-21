@@ -3,6 +3,7 @@ import {
 	getImageQuality,
 	getOptimizedMediaUrl,
 	getSrcSet,
+	type ImageQuality,
 	registerImageQuality,
 } from "./Image";
 
@@ -132,6 +133,24 @@ describe("registerImageQuality", () => {
 		});
 		expect(result).toContain("quality=high");
 	});
+	it("pins the exact URL, param order included", () => {
+		// Param ORDER is part of the CDN cache key, and `toContain` cannot see
+		// it: reordering the params would keep every other assertion here green
+		// while cold-caching every image on every site. It is also the property
+		// that lets a site swap its node_modules patch for this setter without a
+		// cache flush, so it needs a real equality check.
+		registerImageQuality("high");
+		expect(
+			getOptimizedMediaUrl({
+				originalSrc: "https://cdn.example.com/foo.jpg",
+				width: 200,
+				height: 300,
+				fit: "cover",
+			}),
+		).toBe(
+			"https://decoims.com/image?fit=cover&width=200&height=300&quality=high&src=https://cdn.example.com/foo.jpg",
+		);
+	});
 
 	it("carries the quality into every srcset entry", () => {
 		registerImageQuality("high");
@@ -156,8 +175,11 @@ describe("registerImageQuality", () => {
 		expect(result).not.toContain("quality");
 	});
 
-	it("treats an empty string as unset", () => {
-		registerImageQuality("");
+	it("treats an empty string as unset, for untyped callers", () => {
+		// Unreachable from TypeScript now that the parameter is a union, but a
+		// value read from env or CMS config arrives as a plain string, so the
+		// runtime guard still earns its keep.
+		registerImageQuality("" as unknown as ImageQuality);
 		expect(getImageQuality()).toBeUndefined();
 	});
 });

@@ -14,6 +14,7 @@ export {
 	getSrcSet,
 	FACTORS,
 	type ImageProps,
+	type ImageQuality,
 	type FitOptions,
 } from "./Image";
 export { Picture, Source, type PictureProps, type SourceProps } from "./Picture";

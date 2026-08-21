@@ -35,32 +35,54 @@ export function getImageCdnDomain(): string {
 // Configurable image quality
 // -------------------------------------------------------------------------
 
-let imageQuality: string | undefined;
+/**
+ * Quality levels the Deco image CDN accepts as a site-wide default.
+ *
+ * The CDN maps these to 60% / 70% / 80%. It also accepts `original` (100%),
+ * deliberately excluded here: a global 100% default hurts performance on
+ * every page, which is the same call `DefaultQualityOptions` makes in the
+ * Fresh implementation this file was ported from (deco-cx/apps,
+ * website/components/Image.tsx).
+ *
+ * A union rather than `string` because the CDN **fails silently** on
+ * anything else: it answers 200 and serves its 60% default. So the obvious
+ * `registerImageQuality("80")` — quality means 1-100 in Cloudflare Images,
+ * next/image and imgix — would quietly serve the LOWEST quality while
+ * changing the cache key on every image. Measured against production
+ * decoims.com on one asset: no param 2911 B, `low` 2911, `medium` 3235,
+ * `high` 5189, and `"80"` / `"HIGH"` / garbage all 2911.
+ */
+export type ImageQuality = "low" | "medium" | "high";
+
+let imageQuality: ImageQuality | undefined;
 
 /**
  * Register the quality level `getOptimizedMediaUrl` asks the image CDN for.
- * Call once in your site's setup.ts, before any page loads.
+ *
+ * Call once at module scope in your site's setup, NOT from a loader, action or
+ * anything else on the request path. This is module-level state shared by every
+ * request in a Worker isolate: setting it per-request would leak across
+ * concurrent requests, and setting it on only one of the SSR/hydration paths
+ * would produce mismatched `src`/`srcSet` and re-download every image.
  *
  * Unset by default, which emits no `quality` param and leaves the CDN on its
- * own default — so existing sites are byte-for-byte unaffected. Set it when a
- * site's art direction needs fidelity over bytes: on fashion/editorial
- * catalogues the default compression visibly softens fabric texture and print
- * detail, which is a launch blocker for the brand even though it is a win on
- * Core Web Vitals.
+ * 60% default — so existing sites are byte-for-byte unaffected and no CDN
+ * cache is invalidated. Set it when a site's art direction needs fidelity over
+ * bytes: on fashion/editorial catalogues the default compression visibly
+ * softens fabric texture and print detail.
  *
- * Only affects images routed through the Deco image CDN. VTEX- and
- * Shopify-hosted sources are resized via their own native URL syntax
- * (see `optimizeVTEX`/`optimizeShopify`) and never carry this param.
- *
- * Values are passed through to the CDN verbatim rather than typed as a union
- * here — the accepted set is the CDN's to define, and differs between the
- * Cloudflare and Azion backends `registerImageCdnDomain` can select.
+ * Applies to every URL built by `getOptimizedMediaUrl` — `Image`, `getSrcSet`
+ * and also `Video` when it is given `forceOptimizedSrc`. It does NOT apply to
+ * VTEX- or Shopify-hosted sources: those are resized through their own native
+ * URL syntax (`optimizeVTEX` / `optimizeShopify`), which returns before the
+ * query-param block. On a VTEX storefront that means product imagery is
+ * untouched and only CMS/banner assets are affected.
  */
-export function registerImageQuality(quality: string | undefined) {
+export function registerImageQuality(quality: ImageQuality | undefined) {
 	imageQuality = quality || undefined;
 }
 
-export function getImageQuality(): string | undefined {
+export function getImageQuality(): ImageQuality | undefined {
 	return imageQuality;
 }
 
