@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateCiFiles } from "./ci-yml";
+import { generateContentSyncYml } from "./content-sync-yml";
 import { generateMainPushGuardYml } from "./main-push-guard-yml";
 import { generateParityYml } from "./parity-yml";
 import { generatePlaywrightFiles } from "./playwright-yml";
@@ -121,5 +122,47 @@ describe("generateParityYml", () => {
     expect(yml).toContain("--github");
     expect(yml).toContain("Workers Builds: loja-tanstack"); // worker name interpolated
     expect(yml).toContain("secrets.ANTHROPIC_API_KEY"); // optional LLM key
+  });
+});
+
+describe("generateContentSyncYml", () => {
+  const yml = generateContentSyncYml("bun@1.3.5");
+
+  it("pulls on a daily cron, gated on CONTENT_SYNC_ORIGIN", () => {
+    expect(yml).toContain("name: content-sync");
+    expect(yml).toContain('BUN_VERSION: "1.3.5"'); // bun@ prefix stripped
+    expect(yml).toContain('- cron: "0 6 * * *"');
+    expect(yml).toContain("vars.CONTENT_SYNC_ORIGIN");
+    expect(yml).toContain("scripts/pull-decofile.ts");
+    expect(yml).toContain("--fail-on-plaintext-secret");
+  });
+
+  it("only ever needs GITHUB_TOKEN — no cross-repo credential", () => {
+    expect(yml).toContain("secrets.GITHUB_TOKEN");
+    expect(yml).not.toMatch(/secrets\.(?!GITHUB_TOKEN)[A-Z_]+/);
+    expect(yml).toContain("permissions:");
+    expect(yml).toContain("concurrency:");
+  });
+
+  it("guards the diff to .deco/blocks and builds before opening the PR", () => {
+    const guardIdx = yml.indexOf("Guard");
+    const buildIdx = yml.indexOf("Validar (generate + build)");
+    const prIdx = yml.indexOf("gh pr create");
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(buildIdx);
+    expect(buildIdx).toBeLessThan(prIdx);
+    expect(yml).toContain("grep -v '^\\.deco/blocks/'");
+    expect(yml).toContain("git add .deco/blocks");
+  });
+
+  it("is de-projectized — no real site/customer names", () => {
+    expect(yml).not.toMatch(/oficina|miess|colombo/i);
+  });
+
+  it("runs the site's own installed CLI, or a pinned one when given", () => {
+    expect(yml).toContain("bunx tsx node_modules/@decocms/blocks-cli/scripts/pull-decofile.ts");
+    const pinned = generateContentSyncYml("1.3.5", "7.50.0");
+    expect(pinned).toContain("bunx -y @decocms/blocks-cli@7.50.0 deco-pull-decofile");
+    expect(pinned).not.toContain("node_modules/@decocms/blocks-cli");
   });
 });

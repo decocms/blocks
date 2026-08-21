@@ -9,6 +9,7 @@ import { generateCacheConfig } from "./templates/cache-config";
 import { generateCiFiles } from "./templates/ci-yml";
 import { generateCommerceInit } from "./templates/commerce-init";
 import { generateCommerceLoaders } from "./templates/commerce-loaders";
+import { generateContentSyncYml } from "./templates/content-sync-yml";
 import { generateMigrationPolicyPointerRule } from "./templates/cursor-rules";
 import { generateHooks } from "./templates/hooks";
 import { generateKnipConfig } from "./templates/knip-config";
@@ -129,6 +130,15 @@ export function scaffold(ctx: MigrationContext): void {
   // Advisory parity validation: compares each PR preview against the original
   // live storefront (@decocms/parity). Inert until PARITY_PROD_URL is set.
   writeFile(ctx, ".github/workflows/parity.yml", generateParityYml(ctx.siteName));
+
+  // Daily content pull from the still-live storefront (`<origin>/.decofile` ->
+  // `.deco/blocks` -> PR). Replaces the legacy cross-repo-PAT push sync; inert
+  // until the operator sets the repo variable CONTENT_SYNC_ORIGIN.
+  writeFile(
+    ctx,
+    ".github/workflows/content-sync.yml",
+    generateContentSyncYml(CANONICAL_BUN_VERSION),
+  );
 
   // Server entry files (server.ts, worker-entry.ts, router.tsx, runtime.ts, context.ts)
   writeMultiFile(ctx, generateServerEntry(ctx));
