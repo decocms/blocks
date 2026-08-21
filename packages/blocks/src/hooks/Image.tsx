@@ -32,6 +32,39 @@ export function getImageCdnDomain(): string {
 }
 
 // -------------------------------------------------------------------------
+// Configurable image quality
+// -------------------------------------------------------------------------
+
+let imageQuality: string | undefined;
+
+/**
+ * Register the quality level `getOptimizedMediaUrl` asks the image CDN for.
+ * Call once in your site's setup.ts, before any page loads.
+ *
+ * Unset by default, which emits no `quality` param and leaves the CDN on its
+ * own default — so existing sites are byte-for-byte unaffected. Set it when a
+ * site's art direction needs fidelity over bytes: on fashion/editorial
+ * catalogues the default compression visibly softens fabric texture and print
+ * detail, which is a launch blocker for the brand even though it is a win on
+ * Core Web Vitals.
+ *
+ * Only affects images routed through the Deco image CDN. VTEX- and
+ * Shopify-hosted sources are resized via their own native URL syntax
+ * (see `optimizeVTEX`/`optimizeShopify`) and never carry this param.
+ *
+ * Values are passed through to the CDN verbatim rather than typed as a union
+ * here — the accepted set is the CDN's to define, and differs between the
+ * Cloudflare and Azion backends `registerImageCdnDomain` can select.
+ */
+export function registerImageQuality(quality: string | undefined) {
+	imageQuality = quality || undefined;
+}
+
+export function getImageQuality(): string | undefined {
+	return imageQuality;
+}
+
+// -------------------------------------------------------------------------
 // Fit options & optimization types
 // -------------------------------------------------------------------------
 
@@ -126,6 +159,7 @@ export function getOptimizedMediaUrl(opts: OptimizationOptions): string {
 	params.set("fit", fit);
 	params.set("width", `${width}`);
 	if (height) params.set("height", `${height}`);
+	if (imageQuality) params.set("quality", imageQuality);
 
 	return `https://${imageCdnDomain}/image?${params}&src=${imageSource}`;
 }

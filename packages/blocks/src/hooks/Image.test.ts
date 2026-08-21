@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getOptimizedMediaUrl, getSrcSet } from "./Image";
+import {
+	getImageQuality,
+	getOptimizedMediaUrl,
+	getSrcSet,
+	registerImageQuality,
+} from "./Image";
 
 describe("getOptimizedMediaUrl", () => {
 	let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -96,5 +101,63 @@ describe("getSrcSet", () => {
 		// Each factor entry is "<url> <width>w".
 		expect(result).toMatch(/\d+w/);
 		expect(result).toContain("foo.jpg");
+	});
+});
+
+describe("registerImageQuality", () => {
+	// Module-level setter, so every test has to put it back or it leaks into
+	// the rest of the file.
+	afterEach(() => {
+		registerImageQuality(undefined);
+	});
+
+	it("emits no quality param by default", () => {
+		// The guarantee that makes this safe to land: every site that does not
+		// opt in keeps byte-identical URLs, so no CDN cache is invalidated.
+		expect(getImageQuality()).toBeUndefined();
+		const result = getOptimizedMediaUrl({
+			originalSrc: "https://cdn.example.com/foo.jpg",
+			width: 200,
+			fit: "cover",
+		});
+		expect(result).not.toContain("quality");
+	});
+
+	it("emits the registered quality for CDN-routed images", () => {
+		registerImageQuality("high");
+		const result = getOptimizedMediaUrl({
+			originalSrc: "https://cdn.example.com/foo.jpg",
+			width: 200,
+			fit: "cover",
+		});
+		expect(result).toContain("quality=high");
+	});
+
+	it("carries the quality into every srcset entry", () => {
+		registerImageQuality("high");
+		const result = getSrcSet("https://cdn.example.com/foo.jpg", 100);
+		const entries = result?.split(", ") ?? [];
+		expect(entries.length).toBeGreaterThan(1);
+		for (const entry of entries) {
+			expect(entry).toContain("quality=high");
+		}
+	});
+
+	it("leaves VTEX sources alone — they resize via their own path syntax", () => {
+		registerImageQuality("high");
+		const result = getOptimizedMediaUrl({
+			originalSrc:
+				"https://acme.vtexassets.com/arquivos/ids/123456/product.jpg?v=1",
+			width: 200,
+			height: 300,
+			fit: "cover",
+		});
+		expect(result).toContain("/arquivos/ids/123456-200-300/");
+		expect(result).not.toContain("quality");
+	});
+
+	it("treats an empty string as unset", () => {
+		registerImageQuality("");
+		expect(getImageQuality()).toBeUndefined();
 	});
 });

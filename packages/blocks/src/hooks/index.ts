@@ -8,6 +8,8 @@ export {
 	default as Image,
 	registerImageCdnDomain,
 	getImageCdnDomain,
+	registerImageQuality,
+	getImageQuality,
 	getOptimizedMediaUrl,
 	getSrcSet,
 	FACTORS,
