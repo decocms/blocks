@@ -31,6 +31,7 @@ describe("index barrel — device safety", () => {
         "invoke",
         "renderJson",
         "routes",
+        "session",
         "setup",
       ]),
     );

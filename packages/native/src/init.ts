@@ -93,13 +93,10 @@ const DECO_WIRING = (siteFromLib: string) => `/**
  */
 import {
   cmsScreenConfig,
-  createCookieJar,
-  type SystemCookieStore,
-  type SystemCookieStore,
   createNativeInvoke,
+  createNativeSession,
   createRenderJsonClient,
   createRoutePolicy,
-  withCookieJar,
 } from "@decocms/native";
 import { cmsRoutes } from "${siteFromLib}/.deco/routes.gen";
 import type { NativeHandlers } from "${siteFromLib}/.deco/invoke.native.gen";
@@ -108,51 +105,28 @@ import type { NativeHandlers } from "${siteFromLib}/.deco/invoke.native.gen";
 export const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL ?? "http://localhost:5173";
 
 /**
- * One session for BOTH surfaces.
+ * How this app carries its session.
  *
- * The native fetch uses this jar; a <WebView> uses the platform store. Without
- * the bridge they drift into separate carts — you add an item on a page inside
- * the WebView and the native badge never moves, with no error anywhere.
+ * On iOS/Android the OS already persists cookies AND shares them with a
+ * WebView, so native screens and embedded pages are one session for free —
+ * an item added on a page inside the WebView is in the cart a native screen
+ * reads. Adding a jar there does not duplicate the platform, it CORRUPTS the
+ * session: see the comment in \`@decocms/native/src/session.ts\`.
  *
- * \`@react-native-cookies/cookies\` is a NATIVE module, so Expo Go cannot load
- * it. The require is guarded: in Expo Go the bridge stays off and the app still
- * runs; in a dev build it turns itself on with no code change.
+ * Elsewhere (Expo web) the jar is what makes a cart exist at all.
  */
-function systemCookieStore(): SystemCookieStore | undefined {
-  try {
-    // CommonJS puro: \`module.exports = { ... }\`, sem \`default\`. Pedir
-    // \`.default\` devolve undefined e a ponte desliga em silêncio.
-    const mod = require("@react-native-cookies/cookies");
-    const CookieManager = mod?.default ?? mod;
-    if (!CookieManager?.get) return undefined;
-    return {
-      // \`useWebKit = true\` é o que importa: sem ele o iOS lê o
-      // NSHTTPCookieStorage, que é o store do fetch nativo — justamente o lado
-      // que NÃO precisa ser lido. O do WebView é o do WKWebView.
-      get: async (url: string) => {
-        const all = await CookieManager.get(url, true);
-        return Object.fromEntries(
-          Object.entries(all as Record<string, { value: string }>).map(([n, c]) => [n, c.value]),
-        );
-      },
-      set: async (url: string, setCookie: string) => {
-        await CookieManager.setFromResponse(url, setCookie);
-      },
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-/** Pass \`storage\` (AsyncStorage/MMKV) to survive relaunches. */
-export const jar = createCookieJar({ system: systemCookieStore(), systemUrl: SITE_URL });
+export const session = createNativeSession();
 
 export const client = createRenderJsonClient({
   baseUrl: SITE_URL,
-  fetcher: withCookieJar(jar),
+  fetcher: session.fetcher,
 });
 
-export const { invoke } = createNativeInvoke<NativeHandlers>({ baseUrl: SITE_URL, jar });
+// \`false\` means "the platform owns the cookie" — see \`session\` above.
+export const { invoke } = createNativeInvoke<NativeHandlers>({
+  baseUrl: SITE_URL,
+  jar: session.jar ?? false,
+});
 
 /**
  * Per-route opt-in. \`cmsRoutes\` is generated from .deco/blocks — the same

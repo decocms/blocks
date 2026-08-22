@@ -40,8 +40,17 @@ export interface NativeInvokeOptions {
   /**
    * Cookie jar carrying the session. Omit and one is created; pass a shared
    * instance to use the same session for `?renderJson` page loads.
+   *
+   * Pass `false` when the PLATFORM already persists cookies — which is the
+   * case on iOS, where `fetch` and a `<WebView sharedCookiesEnabled>` both use
+   * `NSHTTPCookieStorage`. There a jar is not just redundant, it is harmful:
+   * it sends its own `Cookie` header, the server echoes that value back in a
+   * `Set-Cookie`, the native layer stores it again, and the value grows every
+   * round trip. Measured going 1190 → 2390 bytes with `,cart=` repeated
+   * inside, at which point the backend stops recognising the id and opens a
+   * fresh cart — the "added to cart but the bag is empty" bug.
    */
-  jar?: CookieJar;
+  jar?: CookieJar | false;
   /** Persists the jar across launches. Ignored when `jar` is supplied. */
   storage?: CookieStorage;
   /** Extra headers on every call — the seam for auth, once the server has any. */
@@ -71,7 +80,8 @@ export function createNativeInvoke<T extends Record<string, any> = Record<string
   options: NativeInvokeOptions,
 ) {
   const { baseUrl, headers, fetcher = fetch } = options;
-  const jar = options.jar ?? createCookieJar({ storage: options.storage });
+  const jar =
+    options.jar === false ? undefined : (options.jar ?? createCookieJar({ storage: options.storage }));
 
   const withHeaders: typeof fetch = headers
     ? (input, init) =>
@@ -81,7 +91,7 @@ export function createNativeInvoke<T extends Record<string, any> = Record<string
   const invoke = createAppInvokeWith<T>({
     // Absolute: there is no page origin to be relative to.
     basePath: `${baseUrl.replace(/\/$/, "")}/deco/invoke`,
-    fetcher: withCookieJar(jar, withHeaders) as InvokeFetcher,
+    fetcher: (jar ? withCookieJar(jar, withHeaders) : withHeaders) as InvokeFetcher,
   });
 
   return { invoke, jar };

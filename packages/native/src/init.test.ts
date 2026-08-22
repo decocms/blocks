@@ -149,23 +149,27 @@ describe("scaffolded screens", () => {
     expect(source).toContain("not a whitelist");
   });
 
-  it("wires the cookie bridge without asking for a `default` export", () => {
-    // @react-native-cookies/cookies is plain CommonJS: `module.exports = {...}`
-    // with no `default`. Reading `.default` yields undefined and the bridge
-    // turns itself off in silence — native and WebView then hold separate carts.
+  it("lets the platform own the session instead of hand-rolling a jar", () => {
+    // The scaffold must NOT wrap fetch in a cookie jar. On iOS/Android the OS
+    // store is already shared with the WebView, and a jar there sends its own
+    // `Cookie` header, which the server echoes back, which the native layer
+    // stores — the value grows every round trip until the backend stops
+    // recognising it and opens a fresh cart on every call.
     const { app } = scaffold();
     runNativeInit({ root: app });
     const source = fs.readFileSync(path.join(app, "lib", "deco.ts"), "utf8");
-    expect(source).toContain("mod?.default ?? mod");
-    expect(source).not.toMatch(/require\("@react-native-cookies\/cookies"\)\.default/);
+    expect(source).toContain("createNativeSession()");
+    expect(source).toContain("jar: session.jar ?? false");
+    expect(source).not.toContain("withCookieJar");
   });
 
-  it("reads the WebView's own cookie store, not the native one", () => {
-    // Without `useWebKit = true` iOS reads NSHTTPCookieStorage — the store the
-    // native fetch already uses, which is the half we do NOT need to read.
+  it("needs no native module for one shared session", () => {
+    // @react-native-cookies/cookies was only ever a probe. Requiring it would
+    // force a dev build on every consumer for something the OS does for free.
     const { app } = scaffold();
     runNativeInit({ root: app });
-    expect(fs.readFileSync(path.join(app, "lib", "deco.ts"), "utf8")).toContain("get(url, true)");
+    const source = fs.readFileSync(path.join(app, "lib", "deco.ts"), "utf8");
+    expect(source).not.toContain("@react-native-cookies/cookies");
   });
 
   it("does not overwrite screens the app already has", () => {

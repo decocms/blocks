@@ -120,54 +120,15 @@ function parseSetCookie(raw: string): { name: string; cookie: StoredCookie } | n
   return { name, cookie: { value, expires } };
 }
 
-/**
- * The device's own cookie store — the one a WebView writes into.
- *
- * This exists because a hybrid app has TWO cookie stores and nothing joins
- * them. `fetch` from native code uses this jar; a `<WebView>` uses the
- * platform store (`NSHTTPCookieStorage` on iOS with `sharedCookiesEnabled`,
- * the `CookieManager` on Android). So an item added to the cart on a page
- * inside the WebView lands in a DIFFERENT cart from the one a native screen
- * reads — with no error anywhere. The native badge just never moves.
- *
- * Implement with `@react-native-cookies/cookies`:
- *
- * ```ts
- * import CookieManager from "@react-native-cookies/cookies";
- * const system: SystemCookieStore = {
- *   get: (url) => CookieManager.get(url).then((all) =>
- *     Object.fromEntries(Object.entries(all).map(([k, c]) => [k, c.value]))),
- *   set: (url, cookie) => CookieManager.setFromResponse(url, cookie).then(() => {}),
- * };
- * ```
- *
- * Injected rather than depended on: the package must stay installable in an
- * app with no WebView, and the native module is a build-time cost.
- */
-export interface SystemCookieStore {
-  /** Cookies the platform store holds for `url`, as name → value. */
-  get(url: string): Promise<Record<string, string>> | Record<string, string>;
-  /** Writes one raw `Set-Cookie` value into the platform store. */
-  set(url: string, setCookie: string): Promise<void> | void;
-}
-
 export interface CookieJarOptions {
   /** Persist across launches. Omit for an in-memory jar. */
   storage?: CookieStorage;
   /** Storage key. Give each storefront its own if an app ships several. */
   storageKey?: string;
-  /**
-   * Share the session with the WebView. Omit and the two stay separate — which
-   * is the default only because the native module is optional, not because it
-   * is a sane default for a hybrid app.
-   */
-  system?: SystemCookieStore;
-  /** Origin the system store is scoped to. Required with `system`. */
-  systemUrl?: string;
 }
 
 export function createCookieJar(options: CookieJarOptions = {}) {
-  const { storage, storageKey = "deco.cookies", system, systemUrl } = options;
+  const { storage, storageKey = "deco.cookies" } = options;
   let jar = new Map<string, StoredCookie>();
   let hydrated = !storage;
 
@@ -197,20 +158,6 @@ export function createCookieJar(options: CookieJarOptions = {}) {
   /** Applies a response's `Set-Cookie` headers. Returns the names it touched. */
   function apply(headers: Headers): string[] {
     const raws = readSetCookies(headers);
-    // Mirror into the platform store so the WebView sees the same session.
-    // Fire-and-forget on purpose: a failed mirror must not fail the request
-    // that already succeeded.
-    if (system && systemUrl) {
-      for (const raw of raws) {
-        try {
-          void Promise.resolve(system.set(systemUrl, raw)).catch(() => {});
-        } catch {
-          // Um módulo nativo pode lançar de forma SÍNCRONA, e aí o
-          // `Promise.resolve(...)` nem chega a embrulhar — sem este try a
-          // ponte quebrada derruba a resposta que já tinha dado certo.
-        }
-      }
-    }
     const touched: string[] = [];
     for (const raw of raws) {
       const parsed = parseSetCookie(raw);
@@ -225,28 +172,6 @@ export function createCookieJar(options: CookieJarOptions = {}) {
     }
     if (touched.length > 0) persist();
     return touched;
-  }
-
-  /**
-   * Pulls the platform store into the jar.
-   *
-   * The direction that matters most: the WebView is where checkout, login and
-   * any un-ported page live, so it is usually the one that MOVED the session.
-   * Called before each request rather than once at boot, because the WebView
-   * can change it at any moment.
-   */
-  async function syncFromSystem(): Promise<void> {
-    if (!system || !systemUrl) return;
-    try {
-      const current = await system.get(systemUrl);
-      for (const [name, value] of Object.entries(current)) {
-        // The platform store wins: it is the shared surface, and a stale jar
-        // entry is exactly the bug this method exists to fix.
-        jar.set(name, { value });
-      }
-    } catch {
-      // No native module, or the store refused. Fall back to the local jar.
-    }
   }
 
   /** The `Cookie:` header value, or `undefined` when the jar is empty. */
@@ -266,7 +191,6 @@ export function createCookieJar(options: CookieJarOptions = {}) {
 
   return {
     hydrate,
-    syncFromSystem,
     apply,
     header,
     clear,
@@ -290,10 +214,6 @@ export type CookieJar = ReturnType<typeof createCookieJar>;
 export function withCookieJar(jar: CookieJar, fetcher: typeof fetch = fetch): typeof fetch {
   return async (input, init) => {
     await jar.hydrate();
-    // Pull whatever the WebView did since the last call. Without this the two
-    // surfaces drift into separate carts: you add on a page inside the WebView
-    // and the native badge never moves, with no error to follow.
-    await jar.syncFromSystem();
 
     const headers = new Headers(init?.headers);
     const cookie = jar.header();
