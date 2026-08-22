@@ -32,7 +32,7 @@
 
 export type { CmsScreenConfig, CmsScreenOptions } from "./cmsScreenConfig";
 export { cmsScreenConfig, deferredSectionConfig } from "./cmsScreenConfig";
-export type { CookieJar, CookieJarOptions, CookieStorage } from "./cookies";
+export type { CookieJar, CookieJarOptions, CookieStorage, SystemCookieStore } from "./cookies";
 export { createCookieJar, readSetCookies, splitSetCookie, withCookieJar } from "./cookies";
 export type {
   DecoSectionsProps,

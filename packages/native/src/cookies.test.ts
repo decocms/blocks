@@ -289,3 +289,70 @@ describe("withCookieJar", () => {
 
 beforeEach(() => vi.useRealTimers());
 afterEach(() => vi.useRealTimers());
+
+describe("system cookie store bridge", () => {
+  /** A stand-in for @react-native-cookies/cookies. */
+  function fakeSystem(initial: Record<string, string> = {}) {
+    const store = { ...initial };
+    return {
+      store,
+      get: () => ({ ...store }),
+      set: (_url: string, raw: string) => {
+        const [pair] = raw.split(";");
+        const eq = pair.indexOf("=");
+        store[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+      },
+    };
+  }
+
+  it("adopts a cookie the WebView set", async () => {
+    // The reported bug: add-to-cart inside the WebView, native badge stays 0.
+    const system = fakeSystem({ cart: "from-webview" });
+    const jar = createCookieJar({ system, systemUrl: "https://loja.example.com" });
+    await jar.syncFromSystem();
+    expect(jar.header()).toBe("cart=from-webview");
+  });
+
+  it("lets the platform store win over a stale local value", async () => {
+    // The jar's copy is the stale one by construction: the WebView is where
+    // checkout and login happen, so it is what MOVED the session.
+    const system = fakeSystem();
+    const jar = createCookieJar({ system, systemUrl: "https://loja.example.com" });
+    jar.apply(new Headers({ "set-cookie": "cart=older" }));
+    // O WebView mexe DEPOIS — é a sequência real: o usuário sai da tela nativa,
+    // faz algo numa página embutida, e volta.
+    system.store.cart = "newer";
+    await jar.syncFromSystem();
+    expect(jar.header()).toBe("cart=newer");
+  });
+
+  it("mirrors a native response's cookie back so the WebView sees it", () => {
+    // The other direction: add natively, then open checkout in the WebView.
+    const system = fakeSystem();
+    const jar = createCookieJar({ system, systemUrl: "https://loja.example.com" });
+    jar.apply(new Headers({ "set-cookie": "cart=from-native; Path=/; HttpOnly" }));
+    expect(system.store.cart).toBe("from-native");
+  });
+
+  it("is inert without a system store", async () => {
+    const jar = createCookieJar();
+    jar.apply(new Headers({ "set-cookie": "cart=local" }));
+    await jar.syncFromSystem();
+    expect(jar.header()).toBe("cart=local");
+  });
+
+  it("keeps working when the native module throws", async () => {
+    // No WebView installed, or the store refused. A broken bridge must degrade
+    // to the local jar, never fail the request.
+    const jar = createCookieJar({
+      system: {
+        get: () => { throw new Error("no native module"); },
+        set: () => { throw new Error("no native module"); },
+      },
+      systemUrl: "https://loja.example.com",
+    });
+    jar.apply(new Headers({ "set-cookie": "cart=local" }));
+    await jar.syncFromSystem();
+    expect(jar.header()).toBe("cart=local");
+  });
+});
