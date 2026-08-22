@@ -59,3 +59,5 @@ export type {
 export { createRoutePolicy, matchCmsRoute } from "./routes";
 export type { NativeSetupOptions } from "./setup";
 export { createNativeSetup } from "./setup";
+
+export { SiteView, type SiteViewProps, type WebViewLike } from "./SiteView";

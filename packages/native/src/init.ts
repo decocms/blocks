@@ -1,9 +1,16 @@
 /**
  * `deco-native init` — wires an existing Expo app to a Deco site.
  *
- * It does **not** scaffold the app: `create-expo-app` does that better, and an
- * `init` that owns your app is an init you fight later. This only writes the
- * glue, and only what is not already there (idempotent).
+ * It does **not** scaffold the Expo app: `create-expo-app` does that better, and
+ * an `init` that owns your app is an init you fight later. It writes the glue
+ * and the screens that make the glue visible, and only what is not already
+ * there (idempotent).
+ *
+ * The screens matter as much as the wiring. Route policy alone classifies a
+ * destination as `webview`, but nothing renders one — so an app with the
+ * package installed and no screens opens to a blank scaffold, which reads as
+ * "the package does not work". The catch-all below is what makes the site
+ * usable on day one, including pages published after the binary shipped.
  *
  * Every file it writes encodes a failure that is silent otherwise — all three
  * were found by actually consuming the package, not by reasoning about it:
@@ -87,6 +94,8 @@ const DECO_WIRING = (siteFromLib: string) => `/**
 import {
   cmsScreenConfig,
   createCookieJar,
+  type SystemCookieStore,
+  type SystemCookieStore,
   createNativeInvoke,
   createRenderJsonClient,
   createRoutePolicy,
@@ -99,10 +108,44 @@ import type { NativeHandlers } from "${siteFromLib}/.deco/invoke.native.gen";
 export const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL ?? "http://localhost:5173";
 
 /**
- * One jar for both surfaces: a cart cookie set by an invoke has to be on the
- * next ?renderJson. Pass \`storage\` (AsyncStorage/MMKV) to survive relaunches.
+ * One session for BOTH surfaces.
+ *
+ * The native fetch uses this jar; a <WebView> uses the platform store. Without
+ * the bridge they drift into separate carts — you add an item on a page inside
+ * the WebView and the native badge never moves, with no error anywhere.
+ *
+ * \`@react-native-cookies/cookies\` is a NATIVE module, so Expo Go cannot load
+ * it. The require is guarded: in Expo Go the bridge stays off and the app still
+ * runs; in a dev build it turns itself on with no code change.
  */
-export const jar = createCookieJar();
+function systemCookieStore(): SystemCookieStore | undefined {
+  try {
+    // CommonJS puro: \`module.exports = { ... }\`, sem \`default\`. Pedir
+    // \`.default\` devolve undefined e a ponte desliga em silêncio.
+    const mod = require("@react-native-cookies/cookies");
+    const CookieManager = mod?.default ?? mod;
+    if (!CookieManager?.get) return undefined;
+    return {
+      // \`useWebKit = true\` é o que importa: sem ele o iOS lê o
+      // NSHTTPCookieStorage, que é o store do fetch nativo — justamente o lado
+      // que NÃO precisa ser lido. O do WebView é o do WKWebView.
+      get: async (url: string) => {
+        const all = await CookieManager.get(url, true);
+        return Object.fromEntries(
+          Object.entries(all as Record<string, { value: string }>).map(([n, c]) => [n, c.value]),
+        );
+      },
+      set: async (url: string, setCookie: string) => {
+        await CookieManager.setFromResponse(url, setCookie);
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Pass \`storage\` (AsyncStorage/MMKV) to survive relaunches. */
+export const jar = createCookieJar({ system: systemCookieStore(), systemUrl: SITE_URL });
 
 export const client = createRenderJsonClient({
   baseUrl: SITE_URL,
@@ -125,6 +168,60 @@ export const routes = createRoutePolicy({
 });
 
 export const pageConfig = (path?: string) => cmsScreenConfig({ client, path });
+`;
+
+const ROOT_LAYOUT = `import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Stack } from "expo-router";
+
+const queryClient = new QueryClient();
+
+export default function RootLayout() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Stack screenOptions={{ headerShown: false }} />
+    </QueryClientProvider>
+  );
+}
+`;
+
+const CATCH_ALL = (libDir: string) => `import { SiteView } from "@decocms/native";
+import { useQueryClient } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { WebView } from "react-native-webview";
+import { SITE_URL, routes } from "${libDir}/deco";
+
+/**
+ * Every page with no native screen — which on day one is every page.
+ *
+ * This is a catch-all on purpose, and it must stay one. \`cmsRoutes\` is a
+ * SNAPSHOT taken at build time, not a whitelist: a page published in Studio
+ * after this binary shipped has to open too, and it does, here. Treating the
+ * generated table as a whitelist would break new pages until the next store
+ * release, which throws away the point of a CMS-driven app.
+ *
+ * To promote a route to native, add a line to the \`native\` map in
+ * \`${libDir}/deco.ts\` and write the screen. Nothing here changes.
+ */
+export default function SiteRoute() {
+  const router = useRouter();
+  const qc = useQueryClient();
+  const { path } = useLocalSearchParams<{ path?: string[] }>();
+
+  return (
+    <SiteView
+      WebViewComponent={WebView}
+      baseUrl={SITE_URL}
+      path={\`/\${(path ?? []).join("/")}\`}
+      resolve={routes.resolve}
+      onNavigateNative={(route) => router.push(route as never)}
+      // A page inside the WebView changed shared state. Native has no way to
+      // know otherwise — no event fires, and the query only revalidates when
+      // its staleTime expires, so a cart badge would sit still.
+      onMutation={() => void qc.invalidateQueries({ queryKey: ["cart"] })}
+      onLog={(level, text) => console.log(\`[webview:\${level}]\`, text)}
+    />
+  );
+}
 `;
 
 /** Merges the keys the app needs into an existing tsconfig, preserving the rest. */
@@ -193,6 +290,11 @@ export function runNativeInit(options: NativeInitOptions = {}): NativeInitResult
     .replace(/\\/g, "/");
   write(path.join(libDir, "deco.ts"), DECO_WIRING(libToSite || "."));
 
+  // The screens. Without them the package is installed and the app opens to
+  // nothing — which reads as "it does not work" rather than "no screens yet".
+  write(path.join("app", "_layout.tsx"), ROOT_LAYOUT);
+  write(path.join("app", "[...path].tsx"), CATCH_ALL(libToSite === "." ? `./${libDir}` : `../${libDir}`));
+
   const tsconfig = patchTsconfig(path.join(root, "tsconfig.json"));
   if (tsconfig === "created") created.push("tsconfig.json");
   else if (tsconfig === "patched") created.push("tsconfig.json (patched)");
@@ -216,6 +318,15 @@ export function runNativeInit(options: NativeInitOptions = {}): NativeInitResult
   next.push(
     `In the site, run: npx @decocms/blocks-cli/generate --platform native  ` +
       `(emits .deco/routes.gen.ts and .deco/invoke.native.gen.ts)`,
+  );
+  next.push(
+    "Install the peers the scaffolded screens use: " +
+      "npx expo install react-native-webview @tanstack/react-query",
+  );
+  next.push(
+    "For one session across native and WebView: npx expo install @react-native-cookies/cookies. " +
+      "It is a NATIVE module, so it needs a dev build — Expo Go cannot load it, and without it " +
+      "an item added inside the WebView lands in a different cart from the native screens.",
   );
   next.push(`Set EXPO_PUBLIC_SITE_URL, or edit SITE_URL in ${libDir}/deco.ts.`);
   next.push(`Opt pages into native screens in the \`native\` map of ${libDir}/deco.ts.`);

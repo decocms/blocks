@@ -129,3 +129,49 @@ describe("runNativeInit — tsconfig", () => {
     expect(runNativeInit({ root: app }).skipped).toContain("tsconfig.json");
   });
 });
+
+describe("scaffolded screens", () => {
+  it("writes a catch-all so the site opens on day one", () => {
+    const { app } = scaffold();
+    const result = runNativeInit({ root: app });
+    expect(result.created).toContain(path.join("app", "[...path].tsx"));
+    expect(result.created).toContain(path.join("app", "_layout.tsx"));
+  });
+
+  it("says out loud that the route table is a snapshot, not a whitelist", () => {
+    // Narrowing the catch-all to only the generated routes breaks every page
+    // published after the build until the next store release — which throws
+    // away the point of a CMS-driven app.
+    const { app } = scaffold();
+    runNativeInit({ root: app });
+    const source = fs.readFileSync(path.join(app, "app", "[...path].tsx"), "utf8");
+    expect(source).toContain("SNAPSHOT");
+    expect(source).toContain("not a whitelist");
+  });
+
+  it("wires the cookie bridge without asking for a `default` export", () => {
+    // @react-native-cookies/cookies is plain CommonJS: `module.exports = {...}`
+    // with no `default`. Reading `.default` yields undefined and the bridge
+    // turns itself off in silence — native and WebView then hold separate carts.
+    const { app } = scaffold();
+    runNativeInit({ root: app });
+    const source = fs.readFileSync(path.join(app, "lib", "deco.ts"), "utf8");
+    expect(source).toContain("mod?.default ?? mod");
+    expect(source).not.toMatch(/require\("@react-native-cookies\/cookies"\)\.default/);
+  });
+
+  it("reads the WebView's own cookie store, not the native one", () => {
+    // Without `useWebKit = true` iOS reads NSHTTPCookieStorage — the store the
+    // native fetch already uses, which is the half we do NOT need to read.
+    const { app } = scaffold();
+    runNativeInit({ root: app });
+    expect(fs.readFileSync(path.join(app, "lib", "deco.ts"), "utf8")).toContain("get(url, true)");
+  });
+
+  it("does not overwrite screens the app already has", () => {
+    const { app } = scaffold({ "app/_layout.tsx": "// mine" });
+    const result = runNativeInit({ root: app });
+    expect(result.skipped).toContain(path.join("app", "_layout.tsx"));
+    expect(fs.readFileSync(path.join(app, "app", "_layout.tsx"), "utf8")).toBe("// mine");
+  });
+});

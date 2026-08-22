@@ -23,6 +23,9 @@ describe("index barrel — device safety", () => {
     expect(new Set(modules)).toEqual(
       new Set([
         "DecoSections",
+        // Device-safe despite embedding the site: `react-native-webview` is
+        // injected by the caller, never imported here.
+        "SiteView",
         "cmsScreenConfig",
         "cookies",
         "invoke",
