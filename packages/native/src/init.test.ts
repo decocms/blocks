@@ -179,3 +179,19 @@ describe("scaffolded screens", () => {
     expect(fs.readFileSync(path.join(app, "app", "_layout.tsx"), "utf8")).toBe("// mine");
   });
 });
+
+describe("metro config", () => {
+  it("pins the packages that must be singletons", () => {
+    // A linked framework checkout resolves react/react-native from ITS own
+    // node_modules. Two copies of react-native means two native module
+    // registries, and the app dies with "Maximum call stack size exceeded"
+    // while evaluating the first import — with a perfectly successful bundle.
+    const { app } = scaffold();
+    runNativeInit({ root: app });
+    const source = fs.readFileSync(path.join(app, "metro.config.js"), "utf8");
+    expect(source).toContain("resolveRequest");
+    for (const pkg of ["react", "react-native", "nativewind", "expo-router"]) {
+      expect(source).toContain(`"${pkg}"`);
+    }
+  });
+});

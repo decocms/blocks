@@ -1,3 +1,8 @@
+/// <reference types="nativewind/types" />
+// A referência precisa estar AQUI, não num .d.ts solto do pacote: o framework
+// exporta .ts cru, então o `tsc` do consumidor compila esta fonte com o
+// tsconfig DELE — e um .d.ts que só o tsconfig do pacote inclui não viaja
+// junto. Sem isto, todo consumidor vê "Property 'className' does not exist".
 /**
  * DaisyUI-compatible components for React Native.
  *

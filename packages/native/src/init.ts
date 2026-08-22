@@ -81,6 +81,50 @@ for (const name of ["native", "blocks"]) {
   }
 }
 
+/**
+ * Packages that must exist exactly ONCE in the bundle.
+ *
+ * A module is resolved from where it lives. So when \`@decocms/native\` is a
+ * symlink to a framework checkout, it picks up the \`react\`/\`react-native\`
+ * from THAT repo's node_modules. Two copies of react-native means two native
+ * module registries, and the app dies with "Maximum call stack size exceeded
+ * (native stack depth)" while evaluating the first import — with no bundling
+ * error at all, because bundling both is perfectly possible.
+ *
+ * Seen in practice as react-native 0.81.5 against 0.81.6, react 19.1.0 against
+ * 19.2.7. A plain npm dependency does not hit this; a linked checkout always
+ * does.
+ */
+const SINGLETONS = [
+  "react",
+  "react-dom",
+  "react-native",
+  "react-native-css",
+  "nativewind",
+  "react-native-webview",
+  "react-native-safe-area-context",
+  "react-native-screens",
+  "expo-router",
+  "@tanstack/react-query",
+];
+
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const pkg = moduleName.startsWith("@")
+    ? moduleName.split("/").slice(0, 2).join("/")
+    : moduleName.split("/")[0];
+
+  if (SINGLETONS.includes(pkg)) {
+    // Resolve as if the import came from the app root, not from wherever the
+    // importing module happens to live.
+    return context.resolveRequest(
+      { ...context, originModulePath: path.join(__dirname, "index.js") },
+      moduleName,
+      platform,
+    );
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;
 `;
 
@@ -296,6 +340,12 @@ export function runNativeInit(options: NativeInitOptions = {}): NativeInitResult
   next.push(
     "Install the peers the scaffolded screens use: " +
       "npx expo install react-native-webview @tanstack/react-query",
+  );
+  next.push(
+    'Using @decocms/native/daisy? Add `@source "../node_modules/@decocms/native/src";` to the ' +
+      "Tailwind entry. The JIT only emits classes it SEES and does not look in node_modules, so " +
+      "`bg-primary` inside a packaged <Button> would simply not exist in the CSS — an uncoloured " +
+      "button with no error anywhere.",
   );
   next.push(
     "For one session across native and WebView: npx expo install @react-native-cookies/cookies. " +
