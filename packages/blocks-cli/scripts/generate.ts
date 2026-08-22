@@ -650,21 +650,48 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
     },
     {
       name: "invoke",
-      script: path.join(scriptsDir, "generate-invoke.ts"),
-      args: opts.appsDir ? ["--apps-dir", opts.appsDir] : [],
-      stage: 1,
-      ...enabledIf(
-        invokeSource !== null && hasTanstackStart,
-        invokeSource === null
-          ? "no apps invoke.ts found (@decocms/apps-vtex not installed and no --apps-dir)"
-          : "@tanstack/react-start not installed (invoke.gen.ts targets TanStack Start)",
+      // Same slot, different emitter. `createServerFn` is unreachable from a
+      // device (its transport is a build-generated /_serverFn/<id> and its
+      // server half needs the Start module graph), so a native app gets a
+      // TYPES-ONLY map of the /deco/invoke keys instead — same intent, a
+      // transport a phone can actually speak.
+      script: path.join(
+        scriptsDir,
+        opts.platform === "native" ? "generate-invoke-native.ts" : "generate-invoke.ts",
       ),
+      args:
+        opts.platform === "native"
+          ? ["--loaders-dir", opts.loadersDir, "--actions-dir", opts.actionsDir]
+          : opts.appsDir
+            ? ["--apps-dir", opts.appsDir]
+            : [],
+      stage: 1,
+      ...(opts.platform === "native"
+        ? enabledIf(
+            fs.existsSync(path.resolve(cwd, opts.loadersDir)) ||
+              fs.existsSync(path.resolve(cwd, opts.actionsDir)),
+            `neither ${opts.loadersDir} nor ${opts.actionsDir} exists`,
+          )
+        : enabledIf(
+            invokeSource !== null && hasTanstackStart,
+            invokeSource === null
+              ? "no apps invoke.ts found (@decocms/apps-vtex not installed and no --apps-dir)"
+              : "@tanstack/react-start not installed (invoke.gen.ts targets TanStack Start)",
+          )),
       // invoke.ts is the file the generator parses; the surrounding package's
       // action/type sources are fingerprinted via the @decocms/* version set
       // (node_modules content only changes with a version change in practice).
       inputs: () =>
-        sortEntries(invokeSource ? [statEntry(cwd, invokeSource)!].filter(Boolean) : []),
-      outputs: [path.join("src", "server", "invoke.gen.ts")],
+        opts.platform === "native"
+          ? sortEntries([
+              ...walkTree(cwd, opts.loadersDir, [".ts", ".tsx"]),
+              ...walkTree(cwd, opts.actionsDir, [".ts", ".tsx"]),
+            ])
+          : sortEntries(invokeSource ? [statEntry(cwd, invokeSource)!].filter(Boolean) : []),
+      outputs:
+        opts.platform === "native"
+          ? [path.join(".deco", "invoke.native.gen.ts")]
+          : [path.join("src", "server", "invoke.gen.ts")],
     },
     {
       name: "schema",
@@ -748,16 +775,16 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
   }
 
   // --platform native: an app RENDERS (unlike eitri), so it needs the section
-  // conventions and the schema — but not the Next-only manifest, and not
-  // invoke, which emits `@tanstack/react-start` imports an RN app has no use
-  // for. `blocks` stays on because `routes` reads the same directory and the
-  // snapshot is what the site's worker serves. Applied before --only/--skip.
+  // conventions and the schema — but not the Next-only manifest. `invoke`
+  // stays on with a different emitter (see its plan entry). `blocks` stays on
+  // because `routes` reads the same directory and the snapshot is what the
+  // site's worker serves. Applied before --only/--skip.
   if (opts.platform === "native") {
     for (const plan of plans) {
       if (plan.name === "routes") {
         plan.enabled = true;
         plan.disabledReason = undefined;
-      } else if (plan.name === "manifest" || plan.name === "invoke") {
+      } else if (plan.name === "manifest") {
         plan.enabled = false;
         plan.disabledReason = "not used by --platform native";
       }

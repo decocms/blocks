@@ -117,6 +117,28 @@ unreachable off-device by construction: its transport is
 module graph. `createNativeInvoke` targets `/deco/invoke/<key>` instead, which
 is a plain HTTP POST.
 
+Generate the typed handler map from the site:
+
+```bash
+npx @decocms/blocks-cli/generate --platform native   # → .deco/invoke.native.gen.ts
+```
+
+```ts
+import type { NativeHandlers } from "../../.deco/invoke.native.gen";
+
+const { invoke } = createNativeInvoke<NativeHandlers>({ baseUrl, jar });
+await invoke.site.actions.newsletter.subscribe({ email }); // typed both ways
+```
+
+That file is **types only** — it creates no endpoint, registers no handler and
+adds nothing to any bundle. Importing it is the opt-in. A site that upgrades
+and never imports it is unaffected, which is deliberate: every entry describes
+a public endpoint, and a framework upgrade must never silently widen a site's
+network surface.
+
+A handler whose types cannot be named from outside its file degrades to
+`unknown` with a warning, rather than emitting an import that will not compile.
+
 > **`/deco/invoke` has no authentication today** — no token, no origin check.
 > Every registered loader and action is a public endpoint, which is why
 > `generate-invoke.ts` ships a `PRIVILEGED_ACTIONS` deny-list. Shipping an app
