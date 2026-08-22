@@ -9,7 +9,8 @@ import {
   useState,
 } from "react";
 import { Await, ClientOnly } from "@tanstack/react-router";
-import type { SectionOptions } from "@decocms/blocks/cms/client";
+import type { PageItem, SectionOptions } from "@decocms/blocks/cms/client";
+import { mergeSections } from "@decocms/blocks/cms/client";
 import {
   getResolvedComponent,
   getSectionOptions,
@@ -446,41 +447,6 @@ function DeferredSectionSkeleton({
   if (fallback) return <>{fallback}</>;
   if (isDev) return <DevMissingFallbackWarning component={deferred.component} />;
   return <DefaultSectionFallback />;
-}
-
-// ---------------------------------------------------------------------------
-// Merge helper — combines eager and deferred sections in original order
-// ---------------------------------------------------------------------------
-
-type PageItem =
-  | { type: "eager"; section: ResolvedSection; originalIndex: number }
-  | { type: "deferred"; deferred: DeferredSection };
-
-function mergeSections(resolved: ResolvedSection[], deferred: DeferredSection[]): PageItem[] {
-  if (!resolved?.length && !deferred?.length) return [];
-  const safeResolved = resolved ?? [];
-  const safeDeferred = deferred ?? [];
-
-  if (!safeDeferred.length) {
-    return safeResolved.map((s, i) => ({ type: "eager", section: s, originalIndex: i }));
-  }
-
-  // Use the `index` property stamped by resolveDecoPage to sort all
-  // sections (eager + deferred) back into their original CMS order.
-  const items: (PageItem & { _sort: number })[] = [];
-
-  for (let i = 0; i < safeResolved.length; i++) {
-    const s = safeResolved[i];
-    items.push({ type: "eager", section: s, originalIndex: i, _sort: s.index ?? i });
-  }
-
-  for (const d of safeDeferred) {
-    items.push({ type: "deferred", deferred: d, _sort: d.index } as PageItem & { _sort: number });
-  }
-
-  items.sort((a, b) => a._sort - b._sort);
-
-  return items;
 }
 
 // ---------------------------------------------------------------------------
