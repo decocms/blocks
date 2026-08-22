@@ -42,5 +42,7 @@ export type {
   SerializedSection,
 } from "./renderJson";
 export { createRenderJsonClient, isDeferred, RenderJsonError } from "./renderJson";
+export type { CmsRoute, RouteMatch, RoutePolicy, RoutePolicyOptions, RouteTarget } from "./routes";
+export { createRoutePolicy, matchCmsRoute } from "./routes";
 export type { NativeSetupOptions } from "./setup";
 export { createNativeSetup } from "./setup";

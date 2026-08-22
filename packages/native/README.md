@@ -123,6 +123,47 @@ is a plain HTTP POST.
 > makes that more urgent, not less. `headers` is the seam for a scheme once the
 > server has one.
 
+## Routes
+
+The page tree is already data — `.deco/blocks/pages-*.json`, the files Studio
+writes. So the app does not re-declare routes; it consumes a generated table:
+
+```bash
+npx @decocms/blocks-cli/generate --platform native   # emits .deco/routes.gen.ts
+```
+
+```ts
+import { cmsRoutes } from "../.deco/routes.gen";
+
+const policy = createRoutePolicy({
+  routes: cmsRoutes,
+  native: { "/": "/(tabs)/home", "/products/:slug": "/product/[slug]" },
+});
+
+policy.resolve(product.url); // → { kind: "native", route: "/product/dad-hat-4438" }
+policy.resolve("/institucional/trocas"); // → { kind: "web", route: "/web/..." }
+```
+
+It is generated rather than read at runtime for a concrete reason: CMS paths are
+**URLPattern** syntax, and `matchPath` (`@decocms/blocks`) *throws* on a runtime
+without the `URLPattern` API — Hermes has none. The generator runs in Node,
+which does, and emits plain regexes.
+
+**The table is a snapshot, not a whitelist.** The app is a released binary; a
+page published tomorrow is not in it. So an unmatched path falls through to the
+WebView rather than 404-ing — otherwise publishing in Studio would break the app
+until the next store release.
+
+| Change | Needs a build? |
+|---|---|
+| Content edits | no |
+| A brand-new page | no — opens in the WebView |
+| A new *section type* | yes — it needs a native renderer |
+
+Route every CMS `href` through `policy.resolve`. Sections then never learn what
+is native, so opting a page in changes every section that already linked there,
+at once.
+
 ## Requirements
 
 - `@decocms/blocks` ≥ the release carrying the `react-native` export condition
