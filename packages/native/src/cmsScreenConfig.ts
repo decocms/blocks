@@ -45,6 +45,19 @@ export interface CmsScreenConfig {
   queryFn: () => Promise<RenderJsonPage>;
   staleTime: number;
   gcTime: number;
+  /**
+   * Keeps the previous page on screen while the next one loads.
+   *
+   * The query key carries the search params, so applying a filter or changing
+   * the sort is a NEW key with no cached data — and without this the screen
+   * falls back to its loading state and the whole list unmounts and remounts.
+   * On a device that reads as a fresh sheet sliding in, not as a list updating.
+   *
+   * This is the native equivalent of the site's `export const eager = true` on
+   * SearchResult: keep the section mounted across URL changes so filters and
+   * sort stay put, and only the grid swaps.
+   */
+  placeholderData: (previous: RenderJsonPage | undefined) => RenderJsonPage | undefined;
 }
 
 /** Strips ignored params so `?skuId=` changes do not produce a new query key. */
@@ -69,6 +82,9 @@ export function cmsScreenConfig(options: CmsScreenOptions): CmsScreenConfig {
     queryFn: () => client.fetchPage(path),
     staleTime,
     gcTime,
+    // Identity instead of importing `keepPreviousData` — same behaviour, and
+    // it keeps @tanstack/react-query out of this package's dependencies.
+    placeholderData: (previous) => previous,
   };
 }
 
@@ -80,5 +96,9 @@ export function deferredSectionConfig(client: RenderJsonClient, lazyUrl: string)
     // A deferred section is part of the page it came from; the page's own
     // staleTime governs when the whole thing is refetched.
     staleTime: Number.POSITIVE_INFINITY,
+    // A filter change gives every deferred section a new `lazyUrl`, so each one
+    // would blank out on its own. Holding the previous render means the grid
+    // greys out in place instead of the page collapsing to a skeleton.
+    placeholderData: (previous: { component: string; props: Record<string, unknown> } | undefined) => previous,
   };
 }

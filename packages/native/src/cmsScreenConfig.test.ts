@@ -78,3 +78,23 @@ describe("deferredSectionConfig", () => {
     expect(deferredSectionConfig(client, "/x").staleTime).toBe(Number.POSITIVE_INFINITY);
   });
 });
+
+describe("keeping the previous page while the next loads", () => {
+  it("carries the previous page over a key change", () => {
+    // Applying a filter is a NEW query key with no cached data. Without this
+    // the screen falls back to its loading state and the whole list unmounts —
+    // on a device that reads as a fresh sheet sliding in, not as a list
+    // updating. It is the native equivalent of the site's `eager = true`.
+    const config = cmsScreenConfig({ client: {} as never, path: "/men?filter.x=1" });
+    const previous = { name: "Men", path: "/men", sections: [] };
+    expect(config.placeholderData(previous as never)).toBe(previous);
+  });
+
+  it("does the same for each deferred section", () => {
+    // A filter change gives EVERY deferred section a new lazyUrl, so each one
+    // would blank out on its own even if the page envelope were held.
+    const config = deferredSectionConfig({} as never, "/men?renderJson&__section=2");
+    const previous = { component: "SearchResult.tsx", props: {} };
+    expect(config.placeholderData(previous)).toBe(previous);
+  });
+});
