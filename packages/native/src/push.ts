@@ -26,6 +26,14 @@
  * }
  * ```
  *
+ * ## Server-side, and exported separately for that reason
+ *
+ * A sweep runs against a device registry on a schedule — there is no request
+ * and no device involved. It also reaches into the CMS matcher engine, which
+ * pulls `node:async_hooks`. So this is `@decocms/native/push`, never the root
+ * barrel: re-exporting it there breaks every native bundle with "Unable to
+ * resolve module node:async_hooks".
+ *
  * ## What this module is not
  *
  * It does not deliver. APNs/FCM/Expo Push is a provider choice, and a bad one

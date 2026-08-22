@@ -8,6 +8,9 @@ import {
   selectCampaigns,
 } from "./push";
 
+// Imported from ./push, not the root barrel — see the note there on why the
+// root must stay device-safe.
+
 const NOW = Date.parse("2026-08-21T12:00:00Z");
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

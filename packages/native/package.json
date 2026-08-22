@@ -12,7 +12,8 @@
 	"main": "./src/index.ts",
 	"exports": {
 		".": "./src/index.ts",
-		"./setup": "./src/setup.ts"
+		"./setup": "./src/setup.ts",
+		"./push": "./src/push.ts"
 	},
 	"scripts": {
 		"build": "tsc",
