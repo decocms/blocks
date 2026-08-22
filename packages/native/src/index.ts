@@ -25,12 +25,16 @@
 
 export type { CmsScreenConfig, CmsScreenOptions } from "./cmsScreenConfig";
 export { cmsScreenConfig, deferredSectionConfig } from "./cmsScreenConfig";
+export type { CookieJar, CookieJarOptions, CookieStorage } from "./cookies";
+export { createCookieJar, readSetCookies, splitSetCookie, withCookieJar } from "./cookies";
 export type {
   DecoSectionsProps,
   NativeRegistry,
   ResolvedDeferred,
 } from "./DecoSections";
 export { DecoSections } from "./DecoSections";
+export type { NativeInvokeOptions } from "./invoke";
+export { createNativeInvoke } from "./invoke";
 export type {
   RenderJsonClient,
   RenderJsonClientOptions,

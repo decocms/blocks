@@ -84,6 +84,45 @@ Not a `ScrollView`. Your app owns scrolling because it also owns
 pull-to-refresh, tab bars, sticky headers and viewport detection. Wrapping here
 would take that away.
 
+## Session / cookies
+
+The site keeps session state entirely in cookies — nothing is mirrored into a
+response body. A browser makes that invisible; React Native has no cookie jar,
+and its `whatwg-fetch` `Headers` has no `getSetCookie()` and *collapses*
+repeated headers (`old + ", " + value`). A VTEX cart round-trip sets five
+cookies, so they arrive as one comma-joined string — and splitting it naively
+corrupts every cookie carrying an `Expires` date, because those contain commas.
+
+`createCookieJar` + `withCookieJar` handle that. Requires **no server change**.
+
+```ts
+// One jar for both surfaces: a cart cookie set by an invoke must be visible
+// to the next ?renderJson.
+const jar = createCookieJar({ storage: AsyncStorage });
+const client = createRenderJsonClient({ baseUrl, fetcher: withCookieJar(jar) });
+const { invoke } = createNativeInvoke({ baseUrl, jar });
+```
+
+`storage` is any async-or-sync KV (`@react-native-async-storage/async-storage`
+fits as-is); omit it for an in-memory jar. `jar.clear()` is logout.
+
+This is **not** an RFC 6265 jar: an app talks to one storefront origin, so
+`Domain`/`Path` matching and friends are skipped. Add scoping if that changes.
+
+## Calling loaders and actions
+
+`createServerFn` — what the site uses for cart, user and wishlist — is
+unreachable off-device by construction: its transport is
+`/_serverFn/<build-generated-id>` and its server half needs the TanStack Start
+module graph. `createNativeInvoke` targets `/deco/invoke/<key>` instead, which
+is a plain HTTP POST.
+
+> **`/deco/invoke` has no authentication today** — no token, no origin check.
+> Every registered loader and action is a public endpoint, which is why
+> `generate-invoke.ts` ships a `PRIVILEGED_ACTIONS` deny-list. Shipping an app
+> makes that more urgent, not less. `headers` is the seam for a scheme once the
+> server has one.
+
 ## Requirements
 
 - `@decocms/blocks` ≥ the release carrying the `react-native` export condition
