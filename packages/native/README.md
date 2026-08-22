@@ -19,6 +19,31 @@ Bundling `blocks.gen.json` into an app would be actively wrong: megabytes of
 content that goes stale the moment someone publishes. The whole point of
 `?renderJson` is that content updates without a store release.
 
+## Setup
+
+Inside an existing Expo app (`create-expo-app` scaffolds that better than we
+would):
+
+```bash
+npx deco-native init          # wires the app to the site alongside it
+```
+
+It writes three files and never overwrites — safe to re-run. Each one encodes a
+failure that is otherwise silent, and all three were found by consuming the
+package, not by reasoning about it:
+
+| file | what it prevents |
+|---|---|
+| `metro.config.js` | Metro watches only the project dir. Without `watchFolders`, importing `<site>/.deco/*` fails with *"Unable to resolve module"* — **with the file in place and `tsc` happy**. |
+| `tsconfig.json` | The framework exports raw `.ts`, so your `tsc` type-checks its source and `skipLibCheck` does not apply. Without `@types/node` you get `node:async_hooks` errors from inside `@decocms/blocks`, even though Metro resolves the RN stub correctly. |
+| `lib/deco.ts` | One cookie jar shared by `?renderJson` and `/deco/invoke` — a cart cookie set by an invoke has to be on the next page load. |
+
+Then, **in the site**:
+
+```bash
+npx deco-native generate      # or: blocks-cli generate --platform native
+```
+
 ## Usage
 
 ```tsx

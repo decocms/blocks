@@ -21,7 +21,9 @@
 		"lint:unused": "knip"
 	},
 	"dependencies": {
-		"@decocms/blocks": "workspace:*"
+		"@decocms/blocks": "workspace:*",
+		"@decocms/blocks-cli": "workspace:*",
+		"tsx": "^4.22.5"
 	},
 	"peerDependencies": {
 		"react": "^19.0.0"
@@ -34,5 +36,8 @@
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org",
 		"access": "public"
+	},
+	"bin": {
+		"deco-native": "./src/cli.ts"
 	}
 }

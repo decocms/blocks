@@ -279,6 +279,9 @@
         "deco-audit-observability": "./scripts/audit-observability-config.ts",
         "deco-migrate-blocks-to-kv": "./scripts/migrate-blocks-to-kv.ts",
         "deco-sync-blocks-to-kv": "./scripts/sync-blocks-to-kv.ts",
+        "deco-sync-blocks-bot": "./scripts/sync-blocks-bot.ts",
+        "deco-upgrade-6-to-7": "./scripts/upgrade-6-to-7.ts",
+        "deco-reconcile": "./scripts/reconcile.ts",
       },
       "dependencies": {
         "@decocms/blocks": "workspace:*",
@@ -308,8 +311,13 @@
     "packages/native": {
       "name": "@decocms/native",
       "version": "0.0.0",
+      "bin": {
+        "deco-native": "./src/cli.ts",
+      },
       "dependencies": {
         "@decocms/blocks": "workspace:*",
+        "@decocms/blocks-cli": "workspace:*",
+        "tsx": "^4.22.5",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
