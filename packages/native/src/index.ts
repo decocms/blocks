@@ -36,6 +36,12 @@ export { DecoSections } from "./DecoSections";
 export type { NativeInvokeOptions } from "./invoke";
 export { createNativeInvoke } from "./invoke";
 export type {
+  DeviceSnapshot,
+  PushCampaign,
+  SelectedCampaign,
+} from "./push";
+export { isCoolingDown, registerPushMatchers, selectCampaigns } from "./push";
+export type {
   RenderJsonClient,
   RenderJsonClientOptions,
   RenderJsonPage,

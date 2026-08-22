@@ -405,6 +405,17 @@ export type CommerceLoader = (props: any, request?: Request) => Promise<any>;
  * Includes HTTP request info for matcher evaluation and per-request memoization.
  */
 export interface MatcherContext {
+  /**
+   * State for matchers that do NOT evaluate against an HTTP request.
+   *
+   * Every other field here assumes a request is in flight. A push campaign
+   * does not have one: it is evaluated against a snapshot of a device
+   * (last-open time, cart contents, platform) on a schedule. Rather than fork
+   * the matcher system for that, out-of-request matchers read their inputs
+   * from here — so composition (`multi`, `negate`), saved matcher blocks and
+   * the Studio-authored schema all keep working unchanged.
+   */
+  state?: Record<string, unknown>;
   userAgent?: string;
   url?: string;
   path?: string;

@@ -211,6 +211,56 @@ Route every CMS `href` through `policy.resolve`. Sections then never learn what
 is native, so opting a page in changes every section that already linked there,
 at once.
 
+## Push campaigns
+
+A push campaign is a **decofile block with a matcher rule** — which means
+Studio can already author one. `generate-schema` turns the `PushCampaign`
+interface into a form, audiences compose with `multi`/`negate`, and a saved
+matcher block is reusable across campaigns. Nothing new to build on the
+authoring side.
+
+```jsonc
+// .deco/blocks/push-carrinho-abandonado.json
+{
+  "title": "Seu carrinho está esperando",
+  "body": "Finalize sua compra e ganhe frete grátis",
+  "url": "/checkout",
+  "cooldownHours": 48,
+  "audience": {
+    "__resolveType": "website/matchers/multi.ts",
+    "op": "and",
+    "matchers": [
+      { "__resolveType": "native/matchers/cartAge.ts", "minHours": 4 },
+      { "__resolveType": "native/matchers/platform.ts", "ios": true }
+    ]
+  }
+}
+```
+
+```ts
+registerPushMatchers();                                  // once, at boot
+const due = selectCampaigns(campaigns, devices);         // pure — no clock, no I/O
+for (const { campaign, device } of due) await send(device.token, campaign);
+```
+
+| matcher | targets |
+|---|---|
+| `native/matchers/lastOpen.ts` | `minDays`/`maxDays` since the app was opened |
+| `native/matchers/cartAge.ts` | a cart with items, untouched for `minHours` |
+| `native/matchers/platform.ts` | `ios` / `android` |
+| `native/matchers/signedIn.ts` | signed-in or signed-out devices |
+| `native/matchers/tag.ts` | a segment the app assigned |
+
+**`cooldownHours` is required, not optional.** A campaign with no cap notifies
+the same device on every sweep, which is how an app gets uninstalled.
+`selectCampaigns` will not return a campaign inside its window, and skips a
+campaign whose cap is zero.
+
+**Delivery is yours.** APNs/FCM/Expo Push is a provider choice and a bad one to
+bake into a framework, so `selectCampaigns` returns *who should get what* and
+stops there. Scheduling is likewise the site's cron — this only answers "given
+these campaigns and this device, right now, which fire?".
+
 ## Requirements
 
 - `@decocms/blocks` ≥ the release carrying the `react-native` export condition
