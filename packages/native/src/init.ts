@@ -342,10 +342,12 @@ export function runNativeInit(options: NativeInitOptions = {}): NativeInitResult
       "npx expo install react-native-webview @tanstack/react-query",
   );
   next.push(
-    'Using @decocms/native/daisy? Add `@source "../node_modules/@decocms/native/src";` to the ' +
-      "Tailwind entry. The JIT only emits classes it SEES and does not look in node_modules, so " +
+    'Using @decocms/native/daisy? Add `@import "@decocms/native/daisy.css";` to the Tailwind ' +
+      "entry. The JIT only emits classes it SEES and does not look in node_modules, so " +
       "`bg-primary` inside a packaged <Button> would simply not exist in the CSS — an uncoloured " +
-      "button with no error anywhere.",
+      "button, a transparent modal, and no error anywhere. It has to be that import rather than " +
+      "an `@source` pointing at node_modules: in a linked checkout that path is a symlink, and " +
+      "Tailwind does not walk symlinked directories.",
   );
   next.push(
     "For one session across native and WebView: npx expo install @react-native-cookies/cookies. " +

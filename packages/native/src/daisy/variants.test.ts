@@ -71,3 +71,15 @@ describe("cx", () => {
     expect(cx("a", false, null, undefined, "b")).toBe("a b");
   });
 });
+
+describe("packaged CSS entry", () => {
+  it("declares its own sources relative to itself", async () => {
+    // The app cannot do this with `@source "…/node_modules/@decocms/native/src"`:
+    // in a linked checkout that is a symlink, and Tailwind does not walk
+    // symlinked directories. Classes used ONLY here then vanish from the CSS —
+    // a transparent modal, an uncoloured button, no error anywhere.
+    const fs = await import("node:fs");
+    const css = fs.readFileSync("packages/native/src/daisy/daisy.css", "utf8");
+    expect(css).toContain('@source "./**/*.{ts,tsx}"');
+  });
+});
