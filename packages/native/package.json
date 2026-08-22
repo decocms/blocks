@@ -15,7 +15,8 @@
     "./setup": "./src/setup.ts",
     "./push": "./src/push.ts",
     "./daisy": "./src/daisy/index.ts",
-    "./daisy.css": "./src/daisy/daisy.css"
+    "./daisy.css": "./src/daisy/daisy.css",
+    "./image": "./src/image.tsx"
   },
   "scripts": {
     "build": "tsc",

@@ -354,6 +354,13 @@ export function runNativeInit(options: NativeInitOptions = {}): NativeInitResult
       "It is a NATIVE module, so it needs a dev build — Expo Go cannot load it, and without it " +
       "an item added inside the WebView lands in a different cart from the native screens.",
   );
+  next.push(
+    "Images: render them with `DecoImage` from @decocms/native/image, and register a backend " +
+      "once at boot (`setImageBackend({ Image, prefetch })` with expo-image). Without the " +
+      "backend it still works, minus disk cache and prefetch. Without DecoImage the app " +
+      "downloads CMS originals — measured at 1.34 MB per product photo for a 160dp card, and " +
+      "1.62 MB for a home banner, against 79 KB and 15 KB resized.",
+  );
   next.push(`Set EXPO_PUBLIC_SITE_URL, or edit SITE_URL in ${libDir}/deco.ts.`);
   next.push(`Opt pages into native screens in the \`native\` map of ${libDir}/deco.ts.`);
 
