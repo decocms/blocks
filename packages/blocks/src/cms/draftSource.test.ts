@@ -10,6 +10,7 @@ import {
   previewApiOriginForHost,
   resolveDraftDecofile,
   resolveDraftForRequest,
+  setDecoSiteHost,
   setDraftPreviewHosts,
 } from "./draftSource";
 
@@ -319,6 +320,97 @@ describe("site-block preview hosts", () => {
       expect(isDraftHostAllowed("fila.vtex.app", env)).toBe(false);
     } finally {
       setDraftPreviewHosts([]);
+    }
+  });
+});
+
+describe("deco-hosted preview domains (setDecoSiteHost)", () => {
+  it("infers <site>.deco.site and enables the feature", () => {
+    setDecoSiteHost("als-storefront");
+    try {
+      expect(isDraftPreviewEnabled({})).toBe(true);
+      expect(isDraftHostAllowed("als-storefront.deco.site", {})).toBe(true);
+      expect(isDraftHostAllowed("other.deco.site", {})).toBe(false);
+      // A custom production domain is never inferred.
+      expect(isDraftHostAllowed("www.als-storefront.com", {})).toBe(false);
+    } finally {
+      setDecoSiteHost(null);
+    }
+  });
+
+  it("infers the per-deploy envs-<site>--<hash>.decocdn.com host", () => {
+    setDecoSiteHost("als-storefront");
+    try {
+      // The <hash> label changes every deploy — matched as a pattern.
+      expect(isDraftHostAllowed("envs-als-storefront--4l18ts.decocdn.com", {})).toBe(true);
+      expect(isDraftHostAllowed("envs-als-storefront--abc123.decocdn.com", {})).toBe(true);
+      // Wrong site prefix.
+      expect(isDraftHostAllowed("envs-other-site--4l18ts.decocdn.com", {})).toBe(false);
+      // Missing the `envs-` prefix / the `--` separator.
+      expect(isDraftHostAllowed("als-storefront--4l18ts.decocdn.com", {})).toBe(false);
+      expect(isDraftHostAllowed("envs-als-storefront-4l18ts.decocdn.com", {})).toBe(false);
+      // Empty hash.
+      expect(isDraftHostAllowed("envs-als-storefront--.decocdn.com", {})).toBe(false);
+      // The hash must be a single label — no sneaking a nested subdomain under
+      // an attacker-controlled *.decocdn.com.
+      expect(isDraftHostAllowed("envs-als-storefront--x.evil.decocdn.com", {})).toBe(false);
+      // Wrong apex.
+      expect(isDraftHostAllowed("envs-als-storefront--4l18ts.example.com", {})).toBe(false);
+    } finally {
+      setDecoSiteHost(null);
+    }
+  });
+
+  it("is merged ON TOP of the site block, not replacing it", () => {
+    setDraftPreviewHosts(["fila.vtex.app"]);
+    setDecoSiteHost("als-storefront");
+    try {
+      expect(isDraftHostAllowed("fila.vtex.app", {})).toBe(true);
+      expect(isDraftHostAllowed("als-storefront.deco.site", {})).toBe(true);
+    } finally {
+      setDraftPreviewHosts([]);
+      setDecoSiteHost(null);
+    }
+  });
+
+  it("is merged ON TOP of the env escape hatch too", () => {
+    setDecoSiteHost("als-storefront");
+    try {
+      const env = { DECO_ALLOWED_PREVIEW_HOSTS: "other.example" };
+      expect(isDraftHostAllowed("other.example", env)).toBe(true);
+      expect(isDraftHostAllowed("als-storefront.deco.site", env)).toBe(true);
+    } finally {
+      setDecoSiteHost(null);
+    }
+  });
+
+  it("a blank/null/undefined site name registers no host", () => {
+    // The binding passes DECO_SITE_NAME straight through — an unnamed site
+    // (unset binding, blank value) is not armed.
+    for (const site of ["   ", null, undefined]) {
+      setDecoSiteHost(site);
+      try {
+        expect(isDraftPreviewEnabled({})).toBe(false);
+      } finally {
+        setDecoSiteHost(null);
+      }
+    }
+  });
+
+  it("DECO_ALLOWED_PREVIEW_HOSTS=none kills the inferred hosts too", () => {
+    setDraftPreviewHosts(["fila.vtex.app"]);
+    setDecoSiteHost("als-storefront");
+    try {
+      // The kill switch wins over the inferred hosts AND the site block, so a
+      // bad rollout can be stopped without a deploy.
+      const env = { DECO_ALLOWED_PREVIEW_HOSTS: "none" };
+      expect(isDraftPreviewEnabled(env)).toBe(false);
+      expect(isDraftHostAllowed("als-storefront.deco.site", env)).toBe(false);
+      expect(isDraftHostAllowed("envs-als-storefront--4l18ts.decocdn.com", env)).toBe(false);
+      expect(isDraftHostAllowed("fila.vtex.app", env)).toBe(false);
+    } finally {
+      setDraftPreviewHosts([]);
+      setDecoSiteHost(null);
     }
   });
 });

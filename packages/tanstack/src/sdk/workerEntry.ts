@@ -82,6 +82,7 @@ import {
   applyDraftCookieAndHeaders,
   bindRequestDraft,
   type DraftDecision,
+  installDecoSiteHostFromEnv,
   installPreviewHostsFromBlocks,
   registerDraftOverride,
   requestCarriesDraft,
@@ -1552,6 +1553,13 @@ export function createDecoWorkerEntry(
       const startedAt = performance.now();
       const reqUrl = new URL(request.url);
       const method = request.method;
+
+      // Deco-hosted preview domains (`<site>.deco.site`, envs-…decocdn.com)
+      // inferred from the DECO_SITE_NAME binding. Installed before any draft
+      // gate runs (requestCarriesDraft participates in the cacheability
+      // decision below). The binding is deploy-constant, so this is an
+      // idempotent write.
+      installDecoSiteHostFromEnv(env);
 
       // Inject CF geo data as cookies for location matchers (before anything reads cookies)
       if (geoOpt) {

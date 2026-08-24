@@ -1,6 +1,8 @@
 import {
   clearDraftCache,
   getRequestDraftOverride,
+  isDraftPreviewEnabled,
+  setDecoSiteHost,
   setDraftPreviewHosts,
 } from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
@@ -10,6 +12,7 @@ import {
   applyDraftCookieAndHeaders,
   bindRequestDraft,
   type DraftDecision,
+  installDecoSiteHostFromEnv,
   installPreviewHostsFromBlocks,
   registerDraftOverride,
   requestCarriesDraft,
@@ -295,5 +298,44 @@ describe("installPreviewHostsFromBlocks", () => {
         url,
       ),
     ).toBe(false);
+  });
+});
+
+describe("installDecoSiteHostFromEnv", () => {
+  afterEach(() => {
+    setDecoSiteHost(null);
+  });
+
+  it("arms the deco-hosted domains from the DECO_SITE_NAME binding", () => {
+    setDraftPreviewHosts([]);
+    installDecoSiteHostFromEnv({ DECO_SITE_NAME: "als-storefront" });
+
+    // Verified through the wire: both deco-operated hosts now preview, with no
+    // site-block/env config at all.
+    for (const host of [
+      "als-storefront.deco.site",
+      "envs-als-storefront--4l18ts.decocdn.com",
+    ]) {
+      const url = new URL(
+        `https://${host}/p?__draft=abc.preview-studio.decocms.com@v1`,
+      );
+      expect(requestCarriesDraft(req({ url: url.toString(), host }), url)).toBe(true);
+    }
+    // A custom production domain is never inferred.
+    const url = new URL("https://www.als-storefront.com/p?__draft=x@v1");
+    expect(
+      requestCarriesDraft(
+        req({ url: url.toString(), host: "www.als-storefront.com" }),
+        url,
+      ),
+    ).toBe(false);
+  });
+
+  it("an unset or non-string binding registers nothing", () => {
+    setDraftPreviewHosts([]);
+    installDecoSiteHostFromEnv({});
+    expect(isDraftPreviewEnabled({})).toBe(false);
+    installDecoSiteHostFromEnv({ DECO_SITE_NAME: 42 });
+    expect(isDraftPreviewEnabled({})).toBe(false);
   });
 });
