@@ -338,24 +338,18 @@ describe("deco-hosted preview domains (setDecoSiteHost)", () => {
     }
   });
 
-  it("infers the per-deploy envs-<site>--<hash>.decocdn.com host", () => {
-    setDecoSiteHost("als-storefront");
+  it("infers the <site>.deco-cx.workers.dev deploy host", () => {
+    setDecoSiteHost("casaevideo-tanstack");
     try {
-      // The <hash> label changes every deploy — matched as a pattern.
-      expect(isDraftHostAllowed("envs-als-storefront--4l18ts.decocdn.com", {})).toBe(true);
-      expect(isDraftHostAllowed("envs-als-storefront--abc123.decocdn.com", {})).toBe(true);
-      // Wrong site prefix.
-      expect(isDraftHostAllowed("envs-other-site--4l18ts.decocdn.com", {})).toBe(false);
-      // Missing the `envs-` prefix / the `--` separator.
-      expect(isDraftHostAllowed("als-storefront--4l18ts.decocdn.com", {})).toBe(false);
-      expect(isDraftHostAllowed("envs-als-storefront-4l18ts.decocdn.com", {})).toBe(false);
-      // Empty hash.
-      expect(isDraftHostAllowed("envs-als-storefront--.decocdn.com", {})).toBe(false);
-      // The hash must be a single label — no sneaking a nested subdomain under
-      // an attacker-controlled *.decocdn.com.
-      expect(isDraftHostAllowed("envs-als-storefront--x.evil.decocdn.com", {})).toBe(false);
+      expect(isDraftHostAllowed("casaevideo-tanstack.deco-cx.workers.dev", {})).toBe(true);
+      // Exact match only — another worker on the same account is not admitted.
+      expect(isDraftHostAllowed("other-site.deco-cx.workers.dev", {})).toBe(false);
+      // No nested subdomain widens the match.
+      expect(
+        isDraftHostAllowed("casaevideo-tanstack.evil.deco-cx.workers.dev", {}),
+      ).toBe(false);
       // Wrong apex.
-      expect(isDraftHostAllowed("envs-als-storefront--4l18ts.example.com", {})).toBe(false);
+      expect(isDraftHostAllowed("casaevideo-tanstack.deco-cx.workers.example", {})).toBe(false);
     } finally {
       setDecoSiteHost(null);
     }
@@ -406,7 +400,7 @@ describe("deco-hosted preview domains (setDecoSiteHost)", () => {
       const env = { DECO_ALLOWED_PREVIEW_HOSTS: "none" };
       expect(isDraftPreviewEnabled(env)).toBe(false);
       expect(isDraftHostAllowed("als-storefront.deco.site", env)).toBe(false);
-      expect(isDraftHostAllowed("envs-als-storefront--4l18ts.decocdn.com", env)).toBe(false);
+      expect(isDraftHostAllowed("als-storefront.deco-cx.workers.dev", env)).toBe(false);
       expect(isDraftHostAllowed("fila.vtex.app", env)).toBe(false);
     } finally {
       setDraftPreviewHosts([]);

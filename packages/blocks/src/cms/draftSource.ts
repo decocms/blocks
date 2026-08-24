@@ -175,12 +175,11 @@ export function setDraftPreviewHosts(hosts: readonly unknown[]): void {
 /**
  * Register the resolved site name (`DECO_SITE_NAME` / an explicit setup
  * option, resolved by the framework binding at setup). deco-operated preview
- * domains are derived from it:
+ * hosts are derived from it, both exact:
  *
- *   - `<site>.deco.site` — the stable deco-hosted domain (exact host).
- *   - `envs-<site>--<hash>.decocdn.com` — the per-deploy preview URL, whose
- *     `<hash>` label changes every deploy (so it is matched as a PATTERN, never
- *     a fixed allowlist entry).
+ *   - `<site>.deco.site` — the stable deco-hosted domain.
+ *   - `<site>.deco-cx.workers.dev` — the workers.dev deploy URL
+ *     (e.g. `casaevideo-tanstack.deco-cx.workers.dev`).
  *
  * Both are MERGED with the site-block/env list rather than replacing it: they
  * are deco-operated infra, so a signed draft grant can preview there out of the
@@ -199,82 +198,54 @@ export function setDecoSiteHost(site: string | null | undefined): void {
   G.__decoSite = s || undefined;
 }
 
-/** Suffix of deco's per-deploy preview CDN (`envs-<site>--<hash>.decocdn.com`). */
-const DEPLOY_PREVIEW_SUFFIX = ".decocdn.com";
-/** A single DNS label — the per-deploy `<hash>`, which carries no dots. */
-const DEPLOY_HASH_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-
 /**
- * The resolved preview gate: the exact-match host list, the per-deploy preview
- * pattern, and the kill switch — all in one read so callers see a consistent
- * view.
+ * Hosts allowed to render drafts.
  *
- * The site block is the expected source of `hosts` — the opt-in lives in the
- * repo, reviewed in a PR, versioned with branches. `DECO_ALLOWED_PREVIEW_HOSTS`
- * REPLACES it when set: an operational escape hatch (kill a bad value without a
- * deploy, add a machine-specific port) — not the primary configuration.
+ * The site block is the expected source — the opt-in lives in the repo,
+ * reviewed in a PR, versioned with branches. `DECO_ALLOWED_PREVIEW_HOSTS`
+ * REPLACES it when set: an operational escape hatch (kill a bad value without
+ * a deploy, add a machine-specific port) — not the primary configuration.
  *
- * The deco-hosted domains inferred from the site name (`<site>.deco.site` as an
- * exact host, `envs-<site>--<hash>.decocdn.com` as `deployPreviewPrefix`) are
- * always ADDED on top, so a signed draft grant can preview on deco-operated
- * infra without any per-site config.
+ * The deco-hosted domains inferred from the site name (via `setDecoSiteHost`)
+ * are always ADDED on top, so a signed draft grant can preview on
+ * deco-operated infra without any per-site config.
  *
  * The sentinel `DECO_ALLOWED_PREVIEW_HOSTS=none` is a KILL SWITCH: it disables
  * preview entirely — the inferred hosts and the site block included — so a bad
  * rollout can be stopped without a deploy. It must win over every other source.
  */
-function previewConfig(env: Record<string, string | undefined>): {
-  hosts: string[];
-  deployPreviewPrefix: string | null;
-} {
+function readAllowedHosts(env: Record<string, string | undefined>): string[] {
   const fromEnv = (env.DECO_ALLOWED_PREVIEW_HOSTS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  if (fromEnv.includes("none")) return { hosts: [], deployPreviewPrefix: null };
+  if (fromEnv.includes("none")) return [];
   const configured = fromEnv.length > 0 ? fromEnv : (G.__decoDraftHosts ?? []);
   const site = G.__decoSite;
-  if (!site) return { hosts: configured, deployPreviewPrefix: null };
-  const decoSite = `${site}.deco.site`;
-  return {
-    hosts: configured.includes(decoSite) ? configured : [...configured, decoSite],
-    deployPreviewPrefix: `envs-${site}--`,
-  };
-}
-
-/**
- * Whether `host` matches the per-deploy preview URL
- * `envs-<site>--<hash>.decocdn.com`. The `<hash>` is a fresh label every deploy,
- * so it can't be a fixed allowlist entry — but it is constrained to a SINGLE DNS
- * label (no dots), so nothing under an attacker-controlled `*.decocdn.com`
- * subdomain (`envs-<site>--x.evil.decocdn.com`) can widen the match.
- */
-function matchesDeployPreview(host: string, prefix: string | null): boolean {
-  if (!prefix) return false;
-  if (!host.startsWith(prefix) || !host.endsWith(DEPLOY_PREVIEW_SUFFIX)) {
-    return false;
-  }
-  const hash = host.slice(prefix.length, -DEPLOY_PREVIEW_SUFFIX.length);
-  return DEPLOY_HASH_RE.test(hash);
+  if (!site) return configured;
+  const inferred = [`${site}.deco.site`, `${site}.deco-cx.workers.dev`].filter(
+    (h) => !configured.includes(h),
+  );
+  return inferred.length > 0 ? [...configured, ...inferred] : configured;
 }
 
 /**
  * Whether `host` (as seen on the request) may render drafts.
  *
- * Exact-matched against the allowlist (port included — local dev is
- * `localhost:3100`, not `localhost`), then against the per-deploy preview
- * pattern. The header is spoofable by a direct-to-origin request, but the
- * draft id is the actual capability; host-scoping bounds blast radius
- * (production domains stay inert), it is not a secret.
+ * Compared against the allowlist verbatim, port included — local dev is
+ * `localhost:3100`, not `localhost`. The header is spoofable by a
+ * direct-to-origin request, but the draft id is the actual capability;
+ * host-scoping bounds blast radius (production domains stay inert), it is not
+ * a secret.
  */
 export function isDraftHostAllowed(
   host: string | null | undefined,
   env?: Record<string, string | undefined>,
 ): boolean {
   if (!host) return false;
-  const h = host.trim().toLowerCase();
-  const cfg = previewConfig(envOrProcess(env));
-  return cfg.hosts.includes(h) || matchesDeployPreview(h, cfg.deployPreviewPrefix);
+  return readAllowedHosts(envOrProcess(env)).includes(
+    host.trim().toLowerCase(),
+  );
 }
 
 /**
@@ -282,15 +253,14 @@ export function isDraftHostAllowed(
  * to gate BEFORE touching dynamic APIs (`cookies()`/`headers()`), so an
  * unconfigured site never loses static/ISR rendering. A site with no config
  * but a resolved name is now enabled here (its inferred `<site>.deco.site` /
- * `envs-<site>--*.decocdn.com` hosts); `DECO_ALLOWED_PREVIEW_HOSTS=none`
+ * `<site>.deco-cx.workers.dev` hosts); `DECO_ALLOWED_PREVIEW_HOSTS=none`
  * forces it back to fully inert. The per-request host match happens later, in
  * `isDraftHostAllowed`.
  */
 export function isDraftPreviewEnabled(
   env?: Record<string, string | undefined>,
 ): boolean {
-  const cfg = previewConfig(envOrProcess(env));
-  return cfg.hosts.length > 0 || cfg.deployPreviewPrefix !== null;
+  return readAllowedHosts(envOrProcess(env)).length > 0;
 }
 
 function envOrProcess(
