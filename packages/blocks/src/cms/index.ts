@@ -33,6 +33,7 @@ export {
   previewApiOriginForHost,
   resolveDraftDecofile,
   resolveDraftForRequest,
+  setDecoSiteHost,
   setDraftOverrideGetter,
   setDraftPreviewHosts,
 } from "./draftSource";

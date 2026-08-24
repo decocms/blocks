@@ -37,6 +37,7 @@ import {
   isDraftHostAllowed,
   isDraftPreviewEnabled,
   resolveDraftForRequest,
+  setDecoSiteHost,
   setDraftOverrideGetter,
   setDraftPreviewHosts,
 } from "@decocms/blocks/cms";
@@ -88,6 +89,28 @@ export function registerDraftOverride(): void {
 export function installPreviewHostsFromBlocks(blocks: Record<string, unknown> | undefined): void {
   const site = (blocks?.site ?? blocks?.Site) as { previewHosts?: unknown } | undefined;
   if (Array.isArray(site?.previewHosts)) setDraftPreviewHosts(site.previewHosts);
+}
+
+/**
+ * Register the deco-operated preview hosts inferred from the site name —
+ * `<site>.deco.site` and `<site>.deco-cx.workers.dev` (the workers.dev deploy
+ * URL, e.g. `casaevideo-tanstack.deco-cx.workers.dev`) — so a signed
+ * `?__draft=` grant previews on deco-hosted infra with zero per-site config.
+ *
+ * Fed from the Workers env binding `DECO_SITE_NAME`: deploy-time configuration
+ * set by deco's hosting, trusted the same way `DECO_ALLOWED_PREVIEW_HOSTS` is —
+ * never derived from the request. Merged ON TOP of the site block/env list
+ * (see `setDecoSiteHost` in `@decocms/blocks`); an unset binding registers
+ * nothing, and `DECO_ALLOWED_PREVIEW_HOSTS=none` kills the inferred hosts too.
+ *
+ * This inference is deliberately tanstack-only (like Fast Deploy): the
+ * deco-operated domains only ever serve Workers deployments, and in the Next
+ * binding flipping `isDraftPreviewEnabled()` on costs every page its
+ * static/ISR rendering — Next sites keep the explicit opt-in.
+ */
+export function installDecoSiteHostFromEnv(env: Record<string, unknown>): void {
+  const site = env.DECO_SITE_NAME;
+  setDecoSiteHost(typeof site === "string" ? site : undefined);
 }
 
 // ---------------------------------------------------------------------------
