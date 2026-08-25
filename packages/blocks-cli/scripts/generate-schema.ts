@@ -27,12 +27,14 @@ import { fileURLToPath } from "node:url";
  *   --skip-apps   Skip app schema generation
  *   --out         Output file        (default: ".deco/meta.gen.json")
  *   --platform    Platform name      (default: "cloudflare")
- *   --compose     Run composeMeta() before writing so the output is
- *                 SELF-CONTAINED (bakes in Page, matchers, __SECTION_REF__,
- *                 Resolvable). For consumers that read meta.gen.json straight
- *                 from disk with no runtime (FS-based Studio / Eitri stack).
- *   --framework   With --compose, the value written to the `framework` field
+ *   --framework   Value written to the composed meta's `framework` field
  *                 (default: "tanstack-start").
+ *
+ * The output is ALWAYS run through composeMeta() before writing, so
+ * meta.gen.json is self-contained (bakes in Page, matchers, __SECTION_REF__,
+ * Resolvable). This matters for consumers that read the file straight from
+ * disk with no runtime (FS-based Studio / Eitri stack); runtime readers
+ * re-compose idempotently (see composeMeta's `framework` sentinel).
  */
 import {
   type Symbol as MorphSymbol,
@@ -72,14 +74,12 @@ let APPS_REL = "src/apps";
 let SKIP_APPS = false;
 let OUT_REL = NEW_DEFAULT_OUT_REL;
 let PLATFORM = "cloudflare";
-// When true, run composeMeta() over the generated site meta before writing, so
-// the output file is SELF-CONTAINED — it carries the framework block types
-// (Page, matchers, __SECTION_REF__, Resolvable) that composeMeta otherwise
-// injects at runtime. Required by consumers that read meta.gen.json straight
-// from the filesystem with no runtime (e.g. the FS-based Studio / Eitri stack).
-let COMPOSE = false;
-// Value written to the composed meta's `framework` field (only used with
-// --compose). Defaults to composeMeta's historical "tanstack-start".
+// Value written to the composed meta's `framework` field. Defaults to
+// composeMeta's historical "tanstack-start". composeMeta ALWAYS runs before
+// writing (see the write block below), so the output file is SELF-CONTAINED —
+// it carries the framework block types (Page, matchers, __SECTION_REF__,
+// Resolvable). Required by consumers that read meta.gen.json straight from the
+// filesystem with no runtime (e.g. the FS-based Studio / Eitri stack).
 let FRAMEWORK = "tanstack-start";
 
 if (isMainModule()) {
@@ -92,7 +92,6 @@ if (isMainModule()) {
   SKIP_APPS = argv.includes("--skip-apps");
   OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
   PLATFORM = arg("platform", PLATFORM);
-  COMPOSE = argv.includes("--compose");
   FRAMEWORK = arg("framework", FRAMEWORK);
 }
 
@@ -1543,18 +1542,17 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  // Wrapped in an async IIFE so --compose can dynamically import composeMeta
-  // ONLY when requested — the default path (and any test importing this
-  // module's pure exports) never pulls in the @decocms/blocks/cms barrel.
+  // Wrapped in an async IIFE so the composeMeta dynamic import happens only
+  // when this module is actually run (any test importing this module's pure
+  // exports never reaches here, so it never pulls in the @decocms/blocks/cms
+  // barrel). composeMeta always runs, making the written file self-contained.
   void (async () => {
-    let meta = generateMeta();
-    if (COMPOSE) {
-      const { composeMeta } = await import("@decocms/blocks/cms");
-      // composeMeta returns @decocms/blocks' MetaResponse (platform optional);
-      // this file's local MetaResponse requires platform. It's always present
-      // (composeMeta spreads siteMeta, which set it), so the cast is safe.
-      meta = composeMeta(meta, { framework: FRAMEWORK }) as MetaResponse;
-    }
+    const rawMeta = generateMeta();
+    const { composeMeta } = await import("@decocms/blocks/cms");
+    // composeMeta returns @decocms/blocks' MetaResponse (platform optional);
+    // this file's local MetaResponse requires platform. It's always present
+    // (composeMeta spreads siteMeta, which set it), so the cast is safe.
+    const meta = composeMeta(rawMeta, { framework: FRAMEWORK }) as MetaResponse;
     const outPath = path.resolve(process.cwd(), OUT_REL);
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
@@ -1564,7 +1562,7 @@ if (isMainModule()) {
     const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
     const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
     console.log(
-      `\nGenerated schema${COMPOSE ? " (self-contained)" : ""}: ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
+      `\nGenerated schema (self-contained): ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
     );
   })();
 }

@@ -658,15 +658,15 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
         ...(opts.namespace ? ["--namespace", opts.namespace] : []),
         ...(opts.platform ? ["--platform", opts.platform] : []),
         ...(opts.skipApps ? ["--skip-apps"] : []),
-        // Always bake composeMeta's framework block types (Page, matchers,
-        // __SECTION_REF__, Resolvable) into meta.gen.json so the file is
-        // SELF-CONTAINED for every consumer that reads it straight from disk —
-        // the FS-based Studio and the Eitri stack, but also anyone diffing the
-        // committed artifact against /live/_meta. The tanstack runtime re-runs
-        // composeMeta on load, which is now idempotent (it returns an
-        // already-composed meta unchanged — see composeMeta's `framework`
-        // sentinel), so this is a no-op there rather than a double-compose.
-        "--compose",
+        // generate-schema always bakes composeMeta's framework block types
+        // (Page, matchers, __SECTION_REF__, Resolvable) into meta.gen.json, so
+        // the file is SELF-CONTAINED for every consumer that reads it straight
+        // from disk — the FS-based Studio and the Eitri stack, but also anyone
+        // diffing the committed artifact against /live/_meta. The tanstack
+        // runtime re-runs composeMeta on load, which is idempotent (it returns
+        // an already-composed meta unchanged — see composeMeta's `framework`
+        // sentinel), so that's a no-op rather than a double-compose.
+        //
         // Non-React stacks (Eitri) tag the composed meta with their own
         // framework name; everyone else gets composeMeta's default
         // ("tanstack-start").

@@ -55,17 +55,12 @@ describe("decoVitePlugin client stubs (regression guard)", () => {
 
 describe("generateSchemaArgs (regression: meta.gen.json must be composed)", () => {
   // Both generate-schema.ts invocations in configureServer (watch regen + cold
-  // start) derive their args from this helper. --compose is mandatory: without
-  // it the manifest is written UNCOMPOSED — missing every framework website/*
-  // block (matchers/Page/Resolvable) — and Studio, which reads meta.gen.json
-  // as-is, silently loses editors (e.g. the variant date matcher). See
-  // casaevideo-tanstack #633.
-  it("always includes --compose", () => {
-    expect(generateSchemaArgs("casaevideo")).toContain("--compose");
-  });
-
+  // start) derive their args from this helper. generate-schema always composes
+  // before writing, so the manifest carries every framework website/* block
+  // (matchers/Page/Resolvable) that Studio — which reads meta.gen.json as-is —
+  // needs, e.g. the variant date matcher. See casaevideo-tanstack #633.
   it("targets the given site", () => {
-    expect(generateSchemaArgs("my-site")).toEqual(["--site", "my-site", "--compose"]);
+    expect(generateSchemaArgs("my-site")).toEqual(["--site", "my-site"]);
   });
 });
 

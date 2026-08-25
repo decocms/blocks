@@ -157,20 +157,20 @@ const STUB_SOURCE = {
 /**
  * Argv (after the generate-schema.ts script path) for a meta.gen.json run.
  *
- * `--compose` is MANDATORY. Without it generate-schema emits an UNCOMPOSED
- * manifest missing every framework `website/*` block (Page, matchers,
- * __SECTION_REF__, Resolvable). meta.gen.json is committed and Studio reads it
- * as-is (no composeMeta at read time), so an uncomposed rewrite silently breaks
- * the admin editors — e.g. the date matcher powering variant rules disappears
- * (casaevideo-tanstack #633). Mirrors `npm run generate`'s schema step
- * (`blocks-cli generate --compose`). Both invocation sites in configureServer
- * derive their args here so the flag can never drift off one of them.
+ * generate-schema ALWAYS composes before writing, so the emitted meta.gen.json
+ * carries every framework `website/*` block (Page, matchers, __SECTION_REF__,
+ * Resolvable). This matters because meta.gen.json is committed and Studio reads
+ * it as-is (no composeMeta at read time) — an uncomposed rewrite would silently
+ * break the admin editors, e.g. the date matcher powering variant rules
+ * disappearing (casaevideo-tanstack #633). Mirrors `npm run generate`'s schema
+ * step. Both invocation sites in configureServer derive their args here so they
+ * can never drift apart.
  *
  * @param {string} siteName
  * @returns {string[]}
  */
 export function generateSchemaArgs(siteName) {
-  return ["--site", siteName, "--compose"];
+  return ["--site", siteName];
 }
 
 /** @returns {import("vite").PluginOption} */
@@ -473,8 +473,8 @@ export function decoVitePlugin() {
       // re-run generate-schema.ts so meta.gen.json stays in sync during dev.
       // No --out is passed to the generator below, so it writes to its own
       // default (.deco/meta.gen.json) — this constant must track that default.
-      // Both invocations get their args from generateSchemaArgs(), which pins
-      // the mandatory --compose flag (see its doc comment).
+      // Both invocations get their args from generateSchemaArgs() so they can't
+      // drift apart (see its doc comment).
       const schemaWatchDirs = ["src"];
       const schemaOutFile = path.resolve(cwd, ".deco/meta.gen.json");
 

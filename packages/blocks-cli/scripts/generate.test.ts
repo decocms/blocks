@@ -242,8 +242,7 @@ describe("buildPlan --platform eitri", () => {
         expect(byName[name].disabledReason).toBe("not used by --platform eitri");
       }
 
-      // schema is asked to bake composeMeta's framework block types in.
-      expect(byName.schema.args).toContain("--compose");
+      // schema tags the composed meta with the eitri framework name.
       const fwIdx = byName.schema.args.indexOf("--framework");
       expect(byName.schema.args[fwIdx + 1]).toBe("eitri");
     } finally {
