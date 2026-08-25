@@ -2,6 +2,9 @@ import { registerCacheableSections, registerSectionLoader } from "@decocms/block
 import type { ResolvedSection } from "@decocms/blocks/cms";
 import { describe, expect, it } from "vitest";
 import {
+  CmsPagePendingFallback,
+  cmsHomeRouteConfig,
+  cmsRouteConfig,
   parseLoadCmsHomePageInput,
   parseLoadCmsPageInput,
   runSectionLoadersWithSeo,
@@ -96,5 +99,44 @@ describe("runSectionLoadersWithSeo (#355)", () => {
 
     expect((enrichedSections[0].props as any).loaded).toBe(true);
     expect(enrichedSeoSection).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pending UI defaults
+// ---------------------------------------------------------------------------
+//
+// Re-enabling deferral on client nav shrinks the blocking window but never
+// removes it — the eager set still has to resolve before TanStack commits the
+// transition. With no `pendingComponent` the router keeps the PREVIOUS page on
+// screen with zero feedback, which reads as a frozen tab, so the framework now
+// ships a default. A site that genuinely wants no pending UI passes `null`.
+
+describe("cmsRouteConfig / cmsHomeRouteConfig — pending UI defaults", () => {
+  const base = { siteName: "Loja", defaultTitle: "Loja" };
+
+  it("defaults pendingComponent to CmsPagePendingFallback", () => {
+    expect(cmsRouteConfig(base).pendingComponent).toBe(CmsPagePendingFallback);
+    expect(cmsHomeRouteConfig({ defaultTitle: "Loja" }).pendingComponent).toBe(
+      CmsPagePendingFallback,
+    );
+  });
+
+  it("honors a site-provided pendingComponent", () => {
+    const custom = () => null;
+    expect(cmsRouteConfig({ ...base, pendingComponent: custom }).pendingComponent).toBe(custom);
+  });
+
+  it("omits pendingComponent entirely when a site opts out with null", () => {
+    expect("pendingComponent" in cmsRouteConfig({ ...base, pendingComponent: null })).toBe(false);
+    expect(
+      "pendingComponent" in cmsHomeRouteConfig({ defaultTitle: "Loja", pendingComponent: null }),
+    ).toBe(false);
+  });
+
+  it("keeps the documented pendingMs / pendingMinMs defaults", () => {
+    const cfg = cmsRouteConfig(base);
+    expect(cfg.pendingMs).toBe(200);
+    expect(cfg.pendingMinMs).toBe(300);
   });
 });

@@ -1368,8 +1368,13 @@ export function createDecoWorkerEntry(
     // bucket so a fetch-triggered eager response never poisons the navigation
     // (deferred) entry, and vice-versa. MUST use the same `Sec-Fetch-Dest:
     // empty` signal as isProgrammaticFetch so the key and render decisions can't
-    // diverge. `/_serverFn` (SPA-nav data) is excluded: it has its own keying
-    // and stays eager via isClientNavigation, not this bucket.
+    // diverge. `/_serverFn` (SPA-nav data) is excluded: it sends the same
+    // `Sec-Fetch-Dest: empty` but is NOT a programmatic fetch — it renders
+    // through DecoPageRenderer and so keeps the same deferred split as the
+    // document (isProgrammaticFetch bails on isClientNavigation for the same
+    // reason). It needs no bucket of its own here: its cache key is the
+    // `/_serverFn/...` pathname + canonicalized payload, which can never
+    // collide with a document entry.
     const secFetchDest = request.headers.get("sec-fetch-dest");
     const isServerFnPath =
       url.pathname.startsWith("/_serverFn/") || url.pathname.startsWith("/_server/");

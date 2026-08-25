@@ -388,9 +388,10 @@ function hasForceEagerParam(ctx?: MatcherContext): boolean {
  * (`image`/`script`/`style`/`font`) do not — navigations stay deferred because
  * they CAN hydrate and resolve deferred sections. SPA navigations (TanStack
  * `<Link>` → `/_serverFn`) also send `empty` but set `isClientNavigation`, and
- * are excluded here so page-SEO commerce loaders stay off for humans
- * (decocms/blocks#286); their sections already render eagerly via the
- * `!isClientNav` branch of the `useAsync` gate.
+ * are excluded here on both counts: page-SEO commerce loaders stay off for
+ * humans (decocms/blocks#286), and their sections stay deferred, because a
+ * client nav renders through `DecoPageRenderer` and therefore CAN resolve a
+ * deferred section on scroll — unlike a real AJAX consumer.
  *
  * Like {@link hasForceEagerParam}, this must stay in lock-step with the edge
  * cache key: `workerEntry` keys `Sec-Fetch-Dest: empty` page requests into a
@@ -447,11 +448,15 @@ export interface MatcherContext {
    */
   flags?: StoredFlag[];
   /**
-   * Client-side (SPA) navigation via TanStack `<Link>`. Disables section
-   * deferral: deferral is a streaming-SSR optimization, but a client nav
-   * receives the server-fn JSON in one shot, so deferral adds a round-trip +
-   * skeleton with no benefit (and breaks loaders that need per-request app
-   * context — see decocms/blocks#277). Set by the route loaders.
+   * Client-side (SPA) navigation via TanStack `<Link>`. Set by the route
+   * loaders, where the incoming request URL is the `/_serverFn/...` endpoint
+   * rather than the page being navigated to.
+   *
+   * Consumed by `derivePageUrl` (rebuilding the real page URL, #280) and by
+   * {@link isProgrammaticFetch} (a SPA nav sends `Sec-Fetch-Dest: empty` but is
+   * NOT an AJAX consumer). It deliberately does NOT affect section deferral —
+   * a TanStack route loader is blocking, so eager-resolving below-fold sections
+   * on client nav stalls the whole transition. See `resolveDecoPageImpl`.
    */
   isClientNavigation?: boolean;
 }
@@ -1523,6 +1528,15 @@ function isCmsDeferralWrapped(section: unknown, matcherCtx?: MatcherContext): bo
  * then they can only force a NON-⚡ section eager — they never override the
  * editor's ⚡ choice.
  *
+ * Because deferral now applies to client (SPA) navigations too, a ⚡ section is
+ * resolved on a SECOND server hop (`loadDeferredSection`) in both cases. That
+ * hop rebuilds MatcherContext from the real request, but it cannot reconstruct
+ * "which branch of the page renders at all" — so a *gate* section (one whose
+ * loader picks between `children`/`fallback`, e.g. a combined PDP/PLP route)
+ * must be left un-⚡ in the admin. There is deliberately no code-level override
+ * for this: `neverDefer`/`alwaysEager` sit below the admin check and cannot win
+ * against an explicit editorial ⚡ (see decocms/blocks#277).
+ *
  * Exported for unit testing.
  */
 export function shouldDeferSection(
@@ -2008,13 +2022,28 @@ async function resolveDecoPageImpl(
   }
 
   const isBotReq = isEagerRequest(matcherCtx);
-  // SPA navigation (TanStack <Link>) receives the server-fn JSON in one shot —
-  // there is no HTTP streaming, so deferral adds a round-trip + skeleton with
-  // no benefit (and breaks loaders that need per-request app context, #277).
-  // Resolve everything eagerly on client nav; SSR/bots keep deferral.
-  const isClientNav = matcherCtx?.isClientNavigation ?? false;
+  // Deferral applies identically to SSR documents and SPA navigations. A
+  // TanStack route loader is BLOCKING: the router does not commit the
+  // transition until the loader promise settles, so resolving every
+  // below-the-fold section eagerly on client nav freezes the previous page for
+  // as long as the slowest shelf/upstream takes (measured: 2.7s and a 3.4MB
+  // payload on a real PDP — worse than a full reload). Deferral's job is
+  // decoupling first paint from below-fold data, which matters MORE here, not
+  // less.
+  //
+  // #277 (deferred loaders missing per-request app context) is not a reason to
+  // disable deferral on client nav: the deferred second hop is the same
+  // `loadDeferredSection` server fn the SSR path has always used — it rebuilds
+  // matcherCtx from the real request (url/path/cookies/request) and runs
+  // server-side in the same isolate. A section whose loader genuinely cannot be
+  // resolved on a second hop (e.g. a PDP/PLP gate that decides what renders at
+  // all) must not be marked ⚡ in the admin; see `shouldDeferSection`.
+  //
+  // `isClientNavigation` is still load-bearing for `derivePageUrl` (duplicate
+  // query params) and for `isProgrammaticFetch` (SPA `Sec-Fetch-Dest: empty`
+  // must not be mistaken for an AJAX call) — it just no longer gates deferral.
   const currentAsyncConfig = getAsyncConfig();
-  const useAsync = currentAsyncConfig !== null && !isBotReq && !isClientNav;
+  const useAsync = currentAsyncConfig !== null && !isBotReq;
 
   const eagerResults: (ResolvedSection[] | Promise<ResolvedSection[]>)[] = [];
   const deferredSections: DeferredSection[] = [];

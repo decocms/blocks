@@ -495,6 +495,11 @@ interface Props {
    * Unawaited promises for deferred sections, keyed by `d_<index>`.
    * Created by the route loader for TanStack native SSR streaming.
    * When provided, takes precedence over `loadDeferredSectionFn`.
+   *
+   * SSR-ONLY: promises cannot cross the server-fn JSON boundary, so a client
+   * (SPA) navigation never receives them. Any site that defers sections needs
+   * `loadDeferredSectionFn` wired regardless — it is the only path that works
+   * for both SSR and client nav.
    */
   deferredPromises?: Record<string, Promise<ResolvedSection | null>>;
   pagePath?: string;
@@ -509,7 +514,15 @@ interface Props {
   device?: Device;
   loadingFallback?: ReactNode;
   errorFallback?: ReactNode;
-  /** @deprecated Use deferredPromises instead (TanStack native streaming). */
+  /**
+   * IntersectionObserver-driven loader for deferred sections — wire this to
+   * `deferredSectionLoader` from `@decocms/tanstack`.
+   *
+   * NOT deprecated: `deferredPromises` only covers SSR (promises can't be
+   * serialized through a server fn), so this is the only deferred-resolution
+   * path available on a client (SPA) navigation. Without it, deferred sections
+   * on a SPA transition render a skeleton that never resolves.
+   */
   loadDeferredSectionFn?: (data: {
     component: string;
     rawProps?: Record<string, unknown>;
