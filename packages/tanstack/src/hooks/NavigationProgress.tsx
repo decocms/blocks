@@ -5,17 +5,30 @@ const PROGRESS_CSS = `
 .nav-progress-bar { animation: progressSlide 1s ease-in-out infinite; }
 `;
 
+/**
+ * Brand token when the site defines it, inherited text color when it does not.
+ *
+ * The bar used to be painted with the Tailwind utility `bg-brand-primary-500`.
+ * That token is a *site* concern, and framework code cannot assume it exists: on
+ * a Tailwind v4 theme that resets `--color-*: initial` the utility is never
+ * generated, so the class resolved to nothing and the bar rendered fully
+ * transparent — an invisible progress indicator, in production, with no build
+ * error and nothing in the console.
+ *
+ * A CSS custom property with a fallback fixes that without regressing the sites
+ * where it already worked: they keep their brand color (Tailwind v4 emits
+ * `--color-brand-primary-500` for a `brand-primary` palette entry), and
+ * everyone else falls back to `currentColor` instead of nothing. Unlike a
+ * utility class, neither half can be dropped by a CSS build.
+ */
+const DEFAULT_COLOR = "var(--color-brand-primary-500, currentColor)";
+
 export interface NavigationProgressProps {
 	/**
-	 * Bar color. Any CSS color. Defaults to `currentColor`, so the bar inherits
-	 * the text color of wherever it is mounted.
-	 *
-	 * Deliberately NOT a Tailwind utility class: this is framework code, and a
-	 * utility like `bg-brand-primary-500` is only emitted if the consuming site
-	 * happens to define that token. On a Tailwind v4 theme that resets
-	 * `--color-*: initial`, the class is never generated and the bar renders
-	 * fully transparent — an invisible progress indicator, in production, with
-	 * no build error. Inline styles cannot fail that way.
+	 * Bar color. Any CSS color or custom-property expression. Defaults to
+	 * {@link DEFAULT_COLOR} — the site's `brand-primary-500` token when defined,
+	 * otherwise the inherited text color. Pass an explicit value to brand the bar
+	 * without relying on that token name.
 	 */
 	color?: string;
 }
@@ -24,7 +37,7 @@ export interface NavigationProgressProps {
  * Top-of-page loading bar that appears during SPA navigation.
  * Uses the router's isLoading state — no extra dependencies.
  */
-export function NavigationProgress({ color = "currentColor" }: NavigationProgressProps = {}) {
+export function NavigationProgress({ color = DEFAULT_COLOR }: NavigationProgressProps = {}) {
 	const isLoading = useRouterState({ select: (s) => s.isLoading });
 	if (!isLoading) return null;
 	return (

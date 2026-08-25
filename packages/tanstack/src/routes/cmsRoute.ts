@@ -289,14 +289,21 @@ export const loadCmsPage = createServerFn({ method: "GET" })
     // Using basePath only caused /s?q=a and /s?q=b to share one promise,
     // returning wrong/empty results for search and filtered PLPs.
     //
-    // SSR and client-nav now produce the SAME eager/deferred split, so the two
-    // can safely share one in-flight promise — the `__nav:` bucket that used to
-    // keep them apart existed only because client-nav resolved everything
-    // eagerly (#277) and must not inherit an SSR response's deferredSections.
-    // `resolveGlobals` stays part of the key — otherwise a `resolveGlobals:
-    // false` request could return (or share a promise with) a `resolveGlobals:
-    // true` response for the same path.
-    const inflightKey = fullPath + (resolveGlobals ? "" : "|noGlobals");
+    // SSR and client-nav produce the same eager/deferred split now, so the
+    // original reason for the `__nav:` bucket — a client-nav request must never
+    // inherit an SSR response's deferredSections (#277) — no longer applies. It
+    // is kept anyway, because this map is module-global and the payload it
+    // shares carries `pageUrl`, `flags`, and `device` derived from whichever
+    // request won the race. That cross-request bleed is pre-existing and wider
+    // than this bucket (two concurrent same-path requests already collide on
+    // cookies/UA/geo), but SSR and client-nav are exactly the pair whose
+    // `derivePageUrl` inputs differ most, so collapsing them would widen a
+    // known hole for no gain. `resolveGlobals` is part of the key for the same
+    // reason: a `resolveGlobals: false` request must not share a promise with a
+    // `resolveGlobals: true` one.
+    const clientNav = isClientNavigation(fullPath, getRequestUrl());
+    const inflightKey =
+      (clientNav ? `__nav:${fullPath}` : fullPath) + (resolveGlobals ? "" : "|noGlobals");
     const existing = pageInflight.get(inflightKey);
     if (existing) return existing;
 
@@ -546,28 +553,6 @@ export function CmsPageErrorFallback(props: { reset?: () => void }) {
   );
 }
 
-/**
- * Warm the module registry for DEFERRED sections, client-side, without blocking
- * the navigation.
- *
- * `DeferredSectionWrapper` reads a section's `LoadingFallback` out of the
- * synchronous `sectionOptions` registry, which is only populated once the
- * section module has been imported. On an SSR document the server already
- * imported it; on a client (SPA) navigation nothing has, so the wrapper's first
- * paint would be a zero-height `null` until its own `useEffect` finishes the
- * dynamic import — a visible gap exactly where the skeleton belongs.
- *
- * Deliberately NOT awaited: this is the section's chunk + skeleton, not its
- * data. Awaiting it would put the thing deferral exists to avoid back on the
- * blocking path.
- */
-function preloadDeferredFallbacks(deferredSections?: DeferredSection[]): void {
-  if (isServer || !deferredSections?.length) return;
-  void preloadSectionComponents(deferredSections.map((d) => d.component)).catch(() => {
-    /* best-effort: the wrapper's own effect is the fallback */
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Route configuration factory
 // ---------------------------------------------------------------------------
@@ -587,10 +572,17 @@ export interface CmsRouteOptions {
   ignoreSearchParams?: string[];
   /**
    * Pending component shown during SPA navigation while the route loader runs.
-   * Defaults to {@link CmsPagePendingFallback} — some blocking window always
-   * remains (the eager sections still have to resolve), and with no
-   * pendingComponent at all TanStack keeps the *previous* page on screen with
-   * zero feedback, which reads as a frozen tab. Pass `null` to opt out.
+   *
+   * NO DEFAULT, deliberately. With none set, TanStack keeps the previous page on
+   * screen until the new one commits — which at the sub-second latencies this
+   * route now sees is usually the better feel. Setting one buys feedback on a
+   * slow navigation at the cost of a page → skeleton → page swap on every
+   * navigation slower than {@link pendingMs} (held for at least
+   * {@link pendingMinMs}), and this is a *catch-all* route, so one skeleton
+   * shape has to serve PDP, PLP, search, and institutional pages alike.
+   * {@link CmsPagePendingFallback} is exported as a starting point; prefer a
+   * per-shape skeleton, or `NavigationProgress` (`@decocms/tanstack`) for
+   * feedback that does not replace the page at all.
    */
   pendingComponent?: (() => any) | null;
   /**
@@ -604,6 +596,7 @@ export interface CmsRouteOptions {
    * Delay (ms) before showing the pending component during SPA navigation.
    * If the loader resolves before this threshold, no pending UI is shown.
    * Prevents skeleton flash on fast cache-hit navigations. Default: 200.
+   * Inert unless {@link pendingComponent} is set.
    *
    * This is a *catch-all* route, so the same value covers a sub-100ms PLP facet
    * toggle and a cold PDP. Raising it only DELAYS the skeleton on the slow
@@ -615,7 +608,7 @@ export interface CmsRouteOptions {
   /**
    * Minimum display time (ms) for the pending component once shown.
    * Prevents jarring flash when data arrives shortly after the threshold.
-   * Default: 300.
+   * Default: 300. Inert unless {@link pendingComponent} is set.
    *
    * Independent of {@link pendingMs}, and applied after it: worst-case a
    * navigation is held for `pendingMs + pendingMinMs` of visible skeleton
@@ -850,7 +843,7 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     defaultTitle,
     defaultDescription,
     ignoreSearchParams = ["skuId"],
-    pendingComponent = CmsPagePendingFallback,
+    pendingComponent,
     pendingMs = 200,
     pendingMinMs = 300,
     ssr: ssrMode,
@@ -895,7 +888,6 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
         const keys = page.resolvedSections.map((s: ResolvedSection) => s.component);
         await preloadSectionComponents(keys);
       }
-      preloadDeferredFallbacks(page.deferredSections);
 
       // Deferred sections use client-side IntersectionObserver loading.
       // DecoPageRenderer renders skeletons (LoadingFallback) during SSR and
@@ -949,7 +941,7 @@ export function cmsHomeRouteConfig(options: {
   defaultDescription?: string;
   /** Site name for OG title composition. Defaults to defaultTitle. */
   siteName?: string;
-  /** See `CmsRouteOptions.pendingComponent`. Defaults to {@link CmsPagePendingFallback}. */
+  /** See `CmsRouteOptions.pendingComponent` — no default, deliberately. */
   pendingComponent?: (() => any) | null;
   /** Delay (ms) before showing pending component. Default: 200. */
   pendingMs?: number;
@@ -964,7 +956,7 @@ export function cmsHomeRouteConfig(options: {
     defaultTitle,
     defaultDescription,
     siteName,
-    pendingComponent = CmsPagePendingFallback,
+    pendingComponent,
     pendingMs = 200,
     pendingMinMs = 300,
     errorComponent = CmsPageErrorFallback,
@@ -980,7 +972,6 @@ export function cmsHomeRouteConfig(options: {
         const keys = page.resolvedSections.map((s: ResolvedSection) => s.component);
         await preloadSectionComponents(keys);
       }
-      preloadDeferredFallbacks(page.deferredSections);
 
       // Deferred sections use client-side IntersectionObserver loading.
       // See cmsRouteConfig loader for rationale.

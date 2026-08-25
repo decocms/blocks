@@ -2033,11 +2033,15 @@ async function resolveDecoPageImpl(
   //
   // #277 (deferred loaders missing per-request app context) is not a reason to
   // disable deferral on client nav: the deferred second hop is the same
-  // `loadDeferredSection` server fn the SSR path has always used — it rebuilds
-  // matcherCtx from the real request (url/path/cookies/request) and runs
-  // server-side in the same isolate. A section whose loader genuinely cannot be
-  // resolved on a second hop (e.g. a PDP/PLP gate that decides what renders at
-  // all) must not be marked ⚡ in the admin; see `shouldDeferSection`.
+  // `loadDeferredSection` server fn the SSR path has always used, and it runs
+  // server-side with matcherCtx rebuilt from the real request
+  // (url/path/cookies/request). It may well land in a DIFFERENT isolate — that
+  // is exactly why `reExtractRawProps` exists as the rawProps cache-miss path —
+  // but per-request state is reconstructed from the request either way, so a
+  // client nav is no more exposed than an SSR document already was. A section
+  // whose loader genuinely cannot be resolved on a second hop (e.g. a PDP/PLP
+  // gate that decides what renders at all) must not be marked ⚡ in the admin;
+  // see `shouldDeferSection`.
   //
   // `isClientNavigation` is still load-bearing for `derivePageUrl` (duplicate
   // query params) and for `isProgrammaticFetch` (SPA `Sec-Fetch-Dest: empty`

@@ -930,9 +930,7 @@ describe("resolveDecoPage — deferral parity between SSR and client nav", () =>
     const result = await resolveDecoPage("/product/foo", {});
     expect(result?.deferredSections).toHaveLength(1);
     expect(result?.deferredSections[0].component).toBe("site/sections/Hero.tsx");
-    expect(result?.resolvedSections.map((s) => s.component)).toEqual([
-      "site/sections/Banner.tsx",
-    ]);
+    expect(result?.resolvedSections.map((s) => s.component)).toEqual(["site/sections/Banner.tsx"]);
   });
 
   it("client nav produces the IDENTICAL split — deferral is not disabled", async () => {
@@ -1081,7 +1079,11 @@ describe("#277 — deferred second hop keeps per-request context", () => {
     expect(section?.index).toBe(0);
     // The deferred hop must run the section's own loader — this is what #277
     // reported as missing, and it is what makes the second hop equivalent to
-    // eager resolution.
+    // eager resolution. Scope note: this asserts the request THIS function was
+    // handed reaches the loader. `loadDeferredSection` in @decocms/tanstack
+    // constructs its own `new Request(pageUrl || serverUrl, { headers })` before
+    // calling in, so the fidelity of that reconstruction is a separate concern
+    // and is not covered here.
     expect(runSingleSectionLoader).toHaveBeenCalled();
     const [, passedRequest] = (runSingleSectionLoader as ReturnType<typeof vi.fn>).mock
       .calls[0] as [unknown, Request];
