@@ -15,9 +15,9 @@
 To edit a site, Studio needs exactly two things from `.deco/`:
 
 1. **`.deco/meta.gen.json`** — the block **types** (JSON Schema) → drives the
-   catalog + config forms. For FS mode it is generated **self-contained**
-   (`generate --platform eitri`, or `generate-schema --compose`), so **read it
-   verbatim — do NOT run `composeMeta` again** (it's already baked in;
+   catalog + config forms. It is always generated **self-contained**
+   (`generate`, any platform — `generate-schema` composes before writing), so
+   **read it verbatim — do NOT run `composeMeta` again** (it's already baked in;
    re-composing would duplicate Page/matchers/Resolvable).
 2. **`.deco/blocks/`** — the **content**: one JSON file per block instance.
    Read to populate the editor; write here to persist edits.
