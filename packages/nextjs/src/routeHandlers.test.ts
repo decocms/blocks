@@ -135,6 +135,35 @@ describe("createDecoRouteHandlers", () => {
     expect(res.status).toBe(404);
   });
 
+  // A GET for the RSC preview PAGE (singular /deco/preview/*) reaches this
+  // route handler ONLY when app/deco/preview/[[...path]]/page.tsx is not
+  // mounted — with the page present, Next's static `preview` segment
+  // out-specifies the optional catch-all and this handler never runs.
+  // Missing page => actionable 501 diagnostic, not a cryptic "Unknown deco
+  // route" 404. Covers both the %2F-encoded single-segment key the studio
+  // sends and a decoded real-slash key.
+  it("501s /deco/preview/* (encoded key) with a mount-the-page diagnostic when the RSC page is absent", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(new Request("http://x/deco/preview/website%2Fpages%2FPage.tsx"));
+    expect(res.status).toBe(501);
+    const json = await res.json();
+    expect(json.error).toMatch(/preview page not mounted/i);
+    expect(json.error).toMatch(/app\/deco\/preview\/\[\[\.\.\.path\]\]\/page\.tsx/);
+    expect(mocks.handleRender).not.toHaveBeenCalled();
+  });
+
+  it("501s /deco/preview (no key) too", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(new Request("http://x/deco/preview"));
+    expect(res.status).toBe(501);
+  });
+
+  it("does not confuse /deco/previews (plural, the redirect) with the /deco/preview diagnostic", async () => {
+    const { GET } = createDecoRouteHandlers();
+    const res = await GET(new Request("http://x/deco/previews/pages-Home-123"));
+    expect(res.status).toBe(307);
+  });
+
   // Regression coverage for the rewrite-source paths, not just their
   // /deco/* destinations: a Next.js App Router route handler reached via a
   // next.config.js `rewrites()` entry sees `request.url` as the ORIGINAL,
