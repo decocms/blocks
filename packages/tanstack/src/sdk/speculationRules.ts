@@ -18,6 +18,8 @@
  * @see https://developer.chrome.com/docs/web-platform/prerender-pages
  */
 
+import { htmlSafeJson } from "@decocms/blocks/sdk/htmlSafe";
+
 export type SpeculationAction = "prerender" | "prefetch";
 
 /**
@@ -108,7 +110,7 @@ export function buildSpeculationRules(config: SpeculationRulesConfig = {}): stri
     ...exclusions.map((href) => ({ not: { href_matches: href } } as WhereCondition)),
   ];
 
-  return JSON.stringify({
+  return htmlSafeJson({
     [action]: [{ where: { and: conditions }, eagerness }],
   });
 }

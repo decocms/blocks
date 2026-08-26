@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { htmlSafeJson } from "../sdk/htmlSafe";
 
 interface LiveControlsProps {
   site?: string;
@@ -36,7 +37,7 @@ export function LiveControls({ site, page, flags }: LiveControlsProps) {
         id="__DECO_STATE"
         type="application/json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
+          __html: htmlSafeJson({
             page: page || {},
             site: { name: site || "storefront" },
             flags: flags || [],

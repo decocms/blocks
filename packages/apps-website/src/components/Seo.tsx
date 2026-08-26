@@ -1,3 +1,4 @@
+import { htmlSafeJson } from "@decocms/blocks/sdk/htmlSafe";
 import type { ImageWidget, OGType } from "../types";
 import { stripHTML } from "../utils/html";
 
@@ -125,7 +126,7 @@ function Seo({
 					key={idx}
 					type="application/ld+json"
 					dangerouslySetInnerHTML={{
-						__html: JSON.stringify({
+						__html: htmlSafeJson({
 							"@context": "https://schema.org",
 							...(json as Record<string, unknown>),
 						}),

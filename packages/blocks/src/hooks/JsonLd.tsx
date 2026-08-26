@@ -39,6 +39,8 @@
 // from @decocms/apps-commerce/types)
 // -------------------------------------------------------------------------
 
+import { htmlSafeJson } from "../sdk/htmlSafe";
+
 interface JsonLdOffer {
 	price?: number;
 	priceCurrency?: string;
@@ -115,7 +117,7 @@ export interface JsonLdBreadcrumbList {
 
 function JsonLdScript({ data }: { data: unknown }) {
 	return (
-		<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />
+		<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: htmlSafeJson(data) }} />
 	);
 }
 

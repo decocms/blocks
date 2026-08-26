@@ -1,3 +1,4 @@
+import { cssSafe } from "@decocms/blocks/sdk/htmlSafe";
 import { useId } from "react";
 import type { Font, Variable } from "../types";
 
@@ -19,8 +20,10 @@ function Theme({ fonts = [], variables = [], colorScheme }: Props) {
 
 	const family = fonts.reduce((acc, { family }) => (acc ? `${acc}, ${family}` : family), "");
 
+	// cssSafe on each token name/value so an attacker-influenceable design token
+	// can't emit `</style>` and break out of the inline <style> below.
 	const vars = [{ name: "--font-family", value: family }, ...variables]
-		.map(({ name, value }) => `${name}: ${value}`)
+		.map(({ name, value }) => `${cssSafe(name)}: ${cssSafe(value)}`)
 		.join(";");
 
 	const css = `* {${vars}}`;
@@ -30,7 +33,7 @@ function Theme({ fonts = [], variables = [], colorScheme }: Props) {
 		<>
 			{fonts?.map(({ styleSheet }, idx) =>
 				styleSheet ? (
-					<style key={idx} type="text/css" dangerouslySetInnerHTML={{ __html: styleSheet }} />
+					<style key={idx} type="text/css" dangerouslySetInnerHTML={{ __html: cssSafe(styleSheet) }} />
 				) : null,
 			)}
 			{html && (
