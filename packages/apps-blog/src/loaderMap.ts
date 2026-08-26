@@ -9,20 +9,24 @@ import AuthorLoader from "./loaders/Author";
 import BlogPostItemLoader from "./loaders/BlogPostItem";
 import BlogPostPageLoader from "./loaders/BlogPostPage";
 import BlogpostLoader from "./loaders/Blogpost";
+import BlogpostListLoader from "./loaders/BlogpostList";
 import BlogpostListingLoader from "./loaders/BlogpostListing";
 import BlogRelatedPostsLoader from "./loaders/BlogRelatedPosts";
 import CategoryLoader from "./loaders/Category";
 import GetCategoriesLoader from "./loaders/GetCategories";
 
-// biome-ignore lint/suspicious/noExplicitAny: loader props/returns vary per block
 export type LoaderFn = (props: any, request?: Request) => Promise<any> | any;
 
 /**
  * Create the blog loader map.
  *
+ * Each loader is registered under both key forms the resolver may see: the
+ * Deno app's `__resolveType` paths carry a `.ts` suffix, while manifest-derived
+ * keys do not.
+ *
  * @example
  * ```ts
- * import { createBlogLoaders } from "@decocms/apps/blog";
+ * import { createBlogLoaders } from "@decocms/apps-blog";
  *
  * const COMMERCE_LOADERS = {
  *   ...createVtexCommerceLoaders(),
@@ -31,27 +35,27 @@ export type LoaderFn = (props: any, request?: Request) => Promise<any> | any;
  * ```
  */
 export function createBlogLoaders(): Record<string, LoaderFn> {
-	return {
-		// Loader keys match the Deno app's __resolveType paths
-		"blog/loaders/BlogPostPage.ts": BlogPostPageLoader,
-		"blog/loaders/BlogPostPage": BlogPostPageLoader,
-		"blog/loaders/BlogpostListing.ts": BlogpostListingLoader,
-		"blog/loaders/BlogpostListing": BlogpostListingLoader,
-		"blog/loaders/BlogRelatedPosts.ts": BlogRelatedPostsLoader,
-		"blog/loaders/BlogRelatedPosts": BlogRelatedPostsLoader,
-		"blog/loaders/GetCategories.ts": GetCategoriesLoader,
-		"blog/loaders/GetCategories": GetCategoriesLoader,
-		"blog/loaders/Blogpost.ts": BlogpostLoader,
-		"blog/loaders/Blogpost": BlogpostLoader,
-		"blog/loaders/Category.ts": CategoryLoader,
-		"blog/loaders/Category": CategoryLoader,
-		"blog/loaders/Author.ts": AuthorLoader,
-		"blog/loaders/Author": AuthorLoader,
+  const byName: Record<string, LoaderFn> = {
+    "blog/loaders/BlogPostPage": BlogPostPageLoader,
+    "blog/loaders/BlogpostListing": BlogpostListingLoader,
+    // A distinct loader from BlogpostListing: it takes `postSlugs` and returns
+    // a flat BlogPost[] rather than a BlogPostListingPage. It used to be
+    // aliased to the listing loader here, which silently dropped `postSlugs`
+    // and handed callers the wrong shape.
+    "blog/loaders/BlogpostList": BlogpostListLoader,
+    "blog/loaders/BlogRelatedPosts": BlogRelatedPostsLoader,
+    "blog/loaders/GetCategories": GetCategoriesLoader,
+    "blog/loaders/Blogpost": BlogpostLoader,
+    "blog/loaders/Category": CategoryLoader,
+    "blog/loaders/Author": AuthorLoader,
+    // BlogPostItem: looks up a single post by slug, returns BlogPost
+    "blog/loaders/BlogPostItem": BlogPostItemLoader,
+  };
 
-		// BlogPostItem: looks up a single post by slug, returns BlogPost
-		"blog/loaders/BlogPostItem.ts": BlogPostItemLoader,
-		"blog/loaders/BlogPostItem": BlogPostItemLoader,
-		"blog/loaders/BlogpostList.ts": BlogpostListingLoader,
-		"blog/loaders/BlogpostList": BlogpostListingLoader,
-	};
+  return Object.fromEntries(
+    Object.entries(byName).flatMap(([key, fn]) => [
+      [key, fn],
+      [`${key}.ts`, fn],
+    ]),
+  );
 }

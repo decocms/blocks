@@ -1,101 +1,138 @@
+import { logger, serializeError } from "@decocms/blocks/sdk/logger";
 import handlePosts, { slicePosts } from "../core/handlePosts";
 import { getRecordsByPath } from "../core/records";
-import type { BlogPost, BlogPostListingPage, PageInfo, SortBy } from "../types";
+import type { BlogPost, BlogPostListingPage, Category, PageInfo, SortBy } from "../types";
 
 const COLLECTION_PATH = "collections/blog/posts";
 const ACCESSOR = "post";
+const CATEGORIES_PATH = "collections/blog/categories";
+const CATEGORY_ACCESSOR = "category";
 
 export interface Props {
-	/**
-	 * @title Category Slug
-	 * @description Filter by a specific category slug.
-	 */
-	slug?: string;
-	/**
-	 * @title Items per page
-	 * @description Number of posts per page to display.
-	 */
-	count?: number;
-	/**
-	 * @title Page query parameter
-	 * @description The current page number. Defaults to 1.
-	 */
-	page?: number;
-	/**
-	 * @title Page sorting parameter
-	 * @description The sorting option. Default is "date_desc"
-	 */
-	sortBy?: SortBy;
-	/**
-	 * @description Overrides the query term at url
-	 */
-	query?: string;
+  /**
+   * @title Category Slug
+   * @description Filter by a specific category slug.
+   */
+  slug?: string;
+  /**
+   * @title Items per page
+   * @description Number of posts per page to display.
+   */
+  count?: number;
+  /**
+   * @title Page query parameter
+   * @description The current page number. Defaults to 1.
+   */
+  page?: number;
+  /**
+   * @title Page sorting parameter
+   * @description The sorting option. Default is "date_desc"
+   */
+  sortBy?: SortBy;
+  /**
+   * @description Overrides the query term at url
+   */
+  query?: string;
 }
 
+const report = (scope: string, e: unknown) => {
+  const error = serializeError(e);
+  logger.error(error.message, { error, scope });
+};
+
+/** Categories with a usable name and slug, alphabetically. */
+const loadCategories = (): Category[] =>
+  getRecordsByPath<Category>(CATEGORIES_PATH, CATEGORY_ACCESSOR)
+    .filter(
+      (c) =>
+        typeof c?.name === "string" &&
+        c.name.length > 0 &&
+        typeof c?.slug === "string" &&
+        c.slug.length > 0,
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+
 /**
- * @title BlogPostList
- * @description Retrieves a paginated list of blog posts.
+ * @title BlogPostListing
+ * @description Retrieves a paginated listing page of blog posts.
  */
-export default function BlogPostList(
-	props: Props & { __pageUrl?: string },
-	req?: Request,
-): BlogPostListingPage | null {
-	const { page, count, slug, sortBy, query } = props;
-	const rawUrl = req?.url ?? props.__pageUrl ?? "http://localhost/";
-	const url = new URL(rawUrl);
-	const params = url.searchParams;
-	const postsPerPage = Number(count ?? params.get("count") ?? 12);
-	const pageNumber = Number(page ?? params.get("page") ?? 1);
-	const pageSort = sortBy ?? (params.get("sortBy") as SortBy) ?? "date_desc";
-	const term = query ?? params.get("q") ?? undefined;
+export default async function BlogPostListing(
+  props: Props & { __pageUrl?: string },
+  req?: Request,
+): Promise<BlogPostListingPage | null> {
+  const { page, count, slug, sortBy, query } = props;
+  const rawUrl = req?.url ?? props.__pageUrl ?? "http://localhost/";
+  const url = new URL(rawUrl);
+  const params = url.searchParams;
+  const postsPerPage = Number(count ?? params.get("count") ?? 12);
+  const pageNumber = Number(page ?? params.get("page") ?? 1);
+  const pageSort = sortBy ?? (params.get("sortBy") as SortBy) ?? "date_desc";
+  const term = query ?? params.get("q") ?? undefined;
 
-	const posts = getRecordsByPath<BlogPost>(COLLECTION_PATH, ACCESSOR);
+  const posts = getRecordsByPath<BlogPost>(COLLECTION_PATH, ACCESSOR);
 
-	try {
-		const handledPosts = handlePosts(posts, pageSort, slug, undefined, term);
+  try {
+    const handledPosts = await handlePosts(posts, pageSort, slug, undefined, term);
 
-		if (!handledPosts) return null;
+    if (!handledPosts) return null;
 
-		const slicedPosts = slicePosts(handledPosts, pageNumber, postsPerPage);
-		if (slicedPosts.length === 0) return null;
+    const slicedPosts = slicePosts(handledPosts, pageNumber, postsPerPage);
+    if (slicedPosts.length === 0) return null;
 
-		const category = slicedPosts[0].categories?.find((c) => c.slug === slug);
+    let categories: Category[] | null = null;
+    try {
+      categories = loadCategories();
+    } catch (e) {
+      report("blog/BlogpostListing/categories", e);
+    }
 
-		return {
-			posts: slicedPosts,
-			pageInfo: toPageInfo(handledPosts, postsPerPage, pageNumber, params),
-			seo: {
-				title: category?.name ?? "",
-				canonical: new URL(url.pathname, url.origin).href,
-			},
-		};
-	} catch (e) {
-		console.error("[BlogpostListing]", e);
-		return null;
-	}
+    let category: Category | null = null;
+    if (slug) {
+      // Prefer the standalone category record (it carries description and
+      // sections); fall back to the denormalized copy embedded in a post,
+      // which is all a site that never created category records will have.
+      category = categories?.find((c) => c.slug === slug) ?? null;
+      category ??= slicedPosts[0]?.categories?.find((c) => c.slug === slug) ?? null;
+    }
+
+    return {
+      posts: slicedPosts,
+      category,
+      categories,
+      pageInfo: toPageInfo(handledPosts, postsPerPage, pageNumber, params),
+      seo: {
+        title: category?.name ?? "",
+        description: category?.description,
+        canonical: new URL(url.pathname, url.origin).href,
+      },
+    };
+  } catch (e) {
+    report("blog/BlogpostListing", e);
+    return null;
+  }
 }
 
 function toPageInfo(
-	posts: BlogPost[],
-	postsPerPage: number,
-	pageNumber: number,
-	params: URLSearchParams,
+  posts: BlogPost[],
+  postsPerPage: number,
+  pageNumber: number,
+  params: URLSearchParams,
 ): PageInfo {
-	const totalPosts = posts.length;
-	const totalPages = Math.ceil(totalPosts / postsPerPage);
-	const hasNextPage = totalPages > pageNumber;
-	const hasPrevPage = pageNumber > 1;
-	const nextPage = new URLSearchParams(params);
-	const previousPage = new URLSearchParams(params);
+  const totalPosts = posts.length;
+  const totalPages = Math.ceil(totalPosts / postsPerPage);
+  const hasNextPage = totalPages > pageNumber;
+  const hasPrevPage = pageNumber > 1;
+  const nextPage = new URLSearchParams(params);
+  const previousPage = new URLSearchParams(params);
 
-	if (hasNextPage) nextPage.set("page", (pageNumber + 1).toString());
-	if (hasPrevPage) previousPage.set("page", (pageNumber - 1).toString());
+  if (hasNextPage) nextPage.set("page", (pageNumber + 1).toString());
+  if (hasPrevPage) previousPage.set("page", (pageNumber - 1).toString());
 
-	return {
-		nextPage: hasNextPage ? `?${nextPage}` : undefined,
-		previousPage: hasPrevPage ? `?${previousPage}` : undefined,
-		currentPage: pageNumber,
-		records: totalPosts,
-		recordPerPage: postsPerPage,
-	};
+  return {
+    nextPage: hasNextPage ? `?${nextPage}` : undefined,
+    previousPage: hasPrevPage ? `?${previousPage}` : undefined,
+    currentPage: pageNumber,
+    records: totalPosts,
+    recordPerPage: postsPerPage,
+  };
 }
