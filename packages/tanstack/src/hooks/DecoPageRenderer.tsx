@@ -307,9 +307,9 @@ function DeferredSectionWrapper({
     const el = ref.current;
     if (!el) return;
 
-    if (typeof IntersectionObserver === "undefined") {
+    const key = stableKey;
+    const load = () => {
       triggered.current = true;
-      const key0 = stableKey;
       loadFn({
         component: deferred.component,
         pagePath,
@@ -317,37 +317,60 @@ function DeferredSectionWrapper({
         index: deferred.index,
       })
         .then((result) => {
-          if (result) deferredSectionCache.set(key0, { section: result, ts: Date.now() });
+          if (result) deferredSectionCache.set(key, { section: result, ts: Date.now() });
           setSection(result);
         })
         .catch((e) => setError(e));
+    };
+
+    if (typeof IntersectionObserver === "undefined") {
+      load();
       return;
     }
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting && !triggered.current) {
-          triggered.current = true;
-          observer.disconnect();
-          const key1 = stableKey;
-          loadFn({
-            component: deferred.component,
-            pagePath,
-            pageUrl,
-            index: deferred.index,
-          })
-            .then((result) => {
-              if (result) deferredSectionCache.set(key1, { section: result, ts: Date.now() });
-              setSection(result);
-            })
-            .catch((e) => setError(e));
-        }
-      },
-      { rootMargin: "300px" },
-    );
+    let observer: IntersectionObserver | undefined;
+    const startObserving = () => {
+      if (triggered.current) return;
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry?.isIntersecting && !triggered.current) {
+            observer?.disconnect();
+            load();
+          }
+        },
+        { rootMargin: "300px" },
+      );
+      observer.observe(el);
+    };
 
-    observer.observe(el);
-    return () => observer.disconnect();
+    // Wait one frame before observing, so the router's scroll reset lands first.
+    //
+    // On a client (SPA) navigation the scroll position is still wherever the
+    // user left the PREVIOUS page when this effect runs. TanStack resets it from
+    // the `onRendered` event, which is emitted in a `useLayoutEffect`
+    // (react-router's `OnRendered`) that depends on the `resolvedLocation` store
+    // — and that store is written from ANOTHER `useLayoutEffect` (Transitioner).
+    // So the reset necessarily lands one commit after the one that mounts these
+    // skeletons, and React flushes this commit's passive effects before starting
+    // that follow-up render. Verified ordering: observe → scroll reset.
+    //
+    // Observing synchronously therefore evaluates intersection against the stale
+    // scroll offset: a user navigating from the bottom of a long page has every
+    // skeleton "in view" at once, so every deferred section fires its serverFn
+    // POST simultaneously on commit — the exact thundering herd deferral exists
+    // to avoid. One frame is enough to let the reset apply.
+    //
+    // `triggered` is re-checked inside, so a section that resolved from cache in
+    // the meantime never starts an observer.
+    if (typeof requestAnimationFrame === "undefined") {
+      startObserving();
+      return () => observer?.disconnect();
+    }
+    const raf = requestAnimationFrame(startObserving);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+    };
   }, [deferred.component, deferred.index, deferred.propsHash, pagePath, pageUrl, section, loadFn]);
 
   if (error) {
