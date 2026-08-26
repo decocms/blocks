@@ -9,10 +9,19 @@
   "exports": {
     ".": "./src/index.ts",
     "./mod": "./src/mod.ts",
+    "./client": "./src/client.ts",
     "./types": "./src/types.ts",
+    "./manifest.gen": "./src/manifest.gen.ts",
     "./loaderMap": "./src/loaderMap.ts",
     "./loaders/*": "./src/loaders/*.ts",
+    "./loaders/extensions/*": "./src/loaders/extensions/*.ts",
+    "./actions/*": "./src/actions/*.ts",
     "./core/*": "./src/core/*.ts",
+    "./utils/*": "./src/utils/*.ts",
+    "./sections/*": "./src/sections/*.tsx",
+    "./sections/Seo/*": "./src/sections/Seo/*.tsx",
+    "./sections/blocks/*": "./src/sections/blocks/*.tsx",
+    "./static/*": "./src/static/*.ts",
     "./registry": "./src/registry.ts"
   },
   "scripts": {
