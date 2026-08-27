@@ -112,7 +112,99 @@ export function transformCtxCompat(content: string): TransformResult {
   let i = 0;
   let count = 0;
 
+  // Contexts we are inside of, innermost last. Without this the scanner walks
+  // raw characters and happily rewrites `ctx.` inside string literals and
+  // comments: `console.log('ctx.device:', ctx.device)` became
+  // `console.log('ctx?.device:', ctx?.device)` — the call site correctly
+  // patched, the message silently corrupted.
+  //
+  // A template literal pushes "template" (its text is data), and a `${` inside
+  // one pushes "expr" (real code, where rewriting must resume) — so
+  // `` `${ctx.device}` `` is still rewritten while `` `ctx.device` `` is not.
+  //
+  // Regex literals are deliberately NOT tracked: telling `/re/` from division
+  // needs real parsing, and guessing wrong would consume live code. A `ctx.`
+  // inside a regex in a loader is vanishingly rare next to that risk.
+  const stack: ("template" | "expr")[] = [];
+
   while (i < content.length) {
+    const inTemplateText = stack[stack.length - 1] === "template";
+
+    if (inTemplateText) {
+      if (content[i] === "\\") {
+        out += content.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (content[i] === "`") {
+        stack.pop();
+        out += content[i];
+        i += 1;
+        continue;
+      }
+      if (content.startsWith("${", i)) {
+        stack.push("expr");
+        out += "${";
+        i += 2;
+        continue;
+      }
+      out += content[i];
+      i += 1;
+      continue;
+    }
+
+    // Line comment — copy to end of line.
+    if (content.startsWith("//", i)) {
+      const nl = content.indexOf("\n", i);
+      const end = nl === -1 ? content.length : nl;
+      out += content.slice(i, end);
+      i = end;
+      continue;
+    }
+
+    // Block comment — copy to the closing delimiter.
+    if (content.startsWith("/*", i)) {
+      const close = content.indexOf("*/", i + 2);
+      const end = close === -1 ? content.length : close + 2;
+      out += content.slice(i, end);
+      i = end;
+      continue;
+    }
+
+    // Single/double quoted string — copy to the unescaped closing quote.
+    if (content[i] === "'" || content[i] === '"') {
+      const quote = content[i];
+      let j = i + 1;
+      while (j < content.length) {
+        if (content[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (content[j] === quote || content[j] === "\n") {
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      out += content.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    if (content[i] === "`") {
+      stack.push("template");
+      out += content[i];
+      i += 1;
+      continue;
+    }
+
+    if (content[i] === "}" && stack[stack.length - 1] === "expr") {
+      stack.pop();
+      out += content[i];
+      i += 1;
+      continue;
+    }
+
     const isCtxToken =
       content.startsWith("ctx", i) &&
       !isIdentChar(content[i - 1]) &&
