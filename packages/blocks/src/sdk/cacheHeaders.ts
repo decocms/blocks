@@ -149,13 +149,43 @@ export function setCacheProfile(
   overrides: CacheProfileOverrides,
 ): void {
   const current = PROFILES[profile];
+
+  // `private`/`cart`/`none` are the profiles that keep authenticated pages off
+  // the shared edge (and, once CDN caching is on, off the CDN). Flipping one to
+  // public is how a checkout page ends up served to another visitor, so it
+  // takes more than an `isPublic: true` in a props bag — see
+  // `allowPublicPrivateProfile`.
+  let isPublic = overrides.isPublic ?? current.isPublic;
+  if (isPublic && !current.isPublic && !publicPrivateProfilesAllowed) {
+    console.warn(
+      `[deco] setCacheProfile("${profile}", { isPublic: true }) ignored: making a ` +
+        `non-public profile public would let authenticated pages be shared between ` +
+        `visitors. Call allowPublicPrivateProfile() first if this is deliberate.`,
+    );
+    isPublic = current.isPublic;
+  }
+
   PROFILES[profile] = {
     edge: { ...current.edge, ...overrides.edge },
     browser: { ...current.browser, ...overrides.browser },
     loader: { ...current.loader, ...overrides.loader },
     client: { ...current.client, ...overrides.client },
-    isPublic: overrides.isPublic ?? current.isPublic,
+    isPublic,
   };
+}
+
+let publicPrivateProfilesAllowed = false;
+
+/**
+ * Opt out of the guard in `setCacheProfile` that refuses to turn a non-public
+ * profile (`private`, `cart`, `none`) public.
+ *
+ * There is no legitimate storefront reason to call this. It exists so the
+ * escape hatch has a name you have to type, rather than being a silent side
+ * effect of passing `isPublic: true`.
+ */
+export function allowPublicPrivateProfile(): void {
+  publicPrivateProfilesAllowed = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,16 +292,95 @@ interface CachePattern {
   profile: CacheProfileName;
 }
 
-// Authenticated / per-user areas that must never be edge-cached. Includes the
-// hyphenless `myaccount` (VTEX My Account wrapper path) and common pt-BR routes
-// (`minha-conta`, `meus-pedidos`, `pedidos`) — omitting these let account pages
-// fall through to the cacheable `listing` default (see decocms/blocks#412).
-const PRIVATE_PREFIX_RE =
-  /^\/(cart|checkout|account|myaccount|my-account|minha-conta|meus-pedidos|pedidos|login)(\/|$)/;
+// Authenticated / per-user areas that must never be edge-cached. Anything not
+// matched here falls through to the cacheable `listing` default, so a missing
+// entry is a live content leak, not a missed optimization (see
+// decocms/blocks#412, which added the hyphenless `myaccount` VTEX wrapper path
+// and the pt-BR account routes).
+//
+// Three properties this regex must keep, each of which was a real hole:
+//   - case-insensitive: `/Checkout` used to fall through to `listing`.
+//   - optional locale prefix: `/pt/checkout`, `/br/minha-conta` likewise. Only
+//     matches when followed by a private segment, so a legitimate two-letter
+//     route can't be swallowed by it.
+//   - wishlist / profile / signup / returns: absent until the CDN work, which
+//     is what served a live store's `/listadedesejos` from the shared entry.
+const PRIVATE_SEGMENTS = [
+  "cart",
+  "carrinho",
+  "checkout",
+  "account",
+  "myaccount",
+  "my-account",
+  "minha-conta",
+  "meus-pedidos",
+  "pedidos",
+  "orders",
+  "order-placed",
+  "login",
+  "logout",
+  "sair",
+  "cadastro",
+  "signup",
+  "register",
+  "profile",
+  "perfil",
+  "wishlist",
+  "favoritos",
+  "listadedesejos",
+  "lista-de-desejos",
+  "minha-lista",
+  "assinaturas",
+  "subscriptions",
+  "troca",
+  "trocas",
+  "devolucao",
+  "devolucoes",
+];
+
+const LOCALE_PREFIX = "(?:\\/[a-z]{2}(?:-[a-z]{2})?)?";
+
+const PRIVATE_PREFIX_RE = new RegExp(
+  `^${LOCALE_PREFIX}\\/(?:${PRIVATE_SEGMENTS.join("|")})(?:\\/|$)`,
+  "i",
+);
+
+// Site-registered private prefixes (see `registerPrivatePaths`). Kept separate
+// from `PRIVATE_SEGMENTS` so a site can only ever ADD to the private set.
+const extraPrivatePaths: string[] = [];
+
+/**
+ * Mark additional path prefixes as private — never edge-cached, never served
+ * from the CDN.
+ *
+ * This is the safe half of cache configuration: it can only restrict, never
+ * relax. Prefer it over `registerCachePattern` (which can also make things
+ * public, and is evaluated before the built-in private check).
+ *
+ * @example
+ * ```ts
+ * registerPrivatePaths(["/listadedesejos", "/trocas"]);
+ * ```
+ */
+export function registerPrivatePaths(paths: string[]): void {
+  for (const path of paths) {
+    const normalized = path.startsWith("/") ? path : `/${path}`;
+    if (!extraPrivatePaths.includes(normalized)) extraPrivatePaths.push(normalized);
+  }
+}
+
+function isPrivatePath(pathname: string): boolean {
+  if (PRIVATE_PREFIX_RE.test(pathname)) return true;
+  const lower = pathname.toLowerCase();
+  return extraPrivatePaths.some((prefix) => {
+    const p = prefix.toLowerCase();
+    return lower === p || lower.startsWith(`${p}/`);
+  });
+}
 
 const builtinPatterns: CachePattern[] = [
   {
-    test: (p) => PRIVATE_PREFIX_RE.test(p),
+    test: (p) => isPrivatePath(p),
     profile: "private",
   },
   {
@@ -299,7 +408,13 @@ const customPatterns: CachePattern[] = [];
 
 /**
  * Register additional URL-to-profile patterns. Custom patterns are evaluated
- * before built-in ones, so they can override defaults.
+ * before built-in ones, so they can override defaults — with one exception:
+ * a custom pattern resolving to a PUBLIC profile cannot override the built-in
+ * private check (see `detectCacheProfile`). A broad site pattern would
+ * otherwise silently capture `/checkout` and make it cacheable.
+ *
+ * To mark routes as private, prefer {@link registerPrivatePaths} — it can only
+ * restrict, and isn't subject to ordering rules.
  */
 export function registerCachePattern(pattern: CachePattern): void {
   customPatterns.push(pattern);
@@ -324,8 +439,15 @@ export function detectCacheProfile(pathnameOrUrl: string | URL): CacheProfileNam
     searchParams = url.searchParams;
   }
 
+  // A private path can never be talked into a public profile by a site pattern.
+  // Custom patterns still win for anything non-public (a site can always make a
+  // route MORE restricted), and for public-vs-public overrides on other paths.
+  const privatePath = isPrivatePath(pathname);
+
   for (const pattern of customPatterns) {
-    if (pattern.test(pathname, searchParams)) return pattern.profile;
+    if (!pattern.test(pathname, searchParams)) continue;
+    if (privatePath && PROFILES[pattern.profile].isPublic) return "private";
+    return pattern.profile;
   }
   for (const pattern of builtinPatterns) {
     if (pattern.test(pathname, searchParams)) return pattern.profile;
