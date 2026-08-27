@@ -96,10 +96,26 @@ export interface VtexState {
 // Middleware
 // -------------------------------------------------------------------------
 
-const vtexMiddleware: AppMiddleware = async (request, next) => {
+export const vtexMiddleware: AppMiddleware = async (request, next) => {
 	const ctx = extractVtexContext(request);
 	const response = await next();
-	response.headers.set("Cache-Control", vtexCacheControl(ctx));
+
+	// This middleware wraps the framework's whole edge-cache layer, so it is the
+	// LAST writer of Cache-Control — including on a cache HIT. It used to
+	// overwrite unconditionally, which downgraded a home page the cache layer had
+	// resolved as `s-maxage=900` to vtexCacheControl's generic `s-maxage=60`.
+	//
+	// Now it only speaks up for the case it actually knows better about: a
+	// personalized request, which must not be cached anywhere. And when it does,
+	// it clears CDN-Cache-Control too — otherwise a response can go out as
+	// `Cache-Control: private, no-store` alongside `CDN-Cache-Control: public,
+	// max-age=300`, and Cloudflare gives the CDN header precedence. Same pairing
+	// the worker's own bypasses use, and utils/proxy.ts's hardenProxyCacheHeaders.
+	if (ctx.isLoggedIn || ctx.hasCustomPricing) {
+		response.headers.set("Cache-Control", vtexCacheControl(ctx));
+		response.headers.delete("CDN-Cache-Control");
+	}
+
 	propagateISCookies(ctx, response);
 	return response;
 };
