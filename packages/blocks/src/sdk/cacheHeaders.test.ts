@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalizeServerFnPayloadForCacheKey,
   detectCacheProfile,
+  getCacheProfile,
+  registerCachePattern,
+  registerPrivatePaths,
   serverFnPagePath,
+  setCacheProfile,
 } from "./cacheHeaders";
 
 const sfn = (payload: unknown): URL => {
@@ -111,5 +115,91 @@ describe("canonicalizeServerFnPayloadForCacheKey — variant-param cache key", (
 
   it("returns the original string on malformed payload (fail-safe)", () => {
     expect(canonicalizeServerFnPayloadForCacheKey("{not json")).toBe("{not json");
+  });
+});
+
+describe("detectCacheProfile — private areas", () => {
+  it.each([
+    "/checkout",
+    "/checkout/cart",
+    "/cart",
+    "/carrinho",
+    "/minha-conta",
+    "/meus-pedidos",
+    "/login",
+    "/myaccount",
+  ])("keeps the existing private route %s private", (path) => {
+    expect(detectCacheProfile(path)).toBe("private");
+  });
+
+  it.each([
+    // Every one of these used to fall through to the cacheable `listing`
+    // default. `/listadedesejos` is the one that bit a live store.
+    "/listadedesejos",
+    "/lista-de-desejos",
+    "/wishlist",
+    "/favoritos",
+    "/orders",
+    "/order-placed",
+    "/profile",
+    "/perfil",
+    "/logout",
+    "/sair",
+    "/cadastro",
+    "/signup",
+    "/register",
+    "/assinaturas",
+    "/trocas",
+    "/devolucao",
+  ])("treats %s as private", (path) => {
+    expect(detectCacheProfile(path)).toBe("private");
+  });
+
+  it("matches case-insensitively", () => {
+    expect(detectCacheProfile("/Checkout")).toBe("private");
+    expect(detectCacheProfile("/MINHA-CONTA")).toBe("private");
+  });
+
+  it("matches behind a locale prefix", () => {
+    expect(detectCacheProfile("/pt/checkout")).toBe("private");
+    expect(detectCacheProfile("/pt-br/minha-conta")).toBe("private");
+  });
+
+  it("does not swallow public routes that merely start with two letters", () => {
+    expect(detectCacheProfile("/pt/tenis")).toBe("listing");
+    expect(detectCacheProfile("/carteiras")).toBe("listing");
+    expect(detectCacheProfile("/cartoes-presente")).toBe("listing");
+  });
+
+  it("registerPrivatePaths adds site-specific private routes", () => {
+    expect(detectCacheProfile("/clube-vip")).toBe("listing");
+    registerPrivatePaths(["/clube-vip", "sem-barra"]);
+    expect(detectCacheProfile("/clube-vip")).toBe("private");
+    expect(detectCacheProfile("/clube-vip/beneficios")).toBe("private");
+    expect(detectCacheProfile("/sem-barra")).toBe("private");
+    // prefix match must respect segment boundaries
+    expect(detectCacheProfile("/clube-vip-publico")).toBe("listing");
+  });
+});
+
+describe("cache configuration can tighten, not loosen", () => {
+  it("refuses to make a non-public profile public", () => {
+    setCacheProfile("private", { isPublic: true });
+    expect(getCacheProfile("private").isPublic).toBe(false);
+  });
+
+  it("still allows ordinary tuning of a private profile", () => {
+    setCacheProfile("private", { loader: { fresh: 1_000 } });
+    expect(getCacheProfile("private").loader.fresh).toBe(1_000);
+    expect(getCacheProfile("private").isPublic).toBe(false);
+  });
+
+  it("a custom pattern cannot make a private path public", () => {
+    // A catch-all site pattern used to win over the built-in private check,
+    // because custom patterns are evaluated first.
+    registerCachePattern({ test: () => true, profile: "static" });
+    expect(detectCacheProfile("/checkout")).toBe("private");
+    // ...but it still applies everywhere else.
+    expect(detectCacheProfile("/tenis")).toBe("static");
   });
 });
