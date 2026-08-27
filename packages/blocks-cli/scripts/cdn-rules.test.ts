@@ -58,9 +58,27 @@ describe("CDN bypass expression tracks the worker cache key", () => {
 describe("cache ruleset", () => {
   const [bypass, cache] = cacheRuleset().rules;
 
-  it("evaluates bypass before caching", () => {
+  it("does not rely on rule order — the two rules are mutually exclusive", () => {
+    // Cloudflare's cache phase is LAST-match-wins for non-terminating actions,
+    // so a catch-all `cache: true` listed after `cache: false` silently
+    // overrides it and the whole bypass list becomes inert. An earlier version
+    // of this file had exactly that bug, and an earlier version of THIS test
+    // asserted "bypass is evaluated first", certifying it. Correctness must
+    // come from the expressions, not the array order.
     expect(bypass.action_parameters.cache).toBe(false);
     expect(cache.action_parameters.cache).toBe(true);
+
+    const clauses = bypass.expression.slice(bypass.expression.indexOf(") and (") + 7, -1);
+    expect(cache.expression).toContain(`and not (${clauses})`);
+  });
+
+  it("does not bypass /_serverFn on sec-fetch-dest, which is what it exists to cache", () => {
+    // Every /_serverFn call is an XHR and sends `sec-fetch-dest: empty`. A bare
+    // clause would bypass exactly the traffic `serverfn-segment` caches,
+    // reducing the feature to a no-op. `buildCacheKey` excludes server-fn paths
+    // from `__fetch` for the same reason.
+    expect(bypass.expression).toContain('not starts_with(http.request.uri.path, "/_serverFn/")');
+    expect(bypass.expression).toContain('not starts_with(http.request.uri.path, "/_server/")');
   });
 
   it("keys by device, since deviceSpecificKeys defaults to true", () => {

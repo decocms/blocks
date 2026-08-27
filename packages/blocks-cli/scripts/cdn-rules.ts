@@ -60,14 +60,20 @@ export const AUTH_COOKIE_PREFIXES = ["VtexIdclientAutCookie"];
 
 const enabled = `lookup_json_string(cf.hostname.metadata, "${CDN_ENABLED_METADATA_KEY}") eq "on"`;
 
+/** Path prefix for TanStack server-function requests. */
+const SERVER_FN_PREFIXES = ["/_serverFn/", "/_server/"];
+
 /**
- * Requests that must never be served from a shared CDN entry.
- *
- * Each clause is annotated with the `buildCacheKey` dimension it mirrors. If
- * you add a dimension to the cache key, it belongs here too.
+ * The individual bypass clauses, each annotated with the `buildCacheKey`
+ * dimension it mirrors. If you add a dimension to the cache key, it belongs
+ * here too.
  */
-export function bypassExpression(): string {
-  const clauses = [
+function bypassClauses(): string[] {
+  const notServerFn = SERVER_FN_PREFIXES.map(
+    (p) => `not starts_with(http.request.uri.path, "${p}")`,
+  ).join(" and ");
+
+  return [
     // Worker key: no equivalent — an authenticated visitor would otherwise be
     // served the cached anonymous entry without the Worker ever running. This
     // is the single most important clause in the file.
@@ -80,7 +86,14 @@ export function bypassExpression(): string {
     `lower(http.user_agent) matches "${BOT_UA_SUBSTRINGS.join("|")}"`,
 
     // Worker key: `__fetch` — programmatic fetches also render eagerly.
-    'http.request.headers["sec-fetch-dest"][0] eq "empty"',
+    //
+    // Carved out for `/_serverFn`, which ALWAYS sends `sec-fetch-dest: empty`
+    // (it is an XHR). Without the carve-out this single clause would bypass
+    // exactly the traffic `cdnCacheControl: "serverfn-segment"` exists to
+    // cache, silently reducing the whole feature to a no-op. `buildCacheKey`
+    // excludes server-fn paths from `__fetch` for the same reason, so this
+    // mirrors it rather than diverging.
+    `(http.request.headers["sec-fetch-dest"][0] eq "empty" and ${notServerFn})`,
 
     // Worker: `isCacheable()` bypasses these outright. Duplicated here so a
     // draft never depends on the response header alone.
@@ -91,30 +104,44 @@ export function bypassExpression(): string {
     `any(http.request.headers.names[*] eq "${DECO_MATCHERS_OVERRIDE_PARAM}")`,
     'http.cookie contains "__deco_draft"',
   ];
+}
 
-  return `(${enabled}) and (${clauses.join(" or ")})`;
+/** Requests that must never be served from a shared CDN entry. */
+export function bypassExpression(): string {
+  return `(${enabled}) and (${bypassClauses().join(" or ")})`;
 }
 
 /**
- * The ruleset, in the order Cloudflare evaluates it: bypass first, then cache
- * everything else keyed by device.
+ * The ruleset.
+ *
+ * The two rules are MUTUALLY EXCLUSIVE by expression, not by ordering. That is
+ * deliberate and load-bearing: Cloudflare's cache phase is **last-match-wins**
+ * for non-terminating actions like `set_cache_settings`, so a catch-all
+ * `cache: true` rule listed after a `cache: false` one silently overrides it.
+ * Scoping rule 2 with `and not (<bypass clauses>)` means correctness no longer
+ * depends on rule order at all — reorder them freely, or apply them via an API
+ * that does not preserve order, and the behaviour is unchanged.
+ *
+ * https://developers.cloudflare.com/cache/how-to/cache-rules/order/
  *
  * Note what is NOT set here: the edge TTL. `respect_origin` keeps the TTL
  * coming from the `CDN-Cache-Control` the Worker already derives per cache
  * profile, so the profile table stays in one place.
  */
 export function cacheRuleset() {
+  const clauses = bypassClauses().join(" or ");
+
   return {
     rules: [
       {
         description: "deco: bypass CDN for segment-sensitive requests",
-        expression: bypassExpression(),
+        expression: `(${enabled}) and (${clauses})`,
         action: "set_cache_settings",
         action_parameters: { cache: false },
       },
       {
         description: "deco: cache by device type, TTL from origin",
-        expression: `(${enabled})`,
+        expression: `(${enabled}) and not (${clauses})`,
         action: "set_cache_settings",
         action_parameters: {
           cache: true,

@@ -101,9 +101,19 @@ tsx node_modules/@decocms/blocks-cli/scripts/cdn-rules.ts
 ```
 
 Two rules: bypass anything segment-sensitive (auth cookie, A/B cookie, bot UA,
-`Sec-Fetch-Dest: empty`, draft/preview/matcher-override), then cache the rest
-with **Cache by device type** on and edge TTL `respect_origin` — so the TTL
-keeps coming from the cache profile the Worker resolves.
+`Sec-Fetch-Dest: empty` except on `/_serverFn`, draft/preview/matcher-override),
+and cache the rest with **Cache by device type** on and edge TTL
+`respect_origin` — so the TTL keeps coming from the cache profile the Worker
+resolves.
+
+The two rules are **mutually exclusive by expression**, not by ordering. This
+matters: Cloudflare's cache phase is
+[last-match-wins](https://developers.cloudflare.com/cache/how-to/cache-rules/order/)
+for non-terminating actions, so a catch-all "cache everything" rule listed after
+a "bypass" one silently overrides it and the entire bypass list goes inert — the
+failure mode being a logged-in visitor served another user's entry. Scoping the
+cache rule with `and not (<bypass clauses>)` removes the dependency on order
+entirely.
 
 ### Enabling per site
 

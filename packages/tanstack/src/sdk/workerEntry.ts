@@ -1293,6 +1293,17 @@ export function createDecoWorkerEntry(
       return false;
     }
 
+    // `__cf_geo` in buildCacheKey, which the marker cannot express and the CDN
+    // cannot reproduce. Mostly moot — with geo on, the `buildSegment` wrapper
+    // back-fills `regionId`, and any `regionId` already makes `segmentToken`
+    // return null. But the back-fill reads only `cf.regionCode` while
+    // `buildGeoCacheParam` keys on country/region/city, so a request with a
+    // country but no region code (Tor exits, some carriers, countries without
+    // first-level subdivisions) slips through with a releasable token while the
+    // Worker key still varies by geo. Refuse outright, the same way the
+    // `match-profile` branch below does.
+    if (effectiveGeoKey() !== "off") return false;
+
     const expected = segmentToken(buildSegment(request), getBuildHash(env));
     return expected !== null && marker === expected;
   }
@@ -1847,14 +1858,24 @@ export function createDecoWorkerEntry(
       // invoke handlers, etc.) may independently append the same cookie.
       deduplicateSetCookies(response);
 
-      // Anything the worker decided to bypass must also be uncacheable at the
-      // CDN. A dozen call sites set `X-Cache: BYPASS`; some deleted
-      // CDN-Cache-Control, some didn't, and several still emitted the profile's
-      // public `Cache-Control` (`public, s-maxage=900`) on the way out. That was
-      // inert only because every response carried `no-store` anyway — the moment
-      // CDN caching is enabled it becomes a leak. Enforced here, at the single
-      // exit, so a future bypass branch can't forget it.
-      if (response.headers.get("X-Cache") === "BYPASS") {
+      // `CDN-Cache-Control` is decided here, at the single response exit, so no
+      // branch can forget it. Two cases:
+      //
+      //  - `X-Cache: BYPASS` — the worker deliberately declined to cache, so
+      //    the CDN must not either. A dozen call sites set this; some deleted
+      //    the header, some didn't, and several still emitted the profile's
+      //    public `Cache-Control` (`public, s-maxage=900`) on the way out.
+      //  - header absent — a branch that returned before `dressResponse` and
+      //    expressed no opinion. `?asJson`, `?renderJson`, proxied responses and
+      //    the redirect paths all land here. Defaulting these to `no-store` is
+      //    what makes the invariant hold: an early return can only ever be
+      //    MORE restrictive than the cache layer, never accidentally public.
+      //
+      // A value already set by `dressResponse` (the cacheable path) is left
+      // alone — that is the one branch that has actually reasoned about whether
+      // the CDN key matches the worker key.
+      const bypassed = response.headers.get("X-Cache") === "BYPASS";
+      if (bypassed || !response.headers.has("CDN-Cache-Control")) {
         response.headers.set("CDN-Cache-Control", "no-store");
       }
 
