@@ -736,3 +736,32 @@ describe("draft preview (pull-based)", () => {
     expect(res.headers.get("X-Robots-Tag")).toBeNull();
   });
 });
+
+describe("CDN-Cache-Control at the single response exit", () => {
+  it("defaults to no-store on early returns that never reach dressResponse", async () => {
+    // `?asJson` returns the fully resolved page — loaders run with the caller's
+    // cookies — and returns before dressResponse, so it expresses no opinion on
+    // CDN caching. Without a default here it would inherit whatever the CDN
+    // decides for a 200 with no cache directives.
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+    const res = await w.fetch(
+      new Request("https://example.com/some-category?asJson"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+  });
+
+  it("leaves a value dressResponse already decided", async () => {
+    // The cacheable path is the one branch that reasoned about whether the CDN
+    // key matches the worker key — the default must not stomp it.
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      cdnCacheControl: "match-profile",
+      deviceSpecificKeys: false,
+      geoCacheKey: "off",
+    });
+    const res = await w.fetch(new Request("https://example.com/some-category"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("CDN-Cache-Control")).toMatch(/^public, max-age=\d+$/);
+  });
+});
