@@ -25,6 +25,15 @@ export function registerAdminOrigins(origins: string[]): void {
   }
 }
 
+/**
+ * The registered admin origins, as an array — for building a
+ * `frame-ancestors` allowlist (e.g. the `/deco/render` CSP). Reflects any
+ * origins added via `registerAdminOrigin(s)`.
+ */
+export function getAdminOrigins(): string[] {
+  return [...ADMIN_ORIGINS];
+}
+
 export function isAdminOrLocalhost(request: Request): boolean {
   const origin = request.headers.get("origin") || request.headers.get("referer") || "";
 
