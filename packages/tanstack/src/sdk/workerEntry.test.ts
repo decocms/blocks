@@ -736,3 +736,111 @@ describe("draft preview (pull-based)", () => {
     expect(res.headers.get("X-Robots-Tag")).toBeNull();
   });
 });
+
+describe('cdnCacheControl: "serverfn-segment"', () => {
+  const BUILD = "abc123";
+  const ENV = { BUILD_HASH: BUILD };
+
+  function worker(overrides: Record<string, unknown> = {}) {
+    return createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      cdnCacheControl: "serverfn-segment",
+      buildSegment: (req: Request) => ({
+        device: req.headers.get("user-agent")?.includes("iPhone")
+          ? ("mobile" as const)
+          : ("desktop" as const),
+        ...(req.headers.get("cookie")?.includes("auth=1") ? { loggedIn: true } : {}),
+      }),
+      ...overrides,
+    });
+  }
+
+  const sfnUrl = (marker?: string) =>
+    `https://example.com/_serverFn/loadCmsPage${marker ? `?__cseg=${marker}` : ""}`;
+
+  async function cdnHeader(url: string, headers: Record<string, string> = {}) {
+    const res = await worker().fetch(new Request(url, { headers }), ENV, MOCK_CTX);
+    return res.headers.get("CDN-Cache-Control");
+  }
+
+  it("releases the CDN when the marker matches the recomputed segment", async () => {
+    expect(await cdnHeader(sfnUrl(`desktop.${BUILD}`))).toMatch(/^public, max-age=\d+$/);
+  });
+
+  it("keeps no-store without a marker (bot, curl, old client)", async () => {
+    expect(await cdnHeader(sfnUrl())).toBe("no-store");
+  });
+
+  it("keeps no-store when the marker is for another device", async () => {
+    // The forged/diverging case: a desktop request claiming a mobile entry
+    // would let the CDN serve mobile HTML to desktop.
+    expect(await cdnHeader(sfnUrl(`mobile.${BUILD}`))).toBe("no-store");
+  });
+
+  it("keeps no-store when the marker is from an older build", async () => {
+    // Deploying does not purge the CDN, so a stale build token must not match.
+    expect(await cdnHeader(sfnUrl("desktop.oldbuild"))).toBe("no-store");
+  });
+
+  it("keeps no-store when there is no build hash", async () => {
+    const res = await worker().fetch(new Request(sfnUrl(`desktop.${BUILD}`)), {}, MOCK_CTX);
+    expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+  });
+
+  it("keeps no-store for a bot UA even with a valid marker", async () => {
+    // Bots render every section eagerly (~10x payload). Sharing one CDN entry
+    // would serve that to humans, or the deferred one to crawlers.
+    expect(
+      await cdnHeader(sfnUrl(`desktop.${BUILD}`), {
+        "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1)",
+      }),
+    ).toBe("no-store");
+  });
+
+  it("keeps no-store for an A/B cohort cookie even with a valid marker", async () => {
+    expect(
+      await cdnHeader(sfnUrl(`desktop.${BUILD}`), {
+        cookie: "deco_segment=eyJhY3RpdmUiOlsiYSJdfQ==",
+      }),
+    ).toBe("no-store");
+  });
+
+  it("keeps no-store for a logged-in request", async () => {
+    expect(await cdnHeader(sfnUrl(`desktop.${BUILD}`), { cookie: "auth=1" })).toBe("no-store");
+  });
+
+  it("keeps no-store on HTML documents — they carry no marker", async () => {
+    expect(await cdnHeader("https://example.com/some-category")).toBe("no-store");
+  });
+
+  it("keeps no-store without buildSegment, since the logged-in bypass is inert", async () => {
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      cdnCacheControl: "serverfn-segment",
+    });
+    const res = await w.fetch(new Request(sfnUrl(`desktop.${BUILD}`)), ENV, MOCK_CTX);
+    expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+  });
+});
+
+describe('cdnCacheControl: "match-profile" guard', () => {
+  it("is ignored while the cache key is segmented (deviceSpecificKeys defaults to true)", async () => {
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      cdnCacheControl: "match-profile",
+    });
+    const res = await w.fetch(new Request("https://example.com/some-category"), {}, MOCK_CTX);
+    expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+  });
+
+  it("is honored only when the key really is the raw URL", async () => {
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      cdnCacheControl: "match-profile",
+      deviceSpecificKeys: false,
+      geoCacheKey: "off",
+    });
+    const res = await w.fetch(new Request("https://example.com/some-category"), {}, MOCK_CTX);
+    expect(res.headers.get("CDN-Cache-Control")).toMatch(/^public, max-age=\d+$/);
+  });
+});

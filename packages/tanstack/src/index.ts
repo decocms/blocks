@@ -52,3 +52,8 @@ export type {
 // parses (never imports) to emit real top-level createServerFn declarations
 // into each site's own src/server/invoke.gen.ts. Import it from the
 // dedicated "@decocms/tanstack/sdk/createInvoke" subpath instead.
+// decoServerFnFetch is intentionally NOT re-exported from this root barrel
+// either. A site wires it in `src/start.ts`, which is part of the CLIENT
+// bundle; importing it from here would drag `createDecoWorkerEntry` (and the
+// whole server graph behind it) into that bundle. Import it from the dedicated
+// "@decocms/tanstack/sdk/serverFnFetch" subpath instead.
