@@ -92,6 +92,7 @@ export type {
 } from "./resolve";
 export {
   addSkipResolveType,
+  BOT_UA_SUBSTRINGS,
   cacheDeferredRawProps,
   clearCommerceLoaders,
   evaluateMatcher,
