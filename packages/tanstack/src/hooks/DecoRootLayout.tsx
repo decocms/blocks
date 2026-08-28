@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { HeadContent, Scripts, ScriptOnce, useRouterState } from "@tanstack/react-router";
-import { LiveControls } from "@decocms/blocks/hooks";
+import { LiveControls, Stats } from "@decocms/blocks/hooks";
 import {
 	ANALYTICS_SCRIPT,
 	SPECULATION_DEV_WARN_SCRIPT,
@@ -161,6 +161,20 @@ export function DecoRootLayout({
 			</head>
 			<body className={bodyClassName} suppressHydrationWarning>
 				<ScriptOnce children={buildDecoEventsBootstrap(account)} />
+				{/*
+				 * AFTER the bootstrap above, and in the body rather than the head. The collector's
+				 * deco module subscribes with `window?.DECO?.events?.subscribe?.(…)` — once,
+				 * optional-chained, with no retry. In the head it is an `async` script the parser
+				 * can reach and run before the inline bootstrap below it has defined
+				 * `DECO.events`, and the subscription would simply not happen: pageviews would
+				 * still flow while every commerce event went nowhere, with no error. Here the
+				 * parser has already executed the bootstrap.
+				 *
+				 * Rendering unconditionally is safe — the component returns null unless
+				 * DECO_ANALYTICS_ENABLED is exactly "true", which is what makes this an env-var
+				 * change for a site instead of a code change.
+				 */}
+				<Stats />
 				<NavigationProgress />
 				<main>
 					<StableOutlet />
