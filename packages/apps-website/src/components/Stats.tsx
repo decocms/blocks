@@ -103,8 +103,17 @@ function Stats({ origin, siteKey, defer, dev, debug }: Props) {
 				id="deco-analytics"
 				async={!defer}
 				defer={defer}
-				src={`${base}/_dq/a.js`}
-				data-site={key}
+				// THE KEY GOES IN THE URL, not in a `data-` attribute. The collector resolves the
+				// site server-side while RENDERING the bundle -- it reads `?k=` and writes the
+				// resolved config into the script it returns -- so a key on the element arrives
+				// far too late to matter. It is also never read: the bundle only looks at
+				// `data-dev` and `data-debug`.
+				//
+				// This was `data-site` and it would have failed the way this project's failures
+				// always do: the collector resolves nothing, serves the `s:"unknown"` fallback,
+				// and the site collects exactly zero with no error anywhere. Same shape as the
+				// bug that once made the entire self-serve tier silent.
+				src={`${base}/_dq/a.js${key ? `?k=${encodeURIComponent(key)}` : ""}`}
 				// Rendered only when true. `data-dev="false"` and an absent attribute mean
 				// the same thing to the collector, and the absent one cannot be mistaken
 				// for a deliberate setting by someone reading the page source.

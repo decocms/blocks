@@ -70,16 +70,24 @@ describe("Stats", () => {
 		expect(off).not.toContain("data-debug");
 	});
 
-	it("emits a site key only when one is configured", async () => {
+	it("puts the site key in the URL, because that is where the collector reads it", async () => {
 		process.env.DECO_ANALYTICS_ENABLED = "true";
 		// Sites behind our edge are identified by the Host header, which a visitor cannot forge.
 		// Emitting an empty key would put a `tag`-sourced identity on a site that has a
 		// trustworthy one, and `tag` is the source that must never reach an invoice.
-		expect(await render()).not.toContain("data-site");
+		const none = await render();
+		expect(none).toContain('src="/_dq/a.js"');
+		expect(none).not.toContain("?k=");
 
 		vi.resetModules();
 		process.env.DECO_ANALYTICS_SITE_KEY = "dq_abc123";
-		expect(await render()).toContain('data-site="dq_abc123"');
+		const keyed = await render();
+		// IN THE QUERY STRING. The collector resolves the site while rendering the bundle, from
+		// `?k=` -- a key on the element is read by nothing and arrives after the decision. As
+		// `data-site` this rendered fine, resolved nothing, served the `s:"unknown"` fallback and
+		// collected zero without an error anywhere.
+		expect(keyed).toContain("/_dq/a.js?k=dq_abc123");
+		expect(keyed).not.toContain("data-site");
 	});
 
 	it("uses defer only when asked, async otherwise", async () => {
