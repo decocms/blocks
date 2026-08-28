@@ -1,5 +1,6 @@
 export { isBelowFold, LazySection, type LazySectionProps } from "./LazySection";
 export { LiveControls } from "./LiveControls";
+export { default as Stats, DEFAULT_ORIGIN as STATS_DEFAULT_ORIGIN, type Props as StatsProps } from "./Stats";
 export { SectionErrorBoundary } from "./SectionErrorFallback";
 export { default as RenderSection } from "./RenderSection";
 
