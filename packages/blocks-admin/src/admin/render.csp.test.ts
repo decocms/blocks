@@ -50,6 +50,25 @@ describe("handleRender CSP hardening", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
+  it("allows the Studio admin origins to frame the preview", async () => {
+    // The default admin-origin registry must let Studio embed /deco/render, or
+    // the section gallery / global-section preview iframes go blank under the
+    // new frame-ancestors policy. Studio serves from decocms.com subdomains
+    // (studio., pr-<n>.pr.studio., *.local.studio., native dev on :4420, …) —
+    // covered by the host+port wildcard — plus localhost in dev/native. The
+    // ":*" is load-bearing: a portless host-source only matches port 443.
+    const { response } = await renderPayload();
+    const csp = response.headers.get("content-security-policy") ?? "";
+    const frameAncestors =
+      csp
+        .split(";")
+        .map((d) => d.trim())
+        .find((d) => d.startsWith("frame-ancestors")) ?? "";
+
+    expect(frameAncestors).toContain("https://*.decocms.com:*");
+    expect(frameAncestors).toContain("localhost:*");
+  });
+
   it("reflects the payload (proving the sink) but the CSP renders it inert", async () => {
     const { response, html } = await renderPayload();
     // The section really did write the attacker HTML into the document…
