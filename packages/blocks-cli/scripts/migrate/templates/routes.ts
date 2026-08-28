@@ -46,7 +46,7 @@ function generateRoot(ctx: MigrationContext, siteTitle: string, vtexAccount: str
 
   // Build preconnect list based on platform
   const preconnects: string[] = [];
-  preconnects.push(`      { rel: "preconnect", href: "https://decoims.com", crossOrigin: "anonymous" as const },`);
+  preconnects.push(`      { rel: "preconnect", href: "https://assets.decocms.com", crossOrigin: "anonymous" as const },`);
   if (isVtex) {
     preconnects.push(`      { rel: "preconnect", href: "https://${vtexAccount}.vtexassets.com", crossOrigin: "anonymous" as const },`);
   }
