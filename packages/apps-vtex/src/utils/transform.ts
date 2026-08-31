@@ -125,7 +125,11 @@ export interface ProductOptions {
 	displayedVariantId?: (items: Array<LegacySkuVTEX | SkuVTEX>) => string | undefined;
 	/**
 	 * Cap `image[]` to the first N entries, in path order. Undefined (default)
-	 * keeps every image.
+	 * keeps every image. Must be >= 1 — `0` and negatives are ignored, since
+	 * `slice` would emit an empty `image[]` or drop the last entries instead.
+	 *
+	 * Honoured by `toProduct` only. `toProductShelf` and `toProductVariant` build
+	 * `image[]` through their own paths and ignore this option.
 	 *
 	 * Listings render at most a couple of images per card, while the Catalog API
 	 * returns every asset registered on the SKU (3 on average, up to 5 measured).
@@ -430,18 +434,21 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 
 	const variantOptions =
 		imagesByKey !== options.imagesByKey ? { ...options, imagesByKey } : options;
+	// Resolved once per product, not once per SKU. The `level < 1` guard keeps it from
+	// running again inside the nested toProduct call the kept variant makes below.
+	const displayedId =
+		level < 1 && options.leanVariants ? options.displayedVariantId?.(items) : undefined;
 	const isVariantOf =
 		level < 1
 			? ({
 					"@type": "ProductGroup",
 					productGroupID: productId,
 					hasVariant: options.leanVariants
-						? ((keepId) =>
-								items.map((sku) =>
-									keepId !== undefined && sku.itemId === keepId
-										? toProduct(product, sku, 1, variantOptions)
-										: toProductVariant(product, sku, variantOptions),
-								))(options.displayedVariantId?.(items))
+						? items.map((sku) =>
+								displayedId !== undefined && sku.itemId === displayedId
+									? toProduct(product, sku, 1, variantOptions)
+									: toProductVariant(product, sku, variantOptions),
+							)
 						: items.map((sku) => toProduct(product, sku, 1, variantOptions)),
 					url: getProductGroupURL(baseUrl, product).href,
 					name: product.productName,
@@ -453,8 +460,13 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 				} satisfies ProductGroup)
 			: undefined;
 
+	// `> 0` is load-bearing: `slice(0, 0)` returns [] rather than null, which would slip
+	// past the DEFAULT_IMAGE fallback below and emit `image: []`; a negative would drop
+	// the LAST images instead of capping the first N. Out-of-range values are ignored.
 	const cappedImages =
-		typeof options.maxImages === "number" ? images?.slice(0, options.maxImages) : images;
+		typeof options.maxImages === "number" && options.maxImages > 0
+			? images?.slice(0, options.maxImages)
+			: images;
 	const finalImages = cappedImages?.map(({ imageUrl, imageText, imageLabel }) => {
 		const url = imagesByKey.get(getImageKey(imageUrl)) ?? imageUrl;
 		const alternateName = imageText || imageLabel || "";
