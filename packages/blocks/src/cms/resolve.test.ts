@@ -25,15 +25,18 @@ import { findPageByPath } from "./loader";
 import { getSection } from "./registry";
 import type { AsyncRenderingConfig, DeferredSection, MatcherContext } from "./resolve";
 import {
+  asResolved,
   clearCommerceLoaders,
   layoutCacheKey,
   DEFAULT_FOLD_THRESHOLD,
   extractSeoFromProps,
   getAsyncRenderingConfig,
+  isDeferred,
   isEagerRequest,
   reExtractRawProps,
   registerCommerceLoader,
   registerMatcher,
+  resolveDeferred,
   registerEagerSections,
   registerAlwaysDeferSections,
   registerNeverDeferSections,
@@ -1220,5 +1223,111 @@ describe("layoutCacheKey — the resolved-layout cache is segmented by device", 
     // An absent UA must land on the SAME bucket as a request whose UA is empty,
     // so a health check and a real desktop hit do not fragment the cache twice.
     expect(noCtx).toBe(layoutCacheKey(KEY, { userAgent: "" }));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// asResolved / deferred props
+// ---------------------------------------------------------------------------
+//
+// The CMS resolver is recursive and resolves EVERY `__resolveType` it finds in a
+// section's props — including branches the section will not render. Measured on
+// a real store, a PDP's `notFoundSections` (the 404 fallback) carried a shelf
+// whose `products` was a full-text search: 1703ms of the eager critical path of
+// every product page, result thrown away. `asResolved(v, true)` is the opt-out.
+
+describe("asResolved — deferred props", () => {
+  const LOADER = "test/loaders/expensive.ts";
+  let calls = 0;
+
+  beforeEach(() => {
+    calls = 0;
+    clearCommerceLoaders();
+    registerCommerceLoader(LOADER, async () => {
+      calls += 1;
+      return { products: ["p1", "p2"] };
+    });
+  });
+
+  afterEach(() => clearCommerceLoaders());
+
+  const expensive = { __resolveType: LOADER };
+
+  it("without asResolved the loader runs during the page pass", async () => {
+    const out = (await resolveValue({ fallback: expensive })) as any;
+    expect(calls).toBe(1);
+    expect(out.fallback).toEqual({ products: ["p1", "p2"] });
+  });
+
+  it("asResolved(v) hands the value back untouched — the loader never runs", async () => {
+    const out = (await resolveValue({ fallback: asResolved(expensive) })) as any;
+    expect(calls).toBe(0);
+    // The raw node comes through, NOT its resolution.
+    expect(out.fallback).toEqual(expensive);
+  });
+
+  it("asResolved(v, true) yields a thunk and does NOT resolve until called", async () => {
+    const out = (await resolveValue({ fallback: asResolved(expensive, true) })) as any;
+
+    expect(calls).toBe(0);
+    expect(isDeferred(out.fallback)).toBe(true);
+
+    expect(await resolveDeferred(out.fallback)).toEqual({ products: ["p1", "p2"] });
+    expect(calls).toBe(1);
+  });
+
+  it("the branch that never calls the thunk pays nothing", async () => {
+    const out = (await resolveValue({
+      shown: expensive,
+      fallback: asResolved(expensive, true),
+    })) as any;
+    // Only the rendered branch resolved. This is the whole point: 1 upstream
+    // call instead of 2 for a page that renders one of the two.
+    expect(calls).toBe(1);
+    expect(out.shown).toEqual({ products: ["p1", "p2"] });
+  });
+
+  it("a thunk is dropped by JSON.stringify — the unused branch leaves the payload too", async () => {
+    const out = (await resolveValue({ fallback: asResolved(expensive, true) })) as any;
+    expect(JSON.parse(JSON.stringify(out))).toEqual({});
+  });
+
+  it("resolveDeferred is tolerant of a plain value (admin preview path)", async () => {
+    // The admin preview does not run `onBeforeResolveProps`, so the prop arrives
+    // already resolved. A section must read the same either way.
+    expect(await resolveDeferred([{ a: 1 }])).toEqual([{ a: 1 }]);
+    expect(await resolveDeferred(undefined)).toBeUndefined();
+  });
+
+  it("the thunk resolves in THIS request's context, not a context-free one", async () => {
+    // The invariant that makes deferring safe: a cookie/UA-gated prop must not
+    // silently resolve against an anonymous request when the section calls it.
+    const PROBE = "test/matchers/deferredProbe.ts";
+    const seen: MatcherContext[] = [];
+    registerMatcher(PROBE, (_rule, ctx) => {
+      seen.push(ctx);
+      return true;
+    });
+    const gated = {
+      __resolveType: WELL_KNOWN_TYPES.MULTIVARIATE,
+      variants: [{ rule: { __resolveType: PROBE }, value: expensive }],
+    };
+    const ctx: MatcherContext = {
+      userAgent: "Mozilla/5.0 (iPhone) Mobile Safari",
+      url: "https://store.com/x/p",
+      cookies: { VtexIdclientAutCookie: "tok" },
+    };
+
+    const out = (await resolveValue({ fallback: asResolved(gated, true) }, undefined, ctx)) as any;
+    expect(seen).toHaveLength(0); // nothing evaluated yet
+
+    await resolveDeferred(out.fallback);
+
+    expect(seen).not.toHaveLength(0);
+    for (const c of seen) {
+      expect(c.cookies).toEqual(ctx.cookies);
+      expect(c.userAgent).toBe(ctx.userAgent);
+      expect(c.url).toBe(ctx.url);
+    }
   });
 });

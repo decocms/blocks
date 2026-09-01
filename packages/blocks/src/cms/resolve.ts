@@ -869,8 +869,38 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
 
   const childCtx: ResolveContext = { ...rctx, depth: rctx.depth + 1 };
 
-  // "resolved" short-circuit
-  if (resolveType === "resolved") return obj.data ?? null;
+  // ── `asResolved` ─────────────────────────────────────────────────────────
+  //
+  // `{ __resolveType: "resolved", data }` hands `data` back untouched — the
+  // caller is telling us it is already resolved.
+  //
+  // With `deferred: true` it instead becomes a THUNK, and `data` is not walked
+  // at all during the page pass. That is the point: the CMS resolver is
+  // recursive and resolves every `__resolveType` it finds in a section's props,
+  // including branches the section will not render. Measured on a real store, a
+  // PDP's `notFoundSections` — the 404 fallback — carried a shelf whose
+  // `products` was a full-text search: 1703ms of the EAGER critical path of
+  // EVERY product page, with the result thrown away. Same shape applies to tab
+  // content, modal content and unmatched A/B branches.
+  //
+  // The thunk closes over `childCtx`, so resolving it later still sees THIS
+  // request: cookies, UA and url reach the matchers, and `rctx.memo` dedupes
+  // named-block references the page already resolved. It does NOT dedupe
+  // commerce loaders — those are keyed by their own cache layer, not the memo
+  // (see the "Named block reference (memoized)" branch), so a deferred prop
+  // pointing at the same loader as a rendered one still calls it twice.
+  //
+  // HAZARD, and it is why this is opt-in per prop: a thunk cannot be
+  // serialized. If a section defers a prop and never calls it, the prop reaches
+  // the client as `undefined` (JSON.stringify drops functions). Defer only what
+  // the section itself resolves, and only on the branch that needs it.
+  if (resolveType === "resolved") {
+    if (obj.deferred === true) {
+      const raw = obj.data;
+      return () => internalResolve(raw, childCtx);
+    }
+    return obj.data ?? null;
+  }
 
   // Lazy section wrapper — unwrap single inner section
   if (resolveType === WELL_KNOWN_TYPES.LAZY) {
@@ -1780,6 +1810,65 @@ export async function resolveSectionsList(
   }
 
   return [];
+}
+
+// ---------------------------------------------------------------------------
+// Deferred props (`asResolved`)
+// ---------------------------------------------------------------------------
+
+/** A prop deferred with `asResolved(value, true)`: call it to resolve. */
+export type Deferred<T> = () => Promise<T>;
+
+/**
+ * Mark a prop as already-resolved, or defer its resolution to the section.
+ *
+ * Use it from a section's `onBeforeResolveProps`, which runs on the RAW CMS
+ * props before the resolver walks them:
+ *
+ * ```ts
+ * export const onBeforeResolveProps = (props: Props) => ({
+ *   ...props,
+ *   // The 404 fallback: only the branch that renders it should pay for it.
+ *   notFoundSections: asResolved(props.notFoundSections, true),
+ * })
+ *
+ * export const loader = async (props: Props) => {
+ *   if (props.page) return { ...props, notFoundSections: [] }
+ *   return { ...props, notFoundSections: await resolveDeferred(props.notFoundSections) }
+ * }
+ * ```
+ *
+ * - `asResolved(v)` — hand `v` back untouched; the resolver does not walk it.
+ * - `asResolved(v, true)` — the section receives a {@link Deferred} thunk and
+ *   decides whether to pay for it.
+ *
+ * A deferred prop that is never called reaches the client as `undefined`: a
+ * thunk cannot be serialized. That is deliberate — it is what keeps the unused
+ * branch out of the hydration payload too — but it means you must resolve it on
+ * the branch that renders it.
+ */
+export function asResolved<T>(value: T, defer?: boolean): T {
+  return {
+    __resolveType: "resolved",
+    data: value,
+    ...(defer ? { deferred: true } : {}),
+  } as unknown as T;
+}
+
+/** True when a prop came through as a {@link Deferred} thunk. */
+export function isDeferred<T>(value: unknown): value is Deferred<T> {
+  return typeof value === "function";
+}
+
+/**
+ * Resolve a possibly-deferred prop.
+ *
+ * Tolerant of a plain value, so a section reads the same whether the prop was
+ * deferred, marked already-resolved, or left alone — and so the admin preview
+ * (which does not run `onBeforeResolveProps`) keeps working.
+ */
+export async function resolveDeferred<T>(value: Deferred<T> | T): Promise<T> {
+  return isDeferred<T>(value) ? await value() : (value as T);
 }
 
 // ---------------------------------------------------------------------------
