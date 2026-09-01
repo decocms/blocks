@@ -40,6 +40,16 @@ export interface Redirect {
   from: string;
   to: string;
   status: 301 | 302;
+  /**
+   * Query the source URL was scoped to, without the leading "?" (e.g.
+   * `map=category-1`). Only set when the CSV/CMS `from` carried one.
+   *
+   * The map is keyed by pathname, so without this a query-scoped rule would
+   * have to widen into a whole-page rule — which is how these rows used to
+   * produce redirect loops. `matchRedirect` fires them only when the incoming
+   * search matches.
+   */
+  search?: string;
 }
 
 export interface RedirectMap {
@@ -47,6 +57,12 @@ export interface RedirectMap {
   exact: Map<string, Redirect>;
   /** Glob/prefix redirects checked sequentially (few in practice). */
   patterns: Array<{ prefix: string; redirect: Redirect }>;
+  /**
+   * Rules whose `from` carried a query, bucketed by pathname. Only reachable
+   * when `matchRedirect` is given the request's search string, so they can
+   * never hijack a bare path.
+   */
+  scoped: Map<string, Redirect[]>;
 }
 
 // -------------------------------------------------------------------------
@@ -83,6 +99,7 @@ export function registerRedirectResolveType(resolveType: string): void {
 export function loadRedirects(blocks: Record<string, unknown>): RedirectMap {
   const exact = new Map<string, Redirect>();
   const patterns: Array<{ prefix: string; redirect: Redirect }> = [];
+  const scoped = new Map<string, Redirect[]>();
 
   for (const [_key, block] of Object.entries(blocks)) {
     if (!block || typeof block !== "object") continue;
@@ -102,24 +119,22 @@ export function loadRedirects(blocks: Record<string, unknown>): RedirectMap {
 
     for (const entry of list) {
       if (!entry.from || !entry.to) continue;
-      if (isSelfRedirect(entry.from, entry.to)) continue;
+
+      const { path, search } = splitSource(entry.from);
+      if (!search && isSelfRedirect(entry.from, entry.to)) continue;
 
       const redirect: Redirect = {
-        from: normalizePath(entry.from),
+        from: path,
         to: entry.to,
         status: entry.type === "permanent" ? 301 : 302,
+        ...(search ? { search } : {}),
       };
 
-      if (redirect.from.includes("*")) {
-        const prefix = redirect.from.replace(/\*+$/, "");
-        patterns.push({ prefix, redirect });
-      } else {
-        exact.set(redirect.from, redirect);
-      }
+      addToMap({ exact, patterns, scoped }, redirect);
     }
   }
 
-  return { exact, patterns };
+  return { exact, patterns, scoped };
 }
 
 // -------------------------------------------------------------------------
@@ -146,15 +161,18 @@ export function parseRedirectsCsv(csv: string): Redirect[] {
 
     const [from, to, type] = parts;
     if (!from || !to) continue;
-    if (isSelfRedirect(from, to)) continue;
     // Skip a header row (`from,to[,type]`). Robust for CSVs with or without a
     // header, and for a header repeated when multiple files are concatenated.
     if (from.toLowerCase() === "from" && to.toLowerCase() === "to") continue;
 
+    const { path, search } = splitSource(from);
+    if (!search && isSelfRedirect(from, to)) continue;
+
     redirects.push({
-      from: normalizePath(from),
+      from: path,
       to,
       status: type === "permanent" || type === "301" ? 301 : 302,
+      ...(search ? { search } : {}),
     });
   }
 
@@ -166,12 +184,23 @@ export function parseRedirectsCsv(csv: string): Redirect[] {
  */
 export function addRedirects(map: RedirectMap, redirects: Redirect[]): void {
   for (const redirect of redirects) {
-    if (redirect.from.includes("*")) {
-      const prefix = redirect.from.replace(/\*+$/, "");
-      map.patterns.push({ prefix, redirect });
-    } else {
-      map.exact.set(redirect.from, redirect);
-    }
+    addToMap(map, redirect);
+  }
+}
+
+/** Route a redirect into the bucket that matches its shape. */
+function addToMap(map: RedirectMap, redirect: Redirect): void {
+  if (redirect.search) {
+    const bucket = map.scoped.get(redirect.from);
+    if (bucket) bucket.push(redirect);
+    else map.scoped.set(redirect.from, [redirect]);
+    return;
+  }
+  if (redirect.from.includes("*")) {
+    const prefix = redirect.from.replace(/\*+$/, "");
+    map.patterns.push({ prefix, redirect });
+  } else {
+    map.exact.set(redirect.from, redirect);
   }
 }
 
@@ -185,8 +214,18 @@ export function addRedirects(map: RedirectMap, redirects: Redirect[]): void {
  * Checks exact matches first (O(1)), then glob patterns (O(n), but
  * typically few patterns exist).
  */
-export function matchRedirect(pathname: string, map: RedirectMap): Redirect | null {
+export function matchRedirect(
+  pathname: string,
+  map: RedirectMap,
+  search?: string,
+): Redirect | null {
   const normalized = normalizePath(pathname);
+
+  // Query-scoped rules are the more specific match, so they win over a
+  // bare-path rule for the same pathname. Callers that pass no `search`
+  // never reach them.
+  const scopedMatch = matchScoped(normalized, map, search);
+  if (scopedMatch) return scopedMatch;
 
   const exactMatch = map.exact.get(normalized);
   if (exactMatch) return exactMatch;
@@ -202,9 +241,62 @@ export function matchRedirect(pathname: string, map: RedirectMap): Redirect | nu
   return null;
 }
 
+/**
+ * A query-scoped rule matches when every `key=value` it was defined with is
+ * present in the request. Subset rather than equality, so appended tracking
+ * params (utm_*, gclid, fbclid) do not defeat the rule.
+ */
+function matchScoped(pathname: string, map: RedirectMap, search?: string): Redirect | null {
+  if (!search) return null;
+  const bucket = map.scoped.get(pathname);
+  if (!bucket) return null;
+
+  const actual = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  for (const redirect of bucket) {
+    let matches = true;
+    for (const [key, value] of new URLSearchParams(redirect.search)) {
+      if (actual.get(key) !== value) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return redirect;
+  }
+  return null;
+}
+
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
+
+/**
+ * Split a redirect source into pathname and query.
+ *
+ * The map is keyed by pathname, so the query has to travel beside it rather
+ * than being dropped — dropping it widens a query-scoped rule into a rule for
+ * the whole page (see `Redirect.search`).
+ */
+function splitSource(from: string): { path: string; search?: string } {
+  const raw = from.trim();
+
+  if (isAbsolute(raw)) {
+    try {
+      const url = new URL(raw);
+      return {
+        path: normalizePath(url.pathname),
+        search: url.search ? url.search.slice(1) : undefined,
+      };
+    } catch {
+      // malformed URL: fall through to the string-level split
+    }
+  }
+
+  const qIdx = raw.indexOf("?");
+  if (qIdx >= 0) {
+    return { path: normalizePath(raw.slice(0, qIdx)), search: raw.slice(qIdx + 1) || undefined };
+  }
+  return { path: normalizePath(raw) };
+}
 
 const isAbsolute = (u: string) => u.startsWith("http://") || u.startsWith("https://");
 

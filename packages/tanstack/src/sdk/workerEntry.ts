@@ -1105,13 +1105,7 @@ export function createDecoWorkerEntry(
     return detectCacheProfile(target);
   }
 
-  const KNOWN_SEGMENT_FIELDS = new Set([
-    "device",
-    "loggedIn",
-    "salesChannel",
-    "regionId",
-    "flags",
-  ]);
+  const KNOWN_SEGMENT_FIELDS = new Set(["device", "loggedIn", "salesChannel", "regionId", "flags"]);
 
   function hashSegment(seg: SegmentKey): string {
     const parts: string[] = [seg.device];
@@ -1819,7 +1813,9 @@ export function createDecoWorkerEntry(
       _redirectMap = loadRedirects(loadBlocks());
       _redirectMapRevision = currentRevision;
     }
-    const cmsRedirect = matchRedirect(url.pathname, _redirectMap!);
+    // `url.search` is what lets query-scoped rules (`/x?map=category-1 -> /y`)
+    // match; without it they stay inert rather than hijacking the bare path.
+    const cmsRedirect = matchRedirect(url.pathname, _redirectMap!, url.search);
     if (cmsRedirect) {
       return new Response(null, {
         status: cmsRedirect.status,
@@ -1966,11 +1962,7 @@ export function createDecoWorkerEntry(
     }
 
     // ?asJson — return resolved page data as JSON (legacy deco compat)
-    if (
-      options.asJson !== false &&
-      url.searchParams.has("asJson") &&
-      request.method === "GET"
-    ) {
+    if (options.asJson !== false && url.searchParams.has("asJson") && request.method === "GET") {
       const basePath = url.pathname;
       const cookies: Record<string, string> = {};
       for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
