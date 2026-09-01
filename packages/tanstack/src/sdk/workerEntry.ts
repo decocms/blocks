@@ -29,6 +29,7 @@ import {
   getRevision,
   getSectionOptions,
   isBot,
+  getSiteBlock,
   loadBlocks,
   type MatcherContext,
   onChange,
@@ -1878,8 +1879,7 @@ export function createDecoWorkerEntry(
       // dropped section never triggers its (expensive) VTEX call. Dual-sourced:
       //   - the section's own `export const renderJson = false`
       //   - the website app's renderJson.sectionsToIgnore (resolveType suffix)
-      const rjBlocks = loadBlocks();
-      const rjSite = rjBlocks["Site"] as Record<string, unknown> | undefined;
+      const rjSite = getSiteBlock();
       const rawIgnore = (rjSite?.renderJson as { sectionsToIgnore?: unknown })?.sectionsToIgnore;
       const ignoreSuffixes = (Array.isArray(rawIgnore) ? rawIgnore : [])
         .filter((s): s is string => typeof s === "string")
@@ -2004,8 +2004,7 @@ export function createDecoWorkerEntry(
       }
 
       // Merge site-wide SEO defaults into seo props
-      const blocks = loadBlocks();
-      const site = (blocks["Site"] ?? blocks["site"]) as Record<string, unknown> | undefined;
+      const site = getSiteBlock();
       const fullSiteSeo = (site?.seo as Record<string, unknown>) ?? {};
 
       // When SeoV2 loader ran, use its output as base (preserves key order)

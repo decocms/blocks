@@ -1141,7 +1141,11 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
   const seenLoaderRefs = new Set<string>(loaders.loaderAnyOf.map((r: any) => r.$ref));
   const loaderUnion = [
     ...loaders.loaderAnyOf,
-    ...siteLoaderRefs.filter((r) => !seenLoaderRefs.has(r.$ref)),
+    // Annotated: the package compiles under `strictNullChecks` only, but a
+    // consumer with full `strict` type-checks this source (raw-.ts exports,
+    // and skipLibCheck does not apply to .ts). An implicit any here fails
+    // every strict consumer's build.
+    ...siteLoaderRefs.filter((r: { $ref: string }) => !seenLoaderRefs.has(r.$ref)),
   ];
 
   const fwSections = buildFrameworkSections(siteAnyOf, loaderUnion);

@@ -135,6 +135,7 @@ export const CACHE_SCHEMA_VERSION = 2;
 export const GENERATOR_NAMES = [
   "blocks",
   "manifest",
+  "routes",
   "sections",
   "loaders",
   "invoke",
@@ -180,6 +181,8 @@ Platform:
   --platform <name>   Forwarded to schema. With "eitri": runs ONLY schema +
                       blocks (skips manifest/sections/loaders/invoke) and tags
                       the composed meta's framework field with "eitri".
+                      With "native": adds "routes" (the CMS page table compiled
+                      for a React Native app) and skips manifest + invoke.
 
 The generated meta.gen.json is always self-contained (composeMeta runs at gen
 time for every platform), so FS-only consumers (FS-based Studio, Eitri) and the
@@ -591,6 +594,22 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
       outputs: [manifestGen],
     },
     {
+      name: "routes",
+      script: path.join(scriptsDir, "generate-routes.ts"),
+      args: ["--blocks-dir", opts.blocksDir],
+      stage: 1,
+      // Off unless asked for. The table is only consumed by a native app
+      // (`@decocms/native`'s createRoutePolicy); emitting it on every web site
+      // would be an unused file in every repo.
+      ...enabledIf(
+        opts.platform === "native" && blocksDirExists,
+        !blocksDirExists ? `${opts.blocksDir} does not exist` : "only for --platform native",
+      ),
+      // Depends on the page blocks' CONTENT (their `path`), not just filenames.
+      inputs: () => sortEntries(listTopLevelJson(cwd, blocksDirAbs)),
+      outputs: [path.join(".deco", "routes.gen.ts")],
+    },
+    {
       name: "sections",
       script: path.join(scriptsDir, "generate-sections.ts"),
       args: ["--sections-dir", opts.sectionsDir, ...(registry ? ["--registry"] : [])],
@@ -631,20 +650,48 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
     },
     {
       name: "invoke",
-      script: path.join(scriptsDir, "generate-invoke.ts"),
-      args: opts.appsDir ? ["--apps-dir", opts.appsDir] : [],
-      stage: 1,
-      ...enabledIf(
-        invokeSource !== null && hasTanstackStart,
-        invokeSource === null
-          ? "no apps invoke.ts found (@decocms/apps-vtex not installed and no --apps-dir)"
-          : "@tanstack/react-start not installed (invoke.gen.ts targets TanStack Start)",
+      // Same slot, different emitter. `createServerFn` is unreachable from a
+      // device (its transport is a build-generated /_serverFn/<id> and its
+      // server half needs the Start module graph), so a native app gets a
+      // TYPES-ONLY map of the /deco/invoke keys instead — same intent, a
+      // transport a phone can actually speak.
+      script: path.join(
+        scriptsDir,
+        opts.platform === "native" ? "generate-invoke-native.ts" : "generate-invoke.ts",
       ),
+      args:
+        opts.platform === "native"
+          ? ["--loaders-dir", opts.loadersDir, "--actions-dir", opts.actionsDir]
+          : opts.appsDir
+            ? ["--apps-dir", opts.appsDir]
+            : [],
+      stage: 1,
+      ...(opts.platform === "native"
+        ? enabledIf(
+            fs.existsSync(path.resolve(cwd, opts.loadersDir)) ||
+              fs.existsSync(path.resolve(cwd, opts.actionsDir)),
+            `neither ${opts.loadersDir} nor ${opts.actionsDir} exists`,
+          )
+        : enabledIf(
+            invokeSource !== null && hasTanstackStart,
+            invokeSource === null
+              ? "no apps invoke.ts found (@decocms/apps-vtex not installed and no --apps-dir)"
+              : "@tanstack/react-start not installed (invoke.gen.ts targets TanStack Start)",
+          )),
       // invoke.ts is the file the generator parses; the surrounding package's
       // action/type sources are fingerprinted via the @decocms/* version set
       // (node_modules content only changes with a version change in practice).
-      inputs: () => sortEntries(invokeSource ? [statEntry(cwd, invokeSource)!].filter(Boolean) : []),
-      outputs: [path.join("src", "server", "invoke.gen.ts")],
+      inputs: () =>
+        opts.platform === "native"
+          ? sortEntries([
+              ...walkTree(cwd, opts.loadersDir, [".ts", ".tsx"]),
+              ...walkTree(cwd, opts.actionsDir, [".ts", ".tsx"]),
+            ])
+          : sortEntries(invokeSource ? [statEntry(cwd, invokeSource)!].filter(Boolean) : []),
+      outputs:
+        opts.platform === "native"
+          ? [path.join(".deco", "invoke.native.gen.ts")]
+          : [path.join("src", "server", "invoke.gen.ts")],
     },
     {
       name: "schema",
@@ -723,6 +770,23 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
       } else if (plan.name !== "schema") {
         plan.enabled = false;
         plan.disabledReason = "not used by --platform eitri";
+      }
+    }
+  }
+
+  // --platform native: an app RENDERS (unlike eitri), so it needs the section
+  // conventions and the schema — but not the Next-only manifest. `invoke`
+  // stays on with a different emitter (see its plan entry). `blocks` stays on
+  // because `routes` reads the same directory and the snapshot is what the
+  // site's worker serves. Applied before --only/--skip.
+  if (opts.platform === "native") {
+    for (const plan of plans) {
+      if (plan.name === "routes") {
+        plan.enabled = true;
+        plan.disabledReason = undefined;
+      } else if (plan.name === "manifest") {
+        plan.enabled = false;
+        plan.disabledReason = "not used by --platform native";
       }
     }
   }
@@ -811,7 +875,7 @@ function serializeDigests(generators: DigestMap): string {
     "{",
     `  "//": ${JSON.stringify(DIGESTS_NOTE)},`,
     `  "version": ${CACHE_SCHEMA_VERSION},`,
-    "  \"generators\": {",
+    '  "generators": {',
     lines.join(",\n"),
     "  }",
     "}",
@@ -856,9 +920,10 @@ interface ContentHasher {
 function createContentHasher(cwd: string): ContentHasher {
   let files: Record<string, [size: number, mtimeMs: number, sha256: string]> = {};
   try {
-    const parsed = JSON.parse(
-      fs.readFileSync(path.join(cwd, STAT_MEMO_FILE_REL), "utf-8"),
-    ) as { version?: number; files?: typeof files };
+    const parsed = JSON.parse(fs.readFileSync(path.join(cwd, STAT_MEMO_FILE_REL), "utf-8")) as {
+      version?: number;
+      files?: typeof files;
+    };
     if (parsed?.version === CACHE_SCHEMA_VERSION && typeof parsed.files === "object") {
       files = parsed.files ?? {};
     }
@@ -871,7 +936,9 @@ function createContentHasher(cwd: string): ContentHasher {
       if (memo && memo[0] === size && memo[1] === mtimeMs) return memo[2];
       let sha: string;
       try {
-        sha = createHash("sha256").update(fs.readFileSync(path.join(cwd, rel))).digest("hex");
+        sha = createHash("sha256")
+          .update(fs.readFileSync(path.join(cwd, rel)))
+          .digest("hex");
       } catch {
         // Vanished between stat and read — a sentinel that can never equal a
         // recorded sha256 forces a re-run without poisoning the memo.
