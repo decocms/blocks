@@ -99,7 +99,7 @@ const getProductURL = (origin: string, product: { linkText: string }, skuId?: st
 const nonEmptyArray = <T>(array: T[] | null | undefined) =>
 	Array.isArray(array) && array.length > 0 ? array : null;
 
-interface ProductOptions {
+export interface ProductOptions {
 	baseUrl: string;
 	/** Price coded currency, e.g.: USD, BRL */
 	priceCurrency: string;
@@ -108,6 +108,36 @@ interface ProductOptions {
 	includeOriginalAttributes?: string[];
 	/** Use lean toProductVariant for hasVariant[] instead of full toProduct at level=1 */
 	leanVariants?: boolean;
+	/**
+	 * When `leanVariants` is true, keep ONE variant on the full `toProduct`
+	 * shape — the one the card actually renders. Receives the raw SKU list and
+	 * returns that SKU's `itemId` (or undefined to make every variant lean).
+	 *
+	 * Why this exists: `leanVariants` assumes the card renders the ROOT sku, so
+	 * `buildOfferVariant` empties `priceSpecification` on every entry. Cards that
+	 * instead pick a representative variant out of `isVariantOf.hasVariant` (e.g.
+	 * "cheapest in stock") read that variant's own offer for list price and
+	 * installments — with the ladder emptied, those render blank. This lets such
+	 * a caller keep exactly the one entry it displays.
+	 *
+	 * Undefined (default) preserves the current behaviour byte for byte.
+	 */
+	displayedVariantId?: (items: Array<LegacySkuVTEX | SkuVTEX>) => string | undefined;
+	/**
+	 * Cap `image[]` to the first N entries, in path order. Undefined (default)
+	 * keeps every image.
+	 *
+	 * Listings render at most a couple of images per card, while the Catalog API
+	 * returns every asset registered on the SKU (3 on average, up to 5 measured).
+	 *
+	 * NOTE: this truncates by POSITION, so images the consumer selects BY NAME
+	 * can fall outside the cap. Measured on a real listing page: the `vira`
+	 * (hover) image sits at index 1 in only 5 of the 19 products that have one —
+	 * index 2 in 12 of them, index 3 in 2. A cap of 2 therefore drops the hover
+	 * image on most cards that use one. Callers that select by name should keep
+	 * the named entries instead of using this option.
+	 */
+	maxImages?: number;
 	/** Property names to keep on lean variant additionalProperty. Defaults to VARIANT_PROPERTY_NAMES. */
 	variantPropertyNames?: Set<string>;
 	/** When leanVariants is true, still include image[0] on each variant entry. Default true. */
@@ -406,7 +436,12 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 					"@type": "ProductGroup",
 					productGroupID: productId,
 					hasVariant: options.leanVariants
-						? items.map((sku) => toProductVariant(product, sku, variantOptions))
+						? ((keepId) =>
+								items.map((sku) =>
+									keepId !== undefined && sku.itemId === keepId
+										? toProduct(product, sku, 1, variantOptions)
+										: toProductVariant(product, sku, variantOptions),
+								))(options.displayedVariantId?.(items))
 						: items.map((sku) => toProduct(product, sku, 1, variantOptions)),
 					url: getProductGroupURL(baseUrl, product).href,
 					name: product.productName,
@@ -418,7 +453,9 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 				} satisfies ProductGroup)
 			: undefined;
 
-	const finalImages = images?.map(({ imageUrl, imageText, imageLabel }) => {
+	const cappedImages =
+		typeof options.maxImages === "number" ? images?.slice(0, options.maxImages) : images;
+	const finalImages = cappedImages?.map(({ imageUrl, imageText, imageLabel }) => {
 		const url = imagesByKey.get(getImageKey(imageUrl)) ?? imageUrl;
 		const alternateName = imageText || imageLabel || "";
 		const name = imageLabel || "";

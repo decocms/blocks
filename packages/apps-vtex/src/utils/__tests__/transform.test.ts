@@ -23,6 +23,7 @@ import {
 	toAdditionalPropertySpecification,
 	toBrand,
 	toPostalAddress,
+	toProduct,
 	toProductShelf,
 	toProductVariant,
 } from "../transform";
@@ -765,5 +766,144 @@ describe("toProductShelf", () => {
 			options,
 		);
 		expect(result.isVariantOf?.additionalProperty).toEqual([]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// toProduct — escape hatches for leanVariants listings
+// ---------------------------------------------------------------------------
+//
+// `leanVariants` assumes the card renders the ROOT sku, so `buildOfferVariant`
+// empties `priceSpecification` on every `hasVariant[]` entry. A card that picks
+// a representative variant instead (e.g. "cheapest in stock") reads that
+// entry's own offer for list price and installments — blank with the ladder
+// emptied. `displayedVariantId` keeps exactly that one entry full.
+//
+// `maxImages` caps `image[]` by POSITION. Both default to undefined, which
+// preserves the previous output byte for byte — that is what the last two cases
+// pin down.
+
+describe("toProduct — displayedVariantId / maxImages", () => {
+	const sellers = (price: number) => [
+		{
+			sellerId: "1",
+			sellerName: "Seller One",
+			commertialOffer: {
+				AvailableQuantity: 5,
+				Price: price,
+				ListPrice: price + 30,
+				spotPrice: price,
+				PriceValidUntil: "2025-12-31",
+				Installments: [
+					{
+						Value: price / 3,
+						NumberOfInstallments: 3,
+						Name: "Visa",
+						InterestRate: 0,
+						TotalValuePlusInterestRate: price,
+						PaymentSystemName: "Visa",
+					},
+				],
+				GiftSkuIds: [],
+				teasers: [],
+			},
+		},
+	];
+
+	const makeSku = (itemId: string, price: number, imageCount = 4) =>
+		({
+			itemId,
+			name: `SKU ${itemId}`,
+			ean: "1234567890123",
+			referenceId: [{ Key: "RefId", Value: `REF-${itemId}` }],
+			images: Array.from({ length: imageCount }, (_, i) => ({
+				imageUrl: `https://img.com/${itemId}-${i}.jpg`,
+				imageText: `img${i}`,
+				imageLabel: `label${i}`,
+			})),
+			videos: [],
+			sellers: sellers(price),
+			variations: [{ name: "Cor", values: ["Preto"] }],
+			kitItems: [],
+			complementName: "",
+			estimatedDateArrival: null,
+			modalType: null,
+		}) as any;
+
+	const makeProduct = (items: any[]) =>
+		({
+			origin: "intelligent-search",
+			productId: "PROD1",
+			productName: "Test Product",
+			brand: "TestBrand",
+			brandId: 1,
+			brandImageUrl: null,
+			productReference: "REF1",
+			description: "desc",
+			releaseDate: "2024-01-01",
+			linkText: "test-product",
+			categories: ["/Electronics/"],
+			categoriesIds: ["/1/"],
+			categoryId: "1",
+			productClusters: [],
+			clusterHighlights: [],
+			items,
+		}) as any;
+
+	const options = { baseUrl: "https://example.com", priceCurrency: "BRL" };
+	const items = [makeSku("SKU1", 90), makeSku("SKU2", 60), makeSku("SKU3", 120)];
+	const product = makeProduct(items);
+
+	const ladderOf = (variant: any) => variant?.offers?.offers?.[0]?.priceSpecification ?? [];
+
+	it("leanVariants alone empties the payment ladder on every variant", () => {
+		const result = toProduct(product, items[0], 0, { ...options, leanVariants: true });
+		const variants = result.isVariantOf?.hasVariant ?? [];
+		expect(variants).toHaveLength(3);
+		for (const v of variants) expect(ladderOf(v)).toEqual([]);
+	});
+
+	it("displayedVariantId keeps the ladder on the ONE variant the card renders", () => {
+		const result = toProduct(product, items[0], 0, {
+			...options,
+			leanVariants: true,
+			displayedVariantId: (skus) => skus.find((s: any) => s.itemId === "SKU2")?.itemId,
+		});
+		const variants = result.isVariantOf?.hasVariant ?? [];
+		const kept = variants.find((v: any) => v.sku === "SKU2");
+		const lean = variants.filter((v: any) => v.sku !== "SKU2");
+
+		expect(ladderOf(kept).length).toBeGreaterThan(0);
+		for (const v of lean) expect(ladderOf(v)).toEqual([]);
+	});
+
+	it("displayedVariantId returning undefined leaves every variant lean", () => {
+		const result = toProduct(product, items[0], 0, {
+			...options,
+			leanVariants: true,
+			displayedVariantId: () => undefined,
+		});
+		for (const v of result.isVariantOf?.hasVariant ?? []) expect(ladderOf(v)).toEqual([]);
+	});
+
+	it("maxImages caps image[] by position", () => {
+		const full = toProduct(product, items[0], 0, options);
+		expect(full.image).toHaveLength(4);
+
+		const capped = toProduct(product, items[0], 0, { ...options, maxImages: 2 });
+		expect(capped.image).toHaveLength(2);
+		expect(capped.image?.map((i) => i.url)).toEqual(
+			full.image?.slice(0, 2).map((i) => i.url),
+		);
+	});
+
+	it("both options absent is byte-for-byte the previous output", () => {
+		const before = toProduct(product, items[0], 0, options);
+		const after = toProduct(product, items[0], 0, {
+			...options,
+			displayedVariantId: undefined,
+			maxImages: undefined,
+		});
+		expect(JSON.stringify(after)).toBe(JSON.stringify(before));
 	});
 });
