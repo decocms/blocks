@@ -1,0 +1,192 @@
+#!/usr/bin/env tsx
+/**
+ * Generate (and optionally apply) the Cloudflare Cache Rules that let the CDN
+ * serve deco storefronts without invoking the Worker.
+ *
+ * ## Why this is generated and not hand-written
+ *
+ * The Worker keys its edge cache on a SYNTHETIC Request carrying
+ * `__seg`/`__cf_device`/`__cf_geo`/`__bot`/`__fetch`/`__abf` (`buildCacheKey`
+ * in `@decocms/tanstack`). Cloudflare's CDN keys on the raw URL and ignores
+ * `Vary` beyond `Accept-Encoding`. Every dimension the CDN cannot reproduce has
+ * to become a bypass here — and each one corresponds to a constant on the
+ * Worker side. Two hand-maintained copies of that list drift, and the failure
+ * mode is not a slow page, it is one visitor being served another's response.
+ * So the expressions below are DERIVED from the same constants the Worker uses.
+ *
+ * ## Division of labour
+ *
+ * The Worker stays the source of truth for *whether* a response may be cached:
+ * private routes, logged-in requests, drafts and set-cookie responses already
+ * go out with `CDN-Cache-Control: no-store`, and Cloudflare honours that. So
+ * these rules deliberately do NOT enumerate private paths — a site adding
+ * `registerPrivatePaths([...])` propagates to the CDN on its own.
+ *
+ * What the rules must cover is the narrower case the header cannot reach: when
+ * the CDN answers from cache WITHOUT consulting the Worker, and would hand one
+ * visitor an entry that belongs to another segment.
+ *
+ * ## Scoping in a shared zone
+ *
+ * Sites are custom hostnames under one deco zone (Cloudflare for SaaS), so a
+ * rule applies to every site at once. Enablement therefore rides on per-hostname
+ * custom metadata rather than a rule per site:
+ *
+ *   curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/custom_hostnames/$ID" \
+ *     --request PATCH --header "Authorization: Bearer $TOKEN" \
+ *     --json '{"custom_metadata": {"deco_cdn_html": "on"}}'
+ *
+ * Rolling out to a site is that PATCH; rolling back is setting it to "off".
+ * Neither touches the ruleset.
+ *
+ * ## Why zone rules, and not Workers Cache
+ *
+ * `/_serverFn` is already handled without touching the zone: the client carries
+ * a segment marker in the URL (`sdk/cdnSegment`), which makes the URL a
+ * complete key. HTML cannot do that — the initial navigation is a browser
+ * request with no hook to attach a marker to.
+ *
+ * Workers Cache does not close the gap either. Its documented mechanisms are
+ * `Vary` and per-entrypoint disable, and neither expresses "not for a logged-in
+ * visitor": `Vary: Cookie` compares verbatim, so every visitor's analytics
+ * cookies produce a distinct entry and the cache is dead on arrival. There is
+ * no per-request opt-out before the Worker runs — and on a cache HIT the Worker
+ * does not run, so the `no-store` it would have emitted never exists.
+ *
+ * Zone rules are the only layer that can decline BEFORE the Worker, which is
+ * exactly what a logged-in visitor needs.
+ *
+ * Usage:
+ *   tsx scripts/cdn-rules.ts                  # print the ruleset as JSON
+ *   tsx scripts/cdn-rules.ts --expression     # print just the bypass expression
+ *   tsx scripts/cdn-rules.ts --geo            # include geo in the cache key
+ */
+
+import { BOT_UA_SUBSTRINGS } from "@decocms/blocks/cms";
+import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
+import { SEGMENT_COOKIE } from "@decocms/blocks/sdk/flags";
+
+/** Metadata key read off the custom hostname to enable CDN caching per site. */
+export const CDN_ENABLED_METADATA_KEY = "deco_cdn_html";
+
+/**
+ * Auth cookie names that mean "this visitor must never be served a shared CDN
+ * entry". VTEX sets both the bare name and an account-suffixed variant
+ * (`VtexIdclientAutCookie_<account>`); matching on the prefix covers both.
+ */
+export const AUTH_COOKIE_PREFIXES = ["VtexIdclientAutCookie"];
+
+const enabled = `lookup_json_string(cf.hostname.metadata, "${CDN_ENABLED_METADATA_KEY}") eq "on"`;
+
+/** Path prefix for TanStack server-function requests. */
+const SERVER_FN_PREFIXES = ["/_serverFn/", "/_server/"];
+
+/**
+ * The individual bypass clauses, each annotated with the `buildCacheKey`
+ * dimension it mirrors. If you add a dimension to the cache key, it belongs
+ * here too.
+ */
+function bypassClauses(): string[] {
+  const notServerFn = SERVER_FN_PREFIXES.map(
+    (p) => `not starts_with(http.request.uri.path, "${p}")`,
+  ).join(" and ");
+
+  return [
+    // Worker key: no equivalent — an authenticated visitor would otherwise be
+    // served the cached anonymous entry without the Worker ever running. This
+    // is the single most important clause in the file.
+    ...AUTH_COOKIE_PREFIXES.map((name) => `http.cookie contains "${name}"`),
+
+    // Worker key: `__abf` — the sticky A/B cohort cookie.
+    `http.cookie contains "${SEGMENT_COOKIE}="`,
+
+    // Worker key: `__bot` — bots render every section eagerly (~10x payload).
+    `lower(http.user_agent) matches "${BOT_UA_SUBSTRINGS.join("|")}"`,
+
+    // Worker key: `__fetch` — programmatic fetches also render eagerly.
+    //
+    // Carved out for `/_serverFn`, which ALWAYS sends `sec-fetch-dest: empty`
+    // (it is an XHR). Without the carve-out this single clause would bypass
+    // exactly the traffic `cdnCacheControl: "serverfn-segment"` exists to
+    // cache, silently reducing the whole feature to a no-op. `buildCacheKey`
+    // excludes server-fn paths from `__fetch` for the same reason, so this
+    // mirrors it rather than diverging.
+    `(http.request.headers["sec-fetch-dest"][0] eq "empty" and ${notServerFn})`,
+
+    // Worker: `isCacheable()` bypasses these outright. Duplicated here so a
+    // draft never depends on the response header alone.
+    'http.request.uri.query contains "__draft="',
+    'http.request.uri.query contains "__deco_preview"',
+    'http.request.uri.query contains "pathTemplate"',
+    `http.request.uri.query contains "${DECO_MATCHERS_OVERRIDE_PARAM}"`,
+    `any(http.request.headers.names[*] eq "${DECO_MATCHERS_OVERRIDE_PARAM}")`,
+    'http.cookie contains "__deco_draft"',
+  ];
+}
+
+/** Requests that must never be served from a shared CDN entry. */
+export function bypassExpression(): string {
+  return `(${enabled}) and (${bypassClauses().join(" or ")})`;
+}
+
+/**
+ * The ruleset.
+ *
+ * The two rules are MUTUALLY EXCLUSIVE by expression, not by ordering. That is
+ * deliberate and load-bearing: Cloudflare's cache phase is **last-match-wins**
+ * for non-terminating actions like `set_cache_settings`, so a catch-all
+ * `cache: true` rule listed after a `cache: false` one silently overrides it.
+ * Scoping rule 2 with `and not (<bypass clauses>)` means correctness no longer
+ * depends on rule order at all — reorder them freely, or apply them via an API
+ * that does not preserve order, and the behaviour is unchanged.
+ *
+ * https://developers.cloudflare.com/cache/how-to/cache-rules/order/
+ *
+ * Note what is NOT set here: the edge TTL. `respect_origin` keeps the TTL
+ * coming from the `CDN-Cache-Control` the Worker already derives per cache
+ * profile, so the profile table stays in one place.
+ */
+/**
+ * @param opts.geo Include country/region in the cache key. Required for a site
+ *   whose content varies by region (a `website/matchers/location.ts` in the
+ *   decofile). Leave it off otherwise: it multiplies the number of entries that
+ *   have to warm, for content that is identical across them.
+ *
+ *   NOTE: this keys on country+region. A site whose matchers discriminate by
+ *   CITY or coordinates needs finer granularity than this, and enabling CDN
+ *   caching there serves the wrong variant — worse than today, since the Worker
+ *   at least evaluates the matcher on every request.
+ */
+export function cacheRuleset(opts: { geo?: boolean } = {}) {
+  const clauses = bypassClauses().join(" or ");
+
+  return {
+    rules: [
+      {
+        description: "deco: bypass CDN for segment-sensitive requests",
+        expression: `(${enabled}) and (${clauses})`,
+        action: "set_cache_settings",
+        action_parameters: { cache: false },
+      },
+      {
+        description: "deco: cache by device type, TTL from origin",
+        expression: `(${enabled}) and not (${clauses})`,
+        action: "set_cache_settings",
+        action_parameters: {
+          cache: true,
+          cache_key: {
+            cache_by_device_type: true,
+            ...(opts.geo ? { custom_key: { user: { geo: true } } } : {}),
+          },
+          edge_ttl: { mode: "respect_origin" },
+        },
+      },
+    ],
+  };
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const expressionOnly = process.argv.includes("--expression");
+  const geo = process.argv.includes("--geo");
+  console.log(expressionOnly ? bypassExpression() : JSON.stringify(cacheRuleset({ geo }), null, 2));
+}

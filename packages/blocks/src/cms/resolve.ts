@@ -310,9 +310,35 @@ export function getDeferredRawProps(
 // Bot detection — bots always receive fully eager pages for SEO
 // ---------------------------------------------------------------------------
 
-const botPatterns: RegExp[] = [
-  /bot|crawl|spider|slurp|facebookexternalhit|mediapartners|google|bing|yandex|baidu|duckduck|teoma|ia_archiver|semrush|ahrefs|lighthouse/i,
-];
+/**
+ * User-Agent substrings that classify a request as a bot.
+ *
+ * Exported as data, not just baked into the regex, because the CDN cache rules
+ * have to bypass exactly the same requests this list makes eager — see
+ * `@decocms/blocks-cli/scripts/cdn-rules.ts`. Two hand-maintained copies would
+ * drift, and the failure mode is a crawler's eager HTML (~10x larger) being
+ * served to humans from the CDN, or the deferred one being served to Google.
+ */
+export const BOT_UA_SUBSTRINGS = [
+  "bot",
+  "crawl",
+  "spider",
+  "slurp",
+  "facebookexternalhit",
+  "mediapartners",
+  "google",
+  "bing",
+  "yandex",
+  "baidu",
+  "duckduck",
+  "teoma",
+  "ia_archiver",
+  "semrush",
+  "ahrefs",
+  "lighthouse",
+] as const;
+
+const botPatterns: RegExp[] = [new RegExp(BOT_UA_SUBSTRINGS.join("|"), "i")];
 
 /**
  * Add a custom bot detection regex.
