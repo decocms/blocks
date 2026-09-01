@@ -23,14 +23,16 @@ vi.mock("./registry", () => ({
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { findPageByPath } from "./loader";
 import { getSection } from "./registry";
-import type { AsyncRenderingConfig, DeferredSection } from "./resolve";
+import type { AsyncRenderingConfig, DeferredSection, MatcherContext } from "./resolve";
 import {
   clearCommerceLoaders,
   DEFAULT_FOLD_THRESHOLD,
   extractSeoFromProps,
   getAsyncRenderingConfig,
   isEagerRequest,
+  reExtractRawProps,
   registerCommerceLoader,
+  registerMatcher,
   registerEagerSections,
   registerAlwaysDeferSections,
   registerNeverDeferSections,
@@ -736,16 +738,6 @@ describe("resolvePageSeoBlock — per-section ignoreStructuredData drives the fe
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveDecoPage — #277 client-side navigation disables deferral
-// ---------------------------------------------------------------------------
-//
-// When isClientNavigation is true, resolveDecoPageImpl sets useAsync = false so
-// shouldDeferSection is never called. All sections — including CMS ⚡-wrapped
-// ones — are resolved eagerly. This prevents client-nav from returning a
-// deferredSections array that loadDeferredSection would then try to resolve
-// without the per-request commerce app context.
-
 describe("extractSeoFromProps — commerce jsonLD structured data", () => {
   const plp = (overrides: Record<string, unknown> = {}) => ({
     "@type": "ProductListingPage",
@@ -888,22 +880,42 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
   });
 });
 
-describe("resolveDecoPage — #277 client-side navigation disables deferral", () => {
+// ---------------------------------------------------------------------------
+// resolveDecoPage — client nav gets the SAME eager/deferred split as SSR
+// ---------------------------------------------------------------------------
+//
+// A TanStack route loader is BLOCKING: the router will not commit the
+// transition until the loader promise settles. Eager-resolving every ⚡
+// below-fold section on client nav therefore freezes the previous page for as
+// long as the slowest upstream takes (measured on a real PDP: 20 awaited
+// sections, 2717ms, 3.41MB — worse than a full reload). So deferral must apply
+// to client nav exactly as it does to SSR.
+//
+// The historical `!isClientNavigation` gate (decocms/blocks#277) was a
+// workaround for deferred loaders that appeared to lose per-request app
+// context. It traded a page-wide latency regression for that symptom. The
+// second hop (`loadDeferredSection`) is the SAME server fn the SSR path has
+// always used and rebuilds MatcherContext from the real request — see the
+// "#277 — per-request context survives the deferred second hop" cases below.
+// ---------------------------------------------------------------------------
+
+describe("resolveDecoPage — deferral parity between SSR and client nav", () => {
   const lazySec = {
     __resolveType: WELL_KNOWN_TYPES.LAZY,
     section: { __resolveType: "site/sections/Hero.tsx" },
   };
+  const eagerSec = { __resolveType: "site/sections/Banner.tsx" };
 
   beforeEach(() => {
-    // Enable async rendering so useAsync can be true for SSR requests.
+    // Enable async rendering so useAsync can be true.
     setAsyncRenderingConfig({ foldThreshold: Infinity, respectCmsLazy: true });
     // resolveSectionShallow unwraps the ⚡ and looks up the inner key via
     // getSection — return truthy so it produces a DeferredSection rather than
     // falling back to eager resolution.
     (getSection as ReturnType<typeof vi.fn>).mockReturnValue({ default: () => null });
-    // Return a page with one CMS ⚡-wrapped section.
+    // A page with one plain section followed by one CMS ⚡-wrapped section.
     (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
-      page: { name: "test", sections: [lazySec] },
+      page: { name: "test", sections: [eagerSec, lazySec] },
       params: {},
       blockKey: "test-page",
     });
@@ -914,15 +926,178 @@ describe("resolveDecoPage — #277 client-side navigation disables deferral", ()
     (findPageByPath as ReturnType<typeof vi.fn>).mockReset();
   });
 
-  it("SSR request defers a CMS ⚡ section", async () => {
+  it("SSR request defers the CMS ⚡ section and keeps the plain one eager", async () => {
     const result = await resolveDecoPage("/product/foo", {});
     expect(result?.deferredSections).toHaveLength(1);
     expect(result?.deferredSections[0].component).toBe("site/sections/Hero.tsx");
+    expect(result?.resolvedSections.map((s) => s.component)).toEqual(["site/sections/Banner.tsx"]);
   });
 
-  it("client-nav (isClientNavigation: true) resolves the ⚡ section eagerly — empty deferredSections", async () => {
-    const result = await resolveDecoPage("/product/foo", { isClientNavigation: true });
+  it("client nav produces the IDENTICAL split — deferral is not disabled", async () => {
+    const ssr = await resolveDecoPage("/product/foo", {});
+    const nav = await resolveDecoPage("/product/foo", { isClientNavigation: true });
+
+    // The acceptance criterion: client nav returns deferredSections and awaits
+    // only the eager set, exactly like SSR.
+    expect(nav?.deferredSections).toHaveLength(1);
+    expect(nav?.deferredSections.map((d) => d.component)).toEqual(
+      ssr?.deferredSections.map((d) => d.component),
+    );
+    expect(nav?.resolvedSections.map((s) => s.component)).toEqual(
+      ssr?.resolvedSections.map((s) => s.component),
+    );
+  });
+
+  it("the ⚡ section's index is preserved on client nav (ordering on the merge)", async () => {
+    const nav = await resolveDecoPage("/product/foo", { isClientNavigation: true });
+    expect(nav?.deferredSections[0].index).toBe(1);
+  });
+
+  it("bots stay fully eager on a client-nav-flagged request (SEO guarantee)", async () => {
+    const result = await resolveDecoPage("/product/foo", {
+      isClientNavigation: true,
+      userAgent: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    });
     expect(result?.deferredSections).toHaveLength(0);
+    expect(result?.resolvedSections).toHaveLength(2);
+  });
+
+  it("?__deco_ssr=1 stays fully eager on a client-nav-flagged request", async () => {
+    const result = await resolveDecoPage("/product/foo", {
+      isClientNavigation: true,
+      url: "https://store.com/product/foo?__deco_ssr=1",
+    });
+    expect(result?.deferredSections).toHaveLength(0);
+    expect(result?.resolvedSections).toHaveLength(2);
+  });
+
+  it("a genuine programmatic fetch (Sec-Fetch-Dest: empty, no client-nav flag) stays eager", async () => {
+    const result = await resolveDecoPage("/product/foo", {
+      request: new Request("https://store.com/product/foo", {
+        headers: { "sec-fetch-dest": "empty" },
+      }),
+    });
+    expect(result?.deferredSections).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #277 — per-request context survives the deferred second hop
+// ---------------------------------------------------------------------------
+//
+// This is the invariant that made it safe to re-enable deferral on client nav.
+// #277 reported deferred sections rendering blank because their loaders "lost"
+// per-request app context. The guarantee is that `resolveDeferredSectionFull`
+// (and `loadDeferredSection`, which wraps it in @decocms/tanstack) threads the
+// caller's MatcherContext — cookies, url, path, userAgent, request — into BOTH
+// the cache-hit and the cache-miss (`reExtractRawProps`) branch. A different
+// isolate misses the in-process rawProps Map, so the miss path is the one that
+// actually runs in production on Cloudflare Workers; if it ever stops receiving
+// matcherCtx, cookie-dependent loaders silently resolve against an anonymous
+// request. Do not relax these assertions.
+
+describe("#277 — deferred second hop keeps per-request context", () => {
+  const PROBE = "test/matchers/probe.ts";
+  const CTX: MatcherContext & { request: Request } = {
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) Mobile Safari",
+    url: "https://store.com/product/foo?utm=x",
+    path: "/product/foo",
+    cookies: { deco_segment: "abc", VtexIdclientAutCookie: "tok" },
+    request: new Request("https://store.com/product/foo?utm=x"),
+  };
+
+  /** Every MatcherContext the probe matcher was evaluated with. */
+  let seen: MatcherContext[] = [];
+
+  // The ⚡ section sits behind a multivariate flag whose rule is the probe
+  // matcher. Reaching the inner Shelf at all therefore PROVES the resolver
+  // evaluated the rule, and the probe records exactly which context it saw —
+  // an end-to-end assertion rather than a mock of the call site.
+  const gatedLazy = {
+    __resolveType: WELL_KNOWN_TYPES.MULTIVARIATE,
+    variants: [
+      {
+        rule: { __resolveType: PROBE },
+        value: {
+          __resolveType: WELL_KNOWN_TYPES.LAZY,
+          section: { __resolveType: "site/sections/Shelf.tsx", title: "Mais vendidos" },
+        },
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    seen = [];
+    registerMatcher(PROBE, (_rule, ctx) => {
+      seen.push(ctx);
+      return true;
+    });
+    setAsyncRenderingConfig({ foldThreshold: Infinity, respectCmsLazy: true });
+    (getSection as ReturnType<typeof vi.fn>).mockReturnValue({ default: () => null });
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: { name: "test", sections: [gatedLazy] },
+      params: {},
+      blockKey: "test-page",
+    });
+    (runSingleSectionLoader as ReturnType<typeof vi.fn>).mockImplementation(
+      async (s: unknown) => s,
+    );
+  });
+
+  afterEach(() => {
+    (getSection as ReturnType<typeof vi.fn>).mockReset();
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReset();
+    (runSingleSectionLoader as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("reExtractRawProps (cross-isolate cache miss) resolves with the caller's cookies/UA/url", async () => {
+    // A cold isolate never populated the in-process rawProps Map, so this is
+    // the branch that actually runs in production on Cloudflare Workers.
+    const rawProps = await reExtractRawProps("/product/foo", "site/sections/Shelf.tsx", 0, CTX);
+
+    expect(rawProps).toMatchObject({ title: "Mais vendidos" });
+    expect(seen).not.toHaveLength(0);
+    for (const ctx of seen) {
+      expect(ctx.cookies).toEqual(CTX.cookies);
+      expect(ctx.userAgent).toBe(CTX.userAgent);
+      expect(ctx.url).toBe(CTX.url);
+      expect(ctx.request).toBe(CTX.request);
+    }
+  });
+
+  it("resolveDeferredSectionFull on a cold cache still resolves + enriches the section", async () => {
+    const ds = {
+      component: "site/sections/Shelf.tsx",
+      index: 0,
+      props: {},
+    } as unknown as DeferredSection;
+
+    const section = await resolveDeferredSectionFull(ds, "/product/foo", CTX.request, CTX);
+
+    expect(section).not.toBeNull();
+    expect(section?.component).toBe("site/sections/Shelf.tsx");
+    expect(section?.index).toBe(0);
+    // The deferred hop must run the section's own loader — this is what #277
+    // reported as missing, and it is what makes the second hop equivalent to
+    // eager resolution. Scope note: this asserts the request THIS function was
+    // handed reaches the loader. `loadDeferredSection` in @decocms/tanstack
+    // constructs its own `new Request(pageUrl || serverUrl, { headers })` before
+    // calling in, so the fidelity of that reconstruction is a separate concern
+    // and is not covered here.
+    expect(runSingleSectionLoader).toHaveBeenCalled();
+    const [, passedRequest] = (runSingleSectionLoader as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [unknown, Request];
+    expect(passedRequest).toBe(CTX.request);
+  });
+
+  it("a context-free second hop is observably different — guards against dropping matcherCtx", async () => {
+    // If reExtractRawProps ever stops threading matcherCtx, cookie/UA-gated
+    // variants silently resolve against an anonymous request. Assert the probe
+    // can actually tell the two apart, so the test above is not vacuous.
+    await reExtractRawProps("/product/foo", "site/sections/Shelf.tsx", 0, undefined);
+    expect(seen).not.toHaveLength(0);
+    expect(seen[0].cookies).toBeUndefined();
+    expect(seen[0].userAgent).toBeUndefined();
   });
 });
 

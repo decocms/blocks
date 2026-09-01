@@ -289,13 +289,18 @@ export const loadCmsPage = createServerFn({ method: "GET" })
     // Using basePath only caused /s?q=a and /s?q=b to share one promise,
     // returning wrong/empty results for search and filtered PLPs.
     //
-    // Client-nav resolves all sections eagerly (#277). An in-flight SSR response
-    // for the same path may carry deferredSections; sharing that promise with a
-    // concurrent SPA transition would smuggle those deferred sections in, causing
-    // loadDeferredSection to run without the per-request commerce app context.
-    // Use separate dedup buckets for SSR vs client-nav. `resolveGlobals` is also
-    // part of the key — otherwise a `resolveGlobals: false` request could return
-    // (or share a promise with) a `resolveGlobals: true` response for the same path.
+    // SSR and client-nav produce the same eager/deferred split now, so the
+    // original reason for the `__nav:` bucket — a client-nav request must never
+    // inherit an SSR response's deferredSections (#277) — no longer applies. It
+    // is kept anyway, because this map is module-global and the payload it
+    // shares carries `pageUrl`, `flags`, and `device` derived from whichever
+    // request won the race. That cross-request bleed is pre-existing and wider
+    // than this bucket (two concurrent same-path requests already collide on
+    // cookies/UA/geo), but SSR and client-nav are exactly the pair whose
+    // `derivePageUrl` inputs differ most, so collapsing them would widen a
+    // known hole for no gain. `resolveGlobals` is part of the key for the same
+    // reason: a `resolveGlobals: false` request must not share a promise with a
+    // `resolveGlobals: true` one.
     const clientNav = isClientNavigation(fullPath, getRequestUrl());
     const inflightKey =
       (clientNav ? `__nav:${fullPath}` : fullPath) + (resolveGlobals ? "" : "|noGlobals");
@@ -392,9 +397,16 @@ export const loadCmsHomePage = createServerFn({ method: "GET" })
 // ---------------------------------------------------------------------------
 
 /**
- * @deprecated Prefer TanStack native streaming via `deferredPromises` in the
- * route loader. This POST server function is kept for backward compatibility
- * and as a fallback for SPA navigations.
+ * Resolves + enriches a single deferred section on demand, server-side.
+ *
+ * This is the deferred-resolution path for BOTH the initial SSR document and
+ * client (SPA) navigations — `deferredPromises`/TanStack native streaming is
+ * SSR-only, because promises cannot cross the server-fn JSON boundary. It
+ * rebuilds `MatcherContext` from the real incoming request (url/path/cookies/
+ * request), so the second hop sees the same per-request state the first one did
+ * (the `deco_segment` cookie set by the page response is already present, so
+ * sticky A/B decisions stay consistent — `flags` is intentionally left unset
+ * here: this response must not re-roll or re-persist the cohort cookie).
  */
 export const loadDeferredSection = createServerFn({ method: "POST" })
   .inputValidator(
@@ -558,8 +570,21 @@ export interface CmsRouteOptions {
    * Defaults to `["skuId"]` — variant selection is client-side only.
    */
   ignoreSearchParams?: string[];
-  /** Custom pending component shown during SPA navigation. */
-  pendingComponent?: () => any;
+  /**
+   * Pending component shown during SPA navigation while the route loader runs.
+   *
+   * NO DEFAULT, deliberately. With none set, TanStack keeps the previous page on
+   * screen until the new one commits — which at the sub-second latencies this
+   * route now sees is usually the better feel. Setting one buys feedback on a
+   * slow navigation at the cost of a page → skeleton → page swap on every
+   * navigation slower than {@link pendingMs} (held for at least
+   * {@link pendingMinMs}), and this is a *catch-all* route, so one skeleton
+   * shape has to serve PDP, PLP, search, and institutional pages alike.
+   * {@link CmsPagePendingFallback} is exported as a starting point; prefer a
+   * per-shape skeleton, or `NavigationProgress` (`@decocms/tanstack`) for
+   * feedback that does not replace the page at all.
+   */
+  pendingComponent?: (() => any) | null;
   /**
    * Custom error boundary rendered when the loader / page resolution throws.
    * Defaults to {@link CmsPageErrorFallback} (branded "instability" page with a
@@ -571,12 +596,23 @@ export interface CmsRouteOptions {
    * Delay (ms) before showing the pending component during SPA navigation.
    * If the loader resolves before this threshold, no pending UI is shown.
    * Prevents skeleton flash on fast cache-hit navigations. Default: 200.
+   * Inert unless {@link pendingComponent} is set.
+   *
+   * This is a *catch-all* route, so the same value covers a sub-100ms PLP facet
+   * toggle and a cold PDP. Raising it only DELAYS the skeleton on the slow
+   * navigation (a 1s `pendingMs` still shows it on a 2s nav) — it does not
+   * suppress it. Use {@link pendingMinMs} for the flicker case where the loader
+   * lands just after the threshold.
    */
   pendingMs?: number;
   /**
    * Minimum display time (ms) for the pending component once shown.
    * Prevents jarring flash when data arrives shortly after the threshold.
-   * Default: 300.
+   * Default: 300. Inert unless {@link pendingComponent} is set.
+   *
+   * Independent of {@link pendingMs}, and applied after it: worst-case a
+   * navigation is held for `pendingMs + pendingMinMs` of visible skeleton
+   * before the new page commits.
    */
   pendingMinMs?: number;
   /**
@@ -905,7 +941,8 @@ export function cmsHomeRouteConfig(options: {
   defaultDescription?: string;
   /** Site name for OG title composition. Defaults to defaultTitle. */
   siteName?: string;
-  pendingComponent?: () => any;
+  /** See `CmsRouteOptions.pendingComponent` — no default, deliberately. */
+  pendingComponent?: (() => any) | null;
   /** Delay (ms) before showing pending component. Default: 200. */
   pendingMs?: number;
   /** Minimum display time (ms) for pending component. Default: 300. */
@@ -919,6 +956,7 @@ export function cmsHomeRouteConfig(options: {
     defaultTitle,
     defaultDescription,
     siteName,
+    pendingComponent,
     pendingMs = 200,
     pendingMinMs = 300,
     errorComponent = CmsPageErrorFallback,
@@ -939,7 +977,7 @@ export function cmsHomeRouteConfig(options: {
       // See cmsRouteConfig loader for rationale.
       return page;
     },
-    ...(options.pendingComponent ? { pendingComponent: options.pendingComponent } : {}),
+    ...(pendingComponent ? { pendingComponent } : {}),
     pendingMs,
     pendingMinMs,
     errorComponent,

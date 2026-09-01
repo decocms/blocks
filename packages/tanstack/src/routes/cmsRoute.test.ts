@@ -2,6 +2,9 @@ import { registerCacheableSections, registerSectionLoader } from "@decocms/block
 import type { ResolvedSection } from "@decocms/blocks/cms";
 import { describe, expect, it } from "vitest";
 import {
+  CmsPagePendingFallback,
+  cmsHomeRouteConfig,
+  cmsRouteConfig,
   parseLoadCmsHomePageInput,
   parseLoadCmsPageInput,
   runSectionLoadersWithSeo,
@@ -96,5 +99,58 @@ describe("runSectionLoadersWithSeo (#355)", () => {
 
     expect((enrichedSections[0].props as any).loaded).toBe(true);
     expect(enrichedSeoSection).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pending UI defaults
+// ---------------------------------------------------------------------------
+//
+// There is deliberately NO default pendingComponent. Setting one turns every
+// navigation slower than `pendingMs` (200ms) into a page → skeleton → page swap
+// held for at least `pendingMinMs` (300ms). Deferral pulls most navigations into
+// the 200–600ms band, i.e. exactly the window where that swap costs more than it
+// buys, and this is a catch-all route, so one skeleton shape would have to serve
+// PDP, PLP, search, and institutional pages alike. Keeping the previous page on
+// screen until the new one commits is the better default; a site that wants a
+// skeleton opts in per-shape.
+//
+// `pendingMs`/`pendingMinMs` DO keep defaults — they are inert without a
+// pendingComponent, and they also govern a site-provided one.
+
+describe("cmsRouteConfig / cmsHomeRouteConfig — pending UI defaults", () => {
+  const base = { siteName: "Loja", defaultTitle: "Loja" };
+
+  it("ships NO default pendingComponent — the previous page stays until commit", () => {
+    expect("pendingComponent" in cmsRouteConfig(base)).toBe(false);
+    expect("pendingComponent" in cmsHomeRouteConfig({ defaultTitle: "Loja" })).toBe(false);
+  });
+
+  it("honors a site-provided pendingComponent on both route configs", () => {
+    const custom = () => null;
+    expect(cmsRouteConfig({ ...base, pendingComponent: custom }).pendingComponent).toBe(custom);
+    expect(
+      cmsHomeRouteConfig({ defaultTitle: "Loja", pendingComponent: custom }).pendingComponent,
+    ).toBe(custom);
+  });
+
+  it("treats an explicit null the same as omitting it", () => {
+    expect("pendingComponent" in cmsRouteConfig({ ...base, pendingComponent: null })).toBe(false);
+    expect(
+      "pendingComponent" in cmsHomeRouteConfig({ defaultTitle: "Loja", pendingComponent: null }),
+    ).toBe(false);
+  });
+
+  it("still exports CmsPagePendingFallback as an opt-in starting point", () => {
+    expect(typeof CmsPagePendingFallback).toBe("function");
+    expect(
+      cmsRouteConfig({ ...base, pendingComponent: CmsPagePendingFallback }).pendingComponent,
+    ).toBe(CmsPagePendingFallback);
+  });
+
+  it("keeps the documented pendingMs / pendingMinMs defaults", () => {
+    const cfg = cmsRouteConfig(base);
+    expect(cfg.pendingMs).toBe(200);
+    expect(cfg.pendingMinMs).toBe(300);
   });
 });
