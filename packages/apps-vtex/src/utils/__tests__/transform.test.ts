@@ -794,16 +794,19 @@ describe("toProduct — displayedVariantId / maxImages", () => {
 				ListPrice: price + 30,
 				spotPrice: price,
 				PriceValidUntil: "2025-12-31",
-				Installments: [
-					{
-						Value: price / 3,
-						NumberOfInstallments: 3,
-						Name: "Visa",
+				// A real ladder: every payment method the store accepts, every
+				// installment count. Measured on a live listing: 46 rungs per SKU,
+				// 12.0 KB — the thing `leanOffer` exists to drop.
+				Installments: ["Visa", "Master", "Amex", "PIX"].flatMap((method) =>
+					Array.from({ length: 3 }, (_, i) => ({
+						Value: price / (i + 1),
+						NumberOfInstallments: i + 1,
+						Name: `${method} ${i + 1}x`,
 						InterestRate: 0,
 						TotalValuePlusInterestRate: price,
-						PaymentSystemName: "Visa",
-					},
-				],
+						PaymentSystemName: method,
+					})),
+				),
 				GiftSkuIds: [],
 				teasers: [],
 			},
@@ -856,6 +859,10 @@ describe("toProduct — displayedVariantId / maxImages", () => {
 
 	const ladderOf = (variant: any) => variant?.offers?.offers?.[0]?.priceSpecification ?? [];
 
+	/** Regra do caller: só os tipos base, nenhuma parcela. */
+	const onlyListAndSale = (specs: any[]) =>
+		specs.filter((s) => !s.priceComponentType);
+
 	it("leanVariants alone empties the payment ladder on every variant", () => {
 		const result = toProduct(product, items[0], 0, { ...options, leanVariants: true });
 		const variants = result.isVariantOf?.hasVariant ?? [];
@@ -875,6 +882,69 @@ describe("toProduct — displayedVariantId / maxImages", () => {
 
 		expect(ladderOf(kept).length).toBeGreaterThan(0);
 		for (const v of lean) expect(ladderOf(v)).toEqual([]);
+	});
+
+	it("the kept variant stays LEAN — only its offer is upgraded", () => {
+		const result = toProduct(product, items[0], 0, {
+			...options,
+			leanVariants: true,
+			displayedVariantId: () => "SKU2",
+		});
+		const kept: any = (result.isVariantOf?.hasVariant ?? []).find((v: any) => v.sku === "SKU2");
+
+		// A full toProduct here would re-emit these; the lean shape must not.
+		expect(kept.description).toBeUndefined();
+		expect(kept.brand).toBeUndefined();
+		expect(kept.gtin).toBeUndefined();
+		expect(kept.isVariantOf).toBeUndefined();
+		// ...but the ladder is real. Without a `priceSpecifications` rule it is
+		// the FULL one — dropping description/brand/isVariantOf is the win here,
+		// and the ladder stays whatever the caller asked for.
+		const full = ladderOf(toProduct(product, items[1], 0, options));
+		expect(ladderOf(kept).length).toBe(full.length);
+	});
+
+	it("the kept variant keeps its real inventoryLevel (selectors read it per SKU)", () => {
+		const result = toProduct(product, items[0], 0, {
+			...options,
+			leanVariants: true,
+			displayedVariantId: () => "SKU2",
+		});
+		const kept: any = (result.isVariantOf?.hasVariant ?? []).find((v: any) => v.sku === "SKU2");
+		// buildOfferShelf hard-zeroes inventoryLevel; the variant path must not
+		// inherit that, or every variant reads as out of stock.
+		expect(kept.offers?.offers?.[0]?.inventoryLevel?.value).toBe(5);
+	});
+
+	it("the ladder flag does NOT leak into the lean variants", () => {
+		// Regression: the internal `variantKeepLadder` reached `variantOptions`,
+		// so every lean variant emitted a ladder instead of an empty one and the
+		// option made the payload BIGGER — measured on a real listing,
+		// isVariantOf 38.6 -> 49.6 KB.
+		const result = toProduct(product, items[0], 0, {
+			...options,
+			leanVariants: true,
+			priceSpecifications: onlyListAndSale,
+			displayedVariantId: () => "SKU2",
+		});
+		const variants = result.isVariantOf?.hasVariant ?? [];
+		for (const v of variants.filter((v: any) => v.sku !== "SKU2")) {
+			expect(ladderOf(v)).toEqual([]);
+		}
+		expect(ladderOf(variants.find((v: any) => v.sku === "SKU2")).length).toBeGreaterThan(0);
+	});
+
+	it("priceSpecifications rewrites the ROOT ladder with the caller's own rule", () => {
+		const full = toProduct(product, items[0], 0, options);
+		const lean = toProduct(product, items[0], 0, {
+			...options,
+			priceSpecifications: onlyListAndSale,
+		});
+
+		expect(ladderOf(full).length).toBeGreaterThan(ladderOf(lean).length);
+		const types = new Set(ladderOf(lean).map((s: any) => s.priceType));
+		expect(types.has("https://schema.org/ListPrice")).toBe(true);
+		expect(types.has("https://schema.org/SalePrice")).toBe(true);
 	});
 
 	it("displayedVariantId returning undefined leaves every variant lean", () => {
@@ -897,12 +967,13 @@ describe("toProduct — displayedVariantId / maxImages", () => {
 		);
 	});
 
-	it("both options absent is byte-for-byte the previous output", () => {
+	it("every option absent is byte-for-byte the previous output", () => {
 		const before = toProduct(product, items[0], 0, options);
 		const after = toProduct(product, items[0], 0, {
 			...options,
 			displayedVariantId: undefined,
 			maxImages: undefined,
+			priceSpecifications: undefined,
 		});
 		expect(JSON.stringify(after)).toBe(JSON.stringify(before));
 	});

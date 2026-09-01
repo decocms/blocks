@@ -355,7 +355,7 @@ export interface LegacyPLPOptions {
 	 * parent `description` — none of which a listing card reads.
 	 */
 	leanVariants?: boolean;
-	/** Keep this ONE variant on the full shape — see ProductOptions.displayedVariantId. */
+	/** Keep the ladder on the ONE variant the card renders — see ProductOptions.displayedVariantId. */
 	displayedVariantId?: ProductOptions["displayedVariantId"];
 	/** Forwarded to the lean variant transform. */
 	variantPropertyNames?: Set<string>;
@@ -363,6 +363,8 @@ export interface LegacyPLPOptions {
 	variantIncludeInventory?: boolean;
 	/** Cap image[] to the first N entries — see ProductOptions.maxImages. */
 	maxImages?: number;
+	/** Rewrite priceSpecification on emitted offers — see ProductOptions.priceSpecifications. */
+	priceSpecifications?: ProductOptions["priceSpecifications"];
 }
 
 /**
@@ -389,6 +391,7 @@ export async function legacyProductListingPage(
 		variantIncludeImage,
 		variantIncludeInventory,
 		maxImages,
+		priceSpecifications,
 	} = opts;
 
 	const currentPageOffset = opts.pageOffset ?? 1;
@@ -480,6 +483,7 @@ export async function legacyProductListingPage(
 			variantIncludeImage,
 			variantIncludeInventory,
 			maxImages,
+			priceSpecifications,
 		}),
 	);
 
