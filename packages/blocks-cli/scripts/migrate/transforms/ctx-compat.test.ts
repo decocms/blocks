@@ -57,6 +57,43 @@ describe("transformCtxCompat", () => {
     expect(r.content).toContain("ctx?: AppContext");
   });
 
+  // The scanner walks raw characters, so without a literal/comment guard it
+  // rewrote `ctx.` inside strings too — patching the call site correctly while
+  // silently corrupting the message next to it.
+  it("does not rewrite ctx inside string literals", () => {
+    const r = transformCtxCompat(withLoader("  console.log('ctx.device:', ctx.device);"));
+    expect(r.content).toContain("'ctx.device:'");
+    expect(r.content).toContain("console.log('ctx.device:', ctx?.device)");
+  });
+
+  it("does not rewrite ctx inside double-quoted strings or escaped quotes", () => {
+    const r = transformCtxCompat(
+      withLoader('  const s = "he said \\"ctx.device\\""; return ctx.device;'),
+    );
+    expect(r.content).toContain('"he said \\"ctx.device\\""');
+    expect(r.content).toContain("return ctx?.device");
+  });
+
+  it("does not rewrite ctx inside comments", () => {
+    const r = transformCtxCompat(
+      withLoader("  // don't touch ctx.device here\n  /* nor ctx.invoke */\n  return ctx.device;"),
+    );
+    expect(r.content).toContain("// don't touch ctx.device here");
+    expect(r.content).toContain("/* nor ctx.invoke */");
+    expect(r.content).toContain("return ctx?.device");
+  });
+
+  it("does not rewrite template text but DOES rewrite ${} interpolation", () => {
+    const r = transformCtxCompat(withLoader("  const u = `ctx.device is ${ctx.vtex.account}`;"));
+    // literal text stays, the interpolated expression is real code
+    expect(r.content).toContain("`ctx.device is ${ctx?.vtex?.account}`");
+  });
+
+  it("handles nested template literals", () => {
+    const r = transformCtxCompat(withLoader("  const u = `a${`b${ctx.device}`}c`;"));
+    expect(r.content).toContain("`a${`b${ctx?.device}`}c`");
+  });
+
   it("does not match identifiers that merely contain ctx", () => {
     const src = withLoader("  const c = canvasCtx.foo;\n  const d = a.ctx.bar;");
     const r = transformCtxCompat(src);
