@@ -11,6 +11,7 @@
 
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { getCacheProfile } from "../sdk/cacheHeaders";
+import { detectDevice } from "../sdk/detectDevice";
 import { djb2 } from "../sdk/djb2";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { withTracing } from "../sdk/observability";
@@ -212,10 +213,15 @@ export function registerSectionLoader(sectionKey: string, loader: SectionLoaderF
  *
  * Dev-only diagnostic: when a request-dependent loader (one built from
  * `withDevice`/`withMobile`/`withSearchParam`, possibly through `compose`)
- * is registered for a section that's also in `layoutSections`, the layout
- * cache will serve the first visitor's variant to every viewer for
- * `LAYOUT_CACHE_TTL` (5 min). We log a loud warning explaining the
- * remediation options. See #206.
+ * is registered for a section that's also in `layoutSections`, the layout cache
+ * may serve the first visitor's variant to every viewer for
+ * `LAYOUT_CACHE_TTL` (5 min). See #206.
+ *
+ * DEVICE is now segmented in the key ({@link layoutLoaderCacheKey}), so
+ * `withDevice`/`withMobile` are safe. The warning stays because
+ * `__requestDependent` is a single boolean and does not say WHICH signal the
+ * loader reads — a `withSearchParam` layout loader still contaminates, and we
+ * would rather warn on a safe case than stay silent on an unsafe one.
  */
 export function registerSectionLoaders(loaders: Record<string, SectionLoaderFn>): void {
   for (const [key, loader] of Object.entries(loaders)) {
@@ -228,9 +234,11 @@ export function registerSectionLoaders(loaders: Record<string, SectionLoaderFn>)
       if (requestDependent && layoutSections.has(key)) {
         console.warn(
           `[SectionLoaders] "${key}" is registered as a layout section ` +
-            `(cached for 5min by component path) but its loader is request-` +
-            `dependent (withDevice/withMobile/withSearchParam). The first ` +
-            `visitor's variant will be served to all users for 5min. Fix: ` +
+            `(cached for 5min by component path + device) but its loader is ` +
+            `request-dependent (withDevice/withMobile/withSearchParam). ` +
+            `withDevice/withMobile are safe — device is in the key. If it ` +
+            `reads a search param, cookie or geo, the first visitor's variant ` +
+            `will be served to all users for 5min. Fix: ` +
             `(1) remove "export const layout = true" from the section, ` +
             `(2) call unregisterLayoutSections(["${key}"]) in setup.ts ` +
             `after applySectionConventions, or (3) move the request-` +
@@ -267,10 +275,11 @@ const layoutInflight = new Map<string, Promise<ResolvedSection>>();
  * Layout sections (Header, Footer, etc.) are cached server-side
  * for LAYOUT_CACHE_TTL to avoid redundant enrichment on every navigation.
  *
- * The cache key is the component path only — it does NOT include UA,
- * cookies, or geo. Sections whose loader depends on those signals must
- * not be layout-cached: see {@link unregisterLayoutSections} to opt a
- * section out of the auto-discovery done by `applySectionConventions`.
+ * The cache key is the component path plus the DEVICE (see
+ * {@link layoutLoaderCacheKey}) — it does NOT include cookies, geo or search
+ * params. A section whose loader depends on THOSE must not be layout-cached:
+ * see {@link unregisterLayoutSections} to opt a section out of the
+ * auto-discovery done by `applySectionConventions`.
  */
 export function registerLayoutSections(keys: string[]): void {
   for (const key of keys) {
@@ -299,18 +308,46 @@ export function isLayoutSection(key: string): boolean {
   return layoutSections.has(key);
 }
 
-function getCachedLayout(component: string): ResolvedSection | null {
-  const entry = layoutCache.get(component);
+/**
+ * Cache key for a layout section's LOADER OUTPUT, segmented by device.
+ *
+ * This is the cache that actually carried the device leak, and it is a
+ * different one from `resolvedLayoutCache` in `cms/resolve.ts` — that one holds
+ * the CMS prop resolution, which never sees `isMobile`. `isMobile` is produced
+ * HERE, by the section's own loader (`ctx.device`, or a loader composed with
+ * `withDevice`/`withMobile`), and this cache stored it under the component path
+ * alone. Measured on a real store's PDP with Header/Footer layout-cached: the
+ * first request decided the variant for everyone — desktop first and a mobile
+ * visitor got `h-[90px]`; mobile first and a desktop visitor got
+ * `id="header-mobile-menu"`.
+ *
+ * Device is the right default axis because it is the one signal the framework
+ * itself injects into every section loader, so a layout section can depend on it
+ * without the site opting into anything. A layout whose output does not vary by
+ * device just gets up to 3 identical entries.
+ *
+ * Still NOT covered, and still the reason the `registerSectionLoaders` warning
+ * below exists: a layout loader that varies on a search param, a cookie or geo.
+ * Those are site-specific; such a section belongs outside `layoutSections`.
+ *
+ * Exported for unit testing.
+ */
+export function layoutLoaderCacheKey(component: string, request?: Request): string {
+  return `${component}::${detectDevice(request?.headers?.get?.("user-agent") ?? "")}`;
+}
+
+function getCachedLayout(cacheKey: string): ResolvedSection | null {
+  const entry = layoutCache.get(cacheKey);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
-    layoutCache.delete(component);
+    layoutCache.delete(cacheKey);
     return null;
   }
   return entry.section;
 }
 
-function setCachedLayout(component: string, section: ResolvedSection): void {
-  layoutCache.set(component, {
+function setCachedLayout(cacheKey: string, section: ResolvedSection): void {
+  layoutCache.set(cacheKey, {
     section,
     expiresAt: Date.now() + LAYOUT_CACHE_TTL,
   });
@@ -324,7 +361,7 @@ function resolveLayoutSection(
   loader: SectionLoaderFn,
   request: Request,
 ): Promise<ResolvedSection> {
-  const key = section.component;
+  const key = layoutLoaderCacheKey(section.component, request);
   const { index } = section;
 
   // Re-apply the caller's page-specific index onto a fresh object so the

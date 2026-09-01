@@ -5,6 +5,7 @@ import type { ResolvedSection } from "./resolve";
 import {
   getDegradedSections,
   isLayoutSection,
+  layoutLoaderCacheKey,
   registerCacheableSections,
   registerLayoutSections,
   registerNonCriticalSections,
@@ -529,5 +530,96 @@ describe("runSectionLoaders — batch span", () => {
 
     const perSection = spans.filter((s) => s.name === "deco.section.loader");
     expect(perSection).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Layout section cache — device is part of the key
+// ---------------------------------------------------------------------------
+//
+// This cache holds a layout section's LOADER OUTPUT, and that is where
+// `isMobile` is born (`ctx.device`, or a loader composed with `withDevice` /
+// `withMobile`). Keyed by component path alone, the first request decided the
+// variant for everyone for 5 minutes. Measured on a real store's PDP with
+// Header/Footer layout-cached: desktop first and a mobile visitor got the
+// desktop header (`h-[90px]`); mobile first and a desktop visitor got
+// `id="header-mobile-menu"`.
+//
+// NOTE: this is a DIFFERENT cache from `resolvedLayoutCache` in `cms/resolve.ts`.
+// That one holds the CMS prop resolution and never sees `isMobile`, so putting
+// the axis there (which is what decocms/blocks#528 did) does not fix this.
+
+describe("layout section cache — device axis", () => {
+  const MOBILE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) Mobile Safari";
+  const TABLET = "Mozilla/5.0 (iPad; CPU OS 17_0) Safari/605";
+  const DESKTOP = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120 Safari/537.36";
+
+  // `layoutCache` is module-global with a 5-minute TTL and no exported reset, so
+  // a shared component key would leak entries between cases.
+  let seq = 0;
+  const req = (ua: string) => new Request("https://store.com/p", { headers: { "user-agent": ua } });
+
+  /** A layout loader that stamps what device it saw — the leak made visible. */
+  const setupDeviceLayout = () => {
+    seq += 1;
+    const key = `site/sections/DeviceLayout${seq}.tsx`;
+    let runs = 0;
+    registerSectionLoader(key, async (props: Record<string, unknown>, request?: Request) => {
+      runs += 1;
+      const ua = request?.headers.get("user-agent") ?? "";
+      return { ...props, isMobile: /iPhone|Mobile/.test(ua), ua };
+    });
+    registerLayoutSections([key]);
+    return { key, runs: () => runs };
+  };
+
+  const load = async (key: string, ua: string) => {
+    const request = req(ua);
+    const out = await RequestContext.run(request, () =>
+      runSingleSectionLoader(makeSection(key), request),
+    );
+    return out.props as { isMobile: boolean; ua: string };
+  };
+
+  it("a mobile visitor does NOT get the variant a desktop visitor cached", async () => {
+    const { key, runs } = setupDeviceLayout();
+
+    const desktop = await load(key, DESKTOP);
+    expect(desktop.isMobile).toBe(false);
+
+    const mobile = await load(key, MOBILE);
+    // Without the axis this came back `false` — the desktop header on a phone.
+    expect(mobile.isMobile).toBe(true);
+    expect(runs()).toBe(2);
+  });
+
+  it("and the reverse: desktop after mobile", async () => {
+    const { key } = setupDeviceLayout();
+    expect((await load(key, MOBILE)).isMobile).toBe(true);
+    expect((await load(key, DESKTOP)).isMobile).toBe(false);
+  });
+
+  it("two visitors on the same device share the entry — the cache still works", async () => {
+    const { key, runs } = setupDeviceLayout();
+    await load(key, DESKTOP);
+    await load(key, DESKTOP);
+    expect(runs()).toBe(1);
+  });
+
+  it("tablet is its own entry", async () => {
+    const { key, runs } = setupDeviceLayout();
+    await load(key, MOBILE);
+    await load(key, TABLET);
+    expect(runs()).toBe(2);
+  });
+
+  it("layoutLoaderCacheKey: three devices, three keys; no request still keys", () => {
+    const keys = [MOBILE, TABLET, DESKTOP].map((ua) => layoutLoaderCacheKey("X", req(ua)));
+    expect(new Set(keys).size).toBe(3);
+    const bare = layoutLoaderCacheKey("X");
+    expect(bare).not.toContain("undefined");
+    // A request with no UA header must land on the same bucket as no request at
+    // all, so a health check does not fragment the desktop entry.
+    expect(bare).toBe(layoutLoaderCacheKey("X", new Request("https://store.com/p")));
   });
 });
