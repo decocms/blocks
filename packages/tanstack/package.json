@@ -15,7 +15,9 @@
     "./daemon": "./src/daemon/index.ts",
     "./sdk/createInvoke": "./src/sdk/createInvoke.ts",
     "./sdk/cookiePassthrough": "./src/sdk/cookiePassthrough.ts",
-    "./sdk/deferredSectionLoader": "./src/sdk/deferredSectionLoader.ts"
+    "./sdk/deferredSectionLoader": "./src/sdk/deferredSectionLoader.ts",
+    "./sdk/serverFnFetch": "./src/sdk/serverFnFetch.ts",
+    "./sdk/cdnSegment": "./src/sdk/cdnSegment.ts"
   },
   "scripts": {
     "build": "tsc",

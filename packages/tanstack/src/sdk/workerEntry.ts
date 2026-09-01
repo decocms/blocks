@@ -53,6 +53,7 @@ import {
 } from "@decocms/blocks/sdk/cacheHeaders";
 import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
+import { CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
   getActiveSpan,
   logRequest,
@@ -307,7 +308,6 @@ export interface DecoWorkerEntryOptions {
    * @default "PURGE_TOKEN"
    */
   purgeTokenEnv?: string | false;
-
   /**
    * Paths that should always bypass the edge cache, even if the
    * profile detector would otherwise cache them.
@@ -498,18 +498,43 @@ export interface DecoWorkerEntryOptions {
   staticPaths?: string[];
 
   /**
-   * CDN-Cache-Control header strategy.
+   * CDN-Cache-Control header strategy — i.e. what Cloudflare's own CDN layer is
+   * allowed to do, as distinct from the Cache API this Worker manages directly.
    *
-   * - `"no-store"` (default): CDN never caches; every request invokes the Worker.
-   *   Correct when segment-based cache keys differ from the original URL.
-   * - `"match-profile"`: Set CDN-Cache-Control to a short TTL matching the
-   *   profile's edge.fresh value. Only safe when you are NOT using segment-based
-   *   cache keys (i.e., no `buildSegment` and `deviceSpecificKeys: false`).
-   * - A function: Return a CDN-Cache-Control value per profile, or `null` for no-store.
+   * The default is `"no-store"` because the Worker's cache key is a SYNTHETIC
+   * Request carrying `__seg`/`__cf_device`/`__cf_geo`/`__bot`/`__fetch`/`__abf`
+   * (see `buildCacheKey`), while the CDN keys on the raw URL and ignores `Vary`
+   * beyond `Accept-Encoding`. Letting the CDN cache by URL alone would serve
+   * desktop HTML to mobile, one region's to another, or a crawler's eager
+   * render to humans.
+   *
+   * - `"no-store"` (default): the CDN never caches; every request invokes the
+   *   Worker. Always correct, never fast.
+   * - `"serverfn-segment"`: opt in to CDN caching for `/_serverFn` requests
+   *   whose URL carries a verified `__cseg` marker (see `./cdnSegment` and
+   *   `decoServerFnFetch`). The marker makes the CDN's key equivalent to the
+   *   Worker's. HTML documents keep `no-store` — the initial navigation is a
+   *   browser request with no client hook to attach a marker.
+   * - `"match-profile"`: mirror the profile's `edge.fresh` as a CDN TTL. Sound
+   *   ONLY when the cache key is the raw URL — no `buildSegment`,
+   *   `deviceSpecificKeys: false`, `geoCacheKey: "off"`. Since
+   *   `deviceSpecificKeys` defaults to **true**, this is almost never the case;
+   *   when it isn't, the option is ignored with a warning rather than silently
+   *   cross-serving segments.
+   * - A function: return a CDN-Cache-Control value per profile, or `null` for
+   *   no-store. You own the correctness of the key/TTL pairing.
+   *
+   * Caching HTML is deliberately not covered here. It is not a header change:
+   * whatever sits in front of the Worker has to reproduce the key above, and
+   * the initial navigation has no client hook to attach a marker to.
    *
    * @default "no-store"
    */
-  cdnCacheControl?: "no-store" | "match-profile" | ((profile: CacheProfileName) => string | null);
+  cdnCacheControl?:
+    | "no-store"
+    | "serverfn-segment"
+    | "match-profile"
+    | ((profile: CacheProfileName) => string | null);
   /**
    * Auto-instrumentation via `instrumentWorker` is enabled by default. The
    * framework wraps the returned handler so that, when OTel env vars
@@ -1034,6 +1059,10 @@ export function createDecoWorkerEntry(
 
   const safeCookieSet = new Set(safeCookiesOpt);
 
+  // One warning per worker instance, not per request — same pattern as
+  // `warnedLongMaxAge` in @decocms/blocks/sdk/cachedLoader.
+  let warnedMatchProfile = false;
+
   // Build the final security headers map (merged defaults + custom + CSP)
   const secHeaders: Record<string, string> | null = (() => {
     if (securityHeadersOpt === false) return null;
@@ -1193,6 +1222,67 @@ export function createDecoWorkerEntry(
       }
     }
     return undefined;
+  }
+
+  function isServerFnPathname(pathname: string): boolean {
+    return pathname.startsWith("/_serverFn/") || pathname.startsWith("/_server/");
+  }
+
+  /**
+   * Whether this `/_serverFn` request may be cached by Cloudflare's CDN.
+   *
+   * True only when the URL carries a `__cseg` marker (put there by
+   * `decoServerFnFetch` on the client) AND recomputing the segment from this
+   * request produces the same token. When it matches, the CDN's key — the raw
+   * URL — is equivalent to the Worker's synthetic key, so serving from the CDN
+   * cannot cross segments.
+   *
+   * Fail-closed on every axis: no marker (bot, curl, old client), diverging
+   * marker, forged marker, stale build, logged-in / region / sales channel, a
+   * custom segment dimension, a bot UA, or an A/B cohort cookie all keep
+   * today's `no-store`. The worst case is not caching — never a wrong response.
+   *
+   * `isBot` and the A/B cookie are checked HERE rather than inside
+   * `segmentToken` because they are request-only: the client cannot observe
+   * them, and they are exactly the two dimensions the original site-level
+   * version missed. They must use the same `isBot` / `segmentCacheToken` that
+   * `buildCacheKey` uses — keying and releasing off different predicates is how
+   * the two silently diverge.
+   */
+  function cdnCacheableServerFn(request: Request, url: URL, env: Record<string, unknown>): boolean {
+    if (!isServerFnPathname(url.pathname)) return false;
+
+    const marker = url.searchParams.get(CSEG_PARAM);
+    if (!marker) return false;
+
+    // Without buildSegment the logged-in bypass is inert (see the boot warning),
+    // so there is nothing reliable to verify the marker against.
+    if (!buildSegment) return false;
+
+    // `__bot=1` in buildCacheKey: bots render every section eagerly (~10x
+    // payload). Letting the CDN share one entry would serve that to humans, or
+    // the deferred one to crawlers.
+    if (isBot(request.headers.get("user-agent") ?? undefined)) return false;
+
+    // `__abf` in buildCacheKey: an A/B visitor must not get another cohort's
+    // cached variant.
+    if (segmentCacheToken(parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)))) {
+      return false;
+    }
+
+    // `__cf_geo` in buildCacheKey, which the marker cannot express and the CDN
+    // cannot reproduce. Mostly moot — with geo on, the `buildSegment` wrapper
+    // back-fills `regionId`, and any `regionId` already makes `segmentToken`
+    // return null. But the back-fill reads only `cf.regionCode` while
+    // `buildGeoCacheParam` keys on country/region/city, so a request with a
+    // country but no region code (Tor exits, some carriers, countries without
+    // first-level subdivisions) slips through with a releasable token while the
+    // Worker key still varies by geo. Refuse outright, the same way the
+    // `match-profile` branch below does.
+    if (effectiveGeoKey() !== "off") return false;
+
+    const expected = segmentToken(buildSegment(request), getBuildHash(env));
+    return expected !== null && marker === expected;
   }
 
   function buildCacheKey(
@@ -2427,17 +2517,45 @@ export function createDecoWorkerEntry(
 
       // CDN-Cache-Control: controls Cloudflare's automatic CDN layer
       // (separate from Cache API which the worker manages directly).
-      if (cdnCacheControlOpt === "no-store") {
-        out.headers.set("CDN-Cache-Control", "no-store");
+      const cdnPublic = `public, max-age=${edgeConfig.fresh}`;
+      const cdnCacheable = edgeConfig.isPublic && edgeConfig.fresh > 0;
+
+      if (cdnCacheControlOpt === "serverfn-segment") {
+        // Only `/_serverFn` requests whose URL carries a verified segment
+        // marker. Everything else — including every HTML document, which has no
+        // client hook to attach a marker on the initial navigation — keeps
+        // `no-store`.
+        out.headers.set(
+          "CDN-Cache-Control",
+          cdnCacheable && cdnCacheableServerFn(request, url, env) ? cdnPublic : "no-store",
+        );
       } else if (cdnCacheControlOpt === "match-profile") {
-        if (edgeConfig.isPublic && edgeConfig.fresh > 0) {
-          out.headers.set("CDN-Cache-Control", `public, max-age=${edgeConfig.fresh}`);
-        } else {
+        // `match-profile` is only sound when the Worker's cache key is the raw
+        // URL. It almost never is: `deviceSpecificKeys` defaults to true, so
+        // every site keys on `__cf_device` even without a `buildSegment`, and a
+        // location matcher adds `__cf_geo`. Honoring the option under those
+        // conditions would serve desktop HTML to mobile, or one region's to
+        // another — silently. Refuse, and say why once.
+        const keyed =
+          buildSegment !== undefined || deviceSpecificKeys || effectiveGeoKey() !== "off";
+        if (keyed) {
+          if (!warnedMatchProfile) {
+            warnedMatchProfile = true;
+            console.warn(
+              '[deco] cdnCacheControl: "match-profile" ignored — the edge cache key is ' +
+                "segmented (buildSegment / deviceSpecificKeys / geoCacheKey), which the CDN " +
+                "cannot reproduce from the URL alone. Keeping CDN-Cache-Control: no-store.",
+            );
+          }
           out.headers.set("CDN-Cache-Control", "no-store");
+        } else {
+          out.headers.set("CDN-Cache-Control", cdnCacheable ? cdnPublic : "no-store");
         }
       } else if (typeof cdnCacheControlOpt === "function") {
         const val = cdnCacheControlOpt(profile);
         out.headers.set("CDN-Cache-Control", val ?? "no-store");
+      } else {
+        out.headers.set("CDN-Cache-Control", "no-store");
       }
 
       out.headers.set("X-Cache", xCache);
