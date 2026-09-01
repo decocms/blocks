@@ -126,4 +126,29 @@ describe("resolvePreviewRequest", () => {
     expect(html).toContain("hero-html");
     expect(html).toContain("editor::inject");
   });
+
+  it("wraps each rendered section in <section data-manifest-key> so the in-place preview replace can map it", async () => {
+    setBlocks({
+      "/pages/home": {
+        __resolveType: WELL_KNOWN_TYPES.PAGE,
+        sections: [
+          { __resolveType: HERO, label: "a" },
+          { __resolveType: HERO, label: "b" },
+        ],
+      },
+    });
+
+    const response = await handleRender(
+      new Request(`http://localhost/live/previews/${encodeURIComponent("/pages/home")}`),
+    );
+    const html = await response.text();
+
+    // Same wrapper markup as production (DecoPageRenderer.tsx): id derived from
+    // the section key, data-manifest-key set to the raw key.
+    expect(html).toContain(`<section id="Hero" data-manifest-key="${HERO}">`);
+    // Both sections are individually wrapped — not concatenated into one blob.
+    expect(html.match(/data-manifest-key/g)?.length).toBe(2);
+    expect(html).toContain("hero-a");
+    expect(html).toContain("hero-b");
+  });
 });

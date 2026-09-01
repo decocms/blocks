@@ -32,6 +32,18 @@ function wrapInHtmlShell(sectionHtml: string): string {
 }
 
 /**
+ * DOM id for a section's wrapper element. Must stay in sync with the
+ * production renderer (`DecoPageRenderer.tsx`) so the admin's in-place
+ * Fast Preview replace can match `[data-manifest-key]` / `#id` 1:1.
+ */
+function sectionDomId(key: string): string {
+  return key
+    .replace(/\//g, "-")
+    .replace(/\.tsx$/, "")
+    .replace(/^site-sections-/, "");
+}
+
+/**
  * Render a single ResolvedSection to an HTML string.
  * Uses the pre-cached renderToString and the preview wrapper.
  */
@@ -44,8 +56,17 @@ async function renderResolvedSection(section: ResolvedSection): Promise<string> 
   const renderToString = await getRenderToString();
   const mod = await sectionLoader();
   const element = createElement(mod.default, section.props);
+  // Match the production wrapper (DecoPageRenderer.tsx) so the admin's
+  // in-place Fast Preview replace can map each section to its live-DOM
+  // counterpart via [data-manifest-key]. Without it, sections rendered on
+  // the /live/previews path come back unwrapped and end up glued together.
+  const sectionEl = createElement(
+    "section",
+    { id: sectionDomId(section.key), "data-manifest-key": section.key },
+    element,
+  );
   const Wrapper = getPreviewWrapper();
-  const wrapped = Wrapper ? createElement(Wrapper, null, element) : element;
+  const wrapped = Wrapper ? createElement(Wrapper, null, sectionEl) : sectionEl;
   return renderToString(wrapped);
 }
 
