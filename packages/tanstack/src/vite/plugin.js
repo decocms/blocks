@@ -690,6 +690,33 @@ export function decoVitePlugin() {
       /** @type {import("vite").UserConfig} */
       const cfg = {};
 
+      // Supply a default TanStack Start entry when the site has none.
+      //
+      // `#tanstack-start-entry` is a subpath import of
+      // @tanstack/start-client-core; with no `src/start.ts` it resolves to a
+      // fake entry exporting `startInstance = undefined`, and the site gets no
+      // `serverFns.fetch` hook. That hook is what appends the cache segment to
+      // `/_serverFn` URLs (see sdk/cdnSegment), so without it CDN caching of
+      // SPA navigation can never engage.
+      //
+      // Aliasing it here means a site gets that from a version bump instead of
+      // a per-site PR. Strictly conditional on the file being absent: a site
+      // that owns its `src/start.ts` must keep it, since ours would otherwise
+      // silently replace whatever else it configures.
+      const siteStartEntry = ["ts", "tsx", "js", "jsx"]
+        .map((ext) => path.join(process.cwd(), "src", `start.${ext}`))
+        .find((f) => existsSync(f));
+
+      if (!siteStartEntry) {
+        cfg.resolve = {
+          ...cfg.resolve,
+          alias: {
+            ...cfg.resolve?.alias,
+            "#tanstack-start-entry": "@decocms/tanstack/sdk/startEntry",
+          },
+        };
+      }
+
       // Allow tunnel domains through Vite's host check.
       // .deco.studio is the new admin frontend; both real-world Deco sites
       // (casaevideo-storefront, baggagio-tanstack) duplicated this list to

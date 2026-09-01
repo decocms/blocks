@@ -17,6 +17,7 @@
     "./sdk/cookiePassthrough": "./src/sdk/cookiePassthrough.ts",
     "./sdk/deferredSectionLoader": "./src/sdk/deferredSectionLoader.ts",
     "./sdk/serverFnFetch": "./src/sdk/serverFnFetch.ts",
+    "./sdk/startEntry": "./src/sdk/startEntry.ts",
     "./sdk/cdnSegment": "./src/sdk/cdnSegment.ts"
   },
   "scripts": {

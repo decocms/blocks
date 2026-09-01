@@ -508,13 +508,18 @@ export interface DecoWorkerEntryOptions {
    * desktop HTML to mobile, one region's to another, or a crawler's eager
    * render to humans.
    *
-   * - `"no-store"` (default): the CDN never caches; every request invokes the
-   *   Worker. Always correct, never fast.
-   * - `"serverfn-segment"`: opt in to CDN caching for `/_serverFn` requests
-   *   whose URL carries a verified `__cseg` marker (see `./cdnSegment` and
-   *   `decoServerFnFetch`). The marker makes the CDN's key equivalent to the
-   *   Worker's. HTML documents keep `no-store` — the initial navigation is a
-   *   browser request with no client hook to attach a marker.
+   * - `"serverfn-segment"` (default): allow CDN caching for `/_serverFn`
+   *   requests whose URL carries a verified `__cseg` marker (see
+   *   `./cdnSegment` and `decoServerFnFetch`). The marker makes the CDN's key
+   *   equivalent to the Worker's. HTML documents keep `no-store` — the initial
+   *   navigation is a browser request with no client hook to attach a marker.
+   *
+   *   This is the default because it is inert until a marker actually arrives:
+   *   a client that never sends `__cseg` keeps getting `no-store`, so enabling
+   *   it cannot change behaviour on its own. That is what lets a site pick the
+   *   feature up from a version bump rather than a per-site change.
+   * - `"no-store"`: the CDN never caches; every request invokes the Worker.
+   *   Always correct, never fast. Set this to opt OUT.
    * - `"match-profile"`: mirror the profile's `edge.fresh` as a CDN TTL. Sound
    *   ONLY when the cache key is the raw URL — no `buildSegment`,
    *   `deviceSpecificKeys: false`, `geoCacheKey: "off"`. Since
@@ -528,7 +533,7 @@ export interface DecoWorkerEntryOptions {
    * whatever sits in front of the Worker has to reproduce the key above, and
    * the initial navigation has no client hook to attach a marker to.
    *
-   * @default "no-store"
+   * @default "serverfn-segment"
    */
   cdnCacheControl?:
     | "no-store"
@@ -995,7 +1000,7 @@ export function createDecoWorkerEntry(
     geoCacheKey: geoCacheKeyOpt = "auto",
     safeCookies: safeCookiesOpt = DEFAULT_SAFE_COOKIES,
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
-    cdnCacheControl: cdnCacheControlOpt = "no-store",
+    cdnCacheControl: cdnCacheControlOpt = "serverfn-segment",
     observability: observabilityOpt,
     outboundUserAgent: outboundUserAgentOpt,
     speculationRules: speculationRulesOpt,
