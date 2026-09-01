@@ -99,7 +99,7 @@ const getProductURL = (origin: string, product: { linkText: string }, skuId?: st
 const nonEmptyArray = <T>(array: T[] | null | undefined) =>
 	Array.isArray(array) && array.length > 0 ? array : null;
 
-interface ProductOptions {
+export interface ProductOptions {
 	baseUrl: string;
 	/** Price coded currency, e.g.: USD, BRL */
 	priceCurrency: string;
@@ -108,6 +108,69 @@ interface ProductOptions {
 	includeOriginalAttributes?: string[];
 	/** Use lean toProductVariant for hasVariant[] instead of full toProduct at level=1 */
 	leanVariants?: boolean;
+	/**
+	 * With `leanVariants`, keep the payment ladder on the ONE variant the card
+	 * actually renders. Receives the raw SKU list and returns that SKU's
+	 * `itemId` (or undefined to leave every variant lean).
+	 *
+	 * Why this exists: `leanVariants` assumes the card renders the ROOT sku, so
+	 * `buildOfferVariant` empties `priceSpecification` on every entry. Cards that
+	 * instead pick a representative variant out of `isVariantOf.hasVariant` (e.g.
+	 * "cheapest in stock") read that variant's own offer for list price and
+	 * installments — with the ladder emptied, those render blank.
+	 *
+	 * The kept entry stays on the LEAN variant shape and only its offer is
+	 * upgraded, to {@link buildOfferShelf} (ListPrice/SalePrice/SRP + PIX + the
+	 * one installment `useOffer` would pick). A full `toProduct` here would
+	 * instead re-emit `description` and the whole 48-entry ladder the parent
+	 * already carries: measured on a real listing, 17.5 KB of the 53.5 KB in
+	 * every product, for a card that reads price and installment only.
+	 *
+	 * Undefined (default) preserves the current behaviour byte for byte.
+	 */
+	displayedVariantId?: (items: Array<LegacySkuVTEX | SkuVTEX>) => string | undefined;
+	/**
+	 * Rewrite `priceSpecification` on the offers this transform emits. Runs on
+	 * the ROOT offer and on the offer of the variant `displayedVariantId` picks.
+	 *
+	 * A listing renders ONE installment string per card, while the Catalog API
+	 * returns every payment method the store accepts: measured on a real page,
+	 * 48 `UnitPriceSpecification` entries = 12.0 KB per product, 22% of the
+	 * listing payload — built, cached and re-serialized in full.
+	 *
+	 * Deliberately a caller-supplied function and not a boolean: WHICH rungs a
+	 * card reads is store policy, not ours. {@link buildOfferShelf} keeps the
+	 * `bestInstallment` one (lowest total, tie-broken by highest
+	 * `billingDuration`) — and on a store with a boleto discount that resolves to
+	 * "Boleto Bancário 1x", measured against a storefront that renders
+	 * "Visa 10x" on all 36 cards of the page. Same data, different string. Pass
+	 * `(specs) => [buildOfferShelf({ ...offer, priceSpecification: specs }).…]`-style
+	 * logic, or your own predicate; the transform only applies it.
+	 *
+	 * Undefined (default) keeps the full ladder — a PDP needs it.
+	 */
+	priceSpecifications?: (specs: UnitPriceSpecification[]) => UnitPriceSpecification[];
+	/**
+	 * Internal: set by `toProduct`/`toProductShelf` on the ONE variant
+	 * `displayedVariantId` picked, so `toProductVariant` emits a real ladder for
+	 * it instead of `buildOfferVariant`'s empty one. Not meant for callers.
+	 */
+	variantKeepLadder?: boolean;
+	/**
+	 * Cap `image[]` to the first N entries, in path order. Undefined (default)
+	 * keeps every image.
+	 *
+	 * Listings render at most a couple of images per card, while the Catalog API
+	 * returns every asset registered on the SKU (3 on average, up to 5 measured).
+	 *
+	 * NOTE: this truncates by POSITION, so images the consumer selects BY NAME
+	 * can fall outside the cap. Measured on a real listing page: the `vira`
+	 * (hover) image sits at index 1 in only 5 of the 19 products that have one —
+	 * index 2 in 12 of them, index 3 in 2. A cap of 2 therefore drops the hover
+	 * image on most cards that use one. Callers that select by name should keep
+	 * the named entries instead of using this option.
+	 */
+	maxImages?: number;
 	/** Property names to keep on lean variant additionalProperty. Defaults to VARIANT_PROPERTY_NAMES. */
 	variantPropertyNames?: Set<string>;
 	/** When leanVariants is true, still include image[0] on each variant entry. Default true. */
@@ -396,17 +459,31 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 		: toAdditionalProperties(sku);
 	const referenceIdAdditionalProperty = toAdditionalPropertyReferenceIds(referenceId);
 	const images = nonEmptyArray(sku.images);
-	const offers = (sku.sellers ?? []).map(isLegacyProduct(product) ? toOfferLegacy : toOffer);
+	const rawOffers = (sku.sellers ?? []).map(isLegacyProduct(product) ? toOfferLegacy : toOffer);
+	const offers = applyPriceSpecifications(rawOffers, options);
 
-	const variantOptions =
-		imagesByKey !== options.imagesByKey ? { ...options, imagesByKey } : options;
+	// `variantKeepLadder` must NOT be inherited: while it leaked through, every
+	// lean variant emitted a ladder instead of an empty one — measured on a real
+	// listing, `isVariantOf` GREW from 38.6 KB to 49.6 KB, so the option made
+	// the payload bigger. Only the entry `displayedVariantId` picks turns it on,
+	// explicitly, below.
+	const variantOptions = { ...options, imagesByKey, variantKeepLadder: false };
 	const isVariantOf =
 		level < 1
 			? ({
 					"@type": "ProductGroup",
 					productGroupID: productId,
 					hasVariant: options.leanVariants
-						? items.map((sku) => toProductVariant(product, sku, variantOptions))
+						? ((keepId) =>
+								items.map((sku) =>
+									toProductVariant(
+										product,
+										sku,
+										keepId !== undefined && sku.itemId === keepId
+											? { ...variantOptions, variantKeepLadder: true }
+											: variantOptions,
+									),
+								))(options.displayedVariantId?.(items))
 						: items.map((sku) => toProduct(product, sku, 1, variantOptions)),
 					url: getProductGroupURL(baseUrl, product).href,
 					name: product.productName,
@@ -418,7 +495,9 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 				} satisfies ProductGroup)
 			: undefined;
 
-	const finalImages = images?.map(({ imageUrl, imageText, imageLabel }) => {
+	const cappedImages =
+		typeof options.maxImages === "number" ? images?.slice(0, options.maxImages) : images;
+	const finalImages = cappedImages?.map(({ imageUrl, imageText, imageLabel }) => {
 		const url = imagesByKey.get(getImageKey(imageUrl)) ?? imageUrl;
 		const alternateName = imageText || imageLabel || "";
 		const name = imageLabel || "";
@@ -567,6 +646,19 @@ export const buildOfferShelf = (offer: Offer): Offer => {
 	};
 };
 
+/**
+ * Apply `options.priceSpecifications` to every offer, if the caller supplied it.
+ * Identity (same array reference) when absent, so the default output is
+ * byte-for-byte unchanged.
+ */
+const applyPriceSpecifications = (offers: Offer[], options: ProductOptions): Offer[] =>
+	options.priceSpecifications
+		? offers.map((offer) => ({
+				...offer,
+				priceSpecification: options.priceSpecifications!(offer.priceSpecification ?? []),
+			}))
+		: offers;
+
 /** Property names commonly used by ProductCard/Shelf components */
 const SHELF_PROPERTY_NAMES = new Set([
 	"category",
@@ -646,9 +738,16 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 					const inStockSku = findFirstAvailable(items) ?? items[0];
 					// Opt-in: every SKU as a lean variant (size/color grid on shelf cards).
 					// Default: a single in-stock variant (lean shelf payload).
+					const keepId = options.displayedVariantId?.(items);
 					const hasVariant = options.shelfCompleteVariants
 						? items.map((variantSku) =>
-								toProductVariant(product, variantSku, options),
+								toProductVariant(
+									product,
+									variantSku,
+									keepId !== undefined && variantSku.itemId === keepId
+										? { ...options, variantKeepLadder: true }
+										: options,
+								),
 							)
 						: inStockSku
 							? [toProductShelf(product, inStockSku, 1, options)]
@@ -741,7 +840,20 @@ export const toProductVariant = <P extends LegacyProductVTEX | ProductVTEX>(
 	const offerConverter = isLegacyProduct(product) ? toOfferLegacy : toOffer;
 	const allOffers = (sku.sellers ?? []).map(offerConverter).sort(bestOfferFirst);
 	const bestOffer = allOffers[0];
-	const leanOffers = bestOffer ? [buildOfferVariant(bestOffer, includeInventory)] : [];
+	// `variantKeepLadder` marks the ONE variant the card renders (see
+	// displayedVariantId): it keeps the LEAN shape but needs a real ladder,
+	// through the same `priceSpecifications` hook the root offer uses.
+	const leanOffers = bestOffer
+		? [
+				options.variantKeepLadder
+					? {
+							...buildOfferVariant(bestOffer, includeInventory),
+							priceSpecification: applyPriceSpecifications([bestOffer], options)[0]
+								.priceSpecification,
+						}
+					: buildOfferVariant(bestOffer, includeInventory),
+			]
+		: [];
 
 	// image[0] only — selectors render a single thumbnail. Reuse the same
 	// imagesByKey lookup toProduct uses so URLs stay consistent across variants.

@@ -33,6 +33,7 @@ import {
 	toProduct,
 	toProductPage,
 } from "../utils/transform";
+import type { ProductOptions } from "../utils/transform";
 import type { LegacyFacet, LegacyItem, LegacyProduct, LegacySort, PageType } from "../utils/types";
 
 // ---------------------------------------------------------------------------
@@ -342,6 +343,28 @@ export interface LegacyPLPOptions {
 	/** Ignore case when checking if a facet is selected */
 	ignoreCaseSelected?: boolean;
 	includeOriginalAttributes?: string[];
+	/**
+	 * Build `isVariantOf.hasVariant[]` with the lean variant transform instead of
+	 * a full nested `toProduct` per SKU. Off by default (unchanged behaviour).
+	 *
+	 * `productDetailsPage` (intelligent search) already exposes this, but the
+	 * legacy PLP never plumbed it — so a listing always paid the full variant
+	 * tree. Measured on a real store (36 products, 26 variants each): ~9.6 MB
+	 * per page, 96% of each product in `isVariantOf.hasVariant`, because every
+	 * variant carries the whole 48-entry payment ladder plus a copy of the
+	 * parent `description` — none of which a listing card reads.
+	 */
+	leanVariants?: boolean;
+	/** Keep the ladder on the ONE variant the card renders — see ProductOptions.displayedVariantId. */
+	displayedVariantId?: ProductOptions["displayedVariantId"];
+	/** Forwarded to the lean variant transform. */
+	variantPropertyNames?: Set<string>;
+	variantIncludeImage?: boolean;
+	variantIncludeInventory?: boolean;
+	/** Cap image[] to the first N entries — see ProductOptions.maxImages. */
+	maxImages?: number;
+	/** Rewrite priceSpecification on emitted offers — see ProductOptions.priceSpecifications. */
+	priceSpecifications?: ProductOptions["priceSpecifications"];
 }
 
 /**
@@ -362,6 +385,13 @@ export async function legacyProductListingPage(
 		ignoreCaseSelected,
 		useCollectionName,
 		includeOriginalAttributes,
+		leanVariants,
+		displayedVariantId,
+		variantPropertyNames,
+		variantIncludeImage,
+		variantIncludeInventory,
+		maxImages,
+		priceSpecifications,
 	} = opts;
 
 	const currentPageOffset = opts.pageOffset ?? 1;
@@ -447,6 +477,13 @@ export async function legacyProductListingPage(
 			baseUrl,
 			priceCurrency,
 			includeOriginalAttributes,
+			leanVariants,
+			displayedVariantId,
+			variantPropertyNames,
+			variantIncludeImage,
+			variantIncludeInventory,
+			maxImages,
+			priceSpecifications,
 		}),
 	);
 
