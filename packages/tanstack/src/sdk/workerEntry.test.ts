@@ -838,6 +838,56 @@ describe('cdnCacheControl: "serverfn-segment"', () => {
   });
 });
 
+describe("cdnCacheControl default", () => {
+  const BUILD_D = "abc123";
+
+  // The default flipped from "no-store" to "serverfn-segment". That is only
+  // safe because it is inert until a verified marker arrives — these two tests
+  // are what make that claim checkable rather than asserted in a comment.
+  it("is inert for a client that never sends a marker", async () => {
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop" as const }),
+    });
+    const html = await w.fetch(new Request("https://example.com/"), { BUILD_HASH: BUILD_D }, MOCK_CTX);
+    expect(html.headers.get("CDN-Cache-Control")).toBe("no-store");
+
+    const sfn = await w.fetch(
+      new Request("https://example.com/_serverFn/loadCmsPage"),
+      { BUILD_HASH: BUILD_D },
+      MOCK_CTX,
+    );
+    expect(sfn.headers.get("CDN-Cache-Control")).toBe("no-store");
+  });
+
+  it("engages once the client sends a valid marker, with no site config", async () => {
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      buildSegment: () => ({ device: "desktop" as const }),
+    });
+    const res = await w.fetch(
+      new Request(`https://example.com/_serverFn/loadCmsPage?__cseg=desktop.${BUILD_D}`),
+      { BUILD_HASH: BUILD_D },
+      MOCK_CTX,
+    );
+    expect(res.headers.get("CDN-Cache-Control")).toMatch(/^public, max-age=\d+$/);
+  });
+
+  it('still honours an explicit opt-out with "no-store"', async () => {
+    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      cdnCacheControl: "no-store",
+      buildSegment: () => ({ device: "desktop" as const }),
+    });
+    const res = await w.fetch(
+      new Request(`https://example.com/_serverFn/loadCmsPage?__cseg=desktop.${BUILD_D}`),
+      { BUILD_HASH: BUILD_D },
+      MOCK_CTX,
+    );
+    expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+  });
+});
+
 describe("CDN-Cache-Control at the single response exit", () => {
   it("defaults to no-store on early returns that never reach dressResponse", async () => {
     // `?asJson` returns the fully resolved page — loaders run with the caller's
