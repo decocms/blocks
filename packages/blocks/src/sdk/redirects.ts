@@ -106,7 +106,7 @@ export function loadRedirects(blocks: Record<string, unknown>): RedirectMap {
       const redirect: Redirect = {
         from: normalizePath(entry.from),
         to: entry.to,
-        status: entry.type === "permanent" ? 301 : 302,
+        status: normalizeStatus(entry.type),
       };
 
       if (redirect.from.includes("*")) {
@@ -140,7 +140,7 @@ export function parseRedirectsCsv(csv: string): Redirect[] {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
 
-    const parts = line.split(",").map((p) => p.trim());
+    const parts = splitCsvLine(line);
     if (parts.length < 2) continue;
 
     const [from, to, type] = parts;
@@ -152,7 +152,7 @@ export function parseRedirectsCsv(csv: string): Redirect[] {
     redirects.push({
       from: normalizePath(from),
       to,
-      status: type === "permanent" || type === "301" ? 301 : 302,
+      status: normalizeStatus(type),
     });
   }
 
@@ -203,6 +203,52 @@ export function matchRedirect(pathname: string, map: RedirectMap): Redirect | nu
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
+
+/**
+ * Split one CSV line on commas that are not inside a quoted field.
+ *
+ * Bulk redirect exports routinely hold VTEX URLs whose query contains commas
+ * (`?map=category-1,category-2`). Those rows are quoted, and a plain
+ * `split(",")` shreds them into rules with a truncated source and a fragment of
+ * the query as the target.
+ */
+function splitCsvLine(line: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      // "" inside a quoted field is an escaped quote (RFC 4180).
+      if (quoted && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === "," && !quoted) {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current.trim());
+  return parts;
+}
+
+/**
+ * Redirect type -> HTTP status, case-insensitively.
+ *
+ * Exports commonly write `PERMANENT`. Matching only the lowercase spelling
+ * downgraded those rows to 302, and a temporary redirect passes no ranking
+ * signal to the new URL.
+ */
+function normalizeStatus(type?: string): 301 | 302 {
+  const t = type?.trim().toLowerCase();
+  return t === "permanent" || t === "301" ? 301 : 302;
+}
 
 function normalizePath(path: string): string {
   let p = path.trim();
