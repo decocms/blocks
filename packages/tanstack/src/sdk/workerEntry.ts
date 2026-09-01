@@ -777,11 +777,17 @@ function parseCookieNames(response: Response): string[] {
 /**
  * Check if ALL cookies in a response are in the safe list.
  * Returns true if the response has no cookies or only safe cookies.
+ *
+ * Fail-closed: a response that HAS a `set-cookie` we couldn't parse into names
+ * is treated as unsafe. The parser's fallback path (comma-splitting the
+ * combined header) is documented as unreliable, and the cost of the two
+ * outcomes is not symmetric — guessing "safe" here caches a personalized
+ * response into the shared edge entry.
  */
 function hasOnlySafeCookies(response: Response, safeCookieSet: Set<string>): boolean {
   if (!response.headers.has("set-cookie")) return true;
   const names = parseCookieNames(response);
-  if (names.length === 0) return true;
+  if (names.length === 0) return false;
   return names.every((name) => safeCookieSet.has(name));
 }
 
@@ -1058,7 +1064,24 @@ export function createDecoWorkerEntry(
     return out;
   }
 
-  const allBypassPaths = [...(bypassPaths ?? DEFAULT_BYPASS_PATHS), ...extraBypassPaths];
+  // DEFAULT_BYPASS_PATHS is always included, even when a site passes its own
+  // `bypassPaths`. It used to be replaced, so a site adding one path silently
+  // lost `/deco/`, `/live/` and `/.decofile` — framework routes that must never
+  // be cached. Cache configuration from a site can tighten, never loosen.
+  const allBypassPaths = [
+    ...new Set([...DEFAULT_BYPASS_PATHS, ...(bypassPaths ?? []), ...extraBypassPaths]),
+  ];
+
+  // The logged-in bypass below reads `segment.loggedIn`, which only ever exists
+  // when the site supplies `buildSegment`. Without it, authenticated and
+  // anonymous visitors share one edge entry.
+  if (!rawBuildSegment) {
+    console.warn(
+      "[deco] createDecoWorkerEntry: no `buildSegment` configured — logged-in " +
+        "visitors share the anonymous edge cache entry. Required before enabling " +
+        "CDN caching.",
+    );
+  }
 
   // -- Helpers ----------------------------------------------------------------
 
@@ -1677,6 +1700,27 @@ export function createDecoWorkerEntry(
       // Deduplicate Set-Cookie headers — multiple layers (VTEX middleware,
       // invoke handlers, etc.) may independently append the same cookie.
       deduplicateSetCookies(response);
+
+      // `CDN-Cache-Control` is decided here, at the single response exit, so no
+      // branch can forget it. Two cases:
+      //
+      //  - `X-Cache: BYPASS` — the worker deliberately declined to cache, so
+      //    the CDN must not either. A dozen call sites set this; some deleted
+      //    the header, some didn't, and several still emitted the profile's
+      //    public `Cache-Control` (`public, s-maxage=900`) on the way out.
+      //  - header absent — a branch that returned before `dressResponse` and
+      //    expressed no opinion. `?asJson`, `?renderJson`, proxied responses and
+      //    the redirect paths all land here. Defaulting these to `no-store` is
+      //    what makes the invariant hold: an early return can only ever be
+      //    MORE restrictive than the cache layer, never accidentally public.
+      //
+      // A value already set by `dressResponse` (the cacheable path) is left
+      // alone — that is the one branch that has actually reasoned about whether
+      // the CDN key matches the worker key.
+      const bypassed = response.headers.get("X-Cache") === "BYPASS";
+      if (bypassed || !response.headers.has("CDN-Cache-Control")) {
+        response.headers.set("CDN-Cache-Control", "no-store");
+      }
 
       let finalResponse = applySecurityHeaders(response);
 
