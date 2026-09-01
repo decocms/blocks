@@ -1,6 +1,7 @@
 import { setBlocks } from "@decocms/blocks/cms";
 import { afterEach, describe, expect, it } from "vitest";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
+import { segmentToken } from "./cdnSegment";
 import {
   buildGeoCacheParam,
   createDecoWorkerEntry,
@@ -740,6 +741,9 @@ describe("draft preview (pull-based)", () => {
 describe('cdnCacheControl: "serverfn-segment"', () => {
   const BUILD = "abc123";
   const ENV = { BUILD_HASH: BUILD };
+  // The token is a hash the server issues, so tests derive it the same way the
+  // worker does instead of hardcoding a shape.
+  const tok = (seg: string) => segmentToken(seg, false, BUILD) as string;
 
   function worker(overrides: Record<string, unknown> = {}) {
     return createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
@@ -764,7 +768,7 @@ describe('cdnCacheControl: "serverfn-segment"', () => {
   }
 
   it("releases the CDN when the marker matches the recomputed segment", async () => {
-    expect(await cdnHeader(sfnUrl(`desktop.${BUILD}`))).toMatch(/^public, max-age=\d+$/);
+    expect(await cdnHeader(sfnUrl(tok("desktop")))).toMatch(/^public, max-age=\d+$/);
   });
 
   it("keeps no-store without a marker (bot, curl, old client)", async () => {
@@ -774,16 +778,16 @@ describe('cdnCacheControl: "serverfn-segment"', () => {
   it("keeps no-store when the marker is for another device", async () => {
     // The forged/diverging case: a desktop request claiming a mobile entry
     // would let the CDN serve mobile HTML to desktop.
-    expect(await cdnHeader(sfnUrl(`mobile.${BUILD}`))).toBe("no-store");
+    expect(await cdnHeader(sfnUrl(tok("mobile")))).toBe("no-store");
   });
 
   it("keeps no-store when the marker is from an older build", async () => {
     // Deploying does not purge the CDN, so a stale build token must not match.
-    expect(await cdnHeader(sfnUrl("desktop.oldbuild"))).toBe("no-store");
+    expect(await cdnHeader(sfnUrl(segmentToken("desktop", false, "oldbuild") as string))).toBe("no-store");
   });
 
   it("keeps no-store when there is no build hash", async () => {
-    const res = await worker().fetch(new Request(sfnUrl(`desktop.${BUILD}`)), {}, MOCK_CTX);
+    const res = await worker().fetch(new Request(sfnUrl(tok("desktop"))), {}, MOCK_CTX);
     expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
   });
 
@@ -791,7 +795,7 @@ describe('cdnCacheControl: "serverfn-segment"', () => {
     // Bots render every section eagerly (~10x payload). Sharing one CDN entry
     // would serve that to humans, or the deferred one to crawlers.
     expect(
-      await cdnHeader(sfnUrl(`desktop.${BUILD}`), {
+      await cdnHeader(sfnUrl(tok("desktop")), {
         "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1)",
       }),
     ).toBe("no-store");
@@ -799,33 +803,29 @@ describe('cdnCacheControl: "serverfn-segment"', () => {
 
   it("keeps no-store for an A/B cohort cookie even with a valid marker", async () => {
     expect(
-      await cdnHeader(sfnUrl(`desktop.${BUILD}`), {
+      await cdnHeader(sfnUrl(tok("desktop")), {
         cookie: "deco_segment=eyJhY3RpdmUiOlsiYSJdfQ==",
       }),
     ).toBe("no-store");
   });
 
   it("keeps no-store for a logged-in request", async () => {
-    expect(await cdnHeader(sfnUrl(`desktop.${BUILD}`), { cookie: "auth=1" })).toBe("no-store");
+    expect(await cdnHeader(sfnUrl(tok("desktop")), { cookie: "auth=1" })).toBe("no-store");
   });
 
   it("keeps no-store on HTML documents — they carry no marker", async () => {
     expect(await cdnHeader("https://example.com/some-category")).toBe("no-store");
   });
 
-  it("keeps no-store when the cache key varies by geo", async () => {
-    // `__cf_geo` is in the Worker key but cannot be expressed in the marker nor
-    // reproduced by the CDN, so a site with geo keying must not release it —
-    // otherwise one region's regionalized data (pricing, stock, store) is
-    // served to another from the same colo.
-    const w = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
-      observability: false,
-      cdnCacheControl: "serverfn-segment",
-      geoCacheKey: "region",
-      buildSegment: () => ({ device: "desktop" as const }),
-    });
-    const res = await w.fetch(new Request(sfnUrl(`desktop.${BUILD}`)), ENV, MOCK_CTX);
-    expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+  // NOTE: the end-to-end geo case is not exercised here. `injectGeoCookies`
+  // rebuilds the Request, and `new Request(req, init)` only carries `cf`
+  // through on workerd — under Node it is dropped, so a test would assert the
+  // absence of geo rather than its handling. The unit case below covers the
+  // property that matters, and the real path is verified against a built site.
+  it("never lets two regions share a token", () => {
+    // The leak this guards: RJ and SP resolving to the same colo must not
+    // share an entry, since their regionalized pricing and stock differ.
+    expect(tok("desktop|geo=BR|RJ")).not.toBe(tok("desktop|geo=BR|SP"));
   });
 
   it("keeps no-store without buildSegment, since the logged-in bypass is inert", async () => {
@@ -833,13 +833,14 @@ describe('cdnCacheControl: "serverfn-segment"', () => {
       observability: false,
       cdnCacheControl: "serverfn-segment",
     });
-    const res = await w.fetch(new Request(sfnUrl(`desktop.${BUILD}`)), ENV, MOCK_CTX);
+    const res = await w.fetch(new Request(sfnUrl(tok("desktop"))), ENV, MOCK_CTX);
     expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
   });
 });
 
 describe("cdnCacheControl default", () => {
   const BUILD_D = "abc123";
+  const tokD = (seg: string) => segmentToken(seg, false, BUILD_D) as string;
 
   // The default flipped from "no-store" to "serverfn-segment". That is only
   // safe because it is inert until a verified marker arrives — these two tests
@@ -866,7 +867,7 @@ describe("cdnCacheControl default", () => {
       buildSegment: () => ({ device: "desktop" as const }),
     });
     const res = await w.fetch(
-      new Request(`https://example.com/_serverFn/loadCmsPage?__cseg=desktop.${BUILD_D}`),
+      new Request(`https://example.com/_serverFn/loadCmsPage?__cseg=${tokD("desktop")}`),
       { BUILD_HASH: BUILD_D },
       MOCK_CTX,
     );
@@ -880,7 +881,7 @@ describe("cdnCacheControl default", () => {
       buildSegment: () => ({ device: "desktop" as const }),
     });
     const res = await w.fetch(
-      new Request(`https://example.com/_serverFn/loadCmsPage?__cseg=desktop.${BUILD_D}`),
+      new Request(`https://example.com/_serverFn/loadCmsPage?__cseg=${tokD("desktop")}`),
       { BUILD_HASH: BUILD_D },
       MOCK_CTX,
     );

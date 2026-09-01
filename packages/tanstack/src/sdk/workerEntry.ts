@@ -53,7 +53,7 @@ import {
 } from "@decocms/blocks/sdk/cacheHeaders";
 import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
-import { CSEG_PARAM, segmentToken } from "./cdnSegment";
+import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
   getActiveSpan,
   logRequest,
@@ -1275,19 +1275,38 @@ export function createDecoWorkerEntry(
       return false;
     }
 
-    // `__cf_geo` in buildCacheKey, which the marker cannot express and the CDN
-    // cannot reproduce. Mostly moot — with geo on, the `buildSegment` wrapper
-    // back-fills `regionId`, and any `regionId` already makes `segmentToken`
-    // return null. But the back-fill reads only `cf.regionCode` while
-    // `buildGeoCacheParam` keys on country/region/city, so a request with a
-    // country but no region code (Tor exits, some carriers, countries without
-    // first-level subdivisions) slips through with a releasable token while the
-    // Worker key still varies by geo. Refuse outright, the same way the
-    // `match-profile` branch below does.
-    if (effectiveGeoKey() !== "off") return false;
-
-    const expected = segmentToken(buildSegment(request), getBuildHash(env));
+    // `__cf_geo` in buildCacheKey is a dimension the segment descriptor does not
+    // carry: it comes from `buildGeoCacheParam` (country/region/city) rather
+    // than from `buildSegment`. Fold it in so two visitors keyed differently by
+    // the Worker can never share a URL.
+    const expected = segmentToken(
+      requestSegmentDescriptor(request),
+      buildSegment(request).loggedIn === true,
+      getBuildHash(env),
+    );
     return expected !== null && marker === expected;
+  }
+
+  /**
+   * The full set of dimensions the Worker keys this request on, as one string.
+   *
+   * MUST stay in step with `buildCacheKey` — it is the same question ("what
+   * makes this response different from another visitor's?") asked in a form
+   * that fits in a URL. A dimension present there and missing here is a
+   * cross-visitor leak, which is why both read the same helpers rather than
+   * re-deriving anything.
+   */
+  function requestSegmentDescriptor(request: Request): string {
+    if (!buildSegment) return "";
+    const parts = [hashSegment(buildSegment(request))];
+
+    const geo = buildGeoCacheParam(
+      (request as unknown as { cf?: Record<string, string> }).cf,
+      effectiveGeoKey(),
+    );
+    if (geo) parts.push(`geo=${geo}`);
+
+    return parts.join("|");
   }
 
   function buildCacheKey(
@@ -1765,6 +1784,20 @@ export function createDecoWorkerEntry(
 
             // Run app middleware (injects app state into RequestContext.bag,
             // runs registered middleware like VTEX cookie forwarding).
+            // Publish the segment token so the SSR can hand it to the browser
+            // (see sdk/cdnSegment). Only the server can compute this: region
+            // comes from `request.cf`, which the client never sees. Per-request
+            // via the RequestContext bag — a module-level global here would be
+            // the layout-cache race all over again.
+            if (buildSegment && cdnCacheControlOpt === "serverfn-segment") {
+              const token = segmentToken(
+                requestSegmentDescriptor(request),
+                buildSegment(request).loggedIn === true,
+                getBuildHash(env),
+              );
+              if (token) RequestContext.setBag(CSEG_BAG_KEY, token);
+            }
+
             const appMw = getAppMiddleware();
             const innerResponse = appMw
               ? await appMw(request, () => handleRequest(request, env, ctx))
