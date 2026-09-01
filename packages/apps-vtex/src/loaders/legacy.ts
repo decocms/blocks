@@ -159,6 +159,23 @@ export interface LegacyProductListOptions {
 	query: LegacyProductListQuery;
 	baseUrl: string;
 	priceCurrency?: string;
+	/**
+	 * Payload-shaping options, forwarded verbatim to `toProduct`. Same set the
+	 * PLP loader already accepts, and for the same reason: a shelf renders a
+	 * CARD, but this loader built the full product for every entry. Measured on
+	 * a real home shelf (`count: 28`), 1095 KB — 39.1 KB per product, of which
+	 * `isVariantOf` 19.1 KB and the 48-rung `offers.priceSpecification` 12.8 KB.
+	 *
+	 * All default to undefined, which keeps the previous output byte for byte.
+	 * See the matching fields on {@link ProductOptions}.
+	 */
+	leanVariants?: ProductOptions["leanVariants"];
+	displayedVariantId?: ProductOptions["displayedVariantId"];
+	variantPropertyNames?: ProductOptions["variantPropertyNames"];
+	variantIncludeImage?: ProductOptions["variantIncludeImage"];
+	variantIncludeInventory?: ProductOptions["variantIncludeInventory"];
+	maxImages?: ProductOptions["maxImages"];
+	priceSpecifications?: ProductOptions["priceSpecifications"];
 }
 
 function isCollectionQuery(
@@ -234,7 +251,18 @@ function queryToSearchParams(
  * Ported from: vtex/loaders/legacy/productList.ts
  */
 export async function legacyProductList(opts: LegacyProductListOptions): Promise<Product[] | null> {
-	const { query, baseUrl, priceCurrency = "BRL" } = opts;
+	const {
+		query,
+		baseUrl,
+		priceCurrency = "BRL",
+		leanVariants,
+		displayedVariantId,
+		variantPropertyNames,
+		variantIncludeImage,
+		variantIncludeInventory,
+		maxImages,
+		priceSpecifications,
+	} = opts;
 	const searchArgs = queryToSearchParams(query);
 	const qs = buildSearchParams(searchArgs);
 
@@ -255,7 +283,17 @@ export async function legacyProductList(opts: LegacyProductListOptions): Promise
 	};
 
 	let products = vtexProducts.map((p) =>
-		toProduct(p, preferredSKU(p.items), 0, { baseUrl, priceCurrency }),
+		toProduct(p, preferredSKU(p.items), 0, {
+			baseUrl,
+			priceCurrency,
+			leanVariants,
+			displayedVariantId,
+			variantPropertyNames,
+			variantIncludeImage,
+			variantIncludeInventory,
+			maxImages,
+			priceSpecifications,
+		}),
 	);
 
 	if (isSkuIdsQuery(query)) {
