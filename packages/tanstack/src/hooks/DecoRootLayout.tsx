@@ -1,3 +1,4 @@
+import { CdnSegmentMarker } from "./CdnSegmentMarker";
 import { useEffect, type ReactNode } from "react";
 import { HeadContent, Scripts, ScriptOnce, useRouterState } from "@tanstack/react-router";
 import { LiveControls, Stats } from "@decocms/blocks/hooks";
@@ -141,6 +142,7 @@ export function DecoRootLayout({
 		<html lang={lang} data-theme={dataTheme} suppressHydrationWarning>
 			<head>
 				<HeadContent />
+				<CdnSegmentMarker />
 				{speculation && (
 					<script
 						type="speculationrules"

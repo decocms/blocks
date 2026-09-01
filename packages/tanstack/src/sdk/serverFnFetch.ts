@@ -1,63 +1,59 @@
 /**
- * Client-side `serverFns.fetch` hook that attaches the CDN segment marker to
+ * Client-side `serverFns.fetch` hook that echoes the CDN segment marker onto
  * `/_serverFn` URLs.
  *
  * Pairs with `cdnCacheControl: "serverfn-segment"` on `createDecoWorkerEntry`.
- * Attaching the segment to the URL makes Cloudflare's CDN key (the raw URL)
- * equivalent to the key the Worker builds internally — see `./cdnSegment` for
- * why that is the whole problem.
+ * Putting the segment in the URL is what makes the key of whatever caches in
+ * front of the Worker equivalent to the Worker's own — see `./cdnSegment`.
  *
- * Only the client can do this: the initial HTML document is a browser
- * navigation with no JS hook. This covers SPA data requests and prefetches,
- * which is the volume Speculation Rules creates.
+ * The client does not COMPUTE the token, it repeats one the server issued and
+ * published on the page. That is deliberate: the segment includes dimensions
+ * only the server can see (region comes from `request.cf`), so a client-derived
+ * token never matched on a regionalized store and the feature stayed inert
+ * there.
  *
- * SECURITY: the marker is a HINT, not a source of truth. The worker recomputes
- * the segment from the request itself and only releases the CDN when it matches
- * exactly (`cdnCacheableServerFn` in `./workerEntry`). A missing, diverging,
- * forged or stale-build marker just keeps today's `no-store` — it can never
- * produce a wrong response.
+ * Only client-initiated requests carry it — SPA navigation and prefetch, which
+ * is the volume Speculation Rules generates. The initial HTML document is a
+ * browser navigation with no hook to attach anything to.
  *
- * @example
+ * SECURITY: the marker is a HINT. The worker recomputes the segment from the
+ * request itself and only relaxes `no-store` on an exact match
+ * (`cdnCacheableServerFn` in `./workerEntry`). A missing, stale, forged or
+ * mismatched marker just keeps today's `no-store` — it can never produce a
+ * wrong response.
+ *
+ * Wired automatically: `decoVitePlugin` supplies `sdk/startEntry` as the Start
+ * entry when a site has no `src/start.ts` of its own. A site that owns one
+ * composes this itself:
+ *
  * ```ts
- * // src/start.ts
- * import { createStart } from "@tanstack/react-start";
- * import { decoServerFnFetch } from "@decocms/tanstack";
- *
+ * import { decoServerFnFetch } from "@decocms/tanstack/sdk/serverFnFetch";
  * export const startInstance = createStart(() => ({
  *   serverFns: { fetch: decoServerFnFetch },
  * }));
  * ```
  */
 
-import { detectDevice } from "@decocms/blocks/sdk/detectDevice";
-import { CSEG_PARAM, segmentToken } from "./cdnSegment";
+import { CSEG_GLOBAL, CSEG_PARAM } from "./cdnSegment";
 
-declare const __DECO_BUILD_HASH__: string | undefined;
-
-function buildHash(): string | undefined {
-  return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : undefined;
-}
-
-function segmentMarker(): string | null {
-  if (typeof navigator === "undefined") return null;
-  // Device is the only dimension observable on the client. If this request is
-  // in fact from a logged-in user, or in a region, or an A/B cohort, the worker
-  // catches it during verification and keeps the no-store — the marker simply
-  // won't match.
-  return segmentToken({ device: detectDevice(navigator.userAgent) }, buildHash());
+function publishedMarker(): string | null {
+  if (typeof window === "undefined") return null;
+  const v = (window as unknown as Record<string, unknown>)[CSEG_GLOBAL];
+  return typeof v === "string" && v.length > 0 ? v : null;
 }
 
 /**
- * Drop-in `serverFns.fetch` implementation. Falls back to a plain `fetch` when
- * there is no marker to add.
+ * Drop-in `serverFns.fetch`. Falls back to a plain `fetch` whenever there is no
+ * marker to echo — no marker simply means the response stays uncached in front
+ * of the Worker, which is the previous behaviour.
  */
 export const decoServerFnFetch: typeof fetch = (input, init) => {
   // TanStack's serverFnFetcher always calls with the URL already built as a
   // string (start-client-core/src/client-rpc/serverFnFetcher.ts). Anything else
   // goes through untouched.
   if (typeof input !== "string") return fetch(input, init);
-  const marker = segmentMarker();
+  const marker = publishedMarker();
   if (!marker) return fetch(input, init);
   const sep = input.includes("?") ? "&" : "?";
-  return fetch(`${input}${sep}${CSEG_PARAM}=${marker}`, init);
+  return fetch(`${input}${sep}${CSEG_PARAM}=${encodeURIComponent(marker)}`, init);
 };
