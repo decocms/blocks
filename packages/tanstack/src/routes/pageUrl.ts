@@ -36,10 +36,11 @@ export function derivePageUrl(fullPath: string, serverUrl: URL): string {
  * `serverUrl.pathname` is NOT the page path. On a real document request (SSR /
  * full reload, including bots) `serverUrl.pathname === basePath`.
  *
- * Section deferral is a streaming-SSR optimization (shrinks the initial HTML /
- * TTFB). On a client navigation the server fn returns JSON in one shot — there
- * is no streaming benefit, so deferral only adds a round-trip and a skeleton.
- * Callers use this to resolve all sections eagerly on SPA navigation.
+ * This does NOT gate section deferral: a client nav gets the same eager/deferred
+ * split as SSR, because the route loader is blocking and awaiting the below-fold
+ * sections freezes the transition. Callers use it to rebuild the real page URL
+ * (`derivePageUrl`) and to tell a SPA nav apart from a genuine AJAX consumer
+ * (`isProgrammaticFetch`) — both send `Sec-Fetch-Dest: empty`.
  *
  * Mirrors the `serverUrl.pathname === basePath` comparison `derivePageUrl`
  * already relies on, so the two stay consistent and we avoid hardcoding the
