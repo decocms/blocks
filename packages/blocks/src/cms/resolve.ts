@@ -14,6 +14,7 @@ import {
   registerActionSchemas,
   registerLoaderSchemas,
 } from "./schema";
+import { detectDevice } from "../sdk/detectDevice";
 import { isLayoutSection, markSectionDegraded, runSingleSectionLoader } from "./sectionLoaders";
 
 // globalThis-backed: share state across Vite server function split modules
@@ -1105,6 +1106,33 @@ interface ResolvedSectionsCache {
 const resolvedLayoutCache = new Map<string, ResolvedSectionsCache>();
 const resolvedLayoutInflight = new Map<string, Promise<ResolvedSection[]>>();
 
+/**
+ * Cache key for a resolved layout block, segmented by DEVICE.
+ *
+ * The key used to be the component path alone, and that made the cache unusable
+ * for any site whose Header/Footer takes a per-request device prop: the first
+ * visitor's variant was served to everyone for the whole TTL (mobile header on
+ * desktop and vice-versa). The only escape was to leave those sections out of
+ * `registerLayoutSections` entirely — which is what a real store did, and it
+ * then re-resolved Header and Footer on every single page and navigation.
+ *
+ * Device is the right default axis because it is the one thing the framework
+ * itself injects into every section (`sectionLoaderContext` → `detectDevice`),
+ * so a layout section can depend on it WITHOUT the site opting into anything.
+ * A layout that does not vary by device just gets up to 3 identical entries —
+ * a bounded, negligible cost against silently serving the wrong markup.
+ *
+ * Anything else a layout varies on (region, sales channel, locale) is
+ * site-specific and NOT covered here: those sections should stay out of
+ * `registerLayoutSections` until there is a demonstrated need for a `vary`
+ * hook. Adding axes nobody asked for only shrinks the hit rate.
+ *
+ * Exported for unit testing.
+ */
+export function layoutCacheKey(blockKey: string, matcherCtx?: MatcherContext): string {
+  return `${blockKey}::${detectDevice(matcherCtx?.userAgent ?? "")}`;
+}
+
 function getCachedResolvedLayout(blockKey: string): ResolvedSection[] | null {
   const entry = resolvedLayoutCache.get(blockKey);
   if (!entry) return null;
@@ -2127,20 +2155,21 @@ async function resolveDecoPageImpl(
           const layoutKey = isRawSectionLayout(section);
 
           if (layoutKey) {
-            const cached = getCachedResolvedLayout(layoutKey);
+            const cacheKey = layoutCacheKey(layoutKey, rctx.matcherCtx);
+            const cached = getCachedResolvedLayout(cacheKey);
             if (cached) return cached;
 
-            const inflight = resolvedLayoutInflight.get(layoutKey);
+            const inflight = resolvedLayoutInflight.get(cacheKey);
             if (inflight) return inflight;
 
             const p = withInflightTimeout(
               resolveRawSection(section, rctx).then((results) => {
-                setCachedResolvedLayout(layoutKey, results);
+                setCachedResolvedLayout(cacheKey, results);
                 return results;
               }),
-              `resolvedLayout ${layoutKey}`,
-            ).finally(() => resolvedLayoutInflight.delete(layoutKey));
-            resolvedLayoutInflight.set(layoutKey, p);
+              `resolvedLayout ${cacheKey}`,
+            ).finally(() => resolvedLayoutInflight.delete(cacheKey));
+            resolvedLayoutInflight.set(cacheKey, p);
             return p;
           }
 
@@ -2224,20 +2253,21 @@ export async function resolvePageSections(
         const layoutKey = isRawSectionLayout(section);
 
         if (layoutKey) {
-          const cached = getCachedResolvedLayout(layoutKey);
+          const cacheKey = layoutCacheKey(layoutKey, rctx.matcherCtx);
+          const cached = getCachedResolvedLayout(cacheKey);
           if (cached) return cached;
 
-          const inflight = resolvedLayoutInflight.get(layoutKey);
+          const inflight = resolvedLayoutInflight.get(cacheKey);
           if (inflight) return inflight;
 
           const p = withInflightTimeout(
             resolveRawSection(section, rctx).then((results) => {
-              setCachedResolvedLayout(layoutKey, results);
+              setCachedResolvedLayout(cacheKey, results);
               return results;
             }),
-            `resolvedLayout ${layoutKey}`,
-          ).finally(() => resolvedLayoutInflight.delete(layoutKey));
-          resolvedLayoutInflight.set(layoutKey, p);
+            `resolvedLayout ${cacheKey}`,
+          ).finally(() => resolvedLayoutInflight.delete(cacheKey));
+          resolvedLayoutInflight.set(cacheKey, p);
           return p;
         }
 

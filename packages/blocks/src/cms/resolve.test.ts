@@ -26,6 +26,7 @@ import { getSection } from "./registry";
 import type { AsyncRenderingConfig, DeferredSection, MatcherContext } from "./resolve";
 import {
   clearCommerceLoaders,
+  layoutCacheKey,
   DEFAULT_FOLD_THRESHOLD,
   extractSeoFromProps,
   getAsyncRenderingConfig,
@@ -1168,5 +1169,56 @@ describe("hidden array items (never matcher)", () => {
     const result = (await resolveValue({ items }, undefined, {})) as { items: unknown[] };
 
     expect(result.items).toEqual([null, { label: "kept" }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolved-layout cache — device is part of the key
+// ---------------------------------------------------------------------------
+//
+// The key used to be the component path alone, so the first visitor's variant
+// was served to everyone for the whole TTL. A real store had to leave Header
+// and Footer OUT of registerLayoutSections because of it, and then re-resolved
+// both on every page and every navigation. These cases pin the axis; without
+// them a refactor could silently collapse the key again and the symptom (a
+// mobile header on desktop) only shows up in production, minutes later.
+
+describe("layoutCacheKey — the resolved-layout cache is segmented by device", () => {
+  const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) Mobile Safari";
+  const TABLET_UA = "Mozilla/5.0 (iPad; CPU OS 17_0) Safari/605";
+  const DESKTOP_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120 Safari/537.36";
+  const KEY = "site/sections/Header.tsx";
+
+  // The key used to be the component path alone. A site whose Header takes a
+  // per-request device prop therefore served the first visitor's variant to
+  // everyone for the whole 5-minute TTL — a mobile header on desktop. The only
+  // escape was leaving Header/Footer out of `registerLayoutSections`, which is
+  // what a real store did, and it then re-resolved both on every page and every
+  // navigation.
+
+  it("mobile, tablet and desktop are three distinct keys", () => {
+    const keys = [MOBILE_UA, TABLET_UA, DESKTOP_UA].map((ua) => layoutCacheKey(KEY, { userAgent: ua }));
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("the same device yields the same key — the cache still works", () => {
+    expect(layoutCacheKey(KEY, { userAgent: DESKTOP_UA })).toBe(
+      layoutCacheKey(KEY, { userAgent: DESKTOP_UA }),
+    );
+  });
+
+  it("different components never share a key on the same device", () => {
+    expect(layoutCacheKey("site/sections/Header.tsx", { userAgent: MOBILE_UA })).not.toBe(
+      layoutCacheKey("site/sections/Footer.tsx", { userAgent: MOBILE_UA }),
+    );
+  });
+
+  it("a missing userAgent still produces a key (no crash, no undefined axis)", () => {
+    const noCtx = layoutCacheKey(KEY);
+    expect(noCtx).toContain(KEY);
+    expect(noCtx).not.toContain("undefined");
+    // An absent UA must land on the SAME bucket as a request whose UA is empty,
+    // so a health check and a real desktop hit do not fragment the cache twice.
+    expect(noCtx).toBe(layoutCacheKey(KEY, { userAgent: "" }));
   });
 });
