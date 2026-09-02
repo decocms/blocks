@@ -58,6 +58,7 @@
 		"./sdk/fetchTimeout": "./src/sdk/fetchTimeout.ts",
 		"./sdk/experiments": "./src/sdk/experiments.ts",
 		"./sdk/flags": "./src/sdk/flags.ts",
+		"./sdk/htmlSafe": "./src/sdk/htmlSafe.ts",
 		"./sdk/http": "./src/sdk/http.ts",
 		"./sdk/instrumentedFetch": "./src/sdk/instrumentedFetch.ts",
 		"./sdk/invoke": "./src/sdk/invoke.ts",

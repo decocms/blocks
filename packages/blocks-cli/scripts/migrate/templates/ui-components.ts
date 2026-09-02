@@ -117,7 +117,9 @@ export default function Video({
 }
 `;
 
-  files["src/components/ui/Seo.tsx"] = `export interface Props {
+  files["src/components/ui/Seo.tsx"] = `import { htmlSafeJson } from "@decocms/blocks/sdk/htmlSafe";
+
+export interface Props {
   title?: string;
   description?: string;
   canonical?: string;
@@ -135,7 +137,7 @@ export default function Seo({ jsonLDs }: Props) {
         <script
           key={i}
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLD) }}
+          dangerouslySetInnerHTML={{ __html: htmlSafeJson(jsonLD) }}
         />
       ))}
     </>

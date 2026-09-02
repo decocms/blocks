@@ -1,9 +1,10 @@
 import { LiveControls } from "@decocms/blocks/hooks";
 import { ANALYTICS_SCRIPT } from "@decocms/blocks/sdk/analytics";
+import { htmlSafeJson } from "@decocms/blocks/sdk/htmlSafe";
 import type { ReactNode } from "react";
 
 function buildDecoEventsBootstrap(account?: string): string {
-  const accountJson = JSON.stringify(account ?? "");
+  const accountJson = htmlSafeJson(account ?? "");
   return `
 window.__RUNTIME__ = window.__RUNTIME__ || { account: ${accountJson} };
 window.DECO = window.DECO || {};

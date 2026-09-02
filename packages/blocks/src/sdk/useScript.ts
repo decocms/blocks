@@ -9,6 +9,8 @@
 // LRU cache for minified function bodies
 // ---------------------------------------------------------------------------
 
+import { htmlSafeJson } from "./htmlSafe";
+
 const MAX_CACHE_SIZE = 200;
 const minifyCache = new Map<string, string>();
 
@@ -100,7 +102,9 @@ export function useScript<T extends (...args: any[]) => void>(
     cacheSet(fnStr, minified);
   }
 
-  const serializedArgs = args.map((a) => JSON.stringify(a)).join(",");
+  // htmlSafeJson (not bare JSON.stringify) so a string arg containing
+  // `</script>` cannot break out of the inline <script> this is embedded in.
+  const serializedArgs = args.map((a) => htmlSafeJson(a)).join(",");
   return `(${minified})(${serializedArgs})`;
 }
 
