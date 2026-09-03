@@ -434,10 +434,6 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 			}
 		}
 
-		// 1b. PLP ranking experiment: if one targets the collection this page
-		// queries, swap in the assigned arm's collection.
-		facets = await applyPlpRankingExperiment(facets);
-
 		let pageTypes: PageType[] = [];
 
 		if (
@@ -457,7 +453,24 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 			return null;
 		}
 
-		const facetPath = toFacetPath(facets);
+		// 1b. PLP ranking experiment. Runs after every facet source has been
+		// merged (CMS props, URL `filter.*`, VTEX `map`, page types), so it sees
+		// the final set.
+		//
+		// The result is used for the SEARCH ONLY, never for the page's own
+		// outbound links: `toFilter` and the pagination loop below serialise
+		// `filter.<key>=<value>` from `facets`, so swapping in place would put
+		// the arm's collection into every chip and pagination href. A control
+		// visitor opening such a link would then have `filter.…=412` appended
+		// from the URL (the dedupe matches on key AND value, so it does not
+		// collapse), get the control arm swapped in alongside it, and query
+		// BOTH collections while still tagged `control` — the exact leak the
+		// in-place swap exists to avoid, just one request later. It would also
+		// let crawlers index pagination URLs pinned to an arm's collection,
+		// which render empty once that arm is retired.
+		const queryFacets = await applyPlpRankingExperiment(facets);
+
+		const facetPath = toFacetPath(queryFacets);
 		const config = getVtexConfig();
 		const locale = config.locale ?? "pt-BR";
 

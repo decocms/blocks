@@ -212,10 +212,35 @@ export async function readExperimentConfig<P = unknown>(
   if (!kv) return null;
   try {
     const config = await kv.get<ExperimentConfig<P>>(hostname, "json");
-    return Array.isArray(config?.experiments) ? config : null;
+    if (!Array.isArray(config?.experiments)) return null;
+    return { ...config, experiments: dedupeByKey(config.experiments) };
   } catch {
     return null;
   }
+}
+
+/**
+ * Drop experiments repeating a `key` already seen, keeping the first.
+ *
+ * Target scoping makes several concurrent experiments per site normal, which
+ * makes a key collision newly plausible — and its failure mode is severe and
+ * silent. `deco_segment` stores one entry per name, so two experiments sharing
+ * a key with different weight vectors have different fingerprints: each hop
+ * between their surfaces looks like a ramp change, re-rolls the visitor, and
+ * rewrites the cookie. That thrashes the assignment the analysis depends on
+ * AND changes `__abf` on every navigation, so nothing caches.
+ *
+ * Losing one arm of a mis-published pair is bad; corrupting every assignment
+ * on the site is worse, so the collision is contained here rather than left to
+ * surface as unexplained cache misses.
+ */
+function dedupeByKey<P>(experiments: ExperimentDefinition<P>[]): ExperimentDefinition<P>[] {
+  const seen = new Set<string>();
+  return experiments.filter((e) => {
+    if (!e?.key || seen.has(e.key)) return false;
+    seen.add(e.key);
+    return true;
+  });
 }
 
 /**

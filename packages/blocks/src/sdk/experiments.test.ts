@@ -418,3 +418,68 @@ describe("resolveExperimentForTarget", () => {
     expect(assignments.map((f) => f.name)).toEqual(["plp-ranking"]);
   });
 });
+
+describe("duplicate keys", () => {
+  const kv = (value: unknown) => ({ get: async () => value as never });
+
+  it("keeps the first and drops a repeated key, rather than thrashing the cookie", async () => {
+    // Two experiments sharing a key have different weight vectors, so their
+    // fingerprints differ; every hop between their surfaces would look like a
+    // ramp change, re-roll the visitor and rewrite deco_segment — corrupting
+    // the assignment and changing __abf on every navigation.
+    const config = await readExperimentConfig<Payload>(
+      kv({
+        version: 1,
+        experiments: [
+          {
+            key: "plp-ranking",
+            targetKind: "plp_ranking",
+            target: "2258",
+            variants: [{ id: "a", weight: 100, payload: { collectionId: "1" } }],
+          },
+          {
+            key: "plp-ranking",
+            targetKind: "plp_ranking",
+            target: "2259",
+            variants: [{ id: "b", weight: 100, payload: { collectionId: "2" } }],
+          },
+        ],
+      }),
+      "www.farmrio.com",
+    );
+    expect(config?.experiments).toHaveLength(1);
+    expect(config?.experiments[0].target).toBe("2258");
+
+    // The dropped one is inert rather than colliding.
+    expect(
+      await resolveExperimentForTarget<Payload>("plp_ranking", "2259", {
+        config,
+        assignments: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("leaves distinct keys alone", async () => {
+    const config = await readExperimentConfig<Payload>(
+      kv({
+        version: 1,
+        experiments: [
+          {
+            key: "plp-ranking",
+            targetKind: "plp_ranking",
+            target: "2258",
+            variants: [{ id: "a", weight: 100, payload: { collectionId: "1" } }],
+          },
+          {
+            key: "bazar-ranking",
+            targetKind: "plp_ranking",
+            target: "2259",
+            variants: [{ id: "b", weight: 100, payload: { collectionId: "2" } }],
+          },
+        ],
+      }),
+      "www.farmrio.com",
+    );
+    expect(config?.experiments).toHaveLength(2);
+  });
+});
