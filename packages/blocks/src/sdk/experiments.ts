@@ -109,7 +109,28 @@ export interface ExperimentVariant<P = unknown> {
 
 /** An active experiment. */
 export interface ExperimentDefinition<P = unknown> {
+  /**
+   * Stable, human-readable identity for the cohort — what analytics groups by.
+   * Never encodes the target: gluing the two into one string forces a
+   * `splitByChar` before every `GROUP BY`, the same objection contract 4
+   * raises against gluing experiment and variant.
+   */
   key: string;
+  /**
+   * What kind of surface this experiment targets, e.g. `"plp_ranking"`.
+   * Mirrors the control plane's `experiments.target_kind`.
+   */
+  targetKind?: string;
+  /**
+   * Which specific surface, e.g. the VTEX collection id a PLP queries.
+   * Mirrors the control plane's target id.
+   *
+   * Without this the runtime is handed an experiment with no way to know which
+   * of a site's PLPs it belongs to, which forces callers to hardcode a page —
+   * and a hardcoded page applies one PLP's arm to every other PLP sharing the
+   * loader, serving the wrong catalogue.
+   */
+  target?: string;
   variants: ExperimentVariant<P>[];
 }
 
@@ -243,13 +264,53 @@ export async function resolveExperimentVariant<P = unknown>(
   ctx: ExperimentContext<P> = {},
 ): Promise<ResolvedVariant<P> | null> {
   const config = ctx.config !== undefined ? ctx.config : await loadConfig<P>(ctx);
-  const experiment = config?.experiments.find((e) => e.key === experimentKey);
+  return decide(
+    config?.experiments.find((e) => e.key === experimentKey),
+    ctx,
+  );
+}
+
+/**
+ * Resolve the experiment targeting one specific surface.
+ *
+ * The key answers "which cohort"; this answers "which of the site's PLPs".
+ * A site has many surfaces of the same kind — FARM Rio alone has ~953
+ * collection-driven PLPs — and an arm's payload is precomputed for exactly
+ * one of them, so looking an experiment up by key alone would apply one page's
+ * arm to all of them.
+ *
+ * Returns null when no active experiment targets `(targetKind, target)`,
+ * which is the overwhelmingly common case: an untargeted surface records no
+ * assignment and behaves exactly as it does today. Exposure therefore always
+ * means "could actually be affected", which is what the analysis requires.
+ */
+export async function resolveExperimentForTarget<P = unknown>(
+  targetKind: string,
+  target: string,
+  ctx: ExperimentContext<P> = {},
+): Promise<ResolvedVariant<P> | null> {
+  const config = ctx.config !== undefined ? ctx.config : await loadConfig<P>(ctx);
+  return decide(
+    config?.experiments.find((e) => e.targetKind === targetKind && e.target === target),
+    ctx,
+  );
+}
+
+/**
+ * The assignment itself, shared by both lookups so they cannot drift.
+ * Always keyed on `experiment.key`, never on the target — the cookie and the
+ * analytics join both identify the cohort, not the surface.
+ */
+function decide<P>(
+  experiment: ExperimentDefinition<P> | undefined,
+  ctx: ExperimentContext<P>,
+): ResolvedVariant<P> | null {
   if (!experiment?.variants?.length) return null;
 
   const stored = parseSegmentCookie(ctx.segmentCookie ?? ambientSegmentCookie());
   const random = ctx.random ?? Math.random;
   const { value: variantId, isFresh } = stickyDecide<string>({
-    name: experimentKey,
+    name: experiment.key,
     fingerprint: weightsFingerprint(experiment.variants),
     recorded: ctx.assignments ?? ambientAssignments(),
     stored,
@@ -260,7 +321,12 @@ export async function resolveExperimentVariant<P = unknown>(
   });
 
   const variant = experiment.variants.find((v) => v.id === variantId) ?? experiment.variants[0];
-  return { experimentKey, variantId: variant.id, payload: variant.payload, isFresh };
+  return {
+    experimentKey: experiment.key,
+    variantId: variant.id,
+    payload: variant.payload,
+    isFresh,
+  };
 }
 
 // ---------------------------------------------------------------------------

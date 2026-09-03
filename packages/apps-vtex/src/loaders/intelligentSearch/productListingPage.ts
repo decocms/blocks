@@ -6,6 +6,7 @@ import {
 	pageTypesFromPath,
 	toFacetPath,
 } from "../../client";
+import { resolveExperimentForTarget } from "@decocms/blocks/sdk/experiments";
 import { pickSku, toProduct } from "../../utils/transform";
 import type { Product as ProductVTEX, Sort } from "../../utils/types";
 
@@ -334,6 +335,44 @@ function isValidPLPPath(path: string): boolean {
 	return true;
 }
 
+/** The collection facet a curated PLP queries, and what an arm replaces. */
+const COLLECTION_FACET = "productClusterIds";
+
+/**
+ * Serve this visitor's ranking arm, when an experiment targets this PLP.
+ *
+ * Every curated PLP resolves to exactly one `productClusterIds` value, and each
+ * ranking model gets its own precomputed collection, so serving a variant is a
+ * value swap — no ranking math at request time.
+ *
+ * The arm **replaces** the value rather than adding a second facet. Two
+ * collections OR'd together would be neither model's ranking, and since the
+ * filter-chip and pagination hrefs below are built from this same array, an
+ * extra facet would also leak into every link on the page — where a control-arm
+ * visitor opening a shared link would inherit the other arm's collection while
+ * still being tagged `control`.
+ *
+ * Scoped by target, so it is inert for every PLP the control plane has not
+ * published an experiment for: no assignment is recorded and the facets are
+ * returned untouched. Sites with no experiments never even reach a KV read
+ * beyond the one memoised per request.
+ */
+async function applyPlpRankingExperiment(facets: SelectedFacet[]): Promise<SelectedFacet[]> {
+	const index = facets.findIndex((f) => f.key === COLLECTION_FACET);
+	if (index < 0) return facets;
+
+	const variant = await resolveExperimentForTarget<{ collectionId?: string }>(
+		"plp_ranking",
+		facets[index].value,
+	);
+	const collectionId = variant?.payload?.collectionId;
+	if (!collectionId) return facets;
+
+	const swapped = [...facets];
+	swapped[index] = { key: COLLECTION_FACET, value: collectionId };
+	return swapped;
+}
+
 /**
  * Mirrors the original deco-cx/apps PLP loader:
  *
@@ -394,6 +433,10 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 				}
 			}
 		}
+
+		// 1b. PLP ranking experiment: if one targets the collection this page
+		// queries, swap in the assigned arm's collection.
+		facets = await applyPlpRankingExperiment(facets);
 
 		let pageTypes: PageType[] = [];
 
