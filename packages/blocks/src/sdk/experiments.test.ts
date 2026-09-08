@@ -3,6 +3,7 @@ import {
   type ExperimentConfig,
   pickWeightedVariant,
   readExperimentConfig,
+  resolveExperimentForTarget,
   resolveExperimentVariant,
   weightsFingerprint,
 } from "./experiments";
@@ -324,5 +325,161 @@ describe("readExperimentConfig", () => {
       },
     };
     expect(await readExperimentConfig(broken, "www.farmrio.com")).toBeNull();
+  });
+});
+
+describe("resolveExperimentForTarget", () => {
+  /** Two PLPs of the same kind, each with its own arms — the real fleet shape. */
+  const TARGETED: ExperimentConfig<Payload> = {
+    version: 1,
+    experiments: [
+      {
+        key: "plp-ranking",
+        targetKind: "plp_ranking",
+        target: "2258",
+        variants: [
+          { id: "control", weight: 0, payload: { collectionId: "2258" } },
+          { id: "model-b", weight: 100, payload: { collectionId: "412" } },
+        ],
+      },
+      {
+        key: "bazar-ranking",
+        targetKind: "plp_ranking",
+        target: "2259",
+        variants: [
+          { id: "control", weight: 0, payload: { collectionId: "2259" } },
+          { id: "model-b", weight: 100, payload: { collectionId: "777" } },
+        ],
+      },
+    ],
+  };
+
+  it("resolves the experiment that targets this surface, not another's", async () => {
+    const a = await resolveExperimentForTarget<Payload>("plp_ranking", "2258", {
+      config: TARGETED,
+      assignments: [],
+    });
+    expect(a?.payload.collectionId).toBe("412");
+    expect(a?.experimentKey).toBe("plp-ranking");
+
+    const b = await resolveExperimentForTarget<Payload>("plp_ranking", "2259", {
+      config: TARGETED,
+      assignments: [],
+    });
+    // The whole point: /bazar must never inherit /produtos' arm.
+    expect(b?.payload.collectionId).toBe("777");
+    expect(b?.experimentKey).toBe("bazar-ranking");
+  });
+
+  it("returns null and records nothing for an untargeted surface", async () => {
+    const assignments: StoredFlag[] = [];
+    const variant = await resolveExperimentForTarget<Payload>("plp_ranking", "9999", {
+      config: TARGETED,
+      assignments,
+    });
+    expect(variant).toBeNull();
+    // An exposure that cannot be affected by the treatment would bias the
+    // analysis, so an untargeted PLP must not be enrolled at all.
+    expect(assignments).toEqual([]);
+  });
+
+  it("does not match on kind alone", async () => {
+    expect(
+      await resolveExperimentForTarget<Payload>("banner", "2258", {
+        config: TARGETED,
+        assignments: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores untargeted experiments, so contract-1 docs without a target still work by key", async () => {
+    expect(
+      await resolveExperimentForTarget<Payload>("plp_ranking", "139", {
+        config: CONFIG,
+        assignments: [],
+      }),
+    ).toBeNull();
+    const byKey = await resolveExperimentVariant<Payload>("plp-ranking", {
+      config: CONFIG,
+      assignments: [],
+      random: () => 0.99,
+    });
+    expect(byKey?.variantId).toBe("model-b");
+  });
+
+  it("keys the cookie on the experiment key, never on the target", async () => {
+    const assignments: StoredFlag[] = [];
+    await resolveExperimentForTarget<Payload>("plp_ranking", "2258", {
+      config: TARGETED,
+      assignments,
+    });
+    // Analytics groups by cohort, not by surface; a target in the cookie would
+    // force a splitByChar before every GROUP BY.
+    expect(assignments.map((f) => f.name)).toEqual(["plp-ranking"]);
+  });
+});
+
+describe("duplicate keys", () => {
+  const kv = (value: unknown) => ({ get: async () => value as never });
+
+  it("keeps the first and drops a repeated key, rather than thrashing the cookie", async () => {
+    // Two experiments sharing a key have different weight vectors, so their
+    // fingerprints differ; every hop between their surfaces would look like a
+    // ramp change, re-roll the visitor and rewrite deco_segment — corrupting
+    // the assignment and changing __abf on every navigation.
+    const config = await readExperimentConfig<Payload>(
+      kv({
+        version: 1,
+        experiments: [
+          {
+            key: "plp-ranking",
+            targetKind: "plp_ranking",
+            target: "2258",
+            variants: [{ id: "a", weight: 100, payload: { collectionId: "1" } }],
+          },
+          {
+            key: "plp-ranking",
+            targetKind: "plp_ranking",
+            target: "2259",
+            variants: [{ id: "b", weight: 100, payload: { collectionId: "2" } }],
+          },
+        ],
+      }),
+      "www.farmrio.com",
+    );
+    expect(config?.experiments).toHaveLength(1);
+    expect(config?.experiments[0].target).toBe("2258");
+
+    // The dropped one is inert rather than colliding.
+    expect(
+      await resolveExperimentForTarget<Payload>("plp_ranking", "2259", {
+        config,
+        assignments: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("leaves distinct keys alone", async () => {
+    const config = await readExperimentConfig<Payload>(
+      kv({
+        version: 1,
+        experiments: [
+          {
+            key: "plp-ranking",
+            targetKind: "plp_ranking",
+            target: "2258",
+            variants: [{ id: "a", weight: 100, payload: { collectionId: "1" } }],
+          },
+          {
+            key: "bazar-ranking",
+            targetKind: "plp_ranking",
+            target: "2259",
+            variants: [{ id: "b", weight: 100, payload: { collectionId: "2" } }],
+          },
+        ],
+      }),
+      "www.farmrio.com",
+    );
+    expect(config?.experiments).toHaveLength(2);
   });
 });
