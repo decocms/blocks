@@ -25,6 +25,27 @@ const UTM_PARAMS = new Set([
   "mc_eid",
   "ttclid",
   "srsltid",
+  // GA4's newer campaign params. The five classic `utm_*` above predate them,
+  // so a GA4-tagged campaign was still fragmenting the cache key.
+  "utm_id",
+  "utm_source_platform",
+  "utm_creative_format",
+  "utm_marketing_tactic",
+  // Google Ads click ids that replaced bare `gclid` for privacy-restricted
+  // traffic (iOS/Safari), plus the source tag now appended to essentially every
+  // Google Ads click. Measured on a production storefront: each of these missed
+  // the edge cache on 3/3 routes probed, deterministically.
+  "gad_source",
+  "gad_campaignid",
+  "gbraid",
+  "wbraid",
+  // Google Analytics cross-domain linker. Sites already strip this by hand in
+  // client code, which is the tell that it shows up in real URLs.
+  "_gl",
+  "igshid",
+  "epik",
+  "mkt_tok",
+  "yclid",
 ]);
 
 /**
