@@ -239,6 +239,50 @@ describe("commerce loader auto-injects URL search params as props", () => {
     });
   });
 
+  it("strips tracking params from __pageUrl and never injects them as props", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoader(KEY, async (props: Record<string, unknown>) => {
+      calls.push({ ...props });
+      return null;
+    });
+
+    await resolveValue({ __resolveType: KEY, slug: "sabonete" }, undefined, {
+      url: "https://store.com/produto/sabonete/p?skuId=12345&utm_source=google&gclid=abc&srsltid=xyz",
+      path: "/produto/sabonete/p",
+    });
+
+    expect(calls[0]).toMatchObject({
+      slug: "sabonete",
+      skuId: "12345",
+      __pageUrl: "https://store.com/produto/sabonete/p?skuId=12345",
+    });
+    expect(calls[0]).not.toHaveProperty("utm_source");
+    expect(calls[0]).not.toHaveProperty("gclid");
+    expect(calls[0]).not.toHaveProperty("srsltid");
+  });
+
+  // The point of the strip: `createCachedLoader`'s default keyFn is
+  // JSON.stringify(props), so identical props mean a shared cache entry. A
+  // campaign tail used to mint a fresh one on every paid landing.
+  it("gives a paid-traffic landing the same props as the clean URL", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoader(KEY, async (props: Record<string, unknown>) => {
+      calls.push({ ...props });
+      return null;
+    });
+
+    const at = (url: string) =>
+      resolveValue({ __resolveType: KEY, slug: "sabonete" }, undefined, {
+        url,
+        path: "/produto/sabonete/p",
+      });
+
+    await at("https://store.com/produto/sabonete/p");
+    await at("https://store.com/produto/sabonete/p?utm_source=google&gclid=abc&fbclid=d");
+
+    expect(JSON.stringify(calls[1])).toBe(JSON.stringify(calls[0]));
+  });
+
   it("does NOT override a CMS-configured prop with a URL param of the same name", async () => {
     const calls: Array<Record<string, unknown>> = [];
     registerCommerceLoader(KEY, async (props: Record<string, unknown>) => {
