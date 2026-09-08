@@ -283,8 +283,7 @@ export const MetricNames = {
   // the metric name already provides the deco.cache.* namespace.
   CACHE_REQUESTS: "deco.cache.requests",
   // Size in bytes of the values moving through a cache, dimensioned by `op`.
-  // Exponential (base-2) aggregation — see METRIC_METADATA for the scale and
-  // why an explicit-bounds histogram is the wrong shape here.
+  // Bucketed in decades of bytes — see CACHE_SIZE_BUCKET_BOUNDARIES_BYTES.
   CACHE_SIZE: "deco.cache.size",
   RESOLVE_DURATION: "deco.cms.resolve.duration",
   LOADER_DURATION: "deco.loader.duration",
@@ -328,6 +327,29 @@ export const DURATION_BUCKET_BOUNDARIES_SECONDS: readonly number[] = [
 ];
 
 /**
+ * Bucket boundaries, in BYTES, for {@link MetricNames.CACHE_SIZE}.
+ *
+ * Decades, matching the `http.server.response.body.size` histogram already
+ * flowing through the same ingestor — a size distribution is read in orders of
+ * magnitude, not in linear steps, and reusing the house convention means the
+ * two byte histograms are directly comparable.
+ *
+ * The range is bounded on both ends by the loader cache itself: entries are
+ * floored at `MIN_ENTRY_BYTES` (512 B) and the store is capped at 32 MB, which
+ * is why the last bound is the cap rather than another decade — the top bucket
+ * then reads as "single entry at/near the whole cache budget", which is the
+ * thing worth alerting on.
+ */
+export const CACHE_SIZE_BUCKET_BOUNDARIES_BYTES: readonly number[] = [
+  1_000,
+  10_000,
+  100_000,
+  1_000_000,
+  10_000_000,
+  33_554_432,
+];
+
+/**
  * Per-metric metadata emitted in the OTLP payload's `description` and
  * `unit` fields. Durations are normalized to **seconds at the source** (OTel
  * semconv), matching the deco-cx/deco framework — NOT converted downstream in
@@ -347,16 +369,6 @@ export const METRIC_METADATA: Record<
     description: string;
     unit: string;
     boundaries?: readonly number[];
-    /**
-     * Histogram aggregation. Omitted means `"explicit"` — bucket into
-     * `boundaries`. `"exponential"` selects an OTel base-2 exponential
-     * histogram at {@link scale}, where bucket `i` covers
-     * `(2^(2^-scale))^i .. ^(i+1)]`. Adapters that don't implement it are free
-     * to keep treating the metric as an ordinary histogram.
-     */
-    aggregation?: "explicit" | "exponential";
-    /** Exponential-histogram scale. Fixed per metric; adapters never rescale. */
-    scale?: number;
   }
 > = {
   [MetricNames.HTTP_SERVER_REQUEST_DURATION]: {
@@ -376,15 +388,7 @@ export const METRIC_METADATA: Record<
   [MetricNames.CACHE_SIZE]: {
     description: "Size in bytes of values written to / read from a cache, dimensioned by op.",
     unit: "By",
-    // Exponential rather than explicit bounds: entries span 512 B (the
-    // cachedLoader floor) to the 32 MB cap — five decades. Any fixed bound set
-    // wide enough for the top is useless at the bottom.
-    aggregation: "exponential",
-    // scale -1 => base 4, so buckets land on 512 B · 2 K · 8 K · 32 K · 128 K ·
-    // 512 K · 2 M · 8 M · 32 M: ~9 buckets over the real range, ~1.7 per
-    // decade. scale 0 (base 2) would double the series count without saying
-    // anything new about a size distribution.
-    scale: -1,
+    boundaries: CACHE_SIZE_BUCKET_BOUNDARIES_BYTES,
   },
   [MetricNames.RESOLVE_DURATION]: {
     description: "Duration of `deco.cms.resolvePage` — CMS route to block tree resolution.",
