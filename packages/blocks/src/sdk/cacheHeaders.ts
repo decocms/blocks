@@ -17,6 +17,8 @@
  * ```
  */
 
+import { isTrackingParam } from "./urlUtils";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -520,9 +522,11 @@ export const DEFAULT_SERVERFN_CACHE_IGNORE_PARAMS = ["skuId", "idsku"];
 /**
  * Canonicalize a TanStack GET server-fn `payload` for use in the edge cache
  * key: re-serialize it (so equivalent requests always produce byte-identical
- * keys) and strip the given cache-irrelevant search params from any embedded
- * route path. This makes `/product/p?skuId=148940` and `/product/p` share one
- * cache entry, since `loadCmsPage` resolves both to the same page.
+ * keys) and strip the cache-irrelevant search params — `ignoreParams` plus every
+ * known tracking param — from any embedded route path or absolute URL. This
+ * makes `/product/p?skuId=148940`, `/product/p?utm_source=ads` and `/product/p`
+ * share one cache entry, since `loadCmsPage` resolves all three to the same
+ * page.
  *
  * Returns the original payload unchanged on any parse failure (fail-safe: the
  * caller keeps the raw payload, never worse than before).
@@ -532,13 +536,34 @@ export function canonicalizeServerFnPayloadForCacheKey(
   ignoreParams: string[] = DEFAULT_SERVERFN_CACHE_IGNORE_PARAMS,
 ): string {
   try {
+    const drop = (sp: URLSearchParams): void => {
+      for (const p of ignoreParams) sp.delete(p);
+      // Tracking params never change what the server fn resolves, but they DO
+      // change this key — so a shopper arriving from paid media mints a brand
+      // new entry on every SPA interaction. Measured on a production
+      // storefront: `/_serverFn/:id` at 84% MISS, 1401ms average.
+      for (const k of [...sp.keys()]) if (isTrackingParam(k)) sp.delete(k);
+    };
     const stripQuery = (s: string): string => {
+      // Absolute URL: sites embed one in the payload (the deferred-section
+      // `pageUrl` is built with `new URL(...)`), and it fragments the key
+      // exactly like a relative path does — but the guard below skipped it, so
+      // not even `skuId` was canonicalized there.
+      if (/^https?:\/\//i.test(s)) {
+        try {
+          const u = new URL(s);
+          drop(u.searchParams);
+          return u.toString();
+        } catch {
+          return s;
+        }
+      }
       if (!s.startsWith("/") || s.startsWith("//")) return s;
       const qIdx = s.indexOf("?");
       if (qIdx < 0) return s;
       const path = s.slice(0, qIdx);
       const sp = new URLSearchParams(s.slice(qIdx + 1));
-      for (const p of ignoreParams) sp.delete(p);
+      drop(sp);
       const rest = sp.toString();
       return rest ? `${path}?${rest}` : path;
     };
