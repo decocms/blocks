@@ -1,5 +1,7 @@
 import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
+import { createCacheStore } from "../sdk/cacheStorage";
+import { detectDevice } from "../sdk/detectDevice";
 import { djb2Hex } from "../sdk/djb2";
 import { stickyDecide } from "../sdk/experiments";
 import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } from "../sdk/flags";
@@ -15,7 +17,6 @@ import {
   registerActionSchemas,
   registerLoaderSchemas,
 } from "./schema";
-import { detectDevice } from "../sdk/detectDevice";
 import { isLayoutSection, markSectionDegraded, runSingleSectionLoader } from "./sectionLoaders";
 
 // globalThis-backed: share state across Vite server function split modules
@@ -273,10 +274,13 @@ function isAlwaysDeferSection(key: string): boolean {
 // ---------------------------------------------------------------------------
 
 const DEFERRED_PROPS_TTL = 120_000; // 2 minutes
-const deferredRawPropsCache = new Map<string, { rawProps: Record<string, unknown>; ts: number }>();
+const deferredRawPropsCache = createCacheStore<{ rawProps: Record<string, unknown>; ts: number }>(
+  "deferred-props",
+  500,
+);
 
 function deferredPropsCacheKey(pagePath: string, component: string, index: number): string {
-  return `${pagePath}::${component}::${index}`;
+  return deferredRawPropsCache.key(`${pagePath}::${component}::${index}`);
 }
 
 export function cacheDeferredRawProps(
@@ -286,15 +290,17 @@ export function cacheDeferredRawProps(
   rawProps: Record<string, unknown>,
 ): void {
   const key = deferredPropsCacheKey(pagePath, component, index);
-  deferredRawPropsCache.set(key, { rawProps, ts: Date.now() });
+  deferredRawPropsCache.set(key, { rawProps, ts: Date.now() }, Date.now() + DEFERRED_PROPS_TTL);
+}
 
-  // Lazy eviction: remove expired entries when cache grows
-  if (deferredRawPropsCache.size > 500) {
-    const now = Date.now();
-    for (const [k, v] of deferredRawPropsCache) {
-      if (now - v.ts > DEFERRED_PROPS_TTL) deferredRawPropsCache.delete(k);
-    }
-  }
+/** Async form used when a deferred request may run in a different isolate. */
+export async function readDeferredRawProps(
+  pagePath: string,
+  component: string,
+  index: number,
+): Promise<Record<string, unknown> | null> {
+  const entry = await deferredRawPropsCache.read(deferredPropsCacheKey(pagePath, component, index));
+  return entry?.rawProps ?? null;
 }
 
 export function getDeferredRawProps(
@@ -1148,7 +1154,7 @@ interface ResolvedSectionsCache {
   expiresAt: number;
 }
 
-const resolvedLayoutCache = new Map<string, ResolvedSectionsCache>();
+const resolvedLayoutCache = createCacheStore<ResolvedSectionsCache>("resolved-layouts");
 const resolvedLayoutInflight = new Map<string, Promise<ResolvedSection[]>>();
 
 /**
@@ -1178,8 +1184,8 @@ export function layoutCacheKey(blockKey: string, matcherCtx?: MatcherContext): s
   return `${blockKey}::${detectDevice(matcherCtx?.userAgent ?? "")}`;
 }
 
-function getCachedResolvedLayout(blockKey: string): ResolvedSection[] | null {
-  const entry = resolvedLayoutCache.get(blockKey);
+async function getCachedResolvedLayout(blockKey: string): Promise<ResolvedSection[] | null> {
+  const entry = await resolvedLayoutCache.read(blockKey);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
     resolvedLayoutCache.delete(blockKey);
@@ -1189,10 +1195,14 @@ function getCachedResolvedLayout(blockKey: string): ResolvedSection[] | null {
 }
 
 function setCachedResolvedLayout(blockKey: string, sections: ResolvedSection[]): void {
-  resolvedLayoutCache.set(blockKey, {
-    sections,
-    expiresAt: Date.now() + RESOLVE_CACHE_TTL,
-  });
+  resolvedLayoutCache.set(
+    blockKey,
+    {
+      sections,
+      expiresAt: Date.now() + RESOLVE_CACHE_TTL,
+    },
+    Date.now() + RESOLVE_CACHE_TTL,
+  );
 }
 
 /**
@@ -2259,8 +2269,8 @@ async function resolveDecoPageImpl(
           const layoutKey = isRawSectionLayout(section);
 
           if (layoutKey) {
-            const cacheKey = layoutCacheKey(layoutKey, rctx.matcherCtx);
-            const cached = getCachedResolvedLayout(cacheKey);
+            const cacheKey = resolvedLayoutCache.key(layoutCacheKey(layoutKey, rctx.matcherCtx));
+            const cached = await getCachedResolvedLayout(cacheKey);
             if (cached) return cached;
 
             const inflight = resolvedLayoutInflight.get(cacheKey);
@@ -2357,8 +2367,8 @@ export async function resolvePageSections(
         const layoutKey = isRawSectionLayout(section);
 
         if (layoutKey) {
-          const cacheKey = layoutCacheKey(layoutKey, rctx.matcherCtx);
-          const cached = getCachedResolvedLayout(cacheKey);
+          const cacheKey = resolvedLayoutCache.key(layoutCacheKey(layoutKey, rctx.matcherCtx));
+          const cached = await getCachedResolvedLayout(cacheKey);
           if (cached) return cached;
 
           const inflight = resolvedLayoutInflight.get(cacheKey);
@@ -2449,7 +2459,7 @@ export async function resolveDeferredSectionFull(
   // rawProps may be stripped from the client payload — resolve from cache or page
   const rawProps =
     ds.rawProps ??
-    getDeferredRawProps(pagePath, ds.component, ds.index) ??
+    (await readDeferredRawProps(pagePath, ds.component, ds.index)) ??
     (await reExtractRawProps(pagePath, ds.component, ds.index, matcherCtx));
 
   if (!rawProps) return null;

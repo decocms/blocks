@@ -1,7 +1,7 @@
 /**
  * Server-side loader caching with stale-while-revalidate + stale-if-error.
  *
- * Provides an in-memory cache layer for commerce loaders during SSR.
+ * Caches commerce loader results in memory and optional app-provided storage.
  * Supports:
  * - Single-flight dedup (identical concurrent requests share one fetch)
  * - SWR: serve stale immediately, refresh in background
@@ -19,6 +19,7 @@ import {
   withTracing,
 } from "../middleware/observability";
 import { type CacheProfileName, loaderCacheOptions } from "./cacheHeaders";
+import { cacheBackground, createCacheStore, getCacheStorageContext } from "./cacheStorage";
 import { withInflightTimeout } from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
@@ -29,14 +30,8 @@ import { RequestContext } from "./requestContext";
 // pattern already used in `../cms/blockSource.ts`.
 declare const __DECO_BUILD_HASH__: string | undefined;
 
-// Prefixes every in-memory loader cache key with the build hash, mirroring the
-// edge cache's `__v`. This is defense-in-depth, NOT the primary invalidation
-// lever: the cache Map is per-isolate, so a fresh isolate spun for a new deploy
-// already starts empty, and a warm isolate keeps running its old bundle (hence
-// its old BUILD) until it is recycled — the prefix cannot flush that. It only
-// matters if this store ever becomes shared across builds. Gated on truthiness
-// (empty string ⇒ unversioned) to match getBuildHash()/getDeploymentId() in
-// workerEntry.ts / blockSource.ts.
+// Include the build version even when called outside the TanStack worker. The
+// request-scoped store additionally separates sites, content revisions and segments.
 const BUILD =
   typeof __DECO_BUILD_HASH__ !== "undefined" && __DECO_BUILD_HASH__ ? __DECO_BUILD_HASH__ : "";
 
@@ -56,6 +51,8 @@ export interface CachedLoaderOptions {
   maxAge?: number;
   /** How long to serve stale on origin error, in ms. Default: 0 (no error fallback). */
   staleIfError?: number;
+  /** Maximum stale-while-revalidate window in ms. Default: 5 minutes. */
+  staleWhileRevalidate?: number;
   /** Key function to generate a cache key from loader props. Default: JSON.stringify. */
   keyFn?: (props: unknown) => string;
 }
@@ -138,8 +135,12 @@ export function getLoaderCacheMaxBytes(): number {
   return maxCacheBytes;
 }
 
-const cache = new Map<string, CacheEntry>();
-let cacheBytes = 0;
+const cache = createCacheStore<CacheEntry>(
+  "loaders",
+  Infinity,
+  Infinity,
+  (entry) => entry.estimatedBytes,
+);
 
 // Bumped by clearLoaderCache(). A loader invocation captures this at entry and
 // only writes its result back if the generation is unchanged when it settles —
@@ -177,26 +178,22 @@ function estimateBytes(value: unknown): number {
  * background-refresh callers route through here, which is why the size metric
  * is emitted at this chokepoint rather than at each call site.
  */
-function setCacheEntry<T>(key: string, entry: CacheEntry<T>, name: string) {
+function setCacheEntry<T>(key: string, entry: CacheEntry<T>, name: string, retention: number) {
   recordCacheSizeMetric(entry.estimatedBytes, name);
-  const prev = cache.get(key);
-  if (prev) cacheBytes -= prev.estimatedBytes;
-  cacheBytes += entry.estimatedBytes;
-  cache.set(key, entry);
+  cache.set(key, entry, entry.createdAt + retention);
 }
 
 function deleteCacheEntry(key: string) {
-  const prev = cache.get(key);
-  if (!prev) return;
-  cacheBytes -= prev.estimatedBytes;
   cache.delete(key);
 }
 
 function evictIfNeeded() {
+  let cacheBytes = cache.estimatedBytes;
   if (cacheBytes <= maxCacheBytes) return;
   const oldest = [...cache.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
-  for (const [key] of oldest) {
+  for (const [key, entry] of oldest) {
     deleteCacheEntry(key);
+    cacheBytes -= entry.estimatedBytes;
     if (cacheBytes <= maxCacheBytes) break;
   }
 }
@@ -237,7 +234,13 @@ export function createCachedLoader<TProps, TResult>(
   optionsOrProfile: CachedLoaderOptions | CacheProfileName,
 ): (props: TProps) => Promise<TResult> {
   const resolved = resolveOptions(optionsOrProfile);
-  const { policy, maxAge = DEFAULT_MAX_AGE, staleIfError = 0, keyFn = JSON.stringify } = resolved;
+  const {
+    policy,
+    maxAge = DEFAULT_MAX_AGE,
+    staleIfError = 0,
+    staleWhileRevalidate = 300_000,
+    keyFn = JSON.stringify,
+  } = resolved;
 
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
   const isDev = env?.DECO_CACHE_DISABLE === "true" || env?.NODE_ENV === "development";
@@ -247,14 +250,17 @@ export function createCachedLoader<TProps, TResult>(
     console.warn(
       `[cachedLoader] ${name}: maxAge=${Math.round(maxAge / 1000)}s is very long — ` +
         `upstream changes take that long to propagate. Prefer a short window and use ` +
-        `POST /_cache/purge-loaders (or a redeploy) for immediate invalidation.`,
+        `short TTLs for shared storage; the purge-loaders endpoint clears memory only.`,
     );
   }
 
   if (policy === "no-store") return loaderFn;
 
   return async (props: TProps): Promise<TResult> => {
-    const cacheKey = `${BUILD}::${name}::${keyFn(props)}`;
+    const cacheKey = cache.key(`${BUILD}::${name}::${keyFn(props)}`);
+    const retention =
+      maxAge +
+      Math.max(staleIfError, policy === "stale-while-revalidate" ? staleWhileRevalidate : 0);
     // Snapshot the cache generation; a purge during this invocation bumps it,
     // and the deferred writes below skip repopulating a just-cleared entry.
     const gen = cacheGeneration;
@@ -295,7 +301,14 @@ export function createCachedLoader<TProps, TResult>(
       return promise;
     }
 
-    const entry = cache.get(cacheKey) as CacheEntry<TResult> | undefined;
+    let entry = cache.get(cacheKey) as CacheEntry<TResult> | undefined;
+    if (!entry && getCacheStorageContext()?.storage) {
+      entry = (await cache.read(cacheKey)) as CacheEntry<TResult> | undefined;
+      evictIfNeeded();
+    }
+    // Another caller may have started the origin fetch while storage was being read.
+    const pending = inflightRequests.get(cacheKey);
+    if (pending) return pending as Promise<TResult>;
     const now = Date.now();
     const isStale = entry ? now - entry.createdAt > maxAge : true;
 
@@ -314,45 +327,52 @@ export function createCachedLoader<TProps, TResult>(
         return entry.value;
       }
 
-      if (entry && isStale && !entry.refreshing) {
+      if (
+        entry &&
+        isStale &&
+        now - entry.createdAt <= maxAge + staleWhileRevalidate &&
+        !entry.refreshing
+      ) {
         // Stale-while-revalidate hit: serve stale, refresh in background.
         recordCacheMetric(true, name, "STALE-HIT", "cachedLoader");
         recordLoaderMetric(name, 0, "STALE-HIT");
         entry.refreshing = true;
-        loaderFn(props)
-          .then((result) => {
-            // Skip the write if a purge cleared the cache mid-refresh — otherwise
-            // we'd re-insert pre-purge data the purge was meant to drop.
-            if (gen !== cacheGeneration) return;
-            setCacheEntry(
-              cacheKey,
-              {
-                value: result,
-                createdAt: Date.now(),
-                refreshing: false,
-                estimatedBytes: estimateBytes(result),
-              },
-              name,
-            );
-            evictIfNeeded();
-          })
-          .catch(() => {
-            // Background refresh failed — entry stays stale.
-            // If past the SIE window, evict so we don't serve indefinitely stale data.
-            entry.refreshing = false;
-            if (staleIfError > 0 && now - entry.createdAt > maxAge + staleIfError) {
-              deleteCacheEntry(cacheKey);
-            }
-          });
+        cacheBackground(
+          Promise.resolve()
+            .then(() => loaderFn(props))
+            .then((result) => {
+              // Skip the write if a purge cleared the cache mid-refresh — otherwise
+              // we'd re-insert pre-purge data the purge was meant to drop.
+              if (gen !== cacheGeneration) return;
+              setCacheEntry(
+                cacheKey,
+                {
+                  value: result,
+                  createdAt: Date.now(),
+                  refreshing: false,
+                  estimatedBytes: estimateBytes(result),
+                },
+                name,
+                retention,
+              );
+              evictIfNeeded();
+            })
+            .catch(() => {
+              // Background refresh failed — entry stays stale.
+              // If past the SIE window, evict so we don't serve indefinitely stale data.
+              entry.refreshing = false;
+              if (staleIfError > 0 && now - entry.createdAt > maxAge + staleIfError) {
+                deleteCacheEntry(cacheKey);
+              }
+            }),
+        );
         return entry.value;
       }
 
-      if (entry) {
-        // Past SIE window — still serve the stale value once but mark
-        // the decision as STALE-ERROR so dashboards can distinguish
-        // this from healthy SWR.
-        recordCacheMetric(true, name, "STALE-ERROR", "cachedLoader");
-        recordLoaderMetric(name, 0, "STALE-ERROR");
+      if (entry && now - entry.createdAt <= maxAge + staleWhileRevalidate) {
+        // A background refresh is already running in this isolate.
+        recordCacheMetric(true, name, "STALE-HIT", "cachedLoader");
+        recordLoaderMetric(name, 0, "STALE-HIT");
         return entry.value;
       }
     }
@@ -382,6 +402,7 @@ export function createCachedLoader<TProps, TResult>(
               estimatedBytes: estimateBytes(result),
             },
             name,
+            retention,
           );
           evictIfNeeded();
         }
@@ -390,7 +411,7 @@ export function createCachedLoader<TProps, TResult>(
       .catch((err) => {
         // SIE fallback: if we have a stale entry within the error window, return it
         if (staleIfError > 0 && entry) {
-          const age = now - entry.createdAt;
+          const age = Date.now() - entry.createdAt;
           if (age < maxAge + staleIfError) {
             console.warn(
               `[cachedLoader] ${name}: origin error, serving stale entry (age=${Math.round(age / 1000)}s, sie=${Math.round(staleIfError / 1000)}s)`,
@@ -468,7 +489,7 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     // Explicit null → the loader declared this call uncacheable: run fresh.
     if (keyPart === null) return mod.default(props, req);
 
-    const key = `${BUILD}::${name}::${keyPart}`;
+    const key = cache.key(`${BUILD}::${name}::${keyPart}`);
     const existing = moduleInflight.get(key) as Promise<TResult> | undefined;
     if (existing) return existing;
 
@@ -512,15 +533,13 @@ export function createLoaderEntry<TProps = any, TResult = any>(
 /**
  * Clear all cached entries in THIS isolate. Used both by decofile hot-reload
  * (`@decocms/blocks-admin`) and by the `POST /_cache/purge-loaders` route — an
- * escape hatch to invalidate immediately (e.g. after an out-of-band Magento/
- * catalog sync) without waiting out the TTL. Per-isolate: the route must be hit
- * for every isolate; a redeploy replaces isolates wholesale. Bumps the cache
+ * memory eviction hook. Shared storage entries expire by TTL and may hydrate
+ * memory again. Deployment/content scopes prevent reuse across versions. Bumps the cache
  * generation so any loader in flight at purge time won't repopulate a cleared
  * entry with pre-purge data.
  */
 export function clearLoaderCache() {
   cache.clear();
-  cacheBytes = 0;
   inflightRequests.clear();
   moduleInflight.clear();
   cacheGeneration++;
@@ -531,7 +550,7 @@ export function getLoaderCacheStats() {
   return {
     entries: cache.size,
     inflight: inflightRequests.size,
-    estimatedBytes: cacheBytes,
+    estimatedBytes: cache.estimatedBytes,
     maxBytes: maxCacheBytes,
   };
 }

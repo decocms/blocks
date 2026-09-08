@@ -1,5 +1,5 @@
 /**
- * Shared SWR in-memory fetch cache for commerce API responses.
+ * Shared SWR fetch cache for commerce API responses.
  *
  * Provides in-flight deduplication + stale-while-revalidate + stale-if-error
  * for server-side GET requests, keyed by full URL string. Ported from the
@@ -17,8 +17,8 @@
  * tests), so there is zero cost off the instrumented path.
  *
  * **Provider isolation:** every {@link createFetchCache} call owns its own
- * `store`/`inflight` Maps, so VTEX / Magento / Shopify caches never collide in
- * a shared isolate. The `provider` string rides on the `provider` metric label so
+ * bounded memory tier and in-flight Map. Shared storage keys include the
+ * provider name, so VTEX / Magento / Shopify entries never collide. The `provider` string rides on the `provider` metric label so
  * dashboards can slice hit ratio per backend.
  *
  * Note on why the SWR cache — not `createInstrumentedFetch` — must emit the
@@ -28,6 +28,7 @@
  */
 
 import { type CacheDecision, recordCacheMetric } from "../middleware/observability";
+import { cacheBackground, createCacheStore, getCacheStorageContext } from "./cacheStorage";
 
 /** Fresh-TTL (ms) by HTTP status class. See {@link FetchCacheConfig}. */
 export interface FreshTtlByStatus {
@@ -129,7 +130,7 @@ function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T>
 export function createFetchCache(config: FetchCacheConfig): FetchCache {
   const { provider, maxEntries, freshTtlMs, staleIfErrorMs, inflightBackstopMs } = config;
 
-  const store = new Map<string, CacheEntry>();
+  const store = createCacheStore<CacheEntry>(`fetch:${provider}`, maxEntries);
   const inflight = new Map<string, Promise<CacheEntry>>();
 
   function freshTtlForStatus(status: number): number {
@@ -137,12 +138,6 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
     if (status === 404) return freshTtlMs.notFound;
     if (status >= 500) return freshTtlMs.serverError;
     return 0;
-  }
-
-  function evictIfNeeded() {
-    // ponytail: Map preserves insertion order ≈ createdAt order — holds as long
-    // as updates always re-insert via store.set(key, fresh), never mutate in-place.
-    while (store.size > maxEntries) store.delete(store.keys().next().value!);
   }
 
   // Single attempt on purpose — the underlying fetch (resilience layer) owns
@@ -165,13 +160,16 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
     recordCacheMetric(decision !== "MISS", undefined, decision, "swr", provider);
   }
 
-  function fetchWithCache<T>(
+  async function fetchWithCache<T>(
     cacheKey: string,
     doFetch: () => Promise<Response>,
     opts?: FetchCacheOptions,
   ): Promise<T | null> {
+    cacheKey = store.key(cacheKey);
+    const entry = getCacheStorageContext()?.storage
+      ? await store.read(cacheKey)
+      : store.get(cacheKey);
     const now = Date.now();
-    const entry = store.get(cacheKey);
 
     if (entry) {
       const maxAge = opts?.ttl ?? freshTtlForStatus(entry.status);
@@ -194,25 +192,31 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
         if (!entry.refreshing) {
           entry.refreshing = true;
           // Background refresh: no retry — stale data is already being served.
-          withTimeout(
-            executeFetch(cacheKey, doFetch),
-            inflightBackstopMs,
-            `fetchCache stale-refresh ${cacheKey}`,
-          )
-            .then((fresh) => {
-              const ttl = opts?.ttl ?? freshTtlForStatus(fresh.status);
-              const existingWasSuccess = entry.status >= 200 && entry.status < 300;
-              const freshIsError = fresh.status >= 400;
-              const wouldDowngrade = existingWasSuccess && freshIsError;
-              if (ttl > 0 && !wouldDowngrade) {
-                store.set(cacheKey, fresh);
-              } else {
+          cacheBackground(
+            withTimeout(
+              executeFetch(cacheKey, doFetch),
+              inflightBackstopMs,
+              `fetchCache stale-refresh ${cacheKey}`,
+            )
+              .then((fresh) => {
+                const ttl = opts?.ttl ?? freshTtlForStatus(fresh.status);
+                const existingWasSuccess = entry.status >= 200 && entry.status < 300;
+                const freshIsError = fresh.status >= 400;
+                const wouldDowngrade = existingWasSuccess && freshIsError;
+                if (ttl > 0 && !wouldDowngrade) {
+                  store.set(
+                    cacheKey,
+                    fresh,
+                    fresh.createdAt + ttl + (opts?.sieMs ?? staleIfErrorMs),
+                  );
+                } else {
+                  entry.refreshing = false;
+                }
+              })
+              .catch(() => {
                 entry.refreshing = false;
-              }
-            })
-            .catch(() => {
-              entry.refreshing = false;
-            });
+              }),
+          );
         }
         // Serve last-good within the SIE window: this is the stale-while-
         // revalidate serve.
@@ -242,8 +246,7 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
       .then((fresh) => {
         const ttl = opts?.ttl ?? freshTtlForStatus(fresh.status);
         if (ttl > 0) {
-          store.set(cacheKey, fresh);
-          evictIfNeeded();
+          store.set(cacheKey, fresh, fresh.createdAt + ttl + (opts?.sieMs ?? staleIfErrorMs));
         }
         return fresh;
       })
