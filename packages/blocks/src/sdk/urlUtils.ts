@@ -45,6 +45,17 @@ export function registerTrackingParams(params: string[]): void {
 }
 
 /**
+ * Whether a search param is a known tracking/attribution param.
+ *
+ * Exposed so cache-key builders can filter params in place without having to
+ * round-trip through a `URL` (server-fn payloads carry bare relative paths) and
+ * without keeping a second copy of the list.
+ */
+export function isTrackingParam(param: string): boolean {
+  return UTM_PARAMS.has(param.toLowerCase());
+}
+
+/**
  * Strip UTM and tracking parameters from a URL.
  *
  * Used to normalize URLs for caching -- two requests that differ

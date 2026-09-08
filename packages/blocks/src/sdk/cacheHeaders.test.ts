@@ -88,6 +88,35 @@ describe("canonicalizeServerFnPayloadForCacheKey — variant-param cache key", (
     expect(a).toBe(b);
   });
 
+  it("strips tracking params — paid traffic shares the canonical entry", () => {
+    const paid = canonicalizeServerFnPayloadForCacheKey(
+      envelope("/aneis?filter.color=ouro&utm_source=google&gclid=abc&srsltid=xyz"),
+    );
+    const canonical = canonicalizeServerFnPayloadForCacheKey(
+      envelope("/aneis?filter.color=ouro"),
+    );
+    expect(paid).toBe(canonical);
+  });
+
+  it("canonicalizes absolute URLs too, not just paths", () => {
+    // Sites embed one in the payload (the deferred-section `pageUrl` is built
+    // with `new URL(...)`), and the old guard skipped anything not starting
+    // with "/" — so not even skuId was stripped there.
+    const messy = canonicalizeServerFnPayloadForCacheKey(
+      envelope("https://store.com/mala-preta/p?skuId=148940&utm_source=ads"),
+    );
+    const canonical = canonicalizeServerFnPayloadForCacheKey(
+      envelope("https://store.com/mala-preta/p"),
+    );
+    expect(messy).toBe(canonical);
+  });
+
+  it("leaves non-URL strings alone", () => {
+    const a = canonicalizeServerFnPayloadForCacheKey(envelope("mala preta ?utm_source=x"));
+    expect(a).toBe(canonicalizeServerFnPayloadForCacheKey(envelope("mala preta ?utm_source=x")));
+    expect(a).toContain("utm_source");
+  });
+
   it("keeps PLP filter/search params (they DO change the response)", () => {
     const filtered = canonicalizeServerFnPayloadForCacheKey(
       envelope("/c/shoes?filter.size=40"),
