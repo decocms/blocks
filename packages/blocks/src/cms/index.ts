@@ -38,10 +38,13 @@ export {
   setDraftPreviewHosts,
 } from "./draftSource";
 export type { DecoPage, Resolvable } from "./loader";
+export type { PageItem } from "./mergeSections";
+export { mergeSections } from "./mergeSections";
 export {
   findPageByPath,
   getAllPages,
   getRevision,
+  getSiteBlock,
   getSiteSeo,
   loadBlocks,
   onChange,

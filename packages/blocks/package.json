@@ -76,6 +76,7 @@
 		"./sdk/requestContextStorage": {
 			"workerd": "./src/sdk/requestContextStorage.ts",
 			"node": "./src/sdk/requestContextStorage.ts",
+			"react-native": "./src/sdk/requestContextStorage.browser.ts",
 			"browser": "./src/sdk/requestContextStorage.browser.ts",
 			"default": "./src/sdk/requestContextStorage.ts"
 		},

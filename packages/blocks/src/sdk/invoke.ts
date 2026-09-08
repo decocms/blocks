@@ -156,16 +156,28 @@ type SplitFirst<S extends string> = S extends `${infer Head}/${infer Tail}`
 
 type BuildNested<Key extends string, Value> =
   SplitFirst<Key> extends [infer H extends string, infer T]
-    ? T extends string
-      ? { [K in H]: BuildNested<T, Value> }
-      : { [K in H]: Value }
+    ? // `[T] extends [never]`, NOT `T extends string`: `never extends string`
+      // is true, so the terminal case never fired and every key collapsed to
+      // `never`. The brackets stop the distribution that makes that happen.
+      [T] extends [never]
+      ? { [K in H]: Value }
+      : T extends string
+        ? { [K in H]: BuildNested<T, Value> }
+        : { [K in H]: Value }
     : never;
 
 type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
   ? I
   : never;
 
-type DeepMerge<T> = T extends object ? { [K in keyof T]: DeepMerge<T[K]> } : T;
+// A function IS an object in TypeScript, so without the first guard DeepMerge
+// maps a handler into a record of its own properties and the call signature is
+// lost — the leaf stops being callable.
+type DeepMerge<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { [K in keyof T]: DeepMerge<T[K]> }
+    : T;
 
 export type NestedFromFlat<T extends Record<string, any>> = DeepMerge<
   UnionToIntersection<{ [K in keyof T & string]: BuildNested<K, T[K]> }[keyof T & string]>

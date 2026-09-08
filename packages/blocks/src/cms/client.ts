@@ -25,6 +25,10 @@
  *   `sdk/requestContextStorage.browser.ts`), so it's already safe for a
  *   browser bundle.
  * - `schema.ts` has no imports at all.
+ * - `mergeSections.ts` imports `ResolvedSection`/`DeferredSection` from
+ *   `resolve.ts` **type-only**, so the import is erased at compile time and
+ *   `resolve.ts` never enters the bundle. The function itself is pure array
+ *   logic.
  *
  * Deliberately NOT re-exported here: `loader.ts`, `resolve.ts`,
  * `sectionLoaders.ts`, `loadDecofileDirectory.ts`, `blockSource.ts`, and
@@ -33,6 +37,8 @@
  * storage concerns that only make sense server-side — import them from
  * `@decocms/blocks/cms` instead.
  */
+export type { PageItem } from "./mergeSections";
+export { mergeSections } from "./mergeSections";
 export type { OnBeforeResolveProps, SectionModule, SectionOptions } from "./registry";
 export {
   getResolvedComponent,
