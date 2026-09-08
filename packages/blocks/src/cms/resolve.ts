@@ -5,6 +5,7 @@ import { stickyDecide } from "../sdk/experiments";
 import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } from "../sdk/flags";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
+import { stripTrackingParams } from "../sdk/urlUtils";
 import { findPageByPath, loadBlocks } from "./loader";
 import { getOnBeforeResolveProps, getSection, registerOnBeforeResolveProps } from "./registry";
 import {
@@ -956,21 +957,35 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
       resolvedProps.__pagePath = rctx.matcherCtx.path;
     }
     if (rctx.matcherCtx.url) {
-      resolvedProps.__pageUrl = rctx.matcherCtx.url;
+      // Strip tracking params before anything here reaches props.
+      //
+      // The comment this replaces claimed the enrichment was "safe re: cache
+      // fragmentation" because commerce loaders run without a framework-level
+      // cache. That was wrong — `getCommerceLoader()` returns the
+      // `createCachedLoader`-wrapped functions, whose default keyFn hashes
+      // exactly these props — so a `?utm_source`/`gclid`/`srsltid` minted a
+      // fresh cache entry and made every paid-traffic landing a permanent cold
+      // miss. Measured on a production storefront: 0.2–1.5% hit rate on the
+      // default keyFn vs 73.5% on a loader that hand-rolled a key excluding it.
+      //
+      // Stripping here rather than in the keyFn covers `__pageUrl` and the
+      // param spread below in one place, and matches how the edge cache key is
+      // already normalized in workerEntry. No loader reads tracking params.
+      //
+      // Deliberately does NOT drop `__pageUrl`/`__pagePath` themselves: on a
+      // PDP the path IS the product identity (the CMS block leaves `slug`
+      // null) and on a PLP the query carries the facets. Dropping them would
+      // merge distinct results onto one entry and serve wrong content.
+      const pageUrl = stripTrackingParams(rctx.matcherCtx.url);
+      resolvedProps.__pageUrl = pageUrl;
       // Auto-inject URL search params as top-level props so loaders that
       // expect `props.skuId` / `props.q` / `props.page` (the apps-start
       // canonical shape) get them populated on direct entry (Google
       // Shopping deep links, paid ads, email campaigns). Existing values
       // from the CMS block win — URL params are a fallback, not an
       // override.
-      //
-      // Safe re: cache fragmentation: commerce loaders run through this
-      // path without a framework-level cache (the section/page cache
-      // layer hashes section.props BEFORE this enrichment in
-      // sectionLoaders.ts), so adding query params here does not
-      // fragment any cache key.
-      if (URL.canParse(rctx.matcherCtx.url)) {
-        const url = new URL(rctx.matcherCtx.url);
+      if (URL.canParse(pageUrl)) {
+        const url = new URL(pageUrl);
         for (const [k, v] of url.searchParams.entries()) {
           if (resolvedProps[k] !== undefined) continue;
           // `page` is skipped on purpose (#391): loaders that read `page`
@@ -994,7 +1009,7 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
         // upstream is wrong — surface it so the caller can fix it.
         console.warn(
           `[CMS] malformed matcherCtx.url for "${resolveType}"; ` +
-            `skipping query-param injection: ${rctx.matcherCtx.url}`,
+            `skipping query-param injection: ${pageUrl}`,
         );
       }
     }
