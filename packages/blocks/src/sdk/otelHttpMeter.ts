@@ -585,8 +585,8 @@ function serializeOtlp(
       const dataPoints: unknown[] = [];
       for (const point of entry.expHistogram.values()) {
         // Densify the sparse index->count map into OTLP's
-        // `positive: { offset, bucketCounts }`: counts start at index
-        // `offset + 1` and run contiguously, so gaps must be filled with 0.
+        // `positive: { offset, bucketCounts }`: counts run contiguously from
+        // `offset`, so gaps between populated indices must be filled with 0.
         const indices = [...point.buckets.keys()].sort((a, b) => a - b);
         const lo = indices[0] ?? 0;
         const hi = indices[indices.length - 1] ?? -1;
