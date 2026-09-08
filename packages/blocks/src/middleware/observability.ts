@@ -282,6 +282,10 @@ export const MetricNames = {
   // Labels on this counter use short keys (status/profile/layer/provider) —
   // the metric name already provides the deco.cache.* namespace.
   CACHE_REQUESTS: "deco.cache.requests",
+  // Size in bytes of the values moving through a cache, dimensioned by `op`.
+  // Exponential (base-2) aggregation — see METRIC_METADATA for the scale and
+  // why an explicit-bounds histogram is the wrong shape here.
+  CACHE_SIZE: "deco.cache.size",
   RESOLVE_DURATION: "deco.cms.resolve.duration",
   LOADER_DURATION: "deco.loader.duration",
   LOADER_ERRORS: "deco.loader.errors",
@@ -339,7 +343,21 @@ export const DURATION_BUCKET_BOUNDARIES_SECONDS: readonly number[] = [
  */
 export const METRIC_METADATA: Record<
   string,
-  { description: string; unit: string; boundaries?: readonly number[] }
+  {
+    description: string;
+    unit: string;
+    boundaries?: readonly number[];
+    /**
+     * Histogram aggregation. Omitted means `"explicit"` — bucket into
+     * `boundaries`. `"exponential"` selects an OTel base-2 exponential
+     * histogram at {@link scale}, where bucket `i` covers
+     * `(2^(2^-scale))^i .. ^(i+1)]`. Adapters that don't implement it are free
+     * to keep treating the metric as an ordinary histogram.
+     */
+    aggregation?: "explicit" | "exponential";
+    /** Exponential-histogram scale. Fixed per metric; adapters never rescale. */
+    scale?: number;
+  }
 > = {
   [MetricNames.HTTP_SERVER_REQUEST_DURATION]: {
     description: "Duration of HTTP server requests handled at the Worker entry point.",
@@ -354,6 +372,19 @@ export const METRIC_METADATA: Record<
   [MetricNames.CACHE_REQUESTS]: {
     description: "Cache lookups, dimensioned by status (hit/stale/miss/bypass).",
     unit: "{request}",
+  },
+  [MetricNames.CACHE_SIZE]: {
+    description: "Size in bytes of values written to / read from a cache, dimensioned by op.",
+    unit: "By",
+    // Exponential rather than explicit bounds: entries span 512 B (the
+    // cachedLoader floor) to the 32 MB cap — five decades. Any fixed bound set
+    // wide enough for the top is useless at the bottom.
+    aggregation: "exponential",
+    // scale -1 => base 4, so buckets land on 512 B · 2 K · 8 K · 32 K · 128 K ·
+    // 512 K · 2 M · 8 M · 32 M: ~9 buckets over the real range, ~1.7 per
+    // decade. scale 0 (base 2) would double the series count without saying
+    // anything new about a size distribution.
+    scale: -1,
   },
   [MetricNames.RESOLVE_DURATION]: {
     description: "Duration of `deco.cms.resolvePage` — CMS route to block tree resolution.",
@@ -588,6 +619,22 @@ export function recordCacheMetric(
   if (layer) labels["layer"] = layer;
   if (provider) labels["provider"] = provider;
   m.counterInc(MetricNames.CACHE_REQUESTS, 1, labels);
+}
+
+/**
+ * Record the size of a value moving through a cache, in BYTES — not seconds,
+ * so unlike the duration helpers this one does not divide.
+ *
+ * `profile` deliberately reuses the label key {@link recordCacheMetric} already
+ * uses for the `cachedLoader` layer (there it carries the loader name), so
+ * `deco.cache.size` joins `deco.cache.requests{layer="cachedLoader"}` on
+ * `profile` with no renaming in the query.
+ *
+ * Only `op: "set"` is emitted today; the label exists so a future read-side
+ * measurement lands on the same series without a breaking dashboard change.
+ */
+export function recordCacheSizeMetric(bytes: number, profile: string, op: "set" | "get" = "set") {
+  getState().meter?.histogramRecord?.(MetricNames.CACHE_SIZE, bytes, { op, profile });
 }
 
 /**
