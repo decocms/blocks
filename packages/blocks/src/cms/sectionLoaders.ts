@@ -11,8 +11,8 @@
 
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { getCacheProfile } from "../sdk/cacheHeaders";
+import { cacheBackground, createCacheStore, getCacheStorageContext } from "../sdk/cacheStorage";
 import { detectDevice } from "../sdk/detectDevice";
-import { djb2 } from "../sdk/djb2";
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { withTracing } from "../sdk/observability";
 import type { ResolvedSection } from "./resolve";
@@ -91,6 +91,8 @@ export function getDegradedSections(): string[] {
 
 interface CacheableSectionConfig {
   maxAge: number;
+  /** Bounded stale window in milliseconds. Default: 5 minutes. */
+  staleWhileRevalidate?: number;
 }
 
 export type CacheableSectionInput =
@@ -113,19 +115,10 @@ interface SectionCacheEntry {
   refreshing: boolean;
 }
 
-const sectionLoaderCache = new Map<string, SectionCacheEntry>();
+const sectionLoaderCache = createCacheStore<SectionCacheEntry>("sections");
 const sectionLoaderInflight = new Map<string, Promise<ResolvedSection>>();
-const MAX_SECTION_CACHE_ENTRIES = 200;
-
-function evictSectionCacheIfNeeded() {
-  if (sectionLoaderCache.size <= MAX_SECTION_CACHE_ENTRIES) return;
-  const oldest = [...sectionLoaderCache.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
-  const toDelete = oldest.slice(0, sectionLoaderCache.size - MAX_SECTION_CACHE_ENTRIES);
-  for (const [key] of toDelete) sectionLoaderCache.delete(key);
-}
-
 function sectionCacheKey(component: string, props: Record<string, unknown>): string {
-  return `${component}::${djb2(JSON.stringify(props))}`;
+  return `${component}::${JSON.stringify(props)}`;
 }
 
 /**
@@ -142,18 +135,24 @@ export function registerCacheableSections(configs: Record<string, CacheableSecti
   }
 }
 
-function runCacheableSectionLoader(
+async function runCacheableSectionLoader(
   section: ResolvedSection,
   loader: SectionLoaderFn,
   request: Request,
   config: CacheableSectionConfig,
 ): Promise<ResolvedSection> {
-  const key = sectionCacheKey(section.component, section.props as Record<string, unknown>);
+  const key = sectionLoaderCache.key(
+    sectionCacheKey(section.component, section.props as Record<string, unknown>),
+  );
 
   const existing = sectionLoaderInflight.get(key);
   if (existing) return existing;
 
-  const entry = sectionLoaderCache.get(key);
+  const entry = getCacheStorageContext()?.storage
+    ? await sectionLoaderCache.read(key)
+    : sectionLoaderCache.get(key);
+  const pending = sectionLoaderInflight.get(key);
+  if (pending) return pending;
   const now = Date.now();
   const isStale = entry ? now - entry.createdAt > config.maxAge : true;
 
@@ -163,18 +162,25 @@ function runCacheableSectionLoader(
 
   if (entry && isStale && !entry.refreshing) {
     entry.refreshing = true;
-    void Promise.resolve(loader(section.props as Record<string, unknown>, request))
-      .then((enrichedProps) => {
-        const enriched = { ...section, props: enrichedProps };
-        sectionLoaderCache.set(key, {
-          section: enriched,
-          createdAt: Date.now(),
-          refreshing: false,
-        });
-      })
-      .catch(() => {
-        entry.refreshing = false;
-      });
+    cacheBackground(
+      Promise.resolve()
+        .then(() => loader(section.props as Record<string, unknown>, request))
+        .then((enrichedProps) => {
+          const enriched = { ...section, props: enrichedProps };
+          sectionLoaderCache.set(
+            key,
+            {
+              section: enriched,
+              createdAt: Date.now(),
+              refreshing: false,
+            },
+            Date.now() + config.maxAge + (config.staleWhileRevalidate ?? 300_000),
+          );
+        })
+        .catch(() => {
+          entry.refreshing = false;
+        }),
+    );
     return Promise.resolve(entry.section);
   }
 
@@ -184,12 +190,15 @@ function runCacheableSectionLoader(
     (async () => {
       const enrichedProps = await loader(section.props as Record<string, unknown>, request);
       const enriched = { ...section, props: enrichedProps };
-      sectionLoaderCache.set(key, {
-        section: enriched,
-        createdAt: Date.now(),
-        refreshing: false,
-      });
-      evictSectionCacheIfNeeded();
+      sectionLoaderCache.set(
+        key,
+        {
+          section: enriched,
+          createdAt: Date.now(),
+          refreshing: false,
+        },
+        Date.now() + config.maxAge + (config.staleWhileRevalidate ?? 300_000),
+      );
       return enriched;
     })(),
     `sectionLoader ${key}`,
@@ -267,7 +276,7 @@ interface CachedSection {
   expiresAt: number;
 }
 
-const layoutCache = new Map<string, CachedSection>();
+const layoutCache = createCacheStore<CachedSection>("layout-loaders");
 const layoutInflight = new Map<string, Promise<ResolvedSection>>();
 
 /**
@@ -336,8 +345,8 @@ export function layoutLoaderCacheKey(component: string, request?: Request): stri
   return `${component}::${detectDevice(request?.headers?.get?.("user-agent") ?? "")}`;
 }
 
-function getCachedLayout(cacheKey: string): ResolvedSection | null {
-  const entry = layoutCache.get(cacheKey);
+async function getCachedLayout(cacheKey: string): Promise<ResolvedSection | null> {
+  const entry = await layoutCache.read(cacheKey);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
     layoutCache.delete(cacheKey);
@@ -347,21 +356,25 @@ function getCachedLayout(cacheKey: string): ResolvedSection | null {
 }
 
 function setCachedLayout(cacheKey: string, section: ResolvedSection): void {
-  layoutCache.set(cacheKey, {
-    section,
-    expiresAt: Date.now() + LAYOUT_CACHE_TTL,
-  });
+  layoutCache.set(
+    cacheKey,
+    {
+      section,
+      expiresAt: Date.now() + LAYOUT_CACHE_TTL,
+    },
+    Date.now() + LAYOUT_CACHE_TTL,
+  );
 }
 
 /**
  * Run a layout section's loader with in-flight dedup + TTL cache.
  */
-function resolveLayoutSection(
+async function resolveLayoutSection(
   section: ResolvedSection,
   loader: SectionLoaderFn,
   request: Request,
 ): Promise<ResolvedSection> {
-  const key = layoutLoaderCacheKey(section.component, request);
+  const key = layoutCache.key(layoutLoaderCacheKey(section.component, request));
   const { index } = section;
 
   // Re-apply the caller's page-specific index onto a fresh object so the
@@ -369,7 +382,7 @@ function resolveLayoutSection(
   const withIndex = (s: ResolvedSection): ResolvedSection =>
     index !== undefined ? { ...s, index } : s;
 
-  const cached = getCachedLayout(key);
+  const cached = await getCachedLayout(key);
   if (cached) return Promise.resolve(withIndex(cached));
 
   const existing = layoutInflight.get(key);

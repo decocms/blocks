@@ -27,6 +27,7 @@
 
 import type { MatcherContext, ResolvedSection } from "@decocms/blocks/cms";
 import { loadBlocks, onChange, resolvePageSections } from "@decocms/blocks/cms";
+import { createCacheStore, getCacheStorageContext } from "@decocms/blocks/sdk/cacheStorage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,7 +80,7 @@ const cacheTtlMs = DEFAULT_CACHE_TTL_MS;
 // every other route (e.g. a /section-only alert winning on "/"). Caching a
 // resolvedSections array per path preserves the original 5-minute SWR behavior
 // while keeping each route's matcher evaluation correct.
-const cache = new Map<string, CacheEntry>();
+const cache = createCacheStore<CacheEntry>("site-globals");
 const inflight = new Map<string, Promise<CacheEntry>>();
 
 onChange(() => {
@@ -105,7 +106,7 @@ function gatherSectionRefs(site: SiteBlock): SiteGlobalRef[] {
 const EMPTY_ENTRY: CacheEntry = {
   resolvedSections: [],
   rawRefs: [],
-  expiresAt: Number.POSITIVE_INFINITY, // empty entries don't need refresh
+  expiresAt: 0,
 };
 
 /**
@@ -125,9 +126,11 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
   // Path/date/segment matchers inside site-global sections (e.g. a multivariate
   // `Alert` gated by a pathname matcher) must evaluate against the actual
   // request, and the result is cached per path so routes don't share variants.
-  const cacheKey = matcherCtx?.path ?? "";
+  const cacheKey = cache.key(matcherCtx?.path ?? "");
   const now = Date.now();
-  const cached = cache.get(cacheKey);
+  const cached = getCacheStorageContext()?.storage
+    ? await cache.read(cacheKey)
+    : cache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached;
   const inflightEntry = inflight.get(cacheKey);
   if (inflightEntry) return inflightEntry;
@@ -137,14 +140,16 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
     // Cache the empty result so subsequent requests don't re-walk the
     // block registry. `onChange` invalidation still applies — if a Site
     // block appears later, the listener clears `cache` and we re-check.
-    cache.set(cacheKey, EMPTY_ENTRY);
-    return EMPTY_ENTRY;
+    const empty = { ...EMPTY_ENTRY, expiresAt: Date.now() + cacheTtlMs };
+    cache.set(cacheKey, empty, empty.expiresAt);
+    return empty;
   }
 
   const rawRefs = gatherSectionRefs(site);
   if (rawRefs.length === 0) {
-    cache.set(cacheKey, EMPTY_ENTRY);
-    return EMPTY_ENTRY;
+    const empty = { ...EMPTY_ENTRY, expiresAt: Date.now() + cacheTtlMs };
+    cache.set(cacheKey, empty, empty.expiresAt);
+    return empty;
   }
 
   const p = (async () => {
@@ -155,7 +160,7 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
         rawRefs,
         expiresAt: Date.now() + cacheTtlMs,
       };
-      cache.set(cacheKey, entry);
+      cache.set(cacheKey, entry, entry.expiresAt);
       return entry;
     } catch (err) {
       console.error("[site-globals] failed to resolve:", err);
@@ -183,7 +188,10 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
  * both in `site.global` and in a page's section list, which would otherwise
  * render twice.
  */
-export function dedupeGlobals(globals: ResolvedSection[], existing: ResolvedSection[]): ResolvedSection[] {
+export function dedupeGlobals(
+  globals: ResolvedSection[],
+  existing: ResolvedSection[],
+): ResolvedSection[] {
   if (globals.length === 0) return [];
   const seenComponents = new Set<string>();
   for (const s of existing) {

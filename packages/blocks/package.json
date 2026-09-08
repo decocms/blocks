@@ -43,6 +43,8 @@
 		"./sdk/abTesting": "./src/sdk/abTesting.ts",
 		"./sdk/analytics": "./src/sdk/analytics.ts",
 		"./sdk/cachedLoader": "./src/sdk/cachedLoader.ts",
+		"./sdk/responseCache": "./src/sdk/responseCache.ts",
+		"./sdk/cacheStorage": "./src/sdk/cacheStorage.ts",
 		"./sdk/cacheHeaders": "./src/sdk/cacheHeaders.ts",
 		"./sdk/clx": "./src/sdk/clx.ts",
 		"./sdk/cn": "./src/sdk/cn.ts",

@@ -26,6 +26,14 @@
  */
 
 import {
+  bindCacheStorage,
+  type CacheStorage,
+  createWebCacheStorage,
+  getCacheStorageContext,
+} from "@decocms/blocks/sdk/cacheStorage";
+import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
+
+import {
   getRevision,
   getSectionOptions,
   isBot,
@@ -41,7 +49,6 @@ import {
 } from "@decocms/blocks/cms";
 import { DECO_MATCHERS_OVERRIDE_PARAM } from "@decocms/blocks/matchers/override";
 import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
-import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -51,9 +58,9 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "@decocms/blocks/sdk/cacheHeaders";
+import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
-import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
   getActiveSpan,
   logRequest,
@@ -74,11 +81,11 @@ import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { cleanPathForCacheKey } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
-import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
+import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
-import { setSpeculationRules, type SpeculationRulesConfig } from "./speculationRules";
+import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
   applyDraftCookieAndHeaders,
   bindRequestDraft,
@@ -90,6 +97,7 @@ import {
 } from "./draft";
 import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
+import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
 
 /**
  * Build-time identifier injected by `decoVitePlugin()` (see
@@ -212,6 +220,11 @@ export interface AdminHandlers {
 }
 
 export interface DecoWorkerEntryOptions {
+  /** Choose storage once per request using the app's runtime bindings. Null disables shared storage.
+   * Omit to retain Web Cache API response caching and memory-only data caches.
+   */
+  cacheStorage?: (env: Record<string, unknown>, request: Request) => CacheStorage | null;
+
   /**
    * Admin route handlers (/live/_meta, /.decofile, /live/previews).
    * Pass the handlers from `@decocms/start/admin` here.
@@ -1162,13 +1175,7 @@ export function createDecoWorkerEntry(
     return detectCacheProfile(target);
   }
 
-  const KNOWN_SEGMENT_FIELDS = new Set([
-    "device",
-    "loggedIn",
-    "salesChannel",
-    "regionId",
-    "flags",
-  ]);
+  const KNOWN_SEGMENT_FIELDS = new Set(["device", "loggedIn", "salesChannel", "regionId", "flags"]);
 
   function hashSegment(seg: SegmentKey): string {
     const parts: string[] = [seg.device];
@@ -1480,14 +1487,10 @@ export function createDecoWorkerEntry(
 
     const geoVariants = body.countries ?? [];
 
-    const cache = isDevMode()
-      ? null
-      : typeof caches !== "undefined"
-        ? ((caches as unknown as { default?: Cache }).default ?? null)
-        : null;
+    const cache = responseCache(request, env);
 
     if (!cache) {
-      return Response.json({ purged: [], total: 0, note: "Cache API unavailable" });
+      return Response.json({ purged: [], total: 0, note: "Cache storage unavailable" });
     }
 
     const baseUrl = new URL(request.url).origin;
@@ -1584,7 +1587,42 @@ export function createDecoWorkerEntry(
     const denied = authorizePurge(request, env);
     if (denied) return denied;
     clearLoaderCache();
-    return Response.json({ cleared: true, scope: "isolate" });
+    return Response.json({
+      cleared: true,
+      scope: "isolate",
+      ...(options.cacheStorage
+        ? { sharedStorage: "Entries expire by TTL; this endpoint clears memory only." }
+        : {}),
+    });
+  }
+
+  function responseCache(request: Request, env: Record<string, unknown>) {
+    if (isDevMode()) return null;
+    const context = getCacheStorageContext();
+    if (context?.disabled && new URL(request.url).pathname !== "/_cache/purge") return null;
+    let storage = context?.storage;
+    // Purge is authenticated before this helper runs, and needs storage even though
+    // ordinary Authorization-bearing requests bypass every shared cache.
+    if (options.cacheStorage && new URL(request.url).pathname === "/_cache/purge") {
+      try {
+        storage = options.cacheStorage(env, request);
+      } catch {
+        return null;
+      }
+    }
+    if (!options.cacheStorage) {
+      const native =
+        typeof caches !== "undefined"
+          ? (caches as unknown as { default?: Cache }).default
+          : undefined;
+      storage = native ? createWebCacheStorage(native, new URL(request.url).origin) : null;
+    }
+    return storage
+      ? createResponseCache(
+          storage,
+          JSON.stringify([new URL(request.url).origin, getBuildHash(env), getRevision()]),
+        )
+      : null;
   }
 
   // -- Admin route handler ---------------------------------------------------
@@ -1970,6 +2008,46 @@ export function createDecoWorkerEntry(
     await ensureBlocksHydrated(env, ctx);
     maybePollRevision(env, ctx);
 
+    {
+      const segment = buildSegment?.(request);
+      const privateRequest =
+        requestCarriesDraft(request, url) ||
+        segment?.loggedIn === true ||
+        request.headers.has("authorization") ||
+        url.searchParams.has("__deco_preview") ||
+        url.searchParams.has(DECO_MATCHERS_OVERRIDE_PARAM) ||
+        request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM) ||
+        url.pathname.startsWith("/live/previews") ||
+        url.pathname.startsWith("/deco/render");
+      let storage: CacheStorage | null = null;
+      try {
+        storage =
+          privateRequest || isDevMode() ? null : (options.cacheStorage?.(env, request) ?? null);
+      } catch {
+        /* Missing storage is a cache miss, never a storefront failure. */
+      }
+      bindCacheStorage({
+        storage,
+        disabled: privateRequest || isDevMode(),
+        scope: JSON.stringify([
+          new URL(request.url).origin,
+          getBuildHash(env),
+          getRevision(),
+          segment
+            ? hashSegment(segment)
+            : isMobileUA(request.headers.get("user-agent") ?? "")
+              ? "mobile"
+              : "desktop",
+          buildGeoCacheParam(
+            (request as unknown as { cf?: Record<string, string> }).cf,
+            effectiveGeoKey(),
+          ),
+          privateRequest ? crypto.randomUUID() : null,
+        ]),
+        waitUntil: (work) => ctx.waitUntil(work),
+      });
+    }
+
     // Admin routes (/_meta, /.decofile, /live/previews) — always handled first
     const adminResponse = await tryAdminRoute(request);
     if (adminResponse) return adminResponse;
@@ -2143,11 +2221,7 @@ export function createDecoWorkerEntry(
     }
 
     // ?asJson — return resolved page data as JSON (legacy deco compat)
-    if (
-      options.asJson !== false &&
-      url.searchParams.has("asJson") &&
-      request.method === "GET"
-    ) {
+    if (options.asJson !== false && url.searchParams.has("asJson") && request.method === "GET") {
       const basePath = url.pathname;
       const cookies: Record<string, string> = {};
       for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
@@ -2289,11 +2363,7 @@ export function createDecoWorkerEntry(
       request.method === "POST" &&
       (url.pathname.startsWith("/_serverFn/") || url.pathname.startsWith("/_server/"))
     ) {
-      const serverFnCache = isDevMode()
-        ? null
-        : typeof caches !== "undefined"
-          ? ((caches as unknown as { default?: Cache }).default ?? null)
-          : null;
+      const serverFnCache = responseCache(request, env);
 
       // Draft preview: a drafted SPA navigation fetches its section data via
       // this POST, carrying the draft cookie. The draft is already bound to the
@@ -2539,11 +2609,7 @@ export function createDecoWorkerEntry(
     }
 
     // Check Cache API — disabled in local dev to avoid stale responses
-    const cache = isDevMode()
-      ? null
-      : typeof caches !== "undefined"
-        ? ((caches as unknown as { default?: Cache }).default ?? null)
-        : null;
+    const cache = responseCache(request, env);
 
     const profile = getProfile(url);
     const edgeConfig = edgeCacheConfig(profile);
