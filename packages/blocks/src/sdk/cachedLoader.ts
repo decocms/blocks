@@ -78,7 +78,6 @@ export interface LoaderModule<TProps = any, TResult = any> {
   cacheKey?: (props: TProps, req?: Request) => string | null;
 }
 
-
 interface CacheEntry<T = unknown> {
   value: T;
   createdAt: number;
@@ -102,16 +101,41 @@ const DEFAULT_MAX_AGE = 60_000;
 const DEFAULT_MAX_CACHE_BYTES = 32 * 1024 * 1024;
 
 function resolveMaxBytes(): number {
-  const env = typeof globalThis.process !== "undefined"
-    ? globalThis.process.env
-    : undefined;
+  const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
   const raw = env?.DECO_LOADER_CACHE_MAX_BYTES;
   if (!raw) return DEFAULT_MAX_CACHE_BYTES;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CACHE_BYTES;
 }
 
-const MAX_CACHE_BYTES = resolveMaxBytes();
+let maxCacheBytes = resolveMaxBytes();
+
+/**
+ * Override the loader cache byte cap at runtime.
+ *
+ * The `DECO_LOADER_CACHE_MAX_BYTES` env override above only lands when the
+ * Worker's `compatibility_date` is new enough for `nodejs_compat` to populate
+ * `process.env`. Verified in workerd: with `2024-09-23` it is empty both at
+ * module scope and inside the handler; with `2025-06-01` it is populated. Sites
+ * pinned to an older date — a common thing to do, since the date also gates
+ * behaviour flags they may have tuned deliberately — had a documented knob that
+ * silently did nothing.
+ *
+ * Call this from the site's `setup.ts`, before any loader is wrapped.
+ *
+ * Sizing note: the cap is per ISOLATE, not per site, and a Worker isolate has
+ * 128 MB total, shared with the bundle, the V8 heap and the render working set.
+ * Setting it at or near 128 MB does not give headroom — it removes the ceiling.
+ */
+export function setLoaderCacheMaxBytes(bytes: number): void {
+  if (!Number.isFinite(bytes) || bytes <= 0) return;
+  maxCacheBytes = bytes;
+}
+
+/** Current byte cap — exported for diagnostics and tests. */
+export function getLoaderCacheMaxBytes(): number {
+  return maxCacheBytes;
+}
 
 const cache = new Map<string, CacheEntry>();
 let cacheBytes = 0;
@@ -162,13 +186,11 @@ function deleteCacheEntry(key: string) {
 }
 
 function evictIfNeeded() {
-  if (cacheBytes <= MAX_CACHE_BYTES) return;
-  const oldest = [...cache.entries()].sort(
-    (a, b) => a[1].createdAt - b[1].createdAt,
-  );
+  if (cacheBytes <= maxCacheBytes) return;
+  const oldest = [...cache.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
   for (const [key] of oldest) {
     deleteCacheEntry(key);
-    if (cacheBytes <= MAX_CACHE_BYTES) break;
+    if (cacheBytes <= maxCacheBytes) break;
   }
 }
 
@@ -246,11 +268,10 @@ export function createCachedLoader<TProps, TResult>(
       recordCacheMetric(false, name, undefined, "cachedLoader");
       const devStart = performance.now();
       const promise = withInflightTimeout(
-        withTracing(
-          "deco.cachedLoader",
-          () => loaderFn(props),
-          { "deco.loader": name, "deco.cache.policy": "no-cache-dev" },
-        ),
+        withTracing("deco.cachedLoader", () => loaderFn(props), {
+          "deco.loader": name,
+          "deco.cache.policy": "no-cache-dev",
+        }),
         `cachedLoader:dev ${cacheKey}`,
       )
         .then((r) => {
@@ -374,7 +395,6 @@ export function createCachedLoader<TProps, TResult>(
   };
 }
 
-
 // ---------------------------------------------------------------------------
 // Module loader dedup (the `@decocms/apps` cache/cacheKey convention)
 //
@@ -404,11 +424,12 @@ export function createCachedLoaderFromModule<TProps, TResult>(
   name: string,
   mod: LoaderModule<TProps, TResult>,
 ): (props: TProps, req?: Request) => Promise<TResult> {
-  const policy: CachePolicy = typeof mod.cache === "string"
-    ? mod.cache
-    : mod.cache && typeof mod.cache === "object"
-      ? "stale-while-revalidate"
-      : "no-store";
+  const policy: CachePolicy =
+    typeof mod.cache === "string"
+      ? mod.cache
+      : mod.cache && typeof mod.cache === "object"
+        ? "stale-while-revalidate"
+        : "no-store";
 
   // Only `stale-while-revalidate` (or `{ maxAge }`) opts into dedup — matching
   // `@decocms/apps`/deco, where `no-store` (the default) and `no-cache` both
@@ -459,9 +480,7 @@ export function createLoaderEntry<TProps = any, TResult = any>(
   // first-calls — exactly the N-sections-per-render case — share one import
   // instead of racing into N. Reset on failure so a transient import error can
   // retry rather than poisoning the entry forever.
-  let wrappedPromise:
-    | Promise<(props: TProps, req?: Request) => Promise<TResult>>
-    | undefined;
+  let wrappedPromise: Promise<(props: TProps, req?: Request) => Promise<TResult>> | undefined;
   return (props: TProps, req?: Request): Promise<TResult> => {
     if (!wrappedPromise) {
       wrappedPromise = importFn()
@@ -498,6 +517,6 @@ export function getLoaderCacheStats() {
     entries: cache.size,
     inflight: inflightRequests.size,
     estimatedBytes: cacheBytes,
-    maxBytes: MAX_CACHE_BYTES,
+    maxBytes: maxCacheBytes,
   };
 }
