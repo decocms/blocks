@@ -63,6 +63,15 @@ function buildAdapter(
     nowMs?: () => number;
     onError?: (kind: "flush" | "overflow" | "kind-mismatch", err: unknown) => void;
     histogramBounds?: number[];
+    metricMetadata?: Record<
+      string,
+      {
+        description?: string;
+        unit?: string;
+        aggregation?: "explicit" | "exponential";
+        scale?: number;
+      }
+    >;
   } = {},
 ) {
   return createOtlpHttpMeterAdapter({
@@ -78,6 +87,7 @@ function buildAdapter(
     nowMs: overrides.nowMs,
     onError: overrides.onError,
     histogramBounds: overrides.histogramBounds,
+    metricMetadata: overrides.metricMetadata,
   });
 }
 
@@ -288,5 +298,168 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
     releaseFetch?.(new Response("{}", { status: 200 }));
     await Promise.all([a, b]);
     expect(slow).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exponential histograms (deco.cache.size)
+// ---------------------------------------------------------------------------
+
+interface ExpHistogramMetric {
+  name: string;
+  unit?: string;
+  histogram?: unknown;
+  exponentialHistogram?: {
+    aggregationTemporality: number;
+    dataPoints: Array<{
+      attributes: Array<{ key: string; value: Record<string, unknown> }>;
+      count: string;
+      sum: number;
+      min: number;
+      max: number;
+      scale: number;
+      zeroCount: string;
+      positive: { offset: number; bucketCounts: string[] };
+    }>;
+  };
+}
+
+function metricsFrom(calls: Array<{ init?: RequestInit }>): ExpHistogramMetric[] {
+  const payload = JSON.parse(calls[0].init!.body as string) as {
+    resourceMetrics: Array<{ scopeMetrics: Array<{ metrics: ExpHistogramMetric[] }> }>;
+  };
+  return payload.resourceMetrics[0].scopeMetrics[0].metrics;
+}
+
+const CACHE_SIZE_META = {
+  "deco.cache.size": {
+    description: "Size in bytes of values written to / read from a cache, dimensioned by op.",
+    unit: "By",
+    aggregation: "exponential" as const,
+    // base 4 — the scale the framework declares for byte sizes.
+    scale: -1,
+  },
+};
+
+describe("createOtlpHttpMeterAdapter — exponential histogram", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-18T16:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("buckets byte sizes at scale -1 and exports OTLP exponentialHistogram", async () => {
+    const { impl, calls } = captureFetch();
+    const meter = buildAdapter({ fetchImpl: impl, metricMetadata: CACHE_SIZE_META });
+
+    // base 4. Bucket i covers (4^i, 4^(i+1)], upper-inclusive:
+    //   512  -> index 4  (256, 1024]
+    //   1024 -> index 4  (256, 1024]  — exact power of the base stays LOW
+    //   4096 -> index 5  (1024, 4096]
+    const labels = { op: "set", profile: "productList" };
+    meter.histogramRecord("deco.cache.size", 512, labels);
+    meter.histogramRecord("deco.cache.size", 1024, labels);
+    meter.histogramRecord("deco.cache.size", 4096, labels);
+
+    await meter.flush();
+
+    const m = metricsFrom(calls)[0];
+    expect(m.name).toBe("deco.cache.size");
+    expect(m.unit).toBe("By");
+    // Must NOT be serialized as an explicit-bounds histogram.
+    expect(m.histogram).toBeUndefined();
+
+    const dp = m.exponentialHistogram!.dataPoints[0];
+    expect(m.exponentialHistogram!.aggregationTemporality).toBe(2); // CUMULATIVE
+    expect(dp.scale).toBe(-1);
+    expect(dp.count).toBe("3");
+    expect(dp.sum).toBe(512 + 1024 + 4096);
+    expect(dp.min).toBe(512);
+    expect(dp.max).toBe(4096);
+    expect(dp.zeroCount).toBe("0");
+    // offset is the index of bucketCounts[0]; two counts in bucket 4, one in 5.
+    expect(dp.positive.offset).toBe(4);
+    expect(dp.positive.bucketCounts).toEqual(["2", "1"]);
+    expect(dp.attributes.map((a) => a.key)).toEqual(["op", "profile"]);
+  });
+
+  it("fills gaps between populated buckets so offset+i stays aligned", async () => {
+    const { impl, calls } = captureFetch();
+    const meter = buildAdapter({ fetchImpl: impl, metricMetadata: CACHE_SIZE_META });
+
+    // 512 -> index 4, 32 MB -> index 12. Everything between must be zero-filled,
+    // otherwise the consumer reads the top bucket at the wrong boundary.
+    meter.histogramRecord("deco.cache.size", 512, { op: "set" });
+    meter.histogramRecord("deco.cache.size", 32 * 1024 * 1024, { op: "set" });
+
+    await meter.flush();
+
+    const dp = metricsFrom(calls)[0].exponentialHistogram!.dataPoints[0];
+    expect(dp.positive.offset).toBe(4);
+    expect(dp.positive.bucketCounts).toEqual(["1", "0", "0", "0", "0", "0", "0", "0", "1"]);
+  });
+
+  it("splits series per attr-key, like the explicit histogram does", async () => {
+    const { impl, calls } = captureFetch();
+    const meter = buildAdapter({ fetchImpl: impl, metricMetadata: CACHE_SIZE_META });
+
+    meter.histogramRecord("deco.cache.size", 512, { op: "set", profile: "a" });
+    meter.histogramRecord("deco.cache.size", 512, { op: "set", profile: "b" });
+
+    await meter.flush();
+
+    expect(metricsFrom(calls)[0].exponentialHistogram!.dataPoints).toHaveLength(2);
+    expect(meter.pendingDatapointCount()).toBe(2);
+  });
+
+  it("folds non-positive observations into zeroCount instead of a bucket", async () => {
+    const { impl, calls } = captureFetch();
+    const meter = buildAdapter({ fetchImpl: impl, metricMetadata: CACHE_SIZE_META });
+
+    meter.histogramRecord("deco.cache.size", 0, { op: "set" });
+    meter.histogramRecord("deco.cache.size", 512, { op: "set" });
+
+    await meter.flush();
+
+    const dp = metricsFrom(calls)[0].exponentialHistogram!.dataPoints[0];
+    expect(dp.zeroCount).toBe("1");
+    expect(dp.count).toBe("2");
+    expect(dp.positive.bucketCounts).toEqual(["1"]);
+  });
+
+  it("leaves histograms without exponential metadata on the explicit-bounds path", async () => {
+    const { impl, calls } = captureFetch();
+    const meter = buildAdapter({
+      fetchImpl: impl,
+      histogramBounds: [10, 100],
+      metricMetadata: CACHE_SIZE_META,
+    });
+
+    meter.histogramRecord("deco.loader.duration", 50, { name: "x" });
+
+    await meter.flush();
+
+    const m = metricsFrom(calls)[0] as ExpHistogramMetric & {
+      histogram?: { dataPoints: Array<{ bucketCounts: string[]; explicitBounds: number[] }> };
+    };
+    expect(m.exponentialHistogram).toBeUndefined();
+    expect(m.histogram!.dataPoints[0].explicitBounds).toEqual([10, 100]);
+    expect(m.histogram!.dataPoints[0].bucketCounts).toEqual(["0", "1", "0"]);
+  });
+
+  it("rejects reusing an exponential-histogram name as a counter", async () => {
+    const onError = vi.fn();
+    const { impl } = captureFetch();
+    const meter = buildAdapter({ fetchImpl: impl, metricMetadata: CACHE_SIZE_META, onError });
+
+    meter.histogramRecord("deco.cache.size", 512, { op: "set" });
+    meter.counterInc("deco.cache.size", 1, { op: "set" });
+
+    expect(onError).toHaveBeenCalledWith("kind-mismatch", expect.any(Error));
+    expect(meter.pendingDatapointCount()).toBe(1);
   });
 });

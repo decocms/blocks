@@ -64,6 +64,7 @@ export {
   type MeterAdapter,
   MetricNames,
   recordCacheMetric,
+  recordCacheSizeMetric,
   recordCommerceMetric,
   recordLoaderError,
   recordLoaderMetric,

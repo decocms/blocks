@@ -84,8 +84,19 @@ export interface OtlpHttpMeterOptions {
    * The framework owns the lookup; callers MUST NOT pass metadata at
    * record time. See `MetricNames` / `METRIC_METADATA` in
    * `middleware/observability.ts`.
+   *
+   * `aggregation: "exponential"` also routes `histogramRecord` for that name
+   * to a base-2 exponential histogram at `scale` — no separate adapter method,
+   * so call sites are identical for both aggregations.
    */
-  metricMetadata?: Record<string, { description?: string; unit?: string }>;
+  metricMetadata?: Record<string, MetricMetadata>;
+}
+
+export interface MetricMetadata {
+  description?: string;
+  unit?: string;
+  aggregation?: "explicit" | "exponential";
+  scale?: number;
 }
 
 export interface OtlpHttpMeter extends MeterAdapter {
@@ -103,7 +114,7 @@ export interface OtlpHttpMeter extends MeterAdapter {
 // Internal buffer shapes
 // ---------------------------------------------------------------------------
 
-type MetricKind = "counter" | "gauge" | "histogram";
+type MetricKind = "counter" | "gauge" | "histogram" | "expHistogram";
 
 interface CounterPoint {
   value: number;
@@ -125,11 +136,26 @@ interface HistogramPoint {
   startTimeUnixNano: string;
 }
 
+interface ExpHistogramPoint {
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+  zeroCount: number;
+  /** Sparse index -> count. Densified to `positive.bucketCounts` at flush. */
+  buckets: Map<number, number>;
+  attrs: Labels;
+  startTimeUnixNano: string;
+}
+
 interface MetricEntry {
   kind: MetricKind;
   counter?: Map<string, CounterPoint>;
   gauge?: Map<string, GaugePoint>;
   histogram?: Map<string, HistogramPoint>;
+  expHistogram?: Map<string, ExpHistogramPoint>;
+  /** Only set for `expHistogram`, captured from metadata at first record. */
+  scale?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +168,18 @@ const DEFAULT_HISTOGRAM_BOUNDS = [
   // own histogram bounds in a follow-up.
   5, 10, 25, 50, 75, 100, 250, 500, 1000,
 ];
+
+/** Fallback scale when a metric declares `exponential` without one: base 2. */
+const DEFAULT_EXPONENTIAL_SCALE = 0;
+
+/**
+ * Defensive cap on distinct buckets per exponential series. At the scales we
+ * use (base 4 for byte sizes) the real range needs ~9, so hitting this means
+ * the metric is being fed values it wasn't sized for. Rather than let the
+ * sparse Map grow unbounded per isolate, clamp out-of-range indices into the
+ * edge buckets — the distribution's tails stay visible, the memory doesn't.
+ */
+const MAX_EXPONENTIAL_BUCKETS = 160;
 
 export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpHttpMeter {
   const endpoint = options.endpoint;
@@ -206,6 +244,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     const entry: MetricEntry = { kind };
     if (kind === "counter") entry.counter = new Map();
     else if (kind === "gauge") entry.gauge = new Map();
+    else if (kind === "expHistogram") entry.expHistogram = new Map();
     else entry.histogram = new Map();
     metrics.set(name, entry);
     return entry;
@@ -217,6 +256,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
       if (entry.counter) n += entry.counter.size;
       if (entry.gauge) n += entry.gauge.size;
       if (entry.histogram) n += entry.histogram.size;
+      if (entry.expHistogram) n += entry.expHistogram.size;
     }
     return n;
   }
@@ -263,6 +303,10 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
   }
 
   function histogramRecord(name: string, value: number, labels?: Labels) {
+    if (metricMetadata[name]?.aggregation === "exponential") {
+      expHistogramRecord(name, value, labels);
+      return;
+    }
     const { entry: existing, isNewName } = checkAdmissibility(name, "histogram");
     if (existing === null && !isNewName) return; // kind mismatch
     const key = attrKey(labels);
@@ -299,6 +343,61 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
       }
     }
     point.bucketCounts[bucketIdx] += 1;
+  }
+
+  function expHistogramRecord(name: string, value: number, labels?: Labels) {
+    const { entry: existing, isNewName } = checkAdmissibility(name, "expHistogram");
+    if (existing === null && !isNewName) return; // kind mismatch
+    const key = attrKey(labels);
+    const isNewDatapoint = !existing?.expHistogram?.has(key);
+    if (isNewDatapoint && pendingDatapointCount() >= maxBuffer) {
+      onError?.("overflow", new Error(`metric buffer at cap (${maxBuffer}) — dropping "${name}"`));
+      return;
+    }
+    const entry = existing ?? materializeEntry(name, "expHistogram");
+    if (!entry.expHistogram) return;
+    const scale = metricMetadata[name]?.scale ?? DEFAULT_EXPONENTIAL_SCALE;
+    entry.scale = scale;
+    let point = entry.expHistogram.get(key);
+    if (!point) {
+      point = {
+        count: 0,
+        sum: 0,
+        min: Number.POSITIVE_INFINITY,
+        max: Number.NEGATIVE_INFINITY,
+        zeroCount: 0,
+        buckets: new Map(),
+        attrs: labels ? { ...labels } : {},
+        startTimeUnixNano: msToNs(isolateStartMs),
+      };
+      entry.expHistogram.set(key, point);
+    }
+    point.count += 1;
+    point.sum += value;
+    if (value < point.min) point.min = value;
+    if (value > point.max) point.max = value;
+
+    // Non-positive values have no base-2 bucket. Per the OTel spec zero goes to
+    // `zeroCount`; we send negatives there too rather than emit a `negative`
+    // range no metric of ours can produce.
+    if (value <= 0) {
+      point.zeroCount += 1;
+      return;
+    }
+
+    // Spec mapping for base 2^(2^-scale): bucket `i` covers (base^i, base^(i+1)],
+    // i.e. upper-inclusive, so an exact power of the base lands in the LOWER
+    // bucket. Hence ceil(...) - 1 and not floor(...).
+    let index = Math.ceil(Math.log2(value) * 2 ** scale) - 1;
+    // Clamp into the existing range once the series is at its bucket budget —
+    // see MAX_EXPONENTIAL_BUCKETS.
+    if (!point.buckets.has(index) && point.buckets.size >= MAX_EXPONENTIAL_BUCKETS) {
+      const indices = [...point.buckets.keys()];
+      const lo = Math.min(...indices);
+      const hi = Math.max(...indices);
+      index = index < lo ? lo : hi;
+    }
+    point.buckets.set(index, (point.buckets.get(index) ?? 0) + 1);
   }
 
   async function doFlush(): Promise<void> {
@@ -410,7 +509,7 @@ interface SerializeOpts {
   scopeVersion: string;
   histogramBounds: number[];
   flushAtNs: string;
-  metricMetadata: Record<string, { description?: string; unit?: string }>;
+  metricMetadata: Record<string, MetricMetadata>;
 }
 
 function serializeOtlp(
@@ -478,6 +577,44 @@ function serializeOtlp(
         description,
         unit,
         histogram: {
+          aggregationTemporality: 2, // CUMULATIVE
+          dataPoints,
+        },
+      });
+    } else if (entry.kind === "expHistogram" && entry.expHistogram) {
+      const dataPoints: unknown[] = [];
+      for (const point of entry.expHistogram.values()) {
+        // Densify the sparse index->count map into OTLP's
+        // `positive: { offset, bucketCounts }`: counts start at index
+        // `offset + 1` and run contiguously, so gaps must be filled with 0.
+        const indices = [...point.buckets.keys()].sort((a, b) => a - b);
+        const lo = indices[0] ?? 0;
+        const hi = indices[indices.length - 1] ?? -1;
+        const bucketCounts: string[] = [];
+        for (let i = lo; i <= hi; i++) bucketCounts.push(String(point.buckets.get(i) ?? 0));
+        dataPoints.push({
+          attributes: attrsToOtlp(point.attrs),
+          startTimeUnixNano: point.startTimeUnixNano,
+          timeUnixNano: opts.flushAtNs,
+          count: String(point.count),
+          sum: point.sum,
+          min: point.min === Number.POSITIVE_INFINITY ? 0 : point.min,
+          max: point.max === Number.NEGATIVE_INFINITY ? 0 : point.max,
+          scale: entry.scale ?? 0,
+          zeroCount: String(point.zeroCount),
+          // OTLP: bucketCounts[i] counts values in
+          // (base^(offset+i), base^(offset+i+1)] — the same half-open interval
+          // our record-time index uses, so offset is the first index as-is.
+          positive: { offset: lo, bucketCounts },
+          // No `negative` range: every metric on this path is non-negative,
+          // and sub-zero observations are folded into zeroCount at record time.
+        });
+      }
+      otlpMetrics.push({
+        name,
+        description,
+        unit,
+        exponentialHistogram: {
           aggregationTemporality: 2, // CUMULATIVE
           dataPoints,
         },

@@ -13,6 +13,7 @@
 
 import {
   recordCacheMetric,
+  recordCacheSizeMetric,
   recordLoaderError,
   recordLoaderMetric,
   withTracing,
@@ -171,7 +172,13 @@ function estimateBytes(value: unknown): number {
   }
 }
 
-function setCacheEntry<T>(key: string, entry: CacheEntry<T>) {
+/**
+ * The single write path into the cache — both the cold-miss and the SWR
+ * background-refresh callers route through here, which is why the size metric
+ * is emitted at this chokepoint rather than at each call site.
+ */
+function setCacheEntry<T>(key: string, entry: CacheEntry<T>, name: string) {
+  recordCacheSizeMetric(entry.estimatedBytes, name);
   const prev = cache.get(key);
   if (prev) cacheBytes -= prev.estimatedBytes;
   cacheBytes += entry.estimatedBytes;
@@ -317,12 +324,16 @@ export function createCachedLoader<TProps, TResult>(
             // Skip the write if a purge cleared the cache mid-refresh — otherwise
             // we'd re-insert pre-purge data the purge was meant to drop.
             if (gen !== cacheGeneration) return;
-            setCacheEntry(cacheKey, {
-              value: result,
-              createdAt: Date.now(),
-              refreshing: false,
-              estimatedBytes: estimateBytes(result),
-            });
+            setCacheEntry(
+              cacheKey,
+              {
+                value: result,
+                createdAt: Date.now(),
+                refreshing: false,
+                estimatedBytes: estimateBytes(result),
+              },
+              name,
+            );
             evictIfNeeded();
           })
           .catch(() => {
@@ -362,12 +373,16 @@ export function createCachedLoader<TProps, TResult>(
         // Skip caching if a purge landed while this loader was in flight — still
         // return the fresh value to the caller, just don't persist a raced entry.
         if (gen === cacheGeneration) {
-          setCacheEntry(cacheKey, {
-            value: result,
-            createdAt: Date.now(),
-            refreshing: false,
-            estimatedBytes: estimateBytes(result),
-          });
+          setCacheEntry(
+            cacheKey,
+            {
+              value: result,
+              createdAt: Date.now(),
+              refreshing: false,
+              estimatedBytes: estimateBytes(result),
+            },
+            name,
+          );
           evictIfNeeded();
         }
         return result;
