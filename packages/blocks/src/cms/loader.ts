@@ -1,5 +1,6 @@
 import * as asyncHooks from "node:async_hooks";
 import { djb2Hex } from "../sdk/djb2";
+import { PAGE_BLOCK_PREFIX, type PageIndexEntry } from "./blockSource";
 import { getRequestDraftOverride } from "./draftSource";
 
 export type Resolvable = {
@@ -53,10 +54,7 @@ const blocksOverrideStorage: ALSLike<BlocksOverride> = ALS
 // Change listeners
 // ---------------------------------------------------------------------------
 
-type ChangeListener = (
-  blocks: Record<string, unknown>,
-  revision: string,
-) => void;
+type ChangeListener = (blocks: Record<string, unknown>, revision: string) => void;
 const changeListeners: ChangeListener[] = [];
 
 /** Register a callback invoked whenever setBlocks() changes the decofile. */
@@ -84,10 +82,18 @@ function computeRevision(blocks: Record<string, unknown>): string {
  * Set the blocks data. Called at startup with generated blocks,
  * and by the admin on hot-reload.
  * Notifies all onChange listeners and updates the revision.
+ *
+ * Pass `knownRevision` whenever the caller already has the authoritative
+ * revision for the content `blocks` came from — see the note below.
  */
-export function setBlocks(blocks: Record<string, unknown>) {
+export function setBlocks(blocks: Record<string, unknown>, knownRevision?: string) {
   blockData = blocks;
-  revision = computeRevision(blocks);
+  // `knownRevision` is REQUIRED in split mode: `blocks` is then only the
+  // non-page half, so a hash of it would never equal the revision KV stores
+  // for the whole decofile — the poller would see a permanent mismatch and
+  // reload the snapshot on every tick. Passing it also skips a JSON.stringify
+  // of the entire decofile, which is a full-size transient allocation.
+  revision = knownRevision ?? computeRevision(blocks);
 
   // Persist to globalThis so other module instances see them
   G.__deco.blockData = blockData;
@@ -225,10 +231,7 @@ export function getRevision(): string | null {
  * for the duration of the render. Other concurrent requests are not
  * affected (AsyncLocalStorage is per-request scoped).
  */
-export function withBlocksOverride<T>(
-  override: Record<string, unknown>,
-  fn: () => T,
-): T {
+export function withBlocksOverride<T>(override: Record<string, unknown>, fn: () => T): T {
   return blocksOverrideStorage.run({ mode: "merge", blocks: override }, fn);
 }
 
@@ -239,10 +242,7 @@ export function withBlocksOverride<T>(
  * exactly like the page render, deletions included, or a lazy section could
  * render a block the page no longer has.
  */
-export function withDraftBlocks<T>(
-  draft: Record<string, unknown>,
-  fn: () => T,
-): T {
+export function withDraftBlocks<T>(draft: Record<string, unknown>, fn: () => T): T {
   return blocksOverrideStorage.run({ mode: "snapshot", blocks: draft }, fn);
 }
 
@@ -282,6 +282,89 @@ function pathSpecificityKey(path: string): [number, number, number] {
   return [hasWildcard ? 0 : 1, literals, params];
 }
 
+// ---------------------------------------------------------------------------
+// Page source — the seam that keeps `pages-*` blocks OUT of the isolate
+//
+// Pages are 93% of a real decofile's bytes and nothing references them (see
+// `splitDecofile` in blockSource.ts). When a framework binding registers a
+// PageSource, `blockData` holds only the non-page blocks and routing runs off
+// a small resident index; the one page that matched is fetched per request and
+// dropped when the request ends.
+//
+// Unregistered (dev, Next.js, any site not on split KV) everything below falls
+// through to the original in-memory scan, so behavior is unchanged.
+// ---------------------------------------------------------------------------
+
+export interface PageSource {
+  /** Resident routing index — one entry per routable page. */
+  index: PageIndexEntry[];
+  /** Fetch one page block by its key. `null` when the key is gone from KV. */
+  load(key: string): Promise<DecoPage | null>;
+}
+
+/**
+ * Register (or clear, with `null`) the out-of-memory page source.
+ *
+ * The index is sorted ONCE here by the same specificity key `getAllPages()`
+ * uses, so a registered source and an in-memory scan resolve the same path to
+ * the same page.
+ */
+export function setPageSource(source: PageSource | null): void {
+  G.__deco.pageSource = source
+    ? {
+        load: source.load,
+        index: [...source.index]
+          .map((e) => ({ ...e, key2: pathSpecificityKey(e.path) }))
+          .sort(comparePageSpecificity),
+      }
+    : null;
+}
+
+/** True when pages live outside this isolate (split KV layout is active). */
+export function hasPageSource(): boolean {
+  return G.__deco.pageSource != null;
+}
+
+type IndexedPage = PageIndexEntry & { key2: [number, number, number] };
+
+function comparePageSpecificity(
+  a: { key2: [number, number, number] },
+  b: { key2: [number, number, number] },
+): number {
+  for (let i = 0; i < a.key2.length; i++) {
+    if (a.key2[i] !== b.key2[i]) return b.key2[i] - a.key2[i];
+  }
+  return 0;
+}
+
+/**
+ * The active page source, or `null` when routing must scan memory instead.
+ *
+ * A request carrying a preview override or a draft pointer ALWAYS scans: those
+ * payloads carry their own `pages-*` blocks, and the whole point of a preview
+ * is to route to the page the editor is editing, not the published one.
+ */
+function activePageSource(): { index: IndexedPage[]; load: PageSource["load"] } | null {
+  if (blocksOverrideStorage.getStore()) return null;
+  if (getRequestDraftOverride()) return null;
+  return (G.__deco.pageSource as { index: IndexedPage[]; load: PageSource["load"] }) ?? null;
+}
+
+/**
+ * Routing index over every routable page: `{ key, path }`, cheapest form.
+ *
+ * Prefers the registered page source; otherwise derives it from the in-memory
+ * blocks. Use this instead of `getAllPages()` anywhere the page BODY isn't
+ * needed (sitemap) — `getAllPages()` cannot see out-of-memory pages.
+ */
+export function getPageIndex(): PageIndexEntry[] {
+  const source = activePageSource();
+  if (source) return source.index.map(({ key, path }) => ({ key, path }));
+  return getAllPages()
+    .filter((p) => p.page.path)
+    .map(({ key, page }) => ({ key, path: page.path as string }));
+}
+
 export function getAllPages(): Array<{ key: string; page: DecoPage }> {
   const blocks = loadBlocks();
   const pages: Array<{
@@ -291,7 +374,7 @@ export function getAllPages(): Array<{ key: string; page: DecoPage }> {
   }> = [];
 
   for (const [key, block] of Object.entries(blocks)) {
-    if (!key.startsWith("pages-")) continue;
+    if (!key.startsWith(PAGE_BLOCK_PREFIX)) continue;
     const page = block as DecoPage;
     if (!page.sections) continue;
     if (!page.path) continue;
@@ -299,14 +382,7 @@ export function getAllPages(): Array<{ key: string; page: DecoPage }> {
     pages.push({ key, page, key2: pathSpecificityKey(page.path) });
   }
 
-  return pages
-    .sort((a, b) => {
-      for (let i = 0; i < a.key2.length; i++) {
-        if (a.key2[i] !== b.key2[i]) return b.key2[i] - a.key2[i];
-      }
-      return 0;
-    })
-    .map(({ key, page }) => ({ key, page }));
+  return pages.sort(comparePageSpecificity).map(({ key, page }) => ({ key, page }));
 }
 
 // Module-scoped (NOT `declare global`) ambient declaration for the
@@ -356,10 +432,7 @@ declare const URLPattern: {
  * `URLPattern` is native in browsers, workerd, Deno, and Node >= 24 (this
  * package's `engines` floor). Node 22 and older lack it.
  */
-export function matchPath(
-  pattern: string,
-  urlPath: string,
-): Record<string, string> | null {
+export function matchPath(pattern: string, urlPath: string): Record<string, string> | null {
   if (typeof URLPattern === "undefined") {
     throw new Error(
       "@decocms/blocks: this runtime has no URLPattern Web API, so CMS page " +
@@ -410,12 +483,31 @@ export function getSiteSeo(): {
   return seo as ReturnType<typeof getSiteSeo>;
 }
 
-export function findPageByPath(
+export async function findPageByPath(
   targetPath: string,
-): { page: DecoPage; params: Record<string, string>; blockKey: string } | null {
-  const allPages = getAllPages();
+): Promise<{ page: DecoPage; params: Record<string, string>; blockKey: string } | null> {
+  const source = activePageSource();
 
-  for (const { key, page } of allPages) {
+  if (source) {
+    // Index is pre-sorted by specificity, so the first pattern that matches is
+    // the winner — exactly one page body is ever fetched. A key present in the
+    // index but missing in KV (snapshot GC'd mid-flight) is skipped rather than
+    // 404'ing the request: the next-most-specific page is a better answer than
+    // none.
+    for (const { key, path } of source.index) {
+      const params = matchPath(path, targetPath);
+      if (params === null) continue;
+      const page = await source.load(key);
+      if (!page) {
+        console.warn(`[CMS] page ${key} matched ${targetPath} but is missing from the page source`);
+        continue;
+      }
+      return { page, params, blockKey: key };
+    }
+    return null;
+  }
+
+  for (const { key, page } of getAllPages()) {
     if (!page.path) continue;
     const params = matchPath(page.path, targetPath);
     if (params !== null) return { page, params, blockKey: key };

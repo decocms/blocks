@@ -41,6 +41,9 @@ KV DOWN / key absent       serve the bundled blocks.gen snapshot (this build's o
 | `index:revision:<id>` | DJB2 hex hash of that snapshot — polled for change detection | same |
 | `index:live` | the currently-live `<id>` (pointer) | deploy step, **post-activation** |
 | `index:deployments` | JSON `[{id, ts}]` (newest last) — GC bookkeeping | build-time sync |
+| `blocks:<id>` | **split layout**: the non-page blocks only (the resident half) | same, when `DECO_BLOCKS_SPLIT` is on |
+| `pageindex:<id>` | **split layout**: `[{key, path}]` routing index | same |
+| `page:<id>:<key>` | **split layout**: one page block each | same |
 
 `index:revision:<id>` **must** equal `computeRevision(blocks)`
 (`packages/blocks/src/cms/blockSource.ts`, DJB2 over `JSON.stringify`) — the
@@ -62,6 +65,52 @@ Requiring the explicit flag means simply binding a KV namespace can never
 silently flip a site onto the KV read/write path. To disable, unset
 `DECO_FAST_DEPLOY` (or set it to `"0"`).
 
+### `DECO_BLOCKS_SPLIT` — pages out of the worker's memory
+
+Fast deploy changes *where content comes from*; it does not reduce the isolate's
+memory, because `ensureBlocksHydrated` still loads the whole decofile and holds
+it for the isolate's life. `DECO_BLOCKS_SPLIT = "1"` is the separate opt-in that
+fixes that.
+
+Measured on montecarlo's real 10.2 MB / 1690-block decofile:
+
+| | resident heap |
+|---|---|
+| whole snapshot (default) | **17.24 MB** |
+| split (`blocks:<id>` + `pageindex:<id>`) | **1.58 MB** |
+| split, with the largest page in flight | 1.93 MB |
+
+It works because `pages-*` blocks are 1303 of those 1690 and carry 9.5 MB of the
+10.2 MB, while a full walk of the `__resolveType` graph finds **zero** references
+into a page block — pages are roots. So the 387 non-page blocks stay resident
+(the resolver reads them by key, synchronously, throughout `resolve.ts`) and
+exactly one page is fetched per request, in `findPageByPath`. Page reads use a
+`cacheTtl`, so the added hop is served from the colo cache rather than central KV.
+
+The flag gates **both sides and they must agree**:
+
+- **Read** (`kvHydration.ts`): off ⇒ the split keys are never probed. This makes
+  the flag a real kill switch, not just a seeding choice.
+- **Write** (admin publish + CI sync): off ⇒ the split keys are actively
+  **deleted**, not merely left unwritten. A stale `blocks:<id>` next to a fresh
+  `index:revision:<id>` would let a reader hydrate old content under a new
+  revision and then stop polling — silent stale content. Deleting makes "flag
+  off" mean exactly one thing.
+
+Flag on but a deployment synced by a writer that had it off ⇒ the reader falls
+back to `decofile:<id>`, so a mixed fleet keeps serving during rollout.
+
+Two other behaviors follow from the split and are worth knowing:
+
+- `findPageByPath` is **async**. Its three callers in `resolve.ts` were already
+  in async functions.
+- A request carrying a **preview override or draft pointer always scans memory**
+  instead of the index — those payloads carry their own `pages-*` blocks, and a
+  preview must route to the page being edited, not the published one.
+- An admin **delta publish** reads the whole decofile back from `decofile:<id>`
+  as its merge base. Merging a delta onto the page-less resident half would
+  publish a decofile with every page deleted.
+
 ```toml
 # wrangler.toml (per migrated site)
 [[kv_namespaces]]
@@ -70,6 +119,9 @@ id = "<namespace id>"
 
 [vars]
 DECO_FAST_DEPLOY = "1"
+# Opt in to the split layout (pages served from KV, not held in memory).
+# Omit it and the site behaves exactly as before.
+DECO_BLOCKS_SPLIT = "1"
 # DECO_DEPLOYMENT_ID is NOT set statically here — the deploy command passes it
 # per deploy (`wrangler deploy --var DECO_DEPLOYMENT_ID:$COMMIT_SHA`).
 ```
@@ -198,7 +250,9 @@ envelope to the site's `/.decofile` (worker write-through) + `/_cache/purge`. Th
 its OWN deployment's key (`decofile:<its id>`) — the live version — so a live edit lands on the
 same key the operator's content-push targets; last-write-wins on the djb2 revision.
 
-**Site prerequisites:** provision a KV namespace + `DECO_KV` binding + `DECO_FAST_DEPLOY=1`;
+**Site prerequisites:** provision a KV namespace + `DECO_KV` binding + `DECO_FAST_DEPLOY=1`
+(plus `DECO_BLOCKS_SPLIT=1` on both the Worker and the CI sync env to keep pages
+out of the isolate);
 set the build/deploy commands above (seed keyed content, pass `DECO_DEPLOYMENT_ID`, flip
 `index:live`); record `kvNamespaceId`/`fastDeployEnabled`/`siteOrigin` on the site's `Deco` CR;
 configure the repo's GitHub webhook (push on `main`) → operator `/webhooks/github`.

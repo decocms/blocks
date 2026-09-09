@@ -1,16 +1,18 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it, vi } from "vitest";
 import {
+  baseBlocksKey,
   computeRevision,
   DEPLOYMENTS_KEY,
   LIVE_KEY,
+  pageBlockKey,
+  pageIndexKey,
   revisionKey,
   snapshotKey,
 } from "@decocms/blocks/cms";
+import { describe, expect, it, vi } from "vitest";
 import { createKvRestClient, type KvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
-import { kvNamespaceIdFromToml, kvNamespaceIdFromWrangler } from "./lib/wrangler-config";
 import {
   buildSnapshot,
   recordAndGcDeployment,
@@ -18,11 +20,8 @@ import {
   verifySnapshotInKv,
   writeSnapshotToKv,
 } from "./lib/kv-snapshot";
-import {
-  changedBlockFiles,
-  changedBlockKeys,
-  purgePathsForChangedKeys,
-} from "./lib/sync-helpers";
+import { changedBlockFiles, changedBlockKeys, purgePathsForChangedKeys } from "./lib/sync-helpers";
+import { kvNamespaceIdFromToml, kvNamespaceIdFromWrangler } from "./lib/wrangler-config";
 
 const ID = "sha-abc123";
 
@@ -42,9 +41,7 @@ function makeClient(initial: Record<string, string> = {}) {
       return Promise.resolve();
     },
     list: (prefix) =>
-      Promise.resolve(
-        [...store.keys()].filter((k) => !prefix || k.startsWith(prefix)),
-      ),
+      Promise.resolve([...store.keys()].filter((k) => !prefix || k.startsWith(prefix))),
   };
   return { client, store, putOrder };
 }
@@ -140,7 +137,9 @@ describe("createKvRestClient", () => {
   const config = { accountId: "acc", namespaceId: "ns", token: "tok" };
 
   it("PUTs to the values endpoint with auth + body", async () => {
-    const fetchImpl = vi.fn(async () => new Response("", { status: 200 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(
+      async () => new Response("", { status: 200 }),
+    ) as unknown as typeof fetch;
     const client = createKvRestClient({ ...config, fetchImpl });
     const key = revisionKey(ID);
     await client.put(key, "rev1");
@@ -154,7 +153,9 @@ describe("createKvRestClient", () => {
   });
 
   it("DELETE tolerates a 404 (idempotent)", async () => {
-    const fetchImpl = vi.fn(async () => new Response("nope", { status: 404 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(
+      async () => new Response("nope", { status: 404 }),
+    ) as unknown as typeof fetch;
     const client = createKvRestClient({ ...config, fetchImpl });
     await expect(client.delete("gone")).resolves.toBeUndefined();
   });
@@ -179,19 +180,25 @@ describe("createKvRestClient", () => {
   });
 
   it("GET returns null on 404", async () => {
-    const fetchImpl = vi.fn(async () => new Response("nope", { status: 404 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(
+      async () => new Response("nope", { status: 404 }),
+    ) as unknown as typeof fetch;
     const client = createKvRestClient({ ...config, fetchImpl });
     await expect(client.get("missing")).resolves.toBeNull();
   });
 
   it("GET returns the body text on 200", async () => {
-    const fetchImpl = vi.fn(async () => new Response("hello", { status: 200 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(
+      async () => new Response("hello", { status: 200 }),
+    ) as unknown as typeof fetch;
     const client = createKvRestClient({ ...config, fetchImpl });
     await expect(client.get("k")).resolves.toBe("hello");
   });
 
   it("throws on a non-404 error status", async () => {
-    const fetchImpl = vi.fn(async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(
+      async () => new Response("boom", { status: 500 }),
+    ) as unknown as typeof fetch;
     const client = createKvRestClient({ ...config, fetchImpl });
     await expect(client.get("k")).rejects.toThrow(/500/);
   });
@@ -207,12 +214,61 @@ describe("kv-snapshot helpers", () => {
     expect(snap.count).toBe(2);
   });
 
+  it("buildSnapshot cuts pages out of the resident base", () => {
+    const withSections = {
+      Site: { name: "x" },
+      "pages-home": { path: "/", sections: [] },
+      // No `sections` ⇒ unroutable, so it ships as a page but stays out of the
+      // index — same filter getAllPages() has always applied.
+      "pages-broken": { path: "/broken" },
+    };
+    const snap = buildSnapshot(withSections);
+    expect(JSON.parse(snap.base)).toEqual({ Site: { name: "x" } });
+    expect(snap.index).toEqual([{ key: "pages-home", path: "/" }]);
+    expect(Object.keys(snap.pages).sort()).toEqual(["pages-broken", "pages-home"]);
+  });
+
   it("writes the keyed snapshot before revision, then verifies round-trip", async () => {
     const { client, putOrder } = makeClient();
     const snap = buildSnapshot(blocks);
     await writeSnapshotToKv(client, snap, ID);
 
+    // Split flag OFF (the default): unchanged pre-split layout.
     expect(putOrder).toEqual([snapshotKey(ID), revisionKey(ID)]);
+    await expect(verifySnapshotInKv(client, snap.revision, ID)).resolves.toEqual({ ok: true });
+  });
+
+  it("writes the split layout only when the flag is on, revision last", async () => {
+    const { client, putOrder } = makeClient();
+    const snap = buildSnapshot(blocks);
+    await writeSnapshotToKv(client, snap, ID, true);
+
+    // Pages first, then the base + index that reference them, then the whole
+    // snapshot, and the revision LAST — a poller acts only on the revision, so
+    // it can never see an index pointing at pages that haven't landed.
+    expect(putOrder).toEqual([
+      pageBlockKey(ID, "pages-home"),
+      baseBlocksKey(ID),
+      pageIndexKey(ID),
+      snapshotKey(ID),
+      revisionKey(ID),
+    ]);
+    await expect(verifySnapshotInKv(client, snap.revision, ID, true)).resolves.toEqual({
+      ok: true,
+    });
+  });
+
+  it("clears split keys when re-synced with the flag off", async () => {
+    const { client } = makeClient();
+    const snap = buildSnapshot(blocks);
+    await writeSnapshotToKv(client, snap, ID, true);
+    await writeSnapshotToKv(client, snap, ID, false);
+
+    // A stale base under a fresh revision is the one state that would make a
+    // reader serve old content and stop polling — so turning the flag off has
+    // to remove the split keys, not just stop writing them.
+    await expect(client.get(baseBlocksKey(ID))).resolves.toBeNull();
+    await expect(client.get(pageIndexKey(ID))).resolves.toBeNull();
     await expect(verifySnapshotInKv(client, snap.revision, ID)).resolves.toEqual({ ok: true });
   });
 

@@ -2143,7 +2143,7 @@ async function resolveDecoPageImpl(
 ): Promise<DecoPageResult | null> {
   ensureInitialized();
 
-  const match = findPageByPath(targetPath);
+  const match = await findPageByPath(targetPath);
   if (!match) {
     console.warn(`[CMS] No page found for path: ${targetPath}`);
     return null;
@@ -2420,7 +2420,7 @@ export async function resolveDeferredSection(
   const ctx: MatcherContext = { ...matcherCtx, path: pagePath };
   // Recover routeParams from the page match so nested `requestToParam`
   // resolvers (e.g. `:slug` on PDPs) return the right value.
-  const match = findPageByPath(pagePath);
+  const match = await findPageByPath(pagePath);
   const rctx: ResolveContext = {
     routeParams: match?.params,
     matcherCtx: ctx,
@@ -2484,7 +2484,7 @@ export async function reExtractRawProps(
 ): Promise<Record<string, unknown> | null> {
   ensureInitialized();
 
-  const match = findPageByPath(pagePath);
+  const match = await findPageByPath(pagePath);
   if (!match) return null;
 
   const { page } = match;

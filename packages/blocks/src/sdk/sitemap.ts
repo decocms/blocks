@@ -29,7 +29,7 @@
  * ```
  */
 
-import { getAllPages, loadBlocks } from "../cms/loader";
+import { getPageIndex, loadBlocks } from "../cms/loader";
 
 // -------------------------------------------------------------------------
 // Types
@@ -69,7 +69,9 @@ export interface CMSSitemapOptions {
  * path patterns (excluding wildcard-only patterns like `/*`).
  */
 export function getCMSSitemapEntries(origin: string, options?: CMSSitemapOptions): SitemapEntry[] {
-  const pages = getAllPages();
+  // Index only — a sitemap needs paths, never page bodies. Reading bodies here
+  // would pull every page back into the isolate (see PageSource in loader.ts).
+  const pages = getPageIndex();
   const entries: SitemapEntry[] = [];
   const today = new Date().toISOString().split("T")[0];
 
@@ -78,13 +80,13 @@ export function getCMSSitemapEntries(origin: string, options?: CMSSitemapOptions
   const homeChangefreq = options?.homeChangefreq ?? "daily";
   const homePriority = options?.homePriority ?? 1.0;
 
-  for (const { page } of pages) {
-    if (!page.path) continue;
+  for (const { path } of pages) {
+    if (!path) continue;
 
-    if (page.path.includes("*") || page.path.includes(":")) continue;
+    if (path.includes("*") || path.includes(":")) continue;
 
-    const isHome = page.path === "/";
-    const loc = `${origin}${isHome ? "" : page.path}`;
+    const isHome = path === "/";
+    const loc = `${origin}${isHome ? "" : path}`;
     entries.push({
       loc: loc || origin,
       lastmod: today,
