@@ -212,7 +212,7 @@ export interface SegmentKey {
  * (not pulled into the client Vite build).
  */
 export interface AdminHandlers {
-  handleMeta: (request: Request) => Response;
+  handleMeta: (request: Request) => Response | Promise<Response>;
   handleDecofileRead: () => Response;
   handleDecofileReload: (request: Request) => Response | Promise<Response>;
   handleRender: (request: Request) => Response | Promise<Response>;
