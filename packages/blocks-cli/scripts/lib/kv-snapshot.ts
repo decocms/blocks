@@ -12,9 +12,12 @@ import {
   computeRevision,
   DEPLOYMENTS_KEY,
   LIVE_KEY,
+  metaEtagKey,
+  metaKey,
   revisionKey,
   snapshotKey,
 } from "@decocms/blocks/cms";
+import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import type { KvRestClient } from "./cf-kv-rest";
 
 export interface Snapshot {
@@ -49,6 +52,45 @@ export async function writeSnapshotToKv(
 ): Promise<void> {
   await client.put(snapshotKey(id), snap.snapshot);
   await client.put(revisionKey(id), snap.revision);
+}
+
+/**
+ * Write the admin JSON Schema (`meta.gen.json`) for deployment `id`, so
+ * `GET /live/_meta` can stream it out of KV instead of the worker carrying it
+ * in-bundle (~40 MB of isolate heap on a large site).
+ *
+ * Two details the read path depends on:
+ *
+ *  - The ETag is computed HERE, over the raw schema, and stored under its own
+ *    key. `handleMeta` can then answer `If-None-Match` — the common case, admin
+ *    polls this endpoint — with one small read instead of pulling ~10 MB.
+ *  - The same ETag is merged into the stored payload as an `etag` field,
+ *    because the wire format is `{...schema, etag}` and the read path streams
+ *    the bytes through verbatim rather than re-serialising them.
+ *
+ * Payload first, then the ETag key, so a reader never sees a fresh ETag
+ * pointing at a stale (or missing) payload — same ordering rule as
+ * `writeSnapshotToKv`.
+ */
+export async function writeMetaToKv(
+  client: KvRestClient,
+  rawSchema: string,
+  id: string,
+): Promise<string> {
+  const etag = `"meta-${djb2Hex(rawSchema)}"`;
+  const trimmed = rawSchema.trimEnd();
+  if (!trimmed.endsWith("}")) {
+    throw new Error("meta.gen.json is not a JSON object — cannot merge the etag field");
+  }
+  // Textual merge rather than parse+stringify: the schema is ~10 MB and this
+  // runs in CI, but more importantly a round-trip through JSON.parse would
+  // reorder nothing yet cost a needless 3x memory spike.
+  const separator = trimmed === "{}" ? "" : ",";
+  const payload = `${trimmed.slice(0, -1)}${separator}"etag":${JSON.stringify(etag)}}`;
+
+  await client.put(metaKey(id), payload);
+  await client.put(metaEtagKey(id), etag);
+  return etag;
 }
 
 /** Read both keys for deployment `id` back and confirm the revision matches. */
@@ -121,6 +163,8 @@ export async function recordAndGcDeployment(
       }
       await client.delete(snapshotKey(entry.id));
       await client.delete(revisionKey(entry.id));
+      await client.delete(metaKey(entry.id));
+      await client.delete(metaEtagKey(entry.id));
       pruned.push(entry.id);
     }
     await client.put(DEPLOYMENTS_KEY, JSON.stringify([...keptOld, ...recent]));

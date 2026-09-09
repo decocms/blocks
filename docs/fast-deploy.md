@@ -41,6 +41,8 @@ KV DOWN / key absent       serve the bundled blocks.gen snapshot (this build's o
 | `index:revision:<id>` | DJB2 hex hash of that snapshot — polled for change detection | same |
 | `index:live` | the currently-live `<id>` (pointer) | deploy step, **post-activation** |
 | `index:deployments` | JSON `[{id, ts}]` (newest last) — GC bookkeeping | build-time sync |
+| `meta:<id>` | admin JSON Schema (`meta.gen`) for deployment `<id>`, with the ETag merged in as an `etag` field | build-time sync |
+| `meta:etag:<id>` | precomputed ETag of that schema | same |
 
 `index:revision:<id>` **must** equal `computeRevision(blocks)`
 (`packages/blocks/src/cms/blockSource.ts`, DJB2 over `JSON.stringify`) — the
@@ -49,6 +51,48 @@ a hydrating isolate computes a matching revision and the poller doesn't loop. Ke
 builders (`snapshotKey`/`revisionKey`) + `LIVE_KEY`/`DEPLOYMENTS_KEY` +
 `getDeploymentId` are exported from `@decocms/blocks/cms` as the single source of
 truth for the key layout.
+
+## The admin schema (`meta.gen`) — the other 40 MB
+
+The decofile is not the only multi-megabyte artefact in the server bundle. On a
+1690-block site the admin JSON Schema costs **~40 MB of a 128 MB isolate**, and
+nothing on the render path reads it — only `GET /live/_meta` does.
+
+Why 40 MB for a 10.6 MB chunk: V8 keeps the module's source text *and*
+materialises the `JSON.parse` argument as a second, independent string, both
+two-byte because the content is accented. Measured on `montecarlo-tanstack`:
+
+| | warm heap |
+|---|---|
+| `fastDeploy: true` only | 70.5 MB |
+| \+ `metaFromKV: true` | **29.5 MB** |
+
+Two things matter about the read path, and both are load-bearing:
+
+- **Nothing parses the payload.** `handleMeta` does
+  `kv.get(metaKey(id), { type: "stream" })` and hands the `ReadableStream`
+  straight to the `Response`. Materialising it — even as a string — would
+  reintroduce most of what this exists to avoid.
+- **The ETag is precomputed at build**, under its own small key. Admin polls
+  this endpoint, so the common case is `If-None-Match`, and that must not cost a
+  10 MB read. It also *has* to be precomputed: the old `getEtag()` hashed
+  `JSON.stringify(schema)`, which is impossible once the schema is not in the
+  isolate. The build merges the same value into the payload's `etag` field so
+  the wire format (`{...schema, etag}`) survives a byte-for-byte passthrough.
+
+Enable with `decoVitePlugin({ fastDeploy: true, metaFromKV: true })`. The two
+flags are independent — different artefacts, different seeds.
+
+**Prerequisite:** `meta:<id>` + `meta:etag:<id>` seeded for the deployment.
+`deco-sync-blocks-to-kv --write` does this automatically whenever it finds
+`src/server/admin/meta.gen.json` or `.deco/meta.gen.json` (`--no-meta` opts
+out), so in practice the seed lands well before anyone flips the plugin flag.
+
+Unlike the decofile stub, getting this wrong does **not** take the site down:
+with no keys, `handleMeta` falls back to the bundled schema; with the bundle
+stubbed and no keys it answers 503 and only the admin loses the schema. The
+read side is registered automatically by `createDecoWorkerEntry` — there is no
+per-site wiring step to forget.
 
 ## Feature flag
 

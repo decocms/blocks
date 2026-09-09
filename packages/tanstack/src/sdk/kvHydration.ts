@@ -73,6 +73,19 @@ function getKV(env: Env): KVNamespace | null {
 }
 
 /**
+ * Resolve the KV namespace used to serve the admin schema (`meta:<id>`).
+ *
+ * Deliberately NOT gated on `DECO_FAST_DEPLOY`: the schema and the decofile are
+ * independent artefacts with independent seeds, and a site may well want one
+ * from KV and not the other. The real switch is whether the keys exist —
+ * `handleMeta` falls back to the bundled schema when they don't, so a bound-but-
+ * unseeded KV degrades to today's behaviour instead of 503ing.
+ */
+export function getMetaKV(env: Env): KVNamespace | null {
+  return getKV(env);
+}
+
+/**
  * Fast-deploy is active only when BOTH hold: `DECO_FAST_DEPLOY` is set to "1"
  * (or "true") — an explicit, per-site opt-in — AND the `DECO_KV` binding is
  * present. Either missing ⇒ bundled-snapshot behavior, identical to

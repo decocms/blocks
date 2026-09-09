@@ -191,9 +191,23 @@ export function generateSchemaArgs(siteName) {
  *   empty site — see `kvHydration.ts`. Only enable alongside
  *   `DECO_FAST_DEPLOY=1` + a `DECO_KV` binding + a deploy pipeline that seeds
  *   `decofile:<deployment-id>` BEFORE the new version activates.
+ * @param {boolean} [opts.metaFromKV=false] Stub `meta.gen` out of the SERVER
+ *   bundle, so `GET /live/_meta` streams the admin schema from KV instead.
+ *
+ *   Independent of `fastDeploy` — different artefact, different seed — but the
+ *   same shape of win, and a bigger one once the decofile is already out: on a
+ *   1690-block site the schema costs ~40 MB of a 128 MB isolate (20 MB of
+ *   module source plus 20 MB for the `JSON.parse` literal, each stored two-byte
+ *   because the content is accented). Nothing on the render path reads it.
+ *
+ *   Opt-in because it removes the in-bundle fallback for the admin protocol.
+ *   Only enable alongside a deploy pipeline that seeds `meta:<deployment-id>`
+ *   and `meta:etag:<deployment-id>` — `deco-sync-blocks-to-kv --write` does
+ *   both. Without the seed `/live/_meta` answers 503 (the site itself still
+ *   serves normally; only the admin loses the schema).
  * @returns {import("vite").PluginOption}
  */
-export function decoVitePlugin({ fastDeploy = false } = {}) {
+export function decoVitePlugin({ fastDeploy = false, metaFromKV = false } = {}) {
   // Set from the `config` hook (which Vite always runs before `load`). The
   // fastDeploy stub must apply to production builds ONLY: `vite dev` has no KV
   // to hydrate from, and the dev bootstrap below deliberately relies on reading
@@ -210,6 +224,19 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
       // SSR-only stubs — must be checked first since the client guard below
       // returns undefined for everything that hasn't matched yet on SSR.
       if (options?.ssr && SSR_STUBS[id]) return SSR_STUBS[id];
+      // meta.gen on the SERVER: stubbed only under `metaFromKV`, and only for
+      // production builds — `vite dev` has no KV to read from and the daemon
+      // relies on the real module being there. Same reasoning as the fastDeploy
+      // blocks.gen stub in `load` below.
+      if (
+        options?.ssr &&
+        metaFromKV &&
+        isBuild &&
+        importer &&
+        (id.endsWith("meta.gen.json") || id.endsWith("meta.gen.ts"))
+      ) {
+        return "\0stub:meta-gen";
+      }
       // Server builds keep the real modules.
       if (options?.ssr) return undefined;
       // Bare-specifier exact-match stubs (react-dom/server, node:stream, etc.).

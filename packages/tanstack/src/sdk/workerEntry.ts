@@ -76,6 +76,7 @@ import {
   type OtelOptions,
 } from "@decocms/blocks/sdk/otel";
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
+import { setMetaKVGetter } from "@decocms/blocks-admin";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
@@ -95,7 +96,7 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
-import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
+import { ensureBlocksHydrated, getMetaKV, maybePollRevision } from "./kvHydration";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
 
@@ -995,6 +996,13 @@ export function createDecoWorkerEntry(
     ctx: WorkerExecutionContext,
   ): Promise<Response>;
 } {
+  // Let `GET /live/_meta` stream the admin schema out of KV instead of the
+  // isolate holding it. Wired here rather than exposed as a setup call the site
+  // must remember: every tanstack site goes through this entry, and a getter
+  // nobody calls is the same bug as no getter at all. Inert without the keys —
+  // handleMeta falls back to the bundled schema. See setMetaKVGetter.
+  setMetaKVGetter(getMetaKV);
+
   const {
     admin,
     detectProfile: customDetect,
