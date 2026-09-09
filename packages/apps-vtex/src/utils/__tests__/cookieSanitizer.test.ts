@@ -19,7 +19,7 @@ describe("sanitizeOutboundCookieHeader", () => {
 		expect(cookies).toBe("checkout.vtex.com=__ofid=abc; vtex_segment=eyJ0b2tlbiI6IjEyMyJ9");
 	});
 
-	it("drops a cookie whose value contains non-ASCII bytes — the casaevideo repro", () => {
+	it("drops a cookie whose value contains non-ASCII bytes — a production VTEX storefront repro", () => {
 		// `Ã¡` is the UTF-8 encoding of `á` interpreted as Latin-1 — bytes 0xC3 0xA1.
 		// VTEX's janus gateway returns 503 deterministically when this reaches it.
 		const raw = "checkout.vtex.com=__ofid=abc; category_click=EletroportÃ¡teis; vtex_segment=ok";

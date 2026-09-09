@@ -6,8 +6,8 @@
  * Subset of `deco-cx/apps/magento/utils/transform.ts` — only the
  * functions the PDP loader needs (toProduct, toOffer, toImages, toURL,
  * toBreadcrumbList, toSeo). The GraphQL-side helpers (toProductGraphQL,
- * toAggOfferGraphQL, toProductListingPageGraphQL, …) and the Granado-
- * specific helpers (toReviewAmasty, toLiveloPoints) are intentionally
+ * toAggOfferGraphQL, toProductListingPageGraphQL, …) and the
+ * storefront-specific helpers (toReviewAmasty, toLiveloPoints) are intentionally
  * excluded — they land in separate follow-up PRs alongside the loaders
  * that consume them.
  *

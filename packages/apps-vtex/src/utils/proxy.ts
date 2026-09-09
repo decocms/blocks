@@ -259,11 +259,11 @@ export async function proxyToVtex(request: Request, options?: VtexProxyOptions):
 // ---------------------------------------------------------------------------
 
 export interface VtexCheckoutProxyConfig {
-	/** VTEX account name (e.g. "casaevideonewio"). */
+	/** VTEX account name (e.g. "acme"). */
 	account: string;
 
 	/**
-	 * Store's public checkout domain (e.g. "secure.casaevideo.com.br").
+	 * Store's public checkout domain (e.g. "secure.acme.com.br").
 	 * Checkout UI, /files/, and /_v/private/graphql are routed here.
 	 */
 	checkoutOrigin: string;
@@ -372,8 +372,8 @@ function rewriteSetCookieDomain(from: Headers, to: Headers, toHostname: string) 
  * @example
  * ```ts
  * const vtexProxy = createVtexCheckoutProxy({
- *   account: "casaevideonewio",
- *   checkoutOrigin: "secure.casaevideo.com.br",
+ *   account: "acme",
+ *   checkoutOrigin: "secure.acme.com.br",
  *   expireCookiesOnPaths: [
  *     { pathPrefix: "/api/vtexid/pub/logout", cookies: ["checkout.vtex.com"] },
  *   ],

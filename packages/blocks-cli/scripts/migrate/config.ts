@@ -3,7 +3,7 @@
  *
  * Looks for `.deco-migrate.config.json` next to the source root. The file
  * is optional — without it the script falls back to a baked-in default set
- * of section-convention names that work for `casaevideo` and most other
+ * of section-convention names that work for `acme` and most other
  * Deco/VTEX sites that derived from the same template.
  *
  * The defaults are kept here (not in `transforms/section-conventions.ts`)
@@ -61,7 +61,7 @@ export interface SectionConventionSets {
 }
 
 /**
- * Built-in defaults. Originally extracted from `casaevideo` migration —
+ * Built-in defaults. Originally extracted from a production migration —
  * these names are common across Deco/VTEX storefronts that share the
  * lineage. Sites that don't have these sections are unaffected (the
  * matcher just never fires).

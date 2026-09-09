@@ -312,7 +312,7 @@ interface WorkerHandler {
 // into Copy A's `otlpMeter` while the per-request `recordRequestMetric`
 // closure reads from Copy B's empty `otlpMeter`. Net effect in prod:
 // `bootObservability` runs (we observed the very first `POST /v1/metrics`
-// from miess-tanstack), but every subsequent request's `flush()` finds an
+// from a production storefront), but every subsequent request's `flush()` finds an
 // empty buffer because the meter the framework writes into is a different
 // instance from the one the exporter drains.
 //

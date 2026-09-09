@@ -13,7 +13,7 @@ the original deco-cx/apps repo and need adaptation passes (Deno → Node,
 ctx-based to client-based state access, cookie helpers from
 `@decocms/start/sdk/cookie`).
 
-A real-world consumer (deco-sites/granadobr-tanstack) is wiring magento
+A real-world consumer (a production Magento storefront) is wiring magento
 in-site today using a thin adapter that wraps the legacy `magento/mod.ts`
 shape. Their adapter is the migration target — once this package covers
 the surface area they need, the in-site copy goes away.
@@ -54,7 +54,7 @@ above is a hard requirement of this port.
 
 ## Why a stub now
 
-The deco-sites/granadobr-tanstack migration hit a HIGH parity finding:
+A production Magento storefront's migration hit a HIGH parity finding:
 
 ```
 invoke(magento/loaders/features) failed: handler not found

@@ -299,7 +299,7 @@ See `SKILL.md`'s "Lazy Section Tracking" section for how to use
 
 ```typescript
 const SITE_CONFIG = {
-    baseUrl: 'https://localhost--lojastorra-2.deco.site',
+    baseUrl: 'https://localhost--acme.deco.site',
     plpPath: '/feminino',
     fallbackPdpPath: '/macaquinho-feminino-curto-berry-16171000788507/p',
     debugParam: '?__d',
@@ -320,11 +320,11 @@ const SITE_CONFIG = {
 }
 ```
 
-### Brazilian Electronics Store (Casa e Video)
+### Brazilian Electronics Store (example)
 
 ```typescript
 const SITE_CONFIG = {
-    baseUrl: 'https://localhost--casaevideo.deco.site',
+    baseUrl: 'https://localhost--acme.deco.site',
     // Use non-electronics PLP to avoid voltage selection
     plpPath: '/utilidades-domesticas',
     // Simple product without voltage/size variants

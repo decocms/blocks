@@ -45,9 +45,9 @@ describe("generateCiFiles", () => {
     expect(f[".github/workflows/ci.yml"]).toContain('BUN_VERSION: "1.3.5"');
   });
 
-  it("is de-projectized — no colombo migration-debt refs", () => {
+  it("is de-projectized — no site-specific migration-debt refs", () => {
     const blob = Object.values(files).join("\n");
-    expect(blob).not.toMatch(/oficina/i);
+    expect(blob).not.toMatch(/sitea|siteb/i);
     expect(blob).not.toMatch(/#7[89]|#81/); // issues #78/#79/#81
     expect(blob).not.toMatch(/AGENTS\.md/);
   });
@@ -156,7 +156,7 @@ describe("generateSyncBlocksBotYml", () => {
   });
 
   it("is de-projectized — no real site/customer names", () => {
-    expect(yml).not.toMatch(/oficina|miess|colombo/i);
+    expect(yml).not.toMatch(/sitea|acme|siteb/i);
   });
 
   it("runs the site's own installed CLI, or a pinned one when given", () => {

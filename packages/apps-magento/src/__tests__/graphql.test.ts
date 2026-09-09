@@ -148,15 +148,15 @@ describe("transformFilterGraphQL — merge order", () => {
 
 describe("formatUrlSuffix", () => {
 	it("strips a single leading slash", () => {
-		expect(formatUrlSuffix("/granado/")).toBe("granado/");
+		expect(formatUrlSuffix("/acme/")).toBe("acme/");
 	});
 
 	it("appends trailing slash when missing", () => {
-		expect(formatUrlSuffix("granado")).toBe("granado/");
+		expect(formatUrlSuffix("acme")).toBe("acme/");
 	});
 
 	it("leaves trailing slash alone", () => {
-		expect(formatUrlSuffix("granado/")).toBe("granado/");
+		expect(formatUrlSuffix("acme/")).toBe("acme/");
 	});
 });
 

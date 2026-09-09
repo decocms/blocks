@@ -46,6 +46,6 @@ registerSectionLoaders({
 `withSectionLoader` MUST be last — it sees the mixin-enriched props and
 returns the merged result. The `@decocms/start@2.28+` migrator emits
 this layout automatically; sites migrated with older versions need a
-manual rewire (16 sections in als-tanstack — symptom was empty pages
+manual rewire (16 sections on one production storefront — symptom was empty pages
 and `Cannot read properties of undefined` cascades). Full pattern in
 [vtex-commerce.md](vtex-commerce.md).

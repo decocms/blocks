@@ -21,8 +21,8 @@ A new Deco storefront migration from Fresh/Deno → TanStack Start should be:
 3. **Backed by skills** (playbook + references) that distinguish what the
    script automates from what's still on the engineer.
 
-casaevideo-storefront is the **production reference**. We do not change
-casaevideo's repo. Patterns it proved are promoted upward into the packages
+The reference site is the **production reference**. We do not change
+the reference site's repo. Patterns it proved are promoted upward into the packages
 so the next site doesn't reinvent them.
 
 ---
@@ -43,8 +43,8 @@ so the next site doesn't reinvent them.
 |------|------|--------------|
 | `decocms/deco-start` | Framework package + migration scripts + skills | Feature branches only, PR review |
 | `decocms/apps-start` | VTEX/commerce loaders, hooks, utils | Feature branches only, PR review |
-| `decocms/casaevideo-storefront` | Production reference — **read only** for this effort | Untouched |
-| `decocms/baggagio-tanstack` | Ongoing migration — used as smoke-test target | Branch only if needed for verification |
+| the reference site | Production reference — **read only** for this effort | Untouched |
+| the second site | Ongoing migration — used as smoke-test target | Branch only if needed for verification |
 
 ---
 
@@ -58,21 +58,21 @@ this plan.
 
 | # | Item | Sites affected | Proper home | Risk |
 |---|------|---------------|-------------|------|
-| A1 | `src/lib/{vtex-client,vtex-fetch,vtex-id,vtex-segment,vtex-intelligent-search,graphql-utils,http-utils,filter-navigate,fetch-utils}.ts` — byte-identical migration shims | casaevideo + baggagio | `@decocms/apps/vtex/utils/*` (already exists) | Low — pure stubs |
-| A2 | `src/runtime.ts` — invoke proxy, byte-identical 46 lines | casaevideo + baggagio | `@decocms/start/sdk/runtime` | Trivial |
-| A3 | `src/cms/{cmsRouteWithGlobals,site-globals,useSiteGlobals}.ts` — workaround for upstream gaps | baggagio | `@decocms/start/routes/withSiteGlobals` (opt-in) + bugfix in `buildPageSeo` | Medium — see B1/B2 |
-| A4 | `withIsSimilarTo` PDP enrichment, `cachedAutocomplete`, VTEX auth Set-Cookie domain stripping | casaevideo (manual wiring) | `createCachedPDPLoader({ similars: true })`, canonical autocomplete in `createVtexCommerceLoaders()`, `vtexAuthFromRequest` wrapper in apps | Low — apps already exports building blocks |
+| A1 | `src/lib/{vtex-client,vtex-fetch,vtex-id,vtex-segment,vtex-intelligent-search,graphql-utils,http-utils,filter-navigate,fetch-utils}.ts` — byte-identical migration shims | the reference site + the second site | `@decocms/apps/vtex/utils/*` (already exists) | Low — pure stubs |
+| A2 | `src/runtime.ts` — invoke proxy, byte-identical 46 lines | the reference site + the second site | `@decocms/start/sdk/runtime` | Trivial |
+| A3 | `src/cms/{cmsRouteWithGlobals,site-globals,useSiteGlobals}.ts` — workaround for upstream gaps | the second site | `@decocms/start/routes/withSiteGlobals` (opt-in) + bugfix in `buildPageSeo` | Medium — see B1/B2 |
+| A4 | `withIsSimilarTo` PDP enrichment, `cachedAutocomplete`, VTEX auth Set-Cookie domain stripping | the reference site (manual wiring) | `createCachedPDPLoader({ similars: true })`, canonical autocomplete in `createVtexCommerceLoaders()`, `vtexAuthFromRequest` wrapper in apps | Low — apps already exports building blocks |
 | A5 | `useCart.ts` near-identical (~98%) | both | `createUseCart(invoke)` factory in `@decocms/apps/vtex/hooks` | Medium |
 | A6 | `vite.config.ts` boilerplate (manualChunks, dedupe scope, meta.gen stub plugin) | both | absorb into `decoVitePlugin()` / `@decocms/start/vite` preset | Low |
 | A7 | `src/sdk/signal.ts` site-level re-export | both | already in `@decocms/start/sdk/signal` — just delete | Trivial |
-| A8 | `vite:preloadError` reload handler in `router.tsx` | casaevideo | `@decocms/start/sdk/router` helper export | Low |
+| A8 | `vite:preloadError` reload handler in `router.tsx` | the reference site | `@decocms/start/sdk/router` helper export | Low |
 
-### B. Framework gaps (live on as workarounds in baggagio)
+### B. Framework gaps (live on as workarounds in the second site)
 
 | # | Gap | Location | Fix strategy |
 |---|-----|----------|--------------|
 | B1 | `buildPageSeo` returns early when page has no `seo` section → `siteSeo.titleTemplate` never applied | `@decocms/start` | **Bugfix** — apply template even when page has no seo. No flag. |
-| B2 | `@decocms/start@2.0.x` only consumes `site.seo`; drops `site.theme`/`site.global`/`site.pageSections` | `@decocms/start` | **Opt-in helper** first (`withSiteGlobals`), promote to default once verified safe vs casaevideo CMS shape |
+| B2 | `@decocms/start@2.0.x` only consumes `site.seo`; drops `site.theme`/`site.global`/`site.pageSections` | `@decocms/start` | **Opt-in helper** first (`withSiteGlobals`), promote to default once verified safe vs the reference site CMS shape |
 
 ### C. Migration script gaps
 
@@ -103,9 +103,9 @@ this plan.
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-04-30 | casaevideo stays untouched | It's the production reference — patterns flow up into packages, not the other way |
+| 2026-04-30 | the reference site stays untouched | It's the production reference — patterns flow up into packages, not the other way |
 | 2026-04-30 | Order of work: layers → script → skills | Each unlocks the next |
-| 2026-04-30 | B2 lands as opt-in helper first (A2 strategy), promote to default later | Need to verify casaevideo CMS shape compatibility before changing default behavior |
+| 2026-04-30 | B2 lands as opt-in helper first (A2 strategy), promote to default later | Need to verify the reference site CMS shape compatibility before changing default behavior |
 | 2026-04-30 | B1 (buildPageSeo bugfix) lands unconditionally | Pure bugfix, no behavior change for pages with seo section |
 | 2026-04-30 | Site-config strategy: per-site `deco-migrate.config.ts` + derive from `.deco/blocks/` | Reduces hardcoding without forcing engineers to fill long config |
 | 2026-04-30 | Skills home: `.agents/` canonical | Maps cleanly to script-based workflow |
@@ -117,10 +117,10 @@ this plan.
 | 2026-05-01 | **D3 — Stub generation: throw at runtime (Option C)** | Migration-time stubs throw with a clear pointer to the canonical replacement instead of silently identity-casting. Forces audit `--fix` to cover swap cases (no permanent detect-only state) and skills to keep up with stub generation. |
 | 2026-05-01 | **D4 — Site-local apps: local by default, promote at 3** | Site-specific apps live in `src/apps/local/` until ≥3 sites use them, then promote to `@decocms/apps`. |
 | 2026-05-01 | **D5 — Failed migrations: rm -rf and re-run** | No `--restart` mode. Half-migrated sites are throwaways. Failure modes get documented in skills, not encoded as escape hatches. |
-| 2026-05-07 | **D6 — Deploy / preview / secrets pipelines: centralize in `deco-start`** | At 6 sites the "1-minute copy" of `deploy.yml` / `preview.yml` / `wrangler.jsonc` had already produced unintended drift (lebiscuit missing 2 workflows, miess missing `account_id`, casaevideo's `loadtest:tail` worker name out of sync with its wrangler config). All sites now consume reusable workflows from `decocms/deco-start@v2` and a per-site registry under [`deploy/sites/<repo>.jsonc`](./deploy/) deep-merged on top of [`deploy/wrangler-template.jsonc`](./deploy/wrangler-template.jsonc) at deploy time. Customer repos hold only ~5-line caller workflows; `wrangler.jsonc` is generated and gitignored. The repo→worker binding is the trust boundary that prevents one site's commits from misrouting onto another site's worker (the central workflow ignores caller `inputs:` for identity and derives the site name from `${{ github.repository }}`). See [`deploy/README.md`](./deploy/README.md) for the contract. |
-| 2026-05-07 | **D6.1 — Cloudflare credentials never leave `deco-start`** | Same-day refinement of D6 after the first central deploy on `baggagio-tanstack` failed with `Secret CLOUDFLARE_API_TOKEN is required, but not provided while calling`. The original D6 design used `secrets: inherit` from the storefront stub and required `CLOUDFLARE_*` to live in the `deco-sites` org, which broke the principle that *the only secrets a storefront repo holds are the secrets that go into wrangler secrets, not the ones used to deploy*. First-pass refinement: the central `deploy.yml` / `preview.yml` / `sync-secrets.yml` jobs declared `environment: production` to try to make `${{ secrets.CLOUDFLARE_* }}` resolve from `decocms/deco-start`'s `production` Environment. **Found broken empirically on 2026-05-07** — the deployment registers in the *caller* repo, not the called workflow's repo, so the environment lookup uses the caller's `production` env (auto-created with no secrets). Superseded by D6.2 the same evening. |
-| 2026-05-07 | **D6.2 — App-mediated dispatch + no per-site registry (supersedes D6 + D6.1)** | After D6.1's `environment:` mechanism was empirically shown not to work cross-repo, the architecture pivoted: a `decocms-deployer` GitHub App is installed on `decocms/deco-start` (`actions:write`) and on each storefront repo (`contents:read`, optionally `pull-requests:write`). The storefront caller stub mints a short-lived App-installation token and calls `gh workflow run deploy.yml --repo decocms/deco-start --ref v3 -f site_owner=… -f site_name=…`. The central workflow runs in `decocms/deco-start`'s context, so `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` are ordinary repo secrets. For runtime `SECRET_*` values, each storefront has a `<site_name>-secrets` GitHub Environment in `decocms/deco-start` (S1 design); `sync-secrets.yml` binds to that environment and pushes to `wrangler secret put`. The per-site registry under `deploy/sites/<repo>.jsonc` was dropped entirely (Pure C): worker name = repo basename by convention; the App being installed on the storefront repo is the deploy authorization gate; rare per-worker derived fields (like AE dataset name) use `$WORKER_*` substitution tokens in the template. Force-rollback is impossible for production deploys because the central workflow ignores caller-supplied `site_sha` and resolves the storefront's current default-branch HEAD itself. See [`deploy/README.md`](./deploy/README.md) for the full trust model. **Operational migrations required by Pure C:** `miess-01-tanstack` repo's worker shifts from `miess-tanstack` to `miess-01-tanstack` (CF-side cutover); `lebiscuit-tanstack` AE dataset shifts from `deco_metrics_lebiscuit` to `deco_metrics_lebiscuit_tanstack` (orphans old data). |
-| 2026-05-07 | **D6.3 — Revert D6/D6.1/D6.2; deploys move to Cloudflare Workers Builds** | The whole D6 family (centralized GitHub Actions reusable workflows + `decocms-deployer` GitHub App + per-storefront GitHub Environments + central `deploy/wrangler-template.jsonc` + `deco-wrangler` CLI + per-site caller stubs) is being **reverted**. Trigger: GitHub Free orgs do not propagate org-level secrets to private repos, which forced the App private key to live as a per-storefront repo secret in every storefront — that key gives the holder the ability to mint installation tokens that can trigger workflows on `decocms/deco-start`, which in turn have the only Cloudflare credentials in the system. Per-repo distribution + rotation of that key across N customer storefronts didn't scale and concentrated blast radius on one credential. **Replacement (chosen, to be detailed in a follow-up D-record once shipped):** [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) owns the deploy/preview pipelines per-worker. Verified empirically on `baggagio-tanstack` 2026-05-07: a malicious `wrangler.jsonc` `name` field pointing at a different worker (`americanas-tanstack`) is **ignored** by CF Builds — the deploy lands on the connected worker (`baggagio-tanstack`), CF surfaces a warning banner in the dashboard, and CF auto-opens a PR to fix the config (deco-sites/baggagio-tanstack#34). The dashboard repo<->worker connection is the source of truth; the in-repo config is treated as a secondary input. Per-storefront wiring (one CF dashboard click per worker) is acceptable at our scale; revisit when CF's [git-integration enable API](https://github.com/cloudflare/workers-sdk/issues/12058) lands. The `deco-build` CLI (regenerates `wrangler.jsonc` bindings from a central template) and runtime-secrets management remain to be designed in a separate PR. |
+| 2026-05-07 | **D6 — Deploy / preview / secrets pipelines: centralize in `deco-start`** | At 6 sites the "1-minute copy" of `deploy.yml` / `preview.yml` / `wrangler.jsonc` had already produced unintended drift (one site missing 2 workflows, another missing `account_id`, another's `loadtest:tail` worker name out of sync with its wrangler config). All sites now consume reusable workflows from `decocms/deco-start@v2` and a per-site registry under [`deploy/sites/<repo>.jsonc`](./deploy/) deep-merged on top of [`deploy/wrangler-template.jsonc`](./deploy/wrangler-template.jsonc) at deploy time. Customer repos hold only ~5-line caller workflows; `wrangler.jsonc` is generated and gitignored. The repo→worker binding is the trust boundary that prevents one site's commits from misrouting onto another site's worker (the central workflow ignores caller `inputs:` for identity and derives the site name from `${{ github.repository }}`). See [`deploy/README.md`](./deploy/README.md) for the contract. |
+| 2026-05-07 | **D6.1 — Cloudflare credentials never leave `deco-start`** | Same-day refinement of D6 after the first central deploy on the second site failed with `Secret CLOUDFLARE_API_TOKEN is required, but not provided while calling`. The original D6 design used `secrets: inherit` from the storefront stub and required `CLOUDFLARE_*` to live in the `deco-sites` org, which broke the principle that *the only secrets a storefront repo holds are the secrets that go into wrangler secrets, not the ones used to deploy*. First-pass refinement: the central `deploy.yml` / `preview.yml` / `sync-secrets.yml` jobs declared `environment: production` to try to make `${{ secrets.CLOUDFLARE_* }}` resolve from `decocms/deco-start`'s `production` Environment. **Found broken empirically on 2026-05-07** — the deployment registers in the *caller* repo, not the called workflow's repo, so the environment lookup uses the caller's `production` env (auto-created with no secrets). Superseded by D6.2 the same evening. |
+| 2026-05-07 | **D6.2 — App-mediated dispatch + no per-site registry (supersedes D6 + D6.1)** | After D6.1's `environment:` mechanism was empirically shown not to work cross-repo, the architecture pivoted: a `decocms-deployer` GitHub App is installed on `decocms/deco-start` (`actions:write`) and on each storefront repo (`contents:read`, optionally `pull-requests:write`). The storefront caller stub mints a short-lived App-installation token and calls `gh workflow run deploy.yml --repo decocms/deco-start --ref v3 -f site_owner=… -f site_name=…`. The central workflow runs in `decocms/deco-start`'s context, so `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` are ordinary repo secrets. For runtime `SECRET_*` values, each storefront has a `<site_name>-secrets` GitHub Environment in `decocms/deco-start` (S1 design); `sync-secrets.yml` binds to that environment and pushes to `wrangler secret put`. The per-site registry under `deploy/sites/<repo>.jsonc` was dropped entirely (Pure C): worker name = repo basename by convention; the App being installed on the storefront repo is the deploy authorization gate; rare per-worker derived fields (like AE dataset name) use `$WORKER_*` substitution tokens in the template. Force-rollback is impossible for production deploys because the central workflow ignores caller-supplied `site_sha` and resolves the storefront's current default-branch HEAD itself. See [`deploy/README.md`](./deploy/README.md) for the full trust model. **Operational migrations required by Pure C:** one site's worker name shifts on the CF side (CF-side cutover); another site's AE dataset name shifts to match its new worker name (orphans old data). |
+| 2026-05-07 | **D6.3 — Revert D6/D6.1/D6.2; deploys move to Cloudflare Workers Builds** | The whole D6 family (centralized GitHub Actions reusable workflows + `decocms-deployer` GitHub App + per-storefront GitHub Environments + central `deploy/wrangler-template.jsonc` + `deco-wrangler` CLI + per-site caller stubs) is being **reverted**. Trigger: GitHub Free orgs do not propagate org-level secrets to private repos, which forced the App private key to live as a per-storefront repo secret in every storefront — that key gives the holder the ability to mint installation tokens that can trigger workflows on `decocms/deco-start`, which in turn have the only Cloudflare credentials in the system. Per-repo distribution + rotation of that key across N customer storefronts didn't scale and concentrated blast radius on one credential. **Replacement (chosen, to be detailed in a follow-up D-record once shipped):** [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) owns the deploy/preview pipelines per-worker. Verified empirically on the second site 2026-05-07: a malicious `wrangler.jsonc` `name` field pointing at a different worker (`some-other-worker`) is **ignored** by CF Builds — the deploy lands on the connected worker, CF surfaces a warning banner in the dashboard, and CF auto-opens a PR to fix the config. The dashboard repo<->worker connection is the source of truth; the in-repo config is treated as a secondary input. Per-storefront wiring (one CF dashboard click per worker) is acceptable at our scale; revisit when CF's [git-integration enable API](https://github.com/cloudflare/workers-sdk/issues/12058) lands. The `deco-build` CLI (regenerates `wrangler.jsonc` bindings from a central template) and runtime-secrets management remain to be designed in a separate PR. |
 | 2026-05-22 | **D-9 — Stable `request.id` propagation across all observability channels** | The fragmentation surfaced during the May 2026 error triage: tail-worker logs, direct-POST metrics, CF-Destinations spans, and structured `console.log` JSON all carry overlapping information but no shared join key. A single user-visible 5xx required hand-correlating timestamps across four ClickHouse tables. **Decision:** the framework generates a stable `request.id` once at request entry (precedence: inbound `x-request-id` → `cf-ray` → `crypto.randomUUID()`) inside `RequestContext.run`, then stamps it on (a) the root span as the `request.id` attribute, (b) every log line via the logger attribute floor, (c) the response as `X-Request-Id` (read by `deco-otel-tail`), and (d) the metric labels via `extra`. Symmetric for `trace.id` — read from the root span's spanContext, echoed as `X-Trace-Id`. This re-establishes a single join key across all channels: pick any row from any table, filter by `request.id`, and reconstruct the full request lifecycle. **Files:** `RequestContext.requestId` + logger floor + workerEntry response-header echo + tail-worker enrichment. **Captured in Phase 1 of [the observability refinement plan](../../.cursor/plans/observability_refinement_plan_4fa41548.plan.md)**. |
 | 2026-05-22 | **D-10 — Server-side log normalization at the ingest worker, cost-neutral** | CF Destinations wraps every `console.log(JSON.stringify(...))` line into an OTLP LogRecord with the JSON body in `body.stringValue`. Querying by structured fields requires `JSONExtract` everywhere — slow, query-fragile, and tied to whatever the producer happens to embed. **Two design choices considered:** (a) migrate all framework `logger.{info,warn,debug}` calls to direct-POST native OTLP, ditching the CF Destinations sampled path. Substantially more code volume in production direct-POST traffic; bypasses the head sampling that keeps fleet cost bounded. (b) lift the JSON-in-body into native OTLP `LogAttributes` server-side at the `deco-otel-ingest` worker. Same wire volume, same cost. **Decision: option (b).** The ingest worker's `logsToRows` now detects JSON-shaped `body.stringValue`, lifts `level`/`msg`/`trace_id`/`span_id` plus arbitrary keys into native OTLP attributes, reduces `Body` to the human-readable `msg`, and falls back unchanged for non-JSON strings (third-party `console.log`). Dashboards drop `JSONExtractString(Body, 'level') = 'error'` in favor of `SeverityText = 'ERROR'`. **Files:** `stats-lake/ingestion/otel-ingest/src/index.ts`. Phase 4 of the observability refinement plan. |
 | 2026-05-22 | **D-11 — Outcome metrics layer becomes the truth source for "did we serve users today?"** | Earlier metric labels (`method`, `path`, `status`) couldn't answer "5xx rate per route per site" without joining metrics to tail-worker logs. The path label was raw-URL (unbounded cardinality risk); status was opaque (no class bucketing); no cache decision / cache layer; no commerce histogram in the framework (only apps-start sites that bumped to a recent version had it). **Decision:** expand the canonical label set for `http_requests_total` / `http_request_duration_ms` / `http_request_errors_total` to `{ method, route_pattern, status, status_class, outcome?, cache_decision?, cache_layer?, region?, …extra }`. `route_pattern` is the TanStack closed-set pattern (`/_products/$slug/p`); fallback is the normalized path. `status_class` is `2xx`/.../`5xx`/`unknown`. Cache labels lift the existing `X-Cache` / `X-Cache-Profile` headers up to the metric so dashboards answer cache-hit rate per route from the counter alone. Move `commerce_request_duration_ms` declaration into `@decocms/start` so every site emits it as soon as the framework is bumped, regardless of apps-start version (apps register operation strings only). Labels: `{ provider, operation, status_class?, cached? }`. **Files:** `src/middleware/observability.ts` (`statusClassFor`, `RequestMetricLabels`, `CacheLayer`, `recordCommerceMetric`, expanded `recordCacheMetric` signature). Phase 2 of the observability refinement plan. |
@@ -156,8 +156,8 @@ the higher ones are at least scoped.
 |---|------|---------|--------|
 | **1** | Framework + commerce changes — fix the foundation first. New factories, audit rules, primitives. | `@decocms/start`, `@decocms/apps` | **Active** (Wave 12) |
 | **2** | Migration scripts + skills to make migration to the new latest possible. Codemods, audit `--fix`, skill recipes. | `@decocms/start` (scripts/skills) | Pending Wave 12 |
-| **3** | Migrate als using new tooling. First htmx-heavy site validation end-to-end. | `als-tanstack` (fresh repo, new) | Pending priority 1+2 |
-| **4** | Update existing TanStack sites (casaevideo, baggagio, future) to latest packages, run audit `--fix`, clean up. | site repos (PRs) | Pending priority 3 |
+| **3** | Migrate the htmx site using new tooling. First htmx-heavy site validation end-to-end. | a new fresh repo | Pending priority 1+2 |
+| **4** | Update existing TanStack sites (the reference site, the second site, future) to latest packages, run audit `--fix`, clean up. | site repos (PRs) | Pending priority 3 |
 
 Out-of-band work (incident response, urgent prod fixes) bypasses this
 order — but only if explicitly identified as urgent.
@@ -174,12 +174,12 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
 
 | # | Item | Status | PR | Notes |
 |---|------|--------|----|-------|
-| 1.1 | Move `runtime.ts` invoke proxy → `@decocms/start/sdk/invoke` | 🟡 | [#103](https://github.com/decocms/deco-start/pull/103) | **Discovery: `createAppInvoke` already existed**, only the singleton + barrel export were missing. PR adds `export const invoke = createAppInvoke()` + 9 tests. After release: bagaggio deletes its 46-LOC `src/runtime.ts` shim entirely. |
+| 1.1 | Move `runtime.ts` invoke proxy → `@decocms/start/sdk/invoke` | 🟡 | [#103](https://github.com/decocms/deco-start/pull/103) | **Discovery: `createAppInvoke` already existed**, only the singleton + barrel export were missing. PR adds `export const invoke = createAppInvoke()` + 9 tests. After release: the second site deletes its 46-LOC `src/runtime.ts` shim entirely. |
 | 1.2 | Delete site-level `sdk/signal.ts` re-export plan; document import-path migration | ⬜ | — | Trivial |
 | 1.3 | Export `vite:preloadError` handler from `@decocms/start/sdk/router` | ⬜ | — | One helper |
-| 1.4 | **Fix `buildPageSeo`** — apply `siteSeo.titleTemplate` even when page has no seo section | ✅ | [#98](https://github.com/decocms/deco-start/pull/98) | **MERGED 2026-05-01** (commit `787c6e8`). Awaits next `@decocms/start` release for baggagio to consume. |
-| 1.5 | Add `withSiteGlobals` opt-in helper to `@decocms/start/routes` | ✅ | [#102](https://github.com/decocms/deco-start/pull/102) | **MERGED 2026-05-01 (`03fec63`), shipped in `@decocms/start@2.3.0`.** Auto-merges `site.theme + site.global + site.pageSections` into resolvedSections, exposes raw refs as `loaderData.siteGlobals.rawRefs`. 14 unit tests. Stays opt-in (A2). Bagaggio can now upgrade and drop 3 site-level files (~120 LOC). |
-| 1.6 | **Audit casaevideo `.deco/blocks/Site.json`** to gate B2 default-on promotion | ✅ | — | Done — `site.global` populated but rendered manually via `__root.tsx`; B2 must stay opt-in indefinitely |
+| 1.4 | **Fix `buildPageSeo`** — apply `siteSeo.titleTemplate` even when page has no seo section | ✅ | [#98](https://github.com/decocms/deco-start/pull/98) | **MERGED 2026-05-01** (commit `787c6e8`). Awaits next `@decocms/start` release for the second site to consume. |
+| 1.5 | Add `withSiteGlobals` opt-in helper to `@decocms/start/routes` | ✅ | [#102](https://github.com/decocms/deco-start/pull/102) | **MERGED 2026-05-01 (`03fec63`), shipped in `@decocms/start@2.3.0`.** Auto-merges `site.theme + site.global + site.pageSections` into resolvedSections, exposes raw refs as `loaderData.siteGlobals.rawRefs`. 14 unit tests. Stays opt-in (A2). The second site can now upgrade and drop 3 site-level files (~120 LOC). |
+| 1.6 | **Audit the reference site `.deco/blocks/Site.json`** to gate B2 default-on promotion | ✅ | — | Done — `site.global` populated but rendered manually via `__root.tsx`; B2 must stay opt-in indefinitely |
 
 #### Wave 2 — depends on Wave 1 + script changes
 
@@ -191,7 +191,7 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
 | 1.10 | Canonical `cachedAutocomplete` in `createVtexCommerceLoaders()` | ⬜ | — | |
 | 1.11 | `vtexAuthFromRequest` wrapper in apps | ⬜ | — | |
 | 1.12 | `decoVitePlugin` absorbs `manualChunks`, `dedupe`, `meta.gen` stub | ⬜ | — | |
-| 1.13 | ~~Promote `withSiteGlobals` from opt-in to default~~ | ❌ | — | Dropped: casaevideo audit showed `site.global` is rendered manually via `__root.tsx`; auto-merge would cause duplicate rendering. Stays opt-in indefinitely. |
+| 1.13 | ~~Promote `withSiteGlobals` from opt-in to default~~ | ❌ | — | Dropped: the reference site audit showed `site.global` is rendered manually via `__root.tsx`; auto-merge would cause duplicate rendering. Stays opt-in indefinitely. |
 
 ### Phase 2 — Script improvements
 
@@ -236,12 +236,12 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
 
 - ✅ **1.4** (buildPageSeo fix) — PR #98 MERGED 2026-05-01 (in `@decocms/start@2.1.3`)
 - ✅ **1.5** (`withSiteGlobals` opt-in helper) — PR #102 MERGED 2026-05-01 (in `@decocms/start@2.3.0`)
-- ✅ **1.5 validation** — baggagio PR [#5](https://github.com/deco-sites/baggagio-tanstack/pull/5) MERGED 2026-05-01 (`c8e936c`). End-to-end loop closed: framework helper consumed by a real site, ~393 LOC of workaround deleted.
-- ✅ **1.6** (casaevideo `Site.json` audit) — done, locks B2 strategy as opt-in (A2)
+- ✅ **1.5 validation** — the second site's PR MERGED 2026-05-01. End-to-end loop closed: framework helper consumed by a real site, ~393 LOC of workaround deleted.
+- ✅ **1.6** (the reference site `Site.json` audit) — done, locks B2 strategy as opt-in (A2)
 - ✅ **2.6/C6** (Tier B VTEX import rewrites) — PR #93 MERGED (in `@decocms/start@2.2.0`)
 - ✅ **PR sweep & main sync** — 4 PRs merged; 11 stale local branches deleted
-- 🟡 **1.1** (invoke singleton) — PR #103 OPEN, awaits review. After release: baggagio deletes `src/runtime.ts`.
-- ⬜ **1.3** (vite preloadError helper) — **deferred indefinitely**: only casaevideo has the pattern, no consumer would adopt the framework version. Revisit when a new migration needs it.
+- 🟡 **1.1** (invoke singleton) — PR #103 OPEN, awaits review. After release: the second site deletes `src/runtime.ts`.
+- ⬜ **1.3** (vite preloadError helper) — **deferred indefinitely**: only the reference site has the pattern, no consumer would adopt the framework version. Revisit when a new migration needs it.
 - ⬜ **Next options** (after #103 merges):
   1. **#68 Tier 1 extraction** — section metadata analyzer + auto-register withDevice/withMobile (highest correctness ROI for new migrations)
   2. Companion PRs apps-start#18 + deco-start#81 (apps registry) — needs rebase
@@ -256,13 +256,13 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
 ### 2026-05-01 — Wave 15-A double-check exposed a self-perpetuating template→audit loop
 
 - **Q1 (sites→packages promotion completeness):** Two subagents
-  swept `casaevideo-storefront` + `baggagio-tanstack`. The big
+  swept `the reference site` + the second site. The big
   A-list icebergs are caught — but **5 cross-site duplications
   satisfying D4** slipped through (`useSuggestions`, `useOffer`
   forks, `useVariantPossibilities` forks, site-local copies of
   framework `clx` / `useSendEvent`, three competing `Picture`
   APIs). Plus 4 migration debts where the framework already has
-  the answer (`useCart` factory not adopted in casaevideo,
+  the answer (`useCart` factory not adopted in the reference site,
   `runtime.ts` inline proxy still scaffolded, location matcher
   duplication, inline cookie helpers).
 - **Q2 (script/skill coverage of what we shipped):** Worse. The
@@ -305,11 +305,11 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
   entry". This is the kind of self-check that prevents the next
   16-month-old stale skill.
 
-### 2026-05-01 — Wave 14-A rescoped from three codemods to one based on real als data
+### 2026-05-01 — Wave 14-A rescoped from three codemods to one based on real htmx-site data
 
 - **Pre-data plan vs post-data plan.** The plan called for three
   htmx codemods (`event-handler`, `form-swap`, `click-swap`).
-  After running `deco-htmx-analyze` against als-storefront's
+  After running `deco-htmx-analyze` against the htmx site's
   actual code (210 occurrences across 133 files), only the
   `event-handler` bucket (88 occurrences, 42 %) genuinely admits
   a mechanical rewrite — the other buckets need per-call-site
@@ -335,15 +335,15 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
   in CI. Engineers can never silently ship a half-rewritten
   file.
 
-### 2026-05-01 — als-storefront surfaces the htmx track + policy reset
+### 2026-05-01 — the htmx site surfaces the htmx track + policy reset
 
-- **als-storefront is the third migration target and the first
+- **The htmx site is the third migration target and the first
   htmx-heavy site.** Production Fresh/Deno repo, ~120 files with
   `hx-*` attributes, 0 `islands/` directory (HTMX is the only
   interactivity model). Vtex-based, uses a `vitouwu/deco` +
-  `vitouwu/apps` fork (different from casaevideo's `LelabsTeam`
+  `vitouwu/apps` fork (different from the reference site's `LelabsTeam`
   fork). Has a site-local `apps/local/shippo.ts` integration.
-- **Prior `als-tanstack` attempt is a throwaway.** Migrated on
+- **Prior htmx-site TanStack attempt is a throwaway.** Migrated on
   `@decocms/start@2.1.2` (we're at 2.15+), 750 files analyzed, 178
   manual-review items. The vast majority of those items: HTMX
   patterns flagged but not transformed. The site has React syntax
@@ -356,7 +356,7 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
   signed off this date — see `Decisions made` table. Captured as
   always-loaded rule at
   [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc).
-- **What als + others tell us is ready to ship now (no more
+- **What the htmx site + others tell us is ready to ship now (no more
   deferrals)**: `createUseUser` factory, `createUseWishlist`
   factory, audit `--fix` for vtex-shim swap cases (`toProduct`,
   `withSegmentCookie`), audit `--fix` for `obsolete-vite-plugins`,
@@ -365,16 +365,16 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
   per D3. All scoped into Waves 12–14.
 - **Priority order rewritten**: (1) framework + commerce changes
   first → (2) scripts + skills to make migration to the new
-  versions automated → (3) als migration end-to-end → (4) PR sweep
+  versions automated → (3) htmx-site migration end-to-end → (4) PR sweep
   across existing TanStack sites bumping versions and applying
   audit fixes. See `Priority order (current)` section.
 
 ### 2026-04-30 — initial investigation
 
 - **`@decocms/start` and `@decocms/apps` versions diverge across sites.**
-  casaevideo: `start ^1.4.4`, `apps ^1.3.1`. baggagio: `start ^2.0.0`,
+  The reference site: `start ^1.4.4`, `apps ^1.3.1`. The second site: `start ^2.0.0`,
   `apps ^1.6.0`. → All new factory APIs must be **additive**, never break
-  existing surfaces. casaevideo never has to upgrade.
+  existing surfaces. The reference site never has to upgrade.
 - **The migration script is a self-perpetuating loop for some duplication.**
   `lib-utils.ts` template generates the very stubs (A1) that we then identify
   as "site-level code that should be in packages." Fixing A1 and C6 must
@@ -382,7 +382,7 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
 - **`section-conventions.ts` hard-codes Casa-specific section basenames**
   (`ProductShelf*`, `CouponList`, `DepartamentList`). For other sites this is
   silently wrong — needs config-driven approach (C4).
-- **baggagio's `cmsRouteWithGlobals.ts` is an explicitly-documented workaround**
+- **the second site's `cmsRouteWithGlobals.ts` is an explicitly-documented workaround**
   with a clear path to deletion once B1 + B2 land in `@decocms/start`.
 
 ### 2026-05-01 — Phase 1.5 closes the loop end-to-end
@@ -390,13 +390,13 @@ Each item carries a status: ⬜ pending, 🟡 in progress, ✅ done, 🚫 blocke
 First full demonstration of the plan's central thesis ("framework absorbs proven patterns; sites get smaller"):
 
 - **deco-start#102** (framework helper) shipped → `@decocms/start@2.3.0`
-- **baggagio-tanstack#5** (site cleanup) consumed it → 3 workaround files (456 LOC) deleted, replaced with 63 LOC of native usage
+- **The second site's PR** (site cleanup) consumed it → 3 workaround files (456 LOC) deleted, replaced with 63 LOC of native usage
 - **Casa&Video unaffected** — does not opt in, manual mount in `__root.tsx` continues to work
 
 This validates the architecture decisions baked into the plan:
 1. **Opt-in over default-on** (A2 strategy) was the right call. Casa&Video would have broken if `withSiteGlobals` were default behavior.
 2. **Generalize over hardcode**: framework exposes `siteGlobals.rawRefs` (raw refs of all `Site` block sections), site-specific extraction (e.g. analytics tracking IDs by `__resolveType`) lives in 8 lines of site code.
-3. **Companion bug fix matters**: `buildPageSeo` (#98) had to ship first or baggagio would have needed to keep its `applySeoTemplatesFromSiteBlock` workaround.
+3. **Companion bug fix matters**: `buildPageSeo` (#98) had to ship first or the second site would have needed to keep its `applySeoTemplatesFromSiteBlock` workaround.
 
 Pattern to repeat for future Phase 1 items: small framework PR → release → consuming site PR in same session, both reviewed by Fernando.
 
@@ -406,7 +406,7 @@ Pattern to repeat for future Phase 1 items: small framework PR → release → c
   - **#101** (perf/schema): real benchmark **23.5s → 3.4s** on 125-section site. Pure perf, no behavior change. Author had run `tsc` + `biome`. Squashed to `ad0af3f`.
   - **#93** (Tier B VTEX rewrites): this is **literally Phase 2 item C6 / 2.6**. Companion `apps-start#23` was already merged; verified target paths (`vtex/inline-loaders/`, `loaders/legacy.ts`, `utils/fetch.ts`) all exist. 67 tests pass. Squashed to `6615d26`. **Plan item 2.6 partially closed** by this PR (remaining: `lib-utils.ts` template removal, sequenced after 1.7).
 - **deco-start main went from `cf67576` → `1e8326b` (release 2.1.3)** during this work. Notable additions in main: `src/daemon/` (auth/fs/tunnel/volumes/watch — new feature), `src/cms/sectionLoaders.test.ts` (tests added), Vite plugin updates.
-- **#98 fix shipped in `@decocms/start@2.1.3`** (verified via `git pull` showing `cmsRoute.ts | 14 +` matching the fix size). baggagio can already upgrade from `^2.0.0` to `^2.1.3` to drop its `applySeoTemplatesFromSiteBlock` workaround.
+- **#98 fix shipped in `@decocms/start@2.1.3`** (verified via `git pull` showing `cmsRoute.ts | 14 +` matching the fix size). The second site can already upgrade from `^2.0.0` to `^2.1.3` to drop its `applySeoTemplatesFromSiteBlock` workaround.
 - **6 of 10 deco-start orphan branches are clearly superseded** (titles match commits already merged into main with the same names). Safe to close + delete after worktree cleanup for the worktree-linked ones.
 - **3 apps-start orphan branches are plan-aligned and worth investigating**:
   - `vibe-dex/cart-staletime-30s` → fits Phase 1.7 (`createUseCart` factory)
@@ -418,26 +418,26 @@ Pattern to repeat for future Phase 1 items: small framework PR → release → c
 - **B1 fix already exists as PR #98.** Branch `fix/site-seo-template-no-page-section`,
   commit `b27b5cd`. 14 additions, 0 deletions, no human review yet, no CI failures.
   The fix matches exactly what we'd write. **No new work needed — just merge + release.**
-  baggagio's `applySeoTemplatesFromSiteBlock` workaround (in `cms/cmsRouteWithGlobals.ts`)
+  the second site's `applySeoTemplatesFromSiteBlock` workaround (in `cms/cmsRouteWithGlobals.ts`)
   becomes deletable as soon as the next `@decocms/start` patch (≥ 2.0.2) ships.
   - URL: https://github.com/decocms/deco-start/pull/98
   - Status as of 2026-04-30: OPEN, mergeable, no reviews
-- **casaevideo `.deco/blocks/Site.json` audit complete:**
+- **The reference site `.deco/blocks/Site.json` audit complete:**
   - `site.theme`: ✅ multivariate theme (`theme-default`)
   - `site.global`: ✅ 5 sections — `vtex/sections/Analytics/Vtex.tsx`,
     `site/sections/WishlistProviderSection.tsx`, `site/sections/Script.tsx` (Weni chat),
     `site/sections/Analytics/IsEvents.tsx`, `site/sections/Sourei/Sourei.tsx`
   - `site.pageSections`: ❌ not present
   - `site.seo.titleTemplate` / `descriptionTemplate`: both `"%s"` (no-op)
-- **casaevideo's `__root.tsx` already mounts `<GlobalAnalytics />` manually** — it
+- **The reference site's `__root.tsx` already mounts `<GlobalAnalytics />` manually** — it
   handles globals via a hand-coded root-component pattern, not via CMS auto-merge.
   WishlistProvider, Sourei, etc. are also expected to be wired site-side somewhere
   (need to verify, but the pattern is clear).
 - **B2 strategy locked: stay opt-in (A2 forever for now).**
   Auto-merging `site.theme + site.global + site.pageSections` into every page's
-  `resolvedSections` (A1) would activate dormant CMS data on casaevideo and risk
+  `resolvedSections` (A1) would activate dormant CMS data on the reference site and risk
   duplicate rendering (e.g. WishlistProvider already in `__root` would render twice).
-  Promotion to default-on requires a casaevideo-side migration to move globals out
+  Promotion to default-on requires a reference-site-side migration to move globals out
   of `__root` into the CMS-merged path — out of scope. **Plan item 1.13 is therefore
   parked indefinitely** unless a future site migration revisits it.
 
@@ -452,12 +452,12 @@ Pattern to repeat for future Phase 1 items: small framework PR → release → c
 | 2026-04-28 | deco-start | `fix/site-seo-template-no-page-section` | [#98](https://github.com/decocms/deco-start/pull/98) | ✅ MERGED 2026-05-01 (`787c6e8`) | 1.4 (B1 fix) |
 | 2026-04-30 | deco-start | (vitoUwu/perf-schema) | [#101](https://github.com/decocms/deco-start/pull/101) | ✅ MERGED 2026-05-01 (`ad0af3f`) | Tangential perf — section schema gen 23.5s→3.4s |
 | 2026-04-27 | deco-start | (vibe-dex/tier-b-rewrites) | [#93](https://github.com/decocms/deco-start/pull/93) | ✅ MERGED 2026-05-01 (`6615d26`) | **Plan 2.6 / C6** — Tier B VTEX import rewrites |
-| 2026-05-01 | deco-start | `feat/with-site-globals` | [#102](https://github.com/decocms/deco-start/pull/102) | ✅ MERGED 2026-05-01 (`03fec63`) → `@decocms/start@2.3.0` | **Plan 1.5** — `withSiteGlobals` opt-in helper. Unblocks bagaggio dropping `cmsRouteWithGlobals`/`site-globals`/`useSiteGlobals`. |
-| 2026-05-01 | baggagio-tanstack | `feat/use-with-site-globals` | [#5](https://github.com/deco-sites/baggagio-tanstack/pull/5) | ✅ MERGED 2026-05-01 (`c8e936c`) | **Validates 1.5 end-to-end.** Bumped to `@decocms/start@2.3.0`, replaced 3 workaround files with `withSiteGlobals` helper. **−456 / +63 LOC** (net −393 lines). |
+| 2026-05-01 | deco-start | `feat/with-site-globals` | [#102](https://github.com/decocms/deco-start/pull/102) | ✅ MERGED 2026-05-01 (`03fec63`) → `@decocms/start@2.3.0` | **Plan 1.5** — `withSiteGlobals` opt-in helper. Unblocks the second site dropping `cmsRouteWithGlobals`/`site-globals`/`useSiteGlobals`. |
+| 2026-05-01 | the second site | `feat/use-with-site-globals` | #5 | ✅ MERGED 2026-05-01 | **Validates 1.5 end-to-end.** Bumped to `@decocms/start@2.3.0`, replaced 3 workaround files with `withSiteGlobals` helper. **−456 / +63 LOC** (net −393 lines). |
 | 2026-05-01 | deco-start | `feat/sdk-invoke-singleton` | [#103](https://github.com/decocms/deco-start/pull/103) | ✅ **MERGED → @decocms/start@2.4.0** | **Plan 1.1** — exports default `invoke` singleton from `@decocms/start/sdk/invoke` + adds `createAppInvoke`/`invoke`/`NestedFromFlat` to sdk barrel. |
-| 2026-05-01 | baggagio-tanstack | `feat/use-sdk-invoke` | [#6](https://github.com/deco-sites/baggagio-tanstack/pull/6) | 🟡 OPEN, awaits review | **Plan 1.1 consumer** — bumps `@decocms/start` to ^2.4.0, deletes `src/runtime.ts` (-45 LOC), 3 import sites swapped to `@decocms/start/sdk`. Closes the loop on Phase 1.1 end-to-end. |
-| 2026-05-01 | deco-start | `fix/nested-section-loader-recursion` | [#104](https://github.com/decocms/deco-start/pull/104) | ✅ **MERGED → @decocms/start@2.4.1** | **Plan 1.x (new)** — `runSingleSectionLoader` now recursively runs loaders for nested sections in props (e.g. `BackgroundWrapper > CategoryBanner`). Eliminates the manual walk pattern present in `casaevideo-storefront/src/setup/section-loaders.ts`. Supersedes #34. +159 prod LOC, +147 test LOC, 6 new tests, 14/14 pass. |
-| 2026-05-01 | baggagio-tanstack | `feat/use-sdk-invoke` | [#6](https://github.com/deco-sites/baggagio-tanstack/pull/6) | ✅ **MERGED** | Plan 1.1 closed end-to-end. -45 LOC. |
+| 2026-05-01 | the second site | `feat/use-sdk-invoke` | #6 | 🟡 OPEN, awaits review | **Plan 1.1 consumer** — bumps `@decocms/start` to ^2.4.0, deletes `src/runtime.ts` (-45 LOC), 3 import sites swapped to `@decocms/start/sdk`. Closes the loop on Phase 1.1 end-to-end. |
+| 2026-05-01 | deco-start | `fix/nested-section-loader-recursion` | [#104](https://github.com/decocms/deco-start/pull/104) | ✅ **MERGED → @decocms/start@2.4.1** | **Plan 1.x (new)** — `runSingleSectionLoader` now recursively runs loaders for nested sections in props (e.g. `BackgroundWrapper > CategoryBanner`). Eliminates the manual walk pattern present in `the reference site/src/setup/section-loaders.ts`. Supersedes #34. +159 prod LOC, +147 test LOC, 6 new tests, 14/14 pass. |
+| 2026-05-01 | the second site | `feat/use-sdk-invoke` | #6 | ✅ **MERGED** | Plan 1.1 closed end-to-end. -45 LOC. |
 | 2026-05-01 | deco-start | `fix/strip-ts-extensions-from-published-imports` | [#105](https://github.com/decocms/deco-start/pull/105) | 🟡 OPEN, awaits review | **Plan 1.x (new)** — strips redundant `.ts` extensions from 20 internal relative imports in published `src/` files. Removes ~8 framework-induced TS5097 errors that every consumer's `tsc --noEmit` currently sees. Pure path changes (20+/20-, no formatting noise). 104/104 tests pass. |
 
 ---
@@ -475,7 +475,7 @@ Pattern to repeat for future Phase 1 items: small framework PR → release → c
 | [#93](https://github.com/decocms/deco-start/pull/93) | feat(migrate): rewrite Tier B VTEX imports to native apps-start paths | vibe-dex | 3d | 1 | ✅ CLEAN | **Yes — directly = item 2.6 / C6** | ✅ **Merged 2026-05-01** |
 | [#81](https://github.com/decocms/deco-start/pull/81) | refactor: use `@decocms/apps/registry` instead of hardcoded APP_MODS | JonasJesus42 | 17d | 1 | ❌ DIRTY (conflicts) | Tangential cleanup | **Companion to apps-start#18** — rebase together, merge #18 first. Deferred — both stale. |
 | [#68](https://github.com/decocms/deco-start/pull/68) | fix(migrate): close deterministic gaps between migrated and golden reference | vibe-dex | 24d | **25** | ❌ DIRTY (conflicts) | Was — items 2.x | ✅ **Closed 2026-05-01** — pr-68 strictly behind main. File-by-file diff (`main..pr-68`) showed +26 / -408: only 26 lines net-new, all regressions (commerce-loaders signature, `as any` cast, `DetectedPattern` enum entries). All useful Tier 1/2/4 work was merged via other paths. **Lesson re-confirmed**: many small focused PRs > one big PR. |
-| [#34](https://github.com/decocms/deco-start/pull/34) | fix: run section loaders for nested sections recursively | JonasJesus42 | 38d | 1 | ❌ DIRTY (conflicts) | Tangential bugfix | ✅ **Closed 2026-05-01 → superseded by [#104](https://github.com/decocms/deco-start/pull/104)**. Concept ported forward on top of current main (with `withPageContext`/`injectPageContext` preserved + tighter `isNestedSection` guard + 6 new tests + concrete eviedence from casaevideo-storefront's manual workaround). |
+| [#34](https://github.com/decocms/deco-start/pull/34) | fix: run section loaders for nested sections recursively | JonasJesus42 | 38d | 1 | ❌ DIRTY (conflicts) | Tangential bugfix | ✅ **Closed 2026-05-01 → superseded by [#104](https://github.com/decocms/deco-start/pull/104)**. Concept ported forward on top of current main (with `withPageContext`/`injectPageContext` preserved + tighter `isNestedSection` guard + 6 new tests + concrete eviedence from the reference site's manual workaround). |
 
 ### apps-start — open PRs (1)
 
@@ -526,8 +526,8 @@ These have no open PR. Each needs human judgment: ship a PR, abandon, or keep pa
 | Merge #102 (`withSiteGlobals` opt-in helper — B2/A3) | ✅ Done 2026-05-01 |
 | Merge #103 (default `invoke` singleton — Plan 1.1) | ✅ Done 2026-05-01 → @decocms/start@2.4.0 |
 | Sync local main + delete safe merged branches in both repos | ✅ Done 2026-05-01 (11 branches deleted) |
-| baggagio#5 (consume `withSiteGlobals` end-to-end) | ✅ Done 2026-05-01 — -393 LOC |
-| baggagio#6 (consume `invoke` singleton, delete `src/runtime.ts`) | 🟡 Open 2026-05-01 — -45 LOC |
+| the second site's PR (consume `withSiteGlobals` end-to-end) | ✅ Done 2026-05-01 — -393 LOC |
+| the second site's PR (consume `invoke` singleton, delete `src/runtime.ts`) | 🟡 Open 2026-05-01 — -45 LOC |
 | Pair #18 + #81 (apps registry + consume) | Deferred — both behind main, low priority |
 | **Close #68** (large migrate-gaps PR — strictly behind main) | ✅ Done 2026-05-01 — see explanation in PR comment |
 | **Close #34** (nested section loaders — superseded by #104) | ✅ Done 2026-05-01 |
@@ -615,8 +615,8 @@ Risks:
 
 ### Wave 1 (morning) — 2 PRs
 
-1. [`baggagio-tanstack#6`](https://github.com/deco-sites/baggagio-tanstack/pull/6) — `refactor(runtime): consume invoke singleton from @decocms/start/sdk` ✅ **MERGED**. Plan 1.1 closed end-to-end. -45 LOC.
-2. [`deco-start#104`](https://github.com/decocms/deco-start/pull/104) — `fix(cms/sectionLoaders): run loaders for nested sections recursively` ✅ **MERGED → @decocms/start@2.4.1**. Port-forward of #34, with concrete casaevideo-storefront evidence; +306 LOC mostly tests.
+1. The second site's PR — `refactor(runtime): consume invoke singleton from @decocms/start/sdk` ✅ **MERGED**. Plan 1.1 closed end-to-end. -45 LOC.
+2. [`deco-start#104`](https://github.com/decocms/deco-start/pull/104) — `fix(cms/sectionLoaders): run loaders for nested sections recursively` ✅ **MERGED → @decocms/start@2.4.1**. Port-forward of #34, with concrete the reference site evidence; +306 LOC mostly tests.
 
 ### Wave 2 (after merges) — 1 PR
 
@@ -634,10 +634,10 @@ Risks:
 
 **Discoveries**:
 
-- **Casaevideo-storefront's `BackgroundWrapper` workaround** (`src/setup/section-loaders.ts:41`): 12-line manual `runSingleSectionLoader` walk that exists *because* of the framework gap fixed by #104. With #104 shipped, that block collapses to one line: `"site/sections/LpContent/BackgroundWrapper.tsx": withMobile(),`. Concrete proof of value. (Optional follow-up PR pending user approval.)
+- **The reference site's `BackgroundWrapper` workaround** (`src/setup/section-loaders.ts:41`): 12-line manual `runSingleSectionLoader` walk that exists *because* of the framework gap fixed by #104. With #104 shipped, that block collapses to one line: `"site/sections/LpContent/BackgroundWrapper.tsx": withMobile(),`. Concrete proof of value. (Optional follow-up PR pending user approval.)
 - **PR #68 was a recurring lesson**: small focused PRs win over large omnibus ones. The work landed faster as 4-5 separate PRs from different authors than as one big PR could ever have.
 - **apps-start#18 has the same shape as #68** (1028 lines deleted on the branch vs main; only ~56 lines net-new). If we want app-registry, the right move is a fresh PR adding just `registry.ts` on current main — not a rebase.
-- **The framework publishes raw TypeScript source** (no `dist/` in `exports`, all paths point to `./src/...`). This works because Vite/tsx compile on the fly, but it means every internal import in `src/` is part of the public API contract and must be valid for consumers' `tsc`. Discovered via 8 leaking TS5097 errors in baggagio's typecheck → led to #105.
+- **The framework publishes raw TypeScript source** (no `dist/` in `exports`, all paths point to `./src/...`). This works because Vite/tsx compile on the fly, but it means every internal import in `src/` is part of the public API contract and must be valid for consumers' `tsc`. Discovered via 8 leaking TS5097 errors in the second site's typecheck → led to #105.
 - **`npm run build` is currently broken on main** (48 TS5097 errors in `scripts/`, plus 1 pre-existing test typing nit). Releases keep working because `dist/` isn't actually consumed (all `package.json` exports point to `src/`). Worth a follow-up to either (a) exclude scripts from the build tsconfig, (b) add `allowImportingTsExtensions` for scripts, or (c) drop `.ts` extensions from scripts too.
 
 **Deferred (no quality compromise)**:
@@ -651,7 +651,7 @@ Risks:
 8. [`deco-start#106`](https://github.com/decocms/deco-start/pull/106) — `fix(build): make tsc build clean (49 errors → 0)` 🟡 **OPEN**.
    Three independent issues: 47× TS5097 in `scripts/` (.ts extensions, same shape as #105 but for the script side); 1× TS2322 in `phase-analyze.ts` (variable typed as required, function returns optional); 1× TS2493 in `sectionLoaders.test.ts` (`vi.fn` declared 1-arg but test destructures 2). 35 files, +85/-82.
 
-9. [`baggagio-tanstack#7`](https://github.com/deco-sites/baggagio-tanstack/pull/7) — `chore(lib): remove dead VTEX shim files (-235 LOC)` 🟡 **OPEN**.
+9. The second site's PR — `chore(lib): remove dead VTEX shim files (-235 LOC)` 🟡 **OPEN**.
    Delete all 11 files under `src/lib/`. Every one is unused; the migration script's two-step rewrite (rewrite to shim, then PR #93 routing back to `@decocms/apps`) left them orphaned. Verified zero net-imports broken.
 
 10. [`deco-start#107`](https://github.com/decocms/deco-start/pull/107) — `fix(migrate): stop regressing valid @decocms/apps/vtex imports to dead shims` 🟡 **OPEN**.
@@ -675,7 +675,7 @@ Risks:
 
 11. [`deco-start#108`](https://github.com/decocms/deco-start/pull/108) — `feat(vite): bundle meta.gen stub + drop crashing chunk splits + add .deco.studio` 🟡 **OPEN**.
     Three small `decoVitePlugin()` extensions that absorb boilerplate both real-world sites kept inline:
-    - **`meta.gen` client stub**: server-only admin schema (0.5-5 MB) was leaking into browser bundles. Both sites had identical inline `deco-stub-meta-gen` plugin; casaevideo's even has `// TODO: move into decoVitePlugin in next @decocms/start release.`
+    - **`meta.gen` client stub**: server-only admin schema (0.5-5 MB) was leaking into browser bundles. Both sites had identical inline `deco-stub-meta-gen` plugin; the reference site's even has `// TODO: move into decoVitePlugin in next @decocms/start release.`
     - **Drop `@decocms/start` / `@decocms/apps` chunk splits**: rules pushed packages into separate chunks despite circular re-exports, causing runtime crashes ("undefined is not a function"). Both sites worked around this with `site-manual-chunks` overrides. Framework default now correct.
     - **Add `.deco.studio` to `allowedHosts`**: new admin frontend domain. Both sites duplicated the list.
 
@@ -685,7 +685,7 @@ Risks:
 
 - **Sites override framework default → framework was wrong**: when both real sites override the same framework default, that's not a special case — it's evidence the default is broken. The vite plugin's `vendor-deco` chunk crashed in production, so every site overrode it. That's a clear "fix the framework" signal, captured in #108.
 - **Inline plugins as evidence**: when a site's `vite.config.ts` has an inline plugin that any other site could lift verbatim (no site-specific values), it's framework boilerplate. Two sites + zero customization × 14 lines = framework PR opportunity. Same heuristic worked for #93 (withSiteGlobals), #103 (invoke), #104 (nested loaders), and now #108.
-- **TODO comments as roadmap items**: casaevideo's `TODO: move into decoVitePlugin in next @decocms/start release` was 6+ months old and orphaned. Searching for `TODO.*deco|TODO.*framework` in production sites is a cheap, accurate way to find queued framework work. Worth automating as a periodic audit.
+- **TODO comments as roadmap items**: the reference site's `TODO: move into decoVitePlugin in next @decocms/start release` was 6+ months old and orphaned. Searching for `TODO.*deco|TODO.*framework` in production sites is a cheap, accurate way to find queued framework work. Worth automating as a periodic audit.
 
 ### Wave 3 — skill modernization
 
@@ -696,11 +696,11 @@ Risks:
 
 ### Wave 4 (post-2.5.0 follow-ups) — 2 PRs
 
-13. [`baggagio-tanstack#8`](https://github.com/deco-sites/baggagio-tanstack/pull/8) — `chore(vite): consume @decocms/start@2.5.0 + drop now-redundant inline plugins` 🟡 **OPEN**.
+13. The second site's PR — `chore(vite): consume @decocms/start@2.5.0 + drop now-redundant inline plugins` 🟡 **OPEN**.
     End-to-end validation of #108. Bumps to 2.5.0 and deletes `site-manual-chunks` + `deco-stub-meta-gen` inline plugins. Production build verified: meta.gen confirmed stubbed on client (0 hits across `dist/client/`), 955KB present only in server bundle. Typecheck went from 8 errors (7 pre-existing from older deco-start, 1 sitemap) to **0** thanks to the bump pulling in #105's `.ts` strip. -25 LOC net.
 
 14. [`deco-start#110`](https://github.com/decocms/deco-start/pull/110) — `feat(migrate): generate src/lib/* shims lazily — only the ones actually imported` 🟡 **OPEN**.
-    Closes the loop on #107. Replaces eager `generateLibUtils(ctx)` (writes all 11 shims unconditionally) with lazy `writeImportedLibShims(ctx)` at end of `phase-cleanup` — scans final `src/**` for `from "~/lib/X"` imports and writes only matching templates. Result: clean migrations get NO `src/lib/` directory at all. baggagio#7-style cleanups become unnecessary on future migrations.
+    Closes the loop on #107. Replaces eager `generateLibUtils(ctx)` (writes all 11 shims unconditionally) with lazy `writeImportedLibShims(ctx)` at end of `phase-cleanup` — scans final `src/**` for `from "~/lib/X"` imports and writes only matching templates. Result: clean migrations get NO `src/lib/` directory at all. The second site's #7-style cleanups become unnecessary on future migrations.
 
     Follow-up commit on the same branch added vitest coverage: 10 unit tests for `LIB_TEMPLATES` + `selectImportedLibTemplates`, 7 integration tests against a real tmpdir for `writeImportedLibShims`. Updated `vitest.config.ts` with `environmentMatchGlobs` so script tests run in `node` env. Writing the tests caught one real bug (`mkdirSync` ran before the dry-run skip, leaving an empty `src/lib/` on disk in dry-run mode — fixed in same commit). Total cumulative: 121 tests pass (was 104).
 
@@ -710,39 +710,39 @@ Risks:
 ### Wave 4 — discoveries
 
 - **`apps-start` does NOT export `getSegmentFromBag`, `getISCookiesFromBag`, or `createHttpClient`.** Only `fetchSafe` (in `vtex/utils/fetch.ts`) has a direct equivalent. So we can't simply delete the 6 VTEX shim templates — sites with inline-stub hoisting still need somewhere to hoist *to*. Lazy generation is the right answer because it keeps the templates (for the rare site that needs them) but avoids writing them to clean sites.
-- **`tsc` regressions self-heal with version bumps**: baggagio's typecheck baseline went from 8 errors to 0 just by bumping `@decocms/start` (since #105 + #106 + #108 are all in 2.5.0). The "8 errors, all pre-existing" baseline I'd been quoting all session was self-curing on the consumer side — useful signal for triaging future "it's broken on my machine" reports.
-- **Two-stage validation pattern proven again**: framework PR (#108) → release (2.5.0) → consumer PR (baggagio#8) confirms the framework change works end-to-end. Same shape as #93→#5, #103→#6, #104→casaevideo signals. Worth codifying as the canonical contributor workflow.
+- **`tsc` regressions self-heal with version bumps**: the second site's typecheck baseline went from 8 errors to 0 just by bumping `@decocms/start` (since #105 + #106 + #108 are all in 2.5.0). The "8 errors, all pre-existing" baseline I'd been quoting all session was self-curing on the consumer side — useful signal for triaging future "it's broken on my machine" reports.
+- **Two-stage validation pattern proven again**: framework PR (#108) → release (2.5.0) → consumer PR (the second site's #8) confirms the framework change works end-to-end. Same shape as #93→#5, #103→#6, #104→the reference site signals. Worth codifying as the canonical contributor workflow.
 
 ### Wave 4 — discoveries (continued)
 
-- **Casaevideo-storefront `src/lib/` audit**: 10 shim files written by the original migration; 9 are actually imported and load-bearing (`filter-navigate`, `graphql-utils`, `http-utils`, `vtex-client`, `vtex-fetch`, `vtex-id`, `vtex-intelligent-search`, `vtex-segment`, `vtex-transform`), only `fetch-utils.ts` is dead. So the lazy generator (#110) would still produce ~9 files for casaevideo on a fresh re-migration — those shims were *necessary* for that codebase. The "11 dead files" pattern is specific to baggagio because baggagio's source happened to use the new apps-start exports directly (likely because it's a newer codebase with cleaner import hygiene). Useful counter-example for the lazy-generation hypothesis: it isn't free LOC reduction, it's variable per site.
+- **The reference site `src/lib/` audit**: 10 shim files written by the original migration; 9 are actually imported and load-bearing (`filter-navigate`, `graphql-utils`, `http-utils`, `vtex-client`, `vtex-fetch`, `vtex-id`, `vtex-intelligent-search`, `vtex-segment`, `vtex-transform`), only `fetch-utils.ts` is dead. So the lazy generator (#110) would still produce ~9 files for the reference site on a fresh re-migration — those shims were *necessary* for that codebase. The "11 dead files" pattern is specific to the second site because the second site's source happened to use the new apps-start exports directly (likely because it's a newer codebase with cleaner import hygiene). Useful counter-example for the lazy-generation hypothesis: it isn't free LOC reduction, it's variable per site.
 - **Apps-start typecheck against deco-start jumps clean**: bumping `@decocms/start` from `0.38.0` to `2.5.0` (a 2-major-version leap on a 0.x → 2.x package) introduced **zero** type errors in apps-start. Two interpretations: (a) the public API of `@decocms/start` is genuinely stable in the surface area apps-start touches (`RequestContext`, `FnContext`, etc.), or (b) apps-start uses a small enough subset that we got lucky. Either way, encouraging signal that the framework's API is mature enough to hold a stable peerDep range.
 - **Tests catch real bugs every time**: the 17 new vitest tests in #110 found 1 dry-run-mode bug on first run (`mkdirSync` ran before the dry-run skip). 6% bug-find rate on a function I'd just written and was confident about. Worth codifying in the contributor workflow: "when adding to the migration script, write at least one fs-touching integration test."
 
 ### Wave 5 (post-Wave-4-merge audits) — 2 PRs
 
 16. [`deco-start#111`](https://github.com/decocms/deco-start/pull/111) — `feat(migrate): rewrite widget types to @decocms/start/types/widgets — stop scaffolding local copy` 🟡 **OPEN**.
-    Discovered while auditing byte-identical files between baggagio-tanstack and casaevideo-storefront: every Deco TanStack site carries a duplicated 8-line `src/types/widgets.ts`. The framework already exports the same set (plus `TextArea`) at `@decocms/start/types/widgets`, and the schema generator detects widgets via type-text matching, not module identity. PR rewrites `apps/admin/widgets.ts` → `@decocms/start/types/widgets`, stops generating the local file, drops it from verify, updates skill docs + new step 6 in post-migration cleanup. +85 / -18.
+    Discovered while auditing byte-identical files between the second site and the reference site: every Deco TanStack site carries a duplicated 8-line `src/types/widgets.ts`. The framework already exports the same set (plus `TextArea`) at `@decocms/start/types/widgets`, and the schema generator detects widgets via type-text matching, not module identity. PR rewrites `apps/admin/widgets.ts` → `@decocms/start/types/widgets`, stops generating the local file, drops it from verify, updates skill docs + new step 6 in post-migration cleanup. +85 / -18.
 
 17. [`apps-start#31`](https://github.com/decocms/apps-start/pull/31) — `fix(vtex): auto-forward vtex_segment cookie on outgoing API calls` 🟡 **OPEN**.
-    Real bug uncovered while diffing the two sites' `setup.ts`: casaevideo has a 15-line `regionAwareFetch` workaround that wraps `_fetch` to inject `vtex_segment` on outgoing calls — without it, Legacy Catalog API returns OutOfStock for products only available through regional sellers. Apps-start already had `withSegmentCookie` (defined but never imported) and `extractRegionIdFromCookies`; the missing piece was forwarding the cookie itself. PR makes `vtexFetchResponse` automatically inject the cookie when (a) request has one and (b) caller didn't set their own cookie header. Conservative — strict superset of existing behavior. +156 / -1, with 7 new vitest cases.
+    Real bug uncovered while diffing the two sites' `setup.ts`: the reference site has a 15-line `regionAwareFetch` workaround that wraps `_fetch` to inject `vtex_segment` on outgoing calls — without it, Legacy Catalog API returns OutOfStock for products only available through regional sellers. Apps-start already had `withSegmentCookie` (defined but never imported) and `extractRegionIdFromCookies`; the missing piece was forwarding the cookie itself. PR makes `vtexFetchResponse` automatically inject the cookie when (a) request has one and (b) caller didn't set their own cookie header. Conservative — strict superset of existing behavior. +156 / -1, with 7 new vitest cases.
 
 ### Wave 5 — discoveries
 
-- **byte-identical files audit between baggagio + casaevideo-storefront**: 11 files match exactly. Most are user UI (`Divider.tsx`, `Spinner.tsx`) that happen to look the same because both copied from a starter. The framework-extraction candidates among the 11 were:
+- **byte-identical files audit between the second site + the reference site**: 11 files match exactly. Most are user UI (`Divider.tsx`, `Spinner.tsx`) that happen to look the same because both copied from a starter. The framework-extraction candidates among the 11 were:
   - `src/routes/deco/{invoke.$,meta,render}.ts` — TanStack file-routing constraint, can't be moved (each site MUST have a file at the route path)
   - `src/server.ts` — `createStartHandler(defaultStreamHandler)`, also a TanStack constraint
   - `src/types/widgets.ts` — **extracted in #111**
-  - `src/types/website.ts` — `ExtensionOf<T> = T` identity alias, dead in baggagio, used once in casaevideo. Marked as a stale import-rewrite gap (the migration script generates the stub but has no rule mapping `apps/website/loaders/extension.ts` to it; the catch-all removes the import). Not worth a PR for one consumer.
-  - `src/sdk/signal.ts` — re-export wrapper plus a 3-line `effect()` deprecation shim. Dead in baggagio, used 1× in casaevideo's emarsys glue. Framework shouldn't bless the deprecation pattern; leaving site-local.
+  - `src/types/website.ts` — `ExtensionOf<T> = T` identity alias, dead in the second site, used once in the reference site. Marked as a stale import-rewrite gap (the migration script generates the stub but has no rule mapping `apps/website/loaders/extension.ts` to it; the catch-all removes the import). Not worth a PR for one consumer.
+  - `src/sdk/signal.ts` — re-export wrapper plus a 3-line `effect()` deprecation shim. Dead in the second site, used 1× in the reference site's emarsys glue. Framework shouldn't bless the deprecation pattern; leaving site-local.
 
-- **`setup.ts` workaround drift audit**: casaevideo carries two extras over baggagio:
+- **`setup.ts` workaround drift audit**: the reference site carries two extras over the second site:
   - 15 lines forwarding `vtex_segment` cookie → **fixed in apps-start#31** (framework now does this).
   - `setAsyncRenderingConfig({ foldThreshold: 3, respectCmsLazy: true })` — opt-in, intended to be per-site.
   - `customMatchers: [registerLocationMatcher]` — site-specific, intentional.
   - `configureWebsite({ seo: site.seo })` inside `initPlatform` — also site-specific.
     
-- **`cache-config.ts` is genuinely site-specific**: baggagio registers `/sitemap.xml` → static; casaevideo overrides timing on the static/product/listing profiles. Not framework material — both consume the framework's `setCacheProfile` / `registerCachePattern` API correctly.
+- **`cache-config.ts` is genuinely site-specific**: the second site registers `/sitemap.xml` → static; the reference site overrides timing on the static/product/listing profiles. Not framework material — both consume the framework's `setCacheProfile` / `registerCachePattern` API correctly.
 
 ### Session 2026-05-01 — running tally
 
@@ -763,17 +763,17 @@ Risks:
     Closes the gap that let regressions like #105 (TS5097) and the dead `src/lib/*` shims ship in earlier sessions. Adds Phase 8 — runs `npx tsc --noEmit` after bootstrap; failures surface as warnings by default, errors with `--strict` (for CI), and `--with-build` opt-in for full Vite build. Auto-skipped when `node_modules/` is missing (bootstrap install failure). Command runner is injectable for unit tests — 11 new tests cover dry-run, missing deps, success, failure, strict promotion, build flag gating, output truncation. 132 tests pass (was 121).
 
 20. [`deco-start#113`](https://github.com/decocms/deco-start/pull/113) — `feat(migrate): per-site config for section conventions (.deco-migrate.config.json)` 🟡 **OPEN**.
-    Replaces hardcoded casaevideo-specific section name lists in `transforms/section-conventions.ts` with a config layer. Sites whose section names don't match the casaevideo lineage can extend or replace the defaults via `.deco-migrate.config.json` at the source root. **Casaevideo migration unchanged** — defaults stay baked in when no config file exists. 19 new tests covering loading, merge semantics, and validation. 140 tests pass (was 121).
+    Replaces hardcoded reference-site-specific section name lists in `transforms/section-conventions.ts` with a config layer. Sites whose section names don't match the reference site lineage can extend or replace the defaults via `.deco-migrate.config.json` at the source root. **The reference site migration unchanged** — defaults stay baked in when no config file exists. 19 new tests covering loading, merge semantics, and validation. 140 tests pass (was 121).
 
 21. [`deco-start#114`](https://github.com/decocms/deco-start/pull/114) — `feat(migrate): emit createUseCart shim instead of 250-line legacy boilerplate` 🟠 **BLOCKED on apps-start#32**.
     Closes the loop on #32. Migration template `templates/hooks.ts` switches to emit the 5-line factory shim instead of duplicating the 250-line legacy implementation. Net `-237 lines` per migrated site going forward. 5 new tests assert the new shim shape and that non-vtex platforms still get the generic stub. Cannot merge until #32 ships in a release — the package-json template auto-fetches latest `@decocms/apps`, so once published the chain is automatic.
 
 ### Wave 6 — discoveries
 
-- **Hook factory chain validates the framework-PR → release → consumer-PR pattern at scale**: This is the same shape as #93→#5, #103→#6, #104→casaevideo, #108→baggagio#8. The Wave-6 chain is `apps-start#32` → `apps-start release` → `deco-start#114`. Once that lands, every NEW migration emits the shim automatically. **Existing migrated sites get a follow-up cleanup PR, NOT a behavior change** — their 250-line `useCart.ts` still works.
+- **Hook factory chain validates the framework-PR → release → consumer-PR pattern at scale**: This is the same shape as #93→#5, #103→#6, #104→the reference site, #108→the second site's #8. The Wave-6 chain is `apps-start#32` → `apps-start release` → `deco-start#114`. Once that lands, every NEW migration emits the shim automatically. **Existing migrated sites get a follow-up cleanup PR, NOT a behavior change** — their 250-line `useCart.ts` still works.
 - **`useUser`/`useWishlist` factories defer to a future session**: site-level versions are already trivial (~10 / ~25 lines). The leverage isn't in factoring those — it's in nudging sites toward the canonical TanStack-Query hooks (`@decocms/apps/vtex/hooks/{useUser,useWishlist}`) over time, or building a `createUseUser` for the legacy signal-based API only if a third site shows up needing it.
 - **The "compile phase" PR (#112) was a higher-leverage win than expected**: it would have caught all of #105, #106, and the dead-shim regression at the migration level — three independent bugs in three weeks all fixed by one phase that runs `tsc --noEmit` post-bootstrap. Worth promoting from "nice-to-have" to "default in CI" the moment it lands.
-- **Per-site config (#113) opens up non-casaevideo migrations**: previously the script's hardcoded section names made baggagio's migration partially work by accident (overlapping defaults) and any new client a guaranteed manual cleanup. The extend/replace API + JSON validation is small surface, big unblocker.
+- **Per-site config (#113) opens up non-reference-site migrations**: previously the script's hardcoded section names made the second site's migration partially work by accident (overlapping defaults) and any new client a guaranteed manual cleanup. The extend/replace API + JSON validation is small surface, big unblocker.
 - **Higher-risk items deferred this wave**: C1 (phase-analyze skipping `src/` layouts) needs careful refactoring of the path-resolution + categorizer — not a 30-min change. C8 (state persistence between phases) is moderate effort but unclear payoff right now. Both are good candidates for a focused session.
 
 ### Wave 6 — merged ✅
@@ -786,10 +786,10 @@ Releases shipped from Wave 6:
 
 ### Wave 12 (kicked off 2026-05-01 after D1–D5 sign-off) — Priority 1 (framework + commerce) — ✅ **COMPLETE**
 
-After surfacing als-storefront as the third migration target (heavy on
-htmx, ~120 hx-* files, prior als-tanstack attempt thrown away), the
+After surfacing the htmx site as the third migration target (heavy on
+htmx, ~120 hx-* files, prior TanStack attempt thrown away), the
 "wait for 3rd site" deferrals collapse. Wave 12 shipped the abstractions
-that als + casaevideo + baggagio had already justified, plus the
+that the htmx site + the reference site + the second site had already justified, plus the
 audit `--fix` work D3 forces us into. **9 PRs across `deco-start` and
 `apps-start`, all merged.**
 
@@ -806,7 +806,7 @@ audit `--fix` work D3 forces us into. **9 PRs across `deco-start` and
 - **W12-i** [`deco-start#125`](https://github.com/decocms/deco-start/pull/125) — `feat(migrate): scaffold useUser + useWishlist as factory shims (vtex)` ✅ **MERGED**.
   Updates the migration script's `hooks.ts` template so freshly migrated VTEX sites get 3-line factory shims (`export const { useUser, resetUser } = createUseUser({ invoke })`) instead of 200-LOC singletons that were copy-pasted by the old migration. Non-VTEX sites still get the legacy stubs but with docstrings pointing at the factories for parity context. 4 new tests cover both branches and a line-count budget.
 - **W12-F** [`deco-start#127`](https://github.com/decocms/deco-start/pull/127) — `feat(audit): obsolete-vite-plugins --fix` ✅ **MERGED**.
-  JS-aware applyFix for the rule. Walks `vite.config.ts` with a brace-counter that skips strings, template literals (including `${...}` interpolation), and line/block comments, so nested `{}` inside `config()` / `load()` / `resolveId()` bodies do not throw off boundary detection. Removes the inline literal + trailing `,\n` + the contiguous block of `// ...` comments immediately attached above. Idempotent. 7 new tests + smoke verified against real casaevideo `vite.config.ts` (162 LOC → both plugins gone, 2503 bytes / ~74 LOC removed, structurally identical to baggagio's already-clean shape, post-fix audit returns 0 findings).
+  JS-aware applyFix for the rule. Walks `vite.config.ts` with a brace-counter that skips strings, template literals (including `${...}` interpolation), and line/block comments, so nested `{}` inside `config()` / `load()` / `resolveId()` bodies do not throw off boundary detection. Removes the inline literal + trailing `,\n` + the contiguous block of `// ...` comments immediately attached above. Idempotent. 7 new tests + smoke verified against the real reference site's `vite.config.ts` (162 LOC → both plugins gone, 2503 bytes / ~74 LOC removed, structurally identical to the second site's already-clean shape, post-fix audit returns 0 findings).
 - **W12-G** [`apps-start#35`](https://github.com/decocms/apps-start/pull/35) — `docs: add AGENTS.md cross-linking the canonical migration policy` ✅ **MERGED**.
   Adds an AGENTS.md to `apps-start` so any agent or contributor opening that repo knows the canonical migration policy lives in `decocms/deco-start` and what D1–D5 mean specifically inside `apps-start` (especially D4: site-local apps live in the *site*, not in `apps-start`). Architecture overview + cross-link table.
 - **W12-H** [`deco-start#126`](https://github.com/decocms/deco-start/pull/126) — `feat(migrate): scaffold migration-tooling-policy pointer rule` ✅ **MERGED**, released as `@decocms/start@2.18.0`.
@@ -837,7 +837,7 @@ Wave 12 ships in priority-1 order; Wave 13 starts now.
   — the canonical rule changes upstream and the pointer keeps
   pointing.
 - **Brace-balanced parsing + comment attachment makes
-  `obsolete-vite-plugins` `--fix` safe at scale.** The casaevideo
+  `obsolete-vite-plugins` `--fix` safe at scale.** The reference site
   smoke test confirmed the approach handles real-world vite configs
   with multi-line plugins, attached comments describing the
   workaround, template literals containing `}`, and nested
@@ -865,7 +865,7 @@ Wave 12 ships in priority-1 order; Wave 13 starts now.
 ### Wave 13 (htmx foundations — Priority 2 part 1) — ✅ **COMPLETE**
 
 Once Wave 12 was in, the migration script needed an htmx track
-because als is the first heavy htmx site and we know it won't be
+because the htmx site is the first heavy htmx migration and we know it won't be
 the last (per the user, "some of our sites are, not all, not even
 most, some"). **3 PRs in `deco-start`, all merged.** D2 forbids an
 htmx adapter package; nothing in Wave 13 ships htmx runtime — only
@@ -874,9 +874,9 @@ analysis, rewrite recipes, and a "rewrite-complete" gate.
 **Shipped PRs:**
 
 - **W13-A** [`deco-start#129`](https://github.com/decocms/deco-start/pull/129) — `feat(migrate): htmx surface analyzer` ✅ **MERGED**, released as `@decocms/start@2.20.0`.
-  Adds `scripts/migrate/analyzers/htmx-analyze.ts` (per-file walker + classifier) and the `deco-htmx-analyze` CLI. The walker is heuristic JSX (regex for `hx-*` attrs, brace-balanced traversal back to the opening tag, forward to the closing `>` / `/>`) — skips strings, template literals, JSX expression slots, and balanced `{...}` blocks. Each occurrence is classified into one of seven categories (`event-handler`, `form-swap`, `click-swap`, `auto-fetch`, `oob-swap`, `boost`, `unmatched`) based on the attribute cluster, not individual attrs (recipes apply to clusters, not attrs in isolation). CLI emits per-category counts, top tags, sample line numbers, and a one-line migration recipe; `--json` for tooling. 24 tests covering classification (all 7 categories + tie-breaks + dash-variant `hx-on`) and real als-shaped fixtures (AddToBagButton, SearchInput, EmailAndPassword, ForgotPassword).
+  Adds `scripts/migrate/analyzers/htmx-analyze.ts` (per-file walker + classifier) and the `deco-htmx-analyze` CLI. The walker is heuristic JSX (regex for `hx-*` attrs, brace-balanced traversal back to the opening tag, forward to the closing `>` / `/>`) — skips strings, template literals, JSX expression slots, and balanced `{...}` blocks. Each occurrence is classified into one of seven categories (`event-handler`, `form-swap`, `click-swap`, `auto-fetch`, `oob-swap`, `boost`, `unmatched`) based on the attribute cluster, not individual attrs (recipes apply to clusters, not attrs in isolation). CLI emits per-category counts, top tags, sample line numbers, and a one-line migration recipe; `--json` for tooling. 24 tests covering classification (all 7 categories + tie-breaks + dash-variant `hx-on`) and real htmx-site fixtures (AddToBagButton, SearchInput, EmailAndPassword, ForgotPassword).
 - **W13-B** [`deco-start#130`](https://github.com/decocms/deco-start/pull/130) — `docs(skills): add htmx-rewrite reference` ✅ **MERGED**.
-  Per-pattern playbook at `.agents/skills/deco-to-tanstack-migration/references/htmx-rewrite.md`. For each of the seven categories: a "Before" snippet pulled directly from als (so the recipe is grounded in what an engineer is actually staring at), an "After" snippet using the canonical TanStack Start patterns (`useState` + `useCart`, `useNavigate`, `useMutation`, sub-routes), an explicit decision criterion when more than one path is reasonable (e.g. local state machine vs. sub-route for `click-swap`), and a "Gotchas" block enumerating the failure modes humans actually hit (focus loss, double-submit, hydration mismatch, etc.). Cross-linked from `SKILL.md`'s problem table.
+  Per-pattern playbook at `.agents/skills/deco-to-tanstack-migration/references/htmx-rewrite.md`. For each of the seven categories: a "Before" snippet pulled directly from the htmx site (so the recipe is grounded in what an engineer is actually staring at), an "After" snippet using the canonical TanStack Start patterns (`useState` + `useCart`, `useNavigate`, `useMutation`, sub-routes), an explicit decision criterion when more than one path is reasonable (e.g. local state machine vs. sub-route for `click-swap`), and a "Gotchas" block enumerating the failure modes humans actually hit (focus loss, double-submit, hydration mismatch, etc.). Cross-linked from `SKILL.md`'s problem table.
 - **W13-C** [`deco-start#131`](https://github.com/decocms/deco-start/pull/131) — `feat(audit): htmx-residue rule` ✅ **MERGED**, released as `@decocms/start@2.21.0`.
   Eighth audit rule. Reuses `analyzeFile` from `analyzers/htmx-analyze.ts` to scan `src/**/*.{ts,tsx}` (excluding `*.test.tsx` / `*.spec.ts` / `__tests__/`) and emits one warning per file with a category breakdown (`event-handler=2, form-swap=1`). Severity is `warning` so `--strict` exits 2 — the "rewrite-complete" CI gate. The fix string points at `references/htmx-rewrite.md`. Intentionally **detect-only** — rewrites are non-mechanical (state machine vs. sub-route vs. mutation choices vary per call site), so `--fix` wiring would be misleading; the skill is the playbook. 7 new tests cover aggregation, severity, test-file exclusion, scope (`src/` only), zero-finding gate, line-number reporting, and `supportsAutoFix: false`. Skill doc § 7 added explaining the rule + when to wire it into CI; help text updated.
 
@@ -885,7 +885,7 @@ analysis, rewrite recipes, and a "rewrite-complete" gate.
 - **Heuristic JSX walking is enough; full AST is not needed for
   this surface.** `analyzeFile` goes character-by-character with
   brace-counting and string/template/comment skipping; it correctly
-  identifies attribute clusters in 100 % of the als-storefront and
+  identifies attribute clusters in 100 % of the htmx site and
   internal-fixture sample (~120 files, ~270 hx-* attributes), and
   the test corpus pins the tricky cases (dash-variant `hx-on-*`,
   attached comments, balanced JSX expressions inside attributes,
@@ -933,10 +933,10 @@ analysis, rewrite recipes, and a "rewrite-complete" gate.
 ### Wave 14 (htmx codemod — Priority 2 part 2) — ✅ **PARTIAL / RESCOPED**
 
 After shipping the W13 htmx foundations and gathering real data
-from als-storefront with `deco-htmx-analyze`, the planned three-codemod
+from the htmx site with `deco-htmx-analyze`, the planned three-codemod
 scope was reduced to **one codemod** + **one inventory artefact**.
 The other two codemods (form-swap, click-swap) were deferred to W15+,
-to be designed *after* als migration data exposes which exact
+to be designed *after* the htmx site's migration data exposes which exact
 attribute clusters dominate. **Rationale logged in W14 discoveries.**
 
 **Shipped:**
@@ -955,19 +955,19 @@ attribute clusters dominate. **Rationale logged in W14 discoveries.**
   when the body references Fresh-only globals (`useScript(…)`,
   `globalThis.window.STOREFRONT`, `STOREFRONT.…`) so engineers
   don't ship a syntactically-clean file with broken runtime calls.
-  29 unit tests + als-shaped fixtures (AddToBagButton, SearchInput,
+  29 unit tests + htmx-site fixtures (AddToBagButton, SearchInput,
   RecoveryPassword form, Footer.tsx). 339/339 pass; typecheck clean.
   htmx-rewrite skill § Pattern 1 cross-references the codemod.
-- **W14-B** [`deco-start#132`](https://github.com/decocms/deco-start/pull/132) — captured the **als-storefront htmx inventory** in this plan (this section) as a fixture for future W15+ codemod design.
+- **W14-B** [`deco-start#132`](https://github.com/decocms/deco-start/pull/132) — captured the **htmx site inventory** in this plan (this section) as a fixture for future W15+ codemod design.
 
 **Deferred (intentionally) — see Wave 14 discoveries:**
 
 - ~~**W14-C** codemod `transforms/htmx-form-post-swap.ts`~~ — moved to W15+. The form-swap rewrite is genuinely non-mechanical (per-call-site decisions about optimistic vs pessimistic UI, where to surface loading state, which response handler shape). A speculative codemod would produce React skeletons that still need ~80 % manual work.
 - ~~**W14-D** codemod `transforms/htmx-click-fetch-swap.ts`~~ — moved to W15+. Same logic; on top of that, choosing between local state machine vs sub-route is a routing-architecture decision that varies per page.
 
-#### W14-A smoke + als inventory (captured 2026-05-01)
+#### W14-A smoke + htmx-site inventory (captured 2026-05-01)
 
-The W13-A `deco-htmx-analyze` CLI run against als-storefront's
+The W13-A `deco-htmx-analyze` CLI run against the htmx site's
 production Fresh tree:
 
 | Category | Count | % | Notes |
@@ -1004,7 +1004,7 @@ recipes in `references/htmx-rewrite.md`.
 - **Speculative codemods are over-engineering; data-driven scope
   is better.** The pre-data plan said three codemods (event-handler,
   form-swap, click-swap). After running `deco-htmx-analyze` against
-  als-storefront's actual code, only the event-handler bucket
+  the htmx site's actual code, only the event-handler bucket
   (88 occurrences, 42 % of the surface) genuinely admits a
   mechanical rewrite. The other two buckets need per-call-site
   product decisions (state machine vs sub-route, optimistic vs
@@ -1014,7 +1014,7 @@ recipes in `references/htmx-rewrite.md`.
   `references/htmx-rewrite.md`. **New rule: codemods come *after*
   the analyzer data, not before.**
 - **The smoke-against-real-site step is the design feedback loop.**
-  Running the codemod against als's full 754-file tree (98
+  Running the codemod against the htmx site's full 754-file tree (98
   renames, 71 files changed, 67 with TODO injection) validated
   three things in five minutes: (a) the rename surface matches
   the inventory (98 vs 88 ratio explained), (b) the TODO
@@ -1036,7 +1036,7 @@ recipes in `references/htmx-rewrite.md`.
   can never accidentally ship a half-rewritten file: the
   attribute is either gone (codemod ran, body might still need
   work — TODO), or it's still there (audit fires in CI).
-- **als-storefront's profile probably generalises to other htmx
+- **The htmx site's profile probably generalises to other htmx
   sites.** 42 % event-handler is a strong skew toward
   trivially-mechanical rewrites; even if other sites differ,
   this codemod alone removes the largest single bucket. If a
@@ -1053,7 +1053,7 @@ recipes in `references/htmx-rewrite.md`.
 ### Wave 15-A (close template→audit loops + factories skill — Priority 2 follow-on) — 🟡 **IN FLIGHT**
 
 Triggered by the double-check audit on 2026-05-01: subagent sweeps over
-casaevideo-storefront + baggagio-tanstack revealed (a) the migration
+the reference site + the second site revealed (a) the migration
 template was scaffolding code that the audit's `--fix` then removed,
 and (b) the W12 factory hooks (`createUseUser`, `createUseWishlist`)
 had no skill coverage. Wave 15-A closes both loops in one PR.
@@ -1083,7 +1083,7 @@ had no skill coverage. Wave 15-A closes both loops in one PR.
       generic passthrough — see Wave 15-B/16 for full provider wiring
       under H1).
     - **`templates/routes.ts` + `templates/commerce-loaders.ts`** —
-      replace casaevideo-specific branding leaks ("Tudo para sua
+      replace reference-site-specific branding leaks ("Tudo para sua
       casa…" tagline, "O melhor site de compras online…"
       `productListPageCollection` SEO description) with
       `${siteTitle}`-derived defaults plus `MIGRATION TODO` markers
@@ -1102,7 +1102,7 @@ had no skill coverage. Wave 15-A closes both loops in one PR.
       exists). Auto-fix is gated by `safeToAutoFix` metadata: legacy
       shim shapes get the rewrite + delete; sites that mix the proxy
       with custom helpers get a warning only. Three new tests.
-      **Verified against casaevideo-storefront**: now flags
+      **Verified against the reference site**: now flags
       `[invoke, Runtime] inline createNestedInvokeProxy body` (was
       missed entirely before).
     - **Skill: `references/platform-hooks-factories.md`** — new
@@ -1120,9 +1120,9 @@ had no skill coverage. Wave 15-A closes both loops in one PR.
       haven't migrated to factories yet.
     - **`SKILL.md` index update** — Phase 5 entry now points to the
       factories doc; reference table lists both new + legacy paths.
-    - 342 → 345 tests pass, typecheck clean, smoke against casaevideo
-      + baggagio confirms expanded rule fires correctly on legacy
-      shapes and stays silent on baggagio (no `runtime.ts` file there).
+    - 342 → 345 tests pass, typecheck clean, smoke against the reference site
+      + the second site confirms expanded rule fires correctly on legacy
+      shapes and stays silent on the second site (no `runtime.ts` file there).
 
 **Deferred to Wave 15-B / 16 (intentionally — see discoveries journal):**
 
@@ -1153,14 +1153,14 @@ existing canonical** when sites carry their own copy.
 
 Verified state (2026-05-01 grep against both sites):
 
-| Item | casaevideo | baggagio | Action |
+| Item | the reference site | the second site | Action |
 |---|---|---|---|
 | `src/sdk/clx.ts` | absent (already canonical) | present, identical body + dead `clsx` alias (zero callers) | pure dup → **auto-fix** |
 | `src/sdk/useSendEvent.ts` | absent | present, **stricter** typing (`<E extends AnalyticsEvent>` generic) vs framework's permissive shape | **warn-only** (replacing 1:1 weakens types) |
 | `src/matchers/location.ts` | present, cookie-only subset of framework | absent | **warn-only** (framework's `registerBuiltinMatchers()` is a behavior superset; needs per-site verification of country-name lookup parity) |
 
 So this is exactly *one* mechanically-applicable fix (`clx` in
-baggagio) plus two judgement calls. Hand-applying would be cheap;
+the second site) plus two judgement calls. Hand-applying would be cheap;
 the value is making the audit *enforce* the convergence so the next
 copy-paste regression on any future site gets caught automatically.
 
@@ -1207,9 +1207,9 @@ copy-paste regression on any future site gets caught automatically.
       against a temp fixture confirmed: 2 importers rewritten + 1
       file deleted in one `--fix` run.
     - **Real-site smoke**:
-      - **baggagio**: rule fires twice — `clx.ts` (auto-fixable),
+      - **the second site**: rule fires twice — `clx.ts` (auto-fixable),
         `useSendEvent.ts` (warn-only with the typed-generic reason).
-      - **casaevideo**: rule fires once — `location.ts` (warn-only
+      - **the reference site**: rule fires once — `location.ts` (warn-only
         with the `registerBuiltinMatchers()` adoption hint).
     - **Net**: every future site that copy-pastes any of these three
       files gets a tight audit finding + auto-fix on the safe one.
@@ -1222,7 +1222,7 @@ copy-paste regression on any future site gets caught automatically.
 - **15-B-3** — `useOffer` factory (D4 candidate; needs design pass
   for PIX/installment plugin slots).
 - **15-B-4** — `Picture` API unification (breaking; needs a
-  picking-the-winner pass between casaevideo's and baggagio's
+  picking-the-winner pass between the reference site's and the second site's
   shapes, plus a codemod for call sites).
 
 ### Wave 15-B-5 (canonical `relative()` + audit registry entry — apps + deco-start) — 🟡 **IN FLIGHT**
@@ -1231,15 +1231,15 @@ The smallest 15-B slice: extend `commerce/sdk/url.ts → relative()`
 with a generic options bag, then point the audit at the canonical
 so future site forks get caught automatically.
 
-Verified state (2026-05-01 grep against baggagio-tanstack):
+Verified state (2026-05-01 grep against the second site):
 
 - `src/sdk/url.ts` carries a positional 2-arg fork (`relative(link,
   removeIdSku?: boolean)`) with VTEX-specific keys (`idsku`,
   `skuId`) hardcoded inside.
-- 9 importers in baggagio. ONE of them — `ProductCard.tsx` — uses
+- 9 importers in the second site. ONE of them — `ProductCard.tsx` — uses
   the 2-arg form (via prop `removeIdSkuFromUrl`). The other 8 use
   the 1-arg form, identical to the apps canonical.
-- casaevideo doesn't carry a fork.
+- The reference site doesn't carry a fork.
 
 So the convergence is one apps-side extension + one audit registry
 entry. The single `ProductCard` call site rewrites by hand or by a
@@ -1251,7 +1251,7 @@ future codemod (out of scope here).
     - **`commerce/sdk/url.ts`**: backwards-compatible second
       `RelativeOptions` argument with `stripSearchParams?:
       string[]` primitive. 1-arg callers (everyone in apps + 8/9
-      of baggagio's call sites) unaffected. The byte-for-byte
+      of the second site's call sites) unaffected. The byte-for-byte
       "://path-style" passthrough is locked in by an explicit
       backwards-compat test.
     - **Why generic, not `removeIdSku?: boolean`**: hardcoded VTEX
@@ -1284,9 +1284,9 @@ future codemod (out of scope here).
       proves the signature-anchoring works).
     - **Skill doc § 8 table** updated with the 4th entry, including
       version pin (`@decocms/apps@1.9+`).
-    - 355/355 tests pass, typecheck clean. Smoke against baggagio
+    - 355/355 tests pass, typecheck clean. Smoke against the second site
       now fires 3 findings (was 2): clx, useSendEvent, url; smoke
-      against casaevideo unchanged at 1 (location-matcher).
+      against the reference site unchanged at 1 (location-matcher).
 
 **Process note**: this is the first time we ran the apps-side and
 deco-start-side as a pair of PRs. The order matters — apps-start
@@ -1298,19 +1298,19 @@ output know whether they need to bump apps before adopting.
 ### Wave 15-B-2 (canonical `useSuggestions` factory + audit registry entry) — 🟡 **IN FLIGHT**
 
 `useSuggestions` was the next D4 candidate after the `clx` /
-`useSendEvent` / `location-matcher` audit. Both casaevideo and
-baggagio independently invented the *exact same* shape — module-level
+`useSendEvent` / `location-matcher` audit. Both the reference site and
+the second site independently invented the *exact same* shape — module-level
 signal for payload + loading, FIFO promise queue, "is this still the
 latest query?" cancel guard, post to `/deco/invoke/<__resolveType>`.
-Differences were minor (Sentry hook in casaevideo, the cancel guard
-in `finally` only in baggagio's version — actually the correct
-behaviour, casaevideo's omission is a latent bug).
+Differences were minor (Sentry hook in the reference site, the cancel guard
+in `finally` only in the second site's version — actually the correct
+behaviour, the reference site's omission is a latent bug).
 
 Verified state (2026-05-01 grep):
-- casaevideo `src/sdk/useSuggestions.ts` — 58 LOC, typed via local
+- The reference site `src/sdk/useSuggestions.ts` — 58 LOC, typed via local
   `IntelligenseSearch`, Sentry-wrapped errors, missing latest-query
   guard in `finally`
-- baggagio `src/sdk/useSuggestions.ts` — 55 LOC, typed via VTEX
+- The second site's `src/sdk/useSuggestions.ts` — 55 LOC, typed via VTEX
   `Suggestion`, no observability, has the latest-query guard
   (correct behaviour)
 - Single call site each (`Searchbar`/`Searchbar/Form`)
@@ -1335,9 +1335,9 @@ get a 5-line shim.
       exposes the raw signals + a non-React `setQuery(query, loader)`
       and a `drain()` promise for SSR pre-fetch helpers and unit
       tests.
-    - **Bug fix included**: the canonical adopts baggagio's
+    - **Bug fix included**: the canonical adopts the second site's
       `if (latestQuery === query) loading.value = false` guard in
-      `finally`. casaevideo's version cleared loading
+      `finally`. The reference site's version cleared loading
       unconditionally — meaning rapid keystrokes could leave the
       UI in an "older fetch wins" state. The factory closes that
       gap by default.
@@ -1372,9 +1372,9 @@ get a 5-line shim.
     - **`package.json`** — exposes `./sdk/useSuggestions` export.
     - 368/368 tests pass (was 355 — +11 factory tests, +2 audit
       registry tests). typecheck clean. Smoke output:
-      - baggagio: 4 findings (was 3) — clx, useSendEvent, url-relative,
+      - the second site: 4 findings (was 3) — clx, useSendEvent, url-relative,
         **use-suggestions** (new)
-      - casaevideo: 2 findings (was 1) — location-matcher,
+      - the reference site: 2 findings (was 1) — location-matcher,
         **use-suggestions** (new)
 
 **Architectural note**: `useSuggestions` is the first framework-side
@@ -1383,13 +1383,13 @@ generic primitives that match the "module-level signal + queue +
 React hook" pattern can adopt the same `_internal`-with-non-React-
 setter shape — useful for SSR pre-fetch and tests.
 
-### Wave 15+ (htmx cleanup PRs on als + propagation to other sites) — Priority 3 / 4
+### Wave 15+ (htmx cleanup PRs on the htmx site + propagation to other sites) — Priority 3 / 4
 
 Each htmx pattern that survives the codemod becomes a per-pattern PR
-on als (driven by `htmx-residue` audit), exactly like the
-casaevideo vtex-shim cleanup pattern.
+on the htmx site (driven by `htmx-residue` audit), exactly like the
+reference site vtex-shim cleanup pattern.
 
-After als reaches `htmx-residue: 0`, open priority-4 PRs against
+After the htmx site reaches `htmx-residue: 0`, open priority-4 PRs against
 all existing TanStack sites bumping `@decocms/start` and
 `@decocms/apps`, running audit `--fix`, and applying the new
 recipes.
@@ -1399,24 +1399,24 @@ recipes.
 ### Wave 11 (post-#120 merge — fix-hint table + first canonical-toProduct cleanup) — 2 PRs
 
 35. [`deco-start#121`](https://github.com/decocms/deco-start/pull/121) — `feat(migrate): per-symbol fix-hint table for vtex-shim-regression rule` ✅ **MERGED**, released as `@decocms/start@2.15.0`.
-    Closes the precision gap of #120's `fix:` field: the rule now names the *exact action* per symbol instead of the generic "Repoint imports to '@decocms/apps/vtex/...'" fallback. New `STUB_FIX_HINTS: Record<string, FixHint>` table covers four symbols: `toProduct` (1:1 swap), `withSegmentCookie` (1:1 swap), `getSegmentFromBag` (call-site refactor → `request.headers.get('cookie')` + `buildSegmentFromCookies`), `getISCookiesFromBag` (call-site refactor). Each hint also flags the signature gotcha at the call site (e.g. canonical 4-arg vs stub 1-arg `toProduct`). Findings now also carry structured `meta.fixHints` for JSON consumers. Skill doc § 5 gains a canonical replacement table + three diff-style recipes (Patterns A/B/C) for the 1-arg `toProduct` conversion case (the recipes the hint references). 5 new rule tests + 1 doc commit on the same branch. **Casaevideo audit output post-#121: every finding now actionable in one read** — was "Repoint to @decocms/apps/vtex/...", now "toProduct → @decocms/apps/vtex/utils/transform (1:1 import swap) — canonical signature is `toProduct(product, sku, level, options)`; 1-arg call sites need to expand args first". Detect-only stays — auto-fix for `swap` cases is mechanically possible but needs signature-expansion logic which is non-trivial.
+    Closes the precision gap of #120's `fix:` field: the rule now names the *exact action* per symbol instead of the generic "Repoint imports to '@decocms/apps/vtex/...'" fallback. New `STUB_FIX_HINTS: Record<string, FixHint>` table covers four symbols: `toProduct` (1:1 swap), `withSegmentCookie` (1:1 swap), `getSegmentFromBag` (call-site refactor → `request.headers.get('cookie')` + `buildSegmentFromCookies`), `getISCookiesFromBag` (call-site refactor). Each hint also flags the signature gotcha at the call site (e.g. canonical 4-arg vs stub 1-arg `toProduct`). Findings now also carry structured `meta.fixHints` for JSON consumers. Skill doc § 5 gains a canonical replacement table + three diff-style recipes (Patterns A/B/C) for the 1-arg `toProduct` conversion case (the recipes the hint references). 5 new rule tests + 1 doc commit on the same branch. **The reference site audit output post-#121: every finding now actionable in one read** — was "Repoint to @decocms/apps/vtex/...", now "toProduct → @decocms/apps/vtex/utils/transform (1:1 import swap) — canonical signature is `toProduct(product, sku, level, options)`; 1-arg call sites need to expand args first". Detect-only stays — auto-fix for `swap` cases is mechanically possible but needs signature-expansion logic which is non-trivial.
 
-36. [`casaevideo-storefront#212`](https://github.com/deco-sites/casaevideo-tanstack/pull/212) — `fix(loaders): use canonical toProduct from @decocms/apps in smartShelfForYou` 🟡 **OPEN**.
-    First production-site application of #121's per-symbol fix hint. Single-line diff (`from "~/lib/vtex-transform"` → `from "@decocms/apps/vtex/utils/transform"`). The call site already used the canonical 4-arg signature with `(toProduct as any)` to bypass the stub's typing — the dev wrote it for canonical, but the import pointed at the stub. **Runtime behaviour was actually broken** — the extra args were silently dropped, products came back without SEO normalization, additional-property mapping, offer aggregation. This PR fixes that. Cast stays for now (local `~/types/vtex.Product` not structurally identical to canonical `LegacyProductVTEX | ProductVTEX` — separate refactor). Casaevideo vtex-shim findings: 4 → 3.
+36. **the reference site's PR** — `fix(loaders): use canonical toProduct from @decocms/apps in smartShelfForYou` 🟡 **OPEN**.
+    First production-site application of #121's per-symbol fix hint. Single-line diff (`from "~/lib/vtex-transform"` → `from "@decocms/apps/vtex/utils/transform"`). The call site already used the canonical 4-arg signature with `(toProduct as any)` to bypass the stub's typing — the dev wrote it for canonical, but the import pointed at the stub. **Runtime behaviour was actually broken** — the extra args were silently dropped, products came back without SEO normalization, additional-property mapping, offer aggregation. This PR fixes that. Cast stays for now (local `~/types/vtex.Product` not structurally identical to canonical `LegacyProductVTEX | ProductVTEX` — separate refactor). The reference site vtex-shim findings: 4 → 3.
 
 ### Wave 11 — discoveries
 
-- **Pattern A/B/C taxonomy crystallized.** The 1-arg `toProduct` conversion has three distinct call-site shapes: (A) "dev wrote 4-arg under `as any`" — fix is import-only; (B) "dev relied on stub's identity-cast" — fix expands to `pickSku(p)` + 4-arg `toProduct`, mirroring the canonical `apps-start/vtex/loaders/autocomplete.ts`; (C) "upstream API already returns schema.org-shaped Product[]" — fix is `as Product[]` cast at boundary. Casaevideo had A (`smartShelfForYou.ts`) + B (`intelligenseSearch.ts`) — the recipes in skill § 5 cover both with diffs.
+- **Pattern A/B/C taxonomy crystallized.** The 1-arg `toProduct` conversion has three distinct call-site shapes: (A) "dev wrote 4-arg under `as any`" — fix is import-only; (B) "dev relied on stub's identity-cast" — fix expands to `pickSku(p)` + 4-arg `toProduct`, mirroring the canonical `apps-start/vtex/loaders/autocomplete.ts`; (C) "upstream API already returns schema.org-shaped Product[]" — fix is `as Product[]` cast at boundary. The reference site had A (`smartShelfForYou.ts`) + B (`intelligenseSearch.ts`) — the recipes in skill § 5 cover both with diffs.
 - **Per-symbol fix-hint metadata pays off twice.** Once in the prose `fix:` field (the user reads it from the CLI), once in `meta.fixHints` (machine-readable for future tooling: CI dashboards, follow-up auto-fix rules, possibly an `--explain symbol` mode). Discriminated union (`{ kind: "swap", canonical, note }` vs `{ kind: "refactor", note }`) is the right shape — encodes the actionability category without a free-form "type" string.
-- **The canonical `toProduct` is meaningfully more capable than the stub.** It handles sponsored items via `topsortPlacement`, group additional properties via `legacyToProductGroupAdditionalProperties` / `toProductGroupAdditionalProperties`, image-by-key reuse, kit items (`kitItems`), per-spec additional properties, offer aggregation. Casaevideo's `smartShelfForYou` was silently dropping all of this since migration. Real production fix masquerading as a single-line PR.
+- **The canonical `toProduct` is meaningfully more capable than the stub.** It handles sponsored items via `topsortPlacement`, group additional properties via `legacyToProductGroupAdditionalProperties` / `toProductGroupAdditionalProperties`, image-by-key reuse, kit items (`kitItems`), per-spec additional properties, offer aggregation. The reference site's `smartShelfForYou` was silently dropping all of this since migration. Real production fix masquerading as a single-line PR.
 - **The audit's hint table now scales by data, not code.** Adding a 5th, 6th, Nth stub symbol means appending an entry to `STUB_FIX_HINTS` — zero rule-logic changes, free test coverage from the existing rule tests, free doc surface from the canonical replacement table. The table is the API.
 
 ### Wave 10 (post-#119 merge — vtex-shim rule refinement + apps-start branch cleanup)
 
 33. [`deco-start#120`](https://github.com/decocms/deco-start/pull/120) — `feat(migrate): per-symbol stub classifier for vtex-shim-regression rule` ✅ **MERGED**.
-    Closes the precision gap noted in Wave 8: the audit's `vtex-shim-regression` rule used to flag any import from a `~/lib/vtex-*` file, conflating functional helpers (cookie parsers, fetch wrappers, filter predicates) with the actual silent stubs shipped alongside them. New `scripts/migrate/post-cleanup/shim-classify.ts` walks each shim's top-level declarations and labels each export as `stub` (returns null/`{}`/`[]`/identity-cast/throw), `type-only` (interface/type), or `functional` (the safe default). Rule now flags only when at least one imported symbol classifies as `stub` and names the exact stub symbols. Defensive default: unknown symbols → `stub` so the audit never misses an import; the compile phase covers the underlying TS error separately. **Casaevideo-storefront validation: 6 → 4 findings, 0 false positives, every remaining finding names the exact symbol to repoint** (was eliminating noise like "vtex-fetch, vtex-segment, vtex-client" → now "vtex-segment (getSegmentFromBag)"). The 2 false positives (`cancel.ts` + `updateProfile.ts` using only the functional `parseCookie`) correctly disappear. 34 classifier tests + 8 rule tests + skill doc update. 243 tests pass total. +798/-8.
+    Closes the precision gap noted in Wave 8: the audit's `vtex-shim-regression` rule used to flag any import from a `~/lib/vtex-*` file, conflating functional helpers (cookie parsers, fetch wrappers, filter predicates) with the actual silent stubs shipped alongside them. New `scripts/migrate/post-cleanup/shim-classify.ts` walks each shim's top-level declarations and labels each export as `stub` (returns null/`{}`/`[]`/identity-cast/throw), `type-only` (interface/type), or `functional` (the safe default). Rule now flags only when at least one imported symbol classifies as `stub` and names the exact stub symbols. Defensive default: unknown symbols → `stub` so the audit never misses an import; the compile phase covers the underlying TS error separately. **The reference site validation: 6 → 4 findings, 0 false positives, every remaining finding names the exact symbol to repoint** (was eliminating noise like "vtex-fetch, vtex-segment, vtex-client" → now "vtex-segment (getSegmentFromBag)"). The 2 false positives (`cancel.ts` + `updateProfile.ts` using only the functional `parseCookie`) correctly disappear. 34 classifier tests + 8 rule tests + skill doc update. 243 tests pass total. +798/-8.
     
-    `--fix` intentionally NOT added in this PR — repointing requires a per-symbol → canonical-export map. Of the 3 confirmed casaevideo stubs, only `toProduct` has a clean 1:1 replacement (`@decocms/apps/vtex/utils/transform.toProduct`). `getSegmentFromBag` and `getISCookiesFromBag` map to `buildSegmentFromCookies(request.headers.get('cookie'))` etc. — that's an architecture change at each call site, not an import rewrite. Detect-only is still strictly better than before; manual cleanup PRs are now trivially scopable.
+    `--fix` intentionally NOT added in this PR — repointing requires a per-symbol → canonical-export map. Of the 3 confirmed the reference site stubs, only `toProduct` has a clean 1:1 replacement (`@decocms/apps/vtex/utils/transform.toProduct`). `getSegmentFromBag` and `getISCookiesFromBag` map to `buildSegmentFromCookies(request.headers.get('cookie'))` etc. — that's an architecture change at each call site, not an import rewrite. Detect-only is still strictly better than before; manual cleanup PRs are now trivially scopable.
 
 ### apps-start vibe-dex branch cleanup (no PRs — direct branch deletions)
 
@@ -1434,19 +1434,19 @@ All five branches deleted from origin. apps-start is now branch-clean.
 
 ### Wave 10 — discoveries
 
-- **The migration script's `lib-utils.ts` template is the source of all stubs.** The 3 confirmed silent-stub patterns on casaevideo (`getSegmentFromBag` returns null, `getISCookiesFromBag` returns `{}`, `toProduct` is identity-cast) all originate from `scripts/migrate/templates/lib-utils.ts`. Each stub is intentional — the migration script writes them because the canonical apps-start replacements have a different *call shape* (request-headers-based, not bag-based), which the script can't safely auto-rewrite at every call site.
+- **The migration script's `lib-utils.ts` template is the source of all stubs.** The 3 confirmed silent-stub patterns on the reference site (`getSegmentFromBag` returns null, `getISCookiesFromBag` returns `{}`, `toProduct` is identity-cast) all originate from `scripts/migrate/templates/lib-utils.ts`. Each stub is intentional — the migration script writes them because the canonical apps-start replacements have a different *call shape* (request-headers-based, not bag-based), which the script can't safely auto-rewrite at every call site.
 - **Strategic improvement candidate (deferred):** Add explanatory `// MIGRATION TODO:` headers to each stub template explaining the canonical replacement and a refactor example. Discoverable at the point of edit (no need to consult the audit), zero runtime cost. Skipping for now — the audit's per-symbol message + skill doc § 5 already give the same info; adding it inside the generated files trades file-size for redundancy. Reconsider if a third migrated site shows users tripping over this.
 - **Per-symbol fix-hint table (deferred):** Could replace the rule's generic `fix:` field with per-symbol guidance ("toProduct → @decocms/apps/vtex/utils/transform.toProduct (1:1 swap)" vs "getSegmentFromBag → buildSegmentFromCookies(cookieHeader), see migration guide"). Stack on #120 — implementable as 50-line follow-up. Defer to next wave to keep #120 reviewable as one coherent change.
 - **Branch cleanup is real signal-to-noise gain.** Five "abandoned exploration" branches in `git branch -r` are five times someone has to ask "is this still relevant?". The "rebase against main + see if commits are skipped as already-applied" recipe is fast (under a minute per branch) and produces unambiguous answers.
 - **The "feature on a side branch later applied differently" pattern is common in fast-moving repos.** All 5 vibe-dex branches' work made it to main, just not via the side branches themselves. Cleanup deletes the noise, history preserves the journey.
 
-### Wave 9 (post-Wave-8-merge — apply audit findings to casaevideo + skill consolidation) — 3 PRs
+### Wave 9 (post-Wave-8-merge — apply audit findings to the reference site + skill consolidation) — 3 PRs
 
-30. [`casaevideo-storefront#210`](https://github.com/deco-sites/casaevideo-tanstack/pull/210) — `chore(cleanup): remove dead src/lib/fetch-utils.ts shim` 🟡 **OPEN**.
+30. **the reference site's PR** — `chore(cleanup): remove dead src/lib/fetch-utils.ts shim` 🟡 **OPEN**.
     First production-site application of the audit's `dead-lib-shims` rule. The file exposes 1 export but has zero external imports anywhere in the repo — pure no-op deletion. Applied via `npx -p @decocms/start deco-post-cleanup --fix` on a temp branch, then split into a single-file PR by cherry-pick. Trivial, low-risk (1 file, 3 deletions). Pre-existing typecheck errors in `src/server/*.gen.ts` are present on `main` already — unrelated.
 
-31. [`casaevideo-storefront#211`](https://github.com/deco-sites/casaevideo-tanstack/pull/211) — `refactor(widgets): use @decocms/start/types/widgets instead of local shadow` 🟡 **OPEN**.
-    First production-site application of the audit's `local-widgets-types` rule. **55 imports** rewritten from `~/types/widgets` → `@decocms/start/types/widgets`, local 8-line shadow file deleted. Same pattern proven on baggagio#11 — auto-applied via `--fix`, mechanical diff (55 single-line changes + 1 deletion). Companion to #210 but cleanly separable (zero file overlap, different rules).
+31. **the reference site's PR** — `refactor(widgets): use @decocms/start/types/widgets instead of local shadow` 🟡 **OPEN**.
+    First production-site application of the audit's `local-widgets-types` rule. **55 imports** rewritten from `~/types/widgets` → `@decocms/start/types/widgets`, local 8-line shadow file deleted. Same pattern proven on the second site's PR — auto-applied via `--fix`, mechanical diff (55 single-line changes + 1 deletion). Companion to #210 but cleanly separable (zero file overlap, different rules).
     
     **Why split into two PRs instead of one combined cleanup**: each rule is independently reviewable; reviewers can quickly read the full 55-file widgets diff without having to also context-switch through the unrelated fetch-utils deletion. Also matches what the audit naturally produces — each finding is its own scope.
 
@@ -1455,29 +1455,29 @@ All five branches deleted from origin. apps-start is now branch-clean.
 
 ### Wave 9 — discoveries
 
-- **Audit `--fix` continues to ship value with each new site.** Casaevideo-storefront's 2 safe findings auto-applied with the same byte-identical correctness as baggagio#11. The "run `--fix`, split into 2 commits, branch each from main, cherry-pick" recipe is now routine and worth documenting as a procedure in the post-cleanup skill.
+- **Audit `--fix` continues to ship value with each new site.** The reference site's 2 safe findings auto-applied with the same byte-identical correctness as the second site's PR. The "run `--fix`, split into 2 commits, branch each from main, cherry-pick" recipe is now routine and worth documenting as a procedure in the post-cleanup skill.
 - **Splitting auto-fix output into per-rule PRs is the right default for production sites.** Combined PRs save GitHub overhead but cost reviewer attention; small, single-rule PRs land faster and are safer to revert. Cost: 5 minutes of branch shuffling per site.
 - **`.cursor/.../.agents/` skill duplication was actively causing drift, not just confusion.** When making the `--fix` docs update in Wave 7, only `.agents/` got the new content; `.cursor/` would have silently fallen behind. Consolidation prevents that, but the right long-term move is to never duplicate skill trees in the first place — pick one root per repo from day one.
-- **Pre-existing typecheck failures on production sites are a separate problem.** Casaevideo-storefront's `src/server/*.gen.ts` has open errors on `main` predating any of this work. Not in scope for the migration-tooling effort, but worth flagging to the production-site team — those errors block clean CI gates for any future PR.
+- **Pre-existing typecheck failures on production sites are a separate problem.** The reference site's `src/server/*.gen.ts` has open errors on `main` predating any of this work. Not in scope for the migration-tooling effort, but worth flagging to the production-site team — those errors block clean CI gates for any future PR.
 
 ### Wave 8 (post-Wave-7-merge, audit integration + lost-PR re-apply) — 2 PRs
 
-28. [`baggagio-tanstack#11`](https://github.com/deco-sites/baggagio-tanstack/pull/11) — `chore(types): swap local widgets.ts for @decocms/start/types/widgets (re-apply)` 🟡 **OPEN**.
+28. The second site's PR — `chore(types): swap local widgets.ts for @decocms/start/types/widgets (re-apply)` 🟡 **OPEN**.
     Re-applies the cleanup originally shipped as PR #10 — which **never reached main**. PR #10 was stacked on PR #9 (`chore/bump-and-cart-shim`) with `base = chore/bump-and-cart-shim`. When #9 was merged into main first, GitHub did NOT auto-rebase #10's base. Merging #10 then sent it into the now-deleted base branch. Confirmed on current main: `widgets.ts` still present, 44 imports still pointing at `~/types/widgets`. This PR is the **first end-to-end use of `--fix` on a real site post-2.12.0 release** — running `npx -p @decocms/start deco-post-cleanup --source <site> --fix` produced the exact 45-files / +45/-53 diff. **Lesson:** stacked PRs need explicit base re-pointing in the GitHub UI when the parent merges first.
 
 29. [`deco-start#118`](https://github.com/decocms/deco-start/pull/118) — `feat(migrate): integrate post-cleanup audit as Phase 9 of deco-migrate` 🟡 **OPEN**.
-    Closes the audit-as-migration-finale loop: `deco-post-cleanup` runs automatically at the tail of `deco-migrate`, surfacing residual debt before the user even thinks to ask. Read-only by design (auto-fix stays opt-in via the standalone CLI's `--fix`). New `--no-cleanup-audit` opt-out. Output capped at 5 findings per rule with `…and N more` suffix to avoid drowning the migration's own report. Always tells users about `--fix` when findings exist. `--strict` promotes warnings to fatal (exit 2), aligned with the compile phase. 6 new tests (202 total). Smoke-tested inline against baggagio.
+    Closes the audit-as-migration-finale loop: `deco-post-cleanup` runs automatically at the tail of `deco-migrate`, surfacing residual debt before the user even thinks to ask. Read-only by design (auto-fix stays opt-in via the standalone CLI's `--fix`). New `--no-cleanup-audit` opt-out. Output capped at 5 findings per rule with `…and N more` suffix to avoid drowning the migration's own report. Always tells users about `--fix` when findings exist. `--strict` promotes warnings to fatal (exit 2), aligned with the compile phase. 6 new tests (202 total). Smoke-tested inline against the second site.
 
 ### Wave 8 — discoveries
 
 - **GitHub stacked-PR pitfall is real and common.** Without the GitHub stacked-PR UI (or an explicit re-base), merging the parent first leaves the child orphaned. Mitigation for next time: when stacking, document the merge order in the child PR description AND verify the base is `main` before clicking merge.
-- **Audit accuracy on existing sites is uneven.** Inspecting casaevideo-storefront's `~/lib/vtex-*` shim files revealed the rule's "runtime is silently stubbed" message is overconfident. Some shim functions (`fetchSafe`, `parseCookie`, `STALE` constant) are functional locally-implemented utilities; others (`getSegmentFromBag` returns `null`, `getISCookiesFromBag` returns `{}`, `toProduct` is identity cast) ARE silent stubs. The current rule's blanket detection mixes both classes. **Refinement candidate:** parse the shim's exports and classify each as stub-vs-functional (returns null/empty/identity vs has meaningful body). False-positive reduction. Defer until validated against real production findings.
-- **Building `vtex-shim-regression` auto-fix is premature.** Without the rule precision above, `--fix` would rewrite functional code (e.g. point `fetchSafe` from a working local impl to apps-start's different impl) — a regression dressed as cleanup. The right order is: refine rule → validate against casaevideo-storefront → only then add `--fix`.
+- **Audit accuracy on existing sites is uneven.** Inspecting the reference site's `~/lib/vtex-*` shim files revealed the rule's "runtime is silently stubbed" message is overconfident. Some shim functions (`fetchSafe`, `parseCookie`, `STALE` constant) are functional locally-implemented utilities; others (`getSegmentFromBag` returns `null`, `getISCookiesFromBag` returns `{}`, `toProduct` is identity cast) ARE silent stubs. The current rule's blanket detection mixes both classes. **Refinement candidate:** parse the shim's exports and classify each as stub-vs-functional (returns null/empty/identity vs has meaningful body). False-positive reduction. Defer until validated against real production findings.
+- **Building `vtex-shim-regression` auto-fix is premature.** Without the rule precision above, `--fix` would rewrite functional code (e.g. point `fetchSafe` from a working local impl to apps-start's different impl) — a regression dressed as cleanup. The right order is: refine rule → validate against the reference site → only then add `--fix`.
 
 ### Wave 7 (post-Wave-6, validation chain + audit follow-ups + C1 detect) — 6 PRs + 1 release
 
-22. [`baggagio-tanstack#9`](https://github.com/deco-sites/baggagio-tanstack/pull/9) — `chore(deps): bump @decocms/{start,apps} + adopt createUseCart factory shim` 🟡 **OPEN**.
-    End-to-end validation of the createUseCart chain (#32 → #114). Bumps `@decocms/start` `^2.5.0` → `^2.10.0` and `@decocms/apps` `^1.6.0` → `^1.7.0`. Replaces baggagio's local 248-line `useCart.ts` with the 5-line factory shim. **2 files, 7 insertions(+), 247 deletions(-)**. Behaviour preserved (same public surface — `useCart`, `resetCart`, `itemToAnalyticsItem`, all signal returns). Typecheck + production build clean.
+22. The second site's PR — `chore(deps): bump @decocms/{start,apps} + adopt createUseCart factory shim` 🟡 **OPEN**.
+    End-to-end validation of the createUseCart chain (#32 → #114). Bumps `@decocms/start` `^2.5.0` → `^2.10.0` and `@decocms/apps` `^1.6.0` → `^1.7.0`. Replaces the second site's local 248-line `useCart.ts` with the 5-line factory shim. **2 files, 7 insertions(+), 247 deletions(-)**. Behaviour preserved (same public surface — `useCart`, `resetCart`, `itemToAnalyticsItem`, all signal returns). Typecheck + production build clean.
 
 23. **`@decocms/start@2.11.0`** — Post-Migration Cleanup Audit (`deco-post-cleanup` CLI).
 
@@ -1486,34 +1486,34 @@ All five branches deleted from origin. apps-start is now branch-clean.
     Code merit: a read-only audit script (`scripts/migrate-post-cleanup.ts` + 4 module files, 20 new vitest tests) that turns the human checklist in `references/post-migration-cleanup.md` into a programmatic scan. Seven rules (`dead-lib-shims`, `obsolete-vite-plugins`, `dead-runtime-shim`, `site-local-with-globals`, `vtex-shim-regression`, `local-widgets-types`, `framework-todos`). Validated against three sites:
     | Site | Findings | Notable |
     |---|---|---|
-    | baggagio-tanstack | 1 info | `src/types/widgets.ts` shadows framework (44 imports) |
-    | casaevideo-storefront (production) | **11 (8 warnings)** | **6 silent VTEX shim regressions** in production loaders |
+    | the second site | 1 info | `src/types/widgets.ts` shadows framework (44 imports) |
+    | the reference site (production) | **11 (8 warnings)** | **6 silent VTEX shim regressions** in production loaders |
     | empty tree | 0 | no false positives |
     
-    The 6 vtex-shim-regression findings on casaevideo-storefront are the silent-runtime-stub bug pattern documented in the SKILL — segment cookies, IS cookies, vtex-id parsing all stubbed to `{}`/`null` at runtime. Audit catches them in 1 second.
+    The 6 vtex-shim-regression findings on the reference site are the silent-runtime-stub bug pattern documented in the SKILL — segment cookies, IS cookies, vtex-id parsing all stubbed to `{}`/`null` at runtime. Audit catches them in 1 second.
     
     Exposed as `deco-post-cleanup` bin entry. Three modes: pretty text (default), `--json` (CI), `--strict` (exit 2 on warnings).
 
-24. [`baggagio-tanstack#10`](https://github.com/deco-sites/baggagio-tanstack/pull/10) — `chore(types): swap local widgets.ts for @decocms/start/types/widgets` 🟡 **OPEN, stacked on #9**.
-    First audit-finding-driven cleanup PR. Replicates the manual fix for the `local-widgets-types` rule on baggagio (44 imports rewritten, local file deleted). Validates that the audit's report is precise enough for direct mechanical action. Will rebase trivially onto main once #9 lands. **45 files changed, 45+/-53.**
+24. The second site's PR — `chore(types): swap local widgets.ts for @decocms/start/types/widgets` 🟡 **OPEN, stacked on #9**.
+    First audit-finding-driven cleanup PR. Replicates the manual fix for the `local-widgets-types` rule on the second site (44 imports rewritten, local file deleted). Validates that the audit's report is precise enough for direct mechanical action. Will rebase trivially onto main once #9 lands. **45 files changed, 45+/-53.**
 
 25. [`deco-start#115`](https://github.com/decocms/deco-start/pull/115) — `feat(migrate): add --fix mode to deco-post-cleanup for the 3 safe rules` 🟡 **OPEN**.
-    Auto-fix mode for the audit. Implements `applyFix` for `dead-lib-shims`, `dead-runtime-shim`, and `local-widgets-types` — the three rules where the fix is mechanical (rule 1 deletes; rules 3 and 6 rewrite imports + delete). Other rules stay detect-only with explicit `(0 fixed, manual)` labelling in output. Architecture: new optional `applyFix` on the `Rule` interface, separate `FsWriter` from `FsAdapter` (read-only audits structurally cannot mutate), shared `rewriteImportSpec` helper that correctly skips prefix collisions like `~/types/widgets-extra`. **End-to-end validation: smoked `--fix` against a temp clone of baggagio's pre-fix state and confirmed BYTE-IDENTICAL diff to the manual baggagio#10 PR** (45 files, +45/-53 each). 7 new tests (27 total, all pass). +382/-22.
+    Auto-fix mode for the audit. Implements `applyFix` for `dead-lib-shims`, `dead-runtime-shim`, and `local-widgets-types` — the three rules where the fix is mechanical (rule 1 deletes; rules 3 and 6 rewrite imports + delete). Other rules stay detect-only with explicit `(0 fixed, manual)` labelling in output. Architecture: new optional `applyFix` on the `Rule` interface, separate `FsWriter` from `FsAdapter` (read-only audits structurally cannot mutate), shared `rewriteImportSpec` helper that correctly skips prefix collisions like `~/types/widgets-extra`. **End-to-end validation: smoked `--fix` against a temp clone of the second site's pre-fix state and confirmed BYTE-IDENTICAL diff to the second site's manual PR** (45 files, +45/-53 each). 7 new tests (27 total, all pass). +382/-22.
 
 26. [`deco-start#116`](https://github.com/decocms/deco-start/pull/116) — `docs(skills): document deco-post-cleanup audit + --fix mode + sync .cursor copy` 🟡 **OPEN**.
-    Docs-only follow-up to #115 + a partial D-list cleanup. Updates `.agents/.../post-migration-cleanup.md` to document `--fix` and `--fix --strict`, syncs `.cursor/` copy from `.agents/` (only diff was the audit section), adds a "Post-Migration Audit" section to `deco-migrate-script/SKILL.md` linking the audit + explaining the complementary relationship to `phase-compile` (compile catches what `tsc` can find; audit catches the silent-runtime-stub class of bug — the canonical example is the casaevideo-storefront vtex-shim regression). +99/-10.
+    Docs-only follow-up to #115 + a partial D-list cleanup. Updates `.agents/.../post-migration-cleanup.md` to document `--fix` and `--fix --strict`, syncs `.cursor/` copy from `.agents/` (only diff was the audit section), adds a "Post-Migration Audit" section to `deco-migrate-script/SKILL.md` linking the audit + explaining the complementary relationship to `phase-compile` (compile catches what `tsc` can find; audit catches the silent-runtime-stub class of bug — the canonical example is the reference site vtex-shim regression). +99/-10.
 
 27. [`deco-start#117`](https://github.com/decocms/deco-start/pull/117) — `feat(migrate): detect non-classic source layouts and abort with actionable error` 🟡 **OPEN**.
-    Closes the first half of plan item **C1**. Adds `scripts/migrate/source-layout.ts` — a pure classifier that returns `classic | modern | mixed | empty` based on which dirs (`sections`, `islands`, `components`, `loaders`, `actions`) exist at root vs under `src/`. Wired as Phase 0 in `migrate.ts` to abort before `analyze()` runs if layout isn't classic, with a focused message explaining the mismatch and the workaround (move `src/*` up to root, re-run). **Zero risk to existing migrations**: casaevideo + baggagio both classify as "classic". Defers native src/ scanning until a real modern-layout site shows up — building against a hypothetical risks fitting the wrong shape. 13 new tests (189 total, all pass). +238/-7.
+    Closes the first half of plan item **C1**. Adds `scripts/migrate/source-layout.ts` — a pure classifier that returns `classic | modern | mixed | empty` based on which dirs (`sections`, `islands`, `components`, `loaders`, `actions`) exist at root vs under `src/`. Wired as Phase 0 in `migrate.ts` to abort before `analyze()` runs if layout isn't classic, with a focused message explaining the mismatch and the workaround (move `src/*` up to root, re-run). **Zero risk to existing migrations**: the reference site + the second site both classify as "classic". Defers native src/ scanning until a real modern-layout site shows up — building against a hypothetical risks fitting the wrong shape. 13 new tests (189 total, all pass). +238/-7.
 
 ### Wave 7 — discoveries
 
 - **Process bug: stale stashes are landmines.** Multiple `WIP on <branch>` entries in `git stash list` from previous sessions can pollute working trees if branch-switching is involved. Root cause of the direct-push-to-main mistake. Mitigation going forward: **always run `git status` + `git branch --show-current` immediately before `git commit` and again before `git push`**. Specifically check for unrelated tracked-file modifications that suggest a prior stash was merged in.
-- **The audit's findings on production casaevideo-storefront are real, latent runtime bugs.** Segment cookies, intelligent-search auth, vtex-id parsing — all silently stubbed. None of those would show up in `tsc --noEmit` because the dead `~/lib/vtex-*` shims have valid TypeScript signatures; they just resolve to `{}` at runtime. **Compile-phase verification (#112) doesn't catch this class of bug — only the audit does.** Strong argument for both layers: `tsc` for syntax correctness, `deco-post-cleanup` for runtime hygiene.
-- **The audit landed value the moment it ran.** Before it existed, finding any of the casaevideo regressions required reading the SKILL doc end-to-end + manually grepping. Now the same finding takes 1 second. Tooling that automates checklists with real false-positive discipline pays for itself quickly.
-- **`createUseCart` end-to-end chain proven.** apps-start#32 (factory) → release `1.7.0` → deco-start#114 (template) → release `2.9.0` → baggagio#9 (consumer adopts) — full bookend, real LOC win, zero behaviour change. Validates the framework-PR → release → consumer-PR pattern for the 6th time this session.
-- **Audit infrastructure unlocks audit-driven PRs.** baggagio#10 demonstrates the new pattern: run `deco-post-cleanup`, get a precise finding (rule + file + count + suggested fix), open a PR that just executes the fix. Validation step at the end is `re-run audit → 0 findings`. Same loop applies to any future site.
-- **`--fix` mode produces byte-identical results to manual fixes.** deco-start#115 was validated by running `--fix` on a temp clone of baggagio pre-fix and `diff`ing against the manual PR. Exit 0. The strongest possible end-to-end confidence signal: the script reproduces a PR a human reviewer can already inspect line-for-line.
+- **The audit's findings on production the reference site are real, latent runtime bugs.** Segment cookies, intelligent-search auth, vtex-id parsing — all silently stubbed. None of those would show up in `tsc --noEmit` because the dead `~/lib/vtex-*` shims have valid TypeScript signatures; they just resolve to `{}` at runtime. **Compile-phase verification (#112) doesn't catch this class of bug — only the audit does.** Strong argument for both layers: `tsc` for syntax correctness, `deco-post-cleanup` for runtime hygiene.
+- **The audit landed value the moment it ran.** Before it existed, finding any of the reference site regressions required reading the SKILL doc end-to-end + manually grepping. Now the same finding takes 1 second. Tooling that automates checklists with real false-positive discipline pays for itself quickly.
+- **`createUseCart` end-to-end chain proven.** apps-start#32 (factory) → release `1.7.0` → deco-start#114 (template) → release `2.9.0` → the second site's PR (consumer adopts) — full bookend, real LOC win, zero behaviour change. Validates the framework-PR → release → consumer-PR pattern for the 6th time this session.
+- **Audit infrastructure unlocks audit-driven PRs.** The second site's PR demonstrates the new pattern: run `deco-post-cleanup`, get a precise finding (rule + file + count + suggested fix), open a PR that just executes the fix. Validation step at the end is `re-run audit → 0 findings`. Same loop applies to any future site.
+- **`--fix` mode produces byte-identical results to manual fixes.** deco-start#115 was validated by running `--fix` on a temp clone of the second site pre-fix and `diff`ing against the manual PR. Exit 0. The strongest possible end-to-end confidence signal: the script reproduces a PR a human reviewer can already inspect line-for-line.
 - **The detection / fix split is the right architecture.** Three rules can be safely auto-fixed (mechanical: delete or rewrite-imports). Four rules stay detect-only because the right action requires human judgment (which apps export to point at, whether an inline plugin's surrounding code can be safely removed, whether a TODO is shipped/deferred/obsolete). The CLI shows this distinction explicitly, so users always know what's left after `--fix`.
 
 ### Session 2026-05-01 — running tally (updated)
@@ -1523,8 +1523,8 @@ All five branches deleted from origin. apps-start is now branch-clean.
 Repos:
 - `decocms/deco-start`: 18 PRs (#102 ✓, #103 ✓, #104 ✓, #105 ✓, #106 ✓, #107 ✓, #108 ✓, #109 ✓, #110 ✓, #111 ✓, #112 ✓, #113 ✓, #114 ✓, #115 ✓, #116 ✓, #117 ✓, #118 ✓, #119 ✓, plus closures of #34, #68; plus 2.11.0 shipped via direct-push exception; plus **#120 🟡 vtex-shim per-symbol classifier**)
 - `decocms/apps-start`: 3 PRs (#30 ✓, #31 ✓, #32 ✓) + **5 vibe-dex orphan branches deleted** (athens, vtex-cookie-cache-fix, slim-product-data, product-shelf-lean, cart-staletime-30s)
-- `deco-sites/baggagio-tanstack`: 6 PRs (#5 ✓, #6 ✓, #7 ✓, #8 ✓, #9 ✓, #10 lost-merge → #11 ✓)
-- `deco-sites/casaevideo-storefront`: **2 PRs (#210 🟡 fetch-utils, #211 🟡 widgets)**
+- the second site: 6 PRs (#5 ✓, #6 ✓, #7 ✓, #8 ✓, #9 ✓, #10 lost-merge → #11 ✓)
+- the reference site: **2 PRs (🟡 fetch-utils, 🟡 widgets)**
 
 Key durable artifacts beyond the PRs:
 - Plan tracker (this file) — running narrative + decisions
@@ -1535,7 +1535,7 @@ Key durable artifacts beyond the PRs:
 
 What's still ahead:
 - **Per-symbol fix-hint table for `vtex-shim-regression`** (stack on #120): replace generic `fix:` field with per-symbol guidance — "toProduct → 1:1 import swap to `@decocms/apps/vtex/utils/transform`" vs "getSegmentFromBag → call-site refactor required, see skill doc § 5". ~50 LOC, doc reference table. **Best next PR after #120 merges.**
-- **Casaevideo-storefront leftover audit findings (post-#210/#211)**: with #120's precision, the breakdown is **4 vtex-shim findings** (smartShelfForYou/intelligenseSearch use `toProduct`, also intelligenseSearch + buyTogether + productReviews use `getSegmentFromBag`) + 2 obsolete-vite-plugins + 1 framework-todo. The `toProduct` cases are 1:1 fixable; `getSegmentFromBag` cases need call-site refactors. Concrete cleanup work, scopable per finding.
+- **The reference site leftover audit findings (post-#210/#211)**: with #120's precision, the breakdown is **4 vtex-shim findings** (smartShelfForYou/intelligenseSearch use `toProduct`, also intelligenseSearch + buyTogether + productReviews use `getSegmentFromBag`) + 2 obsolete-vite-plugins + 1 framework-todo. The `toProduct` cases are 1:1 fixable; `getSegmentFromBag` cases need call-site refactors. Concrete cleanup work, scopable per finding.
 - **Migration script: emit `// MIGRATION TODO:` comments on stub templates**: `lib-utils.ts` could include explanatory headers pointing at canonical replacements at the point of edit. Defer until we see users tripping on this — current audit + skill doc cover the same info.
 - **`createUseUser`/`createUseWishlist` factories**: defer until a third site needs them or canonical TanStack-Query hooks are deemed the migration target.
 - **C1 (phase-analyze + `src/` layouts) — native scanning**: detect-and-abort shipped (#117). Native scanning still deferred until a real modern-layout site appears.
@@ -1543,9 +1543,9 @@ What's still ahead:
 - **`vibe-dex/*` orphan branches in apps-start**: ✅ all 5 cleaned this wave.
 - **Apps registry (apps-start#18 + deco-start#81)**: defer until clear consumer.
 
-### Wave 16 (2026-05-02 — baggagio as production canary, stacked-PR pitfall RECURRENCE)
+### Wave 16 (2026-05-02 — the second site as production canary, stacked-PR pitfall RECURRENCE)
 
-User merged baggagio's PRs B1–B6 to use as guinea pig before applying the same patterns to casaevideo + lebiscuit (which ARE in production). Live validation found a critical fact: **only B1 (the bump) actually reached `main`**. PRs #13–#17 were all merged in GitHub UI but their merge commits ended up on the **previous PR's branch**, never on `main`.
+User merged the second site's PRs B1–B6 to use as guinea pig before applying the same patterns to the reference site and a second production site (which ARE in production). Live validation found a critical fact: **only B1 (the bump) actually reached `main`**. PRs #13–#17 were all merged in GitHub UI but their merge commits ended up on the **previous PR's branch**, never on `main`.
 
 #### What happened (the same pitfall as Wave 8, recurring)
 
@@ -1566,24 +1566,24 @@ Detection method that worked: file-existence check on `git show main:<deleted-fi
 
 #### Recovery: PR #18 — single consolidation
 
-The deepest stacked branch (`chore/drop-dead-local-useuser`) cumulatively contained all 5 cleanups (B2–B6) linearly stacked on B1. Opened [`baggagio-tanstack#18`](https://github.com/deco-sites/baggagio-tanstack/pull/18) as `chore/consolidate-b2-b6-to-main` → `main`, replaying the exact contents of #13–#17 in order. Diff vs main: **59 files changed, +70 / −240, 4 files deleted**. Typecheck + build clean. Preview at `pr-18-baggagio-tanstack.deco-cx.workers.dev` rendered identical homepage / PLP / PDP / search to current main with zero new console errors. Merged to main, deploy succeeded.
+The deepest stacked branch (`chore/drop-dead-local-useuser`) cumulatively contained all 5 cleanups (B2–B6) linearly stacked on B1. Opened the second site's PR as `chore/consolidate-b2-b6-to-main` → `main`, replaying the exact contents of #13–#17 in order. Diff vs main: **59 files changed, +70 / −240, 4 files deleted**. Typecheck + build clean. Preview at `pr-18-acme.example.workers.dev` rendered identical homepage / PLP / PDP / search to current main with zero new console errors. Merged to main, deploy succeeded.
 
 #### Live validation post-merge (cumulative state on main)
 
-Tested via Playwright (cursor-ide-browser MCP) on `https://baggagio-tanstack.deco-cx.workers.dev/`:
+Tested via Playwright (cursor-ide-browser MCP) on `https://acme.example.workers.dev/`:
 
 | Surface | Result | Notes |
 |---|---|---|
 | Homepage | ✅ Renders | Banner, categories, product carousel, footer all intact |
 | PLP `/s?q=mochila` | ✅ 927 produtos | Filter + sort UI present, all images load |
 | PDP `/mochila-masculina-executiva-para-notebook-horizonte/p` | ✅ Renders | Image gallery, prices, COMPRAR, frete calc, descrição all present |
-| Search suggestions endpoint | ✅ 200 | Empty `searches[]` confirmed pre-existing (matches www.bagaggio.com.br) |
+| Search suggestions endpoint | ✅ 200 | Empty `searches[]` confirmed pre-existing (matches the live production storefront) |
 | `<picture>` HTML | ✅ 18 picture / 36 source | composable canonical pattern |
 | Console errors (filtered 3rd-party) | ✅ Same as before | `[inline-script polyfill]` + image preload warnings pre-existing on main |
 
 **Bonus discovery**: PR-B5 (canonical Picture) now correctly emits `<link rel="preload" as="image" media="(max-width: 767px)" imageSrcSet="..." fetchPriority="high">` for LCP banners — a real Web Vitals improvement that was NOT visible before the consolidation because Picture.tsx (the local wrapper without preload) was still on main.
 
-#### Each PR's safety verdict (for casaevideo + lebiscuit replay)
+#### Each PR's safety verdict (for the reference site + second-site replay)
 
 | PR | Status | Safe to replay? |
 |---|---|---|
@@ -1594,35 +1594,35 @@ Tested via Playwright (cursor-ide-browser MCP) on `https://baggagio-tanstack.dec
 | B5 — canonical `Picture` from apps | ✅ + bonus | YES — adds proper `<link rel="preload" as="image" media>` for LCP |
 | B6 — drop dead `src/hooks/useUser.ts` | ✅ | YES — file had 0 external imports |
 
-**For casaevideo + lebiscuit**: same set of PRs is validated as safe. The replays (`C1`–`C11`, `L1`–`L11`) can proceed on production sites with confidence.
+**For the reference site + second site**: same set of PRs is validated as safe. The replays (`C1`–`C11`, `L1`–`L11`) can proceed on production sites with confidence.
 
 ### Wave 16 — discoveries
 
 - **Stacked-PR pitfall recurred even after Wave 8 documented it.** The Wave 8 mitigation ("verify base is main before merging") was not enforced; the user merged B2–B6 with original stacked bases. Stronger mitigation needed: when opening a stacked PR, **default to a single consolidating PR at the end** rather than 5 separate stacked merges. Single PR is one merge button, one CI run, one deploy — not 5 chances to mis-target the base.
 - **File-existence check is the fastest "did the merge actually land on main?" probe.** Faster than reading PR-stats, faster than diffing branches. `git show main:<deleted-file> 2>&1` — empty stderr means the deletion didn't reach main.
-- **Preview deploys via `wrangler versions upload --preview-alias` are cheap, fast (90 s), and PR-scoped.** Used `https://pr-N-baggagio-tanstack.deco-cx.workers.dev` to validate cumulative state BEFORE merging. Should be the default validation step for any consolidation PR.
-- **The canonical Picture component's per-source `<link rel="preload" as="image" media="...">` injection is a real LCP win** — but it only triggers when `<Picture preload={true}>` is set on the call site. Baggagio's `BannerCarousel.tsx` already passes `preload={lcp}` from the CMS config; the local Picture.tsx wrapper just didn't honor it. Migration to canonical IS a perf upgrade, not just a code-cleanup.
+- **Preview deploys via `wrangler versions upload --preview-alias` are cheap, fast (90 s), and PR-scoped.** Used `https://pr-N-acme.example.workers.dev` to validate cumulative state BEFORE merging. Should be the default validation step for any consolidation PR.
+- **The canonical Picture component's per-source `<link rel="preload" as="image" media="...">` injection is a real LCP win** — but it only triggers when `<Picture preload={true}>` is set on the call site. The second site's `BannerCarousel.tsx` already passes `preload={lcp}` from the CMS config; the local Picture.tsx wrapper just didn't honor it. Migration to canonical IS a perf upgrade, not just a code-cleanup.
 - **Canary-driven validation matters even when the changes are mechanical.** I had high confidence the cumulative state would work (typecheck + build clean), but the live test is what surfaced the "PR-B5 actually emits preload links now" finding. Without the canary loop the perf delta would have been invisible.
 
-### Wave 17 (2026-05-02 — als clean migration: end-to-end first time, with discoveries) — ✅ **SHIPPED**
+### Wave 17 (2026-05-02 — the htmx site's clean migration: end-to-end first time, with discoveries) — ✅ **SHIPPED**
 
-User opted to wipe `als-tanstack` and re-import `als-storefront` from
+User opted to wipe the TanStack repo and re-import the htmx site from
 scratch, then run our migration tooling end-to-end on a real, htmx-heavy
 site for the first time. Goal stop-point: dev server boots + homepage
 SSR returns 200. Stretch: "the right way, not the fast way" — port the
 real things, then backport the learnings.
 
-#### What landed on als-tanstack `main` (force-pushed, fresh history)
+#### What landed on the htmx site's TanStack `main` (force-pushed, fresh history)
 
 | Commit | What |
 |---|---|
-| `f1b6a11` | Import `als-storefront` baseline at origin/main `096686ab` |
+| `f1b6a11` | Import the htmx site baseline at origin/main `096686ab` |
 | `3af54d4` | Run `@decocms/start migrate.ts` (analyze/scaffold/transform/cleanup) |
 | `69727a0` | `npm install` + run codegens (blocks/sections/loaders/schema/routes) |
 | `85d5317` | Worker boots — homepage SSR returns HTTP 200 |
-| `2123516` | Port casaevideo CI/CD; bump deco-start `^2.27` + apps `^1.10`; rename worker |
+| `2123516` | Port the reference site CI/CD; bump deco-start `^2.27` + apps `^1.10`; rename worker |
 | `c6f9dcb` | Defensive guards + restored site-local utils (`format`, `formatPhoneNumber`, `formatStatusName`) |
-| `e6a1fd8` | Rewire 16 section loaders + restore Tailwind v4 theme tokens (`als` palette + custom fonts) |
+| `e6a1fd8` | Rewire 16 section loaders + restore Tailwind v4 theme tokens (`acme` palette + custom fonts) |
 
 End state: `npm run dev` boots, homepage renders 2592 DOM nodes (full
 shell, navigation, content, footer), no Invalid URL / undefined.invoke
@@ -1631,15 +1631,15 @@ pre-migration site (catalog as known follow-up).
 
 #### Framework changes back-ported to deco-start (this PR)
 
-The als run surfaced THREE migrator regressions that previous sites
-(casaevideo / lebiscuit / baggagio) didn't trip because their section
+The htmx site's run surfaced THREE migrator regressions that previous sites
+(the reference site / a second site / another storefront) didn't trip because their section
 authors happened to wire `loader` exports differently. Three real fixes:
 
 | Fix | File | Why |
 |---|---|---|
 | **`withSectionLoader` helper** | `src/cms/sectionMixins.ts` | Lets `compose(withDevice(), withSearchParam(), withSectionLoader(() => import("~/sections/Foo")))` chain mixins WITH the section's own `loader` export. Previously the migrator's template chose mixins XOR own-loader and silently dropped the section's loader when both were present. |
 | **Migrator template fix** | `scripts/migrate/templates/section-loaders.ts` | Always emit `withSectionLoader(...)` last in the chain when `meta.hasLoader === true`, alongside any `withDevice / withMobile / withSearchParam` mixins. Eliminates the silent-drop bug for future migrations. |
-| **`gotcha #50` + `setup-ts.md` template + `css-styling.md` #48–#49** | `.agents/skills/deco-to-tanstack-migration/` | Documents both the section-loader composition pattern AND the Tailwind v4 custom-palette / `@layer components → @utility` migration pitfalls discovered during als CSS restoration. |
+| **`gotcha #50` + `setup-ts.md` template + `css-styling.md` #48–#49** | `.agents/skills/deco-to-tanstack-migration/` | Documents both the section-loader composition pattern AND the Tailwind v4 custom-palette / `@layer components → @utility` migration pitfalls discovered during the htmx site's CSS restoration. |
 
 `withSectionLoader` is defensive by design — if the module has no
 `loader`, returns props unchanged; if the loader throws (e.g. legacy
@@ -1650,7 +1650,7 @@ props. One broken section never takes the page down.
 #### Wave 17 — discoveries (added to gotcha catalog)
 
 - **The migrator template was XOR-ing mixins vs section loaders.** This
-  is a class of bug, not just one section. Across als 16 sections were
+  is a class of bug, not just one section. Across the htmx site, 16 sections were
   affected. Detection on a fresh migration is hard because everything
   builds and SSR renders — sections just silently drop their data.
   Symptoms: empty product carousels, `Cannot read properties of
@@ -1659,13 +1659,13 @@ props. One broken section never takes the page down.
   by always composing both.
 - **Tailwind v4 `@theme` token loss.** The migrator's scaffold writes a
   minimal `app.css` with grays + base colors only. Sites with custom
-  brand palettes in `tailwind.config.ts theme.extend.colors` (als had
-  `als: { gray, blue, red, ... }` namespace) lose ALL of those tokens.
+  brand palettes in `tailwind.config.ts theme.extend.colors` (the htmx site had
+  `acme: { gray, blue, red, ... }` namespace) lose ALL of those tokens.
   Symptom: Vite HMR overlay `Cannot apply unknown utility class
-  'font-bebas-neue' / 'bg-als-blue-500'`, page DOM correct but visually
-  unstyled. Plus a v4-specific second hop: `theme(colors.als.gray.50)`
+  'font-bebas-neue' / 'bg-acme-blue-500'`, page DOM correct but visually
+  unstyled. Plus a v4-specific second hop: `theme(colors.acme.gray.50)`
   in `.css` files no longer resolves — must rewrite as
-  `var(--color-als-gray-50)`. Plus `@layer components` custom classes
+  `var(--color-acme-gray-50)`. Plus `@layer components` custom classes
   (`.container-pdp`) can't be `@apply`d in v4 — must promote to
   `@utility`. All three documented in [css-styling.md #48–49](.agents/skills/deco-to-tanstack-migration/references/css-styling.md).
 - **Site-local format utilities should NOT be hoisted to the apps SDK.**
@@ -1674,21 +1674,21 @@ props. One broken section never takes the page down.
   `@decocms/apps/commerce/sdk/formatPrice` (which doesn't export
   them). Only true commerce primitives (price formatting, currency,
   installments) belong in the apps SDK. Site-specific text formatting
-  stays site-local in `src/sdk/`. Restored als-local versions and
+  stays site-local in `src/sdk/`. Restored the htmx site's local versions and
   fixed import paths.
 - **`HttpError` was the third common shim.** Already promoted `cn`,
   `cookie`, `encoding`, `STATUS_CODE`, `UserAgent` to `@decocms/start/sdk/`
   in Wave 15. `HttpError` joined them in [deco-start#138](https://github.com/decocms/deco-start/pull/138).
-  als-tanstack ships with a temporary local shim until the next apps
+  the htmx site ships with a temporary local shim until the next apps
   release picks up the framework export — TODO is checked into
   `src/lib/http-utils.ts`.
-- **CI/CD porting from casaevideo to a new TanStack site is a 1-minute
+- **CI/CD porting from the reference site to a new TanStack site is a 1-minute
   copy** (when this note was written, at 3 sites). By 6 sites
-  the copy-paste had drifted: lebiscuit was missing
-  `regen-blocks.yml` and `sync-secrets.yml`, miess was missing
+  the copy-paste had drifted: one site was missing
+  `regen-blocks.yml` and `sync-secrets.yml`, another was missing
   `regen-blocks.yml` and its `wrangler.jsonc` lacked `account_id`,
-  lebiscuit's preview workflow swallowed `wrangler` exit codes, and
-  casaevideo's `loadtest:tail` referenced a worker name that didn't
+  another's preview workflow swallowed `wrangler` exit codes, and
+  another's `loadtest:tail` referenced a worker name that didn't
   match its `wrangler.jsonc`. **Status 2026-05-07: D6 → D6.1 → D6.2
   reverted via D6.3** in favour of Cloudflare Workers Builds owning
   the deploy/preview pipelines per-worker. The replacement is being
@@ -1720,11 +1720,11 @@ positive.
 
 #### What this PR does NOT do (deliberately)
 
-- Migrate als's htmx surface to React (deferred per Wave 14 plan; the
+- Migrate the htmx site's htmx surface to React (deferred per Wave 14 plan; the
   codemod handled the mechanical 47% — the rest is per-component
   product work and depends on des-system decisions for things like
   filter sidebars + minicart drawer animation)
-- Validate als visually against production (visual-parity is a Phase 5+
+- Validate the htmx site visually against production (visual-parity is a Phase 5+
   task; we're at Phase 4 dev-boots)
-- Ship `HttpError` consumption in als or apps — als has a local shim,
+- Ship `HttpError` consumption in the htmx site or apps — the htmx site has a local shim,
   apps will pick up the framework export on next release

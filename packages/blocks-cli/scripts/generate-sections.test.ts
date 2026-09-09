@@ -9,7 +9,7 @@
  *
  * Verifies the operationally important behavior: a co-located test/spec/
  * stories/gen file sitting next to a real section must never be walked into
- * sectionMeta (the fila incident this generator's `walkDir` reproduced:
+ * sectionMeta (a production-site incident this generator's `walkDir` reproduced:
  * `sections.test.ts` became a bogus section in a site's generated output).
  */
 import * as cp from "node:child_process";
@@ -273,8 +273,8 @@ describe("generate-sections neverDefer convention", () => {
   // SectionMetaEntry interface the SAME file declares omitted the field —
   // so every generated file containing a neverDefer section failed the
   // site's typecheck (TS2353 excess property), and sites hand-patched the
-  // interface only to have the next regeneration wipe the patch (miess's
-  // .deco/sections.gen.ts carried exactly that TODO). The emitted interface
+  // interface only to have the next regeneration wipe the patch (a production
+  // site's .deco/sections.gen.ts carried exactly that TODO). The emitted interface
   // must match SectionMetaEntry in @decocms/blocks/cms.
   let tmpDir: string;
   let sectionsDir: string;
@@ -292,7 +292,7 @@ describe("generate-sections neverDefer convention", () => {
   });
 
   it("declares neverDefer on the emitted SectionMetaEntry interface and the generated file typechecks + imports", () => {
-    // Mirrors miess's src/sections/Product/SearchResult.tsx.
+    // Mirrors a production site's src/sections/Product/SearchResult.tsx.
     fs.writeFileSync(
       path.join(sectionsDir, "SearchResult.tsx"),
       "export const neverDefer = true;\nexport default function SearchResult() { return null; }\n",

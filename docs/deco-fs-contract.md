@@ -29,7 +29,7 @@ or stack-specific runtime glue Studio should ignore (see
 ## Where `.deco/` lives
 
 At the app root. For the reference app it is
-`montecarlo-app/eitri-shopping-monte-carlo-shared/.deco/`. The daemon mounts the
+`example-app/eitri-shopping-example-shared/.deco/`. The daemon mounts the
 workspace; the app root is the directory containing `.deco/` (and, for Eitri,
 `eitri-app.conf.js` + `src/sections/`).
 
@@ -43,7 +43,7 @@ Top-level shape:
   "major": 1,
   "version": "1.0.0",
   "namespace": "site",
-  "site": "montecarlo",
+  "site": "acme",
   "framework": "eitri",          // "tanstack-start" for React stacks
   "platform": "eitri",
   "cloudProvider": "eitri",

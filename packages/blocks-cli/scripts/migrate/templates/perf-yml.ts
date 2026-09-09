@@ -19,7 +19,7 @@
  */
 
 /**
- * @param workerName  Cloudflare Worker name (= wrangler `name` field, e.g. "oficina-tanstack").
+ * @param workerName  Cloudflare Worker name (= wrangler `name` field, e.g. "my-site-tanstack").
  *                    Used in the CF check-run name and the main preview base URL.
  */
 export function generatePerfFiles(workerName: string): Record<string, string> {

@@ -360,7 +360,7 @@ Shopify loader already reads `__pageUrl` correctly:
 ```ts
 const query = props.query || pageUrl.searchParams.get("q") || "";
 ```
-VTEX initially didn't — this was the root cause of the espacosmart search bug.
+VTEX initially didn't — this was the root cause of a production VTEX storefront search bug.
 
 ### 6. Duplicate search param keys (filters)
 

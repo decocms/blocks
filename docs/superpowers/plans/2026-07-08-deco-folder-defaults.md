@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox syntax.
 
-**Goal:** blocks-cli generators default their outputs into `.deco/` (the framework's folder); release as 7.5.0; migrate the three tanstack sites and fila.
+**Goal:** blocks-cli generators default their outputs into `.deco/` (the framework's folder); release as 7.5.0; migrate the three tanstack sites and the Next.js site.
 
 **Architecture:** Flip four default paths in `packages/blocks-cli/scripts/` (generate-blocks, generate-loaders, generate-sections, generate-schema) with a loud legacy-artifact warning; `generate-invoke` deliberately stays at `src/server/invoke.gen.ts` (app server-function code — TanStack Start's compiler transforms its `createServerFn().handler()` calls; framework artifacts vs app code is the declared boundary). Update the scaffolding CLI (`migrate.ts`), skills under `.agents/skills/`, and `packages/nextjs/README.md`. Release (feat → 7.5.0, lockstep). Then per site: bump, `git mv` artifacts, repoint imports, regenerate, verify, push.
 
-**Tech Stack:** same as prior plan (bun monorepo, vitest; sites: vite/tanstack ×3 + Next/fila).
+**Tech Stack:** same as prior plan (bun monorepo, vitest; sites: vite/tanstack ×3 + Next ×1).
 
 ## Global Constraints
 
@@ -18,7 +18,7 @@
 - `.deco/` may not exist in a fresh site — every flipped script must `mkdirSync(dirname(outFile), { recursive: true })` (some already do; verify each).
 - Do NOT edit `docs/superpowers/plans/2026-07-08-nextjs-glue-tier.md` (historical record).
 - Monorepo gates per task: `bun run --filter='./packages/blocks-cli' test` + `typecheck`.
-- Site gates: tanstack sites' known pre-existing typecheck baselines (~32/41/42 errors) must not grow; dev-boot smoke: `/` 200 + `/live/_meta` 200; fila: tsc clean, deco jest suites, `/.decofile` + `/live/_meta` 200.
+- Site gates: tanstack sites' known pre-existing typecheck baselines (~32/41/42 errors) must not grow; dev-boot smoke: `/` 200 + `/live/_meta` 200; the Next.js site: tsc clean, deco jest suites, `/.decofile` + `/live/_meta` 200.
 - No `git clean`; never delete untracked files beyond explicit moves.
 
 ---
@@ -56,18 +56,18 @@
 
 ### Task 4: migrate the three tanstack sites (parallel-safe: separate repos)
 
-Per site (`~/code/baggagio-tanstack`, `~/code/casaevideo-tanstack`, `~/code/lebiscuit-tanstack`) — each may have UNCOMMITTED @decocms bump changes in its tree from earlier sessions (package.json/bun.lock at ^7.3.1/^7.4.0): fold them into this commit.
+Per site (each of the three tanstack sites) — each may have UNCOMMITTED @decocms bump changes in its tree from earlier sessions (package.json/bun.lock at ^7.3.1/^7.4.0): fold them into this commit.
 
 - [ ] `bun update <every @decocms/* dep in package.json>` to ^7.5.0; verify `node_modules/@decocms/blocks-cli/package.json` says 7.5.0.
 - [ ] `git mv src/server/cms/{blocks.gen.json,blocks.gen.ts,loaders.gen.ts,sections.gen.ts} .deco/ && git mv src/server/admin/meta.gen.json .deco/` (paths per site — verify with `find src -name "*.gen.*"` first; `site-globals.gen.ts` and `invoke.gen.ts` and `routeTree.gen.ts` STAY).
 - [ ] Repoint importers (grep `blocks.gen\|loaders.gen\|sections.gen\|meta.gen` in src/): `src/setup.ts` (three imports), `src/setup/commerce-loaders.ts` (loaders.gen). These sites have no `deco/*` alias — use relative imports (`../.deco/sections.gen` from src/setup.ts; adjust depth per file) OR add the `"deco/*": [".deco/*"]` tsconfig paths alias and use it if vite/vitest resolve tsconfig paths in that site (check for vite-tsconfig-paths or existing paths usage; pick whichever pattern the site already supports, relative is the safe default).
 - [ ] Regenerate via the site's own chain (`bun run build` runs generate:*): confirm the generators now write the `.deco/` copies and no stale `src/server/` artifacts reappear (delete any regenerated strays ONLY if the generator wrote them due to explicit flags in the site's package.json scripts — if the site's scripts pass explicit old-path flags, DELETE THE FLAGS to ride the new defaults).
-- [ ] Gates: typecheck error count ≤ baseline (32/41/42); dev boot on an isolated port → `/` 200 + `/live/_meta` 200 with real JSON; build completes (lebiscuit + casaevideo have a KNOWN pre-existing `cookiePassthrough.ts` client-bundle build failure — reproduce-on-base rule applies: only require build success where it succeeded at 7.4.0).
+- [ ] Gates: typecheck error count ≤ baseline (32/41/42); dev boot on an isolated port → `/` 200 + `/live/_meta` 200 with real JSON; build completes (two of the sites have a KNOWN pre-existing `cookiePassthrough.ts` client-bundle build failure — reproduce-on-base rule applies: only require build success where it succeeded at 7.4.0).
 - [ ] Commit (fold any pre-existing uncommitted bump changes; message `refactor(deco): gen artifacts in .deco/, bump @decocms/* to 7.5.0`) and push to each site's default branch upstream (check branch + remote state first; if a site's tree has OTHER unrelated uncommitted changes beyond the @decocms bumps, commit only the migration+bump files and report the leftovers).
 
-### Task 5: fila cleanup + final verification
+### Task 5: Next.js site cleanup + final verification
 
-- [ ] `~/code/faststore-fila`: bump @decocms/* to ^7.5.0 (`bun update` + `yarn install`); DROP the now-redundant `--out-file .deco/sections.gen.ts` / `--out .deco/meta.gen.json` flags from the two scripts (defaults now match — keep `--registry`, `--namespace site --site fila --skip-apps`).
+- [ ] `~/code/my-site`: bump @decocms/* to ^7.5.0 (`bun update` + `yarn install`); DROP the now-redundant `--out-file .deco/sections.gen.ts` / `--out .deco/meta.gen.json` flags from the two scripts (defaults now match — keep `--registry`, `--namespace site --site mysite --skip-apps`).
 - [ ] Regenerate (`bun run generate`), confirm byte-stable artifacts (only regenerated-if-changed noise), gates: tsc clean, `bun jest src/sdk/deco/` 6/6, dev boot `/.decofile` + `/live/_meta` 200, `yarn build`.
 - [ ] Commit + push (fetch first — this branch gets external pushes).
 - [ ] Ledger + update the setup-reference artifact page (scripts section: flags gone).

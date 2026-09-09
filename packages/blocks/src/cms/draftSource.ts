@@ -179,7 +179,7 @@ export function setDraftPreviewHosts(hosts: readonly unknown[]): void {
  *
  *   - `<site>.deco.site` — the stable deco-hosted domain.
  *   - `<site>.deco-cx.workers.dev` — the workers.dev deploy URL
- *     (e.g. `casaevideo-tanstack.deco-cx.workers.dev`).
+ *     (e.g. `acme-tanstack.deco-cx.workers.dev`).
  *
  * Both are MERGED with the site-block/env list rather than replacing it: they
  * are deco-operated infra, so a signed draft grant can preview there out of the

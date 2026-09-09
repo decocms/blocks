@@ -26,11 +26,11 @@
  * would need real semantic analysis. False negatives are tolerable; the
  * rule still warns when *any* imported symbol from the shim is a clear
  * stub, which is enough to surface the real-world regressions we've
- * actually seen on production sites (casaevideo: `getSegmentFromBag`,
+ * actually seen on production sites (e.g. `getSegmentFromBag`,
  * `getISCookiesFromBag`, `toProduct`).
  *
  * Implementation note — string parsing, not a real TypeScript AST. The
- * shim files are tiny by design (the casaevideo ones are 1-39 lines).
+ * shim files are tiny by design (the real ones are 1-39 lines).
  * A balanced-brace body extractor + small set of stub patterns covers
  * every case observed on real sites. If this ever needs to handle
  * decorators, generics on consts, or weirder JSX forms, the right move

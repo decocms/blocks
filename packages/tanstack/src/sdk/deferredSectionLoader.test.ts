@@ -3,7 +3,7 @@
  * (`@decocms/tanstack/sdk/deferredSectionLoader`).
  *
  * Before 7.7 this wrapper was unreachable from any public subpath, so
- * migrated sites (lebiscuit, miess, granadobr, casaevideo) each carried a
+ * migrated production storefronts each carried a
  * byte-identical local shim wrapping the public `loadDeferredSection`
  * export. The cases below are derived from how those sites call it: it is
  * passed verbatim as `<DecoPageRenderer loadDeferredSectionFn={...} />`,

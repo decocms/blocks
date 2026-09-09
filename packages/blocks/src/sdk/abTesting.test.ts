@@ -12,8 +12,8 @@ import {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-const REAL_HOST = "www.bagaggio.com.br";
-const FALLBACK_HOST = "lojabagaggio.deco.site";
+const REAL_HOST = "www.acme.com.br";
+const FALLBACK_HOST = "lojaacme.deco.site";
 
 function makeUrl(path = "/x"): URL {
   return new URL(`https://${REAL_HOST}${path}`);

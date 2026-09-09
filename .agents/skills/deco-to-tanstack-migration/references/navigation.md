@@ -259,11 +259,11 @@ const [page, setPage] = useState(1);
   to="."
   search={(prev) => ({
     ...prev,
-    "filter.brand": "espacosmart",
+    "filter.brand": "acme",
   })}
   preload="intent"
 >
-  Espaço Smart
+  Acme
 </Link>
 
 // Link that changes sort while keeping filters

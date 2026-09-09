@@ -46,13 +46,13 @@ describe("migrate-to-cf-observability codemod", () => {
     fs.writeFileSync(
       wranglerPath,
       `{
-  "name": "lebiscuit-tanstack",
+  "name": "acme-tanstack",
   "compatibility_date": "2026-02-14",
   "main": "./src/worker-entry.ts",
   "kv_namespaces": [{ "binding": "SITES_KV", "id": "abc" }],
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "analytics_engine_datasets": [
-    { "binding": "DECO_METRICS", "dataset": "deco_metrics_lebiscuit" }
+    { "binding": "DECO_METRICS", "dataset": "deco_metrics_acme" }
   ],
   "observability": {
     "logs": {
@@ -77,7 +77,7 @@ describe("migrate-to-cf-observability codemod", () => {
     // No destinations by default.
     expect(result).not.toContain('"destinations"');
     // Original keys preserved.
-    expect(result).toContain('"name": "lebiscuit-tanstack"');
+    expect(result).toContain('"name": "acme-tanstack"');
     expect(result).toContain('"binding": "DECO_METRICS"');
     // Result must be valid JSONC.
     expect(() => JSON.parse(stripJsoncComments(result))).not.toThrow();
@@ -87,7 +87,7 @@ describe("migrate-to-cf-observability codemod", () => {
     fs.writeFileSync(
       wranglerPath,
       `{
-  "name": "lebiscuit-tanstack",
+  "name": "acme-tanstack",
   "main": "./src/worker-entry.ts",
   "observability": {
     "enabled": true,
@@ -146,7 +146,7 @@ describe("migrate-to-cf-observability codemod", () => {
     fs.writeFileSync(
       wranglerPath,
       `{
-  "name": "lebiscuit-tanstack",
+  "name": "acme-tanstack",
   "main": "./src/worker-entry.ts",
   "observability": {
     "logs": { "enabled": true }

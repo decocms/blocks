@@ -436,7 +436,7 @@ function DeferredSectionWrapper({
   // the skeleton subtree and mount of the resolved subtree even when the
   // section's own LoadingFallback renders the real component with reduced
   // props (a documented convention — see Footer.tsx/ETCImageContent.tsx in
-  // the farmrio-storefront migration's T64). That unmount/remount is what
+  // a production storefront migration's T64). That unmount/remount is what
   // produces a hard rect-collapse-to-{0,0,0,0} layout-shift entry instead
   // of an ordinary prop-driven resize. Keeping the wrapper identical across
   // both branches lets React diff by type at the child position instead.

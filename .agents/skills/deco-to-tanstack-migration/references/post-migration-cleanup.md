@@ -42,9 +42,9 @@ delete for the auto-fixable subset of `local-framework-duplicate`
 as `(0 fixed, manual)`, so you always know what's left after auto-fix
 runs.
 
-Real-world signal: on baggagio, `--fix` produced a byte-identical
+Real-world signal: on one production site, `--fix` produced a byte-identical
 diff to the manual cleanup PR a human had just made (45 files,
-+45/-53). On casaevideo-storefront (production), the audit caught
++45/-53). On another production site, the audit caught
 six silent VTEX shim regressions that no `tsc --noEmit` run can
 detect — `--fix` covers the swap subset of those automatically since
 `>= 2.16.0`. On the same site's `vite.config.ts`, `--fix` removes
@@ -83,8 +83,8 @@ up empty, delete the directory too.
 
 | Site | Files generated | Files used |
 |------|-----------------|-----------|
-| baggagio-tanstack | 11 | 0 (all dead) |
-| casaevideo-storefront | 11 | 1 (wrapped manually) |
+| Production site A | 11 | 0 (all dead) |
+| Production site B | 11 | 1 (wrapped manually) |
 
 The files that tend to be dead in every site:
 
@@ -233,7 +233,7 @@ a new one worth pinning down, add it to `STUB_FIX_HINTS` in
 Two real-world patterns surface, requiring different fixes:
 
 **Pattern A — call site already passes 4 args under `as any`** (e.g.
-`smartShelfForYou.ts` on casaevideo): the dev wrote the call for
+`smartShelfForYou.ts` on a production site): the dev wrote the call for
 canonical, the import pointed at the stub. Fix is **import-only**:
 
 ```diff
@@ -253,7 +253,7 @@ canonical `LegacyProductVTEX | ProductVTEX` differ structurally — that's
 a separate refactor.
 
 **Pattern B — call site uses true 1-arg form** (e.g.
-`intelligenseSearch.ts` on casaevideo): the dev relied on the stub's
+`intelligenseSearch.ts` on a production site): the dev relied on the stub's
 identity-cast behaviour. Fix is to **expand the call** mirroring the
 canonical pattern in
 [`apps-start/vtex/loaders/autocomplete.ts`](https://github.com/decocms/apps-start/blob/main/vtex/loaders/autocomplete.ts):
@@ -427,11 +427,11 @@ logic, wrapped in something else) are skipped automatically.
 
 | Site path | Canonical | Auto-fix? | Reason / status |
 |---|---|---|---|
-| `src/sdk/clx.ts` | `@decocms/start/sdk/clx` | yes | Identical implementation; baggagio's extra `clsx` alias has zero callers. |
+| `src/sdk/clx.ts` | `@decocms/start/sdk/clx` | yes | Identical implementation; one site's extra `clsx` alias has zero callers. |
 | `src/sdk/useSendEvent.ts` | `@decocms/start/sdk/analytics` | no | Site copy uses `<E extends AnalyticsEvent>` generic; framework export is permissive. Replace 1:1 = type-safety loss. Either widen the framework first or accept the loss. |
 | `src/matchers/location.ts` | `@decocms/start/matchers/builtins` | no | Framework's `registerBuiltinMatchers()` ships a richer location matcher (`request.cf` first, geo cookies fallback, headers fallback) plus 10 sibling matchers. Adopting changes behaviour — verify country-name lookup parity, swap `setup.ts`'s `customMatchers` entry. |
 | `src/sdk/url.ts` | `@decocms/apps/commerce/sdk/url` | no | Site fork carries a positional `removeIdSku?: boolean` flag with hardcoded VTEX-specific keys. Canonical apps export uses `{ stripSearchParams: string[] }` (`@decocms/apps@1.9+`). Rewrite imports + each `relative(url, true)` call site → `relative(url, { stripSearchParams: ["idsku", "skuId"] })`, then delete the file. Auto-fix is gated because the call-site rewrite needs JSX/TS-aware transformation, not pure import rewrite. |
-| `src/sdk/useSuggestions.ts` | `@decocms/start/sdk/useSuggestions` | no | Hand-rolled hook with module-level signal + serial-queue + latestQuery cancel pattern. Both casaevideo and baggagio independently invented the exact same shape, so the canonical is now a `createUseSuggestions<T>` factory (`@decocms/start@2.25+`). Sites replace the file with a 5-line factory shim — see `references/platform-hooks-factories.md` § useSuggestions. Auto-fix is gated because the per-site type parameter (`Suggestion` vs `IntelligenseSearch` vs site-specific) and `onError` wiring need site-specific decisions. |
+| `src/sdk/useSuggestions.ts` | `@decocms/start/sdk/useSuggestions` | no | Hand-rolled hook with module-level signal + serial-queue + latestQuery cancel pattern. Multiple production sites independently invented the exact same shape, so the canonical is now a `createUseSuggestions<T>` factory (`@decocms/start@2.25+`). Sites replace the file with a 5-line factory shim — see `references/platform-hooks-factories.md` § useSuggestions. Auto-fix is gated because the per-site type parameter (`Suggestion` vs `IntelligenseSearch` vs site-specific) and `onError` wiring need site-specific decisions. |
 
 ### Adding a new entry
 

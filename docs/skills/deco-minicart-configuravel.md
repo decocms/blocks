@@ -1,7 +1,7 @@
 ---
 title: Configurable On-Demand Minicart (TanStack / React Query)
 description: Build an API-frugal, CMS-configurable VTEX minicart for Deco storefronts on TanStack Start with React Query. No getOrCreateCart on page load, lazy orderForm creation, canonical Minicart shape, micro-skeletons, and toast-vs-drawer toggle.
-reference: montecarlo-tanstack
+reference: a production VTEX storefront
 tags: [minicart, react-query, vtex, performance, cms, ux]
 ---
 
@@ -9,7 +9,7 @@ tags: [minicart, react-query, vtex, performance, cms, ux]
 
 Turn a VTEX minicart into an API-frugal, CMS-configurable, replicable component on `@decocms/start` (TanStack Start / React / Cloudflare) with `@decocms/apps-vtex@7.20+`.
 
-**Reference implementation:** Monte Carlo (`montecarlo-tanstack`).
+**Reference implementation:** a production VTEX storefront.
 
 ## Goals this Delivers
 
@@ -17,7 +17,7 @@ Turn a VTEX minicart into an API-frugal, CMS-configurable, replicable component 
 2. **Empty cart without API calls.** A cookieless visitor opening the drawer sees an empty state with zero API calls; the orderForm is created only on the first add-to-cart.
 3. **Canonical `Minicart` shape.** Adopt the platform-agnostic `Minicart` type from `@decocms/apps-vtex/utils/minicart` so totals, currency, locale, and free-shipping math come from one boundary conversion, not ad-hoc field digging.
 4. **Micro-skeletons without layout shift.** Per-line quantity/price skeletons + footer total skeleton via pulse-in-place (not fixed boxes), preserving exact dimensions and preventing row collapse.
-5. **CMS-editable config + composable shelf.** A loader-based config with live Preview (Farm pattern) + a slot for dropping product shelves inside the cart via `SectionRenderer`.
+5. **CMS-editable config + composable shelf.** A loader-based config with live Preview (a self-contained preview pattern) + a slot for dropping product shelves inside the cart via `SectionRenderer`.
 6. **Toast-vs-drawer toggle.** A "notification (toast)" switch: ON (default) = toast on add + drawer stays closed; OFF = drawer auto-opens. Driven by CMS config.
 
 ## Architecture
@@ -65,9 +65,9 @@ const minicart = useMemo(() => data ? vtexOrderFormToMinicart(data, {
 
 The minicart drawer is a **layout-shell overlay** (always mounted in `Header/Drawers`, opened by a global `displayCart` signal). It is NOT a page section — don't try to make it one.
 
-- **`src/loaders/minicart.tsx`** — Identity loader returning `MinicartConfig` (rich JSDoc: `freeShippingTarget`, `enableCoupon`, `checkoutHref`, `variant`, `showAddToCartToast`, `addedToast`, `emptyState`, `shelfSections?: Section[]`). Also `export const Preview = (config) => JSX` — a self-contained HTML preview of the configured minicart open and populated (Farm pattern, e.g. `deco-sites/farmrio/loaders/Layouts/Tags.tsx`). Keep Preview dependency-free (no runtime hooks).
+- **`src/loaders/minicart.tsx`** — Identity loader returning `MinicartConfig` (rich JSDoc: `freeShippingTarget`, `enableCoupon`, `checkoutHref`, `variant`, `showAddToCartToast`, `addedToast`, `emptyState`, `shelfSections?: Section[]`). Also `export const Preview = (config) => JSX` — a self-contained HTML preview of the configured minicart open and populated (a self-contained preview pattern). Keep Preview dependency-free (no runtime hooks).
 - **Header receives flat config object** (`cart.config?: MinicartConfig`), passes it through to `Drawers → Cart`. No `SectionRenderer` wrapping the drawer.
-- **Composable shelf slot** — `common/Cart.tsx` renders `shelfSections` via `SectionRenderer` so the admin can drop a product shelf (Granado style) inside the cart. Scope is localized.
+- **Composable shelf slot** — `common/Cart.tsx` renders `shelfSections` via `SectionRenderer` so the admin can drop a product shelf (storefront style) inside the cart. Scope is localized.
 
 ## File Map (Copy/Adapt per Site)
 

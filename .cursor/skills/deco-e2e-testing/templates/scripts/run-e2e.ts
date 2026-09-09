@@ -15,7 +15,7 @@
  *   npm run test:e2e:headed      # Run tests with visible browser
  *
  * Placeholders to replace:
- *   {{SITE_NAME}} - Your site name (e.g., "lojastorra-2")
+ *   {{SITE_NAME}} - Your site name (e.g., "my-site")
  */
 
 import { spawn, type ChildProcess } from "node:child_process";

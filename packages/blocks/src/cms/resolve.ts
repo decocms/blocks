@@ -1982,7 +1982,7 @@ function pruneCommerceJsonLD(
  * ship loaders/types, not sections), so nothing else runs this transform.
  * Without it, PLP/PDP pages whose `page.seo` points at those types emit a
  * <title>/canonical (from top-level override props) but NO schema.org
- * structured data — the casaevideo.com.br/eletroportateis regression.
+ * structured data — the acme.com.br/eletroportateis regression.
  *
  * Manual override fields already read into `seo` always win; this only fills
  * gaps and appends the JSON-LD. The caller guards on `seo.jsonLDs` so a real

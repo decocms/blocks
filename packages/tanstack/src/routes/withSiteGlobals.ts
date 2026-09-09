@@ -17,8 +17,8 @@
  *
  * export const Route = createFileRoute("/$")({
  *   ...withSiteGlobals(cmsRouteConfig({
- *     siteName: "Bagaggio",
- *     defaultTitle: "Bagaggio",
+ *     siteName: "Acme",
+ *     defaultTitle: "Acme",
  *   })),
  *   component: ...,
  * });

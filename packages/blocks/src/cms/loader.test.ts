@@ -78,32 +78,32 @@ describe("matchPath", () => {
     // These are the cases that issue #213 documents as broken.
 
     it("matches with the optional group present", () => {
-      expect(matchPath("/{granado/}?*", "/granado/perfumaria")).toEqual({
+      expect(matchPath("/{acme/}?*", "/acme/perfumaria")).toEqual({
         "0": "perfumaria",
       });
     });
 
     it("matches with the optional group absent", () => {
-      expect(matchPath("/{granado/}?*", "/perfumaria")).toEqual({
+      expect(matchPath("/{acme/}?*", "/perfumaria")).toEqual({
         "0": "perfumaria",
       });
     });
 
     it("matches root when optional prefix and splat collapse to empty", () => {
-      expect(matchPath("/{granado/}?*", "/")).toEqual({ "0": "" });
+      expect(matchPath("/{acme/}?*", "/")).toEqual({ "0": "" });
     });
 
     it("matches with an optional prefix before a literal segment", () => {
       expect(
         matchPath(
-          "/{granado/}?campanhas/*",
-          "/granado/campanhas/destaques-2023",
+          "/{acme/}?campanhas/*",
+          "/acme/campanhas/destaques-2023",
         ),
       ).toEqual({
         "0": "destaques-2023",
       });
       expect(
-        matchPath("/{granado/}?campanhas/*", "/campanhas/destaques-2023"),
+        matchPath("/{acme/}?campanhas/*", "/campanhas/destaques-2023"),
       ).toEqual({
         "0": "destaques-2023",
       });
@@ -158,7 +158,7 @@ describe("findPageByPath specificity", () => {
       },
       "pages-pdp-plp": {
         name: "PDP & PLP",
-        path: "/{granado/}?*",
+        path: "/{acme/}?*",
         sections: [],
       },
       "pages-product": {
@@ -179,8 +179,8 @@ describe("findPageByPath specificity", () => {
   });
 
   it("prefers the home page over an optional-group splat catch-all", () => {
-    // Regression: /{granado/}?* matches "/" and was out-ranking the home
-    // because the `{granado` segment counted as a param. The home block
+    // Regression: /{acme/}?* matches "/" and was out-ranking the home
+    // because the `{acme` segment counted as a param. The home block
     // is a literal-only `/` path and must always win.
     setBlocks({
       "pages-home": {
@@ -190,7 +190,7 @@ describe("findPageByPath specificity", () => {
       },
       "pages-pdp-plp": {
         name: "PDP & PLP",
-        path: "/{granado/}?*",
+        path: "/{acme/}?*",
         sections: [],
       },
     });
@@ -228,7 +228,7 @@ describe("loadBlocks draft override — key percent-encoding", () => {
   // (`pages-Home (principal)-1`). Under snapshot semantics the draft REPLACES
   // the file-backed base wholesale, so an encoded/raw twin pair can never
   // coexist — these regression tests (from the merge era, when ~73% of
-  // casaevideo's pages silently ignored drafts) now pin that property.
+  // one production site's pages silently ignored drafts) now pin that property.
 
   afterEach(() => {
     setBlocks({});

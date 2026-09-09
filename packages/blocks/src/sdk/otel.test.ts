@@ -169,13 +169,13 @@ describe("instrumentWorker — identity floor", () => {
 
   it("stamps service.name and service.version on the logger floor", async () => {
     const handler = { fetch: vi.fn().mockResolvedValue(new Response("ok")) };
-    const wrapped = instrumentWorker(handler, { serviceName: "casaevideo-tanstack" });
+    const wrapped = instrumentWorker(handler, { serviceName: "acme-tanstack" });
 
     const env: TestEnv = { CF_VERSION_METADATA: { id: "abc123" } };
     await wrapped.fetch(new Request("https://example.test/"), env, fakeCtx());
 
     const floor = logger._getLoggerAttributeFloorForTests();
-    expect(floor["service.name"]).toBe("casaevideo-tanstack");
+    expect(floor["service.name"]).toBe("acme-tanstack");
     expect(floor["service.version"]).toBe("abc123");
   });
 

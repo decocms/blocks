@@ -737,7 +737,7 @@ export function normalizePath(path: string): string {
   //
   //   /mochila-de-couro
   //   /moveis/quarto-infantil
-  //   /granado/eau-de-toilette-spritz-100ml
+  //   /acme/eau-de-toilette-spritz-100ml
   //
   // Measured on the production ClickHouse, `http.route` reached 20,714
   // distinct values across only 6 tenants — on `http.server.request.duration`,

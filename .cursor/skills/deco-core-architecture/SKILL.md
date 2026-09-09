@@ -18,7 +18,7 @@ globs:
 | [runtime.md](./runtime.md) | Runtime request flow — Hono, middleware chain, routes, rendering |
 | [hooks-components.md](./hooks-components.md) | Hooks, components, and client-side code |
 | [plugins-clients.md](./plugins-clients.md) | Fresh plugins, client-side invoke proxy, formdata utils |
-| [site-usage.md](./site-usage.md) | How a Deco site uses the framework — osklenbr as reference |
+| [site-usage.md](./site-usage.md) | How a Deco site uses the framework — a production VTEX site as reference |
 | [deco-vs-blocks.md](./deco-vs-blocks.md) | Mapping deco-cx/deco (Fresh) → @decocms/start (TanStack) |
 
 # deco-cx/deco Core Architecture

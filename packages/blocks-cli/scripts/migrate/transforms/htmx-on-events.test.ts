@@ -224,7 +224,7 @@ describe("transformHtmxOnEvents — idempotency + edge cases", () => {
   });
 });
 
-describe("transformHtmxOnEvents — als-shaped fixtures", () => {
+describe("transformHtmxOnEvents — htmx-shaped fixtures", () => {
   it("AddToBagButton: hx-on-click + Fresh useScript → onClick + TODO", () => {
     const src = `import { useScript } from "site/sdk/useScript.ts";
 

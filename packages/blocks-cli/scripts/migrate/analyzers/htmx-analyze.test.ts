@@ -116,7 +116,7 @@ describe("classify (pure)", () => {
 	});
 
 	it("treats hx-on with a fetch attr as click-swap (the fetch wins)", () => {
-		// Real example from als (EmailAndPassword button): hx-get +
+		// Real example from a production htmx storefront (EmailAndPassword button): hx-get +
 		// hx-target + hx-trigger=click — engineer often piles
 		// hx-on alongside, but the dominant migration path is the
 		// click-swap recipe.
@@ -127,11 +127,11 @@ describe("classify (pure)", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* analyzeFile() — JSX walker tests using real als-shaped fixtures     */
+/* analyzeFile() — JSX walker tests using real htmx-shaped fixtures     */
 /* ------------------------------------------------------------------ */
 
 describe("analyzeFile (real shapes)", () => {
-	it("detects hx-on:click={useScript(...)} click handler (als AddToBagButton shape)", () => {
+	it("detects hx-on:click={useScript(...)} click handler (AddToBagButton shape)", () => {
 		const file = `
 import { useScript } from "@deco/deco/hooks";
 export default function AddToBagButton() {
@@ -157,7 +157,7 @@ export default function AddToBagButton() {
 		expect(out[0].attrs).toEqual(["hx-on:click"]);
 	});
 
-	it("detects hx-post + hx-target + hx-trigger=keyup on an input as auto-fetch (als SearchInput shape)", () => {
+	it("detects hx-post + hx-target + hx-trigger=keyup on an input as auto-fetch (SearchInput shape)", () => {
 		const file = `
 <input
   id={searchInputId}
@@ -181,7 +181,7 @@ export default function AddToBagButton() {
 		expect(out[0].attrs).toContain("hx-target");
 	});
 
-	it("detects hx-post + hx-target + hx-swap on a form as form-swap (als EmailAndPassword shape)", () => {
+	it("detects hx-post + hx-target + hx-swap on a form as form-swap (EmailAndPassword shape)", () => {
 		const file = `
 <form
   class="flex flex-col w-full"
@@ -202,7 +202,7 @@ export default function AddToBagButton() {
 		expect(out[0].attrs).toContain("hx-target");
 	});
 
-	it("detects hx-get on a button as click-swap (als ForgotPassword shape)", () => {
+	it("detects hx-get on a button as click-swap (ForgotPassword shape)", () => {
 		const file = `
 <button
   type="button"

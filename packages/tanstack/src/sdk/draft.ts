@@ -94,7 +94,7 @@ export function installPreviewHostsFromBlocks(blocks: Record<string, unknown> | 
 /**
  * Register the deco-operated preview hosts inferred from the site name —
  * `<site>.deco.site` and `<site>.deco-cx.workers.dev` (the workers.dev deploy
- * URL, e.g. `casaevideo-tanstack.deco-cx.workers.dev`) — so a signed
+ * URL, e.g. `acme-tanstack.deco-cx.workers.dev`) — so a signed
  * `?__draft=` grant previews on deco-hosted infra with zero per-site config.
  *
  * Fed from the Workers env binding `DECO_SITE_NAME`: deploy-time configuration

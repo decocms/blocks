@@ -21,7 +21,7 @@ Issues and feature gaps discovered during real site migration work. Trimmed duri
 ## Tier 1 — Developer experience
 
 ### `useScript(fn)` hydration mismatch warning — still present
-- `useScript` calls `fn.toString()`, which produces different output in SSR vs. client builds (minification, variable renaming). The `[useScript] Using fn.toString() for "..."` warning still fires in real dev sessions (confirmed live in casaevideo-tanstack/bagaggio-tanstack dev logs during the Next.js/split-package migration work).
+- `useScript` calls `fn.toString()`, which produces different output in SSR vs. client builds (minification, variable renaming). The `[useScript] Using fn.toString() for "..."` warning still fires in real dev sessions (confirmed live in production storefront dev logs during the Next.js/split-package migration work).
 - **Ideal**: ship `inlineScript(str)` accepting a plain string constant, or make `useScript` stable across builds. See also `docs/next-steps-tanstack-native.md`'s proposal #2, which covers the same gap in more detail — don't build both independently.
 
 ### Route files are still boilerplate

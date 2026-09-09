@@ -1,13 +1,13 @@
 # Migration Learnings Staging: Index-Per-Target-File From Day One
 
 > Convention for any new epic-scale migration that stages learnings for later
-> consolidation into this repo (mirroring what T40 of the farmrio-storefront
+> consolidation into this repo (mirroring what T40 of the a production storefront
 > migration did for this file's own `#52`–`#73` gotchas). Adopt this from the
 > **first** target, not as a mid-epic restructure.
 
 ## The problem this prevents
 
-An early wave of the farmrio-storefront migration staged every target's
+An early wave of the a production storefront migration staged every target's
 learnings in one flat, append-only `migration/LEARNINGS.md`. By the time it
 was restructured (2026-07-30), that file had grown to:
 

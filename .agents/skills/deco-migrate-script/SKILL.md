@@ -36,7 +36,7 @@ npx tsx node_modules/@decocms/blocks-cli/scripts/migrate.ts --source /path/to/ol
 
 ### Per-site config: `.deco-migrate.config.json`
 
-Optional JSON file at the source root that customises the migration for sites whose section names don't match the casaevideo-derived defaults baked into the script.
+Optional JSON file at the source root that customises the migration for sites whose section names don't match the reference-site-derived defaults baked into the script.
 
 ```jsonc
 {
@@ -59,7 +59,7 @@ Optional JSON file at the source root that customises the migration for sites wh
 - `listingCache` — emit `export const cache = "listing"` (medium TTL).
 - `staticCache` — emit `export const cache = "static"` (long TTL).
 
-When the file is absent the baked-in casaevideo defaults apply, so existing migrations are unaffected.
+When the file is absent the baked-in reference-site defaults apply, so existing migrations are unaffected.
 
 ## Architecture
 

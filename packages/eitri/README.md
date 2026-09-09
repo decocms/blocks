@@ -87,7 +87,7 @@ If you prefer to wire it by hand, your `tsconfig.json` need only be:
 npx deco-eitri generate
 
 # or, targeting a sub-app in a monorepo without cd:
-npx deco-eitri generate --root eitri-shopping-monte-carlo-shared
+npx deco-eitri generate --root eitri-shopping-example-shared
 ```
 
 Add it as a script:

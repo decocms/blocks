@@ -1,7 +1,7 @@
 /**
  * Search-suggestions hook factory.
  *
- * Both casaevideo-storefront and baggagio-tanstack independently
+ * Two production storefronts independently
  * invented the same shape for autocomplete-style suggestions:
  *
  *  - module-level signal for the current payload + loading flag

@@ -32,11 +32,11 @@ describe("parseDraftPointer", () => {
   it("parses <authority><path>@<version>, lowercasing the authority", () => {
     expect(
       parseDraftPointer(
-        "Studio.decocms.com/api/fila/decofile/vm-1/main?token=Tok.abc@8c1d44e",
+        "Studio.decocms.com/api/acme/decofile/vm-1/main?token=Tok.abc@8c1d44e",
       ),
     ).toEqual({
       host: "studio.decocms.com",
-      path: "/api/fila/decofile/vm-1/main?token=Tok.abc",
+      path: "/api/acme/decofile/vm-1/main?token=Tok.abc",
       version: "8c1d44e",
     });
   });
@@ -138,18 +138,18 @@ describe("gating", () => {
   });
 
   it("matches request hosts verbatim, port included, case-insensitively", () => {
-    const env = { DECO_ALLOWED_PREVIEW_HOSTS: "fila.vtex.app, localhost:3100" };
-    expect(isDraftHostAllowed("FILA.VTEX.APP", env)).toBe(true);
+    const env = { DECO_ALLOWED_PREVIEW_HOSTS: "acme.vtex.app, localhost:3100" };
+    expect(isDraftHostAllowed("ACME.VTEX.APP", env)).toBe(true);
     expect(isDraftHostAllowed("localhost:3100", env)).toBe(true);
-    expect(isDraftHostAllowed("fila.com.br", env)).toBe(false);
+    expect(isDraftHostAllowed("acme.com.br", env)).toBe(false);
     expect(isDraftHostAllowed("localhost", env)).toBe(false);
     expect(isDraftHostAllowed(null, env)).toBe(false);
-    expect(isDraftHostAllowed("fila.vtex.app", {})).toBe(false);
+    expect(isDraftHostAllowed("acme.vtex.app", {})).toBe(false);
   });
 });
 
 // Canonical Studio decofile-API pointer prefix (authority + path, no version).
-const P = "studio.decocms.com/api/fila/decofile/vm-1/main?token=tok.abc";
+const P = "studio.decocms.com/api/acme/decofile/vm-1/main?token=tok.abc";
 
 describe("resolveDraftDecofile", () => {
   it("fetches the token's path on its validated origin", async () => {
@@ -168,7 +168,7 @@ describe("resolveDraftDecofile", () => {
     // content-addressed so Studio can answer with CDN-cacheable immutable
     // headers when it matches the served sha.
     expect(calls).toEqual([
-      "https://studio.decocms.com/api/fila/decofile/vm-1/main?token=tok.abc&v=v1",
+      "https://studio.decocms.com/api/acme/decofile/vm-1/main?token=tok.abc&v=v1",
     ]);
   });
 
@@ -298,10 +298,10 @@ describe("DEFAULT_PREVIEW_API_DOMAINS", () => {
 
 describe("site-block preview hosts", () => {
   it("enables the feature from the site block alone — no env needed", () => {
-    setDraftPreviewHosts(["fila.vtex.app", "LOCALHOST:3100", 42, "  "]);
+    setDraftPreviewHosts(["acme.vtex.app", "LOCALHOST:3100", 42, "  "]);
     try {
       expect(isDraftPreviewEnabled({})).toBe(true);
-      expect(isDraftHostAllowed("fila.vtex.app", {})).toBe(true);
+      expect(isDraftHostAllowed("acme.vtex.app", {})).toBe(true);
       // Sanitized: lowercased, non-strings and blanks dropped.
       expect(isDraftHostAllowed("localhost:3100", {})).toBe(true);
       expect(isDraftHostAllowed("evil.example", {})).toBe(false);
@@ -311,13 +311,13 @@ describe("site-block preview hosts", () => {
   });
 
   it("env REPLACES the block hosts when set — the operational escape hatch", () => {
-    setDraftPreviewHosts(["fila.vtex.app"]);
+    setDraftPreviewHosts(["acme.vtex.app"]);
     try {
       const env = { DECO_ALLOWED_PREVIEW_HOSTS: "other.example" };
       expect(isDraftHostAllowed("other.example", env)).toBe(true);
       // Not merged: env is a kill switch / override, so the block value must
       // not survive alongside it.
-      expect(isDraftHostAllowed("fila.vtex.app", env)).toBe(false);
+      expect(isDraftHostAllowed("acme.vtex.app", env)).toBe(false);
     } finally {
       setDraftPreviewHosts([]);
     }
@@ -326,41 +326,41 @@ describe("site-block preview hosts", () => {
 
 describe("deco-hosted preview domains (setDecoSiteHost)", () => {
   it("infers <site>.deco.site and enables the feature", () => {
-    setDecoSiteHost("als-storefront");
+    setDecoSiteHost("acme");
     try {
       expect(isDraftPreviewEnabled({})).toBe(true);
-      expect(isDraftHostAllowed("als-storefront.deco.site", {})).toBe(true);
+      expect(isDraftHostAllowed("acme.deco.site", {})).toBe(true);
       expect(isDraftHostAllowed("other.deco.site", {})).toBe(false);
       // A custom production domain is never inferred.
-      expect(isDraftHostAllowed("www.als-storefront.com", {})).toBe(false);
+      expect(isDraftHostAllowed("www.acme.com", {})).toBe(false);
     } finally {
       setDecoSiteHost(null);
     }
   });
 
   it("infers the <site>.deco-cx.workers.dev deploy host", () => {
-    setDecoSiteHost("casaevideo-tanstack");
+    setDecoSiteHost("acme-tanstack");
     try {
-      expect(isDraftHostAllowed("casaevideo-tanstack.deco-cx.workers.dev", {})).toBe(true);
+      expect(isDraftHostAllowed("acme-tanstack.deco-cx.workers.dev", {})).toBe(true);
       // Exact match only — another worker on the same account is not admitted.
       expect(isDraftHostAllowed("other-site.deco-cx.workers.dev", {})).toBe(false);
       // No nested subdomain widens the match.
       expect(
-        isDraftHostAllowed("casaevideo-tanstack.evil.deco-cx.workers.dev", {}),
+        isDraftHostAllowed("acme-tanstack.evil.deco-cx.workers.dev", {}),
       ).toBe(false);
       // Wrong apex.
-      expect(isDraftHostAllowed("casaevideo-tanstack.deco-cx.workers.example", {})).toBe(false);
+      expect(isDraftHostAllowed("acme-tanstack.deco-cx.workers.example", {})).toBe(false);
     } finally {
       setDecoSiteHost(null);
     }
   });
 
   it("is merged ON TOP of the site block, not replacing it", () => {
-    setDraftPreviewHosts(["fila.vtex.app"]);
-    setDecoSiteHost("als-storefront");
+    setDraftPreviewHosts(["acme.vtex.app"]);
+    setDecoSiteHost("acme");
     try {
-      expect(isDraftHostAllowed("fila.vtex.app", {})).toBe(true);
-      expect(isDraftHostAllowed("als-storefront.deco.site", {})).toBe(true);
+      expect(isDraftHostAllowed("acme.vtex.app", {})).toBe(true);
+      expect(isDraftHostAllowed("acme.deco.site", {})).toBe(true);
     } finally {
       setDraftPreviewHosts([]);
       setDecoSiteHost(null);
@@ -368,11 +368,11 @@ describe("deco-hosted preview domains (setDecoSiteHost)", () => {
   });
 
   it("is merged ON TOP of the env escape hatch too", () => {
-    setDecoSiteHost("als-storefront");
+    setDecoSiteHost("acme");
     try {
       const env = { DECO_ALLOWED_PREVIEW_HOSTS: "other.example" };
       expect(isDraftHostAllowed("other.example", env)).toBe(true);
-      expect(isDraftHostAllowed("als-storefront.deco.site", env)).toBe(true);
+      expect(isDraftHostAllowed("acme.deco.site", env)).toBe(true);
     } finally {
       setDecoSiteHost(null);
     }
@@ -392,16 +392,16 @@ describe("deco-hosted preview domains (setDecoSiteHost)", () => {
   });
 
   it("DECO_ALLOWED_PREVIEW_HOSTS=none kills the inferred hosts too", () => {
-    setDraftPreviewHosts(["fila.vtex.app"]);
-    setDecoSiteHost("als-storefront");
+    setDraftPreviewHosts(["acme.vtex.app"]);
+    setDecoSiteHost("acme");
     try {
       // The kill switch wins over the inferred hosts AND the site block, so a
       // bad rollout can be stopped without a deploy.
       const env = { DECO_ALLOWED_PREVIEW_HOSTS: "none" };
       expect(isDraftPreviewEnabled(env)).toBe(false);
-      expect(isDraftHostAllowed("als-storefront.deco.site", env)).toBe(false);
-      expect(isDraftHostAllowed("als-storefront.deco-cx.workers.dev", env)).toBe(false);
-      expect(isDraftHostAllowed("fila.vtex.app", env)).toBe(false);
+      expect(isDraftHostAllowed("acme.deco.site", env)).toBe(false);
+      expect(isDraftHostAllowed("acme.deco-cx.workers.dev", env)).toBe(false);
+      expect(isDraftHostAllowed("acme.vtex.app", env)).toBe(false);
     } finally {
       setDraftPreviewHosts([]);
       setDecoSiteHost(null);

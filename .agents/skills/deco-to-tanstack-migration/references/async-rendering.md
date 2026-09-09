@@ -660,7 +660,7 @@ If you see `Failed to execute 'createElement'` with a section path as tag name, 
 
 ### Performance Impact
 
-Measured on `espacosmart-storefront`:
+Measured on a production storefront:
 
 | Page | Before | After | Reduction |
 |------|--------|-------|-----------|
@@ -693,7 +693,7 @@ Measured on `espacosmart-storefront`:
 
 `SectionLoaderFn` in `@decocms/blocks/cms/sectionLoaders.ts` was `(props, req) => ...` — 2 arguments, no `ctx`. Fresh-era loaders carried over as `(props, req, ctx) => ({ ...props, device: ctx.device })` (or reading `ctx.invoke`, `ctx.get`) resolved `ctx` as `undefined`. `runSingleSectionLoaderImpl` wraps every loader call in a try/catch, so the resulting crash (or silent `ctx.device` → `undefined`) never surfaced anywhere — the section just rendered with default/empty values.
 
-**Symptom**: CMS content doesn't enrich props; device-conditional rendering always picks one branch; a component that reads a ctx-provided flag behaves as if the flag is always off. On farmrio this was the root cause of a **site-wide dead legal-compliance cookie-consent banner** (OneTrust/Optanon never rendered anywhere, `isProduction` always `undefined`) and of `BannerCollection.tsx` always serving the desktop image to mobile UAs.
+**Symptom**: CMS content doesn't enrich props; device-conditional rendering always picks one branch; a component that reads a ctx-provided flag behaves as if the flag is always off. On one production storefront this was the root cause of a **site-wide dead legal-compliance cookie-consent banner** (OneTrust/Optanon never rendered anywhere, `isProduction` always `undefined`) and of `BannerCollection.tsx` always serving the desktop image to mobile UAs.
 
 **Fix** — rewrite the ctx-dependent line to a ctx-free equivalent, reusing the framework's own primitives instead of inventing new ones:
 
@@ -709,7 +709,7 @@ export const loader = (props, req) => ({
 });
 ```
 
-Other `ctx.*` replacements found across the farmrio sweep: `ctx.get/invoke({__resolveType})` → `resolveValue({__resolveType, ...}, undefined, {userAgent, url, path, request})` from `@decocms/blocks/cms`; `ctx.invoke.vtex.loaders/actions.X` → the direct function export from `@decocms/apps-vtex`.
+Other `ctx.*` replacements found across the sweep: `ctx.get/invoke({__resolveType})` → `resolveValue({__resolveType, ...}, undefined, {userAgent, url, path, request})` from `@decocms/blocks/cms`; `ctx.invoke.vtex.loaders/actions.X` → the direct function export from `@decocms/apps-vtex`.
 
 **Discovery command**:
 ```bash
@@ -717,7 +717,7 @@ grep -rn "^export \(const\|function\|async function\) loader" src | grep -E "\(p
 ```
 Cross-reference each match's real CMS key (see #53 — file path and registration key can diverge) against `.deco/blocks.gen.json` and the `registerSectionLoaders(...)` call in `src/setup/section-loaders.ts` before assuming a fix landed.
 
-**Empirical evidence (farmrio-storefront)**: repo-wide sweep of ~28 candidate files found 18 confirmed live bugs, including a site-wide dead cookie-consent banner and 4 independent `ctx.device`/`ctx.isMobile` occurrences on eager-rendered sections. See `migration/learnings/T42.md`, `T41.md`.
+**Empirical evidence (a production storefront)**: repo-wide sweep of ~28 candidate files found 18 confirmed live bugs, including a site-wide dead cookie-consent banner and 4 independent `ctx.device`/`ctx.isMobile` occurrences on eager-rendered sections. See `migration/learnings/T42.md`, `T41.md`.
 
 **Proposed codemod** (`packages/blocks-cli`): AST walk for arrow/function `loader` exports of arity 3, cross-reference the resolved section key against `registerSectionLoaders` calls, flag any 3-arg loader whose resolved key is unregistered or whose `ctx` param is read. Would have caught all 28 candidate files at migration time instead of via a manual sweep.
 
@@ -737,7 +737,7 @@ Register under whatever string appears as `__resolveType`, not the file's on-dis
 
 **Discovery command**: diff every loader-exporting file's path against its real `__resolveType` in `.deco/blocks.gen.json` before wiring a registration.
 
-**Empirical evidence (farmrio-storefront)**: found during the same 28-file #52 sweep; also found a component (`OrderStatus.tsx`) that was never a CMS section at all (absent from `blocks.gen.json` entirely) — `registerSectionLoaders` can never make that one run, regardless of key. See `migration/learnings/T42.md`.
+**Empirical evidence (a production storefront)**: found during the same 28-file #52 sweep; also found a component (`OrderStatus.tsx`) that was never a CMS section at all (absent from `blocks.gen.json` entirely) — `registerSectionLoaders` can never make that one run, regardless of key. See `migration/learnings/T42.md`.
 
 ---
 
@@ -763,7 +763,7 @@ sections.filter(Boolean)
 rg "typeof.*Component.*===.*[\"']function[\"']" src --type ts
 ```
 
-**Empirical evidence (farmrio-storefront)**: found independently in `SearchContainer.tsx` (search empty-state, T44), `Layout/Flex.tsx` (PLP controls block missing site-wide, T58), and `Header.tsx`'s `CountdownComponent` guard (T62) — plus 3 further latent occurrences found by a repo-wide sweep (`List/Sections.tsx`, `Gallery.tsx`, `Layout/Container.tsx`, `Animation/Animation.tsx`), all fixed the same way and verified via `vite preview` + Playwright with zero console errors before/after. See `migration/learnings/T44.md`, `T58.md`, `T62.md`.
+**Empirical evidence (a production storefront)**: found independently in `SearchContainer.tsx` (search empty-state, T44), `Layout/Flex.tsx` (PLP controls block missing site-wide, T58), and `Header.tsx`'s `CountdownComponent` guard (T62) — plus 3 further latent occurrences found by a repo-wide sweep (`List/Sections.tsx`, `Gallery.tsx`, `Layout/Container.tsx`, `Animation/Animation.tsx`), all fixed the same way and verified via `vite preview` + Playwright with zero console errors before/after. See `migration/learnings/T44.md`, `T58.md`, `T62.md`.
 
 **Proposed codemod** (`packages/blocks-cli`): flag `typeof <expr>.Component === "function"` / `typeof <expr> === "function"` guards on a value that originates from CMS section resolution — this pattern is categorically dead in every version of this resolver.
 
@@ -785,4 +785,4 @@ grep -rn "not supported in TanStack Start" node_modules -r
 
 **Fix**: none available in site code today. Proposed upstream (either would close the gap): (a) have the TanStack Start page-render route copy `RequestContext.responseHeaders` into its `Response` before returning, mirroring what `invoke.gen.ts` already does for the action path; or (b) a documented `withResponseHeaders`/`withRedirect` mixin so authors discover the missing capability explicitly instead of via a silent no-op.
 
-**Empirical evidence (farmrio-storefront)**: 3 affected files found in one sweep (`FarmetePopup.tsx`, `Analytics/AllPages.tsx`, `Theme/Fonts.tsx`) plus 2 dead `redirect()` branches in a campaign-takeover component (`Tapume.tsx`) — none restorable within a section loader on the current framework version. See `migration/learnings/T42.md`.
+**Empirical evidence (a production storefront)**: 3 affected files found in one sweep (`PromoPopup.tsx`, `Analytics/AllPages.tsx`, `Theme/Fonts.tsx`) plus 2 dead `redirect()` branches in a campaign-takeover component (`Tapume.tsx`) — none restorable within a section loader on the current framework version. See `migration/learnings/T42.md`.

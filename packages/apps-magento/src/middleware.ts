@@ -5,8 +5,8 @@
  * after checkout (`changeCardIdAfterCheckout`) and seeded the
  * `form_key` for anonymous sessions. Both flows touched response
  * headers and `customer/section/load` endpoints — non-trivial port,
- * deferred to a follow-up PR. Today the consumer site (granadobr-
- * tanstack) handles cart reconciliation on the client.
+ * deferred to a follow-up PR. Today a production Magento storefront
+ * handles cart reconciliation on the client.
  *
  * Shape matches `@decocms/apps-commerce/app-types` so it can be
  * plugged into the autoconfig pipeline once magento is registered

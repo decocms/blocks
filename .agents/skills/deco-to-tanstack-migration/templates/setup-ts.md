@@ -1,6 +1,6 @@
 # setup.ts Template
 
-Annotated template based on espacosmart-storefront (100+ sections, VTEX, async rendering).
+Annotated template based on a production storefront (100+ sections, VTEX, async rendering).
 
 ```typescript
 // ==========================================================================

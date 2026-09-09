@@ -1090,8 +1090,8 @@ export const FRAMEWORK_DUPLICATES: FrameworkDuplicate[] = [
     sitePath: "src/sdk/useSuggestions.ts",
     canonicalImport: "@decocms/blocks/sdk/useSuggestions",
     // Fingerprint: hand-rolled hook with the module-level signal +
-    // serial-queue + latestQuery cancel pattern. Both casaevideo and
-    // baggagio independently invented this exact shape. Sites that
+    // serial-queue + latestQuery cancel pattern. Multiple production sites
+    // independently invented this exact shape. Sites that
     // already adopted `createUseSuggestions(…)` factory calls won't
     // match this signature.
     contentSignature: [

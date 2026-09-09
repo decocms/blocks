@@ -1,7 +1,7 @@
 # Per-site recipe — adopt the `deco-otel-tail` tail worker
 
 > **Status:** gated. Do NOT roll out to the fleet until the canary site
-> (`casaevideo-tanstack`) has completed a 7-day soak with no false negatives
+> (a production VTEX site) has completed a 7-day soak with no false negatives
 > in tail capture and no infrastructure cost shock from the tail-handler
 > invocations. See [D-8 in `MIGRATION_TOOLING_PLAN.md`](../MIGRATION_TOOLING_PLAN.md)
 > for the decision record and [`docs/observability.md`](./observability.md)
@@ -112,7 +112,7 @@ SELECT Timestamp, ServiceName, SeverityText, Body,
        Attributes['_outcome'] AS outcome,
        Attributes['_source']  AS source
 FROM otel_logs
-WHERE ServiceName = '<your-worker-name>'   -- e.g. 'casaevideo-tanstack'
+WHERE ServiceName = '<your-worker-name>'   -- e.g. 'acme-tanstack'
   AND Attributes['_source'] = 'tail-worker'
   AND Timestamp > now() - INTERVAL 5 MINUTE
 ORDER BY Timestamp DESC

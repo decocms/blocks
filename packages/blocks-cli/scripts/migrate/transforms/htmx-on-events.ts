@@ -61,8 +61,8 @@ const STANDARD_EVENT_MAP: Record<string, string> = {
  * handler bodies reference Fresh-only globals (`useScript`,
  * `globalThis.window.STOREFRONT`, `STOREFRONT.*`). The comment is the
  * only file-level annotation the codemod emits — per-occurrence
- * comments would balloon the diff for a 88-rename file like
- * als-storefront's hot paths. It is detected by an idempotency check
+ * comments would balloon the diff for an 88-rename file like a
+ * production storefront's hot paths. It is detected by an idempotency check
  * so re-running the codemod does not double-inject.
  */
 const TODO_MARKER = "// MIGRATION TODO (codemod: htmx-on-event-rename):";

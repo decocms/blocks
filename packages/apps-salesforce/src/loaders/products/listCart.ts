@@ -50,7 +50,7 @@ export interface SalesforceListCartProps {
 	/**
 	 * @title Fallback Title
 	 * @description Shown when the campaign payload has no `headerText`
-	 *   (e.g. Granado uses the configured `label` from the CMS block).
+	 *   (e.g. a production Salesforce storefront uses the configured `label` from the CMS block).
 	 */
 	title?: string;
 	/** Custom property mapper. */

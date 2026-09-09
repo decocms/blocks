@@ -305,16 +305,16 @@ describe("readExperimentConfig", () => {
   const kv = (value: unknown) => ({ get: async () => value as never });
 
   it("reads contract 1's document", async () => {
-    expect(await readExperimentConfig(kv(CONFIG), "www.farmrio.com")).toEqual(CONFIG);
+    expect(await readExperimentConfig(kv(CONFIG), "www.acme.com")).toEqual(CONFIG);
   });
 
   it("returns null instead of throwing when the binding is missing", async () => {
-    expect(await readExperimentConfig(undefined, "www.farmrio.com")).toBeNull();
+    expect(await readExperimentConfig(undefined, "www.acme.com")).toBeNull();
   });
 
   it("returns null on an unset key or a malformed document", async () => {
-    expect(await readExperimentConfig(kv(null), "www.farmrio.com")).toBeNull();
-    expect(await readExperimentConfig(kv({ version: 1 }), "www.farmrio.com")).toBeNull();
+    expect(await readExperimentConfig(kv(null), "www.acme.com")).toBeNull();
+    expect(await readExperimentConfig(kv({ version: 1 }), "www.acme.com")).toBeNull();
   });
 
   it("returns null when KV itself fails — never a thrown request", async () => {
@@ -323,6 +323,6 @@ describe("readExperimentConfig", () => {
         throw new Error("KV unavailable");
       },
     };
-    expect(await readExperimentConfig(broken, "www.farmrio.com")).toBeNull();
+    expect(await readExperimentConfig(broken, "www.acme.com")).toBeNull();
   });
 });

@@ -4,8 +4,8 @@ import { derivePageUrl, isClientNavigation } from "./pageUrl";
 describe("derivePageUrl (#280 — client-nav request URL)", () => {
   it("SSR real page without query: rebuilds from fullPath", () => {
     expect(
-      derivePageUrl("/granado/produto", new URL("https://o.com/granado/produto")),
-    ).toBe("https://o.com/granado/produto");
+      derivePageUrl("/acme/produto", new URL("https://o.com/acme/produto")),
+    ).toBe("https://o.com/acme/produto");
   });
 
   it("SSR real page preserves duplicate query params from the server URL", () => {
@@ -21,10 +21,10 @@ describe("derivePageUrl (#280 — client-nav request URL)", () => {
   it("client nav without query: rebuilds from fullPath, NOT the /_serverFn URL", () => {
     // The regression guard: getRequestUrl() is the serverFn endpoint here.
     const serverUrl = new URL(
-      "https://o.com/_serverFn/loadCmsPage?payload=%2Fgranado%2Fproduto",
+      "https://o.com/_serverFn/loadCmsPage?payload=%2Facme%2Fproduto",
     );
-    expect(derivePageUrl("/granado/produto", serverUrl)).toBe(
-      "https://o.com/granado/produto",
+    expect(derivePageUrl("/acme/produto", serverUrl)).toBe(
+      "https://o.com/acme/produto",
     );
   });
 
@@ -50,7 +50,7 @@ describe("isClientNavigation (SPA vs SSR detection)", () => {
 
   it("SSR real page without query (path matches): false", () => {
     expect(
-      isClientNavigation("/granado/produto", new URL("https://o.com/granado/produto")),
+      isClientNavigation("/acme/produto", new URL("https://o.com/acme/produto")),
     ).toBe(false);
   });
 

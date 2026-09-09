@@ -293,7 +293,7 @@ This logs each layout shift with the element that moved — useful for quick ide
 
 ### Real Example: Diagnosing Raichu CLS
 
-From an actual trace on espacosmart:
+From an actual trace on a production storefront:
 1. Trace showed Layout Shift score **0.59** at 1.2s mark
 2. Affected element: `DIV#ra-verified-seal` in the Footer
 3. Just before the shift: Network showed `raichu-beta/ra-verified/bundle.js` loading
@@ -616,7 +616,7 @@ Any result in a component that's always-eager and renders different element type
 
 **Fix (framework, PR #448)**: wrap the unresolved skeleton branch in the same `SectionErrorBoundary` the resolved branches already use, so the wrapper shape stays identical across the transition and React can diff by type.
 
-**Caveat — the framework fix alone is not sufficient**: when a *second*, independently-timed deferred section on the same page (e.g. a different Lazy-wrapped section racing its own `IntersectionObserver`) also remounts, it can still shift the page around an otherwise-stable section. With PR #448's patch installed and active, a farmrio page still regressed from CLS 0.0002 → 0.95 after a routine content refresh re-wrapped a *different* section in `Rendering/Lazy.tsx` (see the companion content-level fix below). Treat the framework patch and the content-level `Lazy.tsx`-unwrap workaround as complementary, not redundant, until proven otherwise.
+**Caveat — the framework fix alone is not sufficient**: when a *second*, independently-timed deferred section on the same page (e.g. a different Lazy-wrapped section racing its own `IntersectionObserver`) also remounts, it can still shift the page around an otherwise-stable section. With PR #448's patch installed and active, a production storefront page still regressed from CLS 0.0002 → 0.95 after a routine content refresh re-wrapped a *different* section in `Rendering/Lazy.tsx` (see the companion content-level fix below). Treat the framework patch and the content-level `Lazy.tsx`-unwrap workaround as complementary, not redundant, until proven otherwise.
 
 **Discovery command**:
 ```bash
@@ -624,7 +624,7 @@ rg "DeferredSectionWrapper" node_modules/@decocms/tanstack/src
 rg "Rendering/Lazy.tsx" .deco/blocks.gen.json  # count of sections still deferred
 ```
 
-**Empirical evidence (farmrio-storefront, before/after CLS)**:
+**Empirical evidence (a production storefront, before/after CLS)**:
 - Before fix: non-deterministic **0 to 1.34** across identical runs of the same build (Footer + `EtcSearchContainer` independently-timed `IntersectionObserver` race).
 - Partial mitigation attempted first (unwrapping only the Footer's `Lazy.tsx`, without the framework fix) made it *worse*: **1.34** (two compounding shift events).
 - Content-level per-page unwrap of every `Lazy.tsx` node on the 3 affected pages (see reference doc below): **0.0000–0.0009**, 10/10 clean.
@@ -639,7 +639,7 @@ A full-tree `.deco/blocks` content mirror pull (the standard CMS content-refresh
 ```typescript
 const LAZY_RESOLVE_TYPE = "website/sections/Rendering/Lazy.tsx";
 const TARGET_PATHS = new Set([
-  "/farm-etc/alto-verao",
+  "/brand-etc/alto-verao",
   "/sustentabilidade/cultura",
   "/produtos/acessorios/garrafas-e-copos",
 ]);
@@ -672,7 +672,7 @@ function unwrap(value: unknown, seen: Set<object>): [unknown, number] {
 }
 ```
 
-Deliberately scoped to a specific page list, not sitewide — `Lazy.tsx` is the intentional deferred-loading mechanism on the rest of the site (~2300 other wrapped nodes on farmrio) and stripping it everywhere would be an unauthorized, large behavior change. Full source: `migration/scripts/fix-relazy-wrappers.ts` in farmrio-storefront (`migration/learnings/T70.md`).
+Deliberately scoped to a specific page list, not sitewide — `Lazy.tsx` is the intentional deferred-loading mechanism on the rest of the site (~2300 other wrapped nodes on the site) and stripping it everywhere would be an unauthorized, large behavior change. Full source: `migration/scripts/fix-relazy-wrappers.ts` in a production storefront (`migration/learnings/T70.md`).
 
 **Proposed audit rule** (`packages/blocks-cli`): "any page previously content-patched to remove `Lazy.tsx` wrappers must have 0 such wrappers after `generate`" — encode the same check this script performs as a `deco-post-cleanup --strict` rule, keyed off a small manifest file instead of a hardcoded path list.
 
@@ -700,7 +700,7 @@ export const LoadingFallback = Real;
 rg "export function LoadingFallback\(" src/sections
 ```
 
-**Empirical evidence (farmrio-storefront)**: required in combination with #55's framework patch for `Footer.tsx` to actually stop remounting; two further instances found by the same grep but not yet verified (`ETCImageContent.tsx`, `ETCBannerContentText.tsx`). See `migration/learnings/T64.md`.
+**Empirical evidence (a production storefront)**: required in combination with #55's framework patch for `Footer.tsx` to actually stop remounting; two further instances found by the same grep but not yet verified (`ETCImageContent.tsx`, `ETCBannerContentText.tsx`). See `migration/learnings/T64.md`.
 
 **Proposed codemod** (`packages/blocks-cli`): detect the `export function LoadingFallback(props) { return <X {...props} />; }` shape and rewrite to `export const LoadingFallback = X;` wherever `X`'s prop type is a superset of the wrapper's own prop type.
 
@@ -737,7 +737,7 @@ rg "addEventListener\(.?click.?" -g'*.tsx' -A3   # then check for stopPropagatio
 rg "querySelectorAll\(.\[data-event\]" -g'*.tsx'
 ```
 
-**Empirical evidence (farmrio-storefront)**: broke the header search trigger and the login trigger site-wide; 12-run headless Playwright repro, 0/12 toggled pre-fix, 12/12 post-fix, across 3 independent verification batches (36/36 total). See `migration/learnings/T33.md`, `T34.md`.
+**Empirical evidence (a production storefront)**: broke the header search trigger and the login trigger site-wide; 12-run headless Playwright repro, 0/12 toggled pre-fix, 12/12 post-fix, across 3 independent verification batches (36/36 total). See `migration/learnings/T33.md`, `T34.md`.
 
 ---
 
@@ -762,4 +762,4 @@ const [selected, setSelected] = useState(isSingleVariant ? defaultValue : null);
 rg -l "checked=\{" src/components src/sections | xargs rg -L "onChange"
 ```
 
-**Empirical evidence (farmrio-storefront)**: found and fixed independently 3 separate times across different files during one migration (`ButtonFastBuy.tsx` PLP/shelf quick-add, T46; `EtcOutOfStockForm.tsx`, T51; `Modal.tsx`'s checkbox reveal, flagged but unfixed, T54) — each grep pass that found one instance did not surface the others, since the exact expression and element differed each time.
+**Empirical evidence (a production storefront)**: found and fixed independently 3 separate times across different files during one migration (`ButtonFastBuy.tsx` PLP/shelf quick-add, T46; `EtcOutOfStockForm.tsx`, T51; `Modal.tsx`'s checkbox reveal, flagged but unfixed, T54) — each grep pass that found one instance did not surface the others, since the exact expression and element differed each time.

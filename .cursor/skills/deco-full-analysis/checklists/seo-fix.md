@@ -3,8 +3,8 @@
 10 learnings from real Deco sites. Check these during analysis.
 
 > **Correction to an earlier version of this note**: `.deco/blocks/*.json` is still a
-> real, current, on-disk convention on most real sites (confirmed: faststore-fila,
-> casaevideo-tanstack, bagaggio-tanstack) — that's where page/section CMS content,
+> real, current, on-disk convention on most real sites (confirmed across multiple
+> production storefronts) — that's where page/section CMS content,
 > including any `seo` block, actually lives locally, loaded via `@decocms/blocks-cli`'s
 > `generate-blocks.ts`/`sync-blocks-to-kv.ts` or `@decocms/blocks/cms`'s
 > `loadDecofileDirectory`. A smaller number of sites (minimal fixtures like

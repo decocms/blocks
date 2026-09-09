@@ -13,8 +13,8 @@
  * // In site's setup.ts:
  * import { registerProductionOrigins } from "@decocms/start/sdk/normalizeUrls";
  * registerProductionOrigins([
- *   "https://www.casaevideo.com.br",
- *   "https://casaevideo.com.br",
+ *   "https://www.acme.com.br",
+ *   "https://acme.com.br",
  * ]);
  * ```
  */

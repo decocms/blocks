@@ -1,11 +1,11 @@
 # How a Deco Site Uses the Framework
 
-Reference based on `deco-sites/osklenbr`, a production VTEX storefront using Fresh/Preact.
+Reference based on a production VTEX storefront using Fresh/Preact.
 
 ## Site Structure
 
 ```
-osklenbr/
+site/
 |-- deno.json              # Dependencies, tasks, import map
 |-- fresh.config.ts        # Fresh + Deco plugin registration
 |-- manifest.gen.ts        # Auto-generated manifest (site blocks)

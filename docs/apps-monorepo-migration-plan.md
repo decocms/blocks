@@ -16,7 +16,7 @@
 - Every new package's `dependencies` uses `"workspace:*"` for `@decocms/blocks`/`@decocms/blocks-admin`/`@decocms/tanstack` (matching the existing 5 packages' pattern) — `sync-versions.mjs` rewrites these to the real version at publish time.
 - Every new package needs a `repository` field (`{"type": "git", "url": "https://github.com/decocms/blocks.git", "directory": "packages/apps-<concern>"}`) — required for npm provenance verification (this exact requirement broke the first real publish of the original 5 packages; don't repeat that).
 - One-way dependency rule: `apps-*` packages may depend on `@decocms/blocks`/`@decocms/blocks-admin`/`@decocms/tanstack`, never the reverse. `apps-*` packages generally do not depend on each other, with one accepted exception discovered during execution: an `apps-*` package MAY take a **type-only** (`import type`) dependency on another `apps-*` package for a genuinely shared type (e.g. `apps-vtex`'s `mod.ts` and `apps-blog`'s `types.ts` both import `apps-website`'s `Secret`/`ImageWidget` types for app-config fields) — this is erased at compile time, creates no runtime coupling, and does not violate the acyclic one-way graph as long as the target package doesn't depend back (verify per-case). Runtime (value-level) cross-`apps-*` dependencies remain disallowed.
-- **Proven old→new import mapping** (evidenced from `casaevideo-tanstack`'s actual, verified migration commits `7133613`, `55e353d`, `9585417`, `9393bf9` — apply exactly, don't re-derive from scratch):
+- **Proven old→new import mapping** (evidenced from a production VTEX site's actual, verified migration commits — apply exactly, don't re-derive from scratch):
 
   | Old (`@decocms/start/...`) | New | Notes |
   |---|---|---|
@@ -542,7 +542,7 @@ git commit -m "feat(apps-website): migrate website/ from apps-start (matchers/fl
 **Files:**
 - Create: `packages/apps-vtex/` from `/tmp/apps-start-migrate/vtex/` (105 files: `index.ts`, `commerceLoaders.ts`, `mod.ts`, `client.ts`, `types.ts`, `middleware.ts`, `actions/`, `actions/analytics/`, `loaders/`, `loaders/intelligentSearch/`, `loaders/legacy/`, `loaders/workflow/`, `utils/`, `hooks/`)
 - Create: `packages/apps-vtex/package.json`
-- Modify: `packages/tanstack/src/index.ts` (or wherever its public exports live) — add `createInvokeFn`, the real gap identified in Global Constraints (currently only reimplemented as a site-level shim in `casaevideo-tanstack`)
+- Modify: `packages/tanstack/src/index.ts` (or wherever its public exports live) — add `createInvokeFn`, the real gap identified in Global Constraints (currently only reimplemented as a site-level shim in a production VTEX site)
 
 **Interfaces:**
 - Consumes: `@decocms/apps-commerce` (types/utils), `@decocms/blocks/cms`, `@decocms/blocks/sdk/*`, `@decocms/tanstack` (`createInvokeFn`, once Step 2 adds it).
@@ -553,7 +553,7 @@ git commit -m "feat(apps-website): migrate website/ from apps-start (matchers/fl
 grep -n "createInvokeFn" packages/tanstack/src/sdk/createInvoke.ts
 ```
 
-Read the file — it exists in `packages/tanstack/src/sdk/createInvoke.ts` already (per Global Constraints: "lives at `blocks/packages/tanstack/src/sdk/createInvoke.ts` but isn't exported from `@decocms/tanstack`'s `package.json` `exports` map or root barrel" — confirmed via `casaevideo-tanstack`'s shim README). Add it to `packages/tanstack/src/index.ts`'s barrel export and confirm `packages/tanstack/package.json`'s `exports` map already covers the root `.` path (it should, per existing pattern).
+Read the file — it exists in `packages/tanstack/src/sdk/createInvoke.ts` already (per Global Constraints: "lives at `blocks/packages/tanstack/src/sdk/createInvoke.ts` but isn't exported from `@decocms/tanstack`'s `package.json` `exports` map or root barrel" — confirmed via a production VTEX site's shim README). Add it to `packages/tanstack/src/index.ts`'s barrel export and confirm `packages/tanstack/package.json`'s `exports` map already covers the root `.` path (it should, per existing pattern).
 
 - [ ] **Step 2: Move the vtex files**
 
@@ -1219,11 +1219,11 @@ git commit -m "feat(apps-blog): migrate blog/ from apps-start"
 
 ---
 
-### Task 14: End-to-end verification against `faststore-fila`
+### Task 14: End-to-end verification against a production VTEX site
 
 **Files:**
-- Modify: `~/code/faststore-fila/package.json` (add `@decocms/apps-vtex` as a real dependency, `link:` to the local monorepo checkout for pre-publish verification — same pattern used before the original 5 packages' first npm publish)
-- No other faststore-fila changes expected — this is a smoke test, not a migration (faststore-fila doesn't currently use `@decocms/apps` at all; if it needs to for this test, wire the minimum viable VTEX loader call to prove data flows, don't build out a full feature)
+- Modify: `~/code/my-site/package.json` (add `@decocms/apps-vtex` as a real dependency, `link:` to the local monorepo checkout for pre-publish verification — same pattern used before the original 5 packages' first npm publish)
+- No other site changes expected — this is a smoke test, not a migration (the site doesn't currently use `@decocms/apps` at all; if it needs to for this test, wire the minimum viable VTEX loader call to prove data flows, don't build out a full feature)
 
 **Interfaces:**
 - Consumes: `@decocms/apps-vtex` end-to-end, exercising real VTEX API calls through the newly-migrated code path.
@@ -1237,10 +1237,10 @@ bun run typecheck   # all 14 packages
 bun run test         # all 14 packages, including apps-start's migrated Vitest suites
 ```
 
-- [ ] **Step 2: Link into faststore-fila and exercise a real VTEX call**
+- [ ] **Step 2: Link into the site and exercise a real VTEX call**
 
 ```bash
-cd ~/code/faststore-fila
+cd ~/code/my-site
 # Add "@decocms/apps-vtex": "link:@decocms/apps-vtex" to package.json, bun install
 # Write/run a minimal script (or reuse an existing VTEX loader call site if
 # one already exists in this repo) that calls a real @decocms/apps-vtex

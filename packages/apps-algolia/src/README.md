@@ -12,10 +12,10 @@ surface plus the `loaders/client.ts` shim that matches the upstream
 Just enough for downstream sites with their own product loaders to wire
 Algolia and consume the SDK SearchClient directly.
 
-A real-world consumer (deco-sites/granadobr-tanstack) is migrating away
+A real-world consumer (a production Algolia storefront) is migrating away
 from the legacy `ctx.invoke.algolia.loaders.client({})` proxy that
 existed in the Fresh runtime. The site keeps its own product loaders
-(custom Granado transforms over the upstream toProduct) and only needs
+(custom storefront-specific transforms over the upstream toProduct) and only needs
 the SDK client from this package.
 
 ## What's here
@@ -47,10 +47,10 @@ etc.). Tracked here so the next PR series has a clear scope:
 | `workflows/index/product.ts` | `deco-cx/apps/algolia/workflows/index/product.ts` |
 | `sections/Analytics/Algolia.tsx` | `deco-cx/apps/algolia/sections/Analytics/Algolia.tsx` |
 
-The site-side `src/packs/algolia/products/*` in granadobr-tanstack
-contains a Granado-specific transform layer that is not portable as-is.
+The site-side `src/packs/algolia/products/*` in a production Algolia storefront
+contains a storefront-specific transform layer that is not portable as-is.
 Once `loaders/product/*` lands here, the upstream tract can be reused;
-the Granado overlays will keep living in the site.
+the storefront-specific overlays will keep living in the site.
 
 ## Wiring in a site
 

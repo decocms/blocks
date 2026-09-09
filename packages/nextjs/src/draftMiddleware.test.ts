@@ -47,8 +47,8 @@ describe("prepareDraft", () => {
 
   it("is inert on a host outside the allowlist — the production domain", () => {
     // Same build, different Host: no cookie, no rewrite, nothing touched.
-    const req = request("https://fila.com.br/p?__draft=abc@v1");
-    process.env.DECO_ALLOWED_PREVIEW_HOSTS = "fila.vtex.app";
+    const req = request("https://acme.com.br/p?__draft=abc@v1");
+    process.env.DECO_ALLOWED_PREVIEW_HOSTS = "acme.vtex.app";
     expect(prepareDraft(req)).toEqual({ pointer: null, setCookie: null, clearCookie: false });
     expect(rewriteToDraftRoute(req, prepareDraft(req))).toBeNull();
   });

@@ -21,7 +21,7 @@
  * Cloudflare captures nothing, regardless of the sub-block flags.
  * `persist: true` keeps the data queryable in the CF dashboard
  * (Workers Logs view + Traces view). Discovered the hard way during the
- * lebiscuit canary cutover.
+ * production canary cutover.
  *
  * Behavior:
  *   - dry-run by default — prints a unified diff against the existing
