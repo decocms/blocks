@@ -194,6 +194,13 @@ export function generateSchemaArgs(siteName) {
  * @returns {import("vite").PluginOption}
  */
 export function decoVitePlugin({ fastDeploy = false } = {}) {
+  // Set from the `config` hook (which Vite always runs before `load`). The
+  // fastDeploy stub must apply to production builds ONLY: `vite dev` has no KV
+  // to hydrate from, and the dev bootstrap below deliberately relies on reading
+  // the `.json` sibling that the stub bypasses — stubbing there blanks the
+  // local site.
+  let isBuild = false;
+
   /** @type {import("vite").Plugin} */
   const plugin = {
     name: "deco-server-only-stubs",
@@ -231,7 +238,8 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
         // second, permanently-reachable copy in isolate memory (the site's
         // `import { blocks }` binding keeps the bundled graph alive for the
         // isolate's whole life, even after `setBlocks()` swaps in the KV one).
-        if (fastDeploy) {
+        // Build only — see `isBuild` above.
+        if (fastDeploy && isBuild) {
           return "export const blocks = {};";
         }
 
@@ -715,6 +723,9 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
     },
 
     config(_cfg, { command }) {
+      // Gate the fastDeploy SSR stub in `load()` to production builds.
+      isBuild = command === "build";
+
       /** @type {import("vite").UserConfig} */
       const cfg = {};
 
@@ -767,6 +778,14 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
       cfg.define = {
         ...cfg.define,
         __DECO_BUILD_HASH__: JSON.stringify(buildHash),
+        // Tells the runtime whether this bundle actually ships a decofile.
+        // `ensureBlocksHydrated` needs a build-time answer: with no bundled
+        // snapshot, its "warn and serve bundled" recovery would serve an EMPTY
+        // site with 200s. Inferring it from an empty in-memory map at runtime
+        // is not equivalent — draft-preview overrides can make a stubbed bundle
+        // look populated, and a legitimately-empty decofile (new site) would
+        // look stubbed.
+        __DECO_BLOCKS_STUBBED__: JSON.stringify(fastDeploy && command === "build"),
       };
 
       // Only split chunks for production builds — dev uses unbundled ESM.

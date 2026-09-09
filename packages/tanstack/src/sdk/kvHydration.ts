@@ -24,13 +24,7 @@
  * `DecofileProvider` pattern from the deco-cx/deco Fresh runtime.
  */
 
-import {
-  DEPLOYMENT_ID_ENV,
-  getDeploymentId,
-  getRevision,
-  loadBlocks,
-  setBlocks,
-} from "@decocms/blocks/cms";
+import { DEPLOYMENT_ID_ENV, getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
 import { KVBlockSource } from "../cms/kvBlockSource";
 import type { KVNamespace } from "@decocms/blocks/cms";
 import { setSpanAttribute } from "@decocms/blocks/sdk/observability";
@@ -101,21 +95,32 @@ export function getFastDeployKV(env: Env): KVNamespace | null {
   return getKV(env);
 }
 
+// Build-time constant injected by `decoVitePlugin({ fastDeploy: true })`: true
+// when `blocks.gen` was stubbed out of THIS server bundle. Declared with a
+// `typeof` guard so it's inert wherever the define isn't applied (this
+// package's own tsc output, the Next.js build, tests).
+declare const __DECO_BLOCKS_STUBBED__: boolean | undefined;
+
 /**
- * Is there a bundled snapshot to fall back on?
+ * Does this bundle ship no decofile of its own?
  *
- * `decoVitePlugin({ fastDeploy: true })` stubs `blocks.gen` out of the server
- * bundle to avoid holding the decofile twice (see the option's docs). That
- * makes KV the ONLY source of content, so the "warn and serve bundled"
- * recovery below would actually serve an EMPTY site — 200s with no pages,
- * which then get edge-cached and outlive the KV failure that caused them.
+ * When true, KV is the ONLY source of content, so the "warn and serve bundled"
+ * recovery below would serve an EMPTY site — 200s with no pages, which then get
+ * edge-cached and outlive the KV failure that caused them. Those cases fail
+ * loudly instead.
  *
- * Checking the in-memory map rather than a build-time flag keeps this honest
- * in both configurations, and means sites that still bundle their decofile
- * (the default) behave exactly as before.
+ * This is deliberately a BUILD-time answer rather than "is the in-memory map
+ * empty". The runtime check is not equivalent in three ways:
+ *   - `loadBlocks()` composes request-scoped draft/preview overrides, and
+ *     `bindRequestDraft` runs before hydration — a draft-preview first request
+ *     would make a stubbed bundle look populated, latch, and then serve the
+ *     empty base decofile for the isolate's life.
+ *   - A legitimately-empty decofile (new site, missing `blocks.gen.json`) would
+ *     look stubbed, turning a previously-warning default site into 5xx.
+ *   - An empty snapshot in KV can't be distinguished from a healthy one.
  */
-function hasBundledFallback(): boolean {
-  return Object.keys(loadBlocks()).length > 0;
+function bundleHasNoDecofile(): boolean {
+  return typeof __DECO_BLOCKS_STUBBED__ !== "undefined" && __DECO_BLOCKS_STUBBED__ === true;
 }
 
 /**
@@ -144,10 +149,10 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
   // content). Never read another deployment's key.
   const deploymentId = getDeploymentId(env);
   if (!deploymentId) {
-    if (!hasBundledFallback()) {
+    if (bundleHasNoDecofile()) {
       return Promise.reject(
         new Error(
-          `[CMS/KV] no deployment id (set ${DEPLOYMENT_ID_ENV}) and no bundled snapshot to fall back on`,
+          `[CMS/KV] no deployment id (set ${DEPLOYMENT_ID_ENV}) and this bundle ships no decofile`,
         ),
       );
     }
@@ -163,19 +168,24 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
     let fatal: Error | null = null;
     try {
       const snapshot = await new KVBlockSource(kv, deploymentId).loadSnapshot();
-      if (snapshot) {
-        setBlocks(snapshot.blocks);
+      // An empty snapshot is treated as a failure, not a success: with no
+      // bundled decofile it would otherwise latch and serve exactly the empty,
+      // edge-cached site this guard exists to prevent. A site legitimately has
+      // blocks; `{}` means the seed wrote nothing.
+      const empty = !snapshot || Object.keys(snapshot.blocks).length === 0;
+      if (!empty) {
+        setBlocks(snapshot!.blocks);
         setSpanAttribute("deco.block.source", "kv");
-      } else if (hasBundledFallback()) {
+      } else if (!bundleHasNoDecofile()) {
         setSpanAttribute("deco.block.source", "bundled");
       } else {
         fatal = new Error(
-          `[CMS/KV] decofile:${deploymentId} not found and no bundled snapshot to fall back on — ` +
-            `seed it before activating this version`,
+          `[CMS/KV] decofile:${deploymentId} ${snapshot ? "is empty" : "not found"} and this ` +
+            `bundle ships no decofile — seed it before activating this version`,
         );
       }
     } catch (e) {
-      if (hasBundledFallback()) {
+      if (!bundleHasNoDecofile()) {
         // Non-fatal: serve the bundled snapshot. The poll loop recovers later.
         console.warn("[CMS/KV] cold-start hydration failed, using bundled snapshot:", e);
         setSpanAttribute("deco.block.source", "bundled");

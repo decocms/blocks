@@ -52,45 +52,61 @@ describe("decoVitePlugin — loaders.gen client stub", () => {
 });
 
 /**
- * `fastDeploy: true` must stub blocks.gen out of the SERVER bundle too.
+ * `fastDeploy: true` must stub blocks.gen out of the SERVER bundle — but only
+ * for production builds.
  *
- * Otherwise a fast-deploy site holds the decofile twice: the bundled
+ * Without the stub, a fast-deploy site holds the decofile twice: the bundled
  * JSON.parse(...) graph stays reachable via the site's `import { blocks }`
- * binding for the isolate's whole life, and ensureBlocksHydrated adds a
- * second graph. Tens of MB of avoidable memory for a 10MB decofile.
+ * binding for the isolate's whole life, and ensureBlocksHydrated adds a second
+ * graph. Measured at 13.6 MB + 13.4 MB for a 9.2 MB decofile.
+ *
+ * In `vite dev` there is no KV to hydrate from, and the dev bootstrap relies on
+ * reading the `.json` sibling the stub bypasses — so stubbing there would blank
+ * the local site.
  */
 describe("decoVitePlugin — fastDeploy server stub", () => {
   const id = "/repo/.deco/blocks.gen.ts";
   const STUB = "export const blocks = {};";
 
-  it("stubs blocks.gen on SSR when fastDeploy is on", () => {
-    const plugin = decoVitePlugin({ fastDeploy: true }) as {
-      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
-    };
-    expect(plugin.load(id, { ssr: true })).toBe(STUB);
+  /** @param {{fastDeploy?: boolean}} opts @param {"build"|"serve"} command */
+  const make = (opts, command) => {
+    const p = /** @type {any} */ (decoVitePlugin(opts));
+    p.config({}, { command }); // Vite always runs config() before load()
+    return p;
+  };
+
+  it("stubs blocks.gen on SSR for a production build", () => {
+    expect(make({ fastDeploy: true }, "build").load(id, { ssr: true })).toBe(STUB);
   });
 
-  it("keeps stubbing the client bundle when fastDeploy is on", () => {
-    const plugin = decoVitePlugin({ fastDeploy: true }) as {
-      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
-    };
-    expect(plugin.load(id, { ssr: false })).toBe(STUB);
+  it("does NOT stub on SSR in dev, where there is no KV to hydrate from", () => {
+    expect(make({ fastDeploy: true }, "serve").load(id, { ssr: true })).not.toBe(STUB);
+  });
+
+  it("keeps stubbing the client bundle regardless", () => {
+    expect(make({ fastDeploy: true }, "build").load(id, { ssr: false })).toBe(STUB);
+    expect(make({ fastDeploy: true }, "serve").load(id, { ssr: false })).toBe(STUB);
   });
 
   it("does NOT stub blocks.gen on SSR by default (bundled fallback preserved)", () => {
-    const plugin = decoVitePlugin() as {
-      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
-    };
     // No .json sibling on disk for this synthetic path, so the hook falls
-    // through to Vite (undefined) rather than returning a stub. The point is
-    // that it never returns the empty stub for SSR.
-    expect(plugin.load(id, { ssr: true })).not.toBe(STUB);
+    // through to Vite (undefined). The point is it never returns the stub.
+    expect(make({}, "build").load(id, { ssr: true })).not.toBe(STUB);
   });
 
-  it("leaves unrelated modules alone with fastDeploy on", () => {
-    const plugin = decoVitePlugin({ fastDeploy: true }) as {
-      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
-    };
-    expect(plugin.load("/repo/src/sections/Hero.tsx", { ssr: true })).toBeUndefined();
+  it("leaves unrelated modules alone", () => {
+    expect(make({ fastDeploy: true }, "build").load("/repo/src/x.tsx", { ssr: true })).toBeUndefined();
+  });
+
+  it("defines __DECO_BLOCKS_STUBBED__ so the runtime knows whether it has a fallback", () => {
+    const build = /** @type {any} */ (decoVitePlugin({ fastDeploy: true })).config({}, { command: "build" });
+    expect(build.define.__DECO_BLOCKS_STUBBED__).toBe("true");
+
+    // Dev and the default must both report "no, you still have a decofile",
+    // otherwise ensureBlocksHydrated would start failing requests.
+    const dev = /** @type {any} */ (decoVitePlugin({ fastDeploy: true })).config({}, { command: "serve" });
+    expect(dev.define.__DECO_BLOCKS_STUBBED__).toBe("false");
+    const def = /** @type {any} */ (decoVitePlugin()).config({}, { command: "build" });
+    expect(def.define.__DECO_BLOCKS_STUBBED__).toBe("false");
   });
 });
