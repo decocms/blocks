@@ -1,13 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  baseBlocksKey,
   computeRevision,
+  findPageByPath,
   getRevision,
+  hasPageSource,
   type KVNamespace,
   loadBlocks,
+  pageBlockKey,
+  pageIndexKey,
   revisionKey,
   setBlocks,
+  setPageSource,
   snapshotKey,
 } from "@decocms/blocks/cms";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetKvHydrationStateForTests,
   ensureBlocksHydrated,
@@ -79,7 +85,9 @@ describe("isFastDeployEnabled", () => {
   });
 
   it("is false when a non-KV value is named DECO_KV", () => {
-    expect(isFastDeployEnabled({ DECO_KV: "some-secret-string", DECO_FAST_DEPLOY: "1" })).toBe(false);
+    expect(isFastDeployEnabled({ DECO_KV: "some-secret-string", DECO_FAST_DEPLOY: "1" })).toBe(
+      false,
+    );
   });
 
   it("is false when bound but DECO_FAST_DEPLOY is not set (explicit opt-in required)", () => {
@@ -125,7 +133,8 @@ describe("ensureBlocksHydrated", () => {
       ensureBlocksHydrated(env),
       ensureBlocksHydrated(env),
     ]);
-    // SNAPSHOT + REVISION = 2 gets for a single load (not 6).
+    // SNAPSHOT + REVISION = 2 gets for a single load (not 6). The split keys
+    // are not probed at all while DECO_BLOCKS_SPLIT is off.
     expect(getCalls()).toBe(2);
   });
 
@@ -247,7 +256,7 @@ describe("ensureBlocksHydrated when the bundle ships no decofile", () => {
     const { kv } = makeKV(); // no decofile:<id> seeded
     const env = { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID };
 
-    await expect(ensureBlocksHydrated(env)).rejects.toThrow(/not found and this bundle ships no/);
+    await expect(ensureBlocksHydrated(env)).rejects.toThrow(/and this bundle ships no decofile/);
   });
 
   it("throws when the snapshot exists but is empty", async () => {
@@ -259,7 +268,7 @@ describe("ensureBlocksHydrated when the bundle ships no decofile", () => {
 
     await expect(
       ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
-    ).rejects.toThrow(/is empty and this bundle ships no/);
+    ).rejects.toThrow(/and this bundle ships no decofile/);
   });
 
   it("throws when KV itself fails", async () => {
@@ -296,7 +305,7 @@ describe("ensureBlocksHydrated when the bundle ships no decofile", () => {
 
     await expect(
       ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
-    ).rejects.toThrow(/not found and this bundle ships no/);
+    ).rejects.toThrow(/and this bundle ships no decofile/);
   });
 
   it("does not latch hydration on the fatal path, so the next request retries", async () => {
@@ -358,5 +367,68 @@ describe("ensureBlocksHydrated when the bundle DOES ship a decofile (default)", 
     await expect(
       ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("ensureBlocksHydrated — split layout (DECO_BLOCKS_SPLIT)", () => {
+  const home = { name: "Home", path: "/", sections: [] };
+  const full = { Site: { name: "kv" }, "pages-home": home };
+
+  /** KV seeded with BOTH layouts, exactly as the CI sync writes them. */
+  function splitKV() {
+    return makeKV({
+      [baseBlocksKey(ID)]: JSON.stringify({ Site: { name: "kv" } }),
+      [pageIndexKey(ID)]: JSON.stringify([{ key: "pages-home", path: "/" }]),
+      [pageBlockKey(ID, "pages-home")]: JSON.stringify(home),
+      [SNAP]: JSON.stringify(full),
+      [REV]: computeRevision(full),
+    });
+  }
+
+  beforeEach(() => {
+    setPageSource(null);
+    __resetKvHydrationStateForTests();
+    setBlocks(BUNDLED);
+  });
+
+  it("hydrates only the non-page half and routes pages through KV", async () => {
+    const { kv } = splitKV();
+    await ensureBlocksHydrated({
+      DECO_KV: kv,
+      DECO_FAST_DEPLOY: "1",
+      DECO_DEPLOYMENT_ID: ID,
+      DECO_BLOCKS_SPLIT: "1",
+    });
+
+    expect(loadBlocks()).toEqual({ Site: { name: "kv" } });
+    expect(hasPageSource()).toBe(true);
+    await expect(findPageByPath("/")).resolves.toMatchObject({ blockKey: "pages-home" });
+
+    // The revision must be the WHOLE decofile's, not a hash of the base half,
+    // or the poller would see a permanent mismatch and reload every tick.
+    expect(getRevision()).toBe(computeRevision(full));
+  });
+
+  it("ignores the split keys and loads the whole snapshot when the flag is off", async () => {
+    const { kv } = splitKV();
+    await ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID });
+
+    expect(hasPageSource()).toBe(false);
+    expect(loadBlocks()).toEqual(full);
+  });
+
+  it("falls back to the whole snapshot when the split keys are absent", async () => {
+    const { kv } = makeKV({ [SNAP]: JSON.stringify(full), [REV]: computeRevision(full) });
+    await ensureBlocksHydrated({
+      DECO_KV: kv,
+      DECO_FAST_DEPLOY: "1",
+      DECO_DEPLOYMENT_ID: ID,
+      DECO_BLOCKS_SPLIT: "1",
+    });
+
+    // Flag on but the deployment was synced by a writer that had it off — a
+    // mixed fleet has to keep serving.
+    expect(hasPageSource()).toBe(false);
+    expect(loadBlocks()).toEqual(full);
   });
 });

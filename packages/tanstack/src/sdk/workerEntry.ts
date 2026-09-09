@@ -213,7 +213,7 @@ export interface SegmentKey {
  */
 export interface AdminHandlers {
   handleMeta: (request: Request) => Response;
-  handleDecofileRead: () => Response;
+  handleDecofileRead: () => Response | Promise<Response>;
   handleDecofileReload: (request: Request) => Response | Promise<Response>;
   handleRender: (request: Request) => Response | Promise<Response>;
   corsHeaders: (request: Request) => Record<string, string>;

@@ -3,17 +3,30 @@ export type {
   SectionMetaEntry,
 } from "./applySectionConventions";
 export { applySectionConventions } from "./applySectionConventions";
-export type { BlockSnapshot, BlockSource, KVNamespace } from "./blockSource";
+export type {
+  BlockSnapshot,
+  BlockSource,
+  KVNamespace,
+  PageIndexEntry,
+  SplitDecofile,
+} from "./blockSource";
 export {
+  BLOCKS_SPLIT_ENV,
   BUILD_HASH_ENV,
   BundledBlockSource,
+  baseBlocksKey,
   computeRevision,
   DEPLOYMENT_ID_ENV,
   DEPLOYMENTS_KEY,
   getDeploymentId,
+  isBlocksSplitEnabled,
   LIVE_KEY,
+  PAGE_BLOCK_PREFIX,
+  pageBlockKey,
+  pageIndexKey,
   revisionKey,
   snapshotKey,
+  splitDecofile,
 } from "./blockSource";
 export type {
   DraftPointer,
@@ -37,15 +50,18 @@ export {
   setDraftOverrideGetter,
   setDraftPreviewHosts,
 } from "./draftSource";
-export type { DecoPage, Resolvable } from "./loader";
+export type { DecoPage, PageSource, Resolvable } from "./loader";
 export {
   findPageByPath,
   getAllPages,
+  getPageIndex,
   getRevision,
   getSiteSeo,
+  hasPageSource,
   loadBlocks,
   onChange,
   setBlocks,
+  setPageSource,
   withBlocksOverride,
   withDraftBlocks,
 } from "./loader";

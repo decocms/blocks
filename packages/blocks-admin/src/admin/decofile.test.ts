@@ -1,12 +1,18 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  baseBlocksKey,
+  findPageByPath,
   getRevision,
+  hasPageSource,
   type KVNamespace,
   loadBlocks,
+  pageBlockKey,
+  pageIndexKey,
   revisionKey,
   setBlocks,
+  setPageSource,
   snapshotKey,
 } from "@decocms/blocks/cms";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { handleDecofileReload, setFastDeployKVGetter } from "./decofile";
 
 /** Deployment id the write-through keys its snapshot under. */
@@ -64,6 +70,9 @@ function makeKV() {
 }
 
 beforeEach(() => {
+  // Split state is isolate-global — leaking it would make an unrelated test
+  // route through a stale index.
+  setPageSource(null);
   setBlocks({ Site: { name: "base" }, "pages-home": { path: "/" } });
 });
 
@@ -113,10 +122,71 @@ describe("handleDecofileReload — KV write-through", () => {
     );
     const json = (await res.json()) as { kvWritten: boolean; revision: string };
 
+    // Flag off (the default): whole snapshot only, pages still in memory.
     expect(json.kvWritten).toBe(true);
-    expect(store.get(snapshotKey(ID))).toBe(JSON.stringify(loadBlocks()));
+    expect(hasPageSource()).toBe(false);
+    expect(store.get(baseBlocksKey(ID))).toBeUndefined();
+    expect(JSON.parse(store.get(snapshotKey(ID)) as string)).toEqual({
+      Site: { name: "base" },
+      "pages-home": { path: "/" },
+      "pages-x": { path: "/x" },
+    });
     expect(store.get(revisionKey(ID))).toBe(getRevision());
     expect(store.get(revisionKey(ID))).toBe(json.revision);
+  });
+
+  it("splits pages out of the isolate: base + index in KV, no pages in memory", async () => {
+    // Only pages with BOTH a path and sections are routable, so only those
+    // reach the index — same filter getAllPages() applies.
+    setBlocks({ Site: { name: "base" }, "pages-home": { path: "/", sections: [] } });
+    const { kv, store } = makeKV();
+    await reload(
+      { blocks: { "pages-x": { path: "/x", sections: [] } } },
+      { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID, DECO_BLOCKS_SPLIT: "1" },
+    );
+
+    // Only the non-page half stays resident — that is the whole point.
+    expect(loadBlocks()).toEqual({ Site: { name: "base" } });
+    expect(hasPageSource()).toBe(true);
+
+    expect(JSON.parse(store.get(baseBlocksKey(ID)) as string)).toEqual({ Site: { name: "base" } });
+    expect(JSON.parse(store.get(pageIndexKey(ID)) as string)).toEqual([
+      { key: "pages-home", path: "/" },
+      { key: "pages-x", path: "/x" },
+    ]);
+    expect(JSON.parse(store.get(pageBlockKey(ID, "pages-x")) as string)).toEqual({
+      path: "/x",
+      sections: [],
+    });
+
+    // The split page is still routable — through KV, not memory.
+    await expect(findPageByPath("/x")).resolves.toMatchObject({ blockKey: "pages-x" });
+  });
+
+  it("merges a delta onto the FULL decofile, not the split base", async () => {
+    const { kv, store } = makeKV();
+    const env = {
+      DECO_KV: kv,
+      DECO_FAST_DEPLOY: "1",
+      DECO_DEPLOYMENT_ID: ID,
+      DECO_BLOCKS_SPLIT: "1",
+    };
+
+    // First publish splits pages out of memory.
+    await reload({ blocks: { "pages-x": { path: "/x" } } }, env);
+    expect(loadBlocks()["pages-home"]).toBeUndefined();
+    expect(hasPageSource()).toBe(true);
+
+    // A second delta must not read the page-less base as its base, or every
+    // page would silently vanish from the published decofile.
+    await reload({ blocks: { "pages-y": { path: "/y" } } }, env);
+
+    expect(JSON.parse(store.get(snapshotKey(ID)) as string)).toEqual({
+      Site: { name: "base" },
+      "pages-home": { path: "/" },
+      "pages-x": { path: "/x" },
+      "pages-y": { path: "/y" },
+    });
   });
 
   it("reports kvWritten=false when no KV binding is present", async () => {

@@ -46,6 +46,7 @@
 
 import { execSync } from "node:child_process";
 import * as path from "node:path";
+import { isBlocksSplitEnabled } from "@decocms/blocks/cms";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import {
   buildSnapshot,
@@ -160,12 +161,19 @@ async function main() {
     process.exit(2);
   }
 
+  // Split layout is opt-in and must match the worker's own DECO_BLOCKS_SPLIT —
+  // same var name so CI and runtime can't disagree about which layout is live.
+  const splitEnabled = isBlocksSplitEnabled(process.env);
   const snap = buildSnapshot(blocks);
   const purgePaths = opts.all ? ["/"] : purgePathsForChangedKeys(blocks, changedKeys);
-  console.log(`decofile: ${snap.count} blocks, revision ${snap.revision} → deployment ${opts.deploymentId}`);
+  console.log(
+    `decofile: ${snap.count} blocks, revision ${snap.revision} → deployment ${opts.deploymentId}`,
+  );
 
   if (!opts.write) {
-    console.log(`\nDry-run only. Would write decofile:${opts.deploymentId} + revision, GC to ${opts.retain}, purge: ${purgePaths.join(", ")}`);
+    console.log(
+      `\nDry-run only. Would write decofile:${opts.deploymentId} + revision, GC to ${opts.retain}, purge: ${purgePaths.join(", ")}`,
+    );
     process.exit(0);
   }
 
@@ -178,13 +186,18 @@ async function main() {
   }
 
   try {
-    await writeSnapshotToKv(client, snap, opts.deploymentId);
-    const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId);
+    await writeSnapshotToKv(client, snap, opts.deploymentId, splitEnabled);
+    const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId, splitEnabled);
     if (!verify.ok) {
       console.error(`error: KV verify failed — ${verify.reason}`);
       process.exit(2);
     }
-    const { pruned } = await recordAndGcDeployment(client, opts.deploymentId, Date.now(), opts.retain);
+    const { pruned } = await recordAndGcDeployment(
+      client,
+      opts.deploymentId,
+      Date.now(),
+      opts.retain,
+    );
     if (pruned.length) {
       console.log(`GC: pruned ${pruned.length} old snapshot(s): ${pruned.join(", ")}`);
     }
@@ -197,7 +210,9 @@ async function main() {
   if (opts.purgeUrl && opts.purgeToken) {
     await purgeCache(opts.purgeUrl, opts.purgeToken, purgePaths);
   } else if (opts.purgeUrl) {
-    console.warn("warning: --purge-url given without a token (PURGE_TOKEN/--purge-token) — skipping purge.");
+    console.warn(
+      "warning: --purge-url given without a token (PURGE_TOKEN/--purge-token) — skipping purge.",
+    );
   }
 }
 

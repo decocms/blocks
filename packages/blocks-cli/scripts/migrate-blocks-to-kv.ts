@@ -30,6 +30,7 @@
  */
 
 import * as path from "node:path";
+import { isBlocksSplitEnabled } from "@decocms/blocks/cms";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import { buildSnapshot, verifySnapshotInKv, writeSnapshotToKv } from "./lib/kv-snapshot";
 import { readDecofileFromDir } from "./lib/read-decofile";
@@ -70,15 +71,22 @@ async function main() {
     const result = readDecofileFromDir(blocksDir);
     blocks = result.blocks;
     if (result.collisions.length) {
-      console.warn(`warning: ${result.collisions.length} filename collision(s) resolved by tie-break`);
+      console.warn(
+        `warning: ${result.collisions.length} filename collision(s) resolved by tie-break`,
+      );
     }
   } catch (e) {
     console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(2);
   }
 
+  // Split layout is opt-in and must match the worker's own DECO_BLOCKS_SPLIT —
+  // same var name so CI and runtime can't disagree about which layout is live.
+  const splitEnabled = isBlocksSplitEnabled(process.env);
   const snap = buildSnapshot(blocks);
-  console.log(`decofile: ${snap.count} blocks, revision ${snap.revision}, ${snap.snapshot.length} bytes`);
+  console.log(
+    `decofile: ${snap.count} blocks, revision ${snap.revision}, ${snap.snapshot.length} bytes`,
+  );
 
   if (!opts.write) {
     console.log("\nDry-run only. Re-run with --write to populate KV.");
@@ -94,8 +102,8 @@ async function main() {
   }
 
   try {
-    await writeSnapshotToKv(client, snap, opts.deploymentId);
-    const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId);
+    await writeSnapshotToKv(client, snap, opts.deploymentId, splitEnabled);
+    const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId, splitEnabled);
     if (!verify.ok) {
       console.error(`error: KV verify failed — ${verify.reason}`);
       process.exit(2);

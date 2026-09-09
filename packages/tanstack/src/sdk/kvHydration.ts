@@ -24,10 +24,17 @@
  * `DecofileProvider` pattern from the deco-cx/deco Fresh runtime.
  */
 
-import { DEPLOYMENT_ID_ENV, getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
-import { KVBlockSource } from "../cms/kvBlockSource";
 import type { KVNamespace } from "@decocms/blocks/cms";
+import {
+  DEPLOYMENT_ID_ENV,
+  getDeploymentId,
+  getRevision,
+  isBlocksSplitEnabled,
+  setBlocks,
+  setPageSource,
+} from "@decocms/blocks/cms";
 import { setSpanAttribute } from "@decocms/blocks/sdk/observability";
+import { KVBlockSource } from "../cms/kvBlockSource";
 
 /** How often (ms) an isolate re-probes its `index:revision:<id>`. */
 export const POLL_INTERVAL_MS = 10_000;
@@ -137,6 +144,48 @@ function bundleHasNoDecofile(): boolean {
  *   a 5xx is the only honest answer; hydration is left unlatched so the next
  *   request retries instead of pinning the isolate to an empty decofile.
  */
+
+/**
+ * Apply a KV snapshot to this isolate, preferring the SPLIT layout.
+ *
+ * Split (`blocks:<id>` + `pageindex:<id>`): only non-page blocks are held
+ * resident and pages are fetched one at a time through the registered
+ * `PageSource`. Measured on montecarlo's 10.2 MB decofile this is 1.5 MB
+ * resident instead of 17.2 MB.
+ *
+ * Whole (`decofile:<id>`): the pre-split layout. Used when `DECO_BLOCKS_SPLIT`
+ * is off, or when the deployment was synced by a writer that had it off — so a
+ * mixed fleet keeps working during rollout and the flag is a real kill switch,
+ * not just a seeding choice.
+ *
+ * Returns `false` when neither layout yielded content — the caller decides
+ * whether that's fatal (stubbed bundle) or a fall-back-to-bundled warning.
+ * `setPageSource(null)` on the whole-snapshot path matters: an isolate that
+ * once hydrated split must not keep routing through a stale index after
+ * falling back.
+ */
+async function hydrateFrom(source: KVBlockSource, env: Env): Promise<boolean> {
+  const split = isBlocksSplitEnabled(env) ? await source.loadSplit() : null;
+  if (split) {
+    setBlocks(split.blocks, split.revision);
+    setPageSource({ index: split.index, load: (key) => source.loadPage(key) });
+    setSpanAttribute("deco.block.source", "kv-split");
+    return true;
+  }
+
+  const snapshot = await source.loadSnapshot();
+  // An empty snapshot is treated as a failure, not a success: with no bundled
+  // decofile it would otherwise latch and serve exactly the empty, edge-cached
+  // site this guard exists to prevent. A site legitimately has blocks; `{}`
+  // means the seed wrote nothing.
+  if (!snapshot || Object.keys(snapshot.blocks).length === 0) return false;
+
+  setPageSource(null);
+  setBlocks(snapshot.blocks);
+  setSpanAttribute("deco.block.source", "kv");
+  return true;
+}
+
 export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Promise<void> {
   if (!isFastDeployEnabled(env)) return Promise.resolve();
   if (G.__deco!.kvHydrated) return Promise.resolve();
@@ -167,22 +216,17 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
     // decofile for the isolate's entire life.
     let fatal: Error | null = null;
     try {
-      const snapshot = await new KVBlockSource(kv, deploymentId).loadSnapshot();
-      // An empty snapshot is treated as a failure, not a success: with no
-      // bundled decofile it would otherwise latch and serve exactly the empty,
-      // edge-cached site this guard exists to prevent. A site legitimately has
-      // blocks; `{}` means the seed wrote nothing.
-      const empty = !snapshot || Object.keys(snapshot.blocks).length === 0;
-      if (!empty) {
-        setBlocks(snapshot!.blocks);
-        setSpanAttribute("deco.block.source", "kv");
-      } else if (!bundleHasNoDecofile()) {
-        setSpanAttribute("deco.block.source", "bundled");
-      } else {
-        fatal = new Error(
-          `[CMS/KV] decofile:${deploymentId} ${snapshot ? "is empty" : "not found"} and this ` +
-            `bundle ships no decofile — seed it before activating this version`,
-        );
+      const hydrated = await hydrateFrom(new KVBlockSource(kv, deploymentId), env);
+      if (!hydrated) {
+        if (!bundleHasNoDecofile()) {
+          setSpanAttribute("deco.block.source", "bundled");
+        } else {
+          fatal = new Error(
+            `[CMS/KV] no content for deployment ${deploymentId} (neither blocks:<id> nor ` +
+              `decofile:<id>) and this bundle ships no decofile — seed it before activating ` +
+              `this version`,
+          );
+        }
       }
     } catch (e) {
       if (!bundleHasNoDecofile()) {
@@ -222,23 +266,21 @@ export function maybePollRevision(env: Env, ctx?: ExecutionContextLike): void {
   const deploymentId = getDeploymentId(env);
   if (!deploymentId) return; // bundled-only; nothing to poll
 
-  const poll = pollRevisionOnce(kv, deploymentId);
+  const poll = pollRevisionOnce(kv, deploymentId, env);
   // Prefer waitUntil so the work outlives the response; fall back to a
   // fire-and-forget promise (dev / tests) with its rejection swallowed.
   if (ctx?.waitUntil) ctx.waitUntil(poll);
   else void poll.catch(() => {});
 }
 
-async function pollRevisionOnce(kv: KVNamespace, deploymentId: string): Promise<void> {
+async function pollRevisionOnce(kv: KVNamespace, deploymentId: string, env: Env): Promise<void> {
   try {
     const source = new KVBlockSource(kv, deploymentId);
     const remoteRevision = await source.getRevision();
     if (!remoteRevision || remoteRevision === getRevision()) return;
 
-    const snapshot = await source.loadSnapshot();
-    if (snapshot) {
-      setBlocks(snapshot.blocks);
-      console.info(`[CMS/KV] decofile refreshed → revision ${snapshot.revision}`);
+    if (await hydrateFrom(source, env)) {
+      console.info(`[CMS/KV] decofile refreshed → revision ${remoteRevision}`);
     }
   } catch (e) {
     // Swallow — a failed poll must never affect the request. Next tick retries.
@@ -248,6 +290,7 @@ async function pollRevisionOnce(kv: KVNamespace, deploymentId: string): Promise<
 
 /** Test-only: reset the isolate-level hydration flags. */
 export function __resetKvHydrationStateForTests(): void {
+  setPageSource(null);
   G.__deco!.kvHydrated = false;
   G.__deco!.kvHydration = null;
   G.__deco!.kvLastPolledAt = 0;
