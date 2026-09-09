@@ -1,4 +1,5 @@
 import type { CacheStorage } from "./cacheStorage";
+import { decodeBase64 } from "./encoding";
 
 interface StoredResponse {
   status: number;
@@ -16,7 +17,9 @@ export function createResponseCache(storage: CacheStorage, scope: string) {
       if (raw === null) return undefined;
       try {
         const stored = JSON.parse(raw) as StoredResponse;
-        const body = Uint8Array.from(atob(stored.body), (c) => c.charCodeAt(0));
+        // Uint8Array.from(string, mapper) creates a large temporary iterable array.
+        // Decode straight into the byte buffer to keep cache hits proportional to body size.
+        const body = decodeBase64(stored.body);
         return new Response([204, 205, 304].includes(stored.status) ? null : body, {
           status: stored.status,
           statusText: stored.statusText,
