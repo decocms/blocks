@@ -24,7 +24,13 @@
  * `DecofileProvider` pattern from the deco-cx/deco Fresh runtime.
  */
 
-import { getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
+import {
+  DEPLOYMENT_ID_ENV,
+  getDeploymentId,
+  getRevision,
+  loadBlocks,
+  setBlocks,
+} from "@decocms/blocks/cms";
 import { KVBlockSource } from "../cms/kvBlockSource";
 import type { KVNamespace } from "@decocms/blocks/cms";
 import { setSpanAttribute } from "@decocms/blocks/sdk/observability";
@@ -96,11 +102,35 @@ export function getFastDeployKV(env: Env): KVNamespace | null {
 }
 
 /**
+ * Is there a bundled snapshot to fall back on?
+ *
+ * `decoVitePlugin({ fastDeploy: true })` stubs `blocks.gen` out of the server
+ * bundle to avoid holding the decofile twice (see the option's docs). That
+ * makes KV the ONLY source of content, so the "warn and serve bundled"
+ * recovery below would actually serve an EMPTY site — 200s with no pages,
+ * which then get edge-cached and outlive the KV failure that caused them.
+ *
+ * Checking the in-memory map rather than a build-time flag keeps this honest
+ * in both configurations, and means sites that still bundle their decofile
+ * (the default) behave exactly as before.
+ */
+function hasBundledFallback(): boolean {
+  return Object.keys(loadBlocks()).length > 0;
+}
+
+/**
  * Cold-start hydration. Awaits the KV snapshot once per isolate and swaps it
  * into the in-memory block map. Concurrent first requests share a single
- * in-flight load. On any error (KV outage, bad JSON) we keep the bundled
- * snapshot and mark hydration done — recovery happens via `maybePollRevision`
- * once KV is reachable again (its revision will differ from the bundled one).
+ * in-flight load.
+ *
+ * On failure (KV outage, bad JSON, snapshot not seeded) the behavior depends on
+ * whether a bundled snapshot exists:
+ *
+ * - Bundled present (default): warn, serve bundled, mark hydration done —
+ *   `maybePollRevision` recovers once KV is reachable again.
+ * - Bundled stubbed out (`fastDeploy`): throw. There is no content to serve, so
+ *   a 5xx is the only honest answer; hydration is left unlatched so the next
+ *   request retries instead of pinning the isolate to an empty decofile.
  */
 export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Promise<void> {
   if (!isFastDeployEnabled(env)) return Promise.resolve();
@@ -114,28 +144,49 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
   // content). Never read another deployment's key.
   const deploymentId = getDeploymentId(env);
   if (!deploymentId) {
+    if (!hasBundledFallback()) {
+      return Promise.reject(
+        new Error(
+          `[CMS/KV] no deployment id (set ${DEPLOYMENT_ID_ENV}) and no bundled snapshot to fall back on`,
+        ),
+      );
+    }
     setSpanAttribute("deco.block.source", "bundled");
     G.__deco!.kvHydrated = true;
     return Promise.resolve();
   }
 
   const load = (async () => {
+    // Held rather than rethrown inline so the `finally` below can decide
+    // whether to latch — latching on a fatal path would serve an empty
+    // decofile for the isolate's entire life.
+    let fatal: Error | null = null;
     try {
       const snapshot = await new KVBlockSource(kv, deploymentId).loadSnapshot();
       if (snapshot) {
         setBlocks(snapshot.blocks);
         setSpanAttribute("deco.block.source", "kv");
-      } else {
+      } else if (hasBundledFallback()) {
         setSpanAttribute("deco.block.source", "bundled");
+      } else {
+        fatal = new Error(
+          `[CMS/KV] decofile:${deploymentId} not found and no bundled snapshot to fall back on — ` +
+            `seed it before activating this version`,
+        );
       }
     } catch (e) {
-      // Non-fatal: serve the bundled snapshot. The poll loop recovers later.
-      console.warn("[CMS/KV] cold-start hydration failed, using bundled snapshot:", e);
-      setSpanAttribute("deco.block.source", "bundled");
+      if (hasBundledFallback()) {
+        // Non-fatal: serve the bundled snapshot. The poll loop recovers later.
+        console.warn("[CMS/KV] cold-start hydration failed, using bundled snapshot:", e);
+        setSpanAttribute("deco.block.source", "bundled");
+      } else {
+        fatal = e instanceof Error ? e : new Error(String(e));
+      }
     } finally {
-      G.__deco!.kvHydrated = true;
+      G.__deco!.kvHydrated = !fatal;
       G.__deco!.kvHydration = null;
     }
+    if (fatal) throw fatal;
   })();
 
   G.__deco!.kvHydration = load;

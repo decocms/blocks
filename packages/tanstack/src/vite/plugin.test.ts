@@ -50,3 +50,47 @@ describe("decoVitePlugin — loaders.gen client stub", () => {
     expect(plugin.load("/repo/src/actions/foo.ts", { ssr: false })).toBeUndefined();
   });
 });
+
+/**
+ * `fastDeploy: true` must stub blocks.gen out of the SERVER bundle too.
+ *
+ * Otherwise a fast-deploy site holds the decofile twice: the bundled
+ * JSON.parse(...) graph stays reachable via the site's `import { blocks }`
+ * binding for the isolate's whole life, and ensureBlocksHydrated adds a
+ * second graph. Tens of MB of avoidable memory for a 10MB decofile.
+ */
+describe("decoVitePlugin — fastDeploy server stub", () => {
+  const id = "/repo/.deco/blocks.gen.ts";
+  const STUB = "export const blocks = {};";
+
+  it("stubs blocks.gen on SSR when fastDeploy is on", () => {
+    const plugin = decoVitePlugin({ fastDeploy: true }) as {
+      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
+    };
+    expect(plugin.load(id, { ssr: true })).toBe(STUB);
+  });
+
+  it("keeps stubbing the client bundle when fastDeploy is on", () => {
+    const plugin = decoVitePlugin({ fastDeploy: true }) as {
+      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
+    };
+    expect(plugin.load(id, { ssr: false })).toBe(STUB);
+  });
+
+  it("does NOT stub blocks.gen on SSR by default (bundled fallback preserved)", () => {
+    const plugin = decoVitePlugin() as {
+      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
+    };
+    // No .json sibling on disk for this synthetic path, so the hook falls
+    // through to Vite (undefined) rather than returning a stub. The point is
+    // that it never returns the empty stub for SSR.
+    expect(plugin.load(id, { ssr: true })).not.toBe(STUB);
+  });
+
+  it("leaves unrelated modules alone with fastDeploy on", () => {
+    const plugin = decoVitePlugin({ fastDeploy: true }) as {
+      load: (id: string, options?: { ssr?: boolean }) => string | undefined;
+    };
+    expect(plugin.load("/repo/src/sections/Hero.tsx", { ssr: true })).toBeUndefined();
+  });
+});

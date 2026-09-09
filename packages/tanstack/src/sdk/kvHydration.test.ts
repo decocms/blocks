@@ -213,3 +213,91 @@ describe("maybePollRevision", () => {
     expect(getCalls()).toBe(callsAfterHydrate + 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// No-bundled-fallback semantics (`decoVitePlugin({ fastDeploy: true })`)
+//
+// When the server bundle is stubbed, KV is the ONLY source of content. The
+// "warn and serve bundled" recovery would serve an EMPTY site — 200s with no
+// pages, which get edge-cached and outlive the KV failure. These assert it
+// fails loudly instead, and that the default (bundled present) is unchanged.
+// ---------------------------------------------------------------------------
+describe("ensureBlocksHydrated without a bundled fallback", () => {
+  /** Simulates the stubbed server bundle: `export const blocks = {}`. */
+  const stubBundle = () => setBlocks({});
+
+  it("throws when the snapshot is missing instead of serving an empty site", async () => {
+    stubBundle();
+    const { kv } = makeKV(); // no decofile:<id> seeded
+    const env = { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID };
+
+    await expect(ensureBlocksHydrated(env)).rejects.toThrow(/not found and no bundled snapshot/);
+    expect(loadBlocks()).toEqual({});
+  });
+
+  it("throws when KV itself fails", async () => {
+    stubBundle();
+    const kv = {
+      get: () => Promise.reject(new Error("KV unreachable")),
+      put: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+    } as unknown as KVNamespace;
+
+    await expect(
+      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
+    ).rejects.toThrow(/KV unreachable/);
+  });
+
+  it("throws when no deployment id resolves", async () => {
+    stubBundle();
+    const { kv } = makeKV();
+
+    await expect(
+      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1" }),
+    ).rejects.toThrow(/no deployment id/);
+  });
+
+  it("does not latch hydration on the fatal path, so the next request retries", async () => {
+    stubBundle();
+    const blocks = { Site: { name: "from-kv" } };
+    const store = new Map<string, string>();
+    const kv: KVNamespace = {
+      get: (k) => Promise.resolve(store.get(k) ?? null),
+      put: (k, v) => {
+        store.set(k, v);
+        return Promise.resolve();
+      },
+      delete: (k) => {
+        store.delete(k);
+        return Promise.resolve();
+      },
+    };
+    const env = { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID };
+
+    // First request: snapshot absent → fatal.
+    await expect(ensureBlocksHydrated(env)).rejects.toThrow();
+
+    // Operator seeds it; the isolate must pick it up rather than stay empty.
+    store.set(SNAP, JSON.stringify(blocks));
+    store.set(REV, computeRevision(blocks));
+
+    await expect(ensureBlocksHydrated(env)).resolves.toBeUndefined();
+    expect(loadBlocks()).toEqual(blocks);
+  });
+
+  it("still warns and serves bundled when a bundled snapshot IS present", async () => {
+    // Default configuration — must behave exactly as before this change.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const kv = {
+      get: () => Promise.reject(new Error("KV unreachable")),
+      put: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+    } as unknown as KVNamespace;
+
+    await expect(
+      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
+    ).resolves.toBeUndefined();
+    expect(loadBlocks()).toEqual(BUNDLED);
+    expect(warn).toHaveBeenCalled();
+  });
+});
