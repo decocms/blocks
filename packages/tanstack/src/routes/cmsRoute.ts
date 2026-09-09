@@ -69,6 +69,7 @@ import {
 } from "@tanstack/react-start/server";
 import { createElement } from "react";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
+import { createRequestSingleFlight } from "./requestSingleFlight";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
 import type { SiteGlobalRef } from "./withSiteGlobals";
 
@@ -92,7 +93,7 @@ export function setSectionChunkMap(map: Record<string, string>): void {
 // ---------------------------------------------------------------------------
 
 type PageResult = Awaited<ReturnType<typeof loadCmsPageInternal>>;
-const pageInflight = new Map<string, Promise<PageResult>>();
+const loadPageForRequest = createRequestSingleFlight<PageResult>();
 
 /** Same shape as `resolveSiteGlobals()`'s empty result — used when `resolveGlobals: false`. */
 const EMPTY_GLOBALS: { resolvedSections: ResolvedSection[]; rawRefs: SiteGlobalRef[] } = {
@@ -285,33 +286,15 @@ export const loadCmsPage = createServerFn({ method: "GET" })
   .handler(async (ctx) => {
     const { path: fullPath, resolveGlobals } = parseLoadCmsPageInput(ctx.data);
 
-    // Use the full path (including query string) as the dedup key.
-    // Using basePath only caused /s?q=a and /s?q=b to share one promise,
-    // returning wrong/empty results for search and filtered PLPs.
-    //
-    // SSR and client-nav produce the same eager/deferred split now, so the
-    // original reason for the `__nav:` bucket — a client-nav request must never
-    // inherit an SSR response's deferredSections (#277) — no longer applies. It
-    // is kept anyway, because this map is module-global and the payload it
-    // shares carries `pageUrl`, `flags`, and `device` derived from whichever
-    // request won the race. That cross-request bleed is pre-existing and wider
-    // than this bucket (two concurrent same-path requests already collide on
-    // cookies/UA/geo), but SSR and client-nav are exactly the pair whose
-    // `derivePageUrl` inputs differ most, so collapsing them would widen a
-    // known hole for no gain. `resolveGlobals` is part of the key for the same
-    // reason: a `resolveGlobals: false` request must not share a promise with a
-    // `resolveGlobals: true` one.
+    // Whole-page results contain request-specific cookies, flags, device and URL.
+    // A module-global URL key also lets one stalled request block later visitors.
+    // Dedup only within this request; keep query and globals options distinct.
     const clientNav = isClientNavigation(fullPath, getRequestUrl());
     const inflightKey =
       (clientNav ? `__nav:${fullPath}` : fullPath) + (resolveGlobals ? "" : "|noGlobals");
-    const existing = pageInflight.get(inflightKey);
-    if (existing) return existing;
-
-    const promise = loadCmsPageInternal(fullPath, resolveGlobals).finally(() =>
-      pageInflight.delete(inflightKey),
+    return loadPageForRequest(getRequest(), inflightKey, () =>
+      loadCmsPageInternal(fullPath, resolveGlobals),
     );
-    pageInflight.set(inflightKey, promise);
-    return promise;
   });
 
 /** Accepted by `loadCmsHomePage` — optional so existing no-arg callers keep working. */
