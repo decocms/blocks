@@ -123,15 +123,15 @@ function showHelp() {
     npx tsx scripts/deco-migrate-cli.ts https://github.com/org/my-site
 
     ${dim("# Migrate local dir, compare against golden reference:")}
-    npx tsx scripts/deco-migrate-cli.ts ./casaevideo \\
-      --ref ./casaevideo-storefront
+    npx tsx scripts/deco-migrate-cli.ts ./acme \\
+      --ref ./acme-storefront
 
     ${dim("# Quick re-run (wipe previous output first):")}
-    npx tsx scripts/deco-migrate-cli.ts ./casaevideo \\
-      -o ./casaevideo-migrated --clean
+    npx tsx scripts/deco-migrate-cli.ts ./acme \\
+      -o ./acme-migrated --clean
 
     ${dim("# Dry run to preview what would change:")}
-    npx tsx scripts/deco-migrate-cli.ts ./casaevideo --dry-run -v
+    npx tsx scripts/deco-migrate-cli.ts ./acme --dry-run -v
 `);
 }
 

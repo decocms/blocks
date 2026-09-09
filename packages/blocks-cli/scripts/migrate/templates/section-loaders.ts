@@ -139,8 +139,8 @@ export function generateSectionLoaders(ctx: MigrationContext): string {
   // returned.
   //
   // The previous template chose mixins XOR own-loader and silently dropped
-  // the section's loader when both were present — see als-tanstack
-  // SearchContainerV2 SSR regression.
+  // the section's loader when both were present — see a production
+  // storefront's SearchContainer SSR regression.
   for (const meta of ctx.sectionMetas) {
     if (meta.isHeader || meta.isAccountSection || meta.isStatusOnly) continue;
     // Skip sections with no loader AND no device needs
@@ -418,7 +418,7 @@ export function generateSectionLoaders(ctx: MigrationContext): string {
   // ---------- Privacy cookie check ----------
   if (isVtex && hasPrivacyPolice) {
     entries.push(``);
-    const vtexAccount = ctx.vtexAccount || "casaevideonewio";
+    const vtexAccount = ctx.vtexAccount || "acme";
     entries.push(`  "site/sections/Account/PrivacyPolice.tsx": (props: any, req) => {`);
     entries.push(`    const cookies = req.headers.get("cookie") ?? "";`);
     entries.push(`    const logged = cookies.includes("VtexIdclientAutCookie_${vtexAccount}");`);

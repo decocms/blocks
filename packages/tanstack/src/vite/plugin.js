@@ -162,7 +162,7 @@ const STUB_SOURCE = {
  * Resolvable). This matters because meta.gen.json is committed and Studio reads
  * it as-is (no composeMeta at read time) — an uncomposed rewrite would silently
  * break the admin editors, e.g. the date matcher powering variant rules
- * disappearing (casaevideo-tanstack #633). Mirrors `npm run generate`'s schema
+ * disappearing (a production storefront regression). Mirrors `npm run generate`'s schema
  * step. Both invocation sites in configureServer derive their args here so they
  * can never drift apart.
  *
@@ -757,9 +757,9 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
       }
 
       // Allow tunnel domains through Vite's host check.
-      // .deco.studio is the new admin frontend; both real-world Deco sites
-      // (casaevideo-storefront, baggagio-tanstack) duplicated this list to
-      // include it — bundling it here removes that boilerplate.
+      // .deco.studio is the new admin frontend; multiple real-world Deco sites
+      // duplicated this list to include it — bundling it here removes that
+      // boilerplate.
       if (process.env.DECO_SITE_NAME) {
         cfg.server = {
           allowedHosts: [".deco.host", ".decocdn.com", ".deco.studio"],

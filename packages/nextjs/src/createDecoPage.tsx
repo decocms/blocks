@@ -57,7 +57,7 @@ function buildSeo(page: DecoPageResult): PageSeo {
  *
  * `resolveForPath` is wrapped in React's `cache()` so `generateMetadata` and
  * the page body share one `resolveDecoPage` call per request instead of
- * resolving twice — the same pattern faststore-fila's own
+ * resolving twice — the same pattern a production Next.js site's own
  * `resolveCmsPageByPath` already used against the old /next tier. This relies
  * on Next's RSC renderer establishing a per-request cache boundary that
  * `cache()` memoizes against: calling the returned functions directly outside

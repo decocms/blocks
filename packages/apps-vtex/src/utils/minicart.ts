@@ -71,7 +71,7 @@ function vtexItemToMinicartItem(item: OrderFormItem, index: number, coupon?: str
 
 	return {
 		// AnalyticsItem identifier — VTEX uses productId; sites map to numeric SKU
-		// when needed via `Number(item.item_id)` (see bagaggio Minicart).
+		// when needed via `Number(item.item_id)` (see a production Minicart).
 		item_id: item.id,
 		item_group_id: item.productId,
 		item_name: item.name ?? item.skuName ?? "",

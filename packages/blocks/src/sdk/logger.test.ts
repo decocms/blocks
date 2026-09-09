@@ -185,7 +185,7 @@ describe("setLoggerAttributeFloor", () => {
   });
 
   it("applies the floor even when the caller passes no attrs", () => {
-    setLoggerAttributeFloor({ tenant: "lebiscuit" });
+    setLoggerAttributeFloor({ tenant: "acme" });
     const calls: Array<Record<string, unknown> | undefined> = [];
     configureLogger({
       log(_level, _msg, attrs) {
@@ -195,11 +195,11 @@ describe("setLoggerAttributeFloor", () => {
 
     logger.info("no-attrs");
 
-    expect(calls[0]).toEqual({ tenant: "lebiscuit" });
+    expect(calls[0]).toEqual({ tenant: "acme" });
   });
 
   it("clearing the floor restores the no-op fast path", () => {
-    setLoggerAttributeFloor({ tenant: "lebiscuit" });
+    setLoggerAttributeFloor({ tenant: "acme" });
     setLoggerAttributeFloor({});
     const calls: Array<Record<string, unknown> | undefined> = [];
     configureLogger({

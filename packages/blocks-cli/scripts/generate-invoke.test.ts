@@ -197,8 +197,8 @@ describe("generate-invoke.ts — default --apps-dir resolution", () => {
   // at node_modules/@decocms/apps-vtex/src/invoke.ts — NOT at the package
   // root. The old default only probed the root, never resolved on a site
   // with npm-installed packages, and forced sites to pass
-  // `--apps-dir node_modules/@decocms/apps-vtex/src` by hand (granadobr's
-  // migration workaround). The default must probe <pkg>/invoke.ts first,
+  // `--apps-dir node_modules/@decocms/apps-vtex/src` by hand (a production
+  // site's migration workaround). The default must probe <pkg>/invoke.ts first,
   // then <pkg>/src/invoke.ts.
 
   function makeSite(layout: "root" | "src"): { siteDir: string; cleanup: () => void } {

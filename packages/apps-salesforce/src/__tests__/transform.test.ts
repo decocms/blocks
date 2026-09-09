@@ -150,17 +150,17 @@ describe("createProductTransformer", () => {
 	});
 
 	it("custom propertyMapper sees site-specific extras via index signature", () => {
-		const granadoMapper: PropertyMapper = (product) => [
+		const acmeMapper: PropertyMapper = (product) => [
 			{ "@type": "PropertyValue", name: "marca", value: String(product.Marca ?? "") },
 			{ "@type": "PropertyValue", name: "volume", value: String(product.Volume ?? "") },
 		];
-		const transform = createProductTransformer({ propertyMapper: granadoMapper });
+		const transform = createProductTransformer({ propertyMapper: acmeMapper });
 		const out = transform({
-			product: baseProduct({ Marca: "Granado", Volume: "200ml" }),
+			product: baseProduct({ Marca: "Acme", Volume: "200ml" }),
 			options: { currencyCode: "BRL" },
 		});
 		expect(out.additionalProperty).toEqual([
-			{ "@type": "PropertyValue", name: "marca", value: "Granado" },
+			{ "@type": "PropertyValue", name: "marca", value: "Acme" },
 			{ "@type": "PropertyValue", name: "volume", value: "200ml" },
 		]);
 	});

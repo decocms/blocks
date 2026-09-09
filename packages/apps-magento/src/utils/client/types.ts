@@ -24,7 +24,7 @@ export interface Customer {
 }
 
 /**
- * `carbono-customer` slice. Granado-specific overlay that mirrors the
+ * `carbono-customer` slice. A storefront-specific overlay that mirrors the
  * `customer` slice plus a website/store id pair and a normalized email.
  * Other magento sites that don't run the Carbono module will get this
  * absent; loaders/user.ts checks for it before mapping to a Person.

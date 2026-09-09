@@ -6,7 +6,7 @@
 
 `@decocms/apps` (published from a separate repo, `decocms/apps-start`) provides commerce-platform integrations (VTEX, Shopify, Magento, Algolia, Salesforce) and generic site utilities (SEO, analytics, matchers, flags) that every deco storefront depends on. It has its own independent release cadence and has not been republished against the new split packages (`@decocms/blocks`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/tanstack`, `@decocms/nextjs`) — it still internally imports the old, pre-split `@decocms/start` package's subpath surface.
 
-This has caused the same problem three times in one day: `casaevideo-tanstack`, `baggagio-tanstack`, and `lebiscuit-tanstack` all need `@decocms/apps` migrated onto the split packages, but since `@decocms/apps` itself hasn't moved, every site has to hand-roll a local compatibility shim (`vendor/decocms-start-compat/`) that intercepts `@decocms/apps`'s old-package imports and forwards them to the new ones. That's real, repeated, throwaway work per site.
+This has caused the same problem three times in one day: three production storefronts all need `@decocms/apps` migrated onto the split packages, but since `@decocms/apps` itself hasn't moved, every site has to hand-roll a local compatibility shim (`vendor/decocms-start-compat/`) that intercepts `@decocms/apps`'s old-package imports and forwards them to the new ones. That's real, repeated, throwaway work per site.
 
 Moving `@decocms/apps` into the `decocms/blocks` monorepo — split by platform, released in the same lockstep version train as `blocks`/`blocks-admin`/`blocks-cli`/`tanstack`/`nextjs` — eliminates the shim entirely: `@decocms/apps-vtex` (etc.) would import `@decocms/blocks/cms` directly, verified against the real thing in the same CI run that builds `@decocms/blocks`, at the same version, every time.
 
@@ -55,7 +55,7 @@ Investigating `apps-website` during design surfaced real, pre-existing duplicati
 ## Migration mechanics
 
 1. `git mv` each `apps-start` concern directory into `packages/apps-<name>/src/` (or equivalent), preserving file history isn't a hard requirement — match the precedent set by the `runtime`→`live`→`blocks` renames this session, which used clean copies over history-preserving merges.
-2. Scripted import-rewrite pass across all 9 new packages: every `@decocms/start/*` reference → the correct new package, using the same mapping already proven working in `casaevideo-tanstack`'s migration (`@decocms/start/cms` → `@decocms/blocks/cms` or `@decocms/blocks/cms/client` depending on client/server boundary; `@decocms/start/sdk/*` → `@decocms/blocks/sdk/*`; etc. — see `.agents/skills/deco-next-package-migration/references/import-mapping.md` and `casaevideo-tanstack`'s actual migration commit for the concrete, verified mapping).
+2. Scripted import-rewrite pass across all 9 new packages: every `@decocms/start/*` reference → the correct new package, using the same mapping already proven working in a production VTEX site's migration (`@decocms/start/cms` → `@decocms/blocks/cms` or `@decocms/blocks/cms/client` depending on client/server boundary; `@decocms/start/sdk/*` → `@decocms/blocks/sdk/*`; etc. — see `.agents/skills/deco-next-package-migration/references/import-mapping.md` and that site's actual migration commit for the concrete, verified mapping).
 3. Each new package gets its own `package.json` (`exports` map, `repository` field — required for npm provenance verification, learned that the hard way during the original 5-package publish), test config, etc., matching the pattern of the existing 5 packages.
 4. `apps-start`'s own Vitest test suite moves with its files and should keep passing with import paths updated.
 
@@ -73,8 +73,8 @@ Not deleted. Once the new `apps-*` packages are live and verified against at lea
 
 ## Verification plan
 
-Same bar as every package split so far this session: `bun install`, full typecheck, full test suite (the migrated Vitest tests), then a real site wired against the new packages to confirm actual functionality — not just that it compiles. `faststore-fila` is the natural first target (local, already on the split packages, real VTEX credentials already configured) to prove `apps-vtex` end-to-end before touching any other site.
+Same bar as every package split so far this session: `bun install`, full typecheck, full test suite (the migrated Vitest tests), then a real site wired against the new packages to confirm actual functionality — not just that it compiles. A local production VTEX site (already on the split packages, real VTEX credentials already configured) is the natural first target to prove `apps-vtex` end-to-end before touching any other site.
 
 ## Explicitly deferred
 
-`baggagio-tanstack` and `lebiscuit-tanstack`'s migrations off legacy `@decocms/start` were paused mid-flight when this design work started (both repos reverted cleanly to their pre-migration state — nothing committed). They resume **after** `@decocms/apps-vtex` exists, migrating directly onto it — skipping the compat-shim step entirely, since the whole point of this design is to make that shim unnecessary going forward.
+Two other sites' migrations off legacy `@decocms/start` were paused mid-flight when this design work started (both repos reverted cleanly to their pre-migration state — nothing committed). They resume **after** `@decocms/apps-vtex` exists, migrating directly onto it — skipping the compat-shim step entirely, since the whole point of this design is to make that shim unnecessary going forward.

@@ -1,6 +1,6 @@
 # Import Mapping: `@decocms/start@5.x` → `@decocms/blocks` / `@decocms/blocks-admin` / `@decocms/nextjs`
 
-Every import faststore-fila's migration actually touched, derived from the real commits (`9de6fa2`, `0109681`, `ec9d395`, `7ef5573`, `e61ef9a`, `23c30f1` on faststore-fila's `main`), not invented. Old paths are the `5.x-next` prerelease's framework-agnostic entrypoint tiers (`/core`, `/next`, `/node`); new paths are the current package split.
+Every import a real production Next.js migration actually touched, derived from the real commits it landed, not invented. Old paths are the `5.x-next` prerelease's framework-agnostic entrypoint tiers (`/core`, `/next`, `/node`); new paths are the current package split.
 
 | Old import | New import | Notes |
 |---|---|---|

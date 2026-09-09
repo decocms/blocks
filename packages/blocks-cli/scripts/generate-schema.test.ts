@@ -156,7 +156,7 @@ describe("typeToJsonSchema with intersection types", () => {
       useInMemoryFileSystem: true,
       compilerOptions: { skipLibCheck: true },
     });
-    // Mirrors the granado header `SiteNavigationElement` recursive workaround:
+    // Mirrors a production header `SiteNavigationElement` recursive workaround:
     // nested children written as `Leaf & { children?: Array<…> }`. Before the
     // intersection branch these collapsed to `children: { items: { type: "string" } }`.
     const sf = project.createSourceFile(
@@ -217,7 +217,7 @@ describe("typeToJsonSchema Section-typed props", () => {
     });
   }, 30_000);
 
-  // Regression (casaevideo footer): a component that declares its own local
+  // Regression (a production footer): a component that declares its own local
   // `type Section = { label; items }` used to collide with the magic name and
   // collapse into a non-editable __SECTION_REF__ picker — the footer columns
   // showed only a drag handle, no expand arrow, no form. A concretely-shaped

@@ -1,6 +1,6 @@
 # 6.x → 7.x import mapping (TanStack sites)
 
-Derived from lebiscuit-tanstack `b5fdf69` (verified against casaevideo-tanstack), extended by granadobr-tanstack `f593251`. Apply as a mechanical rewrite; nothing here changes runtime behavior.
+Derived from a production TanStack storefront migration (verified against a second site, extended by a third). Apply as a mechanical rewrite; nothing here changes runtime behavior.
 
 ## Framework core → `@decocms/blocks`
 

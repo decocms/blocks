@@ -75,4 +75,4 @@ If a signal-driven feature "doesn't work," check:
 If all three are yes and it still fails, check the signal's initial value and whether the signal is being reset somewhere else.
 
 ## Reference Implementation
-See `src/components/Header/Drawers.tsx` in montecarlo-tanstack after the fix for `displayCart`, `displayMenu`, `displayMenuProducts`, `displayMenuProductsChild`.
+See `src/components/Header/Drawers.tsx` in a production VTEX storefront after the fix for `displayCart`, `displayMenu`, `displayMenuProducts`, `displayMenuProductsChild`.

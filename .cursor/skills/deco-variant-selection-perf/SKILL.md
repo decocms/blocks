@@ -5,7 +5,7 @@ description: Optimize product variant selection in Deco TanStack storefronts. El
 
 # Product Variant Selection Performance
 
-Patterns for making variant selection instant in Deco storefronts on TanStack Start. Discovered while optimizing `espacosmart-storefront` where clicking a variant triggered 2 full `loadCmsPage` server calls (1300ms+ each).
+Patterns for making variant selection instant in Deco storefronts on TanStack Start. Discovered while optimizing a production storefront where clicking a variant triggered 2 full `loadCmsPage` server calls (1300ms+ each).
 
 ## When to Use This Skill
 

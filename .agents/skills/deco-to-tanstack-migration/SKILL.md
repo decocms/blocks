@@ -5,7 +5,7 @@ description: Consolidated migration skill for Deco storefronts. Phase-based play
 
 # Deco-to-TanStack-Start Migration Playbook
 
-Phase-based playbook for converting `deco-sites/*` storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Battle-tested on espacosmart-storefront (100+ sections, VTEX, async rendering).
+Phase-based playbook for converting `deco-sites/*` storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Battle-tested on a production storefront (100+ sections, VTEX, async rendering).
 
 ## Architecture Boundaries
 

@@ -129,11 +129,11 @@ describe("vtexFetchWithCookies — inbound Set-Cookie capture", () => {
 				await vtexFetchWithCookies("/api/checkout/pub/orderForm");
 				return responseHeaders.getSetCookie();
 			},
-			"https://www.casaevideo.com.br/api/checkout/pub/orderForm",
+			"https://www.acme.com.br/api/checkout/pub/orderForm",
 		);
 
 		// domain-scoped to the storefront host, NOT the original VTEX domain
-		expect(captured[0]).toMatch(/Domain=www\.casaevideo\.com\.br/);
+		expect(captured[0]).toMatch(/Domain=www\.acme\.com\.br/);
 		expect(captured[0]).not.toMatch(/vtexcommercestable/i);
 		expect(captured[0]).toContain("checkout.vtex.com=__ofid=abc");
 	});
@@ -155,12 +155,12 @@ describe("vtexFetchWithCookies — inbound Set-Cookie capture", () => {
 				await vtexFetchWithCookies("/api/checkout/pub/orderForm");
 				return responseHeaders.getSetCookie();
 			},
-			"https://www.casaevideo.com.br/api/checkout/pub/orderForm",
+			"https://www.acme.com.br/api/checkout/pub/orderForm",
 		);
 
 		// the value's `domain=keep` is untouched; the attribute is rewritten
 		expect(captured[0]).toContain("__ofid=domain=keep");
-		expect(captured[0]).toMatch(/;\s*Domain=www\.casaevideo\.com\.br/);
+		expect(captured[0]).toMatch(/;\s*Domain=www\.acme\.com\.br/);
 		expect(captured[0]).not.toMatch(/vtexcommercestable/i);
 	});
 

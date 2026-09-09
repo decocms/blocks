@@ -146,7 +146,7 @@ if (group.type === "PRICERANGE") {
 
 **Severity**: HIGH — add-to-cart, minicart, and checkout flow completely broken
 
-The storefront domain (e.g., `espacosmart-tanstack.deco.site`) differs from the VTEX checkout domain (`lojaespacosmart.vtexcommercestable.com.br`). Direct browser `fetch()` calls to VTEX are blocked by CORS. Additionally, the `checkout.vtex.com__orderFormId` cookie is scoped to the VTEX domain and inaccessible from the storefront.
+The storefront domain (e.g., `acme.deco.site`) differs from the VTEX checkout domain (`lojaacme.vtexcommercestable.com.br`). Direct browser `fetch()` calls to VTEX are blocked by CORS. Additionally, the `checkout.vtex.com__orderFormId` cookie is scoped to the VTEX domain and inaccessible from the storefront.
 
 **Fix**: Use TanStack Start `createServerFn` to create server-side proxy functions:
 
@@ -219,7 +219,7 @@ grep -rn "__resolveType" .deco/blocks.gen.json | grep "flags/multivariate" | gre
 grep -n "MULTIVARIATE" node_modules/@decocms/blocks/src/cms/resolve.ts   # confirm which strings the installed resolver accepts
 ```
 
-**Empirical evidence (farmrio-storefront)**: 74 total wrappers relabeled (18 site-specific + 56 blocks-native `image.ts`). Header mega-menu descendant elements 170→1998 post-fix (prod: 2329), `<a>` tags 17→291 (prod: 401); whole-page link counts roughly tripled on every sampled page type. See `migration/learnings/T45.md`, `migration/scripts/fix-multivariate-flags.ts`.
+**Empirical evidence (a production storefront)**: 74 total wrappers relabeled (18 site-specific + 56 blocks-native `image.ts`). Header mega-menu descendant elements 170→1998 post-fix (prod: 2329), `<a>` tags 17→291 (prod: 401); whole-page link counts roughly tripled on every sampled page type. See `migration/learnings/T45.md`, `migration/scripts/fix-multivariate-flags.ts`.
 
 **Proposed fix (upstream)**: recognize any resolveType matching `/flags\/multivariate(\/(image|message|page|section))?\.ts$/` regardless of the `site/`/`website/` namespace prefix, instead of two exact literal strings.
 
@@ -249,7 +249,7 @@ rg '"from":|"to":' .deco/blocks/redirects-*.json
 ```
 then run the `norm()` scan above over every `{from, to}` pair found.
 
-**Empirical evidence (farmrio-storefront)**: running the scan after the first reported instance (`/novidades`) found **two more** live instances (both for `/reposicao`) that hadn't been reported yet. See `migration/learnings/T31.md`, `T36.md`.
+**Empirical evidence (a production storefront)**: running the scan after the first reported instance (`/novidades`) found **two more** live instances (both for `/reposicao`) that hadn't been reported yet. See `migration/learnings/T31.md`, `T36.md`.
 
 **Proposed audit rule** (`packages/blocks-cli` strict-audit, against `blocks.gen.json`): flag any redirect block where `norm(from) === norm(to)` at build/CI time, before it ever reaches a live request.
 
@@ -279,7 +279,7 @@ rg "Number\.isFinite\(props\." packages/apps-vtex/src
 ```
 Any loader with a `props.<name> ?? parseFromUrl()` pattern for a numeric canonical prop hits the identical landmine — not specific to `page` or to VTEX.
 
-**Empirical evidence (farmrio-storefront)**: page1 vs `?page=3` product-overlap check went 24/24 → 0/24 matching after the fix; upstream issue already filed: **[decocms/blocks#391](https://github.com/decocms/blocks/issues/391)**. See `migration/learnings/T25.md`.
+**Empirical evidence (a production storefront)**: page1 vs `?page=3` product-overlap check went 24/24 → 0/24 matching after the fix; upstream issue already filed: **[decocms/blocks#391](https://github.com/decocms/blocks/issues/391)**. See `migration/learnings/T25.md`.
 
 ---
 
@@ -313,7 +313,7 @@ grep -rn "^export { default" node_modules/@decocms/apps-vtex/vtex/loaders/legacy
 ```
 Any re-export alias in this family may be dropping other config-driven features the same way.
 
-**Empirical evidence (farmrio-storefront)**: sampled ~120 prod PDPs, confirmed a real pair (`camisa-atoalhada-azul-346889-003`/`-off-white-...`) rendering 2 swatches on prod vs. 1 on candidate; VTEX's public crossselling API confirmed the data exists. Post-fix: 2 swatches match prod exactly, 3 unrelated single-color products unregressed. See `migration/learnings/T50.md`.
+**Empirical evidence (a production storefront)**: sampled ~120 prod PDPs, confirmed a real pair (`camisa-atoalhada-azul-346889-003`/`-off-white-...`) rendering 2 swatches on prod vs. 1 on candidate; VTEX's public crossselling API confirmed the data exists. Post-fix: 2 swatches match prod exactly, 3 unrelated single-color products unregressed. See `migration/learnings/T50.md`.
 
 ---
 
@@ -353,7 +353,7 @@ rg "toProduct\(" vtex/loaders src/sdk --type ts
 rg "leanVariants" node_modules/@decocms/apps-vtex
 ```
 
-**Empirical evidence (farmrio-storefront)**: `$_TSR` hydration script bytes — PLP 4,633,101→1,950,963 (−57.9%), PDP 3,365,540→1,407,623 (−58.2%); Lighthouse FCP/LCP −24% to −26% in the same environment; product ID count unchanged (144), confirming no data loss. See `migration/learnings/T59.md`.
+**Empirical evidence (a production storefront)**: `$_TSR` hydration script bytes — PLP 4,633,101→1,950,963 (−57.9%), PDP 3,365,540→1,407,623 (−58.2%); Lighthouse FCP/LCP −24% to −26% in the same environment; product ID count unchanged (144), confirming no data loss. See `migration/learnings/T59.md`.
 
 ---
 
@@ -365,8 +365,8 @@ Every call site in `@decocms/apps-vtex` builds the VTEX secure-domain URL as `` 
 
 **Fix**: correct the one config value, not the 9 call sites:
 ```diff
-- "publicUrl": "https://secure.farmrio.com.br",
-+ "publicUrl": "secure.farmrio.com.br",
+- "publicUrl": "https://secure.acme.com.br",
++ "publicUrl": "secure.acme.com.br",
 ```
 
 **Discovery command**:
@@ -375,6 +375,6 @@ rg '`https://\$\{.*publicUrl' node_modules/@decocms/apps-vtex/src   # enumerate 
 ```
 Check `config.publicUrl` for a leading `http` prefix before ruling this out.
 
-**Empirical evidence (farmrio-storefront)**: confirmed via `new URL()` producing the malformed `https/` artifact in product JSON-LD; fixed at the config source, verified at PDP/PLP JSON-LD emission. See `migration/learnings/T22.md`.
+**Empirical evidence (a production storefront)**: confirmed via `new URL()` producing the malformed `https/` artifact in product JSON-LD; fixed at the config source, verified at PDP/PLP JSON-LD emission. See `migration/learnings/T22.md`.
 
 **Proposed fix (upstream)**: a runtime assertion/warning in `configureVtex()` if `publicUrl` starts with `http`, so the misconfiguration surfaces at startup instead of downstream in malformed output.

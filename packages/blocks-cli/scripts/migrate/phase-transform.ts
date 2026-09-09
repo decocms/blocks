@@ -31,7 +31,7 @@ function getSectionMeta(ctx: MigrationContext, relPath: string): SectionMeta | u
 
 /**
  * Cached per-run section-conventions closure. Built once from the
- * resolved config sets (`ctx.config.sectionConventions`), so casaevideo
+ * resolved config sets (`ctx.config.sectionConventions`), so the built-in
  * defaults still apply when no config file exists.
  */
 let cachedSectionTransform:
@@ -227,7 +227,7 @@ export function transform(ctx: MigrationContext): void {
           "that ships HTML fragments and swaps them client-side. It does not work on TanStack Start. " +
           "Recipes: " +
           "(1) Self-contained UI toggles → keep state in React (`useState` + event handlers); " +
-          "(2) Form submissions / mutations → `createServerFn` + `useMutation` (see casaevideo-storefront for canonical examples); " +
+          "(2) Form submissions / mutations → `createServerFn` + `useMutation` (see a production storefront for canonical examples); " +
           "(3) Ad-hoc data fetches → call the loader/action via `~/server/invoke` and store results in `useState`. " +
           "Remove the import after refactoring, then delete `src/sections/Component.tsx`.",
         severity: "error",

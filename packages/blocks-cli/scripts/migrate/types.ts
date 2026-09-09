@@ -140,7 +140,7 @@ export interface MigrationContext {
   layout: import("./source-layout").SourceLayout;
   siteName: string;
   platform: Platform;
-  /** VTEX account name (e.g. "casaevideonewio") — extracted from source code */
+  /** VTEX account name (e.g. "acme") — extracted from source code */
   vtexAccount: string | null;
   gtmId: string | null;
 

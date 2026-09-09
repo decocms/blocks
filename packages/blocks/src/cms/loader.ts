@@ -254,13 +254,13 @@ export function withDraftBlocks<T>(
 // `/` (literals=0) vs the catch-all `/{prefix/}?*` (literals=0, params=1).
 // Without this, the URLPattern fix (#213/#214) inadvertently lets a
 // `/{group/}?*` catch-all out-rank an exact `/` home page because the
-// `{group` segment counted as a param. See deco-sites/granadobr-tanstack
-// where `/` was being routed to the granado PDP/PLP block's NotFound
+// `{group` segment counted as a param. See a production storefront
+// where `/` was being routed to a brand-prefixed PDP/PLP block's NotFound
 // fallback.
 //
 // Order produced:
 //   /foo/bar (no wildcard, literals=2) > /foo/:x (no wildcard, lit=1, param=1)
-//   /foo (no wildcard) > /{granado/}?*  (has wildcard) > /*
+//   /foo (no wildcard) > /{acme/}?*  (has wildcard) > /*
 function pathSpecificityKey(path: string): [number, number, number] {
   const parts = path.split("/").filter(Boolean);
   let literals = 0;

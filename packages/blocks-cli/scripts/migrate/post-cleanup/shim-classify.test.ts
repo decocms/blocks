@@ -183,7 +183,7 @@ describe("classifyShimExports — type/interface declarations", () => {
   });
 });
 
-describe("classifyShimExports — real casaevideo-storefront fixtures", () => {
+describe("classifyShimExports — real production storefront fixtures", () => {
   it("vtex-segment.ts (mixed: stub + functional)", () => {
     const code = `
       export function getSegmentFromBag(_req?: any): Record<string, unknown> | null {

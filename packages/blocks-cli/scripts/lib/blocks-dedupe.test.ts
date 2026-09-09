@@ -83,7 +83,7 @@ describe("pickWinner", () => {
   });
 
   it("prefers higher decode-pass count when path-status matches", () => {
-    // The lebiscuit reproduction case: a stale single-encoded leftover with a
+    // A production reproduction case: a stale single-encoded leftover with a
     // newer mtime and larger size loses to the bot's double-encoded fresh file.
     const stale = cand({
       file: "pages-Home%20-%20LB-618509.json",

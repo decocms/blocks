@@ -237,7 +237,7 @@ When the D6.3 replacement lands, expect:
   central template at build time so customers can't add bindings to
   other tenants' resources.
 - `name` field in `wrangler.jsonc` is enforced by CF (verified against
-  `baggagio-tanstack` 2026-05-07 — a malicious `name` value is ignored
+  a production storefront on 2026-05-07 — a malicious `name` value is ignored
   and CF auto-opens a PR to fix it).
 
 Until then, do NOT scaffold caller stubs that reference
@@ -298,7 +298,7 @@ transport.
 
 `enabled: true` at the top level is the master switch — without it
 Cloudflare captures nothing, regardless of the sub-block flags.
-Discovered the hard way during the lebiscuit canary cutover.
+Discovered the hard way during a production canary cutover.
 
 Apply via the codemod:
 
@@ -346,7 +346,7 @@ curl -sI <deployed-url>/assets/<fingerprinted-file>.js   # run twice, check CF-C
 ```
 MISS→HIT with the wrong `Cache-Control` header confirms the platform bypass (not a code bug in the Worker).
 
-**Empirical evidence (farmrio-storefront)**: a 1.4MB `vendor-router-*.js` chunk flagged by a `cache-coverage` parity check despite code explicitly intending an immutable header; verified MISS→HIT with the correct header after adding `public/_headers`. See `migration/learnings/T22.md`.
+**Empirical evidence (a production storefront)**: a 1.4MB `vendor-router-*.js` chunk flagged by a `cache-coverage` parity check despite code explicitly intending an immutable header; verified MISS→HIT with the correct header after adding `public/_headers`. See `migration/learnings/T22.md`.
 
 ---
 
@@ -366,7 +366,7 @@ rg "revalidateInBackground" node_modules/@decocms/tanstack/src/sdk/workerEntry.t
 rg "isDevMode" node_modules/@decocms/blocks/sdk/env.ts   # confirm whether local dev actually bypasses this cache tier
 ```
 
-**Empirical evidence (farmrio-storefront)**: reproduced non-deterministically via direct Playwright repro (fresh incognito-like `browser.newContext()` per check, device presets matching parity's own `VIEWPORT_PRESETS`) — correct on a fresh server, flipped to wrong after longer uptime, 3/3 repeat. A separate two-tier repro (isolated mechanism-level call to `createDecoWorkerEntry` with an in-memory `caches.default` polyfill, plus 8 sequential live checks spanning a STALE-HIT→HIT sequence) could **not** reproduce actual poisoning under controlled conditions — the live symptom is confirmed real, but the exact trigger remains only a leading hypothesis, not a pinned root cause. See `migration/learnings/T60.md`, `T65.md` (spun off to investigate further).
+**Empirical evidence (a production storefront)**: reproduced non-deterministically via direct Playwright repro (fresh incognito-like `browser.newContext()` per check, device presets matching parity's own `VIEWPORT_PRESETS`) — correct on a fresh server, flipped to wrong after longer uptime, 3/3 repeat. A separate two-tier repro (isolated mechanism-level call to `createDecoWorkerEntry` with an in-memory `caches.default` polyfill, plus 8 sequential live checks spanning a STALE-HIT→HIT sequence) could **not** reproduce actual poisoning under controlled conditions — the live symptom is confirmed real, but the exact trigger remains only a leading hypothesis, not a pinned root cause. See `migration/learnings/T60.md`, `T65.md` (spun off to investigate further).
 
 ---
 
@@ -384,7 +384,7 @@ rg "withDevice\(|withMobile\(|withSearchParam\(" src/setup/section-loaders.ts   
 
 **Fix**: none applied — confirmed dormant on the one repo checked (no component was registered via both mechanisms). Proposed upstream: extend `registerSectionLoaders()`'s existing dev-mode `__requestDependent` warning to also fire when a request-dependent loader is registered via `registerCacheableSections()`, mirroring the existing layout-section guard.
 
-**Empirical evidence (farmrio-storefront)**: confirmed dormant — the one section registered via `registerCacheableSections()` (`Organization.tsx`, 24h TTL) uses no request-dependent mixin; every `withDevice`/`withMobile` site in the file was confirmed not also cacheable-registered. See `migration/learnings/T65.md`.
+**Empirical evidence (a production storefront)**: confirmed dormant — the one section registered via `registerCacheableSections()` (`Organization.tsx`, 24h TTL) uses no request-dependent mixin; every `withDevice`/`withMobile` site in the file was confirmed not also cacheable-registered. See `migration/learnings/T65.md`.
 
 ---
 
@@ -404,4 +404,4 @@ grep -rlE "BEGIN PRIVATE KEY|SecretLoader|process\.env\.\w*(SECRET|TOKEN|KEY|PAS
 ```
 Also grep every `site/actions/*`/`site/loaders/*` entry in `.deco/loaders.gen.ts` for module-level secret-reading calls.
 
-**Empirical evidence (farmrio-storefront)**: found independently twice — a Google Vertex AI OAuth/JWT code path (`tryOn-*.js` chunk disappeared from `dist/client`, stayed under `dist/server` post-fix) and a third-party admin email + encrypted password embedded as source-level constants (two entries added to the `--exclude` list; grep across `dist/client` JS+sourcemaps clean post-fix). See `migration/learnings/T18.md`, `T19.md`.
+**Empirical evidence (a production storefront)**: found independently twice — a Google Vertex AI OAuth/JWT code path (`tryOn-*.js` chunk disappeared from `dist/client`, stayed under `dist/server` post-fix) and a third-party admin email + encrypted password embedded as source-level constants (two entries added to the `--exclude` list; grep across `dist/client` JS+sourcemaps clean post-fix). See `migration/learnings/T18.md`, `T19.md`.

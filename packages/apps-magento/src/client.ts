@@ -58,7 +58,7 @@ export interface MagentoCartConfigs {
 }
 
 export interface MagentoConfig {
-	/** Magento storefront base URL, e.g. `https://loja.granado.com.br/` */
+	/** Magento storefront base URL, e.g. `https://loja.acme.com.br/` */
 	baseUrl: string;
 	/** Bearer token for `Authorization` header on admin REST calls */
 	apiKey: string;

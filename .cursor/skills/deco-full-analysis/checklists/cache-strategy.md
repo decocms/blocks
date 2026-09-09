@@ -9,7 +9,7 @@
 > A module with these exports becomes a cached function via
 > `createCachedLoaderFromModule(name, mod)`. **Correction to an earlier version of this
 > note**: `.deco/blocks/*.json` is still a real, current, on-disk convention — most real
-> sites (confirmed: faststore-fila, casaevideo-tanstack, bagaggio-tanstack) load CMS page/
+> sites (confirmed across multiple production storefronts) load CMS page/
 > section content from a `.deco/blocks/` directory snapshot, either via `@decocms/blocks-cli`'s
 > `generate-blocks.ts`/`sync-blocks-to-kv.ts` codegen or `@decocms/blocks/cms`'s
 > `loadDecofileDirectory` helper. Passing an inline `blocks` object directly to

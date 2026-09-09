@@ -58,7 +58,7 @@ describe("generateSchemaArgs (regression: meta.gen.json must be composed)", () =
   // start) derive their args from this helper. generate-schema always composes
   // before writing, so the manifest carries every framework website/* block
   // (matchers/Page/Resolvable) that Studio — which reads meta.gen.json as-is —
-  // needs, e.g. the variant date matcher. See casaevideo-tanstack #633.
+  // needs, e.g. the variant date matcher. See a production storefront regression.
   it("targets the given site", () => {
     expect(generateSchemaArgs("my-site")).toEqual(["--site", "my-site"]);
   });

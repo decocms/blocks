@@ -8,7 +8,7 @@ tags: [performance, prefetch, navigation, ux]
 
 ## Overview
 Implement two complementary prefetch strategies:
-1. **HTML prefetch-on-hover** for navigation links (using bagaggio or instant.page)
+1. **HTML prefetch-on-hover** for navigation links (using instant.page or quicklink)
 2. **SPA Link wrapper prefetch** for product cards (using React Router / TanStack Start Link)
 
 This hybrid approach works because nav links often go to category pages (full HTML reloads), while product cards go to PDPs (SPA navigation).
@@ -16,7 +16,7 @@ This hybrid approach works because nav links often go to category pages (full HT
 ## Strategy 1: HTML Prefetch-on-Hover (Navigation)
 
 ### Setup
-Use **bagaggio** or **instant.page** to prefetch navigation links on hover/focus.
+Use **instant.page** (or **quicklink**) to prefetch navigation links on hover/focus.
 
 ```tsx
 // src/components/Nav/Nav.tsx
@@ -26,9 +26,9 @@ export function Nav() {
   useEffect(() => {
     // If using instant.page, it auto-detects links with rel="prefetch"
     // or you can configure it to prefetch on hover.
-    // Alternatively, use bagaggio:
     const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/bagaggio@latest";
+    script.src = "https://instant.page/5.2.0";
+    script.type = "module";
     document.head.appendChild(script);
   }, []);
 
@@ -130,4 +130,4 @@ export function ProductCard({ product }) {
 - **Mobile:** Disable prefetch on touch devices (use `@media (hover: hover)`) to save bandwidth.
 
 ## Reference Implementation
-See `src/components/Header/Nav.tsx` and `src/components/ProductCard/ProductCard.tsx` in montecarlo-tanstack.
+See `src/components/Header/Nav.tsx` and `src/components/ProductCard/ProductCard.tsx` in a production VTEX storefront.

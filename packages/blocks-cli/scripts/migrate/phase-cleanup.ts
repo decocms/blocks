@@ -627,7 +627,7 @@ function guardUndeclaredVariables(src: string, onFix: (msg: string) => void): st
 /**
  * Migrate account.json → src/constants/account.ts and rewrite imports.
  *
- * Old stack: root-level `account.json` containing e.g. `"casaevideo"`
+ * Old stack: root-level `account.json` containing e.g. `"acme"`
  * New stack: `src/constants/account.ts` exporting `accountName`
  *
  * Also rewrites every file that imports from `account.json` (via

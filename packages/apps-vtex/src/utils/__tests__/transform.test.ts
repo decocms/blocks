@@ -726,7 +726,7 @@ describe("toProductShelf", () => {
 		}) as any;
 
 	// Campanha is a PRODUCT specification (in specificationGroups), NOT a sku.variation.
-	// It is the marker MonteCarlo uses to tag launches ("Lançamentos").
+	// It is the marker one storefront uses to tag launches ("Lançamentos").
 	const makeProduct = (overrides: Record<string, unknown> = {}) =>
 		({
 			origin: "intelligent-search",

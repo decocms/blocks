@@ -6,7 +6,7 @@
 #   ./scaffold.sh /path/to/site-repo site-name
 #
 # Example:
-#   ./scaffold.sh ~/Projects/lojastorra-2 lojastorra-2
+#   ./scaffold.sh ~/Projects/my-site my-site
 #
 
 set -e

@@ -77,7 +77,7 @@ attached as an event handler, with no fetch involved.
 > alone — those need manual rewrite, and the `htmx-residue` audit
 > rule catches them.
 >
-> Smoke result on als-storefront (754 files): codemod renames 98
+> Smoke result on a production htmx storefront (754 files): codemod renames 98
 > `hx-on:*` attributes across 71 files; 67 of those files (94 %)
 > get the body-TODO. Engineers still own the body rewrite below;
 > the codemod just removes the dead `hx-*` attribute name so the
@@ -530,7 +530,7 @@ npx -p @decocms/start deco-htmx-analyze
 # expects: ✓ No hx-* attributes found.
 ```
 
-## Real-world signal — als-storefront
+## Real-world signal — a production htmx storefront
 
 Initial inventory across 133 source files, 210 occurrences:
 

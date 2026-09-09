@@ -1,6 +1,6 @@
 # `setup.ts` Template
 
-Worked example derived directly from faststore-fila's `src/sdk/deco/setup.ts`, genericized: site-specific names (product-fetch helpers, PDP prop types) are replaced with placeholder comments. The `ensureSetup` / `resolveCmsPage` / `resolveCmsPageByPath` structure is kept verbatim — that's the reusable part of the pattern, proven end-to-end against a real production site.
+Worked example derived directly from a production Next.js site's `src/sdk/deco/setup.ts`, genericized: site-specific names (product-fetch helpers, PDP prop types) are replaced with placeholder comments. The `ensureSetup` / `resolveCmsPage` / `resolveCmsPageByPath` structure is kept verbatim — that's the reusable part of the pattern, proven end-to-end against a real production site.
 
 The real file also contained a ~50-line workaround (`pageFacetsByPath` / `buildPageFacetsByPath` / `extractRawSelectedFacets`) for one specific commerce-search resolver that this runtime doesn't register, which silently resolved to `null` instead of erroring. That's not just VTEX-specific noise to discard — it's an instance of a reusable gotcha class (an unregistered `__resolveType` silently resolving to `null`) that's generalized into the section-loaders comment below, since any backend's migration can hit the same failure mode with a different resolver name.
 

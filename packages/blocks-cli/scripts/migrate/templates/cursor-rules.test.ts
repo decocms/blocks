@@ -58,8 +58,8 @@ describe("generateMigrationPolicyPointerRule", () => {
 	it("escapes nothing weird from siteName — siteName is used as a label only", () => {
 		// We don't sanitise; we trust the migration script to pass a real
 		// package name. But verify nothing surprising happens with hyphens
-		// (a common shape, e.g. "casaevideo-storefront").
-		const out = generateMigrationPolicyPointerRule("casaevideo-storefront");
-		expect(out).toContain("`casaevideo-storefront`");
+		// (a common shape, e.g. "acme-storefront").
+		const out = generateMigrationPolicyPointerRule("acme-storefront");
+		expect(out).toContain("`acme-storefront`");
 	});
 });

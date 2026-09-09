@@ -339,7 +339,7 @@ Get detailed log entries with custom grouping.
   "fields": ["body", "service", "site"],
   "entries": [
     {
-      "values": ["Too Many Requests error...", "casaevideo", "casaevideo"],
+      "values": ["Too Many Requests error...", "acme", "acme"],
       "count": 5
     }
   ]

@@ -816,7 +816,7 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
   });
 
   it("derives title/description/canonical and emits the ItemList JSON-LD (PLP)", () => {
-    // The casaevideo.com.br/eletroportateis regression: a page.seo pointing at
+    // The acme.com.br/eletroportateis regression: a page.seo pointing at
     // commerce/sections/Seo/SeoPLPV2.tsx resolved its jsonLD but emitted no
     // schema.org. There is no section component in start to run this transform.
     const seo = extractSeoFromProps({

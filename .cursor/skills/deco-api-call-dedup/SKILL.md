@@ -5,7 +5,7 @@ description: Detect and fix N+1 / duplicate API call patterns in Deco storefront
 
 # API Call Deduplication & N+1 Detection
 
-Finds and fixes N+1 / duplicate VTEX (and Shopify) API call patterns in Deco storefront section loaders — the #1 cause of slow SSR on e-commerce sites. These patterns reduced PDP API calls from 40+ to ~8 and PLP spurious calls from 15+ to near-zero on `espacosmart-storefront`.
+Finds and fixes N+1 / duplicate VTEX (and Shopify) API call patterns in Deco storefront section loaders — the #1 cause of slow SSR on e-commerce sites. These patterns reduced PDP API calls from 40+ to ~8 and PLP spurious calls from 15+ to near-zero on a production storefront.
 
 ## When to Use This Skill
 

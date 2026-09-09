@@ -7,7 +7,7 @@
  * only the package dependency that needs to move.
  *
  * Mapping derived by hand against a real production site
- * (montecarlo-tanstack) — see the issue for the full worked table. Symbol
+ * (a production VTEX storefront) — see the issue for the full worked table. Symbol
  * renames and relocations mean a pure specifier-string rewrite is not
  * enough for every case; those are called out below.
  */

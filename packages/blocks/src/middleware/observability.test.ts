@@ -309,7 +309,7 @@ describe("normalizePath cardinality", () => {
   it("collapses CMS content slugs", () => {
     expect(normalizePath("/mochila-de-couro")).toBe("/:slug");
     expect(normalizePath("/moveis/quarto-infantil")).toBe("/moveis/:slug");
-    expect(normalizePath("/granado/eau-de-toilette-spritz-100ml")).toBe("/granado/:slug");
+    expect(normalizePath("/acme/eau-de-toilette-spritz-100ml")).toBe("/acme/:slug");
     expect(normalizePath("/moveis/quarto-adulto/cabeceiras-mesa-de-cabeceiras")).toBe(
       "/moveis/:slug/:slug",
     );

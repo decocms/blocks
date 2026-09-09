@@ -4,7 +4,7 @@
 > (spikes) and **Phase 1 shipped** (PRs #362/#363/#364, released in
 > `blocks-v7.19.0`); **Phase 2 implemented** (the `@decocms/eitri` package —
 > this doc's PR). Phase 3 remains. Target app:
-> `montecarlo-app/eitri-shopping-monte-carlo-shared`.
+> `example-app/eitri-shopping-example-shared`.
 
 ## Direction (decided 2026-07-14)
 
@@ -44,7 +44,7 @@ artifacts are NOT part of it (see "Which `.deco` artifacts" below).
 
 ## Background: what an Eitri app looks like
 
-`montecarlo-app` is a multi-app Eitri workspace (`app-config.yaml` lists
+`example-app` is a multi-app Eitri workspace (`app-config.yaml` lists
 `shared`, `home`, and commented-out `cart`/`checkout`/`pdp`/`account`). Only the
 `shared` app defines `src/sections/**`.
 
@@ -59,7 +59,7 @@ artifacts are NOT part of it (see "Which `.deco` artifacts" below).
   a `sections.json` manifest and serves each section from
   `api.eitri.tech/runes-foundry/user/{WORKSPACE_ID}/sections/...`.
 
-Example section (`eitri-shopping-monte-carlo-shared/src/sections/Banners/Hero.tsx`):
+Example section (`eitri-shopping-example-shared/src/sections/Banners/Hero.tsx`):
 
 ```tsx
 import { Image, View } from 'eitri-luminus'
@@ -139,13 +139,13 @@ fns). Eitri needs **none** of these — only `generate-schema`.
 ## Phase 0 — spike results (DONE, 2026-07-14)
 
 Added a minimal `tsconfig.json` to
-`eitri-shopping-monte-carlo-shared/` and ran:
+`eitri-shopping-example-shared/` and ran:
 
 ```bash
-cd eitri-shopping-monte-carlo-shared
+cd eitri-shopping-example-shared
 tsx <blocks-cli>/scripts/generate-schema.ts \
   --sections src/sections --skip-apps \
-  --platform eitri --namespace site --site montecarlo
+  --platform eitri --namespace site --site acme
 ```
 
 Result: `.deco/meta.gen.json` generated cleanly — 2 sections discovered, props
@@ -185,7 +185,7 @@ writing (see Phase 1). One caveat: `composeMeta` hard-codes
 
 ## The decofile format (`.deco/blocks/`)
 
-Confirmed against real sites (`storefront-tanstack`, `farmrio`). Each
+Confirmed against real production sites. Each
 `.deco/blocks/<encoded-name>.json` is one block instance = its configured props
 plus a `__resolveType` naming its block type:
 
@@ -241,9 +241,9 @@ upload. So an Eitri daemon (or reuse) exposes `.deco` to the FS-based Studio.
    `textarea` already matches). Confirmed live by the spike.
 3. **`.jsx`/`.js` sections are skipped.** `findTsxFiles` only collects
    `.tsx`/`.ts` (`generate-schema.ts:823`). Eitri permits `.js`/`.jsx`
-   sections. (montecarlo's two sections are `.tsx`, and JS files can't carry a
+   sections. (the example app's two sections are `.tsx`, and JS files can't carry a
    TS `Props` interface anyway — so this is a general-support item, not a
-   blocker for montecarlo.)
+   blocker for the example app.)
 4. **Spurious commerce loaders injected.** Even with `--skip-apps`, the two
    `commerce/loaders/product/extensions/{listingPage,detailsPage}` wrappers are
    emitted unconditionally (`generate-schema.ts:1129`). Noise for a
@@ -354,7 +354,7 @@ device-side rendering glue is owned by the Eitri platform/client (so
 
 ## Artifacts produced this session
 
-- `montecarlo-app/eitri-shopping-monte-carlo-shared/tsconfig.json` (minimal,
+- `example-app/eitri-shopping-example-shared/tsconfig.json` (minimal,
   for schema generation).
 - `.../.deco/meta.gen.json` — site schema (Spike 1).
 - `.../.deco/meta.composed.json` — self-contained schema after `composeMeta`

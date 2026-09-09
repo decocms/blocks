@@ -13,7 +13,7 @@ import {
  * Regression test for the layout-cache index-corruption bug that shipped in
  * @decocms/start@6.12.1 and was fixed in 6.12.2 (blocks commit 73d4f19,
  * "fix(cms): don't mutate shared cached section objects when stamping
- * index"). Two live production sites (casaevideo-tanstack, bagaggio-tanstack)
+ * index"). Two live production sites
  * hit this in the wild as an intermittent "footer renders above other
  * sections" bug under concurrent traffic.
  *

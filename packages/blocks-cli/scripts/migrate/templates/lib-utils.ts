@@ -9,7 +9,7 @@
  * - Most sites end up importing zero of these (apps-start exports
  *   direct equivalents for most VTEX utilities — see migrate#107).
  * - Eager generation creates dead `src/lib/*.ts` files that every site
- *   then has to clean up by hand (see baggagio-tanstack#7, ~235 LOC).
+ *   then has to clean up by hand (~235 LOC on one production migration).
  *
  * Registry shape: `"src/lib/<name>.ts"` → file contents.
  */
@@ -41,8 +41,8 @@ export function selectImportedLibTemplates(
 // Per the migration tooling policy (D3 — Throwing stubs):
 // generated stubs MUST throw at runtime so the first call surfaces the
 // gap loudly. Silent identity-cast `toProduct` was the bug behind
-// baggagio-tanstack#10 (PDP product data was being dropped on the floor
-// for weeks before anyone noticed).
+// a real production incident (PDP product data was being dropped on the
+// floor for weeks before anyone noticed).
 //
 // Each thrown message points at the canonical replacement so the fix
 // is mechanical. `deco-post-cleanup --fix` automates the swap.

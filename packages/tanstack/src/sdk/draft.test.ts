@@ -276,13 +276,13 @@ describe("installPreviewHostsFromBlocks", () => {
   it("installs previewHosts from the site block (either casing)", async () => {
     setDraftPreviewHosts([]);
     installPreviewHostsFromBlocks({
-      Site: { previewHosts: ["fila.vtex.app"] },
+      Site: { previewHosts: ["acme.vtex.app"] },
     });
 
     // Verified through the wire: an allowed host now previews.
     const request = req({
-      url: "https://fila.vtex.app/p?__draft=abc.preview-studio.decocms.com@v1",
-      host: "fila.vtex.app",
+      url: "https://acme.vtex.app/p?__draft=abc.preview-studio.decocms.com@v1",
+      host: "acme.vtex.app",
     });
     const url = new URL(request.url);
     expect(requestCarriesDraft(request, url)).toBe(true);
@@ -291,10 +291,10 @@ describe("installPreviewHostsFromBlocks", () => {
   it("ignores blocks without previewHosts", () => {
     setDraftPreviewHosts([]);
     installPreviewHostsFromBlocks({ site: {} });
-    const url = new URL("https://fila.vtex.app/p?__draft=x@v1");
+    const url = new URL("https://acme.vtex.app/p?__draft=x@v1");
     expect(
       requestCarriesDraft(
-        req({ url: url.toString(), host: "fila.vtex.app" }),
+        req({ url: url.toString(), host: "acme.vtex.app" }),
         url,
       ),
     ).toBe(false);
@@ -308,13 +308,13 @@ describe("installDecoSiteHostFromEnv", () => {
 
   it("arms the deco-hosted domains from the DECO_SITE_NAME binding", () => {
     setDraftPreviewHosts([]);
-    installDecoSiteHostFromEnv({ DECO_SITE_NAME: "casaevideo-tanstack" });
+    installDecoSiteHostFromEnv({ DECO_SITE_NAME: "acme-tanstack" });
 
     // Verified through the wire: both deco-operated hosts now preview, with no
     // site-block/env config at all.
     for (const host of [
-      "casaevideo-tanstack.deco.site",
-      "casaevideo-tanstack.deco-cx.workers.dev",
+      "acme-tanstack.deco.site",
+      "acme-tanstack.deco-cx.workers.dev",
     ]) {
       const url = new URL(
         `https://${host}/p?__draft=abc.preview-studio.decocms.com@v1`,
@@ -322,10 +322,10 @@ describe("installDecoSiteHostFromEnv", () => {
       expect(requestCarriesDraft(req({ url: url.toString(), host }), url)).toBe(true);
     }
     // A custom production domain is never inferred.
-    const url = new URL("https://www.casaevideo.com.br/p?__draft=x@v1");
+    const url = new URL("https://www.acme.com.br/p?__draft=x@v1");
     expect(
       requestCarriesDraft(
-        req({ url: url.toString(), host: "www.casaevideo.com.br" }),
+        req({ url: url.toString(), host: "www.acme.com.br" }),
         url,
       ),
     ).toBe(false);

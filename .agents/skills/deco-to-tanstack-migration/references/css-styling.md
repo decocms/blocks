@@ -196,11 +196,11 @@ print(f"{l*100:.2f}% {c_val:.2f} {h:.0f}deg")  # 64.42% 0.20 33deg
 
 **Severity**: HIGH — entire pages render unstyled and Vite throws "unknown utility class" hot-overlay errors
 
-The migrator's scaffold writes a minimal `app.css` with `@theme` containing only the gray scale + a couple of colors. Sites that defined custom palettes in `tailwind.config.ts` `theme.extend.colors` (e.g. an `als: { gray: {...}, blue: {...} }` namespace, or seasonal/brand maps) lose ALL of those tokens on migration. Same for `theme.extend.fontFamily`.
+The migrator's scaffold writes a minimal `app.css` with `@theme` containing only the gray scale + a couple of colors. Sites that defined custom palettes in `tailwind.config.ts` `theme.extend.colors` (e.g. an `brand: { gray: {...}, blue: {...} }` namespace, or seasonal/brand maps) lose ALL of those tokens on migration. Same for `theme.extend.fontFamily`.
 
 **Symptom**:
-- Vite HMR overlay: `Cannot apply unknown utility class 'font-bebas-neue'` / `'bg-als-blue-500'`
-- Or for CSS files using the v3 `theme()` helper: `Could not resolve value for theme function: theme(colors.als.gray.50)`
+- Vite HMR overlay: `Cannot apply unknown utility class 'font-bebas-neue'` / `'bg-brand-blue-500'`
+- Or for CSS files using the v3 `theme()` helper: `Could not resolve value for theme function: theme(colors.brand.gray.50)`
 - Page DOM renders correctly but visually unstyled — no colors, default fonts.
 
 **Detection** (run before booting dev for a fresh migration):
@@ -224,10 +224,10 @@ Cross-reference against the original `tailwind.config.ts` `theme.extend.colors` 
   /* gray scale + std colors ... */
 
   /* Custom brand palette (ported from tailwind.config.ts) */
-  --color-als-gray-50: #E4E4E4;
-  --color-als-gray-100: #BBBBBB;
+  --color-brand-gray-50: #E4E4E4;
+  --color-brand-gray-100: #BBBBBB;
   /* ...etc */
-  --color-als-blue-500: #1C4DA1;
+  --color-brand-blue-500: #1C4DA1;
 
   /* Custom fonts (ported from tailwind.config.ts) */
   --font-bebas-neue: "Bebas Neue", sans-serif;
@@ -236,14 +236,14 @@ Cross-reference against the original `tailwind.config.ts` `theme.extend.colors` 
 }
 ```
 
-Tailwind v4 auto-generates `bg-als-blue-500`, `font-bebas-neue` etc. from these vars.
+Tailwind v4 auto-generates `bg-brand-blue-500`, `font-bebas-neue` etc. from these vars.
 
 **For raw `theme()` calls in CSS files** — Tailwind v4's `theme()` resolver accepts the dot path but only for tokens registered under `@theme`. Easier and more idiomatic: rewrite as `var(--color-...)`:
 
 ```css
 /* v3 → v4 */
-background-color: theme(colors.als.gray.50);   /* old */
-background-color: var(--color-als-gray-50);    /* new */
+background-color: theme(colors.brand.gray.50);   /* old */
+background-color: var(--color-brand-gray-50);    /* new */
 ```
 
 
@@ -300,7 +300,7 @@ jq -r ".. | objects | select(has(\"mainColors\")) | .mainColors | keys[]" \
 ```
 Diff the two key lists by hand; flag any generated `--color-*` with no traceable source origin.
 
-**Empirical evidence (farmrio-storefront)**: full before/after slot table (base-100, base-300, primary, neutral, accent) confirmed the mismap; shipped `done` through T10/T15/T16 before caught in T27. See `migration/learnings/T27.md`.
+**Empirical evidence (a production storefront)**: full before/after slot table (base-100, base-300, primary, neutral, accent) confirmed the mismap; shipped `done` through T10/T15/T16 before caught in T27. See `migration/learnings/T27.md`.
 
 **Proposed audit rule** (`packages/blocks-cli`): a theme-conversion check that flags any generated `--color-*` value with no traceable 1:1 source field, and separately flags any `--color-*` value with no source field at all (item #66 below covers where those extras come from).
 
@@ -327,7 +327,7 @@ grep -c "prefers-color-scheme" dist/**/*.css
 ```
 Or screenshot the same build under a browser context forced to `colorScheme: 'dark'` vs `'light'` and diff.
 
-**Empirical evidence (farmrio-storefront)**: compiled CSS had 3 duplicate `--color-accent` declarations — 1 correct (`#fff`), 2 stock-DaisyUI teal `oklch(...)` values inside the dark media block. Found in the same investigation as #65. See `migration/learnings/T27.md`.
+**Empirical evidence (a production storefront)**: compiled CSS had 3 duplicate `--color-accent` declarations — 1 correct (`#fff`), 2 stock-DaisyUI teal `oklch(...)` values inside the dark media block. Found in the same investigation as #65. See `migration/learnings/T27.md`.
 
 ---
 
@@ -356,6 +356,6 @@ grep -rn 'DEFAULT_ASPECT_RATIO\|aspectRatio ??' src/components   # find the fall
 grep -c '"width"' .deco/blocks/*.json   # cross-reference against actual image headers to find un-backfilled content
 ```
 
-**Empirical evidence (farmrio-storefront)**: hand-patched 2 banners on one page (before: forced `height:1920` at `width:1440`; after: natural `height:112.5`); scaled to 108 image fields across a full page via the header-parsing script (page height 16385px → 6446px desktop / 5684px mobile, matching prod's ~6594-8919px range). See `migration/learnings/T67.md`, `T68.md`.
+**Empirical evidence (a production storefront)**: hand-patched 2 banners on one page (before: forced `height:1920` at `width:1440`; after: natural `height:112.5`); scaled to 108 image fields across a full page via the header-parsing script (page height 16385px → 6446px desktop / 5684px mobile, matching prod's ~6594-8919px range). See `migration/learnings/T67.md`, `T68.md`.
 
 **Proposed codemod** (migrator tooling, `packages/blocks-cli`): "backfill missing image dimensions from source headers" as a generic migration-time step — parses real dimensions once per unique URL rather than leaving every CMS-authored image without explicit `width`/`height` to hit this fallback one page at a time.

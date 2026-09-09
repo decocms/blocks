@@ -20,7 +20,7 @@
 3. Make sure `useCart` (and other VTEX hooks) imports `invoke` from `~/server/invoke` — the hand-written composition file that merges `vtexActions` from `invoke.gen.ts` (see `architecture.md`'s "Layer 3.5") — not from `~/runtime`.
 4. The migration script (`scripts/migrate.ts` bootstrap) runs `generate-invoke.ts` automatically on freshly-migrated sites — if a site was migrated before that, run the generator manually.
 
-**Client-side workaround** (defense-in-depth, removable): some sites manually `document.cookie = "checkout.vtex.com__orderFormId=..."` inside `useCart`. That only patches one cookie of many. With the server-side fix in place, the workaround is harmless but no longer load-bearing — see `~/conductor/workspaces/miess-01-tanstack/newport-beach/src/hooks/useCart.ts` for an example.
+**Client-side workaround** (defense-in-depth, removable): some sites manually `document.cookie = "checkout.vtex.com__orderFormId=..."` inside `useCart`. That only patches one cookie of many. With the server-side fix in place, the workaround is harmless but no longer load-bearing — some production sites still carry it in `src/hooks/useCart.ts`.
 
 ## CORS Error on Add to Cart / Checkout
 

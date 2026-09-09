@@ -11,7 +11,7 @@ function discoverFonts(ctx: MigrationContext): string[] {
   const staticFonts = path.join(ctx.sourceDir, "static", "fonts");
   if (fs.existsSync(staticFonts)) return scanFontDir(staticFonts);
 
-  // Check static-*/fonts/ (multi-brand sites like casaevideo)
+  // Check static-*/fonts/ (multi-brand sites)
   try {
     const entries = fs.readdirSync(ctx.sourceDir, { withFileTypes: true });
     for (const e of entries) {

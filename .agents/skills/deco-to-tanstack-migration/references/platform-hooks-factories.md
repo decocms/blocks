@@ -181,7 +181,7 @@ actions, custom analytics events) rather than ripping out the factory and going 
 (not apps), because the queue + cancel + invoke-fetch primitive is
 not commerce-specific. It debounces and serialises calls to
 `/deco/invoke/<__resolveType>` and exposes signal-shaped state —
-exactly the shape both casaevideo and baggagio independently
+exactly the shape multiple production sites independently
 invented in their site-local `src/sdk/useSuggestions.ts`.
 
 ### Site-local shim (the entire file)

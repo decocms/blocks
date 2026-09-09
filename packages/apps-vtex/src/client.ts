@@ -48,7 +48,7 @@ function getRequestHost(): string | null {
  * host AND so it lands at the SAME cookie scope as the checkout proxy.
  *
  * VTEX sets `checkout.vtex.com` / `CheckoutOrderFormOwnership` with
- * `domain=<vtex-host>` (e.g. `casaevideonewio.vtexcommercestable.com.br`),
+ * `domain=<vtex-host>` (e.g. `acme.vtexcommercestable.com.br`),
  * which the browser would reject on the storefront host. There are two ways
  * to make it acceptable:
  *

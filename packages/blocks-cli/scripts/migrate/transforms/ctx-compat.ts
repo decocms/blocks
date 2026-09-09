@@ -11,7 +11,7 @@ import type { TransformResult } from "../types";
  * *non-optional* deep read like `ctx.salesforce.cartExtension[0]` still throws
  * — and `withSectionLoader`'s try/catch would swallow it, dropping the
  * section's props (blank render). The hand-fixed reference migration
- * (`granadobr-tanstack`) solves this by optional-chaining every `ctx` read.
+ * (a production storefront) solves this by optional-chaining every `ctx` read.
  *
  * This codemod reproduces that: every `ctx.` member-access chain becomes an
  * optional chain (`ctx?.a?.b?.[0]`). Optional chaining short-circuits to

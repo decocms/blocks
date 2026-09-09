@@ -10,7 +10,7 @@ import { extractGoogleFonts, extractPlatform } from "./phase-analyze";
 //   3. apps/site.ts loose string match against platform name + "platform"
 //   4. .deco/blocks filenames hinting at platform
 // Strategy 3 is the false-positive trap that ate Magento sites before #211:
-// helsinki/granadobr's apps/site.ts imports `apps/vtex/mod.ts` for the color
+// a production site's apps/site.ts imports `apps/vtex/mod.ts` for the color
 // palette, so the content matches `"vtex"` even though the real platform is
 // declared via `apps/magento.ts`. The fix adds "magento" to the platforms
 // list so Strategy 2 fires first and short-circuits before Strategy 3 can
@@ -90,7 +90,7 @@ describe("extractPlatform", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("detects magento from apps/magento.ts (granadobr/helsinki shape)", () => {
+  it("detects magento from apps/magento.ts (a production site shape)", () => {
     fs.writeFileSync(path.join(tmp, "apps", "magento.ts"), "export default {};\n");
     // Also write a site.ts that imports vtex for color palettes — this is
     // what tripped Strategy 3 before #211.
@@ -113,7 +113,7 @@ describe("extractPlatform", () => {
   });
 
   it("prefers magento over vtex when both an apps/magento.ts AND a vtex string match exist", () => {
-    // Reproduce the exact granadobr trap: apps/magento.ts is the real signal,
+    // Reproduce the exact production trap: apps/magento.ts is the real signal,
     // but apps/site.ts loosely contains "vtex" + "platform".
     fs.writeFileSync(path.join(tmp, "apps", "magento.ts"), "export default {};\n");
     fs.writeFileSync(

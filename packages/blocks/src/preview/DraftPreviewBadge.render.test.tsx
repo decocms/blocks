@@ -11,7 +11,7 @@ describe("DraftPreviewBadge (render)", () => {
   // pass, actually ships. The badge fails closed: nothing here, by design
   // (see the module doc for why render-then-hide is worse).
   it("renders nothing without a client to run the reveal effect", () => {
-    const html = renderToString(<DraftPreviewBadge pointer="fila.vtex.app@v1" />);
+    const html = renderToString(<DraftPreviewBadge pointer="acme.vtex.app@v1" />);
     expect(html).toBe("");
   });
 
@@ -34,14 +34,14 @@ describe("DraftPreviewBadge (render)", () => {
 
     it("reveals the preview-mode label after mount, once confirmed unframed", () => {
       act(() => {
-        root.render(<DraftPreviewBadge pointer="fila.vtex.app@v1" />);
+        root.render(<DraftPreviewBadge pointer="acme.vtex.app@v1" />);
       });
       expect(container.textContent).toContain("Preview mode");
     });
 
     it("embeds the deco mark inline (no external asset that could 404 on a consumer site)", () => {
       act(() => {
-        root.render(<DraftPreviewBadge pointer="fila.vtex.app@v1" />);
+        root.render(<DraftPreviewBadge pointer="acme.vtex.app@v1" />);
       });
       expect(container.innerHTML).toContain("data:image/png;base64,");
     });
@@ -58,7 +58,7 @@ describe("DraftPreviewBadge (render)", () => {
       it("stays hidden — Studio's own preview surface already has its own chrome", () => {
         Object.defineProperty(window, "top", { value: {}, configurable: true });
         act(() => {
-          root.render(<DraftPreviewBadge pointer="fila.vtex.app@v1" />);
+          root.render(<DraftPreviewBadge pointer="acme.vtex.app@v1" />);
         });
         expect(container.textContent).toBe("");
       });

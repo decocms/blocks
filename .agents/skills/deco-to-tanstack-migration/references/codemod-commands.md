@@ -81,7 +81,7 @@ find src/ -name '*.ts' -o -name '*.tsx' | xargs sed -i '' \
 
 ```bash
 # Replace with your actual site name:
-SITE_NAME="osklenbr"
+SITE_NAME="your-site"
 
 find src/ -name '*.ts' -o -name '*.tsx' | xargs sed -i '' \
   -e "s|from \"\\\$store/|from \"~/|g" \

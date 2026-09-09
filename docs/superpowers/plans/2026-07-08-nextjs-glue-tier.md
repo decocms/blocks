@@ -1,26 +1,26 @@
-# @decocms/nextjs Glue Tier + faststore-fila Migration Implementation Plan
+# @decocms/nextjs Glue Tier + Next.js Site Migration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give `@decocms/nextjs` the bootstrap/config/dispatch glue tier that `@decocms/tanstack` already has, then migrate `~/code/faststore-fila` onto it, deleting its hand-rolled admin-route and registry boilerplate.
+**Goal:** Give `@decocms/nextjs` the bootstrap/config/dispatch glue tier that `@decocms/tanstack` already has, then migrate `~/code/my-site` onto it, deleting its hand-rolled admin-route and registry boilerplate.
 
-**Architecture:** Upstream (repo `~/code/deco-start`, branch `v7`): codegen hygiene fixes in `blocks-cli`, portability fix in `blocks-admin`, then three new `@decocms/nextjs` surfaces — `createNextSetup()` (one-call site bootstrap composing the existing `createSiteSetup` + `applySectionConventions` + admin wiring), `createDecoRouteHandlers()` (single catch-all dispatcher replacing 5 hand-written route files), and `withDeco()` (next.config wrapper adding the Studio-protocol rewrites + transpilePackages). Site (repo `~/code/faststore-fila`, branch `feat/nextjs-package-migration`): make `src/sections/` entry files the single source of truth (generated registry via `generate-sections --registry`), migrate `setup.ts` to `createNextSetup`, replace 5 route files + `adminRoute.ts` with one catch-all. Fila is verified against **packed tarballs** of the upstream changes BEFORE pushing v7 (which auto-releases); only after that verification does v7 get pushed and fila flipped to the published version.
+**Architecture:** Upstream (repo `~/code/deco-start`, branch `v7`): codegen hygiene fixes in `blocks-cli`, portability fix in `blocks-admin`, then three new `@decocms/nextjs` surfaces — `createNextSetup()` (one-call site bootstrap composing the existing `createSiteSetup` + `applySectionConventions` + admin wiring), `createDecoRouteHandlers()` (single catch-all dispatcher replacing 5 hand-written route files), and `withDeco()` (next.config wrapper adding the Studio-protocol rewrites + transpilePackages). Site (repo `~/code/my-site`, branch `feat/nextjs-package-migration`): make `src/sections/` entry files the single source of truth (generated registry via `generate-sections --registry`), migrate `setup.ts` to `createNextSetup`, replace 5 route files + `adminRoute.ts` with one catch-all. The site is verified against **packed tarballs** of the upstream changes BEFORE pushing v7 (which auto-releases); only after that verification does v7 get pushed and the site flipped to the published version.
 
-**Tech Stack:** Bun workspaces, TypeScript (packages ship raw `.ts` src), vitest (upstream), Next.js 16 App Router + jest 30 (fila), semantic-release lockstep versioning (`blocks-v*` tags, all 14 packages same version).
+**Tech Stack:** Bun workspaces, TypeScript (packages ship raw `.ts` src), vitest (upstream), Next.js 16 App Router + jest 30 (the site), semantic-release lockstep versioning (`blocks-v*` tags, all 14 packages same version).
 
 ## Global Constraints
 
 - **Lockstep versioning**: every push to `v7` releases ALL packages at one shared version. Upstream commits here use `feat:`/`fix:` types → next release is **7.4.0**.
-- **Do NOT push `v7` until the fila tarball-verification task (Task 11) passes** — pushing publishes.
+- **Do NOT push `v7` until the site tarball-verification task (Task 11) passes** — pushing publishes.
 - **No breaking changes to existing exports**: every current export of `@decocms/nextjs`, `@decocms/blocks`, `@decocms/blocks-admin`, `@decocms/blocks-cli` keeps working. New behavior is additive (new subpaths, new opt-in flags).
 - **Route-handler graphs must stay react-server-safe**: nothing importable from `@decocms/nextjs/routeHandlers`, `@decocms/nextjs/setup`, or `@decocms/nextjs/config` may reach module-scope client-React (`createContext`, `class X extends Component`, `useState`, …). See `packages/nextjs/src/routeHandlers.ts`'s doc comment for the mechanics (route handlers ignore `"use client"` and run on React's react-server build).
-- **`withDeco` must be requireable from a CommonJS `next.config.js`** (fila's is CJS). `@decocms/nextjs` has `"type": "module"`, so the config helper ships as **`.cjs`** with a `.d.cts` type file.
+- **`withDeco` must be requireable from a CommonJS `next.config.js`** (the site's is CJS). `@decocms/nextjs` has `"type": "module"`, so the config helper ships as **`.cjs`** with a `.d.cts` type file.
 - **generate-sections' existing output must stay byte-identical for existing consumers** unless the new `--registry` flag is passed (tanstack sites regenerate these files in CI).
 - **No `import.meta` syntax anywhere in `packages/blocks`, `packages/blocks-admin`, `packages/nextjs` source** after Task 3 (breaks CJS consumers like ts-jest). Grep-enforced.
 - Monorepo checks that must stay green after every upstream task: `bun run --filter='./packages/<changed>' test` and `typecheck`.
-- Fila checks that must stay green after every fila task: `bun jest src/sdk/deco/`, `bun x tsc --noEmit`, `/opt/homebrew/Cellar/node/26.4.0/bin/yarn build`. (Known pre-existing failure NOT to fix: `test/server/index.test.ts` "should handle options and execute" — persisted-query hash drift from unrelated Trustvox work.)
-- Fila has two lockfiles: `yarn.lock` (git-tracked, used by the real deploy pipeline) and `bun.lock` (gitignored, local dev). Any `package.json` dependency change requires BOTH `bun install`/`bun update` AND `/opt/homebrew/Cellar/node/26.4.0/bin/yarn install`.
-- Decision on legacy alias keys (recorded, do not revisit): fila's `.deco/blocks` uses legacy keys `site/sections/Newsletter/Newsletter.tsx` (365 files) and `site/sections/Footer/Footer.tsx` (1 file) for components canonically named `NewsletterCallout`/`Footer`. These are NOT codemodded — Studio re-imports would reintroduce them. They stay as 1-line alias entry files in `src/sections/`.
+- Site checks that must stay green after every site task: `bun jest src/sdk/deco/`, `bun x tsc --noEmit`, `/opt/homebrew/Cellar/node/26.4.0/bin/yarn build`. (Known pre-existing failure NOT to fix: `test/server/index.test.ts` "should handle options and execute" — persisted-query hash drift from unrelated Trustvox work.)
+- The site has two lockfiles: `yarn.lock` (git-tracked, used by the real deploy pipeline) and `bun.lock` (gitignored, local dev). Any `package.json` dependency change requires BOTH `bun install`/`bun update` AND `/opt/homebrew/Cellar/node/26.4.0/bin/yarn install`.
+- Decision on legacy alias keys (recorded, do not revisit): the site's `.deco/blocks` uses legacy keys `site/sections/Newsletter/Newsletter.tsx` (365 files) and `site/sections/Footer/Footer.tsx` (1 file) for components canonically named `NewsletterCallout`/`Footer`. These are NOT codemodded — Studio re-imports would reintroduce them. They stay as 1-line alias entry files in `src/sections/`.
 
 ---
 
@@ -28,7 +28,7 @@
 
 ### Task 1: Codegen exclusions — skip test/story/generated files in both generators
 
-`generate-schema.ts` scans every `.tsx`/`.ts` under the sections dir and emitted a site's *test file* as a section block (real incident: `sections.test.ts` became a bogus section in fila's `meta.gen.json`). `generate-sections.ts`'s `walkDir` has the same hole.
+`generate-schema.ts` scans every `.tsx`/`.ts` under the sections dir and emitted a site's *test file* as a section block (real incident: `sections.test.ts` became a bogus section in the site's `meta.gen.json`). `generate-sections.ts`'s `walkDir` has the same hole.
 
 **Files:**
 - Modify: `packages/blocks-cli/scripts/generate-schema.ts` (its `findTsxFiles` function)
@@ -166,7 +166,7 @@ Then replace every `toBase64(<path-derived-value>)` call site found in Step 1 wi
 
 ### Task 3: blocks-admin — remove `import.meta` syntax (CJS portability)
 
-`packages/blocks-admin/src/admin/decofile.ts:82` has `const isViteDev = !!import.meta.env?.DEV;`. `import.meta` is a *syntax error* in CommonJS output, so any CJS consumer compiling the raw-TS package (ts-jest in fila) explodes; fila currently carries a `jest.mock('@decocms/blocks-admin')` workaround.
+`packages/blocks-admin/src/admin/decofile.ts:82` has `const isViteDev = !!import.meta.env?.DEV;`. `import.meta` is a *syntax error* in CommonJS output, so any CJS consumer compiling the raw-TS package (ts-jest in the site) explodes; the site currently carries a `jest.mock('@decocms/blocks-admin')` workaround.
 
 **Files:**
 - Modify: `packages/blocks-admin/src/admin/decofile.ts:82` (and any other `import.meta` occurrence the grep in Step 1 finds)
@@ -188,7 +188,7 @@ const isViteDev =
   typeof process !== "undefined" && process.env.NODE_ENV === "development";
 ```
 
-Rename the variable to `isDevRuntime` (update its uses) since it's no longer Vite-specific — unless reads of the surrounding code show genuinely Vite-only semantics (e.g. it must be FALSE on `next dev`); in that case keep the NODE_ENV check but document the widened scope in the comment and verify Step 5's fila regression run.
+Rename the variable to `isDevRuntime` (update its uses) since it's no longer Vite-specific — unless reads of the surrounding code show genuinely Vite-only semantics (e.g. it must be FALSE on `next dev`); in that case keep the NODE_ENV check but document the widened scope in the comment and verify Step 5's site regression run.
 
 - [ ] **Step 4: Grep gate**: `grep -rn "import\.meta" packages/blocks/src packages/blocks-admin/src packages/nextjs/src` → zero hits.
 
@@ -289,7 +289,7 @@ One-call, route-handler-safe bootstrap for Next sites. Composes existing framewo
 
 **Interfaces:**
 - Consumes: `createSiteSetup` from `@decocms/blocks/setup`; `applySectionConventions`, `loadBlocks` from `@decocms/blocks/cms`; `loadDecofileDirectory` from `@decocms/blocks/cms/loadDecofileDirectory`; lazy `setMetaData`, `setRenderShell`, `setPreviewWrapper` from `@decocms/blocks-admin`.
-- Produces: `createNextSetup(options: NextSetupOptions): () => Promise<void>` — returns a memoized `ensureSetup`. Task 6's dispatcher and fila's Task 10 consume this exact signature.
+- Produces: `createNextSetup(options: NextSetupOptions): () => Promise<void>` — returns a memoized `ensureSetup`. Task 6's dispatcher and the site's Task 10 consume this exact signature.
 
 - [ ] **Step 1: Write the failing test** `packages/nextjs/src/setup.test.ts`:
 
@@ -784,14 +784,14 @@ export const { GET, POST } = createDecoRouteHandlers({ setup: ensureSetup });
 
 ---
 
-## Part 2 — Site (`~/code/faststore-fila`, branch `feat/nextjs-package-migration`)
+## Part 2 — Site (`~/code/my-site`, branch `feat/nextjs-package-migration`)
 
 Tasks 9–11 run against **packed tarballs** of the Task 1–8 work (NOT bun link — Vite/webpack behave differently with symlinks; this session already proved fixes "verified" via link can be false). Install them like this before Task 9:
 
 ```bash
 cd ~/code/deco-start
 for p in blocks blocks-admin blocks-cli nextjs; do (cd packages/$p && npm pack --pack-destination /tmp/deco-tarballs/); done
-cd ~/code/faststore-fila
+cd ~/code/my-site
 for p in blocks blocks-admin blocks-cli nextjs; do
   rm -rf node_modules/@decocms/$p
   mkdir -p node_modules/@decocms/$p
@@ -801,19 +801,19 @@ done
 
 (Workspace `package.json`s say version `0.0.0` with real semver ranges on their `@decocms/*` deps — those deps are already satisfied by the extracted set itself plus the hoisted tree. After extraction run `node -e "require('@decocms/nextjs/package.json')"`-style sanity checks only; do NOT run `bun install`, which would clobber the extraction.)
 
-### Task 9: fila — conventions + generated section registry
+### Task 9: the site — conventions + generated section registry
 
 **Files:**
-- Modify: all 20 files in `~/code/faststore-fila/src/sections/**/*.tsx` (add convention exports)
-- Modify: `~/code/faststore-fila/package.json` (add `generate:deco-sections` script)
-- Create (generated): `~/code/faststore-fila/src/sdk/deco/sections.gen.ts`
-- Rewrite: `~/code/faststore-fila/src/sdk/deco/sections.ts`
-- Modify: `~/code/faststore-fila/src/sdk/deco/sectionShims.test.ts`
+- Modify: all 20 files in `~/code/my-site/src/sections/**/*.tsx` (add convention exports)
+- Modify: `~/code/my-site/package.json` (add `generate:deco-sections` script)
+- Create (generated): `~/code/my-site/src/sdk/deco/sections.gen.ts`
+- Rewrite: `~/code/my-site/src/sdk/deco/sections.ts`
+- Modify: `~/code/my-site/src/sdk/deco/sectionShims.test.ts`
 
 **Interfaces:**
 - Produces: `sections.gen.ts` exporting `sectionImports`, `sectionMeta`, `syncComponents` (from `generate-sections --registry`); rewritten `sections.ts` whose module side effect registers everything on both server and client bundles (this is what pages/hydration rely on — see the current file's doc comment about `sideEffects: false`).
 
-- [ ] **Step 1: Add convention exports to every entry file.** Every one of the 20 files gets `export const sync = true` appended (fila registers every section synchronously today — all components are statically imported in the current `sections.ts`, and hydration relies on `getSyncComponent`). The two Footer entries (`Footer.tsx`, `Footer/Footer.tsx`) ALSO get `export const layout = true` (replaces the manual `registerLayoutSections` call in setup.ts). Example — `src/sections/HeroSlideshow.tsx` becomes:
+- [ ] **Step 1: Add convention exports to every entry file.** Every one of the 20 files gets `export const sync = true` appended (the site registers every section synchronously today — all components are statically imported in the current `sections.ts`, and hydration relies on `getSyncComponent`). The two Footer entries (`Footer.tsx`, `Footer/Footer.tsx`) ALSO get `export const layout = true` (replaces the manual `registerLayoutSections` call in setup.ts). Example — `src/sections/HeroSlideshow.tsx` becomes:
 
 ```tsx
 // Schema-codegen + registry entry — NOT imported by app pages directly.
@@ -828,7 +828,7 @@ export { default } from 'src/components/sections/HeroSlideshow'
 export const sync = true
 ```
 
-- [ ] **Step 2: Add the script** to fila `package.json` scripts:
+- [ ] **Step 2: Add the script** to the site `package.json` scripts:
 
 ```json
 "generate:deco-sections": "tsx node_modules/@decocms/blocks-cli/scripts/generate-sections.ts --registry --out-file src/sdk/deco/sections.gen.ts"
@@ -891,10 +891,10 @@ Keep all three assertions (shims ↔ registry ↔ meta.gen.json). Note the jest.
 
 - [ ] **Step 6: Commit**: `git commit -m "refactor(deco): generate the section registry from src/sections entries (kill the hand map)"`
 
-### Task 10: fila — `setup.ts` on `createNextSetup`
+### Task 10: the site — `setup.ts` on `createNextSetup`
 
 **Files:**
-- Modify: `~/code/faststore-fila/src/sdk/deco/setup.ts` (the `ensureSetup` body, lines ~123–200)
+- Modify: `~/code/my-site/src/sdk/deco/setup.ts` (the `ensureSetup` body, lines ~123–200)
 
 **Interfaces:**
 - Consumes: `createNextSetup` from `@decocms/nextjs/setup` (Task 5), `sectionImports`/`sectionMeta`/`syncComponents` from `./sections.gen` (Task 9).
@@ -926,7 +926,7 @@ export const ensureSetup = createNextSetup({
     pageFacetsByPath = buildPageFacetsByPath(allBlocks)
     allPagePaths = collectAllPagePaths(allBlocks)
 
-    // Legacy fila-store decofiles put SEO blocks under these commerce/
+    // Legacy site decofiles put SEO blocks under these commerce/
     // website keys — not section entries, so registered here, not via
     // file conventions. (See the original comment block for the scan
     // numbers: 328 pages SeoPLPV2, 53 SeoV2.)
@@ -944,7 +944,7 @@ export const ensureSetup = createNextSetup({
 })
 ```
 
-Details that must survive the move: (1) `registerLayoutSections` call DELETED — the `layout = true` conventions from Task 9 replace it; (2) the two `jest.mock`-sensitive lazy admin imports are now inside `createNextSetup` — fila's `setup.test.ts` keeps its `jest.mock('@decocms/blocks-admin', ...)` ONLY if Task 3's fix hasn't landed in the installed tarball (it has — try deleting the mock; keep the `@generated` mocks); (3) `createSiteSetup` (inside `createNextSetup`) additionally calls `registerBuiltinMatchers()` — NEW behavior for fila (matcher-carrying decofile pages start evaluating device/date/cookie matchers instead of falling to defaults). Verify Step 3's page-diff below and mention it in the commit message.
+Details that must survive the move: (1) `registerLayoutSections` call DELETED — the `layout = true` conventions from Task 9 replace it; (2) the two `jest.mock`-sensitive lazy admin imports are now inside `createNextSetup` — the site's `setup.test.ts` keeps its `jest.mock('@decocms/blocks-admin', ...)` ONLY if Task 3's fix hasn't landed in the installed tarball (it has — try deleting the mock; keep the `@generated` mocks); (3) `createSiteSetup` (inside `createNextSetup`) additionally calls `registerBuiltinMatchers()` — NEW behavior for the site (matcher-carrying decofile pages start evaluating device/date/cookie matchers instead of falling to defaults). Verify Step 3's page-diff below and mention it in the commit message.
 
 - [ ] **Step 2: Static checks**: `bun x tsc --noEmit && bun jest src/sdk/deco/` → PASS.
 
@@ -952,11 +952,11 @@ Details that must survive the move: (1) `registerLayoutSections` call DELETED �
 
 - [ ] **Step 4: Commit**: `git commit -m "refactor(deco): ensureSetup via createNextSetup (framework bootstrap, site logic in extend)"`
 
-### Task 11: fila — `withDeco` + catch-all route; delete the boilerplate
+### Task 11: the site — `withDeco` + catch-all route; delete the boilerplate
 
 **Files:**
-- Modify: `~/code/faststore-fila/next.config.js`
-- Create: `~/code/faststore-fila/src/app/deco/[[...deco]]/route.ts`
+- Modify: `~/code/my-site/next.config.js`
+- Create: `~/code/my-site/src/app/deco/[[...deco]]/route.ts`
 - Delete: `src/app/.decofile/route.ts`, `src/app/live/%5Fmeta/route.ts`, `src/app/deco/render/route.ts`, `src/app/live/previews/[[...path]]/route.ts`, `src/app/deco/invoke/[[...path]]/route.ts`, `src/sdk/deco/adminRoute.ts`
 
 - [ ] **Step 1: next.config.js** — wrap with `withDeco` and delete the now-redundant manual `transpilePackages` trio (keep the storeConfig-derived extras):
@@ -1006,16 +1006,16 @@ export const { GET, POST } = createDecoRouteHandlers({ setup: ensureSetup })
 
 - [ ] **Step 6: Commit**: `git commit -m "refactor(deco): withDeco + single catch-all admin route, delete 5 route files + adminRoute"`
 
-### Task 12: Release + flip fila to the published version
+### Task 12: Release + flip the site to the published version
 
 - [ ] **Step 1: Upstream final gate**: in `~/code/deco-start`: `bun run typecheck && bun run test` all green; `git log --oneline origin/v7..v7` shows exactly the Task 1–8 commits.
 
 - [ ] **Step 2: Push v7**: `git push origin v7`. Monitor `gh run list --repo decocms/blocks --branch v7 --limit 1` until complete; verify `npm view @decocms/nextjs@7.4.0 version` → `7.4.0` (all 14 packages, spot-check 3).
 
-- [ ] **Step 3: Flip fila to published packages**: in `~/code/faststore-fila`: set the four `@decocms/*` ranges to `^7.4.0` in `package.json` (`blocks`, `blocks-admin`, `nextjs` in dependencies-or-devDeps as currently placed, `blocks-cli` in devDependencies), then `bun install` (replaces the tarball extractions), `bun update @decocms/blocks @decocms/blocks-admin @decocms/blocks-cli @decocms/nextjs`, then `/opt/homebrew/Cellar/node/26.4.0/bin/yarn install`. Verify `node -e "console.log(require('./node_modules/@decocms/nextjs/package.json').version)"` → `7.4.0`.
+- [ ] **Step 3: Flip the site to published packages**: in `~/code/my-site`: set the four `@decocms/*` ranges to `^7.4.0` in `package.json` (`blocks`, `blocks-admin`, `nextjs` in dependencies-or-devDeps as currently placed, `blocks-cli` in devDependencies), then `bun install` (replaces the tarball extractions), `bun update @decocms/blocks @decocms/blocks-admin @decocms/blocks-cli @decocms/nextjs`, then `/opt/homebrew/Cellar/node/26.4.0/bin/yarn install`. Verify `node -e "console.log(require('./node_modules/@decocms/nextjs/package.json').version)"` → `7.4.0`.
 
 - [ ] **Step 4: Re-run the Task 11 Step 4 endpoint verification + Step 5 gates** against the published install (this is the guard against "works from tarball, broken from registry" — the manifest.gen.ts files-field incident class).
 
-- [ ] **Step 5: Update fila `CLAUDE.md`**: in the deco-related sections, document: entry files in `src/sections/` are the single source of truth (`generate:deco-sections` + `generate:deco-meta`), `createNextSetup` in `src/sdk/deco/setup.ts`, the single catch-all admin route + withDeco, and the route-file subpath-import rule.
+- [ ] **Step 5: Update the site `CLAUDE.md`**: in the deco-related sections, document: entry files in `src/sections/` are the single source of truth (`generate:deco-sections` + `generate:deco-meta`), `createNextSetup` in `src/sdk/deco/setup.ts`, the single catch-all admin route + withDeco, and the route-file subpath-import rule.
 
-- [ ] **Step 6: Commit + push fila**: single commit `"refactor(deco): adopt @decocms/nextjs 7.4.0 glue tier (withDeco, catch-all route, createNextSetup, generated registry)"` — then `git push origin feat/nextjs-package-migration`. Before pushing, `git fetch` and check for remote force-updates (this branch was force-rebased by another session once already); rebase if needed, re-run `yarn install --frozen-lockfile` as the lockfile gate.
+- [ ] **Step 6: Commit + push the site**: single commit `"refactor(deco): adopt @decocms/nextjs 7.4.0 glue tier (withDeco, catch-all route, createNextSetup, generated registry)"` — then `git push origin feat/nextjs-package-migration`. Before pushing, `git fetch` and check for remote force-updates (this branch was force-rebased by another session once already); rebase if needed, re-run `yarn install --frozen-lockfile` as the lockfile gate.

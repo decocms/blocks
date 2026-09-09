@@ -1,7 +1,7 @@
 
 # Deco TanStack Storefront Patterns
 
-Patterns and fixes discovered while porting and running `espacosmart-storefront` on the `@decocms/start` + TanStack Start stack. These apply to **any** Deco site after the initial migration.
+Patterns and fixes discovered while porting and running a production storefront on the `@decocms/start` + TanStack Start stack. These apply to **any** Deco site after the initial migration.
 
 ## When to Use This Reference
 
@@ -1043,4 +1043,4 @@ Note: `createVtexSitemapProxy`'s own JSDoc example imports from `@decocms/apps/v
 curl -sI <candidate>/sitemap.xml   # run early in any migration, before it's forgotten
 ```
 
-**Empirical evidence (farmrio-storefront)**: without the fix, 11 journey pages (lookbook, institucional, parcerias, farm-etc/*) were missing from the candidate sitemap per a `sitemap-priority-pages` parity check. See `migration/learnings/T22.md`.
+**Empirical evidence (a production storefront)**: without the fix, 11 journey pages (lookbook, institucional, parcerias, brand-specific journeys) were missing from the candidate sitemap per a `sitemap-priority-pages` parity check. See `migration/learnings/T22.md`.
