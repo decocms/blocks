@@ -26,7 +26,7 @@ export function encodeBase64(data: ArrayBuffer | Uint8Array | string): string {
   return btoa(bin);
 }
 
-export function decodeBase64(b64: string): Uint8Array {
+export function decodeBase64(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -34,10 +34,7 @@ export function decodeBase64(b64: string): Uint8Array {
 }
 
 export function encodeBase64Url(data: ArrayBuffer | Uint8Array | string): string {
-  return encodeBase64(data)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return encodeBase64(data).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export function decodeBase64Url(b64url: string): Uint8Array {
