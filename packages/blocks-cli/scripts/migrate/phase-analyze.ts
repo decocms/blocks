@@ -41,7 +41,7 @@ const PATTERN_DETECTORS: Array<[DetectedPattern, RegExp]> = [
   ["head-component", /<Head[\s>]/],
   ["define-app", /defineApp\(/],
   ["invoke-proxy", /proxy<Manifest/],
-  // legacy HTMX-style HTMX dynamic-section loader. Both the source file and
+  // legacy HTMX-style dynamic-section loader. Both the source file and
   // every call site need manual conversion to React state / createServerFn.
   ["sections-component-loader", /sections\/Component\.tsx?$/m],
   ["use-component", /import\s*\{[^}]*\buseComponent\b[^}]*\}\s*from\s*["'][^"']*sections\/Component(?:\.tsx?)?["']/],
@@ -270,7 +270,7 @@ function decideAction(
     };
   }
 
-  // legacy HTMX-style HTMX dynamic-section loader → delete and flag.
+  // legacy HTMX-style dynamic-section loader → delete and flag.
   // The file uses Deno-only APIs (`toFileUrl(Deno.cwd())`, `import.meta.resolve`)
   // and the `useComponent(component, props)` HTMX render-and-swap pattern, none
   // of which work on TanStack Start / Cloudflare Workers. The site author must
