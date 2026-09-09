@@ -185,3 +185,15 @@ export async function autoconfigApps(
     }
   };
 }
+
+/**
+ * Test-only: clear the one-shot re-init state.
+ *
+ * `pendingReinit` / `reinitPromise` are module-level and latching by design
+ * (see `reconfigureAppsOnce`), so without this a test that registers apps
+ * leaks that registration into every later test in the same module graph.
+ */
+export function __resetAutoconfigStateForTests(): void {
+  pendingReinit = null;
+  reinitPromise = null;
+}

@@ -1770,6 +1770,24 @@ export function createDecoWorkerEntry(
         // via getRuntimeEnv() in sdk/otelAdapters.ts.
         setRuntimeEnv(env);
 
+        // Fast-deploy: hydrate the in-memory decofile from KV on the first
+        // request per isolate (awaited, ~10-30ms once), then opportunistically
+        // poll for content changes (non-blocking, via ctx.waitUntil). No-op
+        // unless the DECO_KV binding + DECO_FAST_DEPLOY are present —
+        // non-migrated sites are unaffected.
+        //
+        // MUST come before reconfigureAppsOnce() and bindRequestDraft() below.
+        // Both read the decofile, and both are one-shot/latching:
+        //   - reconfigureAppsOnce() configures apps from the blocks it sees and
+        //     latches `reinitPromise` forever. Running it first means a
+        //     fastDeploy build (whose bundled decofile is `{}`) configures ZERO
+        //     apps, and the only recovery is setBlocks()'s onChange listener,
+        //     whose promise setBlocks drops unawaited — so the request would
+        //     proceed with no app loaders registered.
+        //   - bindRequestDraft() composes draft overrides into loadBlocks().
+        await ensureBlocksHydrated(env, ctx);
+        maybePollRevision(env, ctx);
+
         // First-request re-configuration of apps. autoconfigApps() runs at
         // module init (setup.ts), before `env` — and thus DECO_CRYPTO_KEY —
         // is available, so encrypted app credentials (VTEX appKey/appToken,
@@ -2000,13 +2018,9 @@ export function createDecoWorkerEntry(
   ): Promise<Response> {
     const url = new URL(request.url);
 
-    // Fast-deploy: hydrate the in-memory decofile from KV on the first request
-    // per isolate (awaited, ~10-30ms once), then opportunistically poll for
-    // content changes (non-blocking, via ctx.waitUntil). No-op unless the
-    // DECO_KV binding is present — non-migrated sites are unaffected. Runs
-    // before admin routes so /.decofile reads reflect KV too.
-    await ensureBlocksHydrated(env, ctx);
-    maybePollRevision(env, ctx);
+    // NOTE: fast-deploy hydration does NOT run here. It must happen before
+    // `reconfigureAppsOnce()` and `bindRequestDraft()`, both of which run in
+    // the outer fetch above — see the `ensureBlocksHydrated` call there.
 
     {
       const segment = buildSegment?.(request);

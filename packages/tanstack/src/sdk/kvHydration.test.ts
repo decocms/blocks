@@ -215,28 +215,56 @@ describe("maybePollRevision", () => {
 });
 
 // ---------------------------------------------------------------------------
-// No-bundled-fallback semantics (`decoVitePlugin({ fastDeploy: true })`)
+// Bundles that ship no decofile (`decoVitePlugin({ fastDeploy: true })`)
 //
-// When the server bundle is stubbed, KV is the ONLY source of content. The
-// "warn and serve bundled" recovery would serve an EMPTY site — 200s with no
-// pages, which get edge-cached and outlive the KV failure. These assert it
-// fails loudly instead, and that the default (bundled present) is unchanged.
+// With the decofile stubbed out of the server bundle, KV is the ONLY source of
+// content. The "warn and serve bundled" recovery would serve an EMPTY site —
+// 200s with no pages, which get edge-cached and outlive the KV failure that
+// caused them. These assert it fails loudly instead.
+//
+// The signal is the build-time `__DECO_BLOCKS_STUBBED__` define, NOT an empty
+// in-memory map: draft overrides can make a stubbed bundle look populated, and
+// a legitimately-empty decofile would look stubbed. Both are covered below.
 // ---------------------------------------------------------------------------
-describe("ensureBlocksHydrated without a bundled fallback", () => {
-  /** Simulates the stubbed server bundle: `export const blocks = {}`. */
-  const stubBundle = () => setBlocks({});
+declare global {
+  // eslint-disable-next-line no-var
+  var __DECO_BLOCKS_STUBBED__: boolean | undefined;
+}
+
+/** Simulates a build made with `fastDeploy: true`. */
+function withStubbedBundle() {
+  globalThis.__DECO_BLOCKS_STUBBED__ = true;
+}
+
+describe("ensureBlocksHydrated when the bundle ships no decofile", () => {
+  beforeEach(() => {
+    globalThis.__DECO_BLOCKS_STUBBED__ = undefined;
+  });
 
   it("throws when the snapshot is missing instead of serving an empty site", async () => {
-    stubBundle();
+    withStubbedBundle();
+    setBlocks({});
     const { kv } = makeKV(); // no decofile:<id> seeded
     const env = { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID };
 
-    await expect(ensureBlocksHydrated(env)).rejects.toThrow(/not found and no bundled snapshot/);
-    expect(loadBlocks()).toEqual({});
+    await expect(ensureBlocksHydrated(env)).rejects.toThrow(/not found and this bundle ships no/);
+  });
+
+  it("throws when the snapshot exists but is empty", async () => {
+    // A seed that wrote `{}` would otherwise take the success branch, latch,
+    // and serve the empty edge-cached site this guard exists to prevent.
+    withStubbedBundle();
+    setBlocks({});
+    const { kv } = makeKV({ [SNAP]: "{}", [REV]: computeRevision({}) });
+
+    await expect(
+      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
+    ).rejects.toThrow(/is empty and this bundle ships no/);
   });
 
   it("throws when KV itself fails", async () => {
-    stubBundle();
+    withStubbedBundle();
+    setBlocks({});
     const kv = {
       get: () => Promise.reject(new Error("KV unreachable")),
       put: () => Promise.resolve(),
@@ -249,16 +277,31 @@ describe("ensureBlocksHydrated without a bundled fallback", () => {
   });
 
   it("throws when no deployment id resolves", async () => {
-    stubBundle();
+    withStubbedBundle();
+    setBlocks({});
+    const { kv } = makeKV();
+
+    await expect(ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1" })).rejects.toThrow(
+      /no deployment id/,
+    );
+  });
+
+  it("is not rescued by a populated in-memory map (draft-preview overrides)", async () => {
+    // `bindRequestDraft` composes overrides into loadBlocks() BEFORE hydration.
+    // Inferring "has a fallback" from the map would latch here and then serve
+    // the empty base decofile for the isolate's life.
+    withStubbedBundle();
+    setBlocks({ "pages-Draft": { name: "override" } });
     const { kv } = makeKV();
 
     await expect(
-      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1" }),
-    ).rejects.toThrow(/no deployment id/);
+      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
+    ).rejects.toThrow(/not found and this bundle ships no/);
   });
 
   it("does not latch hydration on the fatal path, so the next request retries", async () => {
-    stubBundle();
+    withStubbedBundle();
+    setBlocks({});
     const blocks = { Site: { name: "from-kv" } };
     const store = new Map<string, string>();
     const kv: KVNamespace = {
@@ -284,9 +327,14 @@ describe("ensureBlocksHydrated without a bundled fallback", () => {
     await expect(ensureBlocksHydrated(env)).resolves.toBeUndefined();
     expect(loadBlocks()).toEqual(blocks);
   });
+});
 
-  it("still warns and serves bundled when a bundled snapshot IS present", async () => {
-    // Default configuration — must behave exactly as before this change.
+describe("ensureBlocksHydrated when the bundle DOES ship a decofile (default)", () => {
+  beforeEach(() => {
+    globalThis.__DECO_BLOCKS_STUBBED__ = undefined;
+  });
+
+  it("warns and serves bundled when KV fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const kv = {
       get: () => Promise.reject(new Error("KV unreachable")),
@@ -299,5 +347,16 @@ describe("ensureBlocksHydrated without a bundled fallback", () => {
     ).resolves.toBeUndefined();
     expect(loadBlocks()).toEqual(BUNDLED);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("does not 5xx a site whose bundled decofile is legitimately empty", async () => {
+    // New site / missing blocks.gen.json. Before the build-time flag this
+    // looked identical to a stubbed bundle and started failing requests.
+    setBlocks({});
+    const { kv } = makeKV(); // no snapshot seeded either
+
+    await expect(
+      ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
+    ).resolves.toBeUndefined();
   });
 });

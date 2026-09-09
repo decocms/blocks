@@ -1,5 +1,6 @@
-import { setBlocks } from "@decocms/blocks/cms";
-import { afterEach, describe, expect, it } from "vitest";
+import { computeRevision, revisionKey, setBlocks, snapshotKey } from "@decocms/blocks/cms";
+import { __resetAutoconfigStateForTests, autoconfigApps } from "@decocms/blocks-admin/apps/autoconfig";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 import { segmentToken } from "./cdnSegment";
 import {
@@ -937,5 +938,95 @@ describe('cdnCacheControl: "match-profile" guard', () => {
     });
     const res = await w.fetch(new Request("https://example.com/some-category"), {}, MOCK_CTX);
     expect(res.headers.get("CDN-Cache-Control")).toMatch(/^public, max-age=\d+$/);
+  });
+});
+
+/**
+ * Fast-deploy hydration must run BEFORE `reconfigureAppsOnce()`.
+ *
+ * `reconfigureAppsOnce()` configures apps from the blocks it sees and then
+ * latches its promise forever. If it ran first, a `fastDeploy` build — whose
+ * bundled decofile is `{}` — would configure ZERO apps, and the only recovery
+ * is `setBlocks()`'s onChange listener, whose promise `setBlocks` drops
+ * unawaited. The request would proceed with no app loaders registered.
+ */
+describe("fast-deploy hydration ordering", () => {
+  // Reset BEFORE as well: both flags are module-level and latching, so an
+  // earlier test in this file that fired a request leaves `kvHydrated` true
+  // and hydration would be skipped entirely here.
+  beforeEach(() => {
+    __resetKvHydrationStateForTests();
+    __resetAutoconfigStateForTests();
+  });
+
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    __resetAutoconfigStateForTests();
+    setBlocks({});
+  });
+
+  it("configures apps from the KV snapshot, not the stubbed bundle", async () => {
+    const KV_BLOCKS = { "deco-test": { "@type": "test-app", token: "from-kv" } };
+    const ID = "sha-ordering";
+
+    /** Blocks each configure() call observed, in order. */
+    const seen: unknown[] = [];
+    const registry = [
+      {
+        blockKey: "deco-test",
+        module: () =>
+          Promise.resolve({
+            configure: (block: unknown) => {
+              seen.push(block);
+              return Promise.resolve({
+                name: "test-app",
+                manifest: { name: "test-app", loaders: {}, actions: {} },
+                state: {},
+              });
+            },
+          }),
+      },
+    ];
+
+    // autoconfigApps and its onChange listener are server-only guarded on
+    // `typeof document`. This suite runs under jsdom, so drop `document` for
+    // the duration to exercise the worker path.
+    const realDocument = globalThis.document;
+    delete (globalThis as { document?: unknown }).document;
+    try {
+      // Simulates the stubbed server bundle: autoconfigApps runs at module init
+      // with an empty decofile, exactly as it would in a fastDeploy build.
+      setBlocks({});
+      await autoconfigApps({}, registry as never);
+      expect(seen).toEqual([]); // nothing to configure yet — this is the trap
+
+    const store = new Map<string, string>([
+      [snapshotKey(ID), JSON.stringify(KV_BLOCKS)],
+      [revisionKey(ID), computeRevision(KV_BLOCKS)],
+    ]);
+    const env = {
+      DECO_KV: {
+        get: (k: string) => Promise.resolve(store.get(k) ?? null),
+        put: () => Promise.resolve(),
+        delete: () => Promise.resolve(),
+      },
+      DECO_FAST_DEPLOY: "1",
+      DECO_DEPLOYMENT_ID: ID,
+    };
+
+      const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
+      await worker.fetch(new Request("https://example.com/"), env, MOCK_CTX);
+
+      // The app must have been configured with the block that came from KV.
+      // Not asserting a call COUNT: both the onChange listener and the
+      // one-shot reinit legitimately configure, and how many passes happen is
+      // not the contract. The contract is that no pass saw the empty bundle.
+      // Deep equality, not identity: the snapshot arrives via JSON.parse, so
+      // the block is a structurally-equal copy.
+      expect(seen.length).toBeGreaterThan(0);
+      for (const block of seen) expect(block).toEqual(KV_BLOCKS["deco-test"]);
+    } finally {
+      globalThis.document = realDocument;
+    }
   });
 });
