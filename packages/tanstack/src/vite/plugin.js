@@ -173,8 +173,27 @@ export function generateSchemaArgs(siteName) {
   return ["--site", siteName];
 }
 
-/** @returns {import("vite").PluginOption} */
-export function decoVitePlugin() {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.fastDeploy=false] Stub `blocks.gen` out of the SERVER
+ *   bundle too, so the worker's only copy of the decofile is the one hydrated
+ *   from KV at cold start.
+ *
+ *   Without this, a fast-deploy site holds the decofile TWICE: the bundled
+ *   `JSON.parse(...)` graph stays permanently reachable through the site's
+ *   `import { blocks } from ".deco/blocks.gen"` module binding, and
+ *   `ensureBlocksHydrated` adds a second graph via `setBlocks()`. For a 10MB
+ *   decofile that is tens of MB of avoidable isolate memory.
+ *
+ *   Opt-in because it removes the fallback: with no bundled snapshot, a cold
+ *   start that cannot read KV has no content to serve. `ensureBlocksHydrated`
+ *   detects that case and fails the request loudly (5xx) instead of serving an
+ *   empty site — see `kvHydration.ts`. Only enable alongside
+ *   `DECO_FAST_DEPLOY=1` + a `DECO_KV` binding + a deploy pipeline that seeds
+ *   `decofile:<deployment-id>` BEFORE the new version activates.
+ * @returns {import("vite").PluginOption}
+ */
+export function decoVitePlugin({ fastDeploy = false } = {}) {
   /** @type {import("vite").Plugin} */
   const plugin = {
     name: "deco-server-only-stubs",
@@ -204,6 +223,15 @@ export function decoVitePlugin() {
       if (id.endsWith("blocks.gen.ts")) {
         // Client: stub — the browser receives pre-resolved sections.
         if (!options?.ssr) {
+          return "export const blocks = {};";
+        }
+
+        // Fast-deploy: stub on the SERVER too. The worker hydrates the decofile
+        // from KV at cold start, so shipping it in the bundle would just pin a
+        // second, permanently-reachable copy in isolate memory (the site's
+        // `import { blocks }` binding keeps the bundled graph alive for the
+        // isolate's whole life, even after `setBlocks()` swaps in the KV one).
+        if (fastDeploy) {
           return "export const blocks = {};";
         }
 
