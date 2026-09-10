@@ -109,4 +109,29 @@ describe("decoVitePlugin — fastDeploy server stub", () => {
     const def = /** @type {any} */ (decoVitePlugin()).config({}, { command: "build" });
     expect(def.define.__DECO_BLOCKS_STUBBED__).toBe("false");
   });
+
+  it("stubs meta.gen out of the server bundle only under metaFromKV, on build", () => {
+    const id = "/repo/src/server/admin/meta.gen.json";
+    const opts = { ssr: true };
+    const importer = "/repo/src/setup.ts";
+
+    expect(make({ metaFromKV: true }, "build").resolveId(id, importer, opts)).toBe("\0stub:meta-gen");
+    // Dev keeps the real module: there is no KV to read from, and the daemon
+    // relies on the schema being in the bundle.
+    expect(make({ metaFromKV: true }, "serve").resolveId(id, importer, opts)).toBeUndefined();
+    // Not opted in — untouched, whatever fastDeploy says.
+    expect(make({ fastDeploy: true }, "build").resolveId(id, importer, opts)).toBeUndefined();
+  });
+
+  it("defines __DECO_META_FROM_KV__ as the single switch for stub AND read", () => {
+    const on = /** @type {any} */ (decoVitePlugin({ metaFromKV: true })).config({}, { command: "build" });
+    expect(on.define.__DECO_META_FROM_KV__).toBe("true");
+
+    // A site that never opted in must not have /live/_meta silently move onto
+    // KV just because its build seeded the keys.
+    const off = /** @type {any} */ (decoVitePlugin({ fastDeploy: true })).config({}, { command: "build" });
+    expect(off.define.__DECO_META_FROM_KV__).toBe("false");
+    const dev = /** @type {any} */ (decoVitePlugin({ metaFromKV: true })).config({}, { command: "serve" });
+    expect(dev.define.__DECO_META_FROM_KV__).toBe("false");
+  });
 });

@@ -161,7 +161,7 @@ export function createNextSetup(options: NextSetupOptions): () => Promise<void> 
 
       if (options.meta || options.renderShell || options.previewWrapper) {
         const admin = await import("@decocms/blocks-admin");
-        if (options.meta) admin.setMetaData((await options.meta()) as never);
+        if (options.meta) admin.setMetaProvider(options.meta as never);
         if (options.renderShell) admin.setRenderShell(options.renderShell);
         if (options.previewWrapper) admin.setPreviewWrapper(options.previewWrapper);
       }

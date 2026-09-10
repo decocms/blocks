@@ -76,6 +76,7 @@ import {
   type OtelOptions,
 } from "@decocms/blocks/sdk/otel";
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
+import { setMetaKVGetter } from "@decocms/blocks-admin";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
@@ -95,7 +96,7 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
-import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
+import { ensureBlocksHydrated, getMetaKV, maybePollRevision } from "./kvHydration";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
 
@@ -212,7 +213,7 @@ export interface SegmentKey {
  * (not pulled into the client Vite build).
  */
 export interface AdminHandlers {
-  handleMeta: (request: Request) => Response;
+  handleMeta: (request: Request) => Response | Promise<Response>;
   handleDecofileRead: () => Response;
   handleDecofileReload: (request: Request) => Response | Promise<Response>;
   handleRender: (request: Request) => Response | Promise<Response>;
@@ -995,6 +996,15 @@ export function createDecoWorkerEntry(
     ctx: WorkerExecutionContext,
   ): Promise<Response>;
 } {
+  // Let `GET /live/_meta` stream the admin schema out of KV instead of the
+  // isolate holding it. Wired here rather than exposed as a setup call the site
+  // must remember: every tanstack site goes through this entry, and a getter
+  // nobody calls is the same bug as no getter at all. Registering it
+  // unconditionally is safe because getMetaKV itself is gated on the
+  // `metaFromKV` build flag — on a site that never opted in it returns null and
+  // nothing changes.
+  setMetaKVGetter(getMetaKV);
+
   const {
     admin,
     detectProfile: customDetect,
