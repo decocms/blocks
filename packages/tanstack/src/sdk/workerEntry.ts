@@ -999,8 +999,10 @@ export function createDecoWorkerEntry(
   // Let `GET /live/_meta` stream the admin schema out of KV instead of the
   // isolate holding it. Wired here rather than exposed as a setup call the site
   // must remember: every tanstack site goes through this entry, and a getter
-  // nobody calls is the same bug as no getter at all. Inert without the keys —
-  // handleMeta falls back to the bundled schema. See setMetaKVGetter.
+  // nobody calls is the same bug as no getter at all. Registering it
+  // unconditionally is safe because getMetaKV itself is gated on the
+  // `metaFromKV` build flag — on a site that never opted in it returns null and
+  // nothing changes.
   setMetaKVGetter(getMetaKV);
 
   const {

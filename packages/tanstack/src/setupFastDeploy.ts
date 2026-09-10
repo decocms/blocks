@@ -1,5 +1,5 @@
-import { setFastDeployKVGetter, setMetaKVGetter } from "@decocms/blocks-admin";
-import { getFastDeployKV, getMetaKV } from "./sdk/kvHydration";
+import { setFastDeployKVGetter } from "@decocms/blocks-admin";
+import { getFastDeployKV } from "./sdk/kvHydration";
 
 /**
  * Reconnects packages/blocks-admin's decofile write-through to this
@@ -10,9 +10,4 @@ import { getFastDeployKV, getMetaKV } from "./sdk/kvHydration";
  */
 export function setupTanstackFastDeploy(): void {
   setFastDeployKVGetter(getFastDeployKV);
-  // Also lets `GET /live/_meta` stream the admin schema out of KV instead of
-  // holding it in the isolate. Unlike the decofile getter above this one is not
-  // gated on DECO_FAST_DEPLOY — see getMetaKV. Registering it is harmless on a
-  // site with no schema in KV: handleMeta just falls back to the bundle.
-  setMetaKVGetter(getMetaKV);
 }

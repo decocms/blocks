@@ -83,16 +83,25 @@ Two things matter about the read path, and both are load-bearing:
 Enable with `decoVitePlugin({ fastDeploy: true, metaFromKV: true })`. The two
 flags are independent — different artefacts, different seeds.
 
+`metaFromKV` is a single switch for **both** sides: it stubs the module out of
+the bundle and, via the `__DECO_META_FROM_KV__` define, is what makes
+`getMetaKV` hand `handleMeta` a namespace at all. Deliberately not keyed off
+"are the keys present" — seeding is unconditional, so that would silently move
+`/live/_meta` onto KV for every site whose build runs the sync, opted in or not.
+Same rule the decofile path already follows (`isFastDeployEnabled`: binding a
+namespace must not by itself flip a site onto the KV path).
+
 **Prerequisite:** `meta:<id>` + `meta:etag:<id>` seeded for the deployment.
 `deco-sync-blocks-to-kv --write` does this automatically whenever it finds
 `src/server/admin/meta.gen.json` or `.deco/meta.gen.json` (`--no-meta` opts
 out), so in practice the seed lands well before anyone flips the plugin flag.
 
 Unlike the decofile stub, getting this wrong does **not** take the site down:
-with no keys, `handleMeta` falls back to the bundled schema; with the bundle
-stubbed and no keys it answers 503 and only the admin loses the schema. The
-read side is registered automatically by `createDecoWorkerEntry` — there is no
-per-site wiring step to forget.
+with `metaFromKV` off nothing changes at all, and with it on but the keys
+missing `/live/_meta` answers 503 while the site keeps serving. The read side is
+registered automatically by `createDecoWorkerEntry` — there is no per-site
+wiring step to forget, and no state where the bundle has no schema but the
+reader declines to fetch one.
 
 ## Feature flag
 

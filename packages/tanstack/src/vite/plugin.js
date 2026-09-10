@@ -813,6 +813,13 @@ export function decoVitePlugin({ fastDeploy = false, metaFromKV = false } = {}) 
         // look populated, and a legitimately-empty decofile (new site) would
         // look stubbed.
         __DECO_BLOCKS_STUBBED__: JSON.stringify(fastDeploy && command === "build"),
+        // Tells the runtime whether to serve the admin schema from KV. Same
+        // build-time answer for the same reason as the flag above: it must be
+        // the single switch for BOTH the stub and the read, so there is no
+        // state where the bundle has no schema but the reader won't fetch one
+        // (or, worse, where a site that never opted in silently flips
+        // /live/_meta onto KV the moment its build seeds the keys).
+        __DECO_META_FROM_KV__: JSON.stringify(metaFromKV && command === "build"),
       };
 
       // Only split chunks for production builds — dev uses unbundled ESM.
