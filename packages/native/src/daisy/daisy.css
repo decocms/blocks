@@ -1,0 +1,21 @@
+/**
+ * Fontes de classe dos componentes deste pacote.
+ *
+ * Importe do Tailwind entry do app:
+ *
+ * ```css
+ * @import "tailwindcss";
+ * @import "@decocms/native/daisy.css";
+ * ```
+ *
+ * Existe porque o JIT do Tailwind só emite classe que ele VÊ, e ele não olha
+ * `node_modules` — então `bg-primary` dentro de um `<Button>` daqui
+ * simplesmente não existiria no CSS do app. Botão sem cor, sem erro em lugar
+ * nenhum.
+ *
+ * E não basta o app apontar `@source` para `node_modules/@decocms/native/src`:
+ * num checkout linkado isso é um symlink, e o Tailwind não atravessa diretório
+ * symlinkado. Como este arquivo mora ao lado dos componentes, o `@source`
+ * relativo abaixo resolve para o caminho REAL nos dois casos.
+ */
+@source "./**/*.{ts,tsx}";
