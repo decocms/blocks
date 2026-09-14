@@ -277,21 +277,47 @@ export { type Font as SiteThemeFont };
 `;
 }
 
-function generateWranglerConfig(ctx: MigrationContext): string {
-  return (
-    JSON.stringify(
-      {
-        name: ctx.siteName,
-        main: "src/worker-entry.ts",
-        compatibility_date: "2025-05-01",
-        compatibility_flags: ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
-        cache: { enabled: true },
-        kv_namespaces: [{ binding: "SITES_KV", id: "dev-sites-kv" }],
-      },
-      null,
-      2,
-    ) + "\n"
-  );
+export function generateWranglerConfig(ctx: MigrationContext): string {
+  // Emitted as real JSONC (not JSON.stringify) so the comments survive — every
+  // field below is load-bearing and the next person to edit this file needs to
+  // know why. The ids are placeholders: the control-plane owns them (it
+  // provisions the site's OWN namespaces and overrides these at build time),
+  // so a wrong id here can never reach production.
+  return `{
+  "name": "${ctx.siteName}",
+  "main": "src/worker-entry.ts",
+  "compatibility_date": "2025-05-01",
+  // no_handle_cross_request_promise_resolution: the framework's SWR/dedup
+  // caches hold in-flight promises across requests; without this flag the
+  // worker hangs.
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+  // Workers Cache — tiered cache IN FRONT of the worker. On a hit the worker
+  // never runs. Per-response cacheability is still driven by Cache-Control.
+  "cache": { "enabled": true },
+  // Surfaces the build sha as service.version on every span and log line.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  // Tail worker. The ONLY channel that can see exceededMemory / exceededCpu:
+  // Cloudflare kills the isolate before any in-worker code could report them.
+  // Without this a memory incident is invisible — see docs/runbooks/.
+  "tail_consumers": [{ "service": "deco-otel-tail" }],
+  "kv_namespaces": [
+    // Fast Deploy content store. Holds decofile:<deployment-id> + the revision
+    // index, so a CMS publish goes live without a code deploy. The id is
+    // written by the control-plane at site creation and re-forced from
+    // CF_KV_NAMESPACE_ID on every build (per-site KV isolation).
+    { "binding": "DECO_KV", "id": "" },
+    // A/B testing assignments.
+    { "binding": "SITES_KV", "id": "" }
+  ],
+  "vars": {
+    "DECO_SITE_NAME": "${ctx.siteName}",
+    "DECO_ENV_NAME": "production",
+    // Fast Deploy opt-in. Requires BOTH this flag AND the DECO_KV binding
+    // above; inert if either is missing. Set to "0" to disable.
+    "DECO_FAST_DEPLOY": "1"
+  }
+}
+`;
 }
 
 function generateGitignore(): string {

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { parseJsonc } from "../lib/jsonc";
 import type { MigrationContext } from "./types";
 import { logPhase } from "./types";
 
@@ -79,6 +80,45 @@ export const checks: Check[] = [
       const missing = REQUIRED_FILES.filter((f) => !fs.existsSync(path.join(ctx.sourceDir, f)));
       if (missing.length > 0) {
         console.log(`    Missing: ${missing.join(", ")}`);
+        return false;
+      }
+      return true;
+    },
+  },
+  {
+    // Fast Deploy needs THREE things and is inert unless all three are present:
+    // the DECO_KV binding, DECO_FAST_DEPLOY=1, and setup.ts handing the KV
+    // resolver to blocks-admin. Two of three is the worst state — it looks
+    // configured, the Studio publish reports success, and nothing reaches KV.
+    name: "Fast Deploy wired end to end",
+    severity: "error",
+    fn: (ctx) => {
+      const missing: string[] = [];
+      const wranglerPath = path.join(ctx.sourceDir, "wrangler.jsonc");
+      try {
+        const cfg = parseJsonc(fs.readFileSync(wranglerPath, "utf-8")) as {
+          kv_namespaces?: Array<{ binding?: string }>;
+          vars?: Record<string, unknown>;
+        };
+        const flag = cfg.vars?.DECO_FAST_DEPLOY;
+        if (!(cfg.kv_namespaces ?? []).some((n) => n?.binding === "DECO_KV")) {
+          missing.push("wrangler.jsonc kv_namespaces is missing the DECO_KV binding");
+        }
+        if (flag !== "1" && flag !== "true") {
+          missing.push('wrangler.jsonc vars.DECO_FAST_DEPLOY is not "1"');
+        }
+      } catch (e) {
+        missing.push(`wrangler.jsonc could not be parsed: ${(e as Error).message}`);
+      }
+
+      const setupPath = path.join(ctx.sourceDir, "src", "setup.ts");
+      const setup = fs.existsSync(setupPath) ? fs.readFileSync(setupPath, "utf-8") : "";
+      if (!setup.includes("setupTanstackFastDeploy()")) {
+        missing.push("src/setup.ts does not call setupTanstackFastDeploy()");
+      }
+
+      if (missing.length > 0) {
+        for (const m of missing) console.log(`    ${m}`);
         return false;
       }
       return true;
