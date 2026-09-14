@@ -174,26 +174,49 @@ export function generateSchemaArgs(siteName) {
 }
 
 /**
+ * Env var a deploy pipeline sets to declare "I seed `decofile:<deployment-id>`
+ * into KV BEFORE activating this version". Set by the cfworkers-builder under
+ * exactly the condition that guards its seed step, so the stub below and the
+ * seed can never drift apart.
+ */
+const SEEDED_DEPLOY_ENV = "DECO_SEEDED_DEPLOY";
+
+/** Whether this build runs inside a pipeline that seeds KV before activation. */
+function isSeededDeployPipeline() {
+  const v = process.env[SEEDED_DEPLOY_ENV];
+  return v === "1" || v === "true";
+}
+
+/**
  * @param {object} [opts]
- * @param {boolean} [opts.fastDeploy=false] Stub `blocks.gen` out of the SERVER
- *   bundle too, so the worker's only copy of the decofile is the one hydrated
- *   from KV at cold start.
+ * @param {boolean | "auto"} [opts.fastDeploy="auto"] Stub `blocks.gen` out of
+ *   the SERVER bundle too, so the worker's only copy of the decofile is the one
+ *   hydrated from KV at cold start.
  *
  *   Without this, a fast-deploy site holds the decofile TWICE: the bundled
  *   `JSON.parse(...)` graph stays permanently reachable through the site's
  *   `import { blocks } from ".deco/blocks.gen"` module binding, and
  *   `ensureBlocksHydrated` adds a second graph via `setBlocks()`. For a 10MB
- *   decofile that is tens of MB of avoidable isolate memory.
+ *   decofile that is tens of MB of avoidable isolate memory, on a platform
+ *   whose per-isolate cap is 128MB and has no GC knob.
  *
- *   Opt-in because it removes the fallback: with no bundled snapshot, a cold
- *   start that cannot read KV has no content to serve. `ensureBlocksHydrated`
- *   detects that case and fails the request loudly (5xx) instead of serving an
- *   empty site — see `kvHydration.ts`. Only enable alongside
- *   `DECO_FAST_DEPLOY=1` + a `DECO_KV` binding + a deploy pipeline that seeds
- *   `decofile:<deployment-id>` BEFORE the new version activates.
+ *   It is gated because it removes the fallback: with no bundled snapshot, a
+ *   cold start that cannot read KV has no content to serve, and
+ *   `ensureBlocksHydrated` fails the request loudly (5xx) rather than serving
+ *   an empty site that the edge would then cache — see `kvHydration.ts`. That
+ *   is only safe when the deploy pipeline seeds `decofile:<deployment-id>`
+ *   BEFORE the new version activates.
+ *
+ *   `"auto"` (default) stubs only when the pipeline declares it seeds, via
+ *   `DECO_SEEDED_DEPLOY`. A site building through Cloudflare Workers Builds or
+ *   a manual `wrangler deploy` never sets it, so it keeps the bundled snapshot
+ *   and behaves exactly as before — no site-side config, no way to half-enable
+ *   it. `true` forces the stub, `false` disables it.
  * @returns {import("vite").PluginOption}
  */
-export function decoVitePlugin({ fastDeploy = false } = {}) {
+export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
+  // Resolved once: the pipeline's answer cannot change mid-build.
+  const stubBlocks = fastDeploy === "auto" ? isSeededDeployPipeline() : fastDeploy === true;
   // Set from the `config` hook (which Vite always runs before `load`). The
   // fastDeploy stub must apply to production builds ONLY: `vite dev` has no KV
   // to hydrate from, and the dev bootstrap below deliberately relies on reading
@@ -239,7 +262,7 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
         // `import { blocks }` binding keeps the bundled graph alive for the
         // isolate's whole life, even after `setBlocks()` swaps in the KV one).
         // Build only — see `isBuild` above.
-        if (fastDeploy && isBuild) {
+        if (stubBlocks && isBuild) {
           return "export const blocks = {};";
         }
 
@@ -785,7 +808,7 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
         // is not equivalent — draft-preview overrides can make a stubbed bundle
         // look populated, and a legitimately-empty decofile (new site) would
         // look stubbed.
-        __DECO_BLOCKS_STUBBED__: JSON.stringify(fastDeploy && command === "build"),
+        __DECO_BLOCKS_STUBBED__: JSON.stringify(stubBlocks && command === "build"),
       };
 
       // Only split chunks for production builds — dev uses unbundled ESM.
