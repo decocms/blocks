@@ -62,17 +62,49 @@ Requiring the explicit flag means simply binding a KV namespace can never
 silently flip a site onto the KV read/write path. To disable, unset
 `DECO_FAST_DEPLOY` (or set it to `"0"`).
 
-```toml
-# wrangler.toml (per migrated site)
-[[kv_namespaces]]
-binding = "DECO_KV"
-id = "<namespace id>"
-
-[vars]
-DECO_FAST_DEPLOY = "1"
-# DECO_DEPLOYMENT_ID is NOT set statically here — the deploy command passes it
-# per deploy (`wrangler deploy --var DECO_DEPLOYMENT_ID:$COMMIT_SHA`).
+```jsonc
+// wrangler.jsonc (per site — this is what the tooling reads and writes;
+// wrangler.toml is still parsed for legacy repos but nothing emits it)
+{
+  "kv_namespaces": [{ "binding": "DECO_KV", "id": "<namespace id>" }],
+  "vars": {
+    "DECO_FAST_DEPLOY": "1"
+    // DECO_DEPLOYMENT_ID is NOT set statically here — the deploy command passes
+    // it per deploy (`wrangler deploy --var DECO_DEPLOYMENT_ID:$COMMIT_SHA`).
+  }
+}
 ```
+
+The site's `setup.ts` must also call `setupTanstackFastDeploy()`
+(`@decocms/tanstack`). `@decocms/blocks-admin` cannot import `@decocms/tanstack`
+(wrong direction in the package graph), so the site is what hands it the KV
+resolver. Without the call, a Studio publish reports success and writes nothing.
+
+## Bundle-stub mode (the memory fix)
+
+By default a fast-deploy site holds its decofile **three times** per isolate:
+the bundled `JSON.parse` graph, kept permanently reachable by the site's
+`import { blocks } from ".deco/blocks.gen"` binding; the graph `setBlocks()`
+allocates from KV; and the escaped JSON string literal in the SSR bundle.
+Measured at +13.6 MB and +13.4 MB for a 9.2 MB decofile — against Cloudflare's
+128 MB per-isolate cap, which has no GC knob.
+
+`decoVitePlugin` stubs `blocks.gen` out of the SERVER bundle so the KV copy is
+the only one. It is gated because **it removes the fallback**: with no bundled
+snapshot, a cold start that cannot read KV has no content, and
+`ensureBlocksHydrated` fails the request loudly rather than serving an empty
+site the edge would then cache (`__DECO_BLOCKS_STUBBED__`, a build-time define —
+a runtime "is the map empty" check is not equivalent, see `kvHydration.ts`).
+
+That is only safe when the pipeline seeds `decofile:<id>` BEFORE activating the
+new version. So the default, `fastDeploy: "auto"`, stubs only when the pipeline
+says it seeds, via `DECO_SEEDED_DEPLOY` — set by `cfworkers-builder` under
+exactly the condition that guards its seed step. Cloudflare Workers Builds and a
+manual `wrangler deploy` never set it and keep the bundled snapshot. `true` and
+`false` force either way.
+
+**In stub mode the bundled snapshot is NOT a fallback** — everywhere below that
+describes "falls back to the bundled snapshot" describes the default mode only.
 
 ## Read path (runtime)
 
@@ -198,7 +230,10 @@ envelope to the site's `/.decofile` (worker write-through) + `/_cache/purge`. Th
 its OWN deployment's key (`decofile:<its id>`) — the live version — so a live edit lands on the
 same key the operator's content-push targets; last-write-wins on the djb2 revision.
 
-**Site prerequisites:** provision a KV namespace + `DECO_KV` binding + `DECO_FAST_DEPLOY=1`;
+**Site prerequisites** (all automated for a control-plane-managed site — `SITE_CREATE`
+provisions the site's own `deco-kv-<site>` namespace and the migration scaffold emits the
+binding, the flag and the `setupTanstackFastDeploy()` call; see D7 in `MIGRATION_TOOLING_PLAN.md`):
+a KV namespace + `DECO_KV` binding + `DECO_FAST_DEPLOY=1`;
 set the build/deploy commands above (seed keyed content, pass `DECO_DEPLOYMENT_ID`, flip
 `index:live`); record `kvNamespaceId`/`fastDeployEnabled`/`siteOrigin` on the site's `Deco` CR;
 configure the repo's GitHub webhook (push on `main`) → operator `/webhooks/github`.
@@ -220,9 +255,12 @@ the bundled snapshot immediately.
 
 ## Known limitations
 
-- **Module-level `loadBlocks()` consumers** (e.g. `loadRedirects(loadBlocks())`
-  at the top of a worker-entry) read the *bundled* snapshot at module init,
-  before KV hydration — they won't see KV updates. Move such reads into the
-  request path (or re-run on `onChange`) to fast-deploy them.
+- **Module-level `loadBlocks()` consumers** read the *bundled* snapshot at module
+  init, before KV hydration — they won't see KV updates. Move such reads into the
+  request path (or re-run on `onChange`) to fast-deploy them. This no longer
+  applies to the framework's own redirects: `workerEntry.ts` rebuilds the redirect
+  map whenever `getRevision()` changes, so a KV swap picks it up on the next
+  request. It still applies to site code that hoists its own
+  `loadRedirects(loadBlocks())`.
 - Sub-ms revision polling via the Cache API and per-block granular KV reads are
   possible future optimizations; the `BlockSource` interface leaves room for them.
