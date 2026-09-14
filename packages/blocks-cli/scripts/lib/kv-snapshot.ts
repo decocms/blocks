@@ -12,9 +12,12 @@ import {
   computeRevision,
   DEPLOYMENTS_KEY,
   LIVE_KEY,
+  redirectKey,
+  redirectPrefix,
   revisionKey,
   snapshotKey,
 } from "@decocms/blocks/cms";
+import type { ExactRedirect } from "@decocms/blocks/sdk/redirects";
 import type { KvRestClient } from "./cf-kv-rest";
 
 export interface Snapshot {
@@ -71,6 +74,42 @@ export async function verifySnapshotInKv(
   return { ok: true };
 }
 
+/**
+ * Reconcile deployment `id`'s exact redirects in KV: write the ones that are
+ * new or changed, delete the ones that no longer exist.
+ *
+ * KV has no "replace everything under this prefix" operation, so the desired
+ * set is diffed against what is actually stored. The source of truth for
+ * "what's there now" is a prefix LIST rather than a manifest key — a manifest
+ * is one more thing that can drift out of sync with reality, and the list is
+ * free enough at build time.
+ *
+ * Updates are not detected by value: re-PUTting an unchanged key is one bulk
+ * write, while reading every current value back to compare would be one GET per
+ * key. So every desired rule is written, and only deletions need the diff.
+ */
+export async function syncRedirectsToKv(
+  client: KvRestClient,
+  redirects: ExactRedirect[],
+  id: string,
+): Promise<{ written: number; deleted: number }> {
+  const desired = new Map(
+    redirects.map((r) => [redirectKey(id, r.path), JSON.stringify({ to: r.to, status: r.status })]),
+  );
+
+  const existing = await client.list(redirectPrefix(id));
+  const stale = existing.filter((key) => !desired.has(key));
+
+  if (desired.size > 0) {
+    await client.putMany([...desired].map(([key, value]) => ({ key, value })));
+  }
+  if (stale.length > 0) {
+    await client.deleteMany(stale);
+  }
+
+  return { written: desired.size, deleted: stale.length };
+}
+
 /** Point `index:live` at deployment `id` (post-activation, from the deploy step). */
 export async function setLiveDeployment(client: KvRestClient, id: string): Promise<void> {
   await client.put(LIVE_KEY, id);
@@ -121,6 +160,11 @@ export async function recordAndGcDeployment(
       }
       await client.delete(snapshotKey(entry.id));
       await client.delete(revisionKey(entry.id));
+      // The per-path redirect keys are keyed by deployment too, so they are
+      // part of this snapshot and must go with it — otherwise every deploy
+      // leaks tens of thousands of orphans into the namespace forever.
+      const staleRedirects = await client.list(redirectPrefix(entry.id));
+      if (staleRedirects.length > 0) await client.deleteMany(staleRedirects);
       pruned.push(entry.id);
     }
     await client.put(DEPLOYMENTS_KEY, JSON.stringify([...keptOld, ...recent]));

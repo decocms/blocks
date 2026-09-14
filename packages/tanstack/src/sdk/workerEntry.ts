@@ -77,7 +77,14 @@ import {
 } from "@decocms/blocks/sdk/otel";
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
-import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
+import {
+  loadRedirects,
+  matchExactRedirect,
+  matchPatternRedirect,
+  normalizePath,
+  type RedirectMap,
+} from "@decocms/blocks/sdk/redirects";
+import { lookupExactRedirect } from "./kvRedirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { cleanPathForCacheKey } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
@@ -2088,7 +2095,15 @@ export function createDecoWorkerEntry(
       _redirectMap = loadRedirects(loadBlocks());
       _redirectMapRevision = currentRevision;
     }
-    const cmsRedirect = matchRedirect(url.pathname, _redirectMap!);
+    // Exact before glob, across BOTH sources. On a fast-deploy site the exact
+    // rules live under their own `redirect:<id>:<path>` KV keys and are absent
+    // from the decofile, so the in-memory exact hit is the non-fast-deploy
+    // case. Going straight to `matchRedirect` and only then to KV would let a
+    // glob win over an exact rule, inverting the precedence.
+    const cmsRedirect =
+      matchExactRedirect(url.pathname, _redirectMap!) ??
+      (await lookupExactRedirect(env as Record<string, unknown>, normalizePath(url.pathname))) ??
+      matchPatternRedirect(url.pathname, _redirectMap!);
     if (cmsRedirect) {
       return new Response(null, {
         status: cmsRedirect.status,

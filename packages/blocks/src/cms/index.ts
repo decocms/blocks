@@ -3,7 +3,7 @@ export type {
   SectionMetaEntry,
 } from "./applySectionConventions";
 export { applySectionConventions } from "./applySectionConventions";
-export type { BlockSnapshot, BlockSource, KVNamespace } from "./blockSource";
+export type { BlockSnapshot, BlockSource, KVNamespace, StoredRedirect } from "./blockSource";
 export {
   BUILD_HASH_ENV,
   BundledBlockSource,
@@ -12,6 +12,8 @@ export {
   DEPLOYMENTS_KEY,
   getDeploymentId,
   LIVE_KEY,
+  redirectKey,
+  redirectPrefix,
   revisionKey,
   snapshotKey,
 } from "./blockSource";
