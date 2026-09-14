@@ -1,5 +1,5 @@
 ---
-description: Constitutional decisions for the deco-start migration-tooling effort (D1–D5 + D6.3 revert, priorities, process). Always loaded.
+description: Constitutional decisions for the deco-start migration-tooling effort (D1–D5 + D6.3/D7 deploy ownership, priorities, process). Always loaded.
 alwaysApply: true
 ---
 
@@ -99,13 +99,51 @@ empirically against a production storefront on 2026-05-07 that a malicious
 worker, and CF auto-opens a PR to fix the config. Per-storefront wiring is
 one CF dashboard click per worker.
 
-**Agent behavior — current interim period**: while D6.3's replacement is
-being designed, do **not** scaffold `decocms/deco-start@vN`-calling caller
+**Superseded by D7 below** — the "replacement, to be detailed in a follow-up
+D-record once shipped" landed. The scaffolding rule below still holds.
+
+**Agent behavior**: do **not** scaffold `decocms/deco-start@vN`-calling caller
 stubs in storefronts and do **not** depend on a `deco-wrangler` CLI from
 `@decocms/start` (it no longer exists). Storefronts retain their existing
 per-site inline `deploy.yml` (with their own `CLOUDFLARE_*` secrets) until
 Workers Builds onboarding lands. Site repos do still commit `wrangler.jsonc`
 during this interim — `deco-wrangler gen` is gone.
+
+### D7 — Deploy moves to the control-plane (supersedes D6.3, signed off 2026-09-14)
+
+D6.3's "follow-up D-record once shipped" is this one. Cloudflare Workers
+Builds is replaced by our own pipeline: `decocms/control-plane`'s
+`SITE_CREATE` MCP tool provisions the site end to end (GitHub repo, admin
+`sites` row, org ownership, the site's **own** Cloudflare KV / R2 / D1
+namespaces, the production environment, and the Deco CR), the operator
+applies the CR, and `decocms/infra_applications`'
+`images/cfworkers-builder` builds and deploys it.
+
+What this buys that CF Builds could not:
+
+- **Per-site KV isolation.** `index:live` is one key per namespace, so two
+  sites sharing a namespace clobber each other's live pointer.
+  `ensureSiteKvNamespace` gives each site `deco-kv-<site>` and the builder
+  re-forces the `DECO_KV` id from `CF_KV_NAMESPACE_ID` on every build, so a
+  tenant repo cannot bind to another site's KV.
+- **Seed-before-activate.** The builder seeds `decofile:<sha>` BEFORE
+  `wrangler deploy` and flips `index:live` after, so new code never reads
+  old content — and that ordering guarantee is what makes it safe to stub
+  `blocks.gen` out of the server bundle (`DECO_SEEDED_DEPLOY`, the
+  three-copies-per-isolate memory fix). CF Builds cannot seed, so a site on
+  it can never take that win.
+- **No per-worker dashboard click**, and no tenant-controlled
+  `routes`/`account_id` (the builder strips them).
+
+**Agent behavior**: the migration provisions the site via `SITE_CREATE`
+(`provisionSite` in `scripts/migrate.ts`), gated on
+`DECO_CONTROL_PLANE_TOKEN` + `DECO_ORG` and inert without them. D6.3's
+scaffolding rule is UNCHANGED and still binding: do **not** scaffold
+`deploy.yml` / `preview.yml` / `sync-secrets.yml` into a storefront. The
+pipeline belongs to the control-plane, not to the site repo. Site repos do
+still commit `wrangler.jsonc`, and it must declare the `DECO_KV` binding
+plus `DECO_FAST_DEPLOY` — the control-plane personalizes ids, it does not
+add bindings the repo never declared.
 
 ## Priority order
 

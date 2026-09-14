@@ -27,6 +27,7 @@
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { setKvNamespaceIdInJsonc } from "./lib/wrangler-config";
 import { banner, green, red, stat, yellow } from "./migrate/colors";
 import { loadConfig, validateConfig } from "./migrate/config";
 import { analyze } from "./migrate/phase-analyze";
@@ -119,6 +120,15 @@ function showHelp() {
                           via \`deco-post-cleanup\` if needed)
     --help, -h            Show this help message
 
+  Environment (all optional — each step is skipped, never fatal, when unset):
+    DECO_CONTROL_PLANE_TOKEN  Provision the site via the control-plane's
+                              SITE_CREATE: repo, org ownership, the site's OWN
+                              Cloudflare KV namespace, and the deploy CR.
+    DECO_ORG                  Studio organization id that will own the site.
+                              Required together with the token above.
+    DECO_CONTROL_PLANE_URL    Override the control-plane base URL.
+    SUPABASE_ACCESS_TOKEN     Flip the site's analytics provider.
+
   Examples:
     npx -p @decocms/blocks-cli deco-migrate --dry-run --verbose
     npx -p @decocms/blocks-cli deco-migrate --source ./my-site
@@ -198,6 +208,7 @@ async function main() {
     // Phase 7: Bootstrap (install + generate)
     if (!ctx.dryRun) {
       bootstrap(ctx);
+      await provisionSite(ctx.sourceDir);
       await provisionAnalytics(ctx.sourceDir);
     }
 
@@ -284,6 +295,161 @@ function bootstrap(ctx: { sourceDir: string }) {
   }
 }
 
+/** A site slug: lower-case, the shape SITE_CREATE itself enforces. */
+const SITE_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
+
+const CONTROL_PLANE_URL = "https://control-plane.decocms.com";
+
+/** `owner/name` of the repo in `dir`, from its `origin` remote, or null. */
+function repoFullName(dir: string): string | null {
+  try {
+    const url = execSync("git remote get-url origin", { cwd: dir, stdio: "pipe" })
+      .toString()
+      .trim();
+    const m = url.match(/[:/]([^/:]+)\/([^/]+?)(?:\.git)?$/);
+    return m ? `${m[1]}/${m[2]}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Provision the site on the control-plane (SITE_CREATE) and write the KV
+ * namespace id it returns into the scaffolded `wrangler.jsonc`.
+ *
+ * SITE_CREATE is idempotent and create-if-absent at every step: it claims the
+ * admin `sites` row, the org ownership, the site's OWN Cloudflare KV namespace
+ * (`deco-kv-<site>` — never shared, since `index:live` is one key per namespace
+ * and two sites sharing one would clobber each other's live pointer), the
+ * production environment, and the Deco CR that makes the site actually deploy.
+ * So a migrated site comes out of the box deployable and fast-deploy-ready
+ * instead of needing a dashboard click per worker.
+ *
+ * Inert without credentials: prints the equivalent call and continues. A
+ * migration must never fail because an operator ran it without a token — and
+ * the id is not load-bearing anyway, since the builder re-forces the DECO_KV id
+ * from `CF_KV_NAMESPACE_ID` on every build.
+ */
+async function provisionSite(sourceDir: string): Promise<void> {
+  logPhase("Provision site (control-plane)");
+
+  let siteName: string;
+  try {
+    siteName = JSON.parse(fs.readFileSync(path.join(sourceDir, "package.json"), "utf8")).name;
+  } catch {
+    console.log(`  ${yellow("⚠")} Could not read package.json — skipping site provision`);
+    return;
+  }
+
+  const base = process.env.DECO_CONTROL_PLANE_URL || CONTROL_PLANE_URL;
+  const token = process.env.DECO_CONTROL_PLANE_TOKEN;
+  const org = process.env.DECO_ORG;
+  const repo = repoFullName(sourceDir);
+
+  const args: Record<string, string> = { name: siteName, org: org ?? "<DECO_ORG>" };
+  // Shared/existing-repo mode: the repo already exists (we just migrated it),
+  // so SITE_CREATE must reference it rather than generate one from a template.
+  if (repo) args.repo = repo;
+
+  if (!token || !org) {
+    const which = [!token && "DECO_CONTROL_PLANE_TOKEN", !org && "DECO_ORG"]
+      .filter(Boolean)
+      .join(" + ");
+    console.log(`  ${yellow("⚠")} ${which} not set — skipping site provision`);
+    printSiteCreate(base, args);
+    return;
+  }
+
+  try {
+    const res = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "SITE_CREATE", arguments: args },
+      }),
+    });
+    if (!res.ok) {
+      console.log(
+        `  ${yellow("⚠")} SITE_CREATE failed (${res.status}): ${(await res.text()).slice(0, 160)}`,
+      );
+      printSiteCreate(base, args);
+      return;
+    }
+    const body = (await res.json()) as {
+      error?: { message?: string };
+      result?: { structuredContent?: unknown; content?: Array<{ text?: string }> };
+    };
+    if (body.error) {
+      console.log(`  ${yellow("⚠")} SITE_CREATE error: ${body.error.message ?? "unknown"}`);
+      printSiteCreate(base, args);
+      return;
+    }
+    const out = readToolResult(body.result);
+    console.log(
+      `  ${green("✓")} ${siteName} provisioned (org ${org}${out?.cluster ? `, cluster ${out.cluster}` : ""})`,
+    );
+
+    if (out?.kvNamespaceId) {
+      applyKvNamespaceId(sourceDir, out.kvNamespaceId);
+    } else {
+      // SITE_CREATE omits it on a knative site, when CF isn't configured, or
+      // when provisioning failed — the absence is the signal, not a default.
+      console.log(
+        `  ${yellow("⚠")} no kvNamespaceId returned — DECO_KV id left blank in wrangler.jsonc`,
+      );
+    }
+  } catch (err: any) {
+    console.log(`  ${yellow("⚠")} control-plane request failed: ${err.message}`);
+    printSiteCreate(base, args);
+  }
+}
+
+/** MCP tool output: `structuredContent` when present, else the JSON text block. */
+function readToolResult(
+  result: { structuredContent?: unknown; content?: Array<{ text?: string }> } | undefined,
+): { kvNamespaceId?: string; cluster?: string } | null {
+  if (!result) return null;
+  if (result.structuredContent && typeof result.structuredContent === "object") {
+    return result.structuredContent as { kvNamespaceId?: string; cluster?: string };
+  }
+  const text = result.content?.[0]?.text;
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Write the site's own KV namespace id into the scaffolded wrangler.jsonc. */
+function applyKvNamespaceId(sourceDir: string, id: string): void {
+  const file = path.join(sourceDir, "wrangler.jsonc");
+  try {
+    const src = fs.readFileSync(file, "utf-8");
+    const next = setKvNamespaceIdInJsonc(src, id);
+    if (next === src) {
+      console.log(`  ${yellow("⚠")} wrangler.jsonc has no DECO_KV binding — id not written`);
+      return;
+    }
+    fs.writeFileSync(file, next);
+    console.log(`  ${green("✓")} wrangler.jsonc DECO_KV id → ${id}`);
+  } catch (err: any) {
+    console.log(`  ${yellow("⚠")} could not write wrangler.jsonc: ${err.message}`);
+  }
+}
+
+function printSiteCreate(base: string, args: Record<string, string>): void {
+  console.log(`  Run manually once you have a control-plane token:`);
+  console.log(
+    `  curl -s ${base}/mcp -XPOST -H 'content-type: application/json' \\\n` +
+      `    -H "authorization: Bearer $DECO_CONTROL_PLANE_TOKEN" \\\n` +
+      `    -d '${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "SITE_CREATE", arguments: args } })}'`,
+  );
+}
+
 // Supabase project ref for decocms — the central platform DB that tracks all sites.
 const DECOCMS_SUPABASE_REF = "ozksgdmyrqcxcwhnbepg";
 
@@ -303,6 +469,16 @@ async function provisionAnalytics(sourceDir: string): Promise<void> {
   if (!token) {
     console.log(`  ${yellow("⚠")} SUPABASE_ACCESS_TOKEN not set — skipping analytics provision`);
     printAnalyticsSQL(siteName);
+    return;
+  }
+
+  // The Supabase Management API takes raw SQL with no bind parameters, so the
+  // only safe move is to refuse anything that isn't a plain site slug rather
+  // than interpolate whatever `package.json` happens to contain.
+  if (!SITE_SLUG.test(siteName)) {
+    console.log(
+      `  ${yellow("⚠")} "${siteName}" is not a plain site slug — skipping analytics provision`,
+    );
     return;
   }
 
