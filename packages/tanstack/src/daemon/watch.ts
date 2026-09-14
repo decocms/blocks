@@ -65,11 +65,26 @@ export interface Metadata {
 }
 
 /**
+ * Ceiling for a file this function will read. Real blocks under `.deco/blocks/`
+ * are tens of KB; the generated artifacts next to them are not (27 MB measured
+ * for `meta.gen.json` on a 386-block site). Reading one of those to pull three
+ * fields out of it, on every watcher event, is what pushed a dev server to
+ * `JavaScript heap out of memory`.
+ */
+const MAX_METADATA_BYTES = 1_000_000;
+
+/**
  * Read a JSON file and infer its metadata (block type, resolveType, etc.).
  * Matches the Deno daemon's inferMetadata from daemon/fs/api.ts.
  */
 export async function inferMetadata(filepath: string): Promise<Metadata | null> {
   try {
+    // Both guards return exactly what the `catch` below already returns for
+    // these files — a non-JSON file never parses, and an oversized generated
+    // artifact is not a block. Behaviour is unchanged; only the work is gone.
+    if (!filepath.endsWith(".json")) return { kind: "file" };
+    if ((await stat(filepath)).size > MAX_METADATA_BYTES) return { kind: "file" };
+
     const raw = await readFile(filepath, "utf-8");
     const parsed = JSON.parse(raw);
     const { __resolveType, name, path: pagePath } = parsed;

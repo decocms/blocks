@@ -41,7 +41,7 @@
  * ```
  */
 import { exec, execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -530,6 +530,15 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
         }
         schemaInFlight = true;
         const start = Date.now();
+        // mtime before/after, because generate-schema.ts only rewrites
+        // meta.gen.json when the schema actually changed. Editing a component
+        // body leaves it identical, and invalidating the SSR module anyway
+        // makes Vite re-read and re-transform tens of MB (27 MB measured at
+        // 386 blocks) for nothing — repeat that per keystroke-save and the dev
+        // server dies with `JavaScript heap out of memory` (exit 134).
+        const mtimeBefore = existsSync(schemaOutFile)
+          ? statSync(schemaOutFile).mtimeMs
+          : 0;
         const scriptPath = path.resolve(
           cwd,
           "node_modules/@decocms/blocks-cli/scripts/generate-schema.ts",
@@ -540,12 +549,17 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
             if (err) {
               console.warn("[deco] schema generation failed:", err.message);
             } else {
-              console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
-              // Invalidate the meta.gen.json module so SSR picks up fresh schema
-              const mod =
-                server.environments?.ssr?.moduleGraph?.getModuleById(schemaOutFile);
-              if (mod) {
-                server.environments.ssr.moduleGraph.invalidateModule(mod);
+              const mtimeAfter = existsSync(schemaOutFile)
+                ? statSync(schemaOutFile).mtimeMs
+                : 0;
+              if (mtimeAfter !== mtimeBefore) {
+                console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
+                // Invalidate the meta.gen.json module so SSR picks up fresh schema
+                const mod =
+                  server.environments?.ssr?.moduleGraph?.getModuleById(schemaOutFile);
+                if (mod) {
+                  server.environments.ssr.moduleGraph.invalidateModule(mod);
+                }
               }
             }
             if (schemaQueued) {

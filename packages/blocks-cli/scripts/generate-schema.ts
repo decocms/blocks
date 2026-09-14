@@ -1555,14 +1555,25 @@ if (isMainModule()) {
     const meta = composeMeta(rawMeta, { framework: FRAMEWORK }) as MetaResponse;
     const outPath = path.resolve(process.cwd(), OUT_REL);
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    fs.writeFileSync(outPath, JSON.stringify(meta, null, 2));
+    // Write-if-changed, not an unconditional write. The vite plugin re-runs
+    // this script on EVERY save under `src/**` (plugin.js `isSchemaSource`),
+    // but editing a component body doesn't change the schema — so the common
+    // case rewrites a byte-identical file. On a large site that file is tens
+    // of MB (measured: 27 MB at 386 blocks), and a pointless mtime bump makes
+    // chokidar fire, which makes the daemon read + JSON.parse the whole thing
+    // (daemon/watch.ts) and the plugin invalidate the 27 MB SSR module. That
+    // churn is what drove the dev server into `JavaScript heap out of memory`.
+    const next = JSON.stringify(meta, null, 2);
+    const changed = !fs.existsSync(outPath) ||
+      fs.readFileSync(outPath, "utf-8") !== next;
+    if (changed) fs.writeFileSync(outPath, next);
 
     const defCount = Object.keys(meta.schema.definitions).length;
     const secCount = Object.keys(meta.manifest.blocks.sections || {}).length;
     const ldrCount = Object.keys(meta.manifest.blocks.loaders || {}).length;
     const appCount = Object.keys(meta.manifest.blocks.apps || {}).length;
     console.log(
-      `\nGenerated schema (self-contained): ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}`,
+      `\nGenerated schema (self-contained): ${defCount} definitions, ${secCount} sections, ${ldrCount} loaders, ${appCount} apps → ${path.relative(process.cwd(), outPath)}${changed ? "" : " (unchanged, not rewritten)"}`,
     );
   })();
 }
