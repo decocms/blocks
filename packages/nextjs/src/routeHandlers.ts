@@ -57,7 +57,7 @@ function preflight(request: Request): Response {
 
 /** For app/live/_meta/route.ts: `export { metaGET as GET } from "@decocms/nextjs/routeHandlers"` */
 export async function metaGET(request: Request): Promise<Response> {
-  return withCors(request, handleMeta(request));
+  return withCors(request, await handleMeta(request));
 }
 
 /** For app/.decofile/route.ts (or an equivalent rewritten path — Next.js route
