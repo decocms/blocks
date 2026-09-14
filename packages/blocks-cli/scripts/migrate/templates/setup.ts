@@ -104,7 +104,7 @@ import { initVtexFromBlocks, setVtexFetch } from "@decocms/apps-vtex";` : ""}${h
 import { registerLocationMatcher } from "./matchers/location";` : ""}
 import { blocks as generatedBlocks } from "../.deco/blocks.gen";
 import { sectionMeta, syncComponents, loadingFallbacks, renderJsons } from "../.deco/sections.gen";
-import { PreviewProviders } from "@decocms/tanstack";
+import { PreviewProviders, setupTanstackFastDeploy } from "@decocms/tanstack";
 // @ts-ignore Vite ?url import
 import appCss from "./styles/app.css?url";
 
@@ -131,6 +131,13 @@ createSiteSetup({
     return null;
   },
 });
+
+// -- Fast Deploy --
+// Hands the KV binding resolver to @decocms/blocks-admin, which cannot import
+// @decocms/tanstack itself (wrong direction in the package graph). Without this
+// call a Studio publish silently no-ops instead of writing through to KV.
+// Inert unless the worker has DECO_FAST_DEPLOY=1 + a DECO_KV binding.
+setupTanstackFastDeploy();
 ${isVtex ? `
 // -- VTEX wiring --
 setVtexFetch(createInstrumentedFetch("vtex"));
