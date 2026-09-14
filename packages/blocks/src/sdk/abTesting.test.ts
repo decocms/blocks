@@ -48,6 +48,63 @@ describe("proxyToFallback", () => {
     vi.unstubAllGlobals();
   });
 
+  it("streams the hostname rewrite instead of buffering the body", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(`<a href="https://${FALLBACK_HOST}/x">go</a>`, {
+        status: 200,
+        headers: { "content-type": "text/html", "content-length": "999" },
+      }),
+    );
+
+    const res = await proxyToFallback(
+      new Request(`https://${REAL_HOST}/foo`),
+      makeUrl("/foo"),
+      FALLBACK_HOST,
+    );
+
+    await expect(res.text()).resolves.toBe(`<a href="https://${REAL_HOST}/x">go</a>`);
+    // The rewrite changes the body length, so the upstream content-length is a
+    // lie and a streamed body has none to state.
+    expect(res.headers.get("content-length")).toBeNull();
+  });
+
+  it("forwards a still-compressed body untouched rather than corrupting it", async () => {
+    // A transform over gzip bytes produces garbage. Workerd strips the header
+    // when it decompresses, so this only guards the case where it did not.
+    const body = `see ${FALLBACK_HOST}`;
+    fetchSpy.mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/html", "content-encoding": "gzip" },
+      }),
+    );
+
+    const res = await proxyToFallback(
+      new Request(`https://${REAL_HOST}/foo`),
+      makeUrl("/foo"),
+      FALLBACK_HOST,
+    );
+
+    await expect(res.text()).resolves.toBe(body);
+  });
+
+  it("leaves a non-2xx body alone", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(`moved to ${FALLBACK_HOST}`, {
+        status: 302,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    const res = await proxyToFallback(
+      new Request(`https://${REAL_HOST}/foo`),
+      makeUrl("/foo"),
+      FALLBACK_HOST,
+    );
+
+    await expect(res.text()).resolves.toBe(`moved to ${FALLBACK_HOST}`);
+  });
+
   it("always sets redirect:'manual' to avoid replaying streamed bodies on 3xx", async () => {
     fetchSpy.mockResolvedValue(new Response("ok", { status: 200 }));
 
