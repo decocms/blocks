@@ -28,6 +28,7 @@
  * closed), so the visible chip never participates in the hydration diff.
  */
 import { DraftPreviewBadge } from "@decocms/blocks/preview";
+import { getRequestNonce } from "@decocms/blocks/sdk/nonce";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { DRAFT_POINTER_BAG_KEY, DRAFT_POINTER_GLOBAL } from "../sdk/draftShared";
 
@@ -52,6 +53,7 @@ export function DraftPreviewIndicator() {
       {/* Publishes a JSON-encoded pointer this server resolved (not user
           input) so the client's hydration render matches. See the module doc. */}
       <script
+        nonce={getRequestNonce()}
         dangerouslySetInnerHTML={{
           __html: `window.${DRAFT_POINTER_GLOBAL}=${JSON.stringify(pointer)}`,
         }}
