@@ -1,9 +1,13 @@
 import { computeRevision, revisionKey, setBlocks, snapshotKey } from "@decocms/blocks/cms";
-import { __resetAutoconfigStateForTests, autoconfigApps } from "@decocms/blocks-admin/apps/autoconfig";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { __resetKvHydrationStateForTests } from "./kvHydration";
-import { segmentToken } from "./cdnSegment";
 import {
+  __resetAutoconfigStateForTests,
+  autoconfigApps,
+} from "@decocms/blocks-admin/apps/autoconfig";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { segmentToken } from "./cdnSegment";
+import { __resetKvHydrationStateForTests } from "./kvHydration";
+import {
+  buildEnforcedCsp,
   buildGeoCacheParam,
   createDecoWorkerEntry,
   DECO_ADMIN_FRAME_ANCESTORS,
@@ -61,10 +65,7 @@ describe("injectGeoCookies", () => {
   });
 
   it("strips cf-ipcity from the outgoing Request headers while preserving the value in __cf_geo_city cookie", () => {
-    const req = makeRequest(
-      { city: "Brasília", country: "BR" },
-      { "cf-ipcity": "Brasília" },
-    );
+    const req = makeRequest({ city: "Brasília", country: "BR" }, { "cf-ipcity": "Brasília" });
 
     const out = injectGeoCookies(req);
 
@@ -93,10 +94,7 @@ describe("injectGeoCookies", () => {
   });
 
   it("preserves a pre-existing cookie header", () => {
-    const req = makeRequest(
-      { region: "São Paulo" },
-      { cookie: "vtex_segment=abc; another=xyz" },
-    );
+    const req = makeRequest({ region: "São Paulo" }, { cookie: "vtex_segment=abc; another=xyz" });
 
     const out = injectGeoCookies(req);
 
@@ -151,9 +149,7 @@ describe("buildGeoCacheParam", () => {
 
   it("omits missing fields gracefully", () => {
     expect(buildGeoCacheParam({ country: "BR" }, "city")).toBe("BR");
-    expect(buildGeoCacheParam({ country: "BR", region: "MG" }, "city")).toBe(
-      "BR|MG",
-    );
+    expect(buildGeoCacheParam({ country: "BR", region: "MG" }, "city")).toBe("BR|MG");
   });
 
   it("returns undefined when cf has none of country/region/city", () => {
@@ -227,11 +223,7 @@ describe("CMS redirects", () => {
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/old"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/old"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(301);
     expect(res.headers.get("Location")).toBe("/new");
   });
@@ -265,11 +257,7 @@ describe("CMS redirects", () => {
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/promo"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
   });
@@ -284,11 +272,7 @@ describe("CMS redirects", () => {
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/promo"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/sale");
   });
@@ -303,11 +287,7 @@ describe("CMS redirects", () => {
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/other"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/other"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(200);
   });
 
@@ -318,11 +298,7 @@ describe("CMS redirects", () => {
     });
 
     // First request with no redirects — falls through
-    const res1 = await worker.fetch(
-      new Request("https://example.com/v1"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res1 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
     expect(res1.status).toBe(200);
 
     // Hot-reload: add a redirect
@@ -334,11 +310,7 @@ describe("CMS redirects", () => {
     });
 
     // Same path should now redirect
-    const res2 = await worker.fetch(
-      new Request("https://example.com/v1"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res2 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
     expect(res2.status).toBe(301);
     expect(res2.headers.get("Location")).toBe("/v2");
   });
@@ -415,14 +387,8 @@ describe("security headers — frame-ancestors default", () => {
 
   it("applies the default frame-ancestors CSP on HTML responses and drops X-Frame-Options", async () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY);
-    const res = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
-    expect(res.headers.get("Content-Security-Policy")).toBe(
-      DEFAULT_FRAME_ANCESTORS_CSP,
-    );
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
     expect(res.headers.get("X-Frame-Options")).toBeNull();
     // Other defaults are still present.
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
@@ -432,28 +398,16 @@ describe("security headers — frame-ancestors default", () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       securityHeaders: { "Content-Security-Policy": "frame-ancestors 'none'" },
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
-    expect(res.headers.get("Content-Security-Policy")).toBe(
-      "frame-ancestors 'none'",
-    );
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
   });
 
   it("emits the full site CSP report-only alongside the enforced frame-ancestors", async () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       csp: ["default-src 'self'", "img-src 'self' https:"],
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
-    expect(res.headers.get("Content-Security-Policy")).toBe(
-      DEFAULT_FRAME_ANCESTORS_CSP,
-    );
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
     expect(res.headers.get("Content-Security-Policy-Report-Only")).toBe(
       "default-src 'self'; img-src 'self' https:",
     );
@@ -463,13 +417,82 @@ describe("security headers — frame-ancestors default", () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       securityHeaders: false,
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
     expect(res.headers.get("Content-Security-Policy")).toBeNull();
     expect(res.headers.get("X-Content-Type-Options")).toBeNull();
+  });
+
+  it("keeps report-only by default even when a site passes csp (cspMode unset)", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      csp: ["default-src 'self'"],
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("Content-Security-Policy")).toBe(DEFAULT_FRAME_ANCESTORS_CSP);
+    expect(res.headers.get("Content-Security-Policy-Report-Only")).toBe("default-src 'self'");
+  });
+
+  it("enforce mode emits a nonce CSP (no report-only, no unsafe-inline) on a no-store HTML response", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      csp: ["default-src 'self'", "script-src 'self' 'unsafe-inline' https://gtm.example"],
+      cspMode: "enforce",
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    // Promoted to enforced — report-only is gone.
+    expect(res.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
+    expect(csp).toContain("default-src 'self'");
+    // script-src hardened: unsafe-inline dropped, per-request nonce +
+    // inline-speculation-rules added, the host allowlist kept.
+    expect(csp).toMatch(/script-src[^;]*'nonce-[A-Za-z0-9+/=]+'/);
+    expect(csp).toContain("'inline-speculation-rules'");
+    expect(csp).toContain("https://gtm.example");
+    expect(csp).not.toContain("'unsafe-inline'");
+    // Framing protection preserved.
+    expect(csp).toContain("frame-ancestors");
+  });
+
+  it("enforce mode leaves 'unsafe-eval' in place (opt-out is explicit)", async () => {
+    const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
+      csp: ["script-src 'self' 'unsafe-inline' 'unsafe-eval'"],
+      cspMode: "enforce",
+    });
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toContain("'unsafe-eval'");
+    expect(csp).not.toContain("'unsafe-inline'");
+  });
+});
+
+describe("buildEnforcedCsp", () => {
+  const FA = "frame-ancestors 'self' https://studio.decocms.com";
+
+  it("hardens script-src: drops unsafe-inline, adds nonce + inline-speculation-rules, keeps hosts + unsafe-eval", () => {
+    const csp = buildEnforcedCsp(
+      ["script-src 'self' 'unsafe-inline' 'unsafe-eval' https://gtm.example"],
+      FA,
+      "abc123",
+    );
+    expect(csp).toContain("script-src");
+    expect(csp).toContain("'self'");
+    expect(csp).toContain("https://gtm.example");
+    expect(csp).toContain("'unsafe-eval'");
+    expect(csp).toContain("'nonce-abc123'");
+    expect(csp).toContain("'inline-speculation-rules'");
+    expect(csp).not.toContain("'unsafe-inline'");
+    expect(csp).toContain(FA);
+  });
+
+  it("adds a script-src when the site declared none", () => {
+    const csp = buildEnforcedCsp(["default-src 'self'"], FA, "n0nce");
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("script-src 'self' 'nonce-n0nce' 'inline-speculation-rules'");
+    expect(csp).toContain(FA);
+  });
+
+  it("drops any frame-ancestors from the site csp in favour of the canonical one", () => {
+    const csp = buildEnforcedCsp(["frame-ancestors 'none'", "default-src 'self'"], FA, "x");
+    expect(csp).not.toContain("frame-ancestors 'none'");
+    expect(csp).toContain(FA);
   });
 });
 
@@ -479,10 +502,7 @@ describe("POST /_cache/purge-loaders", () => {
     setBlocks({});
   });
 
-  const purge = (
-    env: Record<string, unknown>,
-    headers: Record<string, string> = {},
-  ) => {
+  const purge = (env: Record<string, unknown>, headers: Record<string, string> = {}) => {
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
     });
@@ -502,18 +522,12 @@ describe("POST /_cache/purge-loaders", () => {
   });
 
   it("401s with the wrong token", async () => {
-    const res = await purge(
-      { PURGE_TOKEN: "secret" },
-      { Authorization: "Bearer nope" },
-    );
+    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer nope" });
     expect(res.status).toBe(401);
   });
 
   it("clears the loader cache with a valid token", async () => {
-    const res = await purge(
-      { PURGE_TOKEN: "secret" },
-      { Authorization: "Bearer secret" },
-    );
+    const res = await purge({ PURGE_TOKEN: "secret" }, { Authorization: "Bearer secret" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ cleared: true, scope: "isolate" });
   });
@@ -557,14 +571,8 @@ describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
         delivery: "store-42",
       }),
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
-    expect(res.headers.get("X-Cache-Segment")).toBe(
-      "desktop|r=RJ|delivery=store-42",
-    );
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
+    expect(res.headers.get("X-Cache-Segment")).toBe("desktop|r=RJ|delivery=store-42");
   });
 
   it("produces different X-Cache-Segment hashes for requests that only differ by a custom field", async () => {
@@ -574,19 +582,11 @@ describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
       buildSegment: () => ({ device: "desktop", delivery }),
     });
 
-    const first = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const first = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
     const firstSegment = first.headers.get("X-Cache-Segment");
 
     delivery = "store-2";
-    const second = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const second = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
     const secondSegment = second.headers.get("X-Cache-Segment");
 
     expect(firstSegment).not.toBe(secondSegment);
@@ -601,11 +601,7 @@ describe("X-Cache-Segment — custom SegmentKey fields (#284)", () => {
         flags: ["b", "a"],
       }),
     });
-    const res = await worker.fetch(
-      new Request("https://example.com/"),
-      EMPTY_ENV,
-      MOCK_CTX,
-    );
+    const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
     expect(res.headers.get("X-Cache-Segment")).toBe("desktop|sc=1|f=a,b");
   });
 });
@@ -622,8 +618,7 @@ describe("draft preview (pull-based)", () => {
   const REFLECT_ENTRY = {
     fetch: async () => {
       const { loadBlocks } = await import("@decocms/blocks/cms");
-      const home =
-        (loadBlocks()["pages-home"] as { title?: string } | undefined) ?? {};
+      const home = (loadBlocks()["pages-home"] as { title?: string } | undefined) ?? {};
       return new Response(home.title ?? "PUBLISHED", { status: 200 });
     },
   };
@@ -631,9 +626,7 @@ describe("draft preview (pull-based)", () => {
   let realFetch: typeof fetch;
   afterEach(async () => {
     globalThis.fetch = realFetch;
-    const { setDraftPreviewHosts, clearDraftCache } = await import(
-      "@decocms/blocks/cms"
-    );
+    const { setDraftPreviewHosts, clearDraftCache } = await import("@decocms/blocks/cms");
     setDraftPreviewHosts([]);
     clearDraftCache();
     __resetKvHydrationStateForTests();
@@ -641,9 +634,7 @@ describe("draft preview (pull-based)", () => {
   });
 
   async function enable() {
-    const { setDraftPreviewHosts, clearDraftCache } = await import(
-      "@decocms/blocks/cms"
-    );
+    const { setDraftPreviewHosts, clearDraftCache } = await import("@decocms/blocks/cms");
     setBlocks({
       "pages-home": { name: "home", path: "/", title: "PUBLISHED" },
     });
@@ -784,7 +775,9 @@ describe('cdnCacheControl: "serverfn-segment"', () => {
 
   it("keeps no-store when the marker is from an older build", async () => {
     // Deploying does not purge the CDN, so a stale build token must not match.
-    expect(await cdnHeader(sfnUrl(segmentToken("desktop", false, "oldbuild") as string))).toBe("no-store");
+    expect(await cdnHeader(sfnUrl(segmentToken("desktop", false, "oldbuild") as string))).toBe(
+      "no-store",
+    );
   });
 
   it("keeps no-store when there is no build hash", async () => {
@@ -851,7 +844,11 @@ describe("cdnCacheControl default", () => {
       observability: false,
       buildSegment: () => ({ device: "desktop" as const }),
     });
-    const html = await w.fetch(new Request("https://example.com/"), { BUILD_HASH: BUILD_D }, MOCK_CTX);
+    const html = await w.fetch(
+      new Request("https://example.com/"),
+      { BUILD_HASH: BUILD_D },
+      MOCK_CTX,
+    );
     expect(html.headers.get("CDN-Cache-Control")).toBe("no-store");
 
     const sfn = await w.fetch(
@@ -914,7 +911,11 @@ describe("CDN-Cache-Control at the single response exit", () => {
       deviceSpecificKeys: false,
       geoCacheKey: "off",
     });
-    const res = await w.fetch(new Request("https://example.com/some-category"), EMPTY_ENV, MOCK_CTX);
+    const res = await w.fetch(
+      new Request("https://example.com/some-category"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
     expect(res.headers.get("CDN-Cache-Control")).toMatch(/^public, max-age=\d+$/);
   });
 });
@@ -1000,19 +1001,19 @@ describe("fast-deploy hydration ordering", () => {
       await autoconfigApps({}, registry as never);
       expect(seen).toEqual([]); // nothing to configure yet — this is the trap
 
-    const store = new Map<string, string>([
-      [snapshotKey(ID), JSON.stringify(KV_BLOCKS)],
-      [revisionKey(ID), computeRevision(KV_BLOCKS)],
-    ]);
-    const env = {
-      DECO_KV: {
-        get: (k: string) => Promise.resolve(store.get(k) ?? null),
-        put: () => Promise.resolve(),
-        delete: () => Promise.resolve(),
-      },
-      DECO_FAST_DEPLOY: "1",
-      DECO_DEPLOYMENT_ID: ID,
-    };
+      const store = new Map<string, string>([
+        [snapshotKey(ID), JSON.stringify(KV_BLOCKS)],
+        [revisionKey(ID), computeRevision(KV_BLOCKS)],
+      ]);
+      const env = {
+        DECO_KV: {
+          get: (k: string) => Promise.resolve(store.get(k) ?? null),
+          put: () => Promise.resolve(),
+          delete: () => Promise.resolve(),
+        },
+        DECO_FAST_DEPLOY: "1",
+        DECO_DEPLOYMENT_ID: ID,
+      };
 
       const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false });
       await worker.fetch(new Request("https://example.com/"), env, MOCK_CTX);

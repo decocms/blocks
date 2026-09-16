@@ -17,6 +17,8 @@
  * harmless by construction — the Worker verifies by recomputing and falls back
  * to `no-store` when it doesn't match.
  */
+
+import { getRequestNonce } from "@decocms/blocks/sdk/nonce";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { CSEG_BAG_KEY, CSEG_GLOBAL } from "../sdk/cdnSegment";
 
@@ -25,6 +27,7 @@ export function CdnSegmentMarker() {
   if (!token) return null;
   return (
     <script
+      nonce={getRequestNonce()}
       // A hash this server computed, not user input. JSON.stringify keeps it
       // inert regardless.
       dangerouslySetInnerHTML={{

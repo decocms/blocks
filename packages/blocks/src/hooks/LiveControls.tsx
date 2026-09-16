@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { getRequestNonce } from "../sdk/nonce";
 
 interface LiveControlsProps {
   site?: string;
@@ -135,5 +136,7 @@ function LiveControlsScript() {
     })();
   `;
 
-  return <script type="module" dangerouslySetInnerHTML={{ __html: script }} />;
+  return (
+    <script type="module" nonce={getRequestNonce()} dangerouslySetInnerHTML={{ __html: script }} />
+  );
 }

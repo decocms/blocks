@@ -26,14 +26,6 @@
  */
 
 import {
-  bindCacheStorage,
-  type CacheStorage,
-  createWebCacheStorage,
-  getCacheStorageContext,
-} from "@decocms/blocks/sdk/cacheStorage";
-import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
-
-import {
   getRevision,
   getSectionOptions,
   isBot,
@@ -58,9 +50,16 @@ import {
   getCacheProfile,
   serverFnPagePath,
 } from "@decocms/blocks/sdk/cacheHeaders";
+import {
+  bindCacheStorage,
+  type CacheStorage,
+  createWebCacheStorage,
+  getCacheStorageContext,
+} from "@decocms/blocks/sdk/cacheStorage";
 import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
+import { generateNonce, NONCE_BAG_KEY } from "@decocms/blocks/sdk/nonce";
 import {
   getActiveSpan,
   logRequest,
@@ -79,6 +78,7 @@ import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import { loadRedirects, matchRedirect, type RedirectMap } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
 import { cleanPathForCacheKey } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
 import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
@@ -435,6 +435,24 @@ export interface DecoWorkerEntryOptions {
   csp?: string[] | false;
 
   /**
+   * How the `csp` directives are delivered.
+   *
+   *  - `"report-only"` (default): emitted as `Content-Security-Policy-Report-Only`.
+   *    Browsers report violations but never block — backward-compatible, zero risk.
+   *  - `"enforce"`: emitted as an enforced `Content-Security-Policy`, but ONLY on
+   *    non-cacheable (`CDN-Cache-Control: no-store`) HTML responses. A fresh nonce
+   *    is generated per request, threaded into every SSR inline `<script>` (via
+   *    `router.options.ssr.nonce` + the deco layout components) and into the
+   *    header's `script-src` (which also drops `'unsafe-inline'`). Cacheable
+   *    responses stay report-only, because a per-request nonce would desync from a
+   *    cached body and block every script. `'unsafe-eval'`, if present in the
+   *    site's `script-src`, is left untouched — remove it explicitly in your `csp`.
+   *
+   * @default "report-only"
+   */
+  cspMode?: "report-only" | "enforce";
+
+  /**
    * Automatically inject Cloudflare geo data (country, region, city)
    * as internal cookies on every request so location matchers can read
    * them from MatcherContext.cookies. The cookies are only visible
@@ -771,6 +789,53 @@ export const DECO_ADMIN_FRAME_ANCESTORS: string[] = [
  */
 export const DEFAULT_FRAME_ANCESTORS_CSP = `frame-ancestors ${DECO_ADMIN_FRAME_ANCESTORS.join(" ")}`;
 
+/**
+ * Rewrite a `script-src` directive for nonce enforcement: drop `'unsafe-inline'`
+ * (a nonce makes it dead weight — and CSP ignores it once a nonce is present)
+ * and add `'nonce-<nonce>'` plus `'inline-speculation-rules'` (so the layout's
+ * `<script type="speculationrules">` still runs). `'unsafe-eval'` is left as-is.
+ */
+function hardenScriptSrc(directive: string, nonce: string): string {
+  const tokens = directive.trim().split(/\s+/).slice(1);
+  const kept = tokens.filter((t) => t.toLowerCase() !== "'unsafe-inline'");
+  for (const extra of [`'nonce-${nonce}'`, "'inline-speculation-rules'"]) {
+    if (!kept.includes(extra)) kept.push(extra);
+  }
+  return `script-src ${kept.join(" ")}`;
+}
+
+/**
+ * Build the enforced `Content-Security-Policy` value from the site's `csp`
+ * directives + the enforced `frame-ancestors`. The `script-src` directive is
+ * hardened with the request nonce (added if the site declared none). Any
+ * `frame-ancestors` the site put in `csp` is dropped in favour of the canonical
+ * enforced one.
+ */
+export function buildEnforcedCsp(
+  directives: string[],
+  frameAncestorsCsp: string,
+  nonce: string,
+): string {
+  const out: string[] = [];
+  let sawScriptSrc = false;
+  for (const directive of directives) {
+    const name = directive.trim().split(/\s+/)[0]?.toLowerCase();
+    if (name === "script-src") {
+      sawScriptSrc = true;
+      out.push(hardenScriptSrc(directive, nonce));
+    } else if (name === "frame-ancestors") {
+      // replaced by the canonical enforced frame-ancestors appended below
+    } else {
+      out.push(directive.trim());
+    }
+  }
+  if (!sawScriptSrc) {
+    out.push(`script-src 'self' 'nonce-${nonce}' 'inline-speculation-rules'`);
+  }
+  out.push(frameAncestorsCsp.trim());
+  return out.join("; ");
+}
+
 const DEFAULT_BYPASS_PATHS = ["/_build", "/deco/", "/live/", "/.decofile"];
 
 /**
@@ -1009,6 +1074,7 @@ export function createDecoWorkerEntry(
     cacheVersionEnv = "BUILD_HASH",
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
+    cspMode = "report-only",
     autoInjectGeoCookies: geoOpt = true,
     geoCacheKey: geoCacheKeyOpt = "auto",
     safeCookies: safeCookiesOpt = DEFAULT_SAFE_COOKIES,
@@ -1100,13 +1166,36 @@ export function createDecoWorkerEntry(
     return base;
   })();
 
-  function applySecurityHeaders(resp: Response): Response {
+  // The enforced frame-ancestors value that ends up on `Content-Security-Policy`
+  // (site override wins, else the deco default). Reused when we build the
+  // enforced nonce CSP so framing protection is preserved.
+  const frameAncestorsCsp = secHeaders?.["Content-Security-Policy"] ?? DEFAULT_FRAME_ANCESTORS_CSP;
+
+  function applySecurityHeaders(resp: Response, nonce?: string): Response {
     if (!secHeaders) return resp;
     const ct = resp.headers.get("content-type") ?? "";
     if (!ct.includes("text/html")) return resp;
     const out = new Response(resp.body, resp);
     for (const [k, v] of Object.entries(secHeaders)) {
       if (!out.headers.has(k)) out.headers.set(k, v);
+    }
+    // Enforced nonce CSP: enforce mode + a real nonce + a non-cacheable
+    // response only. On a cacheable response a per-request nonce baked into the
+    // (cached) body would desync from the header on the next HIT and block every
+    // script, so those stay report-only. `CDN-Cache-Control` is decided at the
+    // single response exit just before this call, so `no-store` is reliable here.
+    if (
+      cspMode === "enforce" &&
+      nonce &&
+      cspOpt &&
+      cspOpt.length > 0 &&
+      (out.headers.get("CDN-Cache-Control") ?? "").includes("no-store")
+    ) {
+      out.headers.delete("Content-Security-Policy-Report-Only");
+      out.headers.set(
+        "Content-Security-Policy",
+        buildEnforcedCsp(cspOpt, frameAncestorsCsp, nonce),
+      );
     }
     return out;
   }
@@ -1761,6 +1850,12 @@ export function createDecoWorkerEntry(
       // the final response. Inert on non-preview builds/hosts.
       let draftDecision: DraftDecision = { previewing: false, setCookie: null, clearCookie: false };
 
+      // Per-request CSP nonce (enforce mode only). Generated inside the
+      // RequestContext.run below — before the render — so SSR components and the
+      // router can read it from the bag, then lifted here so the enforced CSP
+      // header built after the render carries the same value.
+      let cspNonce: string | undefined;
+
       // Wrap the entire request in a RequestContext so that all code
       // in the call stack (loaders, invoke handlers, vtexFetchWithCookies)
       // can access the request and write response headers.
@@ -1859,6 +1954,15 @@ export function createDecoWorkerEntry(
               if (token) RequestContext.setBag(CSEG_BAG_KEY, token);
             }
 
+            // CSP nonce (enforce mode only): produce it before the render and
+            // publish it in the bag so `createDecoRouter` (router.options.ssr.nonce)
+            // and the deco layout components pick it up while rendering. Lifted to
+            // `cspNonce` so applySecurityHeaders below stamps the matching header.
+            if (cspMode === "enforce") {
+              cspNonce = generateNonce();
+              RequestContext.setBag(NONCE_BAG_KEY, cspNonce);
+            }
+
             const appMw = getAppMiddleware();
             const innerResponse = appMw
               ? await appMw(request, () => handleRequest(request, env, ctx))
@@ -1911,7 +2015,7 @@ export function createDecoWorkerEntry(
         response.headers.set("CDN-Cache-Control", "no-store");
       }
 
-      let finalResponse = applySecurityHeaders(response);
+      let finalResponse = applySecurityHeaders(response, cspNonce);
 
       // Echo request.id + trace.id back to the client / tail worker.
       // The CF tail worker reads these headers off the response to

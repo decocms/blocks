@@ -65,6 +65,7 @@
 		"./sdk/invoke": "./src/sdk/invoke.ts",
 		"./sdk/logger": "./src/sdk/logger.ts",
 		"./sdk/mergeCacheControl": "./src/sdk/mergeCacheControl.ts",
+		"./sdk/nonce": "./src/sdk/nonce.ts",
 		"./sdk/normalizeUrls": "./src/sdk/normalizeUrls.ts",
 		"./sdk/observability": "./src/sdk/observability.ts",
 		"./sdk/otel": "./src/sdk/otel.ts",
