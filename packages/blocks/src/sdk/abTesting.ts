@@ -289,6 +289,57 @@ export function tagBucket(
  * client (browser/curl) follows it on its own. The Location header is
  * rewritten below so the next hop targets the real hostname.
  */
+/**
+ * A `TransformStream` that rewrites every occurrence of `search` in a UTF-8 text
+ * stream, without ever holding the whole body in memory.
+ *
+ * Two hazards it exists to handle:
+ *
+ * - **A match straddling a chunk boundary.** Each pass holds back the last
+ *   `search.length - 1` characters and prepends them to the next chunk. The
+ *   held-back slice is taken from the RAW input, never from already-replaced
+ *   output — otherwise a replacement ending in a prefix of `search` could join
+ *   the next chunk and be replaced a second time.
+ * - **A multi-byte character split across chunks.** `TextDecoder` with
+ *   `{ stream: true }` carries the partial code point across `decode` calls.
+ *
+ * Peak memory is one chunk plus `search.length - 1` characters, not the body.
+ */
+export function createReplaceStream(search: string, replace: string): TransformStream<Uint8Array, Uint8Array> {
+	const decoder = new TextDecoder("utf-8");
+	const encoder = new TextEncoder();
+	const keep = Math.max(0, search.length - 1);
+	let tail = "";
+
+	return new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			const buffer = tail + decoder.decode(chunk, { stream: true });
+			// Hold back ONLY a trailing partial match — the longest suffix of the
+			// buffer that is also a proper prefix of `search`. Everything before it
+			// is safe to replace and emit, because no occurrence can straddle the
+			// cut. Holding back a fixed `search.length - 1` instead would be wrong in
+			// both directions: it can slice a complete match in half (the match
+			// starts before the cut and ends after it, so neither side matches), and
+			// it needlessly buffers when the boundary is plainly not a partial match.
+			let hold = 0;
+			for (let n = Math.min(keep, buffer.length); n > 0; n--) {
+				if (buffer.endsWith(search.slice(0, n))) {
+					hold = n;
+					break;
+				}
+			}
+			const cut = buffer.length - hold;
+			tail = buffer.slice(cut);
+			const head = buffer.slice(0, cut);
+			if (head) controller.enqueue(encoder.encode(head.replaceAll(search, replace)));
+		},
+		flush(controller) {
+			const rest = tail + decoder.decode();
+			if (rest) controller.enqueue(encoder.encode(rest.replaceAll(search, replace)));
+		},
+	});
+}
+
 export async function proxyToFallback(
 	request: Request,
 	url: URL,
@@ -329,18 +380,36 @@ export async function proxyToFallback(
 	// `response.text()` on a 3xx (forwarded redirect) or binary response
 	// would consume the stream needlessly and could throw on non-text
 	// content. The Location header is rewritten separately further down.
+	// Still compressed ⇒ the bytes on the wire are not text and a transform
+	// would corrupt them. Workerd strips the header when it decompresses, so
+	// the streaming path covers the ordinary case; anything left encoded is
+	// forwarded untouched rather than decoded just to rewrite a hostname.
+	const encoding = (response.headers.get("content-encoding") ?? "").toLowerCase();
+	const isPlain = encoding === "" || encoding === "identity";
+
 	let body: BodyInit | null = response.body;
+	let rewrote = false;
 	if (
 		isText &&
+		isPlain &&
 		response.body &&
 		response.status >= 200 &&
-		response.status < 300
+		response.status < 300 &&
+		fallbackOrigin.length > 0
 	) {
-		const text = await response.text();
-		body = text.replaceAll(fallbackOrigin, url.hostname);
+		// Streamed, not buffered. `response.text()` held the entire body as a
+		// JS string (two bytes per character) plus the replaced copy — multiple
+		// megabytes of a 128MB isolate budget for a hostname substitution.
+		body = response.body.pipeThrough(createReplaceStream(fallbackOrigin, url.hostname));
+		rewrote = true;
 	}
 
 	const rewritten = new Response(body, response);
+
+	// The rewrite changes the body length, so the upstream `content-length` is
+	// now a lie — and a streamed body has no length to state. (This was already
+	// wrong on the buffered path; it just never had to be chunked.)
+	if (rewrote) rewritten.headers.delete("content-length");
 
 	const setCookies = response.headers.getSetCookie?.() ?? [];
 	if (setCookies.length > 0) {
