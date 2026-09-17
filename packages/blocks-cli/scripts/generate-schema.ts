@@ -369,6 +369,37 @@ interface GenerationContext {
   outputTypeToLoaderKeys: Map<string, string[]>;
 }
 
+function namedLoaderType(type: Type | undefined): string | null {
+  if (!type) return null;
+  const name = type.getSymbol()?.getName();
+  if (
+    name &&
+    name !== "__type" &&
+    name !== "__object" &&
+    name !== "Array" &&
+    name !== "ReadonlyArray"
+  ) {
+    return name;
+  }
+  // Mapped/object aliases have a synthetic symbol but retain their own name.
+  // Bare Omit<T, K>/Generic<T> must not share a bucket across instantiations.
+  const alias = type.getAliasSymbol();
+  return alias && type.getAliasTypeArguments().length === 0 ? alias.getName() : null;
+}
+
+/** Same bounded name lookup for loader outputs and section props; no shape matching. */
+function loaderTypeName(type: Type): string | null {
+  if (type.isUnion()) {
+    const nonNull = type.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
+    if (nonNull.length === 1) type = nonNull[0];
+  }
+  if (type.isArray()) {
+    const name = namedLoaderType(type.getArrayElementType());
+    return name ? `${name}[]` : null;
+  }
+  return namedLoaderType(type);
+}
+
 /**
  * Extract the return type name of a loader's default export.
  * Unwraps Promise<T> and T | null wrappers.
@@ -383,25 +414,7 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
     const args = ret.getTypeArguments();
     if (args.length) ret = args[0];
   }
-  if (ret.isUnion()) {
-    const nonNull = ret.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
-    if (nonNull.length === 1) ret = nonNull[0];
-  }
-  // Unwrap array element type — Product[] → "Product[]" (keyed as array).
-  // When the element type has no resolvable name (primitives like `string[]`,
-  // or opaque types like `VNode[]`), there is NO meaningful output-type key.
-  // Returning the generic `Array` symbol here would bucket the loader under
-  // "Array", which then collides with EVERY array-typed section prop
-  // (`Collection[]`, `Tab[]`, …) and wrongly turns them into loader pickers.
-  if (ret.isArray()) {
-    const elType = ret.getArrayElementType();
-    const elName = elType?.getSymbol()?.getName() ?? elType?.getAliasSymbol()?.getName() ?? null;
-    return elName ? `${elName}[]` : null;
-  }
-  // Reject anonymous object returns (`{ … }` → symbol name "__type"): they are
-  // not a nameable output type and would over-match anonymous-object props.
-  const name = ret.getSymbol()?.getName() ?? ret.getAliasSymbol()?.getName() ?? null;
-  return name && name !== "__type" ? name : null;
+  return loaderTypeName(ret);
 }
 
 export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
@@ -619,32 +632,10 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         // Loader output type → block-ref: emit anyOf [Resolvable, ...matchingLoaders]
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
         if (ctx?.outputTypeToLoaderKeys) {
-          const typeSym = propType.getSymbol() ?? propType.getAliasSymbol();
-          // An array type's symbol name is always the generic "Array", which is
-          // never a meaningful loader output key — fall back to the AST type
-          // text (`baseHint`, e.g. "Collection[]") instead. The element-based
-          // `${elName}[]` lookup below handles arrays precisely.
-          const symName = typeSym?.getName();
-          const outputTypeName = symName && symName !== "Array" ? symName : baseHint;
-          let matchingLoaders =
-            ctx.outputTypeToLoaderKeys.get(outputTypeName) ??
+          const outputTypeName = loaderTypeName(propType);
+          const matchingLoaders =
+            (outputTypeName ? ctx.outputTypeToLoaderKeys.get(outputTypeName) : undefined) ??
             (outputTypeName !== baseHint ? ctx.outputTypeToLoaderKeys.get(baseHint) : undefined);
-          // If no match yet and the prop type is an array, try element type name + "[]"
-          if (!matchingLoaders?.length) {
-            let arrayElementType = propType.isArray() ? propType.getArrayElementType() : null;
-            if (!arrayElementType && propType.isUnion()) {
-              const nonNull = propType.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
-              if (nonNull.length === 1 && nonNull[0].isArray()) {
-                arrayElementType = nonNull[0].getArrayElementType();
-              }
-            }
-            if (arrayElementType) {
-              const elName = arrayElementType.getSymbol()?.getName() ?? arrayElementType.getAliasSymbol()?.getName();
-              if (elName) {
-                matchingLoaders = ctx.outputTypeToLoaderKeys.get(`${elName}[]`);
-              }
-            }
-          }
           if (matchingLoaders?.length) {
             const blockRefSchema: any = {
               anyOf: [
