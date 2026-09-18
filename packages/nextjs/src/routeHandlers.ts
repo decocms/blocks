@@ -213,6 +213,30 @@ export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}):
       // JSON body through this branch and asserts it still parses.
       return handleRender(new Request(rebuilt, request));
     }
+    if (action === "preview" || action.startsWith("preview/")) {
+      // A request for the RSC preview PAGE (singular `preview`, the target of
+      // the `previews` redirect above) that reached THIS route handler means
+      // `app/deco/preview/[[...path]]/page.tsx` is not mounted on the site.
+      // When that page exists, Next routes `/deco/preview/*` to it — its
+      // static `preview` segment out-specifies this optional catch-all, so
+      // the handler never sees the request (verified against a real
+      // `next build && next start`, for both real-slash and %2F-encoded
+      // keys). A missing page otherwise degrades to a cryptic
+      // "Unknown deco route" 404; return an actionable diagnostic instead so
+      // the misconfiguration is self-explanatory. Do NOT try to render the
+      // preview here via `handleRender`: this handler runs in the
+      // react-server module graph, where `renderToString` cannot invoke the
+      // client-reference proxies Next creates for `"use client"` components —
+      // which is the entire reason the dedicated RSC page exists.
+      return new Response(
+        JSON.stringify({
+          error:
+            "Deco preview page not mounted. Add app/deco/preview/[[...path]]/page.tsx exporting `createDecoPreviewPage({ setup })` from @decocms/nextjs (see the deco-next-package-migration skill's admin-routes template).",
+          path: url.pathname,
+        }),
+        { status: 501, headers: { "Content-Type": "application/json" } },
+      );
+    }
     return new Response(JSON.stringify({ error: `Unknown deco route: ${url.pathname}` }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
