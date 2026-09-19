@@ -123,6 +123,7 @@ export interface KVNamespace {
 //   index:revision:<id>    DJB2 hex revision of that snapshot (polled)
 //   index:live             pointer to the currently-live <id> (set post-deploy)
 //   index:deployments      JSON [{id, ts}] (newest last) — GC bookkeeping
+//   redirect:<id>:<path>   ONE key per exact redirect (see below)
 // ---------------------------------------------------------------------------
 
 /** KV key holding the full decofile JSON for deployment `id`. */
@@ -143,6 +144,42 @@ export const LIVE_KEY = "index:live";
 /** Bookkeeping key: JSON array of `{ id, ts }` (newest last) tracking known
  * deployment snapshots so the sync script can GC all but the last N. */
 export const DEPLOYMENTS_KEY = "index:deployments";
+
+// ---------------------------------------------------------------------------
+// Exact redirects — one KV key each, deliberately NOT inside the decofile.
+//
+// A bulk-migration site can carry tens of thousands of rules. Inside the
+// decofile they are resident in every isolate twice over: once in the parsed
+// snapshot graph, once in the `RedirectMap` built from it — megabytes of a
+// 128MB budget, for data that is read at most once per request and usually
+// never. As their own keys they are looked up on demand and the list is never
+// loaded at all.
+//
+// Only EXACT rules move. Glob rules (`/old/*`) cannot be addressed by key and
+// must be scanned in order, so they stay in the decofile — there are tens of
+// them, not thousands.
+// ---------------------------------------------------------------------------
+
+/** Key prefix holding deployment `id`'s exact redirects (one key per path). */
+export function redirectPrefix(id: string): string {
+  return `redirect:${id}:`;
+}
+
+/**
+ * KV key for one exact redirect. `path` MUST already be normalized by
+ * `normalizePath` (`@decocms/blocks/sdk/redirects`) on both sides — the writer
+ * and the request-time lookup — or a rule is written under a key nothing ever
+ * asks for.
+ */
+export function redirectKey(id: string, path: string): string {
+  return `${redirectPrefix(id)}${path}`;
+}
+
+/** Value stored at a `redirect:<id>:<path>` key. */
+export interface StoredRedirect {
+  to: string;
+  status: 301 | 302;
+}
 
 // ---------------------------------------------------------------------------
 // Deployment id resolution
