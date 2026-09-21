@@ -23,6 +23,30 @@ export interface WakeConfig {
 
 const STOREFRONT_ENDPOINT = "https://storefront-api.fbits.net/graphql";
 
+/**
+ * Read an env var. Wake's tokens are provided ONLY via environment variables
+ * (no CMS secret / `resolveSecret`): `WAKE_TOKEN` (storefront) and, if ever
+ * needed, `WAKE_KEY` (admin). `process.env` is populated in Node and in
+ * Cloudflare Workers via `nodejs_compat` — the same source the framework's
+ * own `getEnvVar()` reads first.
+ */
+function readEnv(name: string): string | undefined {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env;
+  const value = env?.[name];
+  return value && value.length > 0 ? value : undefined;
+}
+
+/** Wake Storefront API token from `WAKE_TOKEN`. */
+export function getWakeStorefrontTokenFromEnv(): string | undefined {
+  return readEnv("WAKE_TOKEN");
+}
+
+/** Wake Admin API token from `WAKE_KEY` (currently unused by loaders/actions). */
+export function getWakeAdminTokenFromEnv(): string | undefined {
+  return readEnv("WAKE_KEY");
+}
+
 let _client: GraphQLClient | null = null;
 let _config: WakeConfig | null = null;
 let _fetch: FetchFn | undefined;
@@ -91,8 +115,9 @@ export function initWakeFromBlocks(blocks: Record<string, unknown>) {
   configureWake({
     account: block.account as string,
     checkoutUrl: (block.checkoutUrl as string) ?? "",
-    storefrontToken: (block.storefrontToken as string) ?? "",
+    // Tokens come from env only (WAKE_TOKEN / WAKE_KEY), never the CMS block.
+    storefrontToken: getWakeStorefrontTokenFromEnv() ?? "",
     storefrontEndpoint: block.storefrontEndpoint as string | undefined,
-    token: block.token as string | undefined,
+    token: getWakeAdminTokenFromEnv(),
   });
 }

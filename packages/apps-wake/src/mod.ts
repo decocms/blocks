@@ -7,7 +7,12 @@
  */
 
 import type { AppDefinition, AppHandler, ResolveSecretFn } from "@decocms/apps-commerce/app-types";
-import { configureWake, type WakeConfig } from "./client";
+import {
+  configureWake,
+  getWakeAdminTokenFromEnv,
+  getWakeStorefrontTokenFromEnv,
+  type WakeConfig,
+} from "./client";
 import Sitemap from "./handlers/sitemap";
 import manifest from "./manifest.gen";
 
@@ -20,20 +25,9 @@ export interface Props {
   account: string;
   /**
    * @title Checkout Url
-   * @description https://checkout.erploja2.com.br
+   * @description https://secure.sprint55.com.br — checkout/login domain
    */
   checkoutUrl: string;
-  /**
-   * @title Wake Storefront Token
-   * @description https://wakecommerce.readme.io/docs/storefront-api-criacao-e-autenticacao-do-token
-   */
-  storefrontToken: string;
-  /**
-   * @title Wake API token
-   * @description The token for accessing wake commerce
-   * @format password
-   */
-  token?: string;
   /**
    * @description Use Wake as backend platform
    * @hide true
@@ -47,30 +41,27 @@ export interface WakeState {
 
 /**
  * Configure the Wake app from CMS block data.
- * Returns an AppDefinition or null if required fields are missing.
+ *
+ * The Wake tokens are NOT stored in the CMS block — they come only from
+ * environment variables (`WAKE_TOKEN` storefront, `WAKE_KEY` admin), so
+ * `resolveSecret` is intentionally unused. Returns null if the account or the
+ * storefront token env var is missing.
  */
 export async function configure(
   block: Record<string, unknown> | null | undefined,
-  resolveSecret: ResolveSecretFn,
+  _resolveSecret: ResolveSecretFn,
 ): Promise<AppDefinition<WakeState> | null> {
   if (!block?.account) return null;
 
-  const storefrontToken =
-    (await resolveSecret(block.storefrontToken, "WAKE_TOKEN")) ??
-    (typeof block.storefrontToken === "string" ? block.storefrontToken : null);
-
+  const storefrontToken = getWakeStorefrontTokenFromEnv();
   if (!storefrontToken) return null;
-
-  const token =
-    (await resolveSecret(block.token, "WAKE_KEY")) ??
-    (typeof block.token === "string" ? block.token : undefined) ??
-    undefined;
 
   const config: WakeConfig = {
     account: block.account as string,
     checkoutUrl: (block.checkoutUrl as string) ?? "",
     storefrontToken,
-    token: token ?? undefined,
+    storefrontEndpoint: block.storefrontEndpoint as string | undefined,
+    token: getWakeAdminTokenFromEnv(),
   };
 
   // Bridge: maintain global singleton for backward compat
