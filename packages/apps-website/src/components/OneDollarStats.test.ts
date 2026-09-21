@@ -216,3 +216,44 @@ describe("initOneDollarStats", () => {
 		expect(event).toHaveBeenCalledWith("ev", { keep: "x" });
 	});
 });
+
+describe("async tracker readiness", () => {
+	// The tracker <script> is `async`, so it can resolve after the 10s poll
+	// window closes. Its `load` event is the second, unbounded trigger.
+	let tracker: HTMLScriptElement;
+
+	beforeEach(() => {
+		tracker = document.createElement("script");
+		tracker.id = "onedollarstats-tracker";
+		document.head.appendChild(tracker);
+	});
+
+	afterEach(() => {
+		tracker.remove();
+	});
+
+	it("fires the initial pageview on the tracker's load event after the poll window closes", () => {
+		const view = vi.fn();
+		initOneDollarStats();
+
+		// Poll window (200 * 50ms) elapses with no stonks — pageview would be lost.
+		vi.advanceTimersByTime(11_000);
+		expect(view).not.toHaveBeenCalled();
+
+		(window as Window & { stonks?: unknown }).stonks = { view };
+		tracker.dispatchEvent(new Event("load"));
+
+		expect(view).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not double-fire when both the poll and the load event resolve", () => {
+		const view = vi.fn();
+		initOneDollarStats();
+
+		(window as Window & { stonks?: unknown }).stonks = { view };
+		vi.advanceTimersByTime(100); // poll wins
+		tracker.dispatchEvent(new Event("load"));
+
+		expect(view).toHaveBeenCalledTimes(1);
+	});
+});

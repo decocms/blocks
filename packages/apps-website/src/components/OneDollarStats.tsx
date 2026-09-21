@@ -24,10 +24,11 @@
  * 2. **`useEffect` for client logic.** All side-effects (initial pageview,
  *    pushState wrap, DECO event subscribe) run inside a `useEffect`,
  *    which fires after hydration. By then `<ScriptOnce>` in
- *    `DecoRootLayout` has bootstrapped `window.DECO.events`, and the SDK
- *    `<script>` (rendered as a sibling) has loaded and set
- *    `window.stonks`. No inline `dangerouslySetInnerHTML` snippet, no
- *    fragile script-execution-order dependency.
+ *    `DecoRootLayout` has bootstrapped `window.DECO.events`. The SDK
+ *    `<script>` (rendered as a sibling) is `async`, so `window.stonks`
+ *    may or may not exist yet — see (4) and (5). No inline
+ *    `dangerouslySetInnerHTML` snippet, no fragile script-execution-order
+ *    dependency.
  *
  * 3. **Module-level guards.** `window.DECO.events.subscribe()` returns no
  *    unsubscribe handle, so we cannot clean up on unmount. We use a
@@ -38,6 +39,18 @@
  *    might not be ready the instant our effect fires (race with script
  *    load). We poll every 50 ms for up to 10 s. Production: resolves
  *    within one tick.
+ *
+ * 5. **The tracker `<script>` is `async`, never `defer`.** A third-party
+ *    analytics tag must not be able to hold the host page's lifecycle
+ *    hostage: with `defer`, an unreachable `s.lilstts.com` (adblock,
+ *    blocked route, DNS/CDN outage) delays DOMContentLoaded/load until
+ *    the TCP timeout — a real client saw the browser spin for ~5 min
+ *    with the page already painted. `async` is non-blocking for both
+ *    parsing and DOMContentLoaded. Because the tracker can then resolve
+ *    at any point, the first pageview is fired from whichever comes
+ *    first: the readiness poll, or the tracker's own `load` event
+ *    (which also covers a tracker that arrives after the 10 s poll
+ *    window closes). See `deco-cx/apps@e0af145` for the Fresh-side fix.
  *
  * ## Behavioural parity vs Fresh `deco-cx/apps`
  *
@@ -69,6 +82,9 @@ export interface Props {
 	staticScriptUrl?: string;
 }
 
+/** DOM id of the tracker `<script>`; we listen to its `load` event. */
+const TRACKER_ID = "onedollarstats-tracker";
+
 export const DEFAULT_COLLECTOR_ADDRESS = "https://d.lilstts.com/events";
 export const DEFAULT_ANALYTICS_SCRIPT_URL = "https://s.lilstts.com/deco.js";
 
@@ -91,12 +107,12 @@ function OneDollarStats({ collectorAddress, staticScriptUrl }: Props) {
 			<link rel="dns-prefetch" href={collector} />
 			<link rel="preconnect" href={collector} crossOrigin="anonymous" />
 			<script
-				id="onedollarstats-tracker"
+				id={TRACKER_ID}
 				data-autocollect="false"
 				data-hash-routing="true"
 				data-url={collector}
 				src={staticScript}
-				defer
+				async
 			/>
 			<OneDollarStatsClient />
 		</>
@@ -199,6 +215,14 @@ function whenReady<T>(
 	}, intervalMs);
 }
 
+type StonksView = NonNullable<NonNullable<Window["stonks"]>["view"]>;
+
+function getStonksView(): StonksView | undefined {
+	return typeof window.stonks?.view === "function"
+		? window.stonks.view.bind(window.stonks)
+		: undefined;
+}
+
 /**
  * Wire up the analytics integration. Idempotent — only the first call has
  * any effect.
@@ -212,16 +236,29 @@ export function initOneDollarStats(): void {
 	const flags = readFlagsFromCookie();
 
 	// 1) Initial pageview + SPA nav tracking, with flag enrichment.
-	whenReady(
-		() =>
-			typeof window.stonks?.view === "function"
-				? window.stonks.view.bind(window.stonks)
-				: undefined,
-		(view) => {
-			view(flags);
-			wrapHistoryPushState(() => view(flags));
-			addEventListener("popstate", () => view(flags));
+	//
+	// The tracker is `async`, so `window.stonks` may land before hydration,
+	// after it, or after the poll window closes. Two independent triggers,
+	// first one wins (`started` guard) — otherwise a slow tracker silently
+	// drops the landing pageview, since `data-autocollect="false"` means the
+	// SDK will never send one for us.
+	let started = false;
+	const start = (view: StonksView) => {
+		if (started) return;
+		started = true;
+		view(flags);
+		wrapHistoryPushState(() => view(flags));
+		addEventListener("popstate", () => view(flags));
+	};
+
+	whenReady(getStonksView, start);
+	document.getElementById(TRACKER_ID)?.addEventListener(
+		"load",
+		() => {
+			const view = getStonksView();
+			if (view) start(view);
 		},
+		{ once: true },
 	);
 
 	// 2) Forward DECO events to stonks.event with flag enrichment.
