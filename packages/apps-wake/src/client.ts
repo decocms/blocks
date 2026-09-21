@@ -4,15 +4,24 @@ import { createGraphqlClient, type GraphQLClient } from "./utils/graphql";
 export interface WakeConfig {
   /** Wake account name, e.g. "erploja2". */
   account: string;
-  /** Checkout URL, e.g. "https://checkout.erploja2.com.br". */
+  /**
+   * Checkout/login domain, e.g. "https://secure.sprint55.com.br". Used only for
+   * the checkout REST API (login/cart) and proxy — NOT for the storefront
+   * GraphQL, which is a fixed multi-tenant endpoint resolved by the token.
+   */
   checkoutUrl: string;
   /** Wake Storefront API token (sent as `TCS-Access-Token`). */
   storefrontToken: string;
+  /**
+   * Storefront GraphQL endpoint. Defaults to Wake's canonical multi-tenant
+   * endpoint; override only for a custom storefront host.
+   */
+  storefrontEndpoint?: string;
   /** Wake Admin API token (Basic auth). Currently unused by the loaders/actions. */
   token?: string;
 }
 
-const STOREFRONT_FALLBACK = "https://storefront-api.fbits.net";
+const STOREFRONT_ENDPOINT = "https://storefront-api.fbits.net/graphql";
 
 let _client: GraphQLClient | null = null;
 let _config: WakeConfig | null = null;
@@ -36,7 +45,7 @@ export function setWakeFetch(fetchFn: FetchFn) {
 
 export function configureWake(config: WakeConfig) {
   _config = config;
-  const endpoint = new URL("/graphql", config.checkoutUrl || STOREFRONT_FALLBACK).href;
+  const endpoint = config.storefrontEndpoint || STOREFRONT_ENDPOINT;
   _client = createGraphqlClient(
     endpoint,
     {
@@ -83,6 +92,7 @@ export function initWakeFromBlocks(blocks: Record<string, unknown>) {
     account: block.account as string,
     checkoutUrl: (block.checkoutUrl as string) ?? "",
     storefrontToken: (block.storefrontToken as string) ?? "",
+    storefrontEndpoint: block.storefrontEndpoint as string | undefined,
     token: block.token as string | undefined,
   });
 }
