@@ -16,6 +16,10 @@ export const setPartnerCookie = (headers: Headers, partnerToken: string) =>
     value: partnerToken,
     path: "/",
     expires: new Date(Date.now() + TEN_DAYS_MS),
+    // Server-only token — nothing client-side reads it.
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
   });
 
 export const deletePartnerCookie = (headers: Headers) =>

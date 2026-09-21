@@ -16,6 +16,9 @@ export const setCartCookie = (headers: Headers, cartId: string) =>
     value: cartId,
     path: "/",
     expires: new Date(Date.now() + TEN_DAYS_MS),
+    // Not HttpOnly: the client mirrors this cookie via `setClientCookie`.
+    secure: true,
+    sameSite: "Lax",
   });
 
 /** Browser-only: mirror the cart id into a client-readable cookie. */

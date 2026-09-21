@@ -43,7 +43,7 @@ export default function Sitemap({ include }: Props = {}) {
       throw new Error("Missing account");
     }
 
-    const publicUrl = `${BASE_SITEMAP_URL}/${account}/`;
+    const publicUrl = `${BASE_SITEMAP_URL}/${encodeURIComponent(account)}/`;
 
     const response = await fetchSafe(publicUrl);
 

@@ -57,9 +57,11 @@ export function createGraphqlClient(
       const init: InstrumentedFetchInit = {
         method: "POST",
         headers: {
+          // Per-call `extraHeaders` (e.g. forwarded client IP) come first so
+          // they can never override the app's auth token or Content-Type.
+          ...extraHeaders,
           "Content-Type": "application/json",
           ...headers,
-          ...extraHeaders,
         },
         body: JSON.stringify({ query, variables }),
         ...(operation ? { operation } : {}),

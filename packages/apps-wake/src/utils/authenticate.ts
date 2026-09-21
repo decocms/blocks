@@ -21,8 +21,15 @@ const authenticate = async (): Promise<string | null> => {
   if (!loginCookie) return null;
 
   try {
+    // Forward only the Cookie header (carries `fbits-login`) rather than the
+    // whole incoming header set — the checkout endpoint only needs the session
+    // cookie to resolve the customer.
+    const forwardHeaders = new Headers();
+    const cookie = req.headers.get("cookie");
+    if (cookie) forwardHeaders.set("cookie", cookie);
+
     const response = await fetchSafe(new URL("/api/Login/Get", getCheckoutUrl()).href, {
-      headers: req.headers,
+      headers: forwardHeaders,
     });
     if (!response.ok) return null;
     const data = (await response.json()) as UserAuthenticate | null;
