@@ -15,6 +15,12 @@ export {
   initWakeFromBlocks,
   setWakeFetch,
 } from "./client";
+// Commerce loaders factory (cached, CMS-registerable map)
+export {
+  type CommerceLoaderFn,
+  createWakeCommerceLoaders,
+  type WakeCommerceLoadersOptions,
+} from "./commerceLoaders";
 // Cart / user / wishlist
 export { default as cartLoader } from "./loaders/cart";
 // Shop / partners
