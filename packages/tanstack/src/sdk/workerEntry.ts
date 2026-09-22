@@ -409,8 +409,10 @@ export interface DecoWorkerEntryOptions {
    * the build hash, so they survive deploys in shared storage (e.g. KV). HTML
    * responses and resolved sections stay per-build.
    *
-   * Change the value to purge those caches (e.g. when a deploy changes the
-   * shape a loader returns). Missing/empty = per-build, today's behaviour.
+   * Any string: prefer a name that says why it last changed, e.g.
+   * `"2026-09-22-pdp-custom-flags"`. Change it to purge those caches (e.g. when
+   * a deploy changes the shape a loader returns). Missing/empty = per-build,
+   * today's behaviour.
    * CMS revision, segment/device and geo stay in the key either way.
    *
    * @default "DECO_DATA_CACHE_VERSION"
@@ -418,7 +420,7 @@ export interface DecoWorkerEntryOptions {
    * @example
    * ```jsonc
    * // wrangler.jsonc
-   * "vars": { "DECO_DATA_CACHE_VERSION": "1" }
+   * "vars": { "DECO_DATA_CACHE_VERSION": "2026-09-22-initial" }
    * ```
    */
   dataCacheVersionEnv?: string | false;
