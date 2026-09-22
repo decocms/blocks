@@ -1,4 +1,5 @@
 import { getCookies, setCookie } from "./cookies";
+import { isSecureRequest } from "./requestCtx";
 
 const PARTNER_COOKIE = "partner-token";
 
@@ -18,7 +19,8 @@ export const setPartnerCookie = (headers: Headers, partnerToken: string) =>
     expires: new Date(Date.now() + TEN_DAYS_MS),
     // Server-only token — nothing client-side reads it.
     httpOnly: true,
-    secure: true,
+    // Secure only on HTTPS — a Secure cookie is dropped over http:// (localhost dev).
+    secure: isSecureRequest(),
     sameSite: "Lax",
   });
 

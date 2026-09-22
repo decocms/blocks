@@ -21,3 +21,21 @@ export const forwardedHeaders = (): Record<string, string> => {
   const req = currentRequest();
   return req ? parseHeaders(req.headers) : {};
 };
+
+/**
+ * Whether the active request is HTTPS — drives the `Secure` cookie flag.
+ * A `Secure` cookie is rejected by browsers over plain HTTP (e.g. localhost
+ * dev), so cookies must only be marked Secure on real HTTPS requests. Defaults
+ * to `true` when the request is unknown (prod-safety).
+ */
+export const isSecureRequest = (): boolean => {
+  const req = currentRequest();
+  if (!req) return true;
+  try {
+    const proto = req.headers.get("x-forwarded-proto");
+    if (proto) return proto.split(",")[0].trim() === "https";
+    return new URL(req.url).protocol === "https:";
+  } catch {
+    return true;
+  }
+};

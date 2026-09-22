@@ -26,6 +26,12 @@ dist/
 # breaking the package on a clean checkout.
 !packages/apps-shopify/src/utils/storefront/storefront.graphql.gen.ts
 
+# Same as apps-shopify above: apps-wake ships a hand-authored GraphQL type-stub
+# (storefront.graphql.gen.ts) that a clean checkout can't regenerate on import,
+# so it must be tracked. #558 committed apps-wake without it (fell outside the
+# carve-outs), breaking the package on a clean checkout.
+!packages/apps-wake/src/utils/graphql/storefront.graphql.gen.ts
+
 .notes/
 
 # Lockfiles — bun is canonical, prevent accidental drift
