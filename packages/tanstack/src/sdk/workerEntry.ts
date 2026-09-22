@@ -416,7 +416,8 @@ export interface DecoWorkerEntryOptions {
    * key. Any other value falls back to `"invalidate"`.
    *
    * With `"preserve"`, a deploy that changes the shape a loader returns can
-   * serve the old shape until `maxAge`. To drop the preserved data once, set
+   * serve the old shape until the entry expires (`maxAge`, plus the
+   * stale window). Gradual rollouts share keys between versions, too. To drop the preserved data once, set
    * `DECO_DATA_CACHE_PURGE` to a new value (any string, e.g. the date).
    *
    * @default "DECO_DATA_CACHE_ON_DEPLOY"
@@ -2173,29 +2174,34 @@ export function createDecoWorkerEntry(
         /* Missing storage is a cache miss, never a storefront failure. */
       }
       const preserveData = !!dataCacheOnDeployEnv && env[dataCacheOnDeployEnv] === "preserve";
-      const scopeFor = (version: string) =>
-        JSON.stringify([
-          new URL(request.url).origin,
-          version,
-          getRevision(),
-          segment
-            ? hashSegment(segment)
-            : isMobileUA(request.headers.get("user-agent") ?? "")
-              ? "mobile"
-              : "desktop",
-          buildGeoCacheParam(
-            (request as unknown as { cf?: Record<string, string> }).cf,
-            effectiveGeoKey(),
-          ),
-          privateRequest ? crypto.randomUUID() : null,
-        ]);
+      // Everything but the version is shared by the build and data scopes.
+      const variant = [
+        getRevision(),
+        segment
+          ? hashSegment(segment)
+          : isMobileUA(request.headers.get("user-agent") ?? "")
+            ? "mobile"
+            : "desktop",
+        buildGeoCacheParam(
+          (request as unknown as { cf?: Record<string, string> }).cf,
+          effectiveGeoKey(),
+        ),
+        privateRequest ? crypto.randomUUID() : null,
+      ];
+      const scopeFor = (version: string) => JSON.stringify([url.origin, version, ...variant]);
       bindCacheStorage({
         storage,
         disabled: privateRequest || isDevMode(),
         scope: scopeFor(getBuildHash(env)),
-        ...(preserveData
-          ? { dataScope: scopeFor(`data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}`) }
-          : {}),
+        // Invalidate mode still versions data by the bundle even when
+        // `cacheVersionEnv: false` blanks the response scope — loader keys used
+        // to carry `__DECO_BUILD_HASH__` themselves.
+        dataScope: scopeFor(
+          preserveData
+            ? `data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}`
+            : getBuildHash(env) ||
+                (typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : ""),
+        ),
         waitUntil: (work) => ctx.waitUntil(work),
       });
     }

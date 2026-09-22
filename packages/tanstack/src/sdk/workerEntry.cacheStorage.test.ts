@@ -132,6 +132,36 @@ describe("worker cache storage injection", () => {
     await flush();
   });
 
+  it("honours dataCacheOnDeployEnv renames and opt-out", async () => {
+    const run = async (opts: object, extra: Record<string, string>) => {
+      clearLoaderCache();
+      const upstream = vi.fn(async () => ({ n: 1 }));
+      const loader = createCachedLoader(`env-name-${JSON.stringify(opts)}`, upstream, {
+        policy: "no-cache",
+        maxAge: 60_000,
+      });
+      const worker = createDecoWorkerEntry(
+        {
+          fetch: async () =>
+            Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+        },
+        { ...options, ...opts },
+      );
+      const bindings = { ...env(), ...extra };
+      await worker.fetch(request("/a"), bindings, ctx);
+      await flush();
+      clearLoaderCache();
+      await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+      await flush();
+      return upstream.mock.calls.length;
+    };
+    expect(await run({ dataCacheOnDeployEnv: "KEEP" }, { KEEP: "preserve" })).toBe(1);
+    expect(
+      await run({ dataCacheOnDeployEnv: false }, { DECO_DATA_CACHE_ON_DEPLOY: "preserve" }),
+    ).toBe(2);
+    expect(await run({}, { DECO_DATA_CACHE_ON_DEPLOY: "yes" })).toBe(2);
+  });
+
   it("stores public server-function POSTs by body and excludes unmarked responses", async () => {
     const origin = {
       fetch: vi.fn(
