@@ -91,7 +91,7 @@ describe("worker cache storage injection", () => {
     await flush();
   });
 
-  it("DECO_DATA_CACHE_VERSION keeps loader results across deploys, HTML stays per-build", async () => {
+  it("DECO_DATA_CACHE_ON_DEPLOY=preserve keeps loader results across deploys", async () => {
     const upstream = vi.fn(async () => ({ n: upstream.mock.calls.length }));
     const loader = createCachedLoader("worker-data-version-test", upstream, {
       policy: "no-cache",
@@ -103,21 +103,32 @@ describe("worker cache storage injection", () => {
       ),
     };
     const worker = createDecoWorkerEntry(origin, options);
-    const bindings = { ...env(), DECO_DATA_CACHE_VERSION: "1" };
+    const bindings = { ...env(), DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
     await worker.fetch(request("/one"), bindings, ctx);
     await flush();
     clearLoaderCache();
     // Distinct paths: only the loader cache is under test, not the HTML cache.
     await worker.fetch(request("/two"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
     expect(upstream).toHaveBeenCalledTimes(1);
-    // Bumping the data version is the purge.
+    // A new DECO_DATA_CACHE_PURGE value drops the preserved data once.
     clearLoaderCache();
-    await worker.fetch(request("/three"), { ...bindings, DECO_DATA_CACHE_VERSION: "2" }, ctx);
+    await worker.fetch(
+      request("/three"),
+      { ...bindings, DECO_DATA_CACHE_PURGE: "2026-09-22" },
+      ctx,
+    );
     expect(upstream).toHaveBeenCalledTimes(2);
-    // Unset = per-build, today's behaviour.
+    // "invalidate" and unset = per-build, today's behaviour.
     clearLoaderCache();
     await worker.fetch(request("/four"), { ...env(), BUILD_HASH: "build-C" }, ctx);
     expect(upstream).toHaveBeenCalledTimes(3);
+    clearLoaderCache();
+    await worker.fetch(
+      request("/five"),
+      { ...env(), BUILD_HASH: "build-D", DECO_DATA_CACHE_ON_DEPLOY: "invalidate" },
+      ctx,
+    );
+    expect(upstream).toHaveBeenCalledTimes(4);
     await flush();
   });
 

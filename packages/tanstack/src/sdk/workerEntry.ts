@@ -403,27 +403,31 @@ export interface DecoWorkerEntryOptions {
   cacheVersionEnv?: string | false;
 
   /**
-   * Environment variable holding a DATA cache version. When set (non-empty),
-   * build-independent data caches — `cachedLoader` results and
-   * `createFetchCache` upstream responses — are keyed by this value instead of
-   * the build hash, so they survive deploys in shared storage (e.g. KV). HTML
-   * responses and resolved sections stay per-build.
+   * Environment variable choosing what a deploy does to build-independent
+   * DATA caches — `cachedLoader` results and `createFetchCache` upstream
+   * responses — in shared storage (e.g. KV):
    *
-   * Any string: prefer a name that says why it last changed, e.g.
-   * `"2026-09-22-pdp-custom-flags"`. Change it to purge those caches (e.g. when
-   * a deploy changes the shape a loader returns). Missing/empty = per-build,
-   * today's behaviour.
-   * CMS revision, segment/device and geo stay in the key either way.
+   *   - `"invalidate"` (or unset — the default): keyed by build, a deploy
+   *     starts them cold. Today's behaviour.
+   *   - `"preserve"`: keyed without the build, they survive deploys.
    *
-   * @default "DECO_DATA_CACHE_VERSION"
+   * HTML responses and resolved sections are always per-build (HTML references
+   * fingerprinted assets). CMS revision, segment/device and geo stay in every
+   * key. Any other value falls back to `"invalidate"`.
+   *
+   * With `"preserve"`, a deploy that changes the shape a loader returns can
+   * serve the old shape until `maxAge`. To drop the preserved data once, set
+   * `DECO_DATA_CACHE_PURGE` to a new value (any string, e.g. the date).
+   *
+   * @default "DECO_DATA_CACHE_ON_DEPLOY"
    *
    * @example
    * ```jsonc
    * // wrangler.jsonc
-   * "vars": { "DECO_DATA_CACHE_VERSION": "2026-09-22-initial" }
+   * "vars": { "DECO_DATA_CACHE_ON_DEPLOY": "preserve" }
    * ```
    */
-  dataCacheVersionEnv?: string | false;
+  dataCacheOnDeployEnv?: string | false;
 
   /**
    * Security headers appended to every SSR response (HTML pages).
@@ -1095,7 +1099,7 @@ export function createDecoWorkerEntry(
     stripTrackingParams: shouldStripTracking = true,
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
-    dataCacheVersionEnv = "DECO_DATA_CACHE_VERSION",
+    dataCacheOnDeployEnv = "DECO_DATA_CACHE_ON_DEPLOY",
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     cspMode = "report-only",
@@ -2168,9 +2172,7 @@ export function createDecoWorkerEntry(
       } catch {
         /* Missing storage is a cache miss, never a storefront failure. */
       }
-      const dataVersion = dataCacheVersionEnv
-        ? ((env[dataCacheVersionEnv] as string | undefined) ?? "")
-        : "";
+      const preserveData = !!dataCacheOnDeployEnv && env[dataCacheOnDeployEnv] === "preserve";
       const scopeFor = (version: string) =>
         JSON.stringify([
           new URL(request.url).origin,
@@ -2191,7 +2193,9 @@ export function createDecoWorkerEntry(
         storage,
         disabled: privateRequest || isDevMode(),
         scope: scopeFor(getBuildHash(env)),
-        ...(dataVersion ? { dataScope: scopeFor(`data:${dataVersion}`) } : {}),
+        ...(preserveData
+          ? { dataScope: scopeFor(`data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}`) }
+          : {}),
         waitUntil: (work) => ctx.waitUntil(work),
       });
     }
