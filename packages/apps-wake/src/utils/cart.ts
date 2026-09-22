@@ -1,4 +1,5 @@
 import { getCookies, setCookie } from "./cookies";
+import { isSecureRequest } from "./requestCtx";
 
 const CART_COOKIE = "carrinho-id";
 
@@ -17,7 +18,8 @@ export const setCartCookie = (headers: Headers, cartId: string) =>
     path: "/",
     expires: new Date(Date.now() + TEN_DAYS_MS),
     // Not HttpOnly: the client mirrors this cookie via `setClientCookie`.
-    secure: true,
+    // Secure only on HTTPS — a Secure cookie is dropped over http:// (localhost dev).
+    secure: isSecureRequest(),
     sameSite: "Lax",
   });
 

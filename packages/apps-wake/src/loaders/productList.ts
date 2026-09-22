@@ -121,6 +121,39 @@ export interface Props {
   getVariations?: boolean;
 }
 
+// Valid keys of Wake's `ProductExplicitFiltersInput`. Migrated blocks may carry
+// other platforms' filter shapes (e.g. Shopify's `tags`/`productTypes`/
+// `productVendors`/`variantOptions`), which Wake rejects with a 500. Keep only
+// the recognized keys.
+const WAKE_FILTER_KEYS = new Set<keyof Filters>([
+  "attributes",
+  "available",
+  "brandId",
+  "categoryId",
+  "ean",
+  "hasImages",
+  "mainVariant",
+  "prices",
+  "productId",
+  "productVariantId",
+  "sameParentAs",
+  "sku",
+  "stock_gte",
+  "stock_lte",
+  "stocks",
+  "updatedAt_gte",
+  "updatedAt_lte",
+]);
+
+const sanitizeFilters = (filters: unknown): Filters => {
+  if (!filters || typeof filters !== "object") return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(filters as Record<string, unknown>)) {
+    if (WAKE_FILTER_KEYS.has(key as keyof Filters)) out[key] = value;
+  }
+  return out as Filters;
+};
+
 /**
  * @title Wake Integration
  * @description Product List loader
@@ -134,11 +167,20 @@ const productListLoader = async (props: Props): Promise<Product[] | null> => {
 
   let data: GetProductsQuery | undefined;
   try {
-    data = await storefront.query<GetProductsQuery>(
-      GetProducts,
-      { ...props, partnerAccessToken },
-      headers,
-    );
+    // Pass ONLY the declared GraphQL variables. The framework injects extra
+    // props (e.g. `__pageUrl`, `__pagePath`) that Wake rejects (500) if spread
+    // into the operation's variables, so we pick explicitly.
+    const variables = {
+      // Tolerate legacy/other-platform props (e.g. `count`) and default the
+      // required GraphQL variables so shelf blocks that don't set them still
+      // resolve. `first` is `Int!` — an undefined here 500s the Wake API.
+      first: props.first ?? (props as { count?: number }).count ?? 12,
+      sortDirection: props.sortDirection ?? "DESC",
+      sortKey: props.sortKey ?? "SALES",
+      filters: sanitizeFilters(props.filters),
+      partnerAccessToken,
+    };
+    data = await storefront.query<GetProductsQuery>(GetProducts, variables, headers);
   } catch (error: unknown) {
     handleAuthError(error, "load product list");
   }
