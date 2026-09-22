@@ -403,6 +403,27 @@ export interface DecoWorkerEntryOptions {
   cacheVersionEnv?: string | false;
 
   /**
+   * Environment variable holding a DATA cache version. When set (non-empty),
+   * build-independent data caches — `cachedLoader` results and
+   * `createFetchCache` upstream responses — are keyed by this value instead of
+   * the build hash, so they survive deploys in shared storage (e.g. KV). HTML
+   * responses and resolved sections stay per-build.
+   *
+   * Change the value to purge those caches (e.g. when a deploy changes the
+   * shape a loader returns). Missing/empty = per-build, today's behaviour.
+   * CMS revision, segment/device and geo stay in the key either way.
+   *
+   * @default "DECO_DATA_CACHE_VERSION"
+   *
+   * @example
+   * ```jsonc
+   * // wrangler.jsonc
+   * "vars": { "DECO_DATA_CACHE_VERSION": "1" }
+   * ```
+   */
+  dataCacheVersionEnv?: string | false;
+
+  /**
    * Security headers appended to every SSR response (HTML pages).
    * Pass `false` to disable entirely.
    *
@@ -1072,6 +1093,7 @@ export function createDecoWorkerEntry(
     stripTrackingParams: shouldStripTracking = true,
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
+    dataCacheVersionEnv = "DECO_DATA_CACHE_VERSION",
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     cspMode = "report-only",
@@ -2144,12 +2166,13 @@ export function createDecoWorkerEntry(
       } catch {
         /* Missing storage is a cache miss, never a storefront failure. */
       }
-      bindCacheStorage({
-        storage,
-        disabled: privateRequest || isDevMode(),
-        scope: JSON.stringify([
+      const dataVersion = dataCacheVersionEnv
+        ? ((env[dataCacheVersionEnv] as string | undefined) ?? "")
+        : "";
+      const scopeFor = (version: string) =>
+        JSON.stringify([
           new URL(request.url).origin,
-          getBuildHash(env),
+          version,
           getRevision(),
           segment
             ? hashSegment(segment)
@@ -2161,7 +2184,12 @@ export function createDecoWorkerEntry(
             effectiveGeoKey(),
           ),
           privateRequest ? crypto.randomUUID() : null,
-        ]),
+        ]);
+      bindCacheStorage({
+        storage,
+        disabled: privateRequest || isDevMode(),
+        scope: scopeFor(getBuildHash(env)),
+        ...(dataVersion ? { dataScope: scopeFor(`data:${dataVersion}`) } : {}),
         waitUntil: (work) => ctx.waitUntil(work),
       });
     }

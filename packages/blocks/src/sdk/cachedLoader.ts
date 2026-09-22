@@ -23,17 +23,10 @@ import { cacheBackground, createCacheStore, getCacheStorageContext } from "./cac
 import { withInflightTimeout } from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
-// Build-time constant injected by `decoVitePlugin()` (see @decocms/tanstack's
-// vite plugin) — the same commit-SHA/deploy token the edge Cache API uses as
-// its `__v` cache-key version. Declared here with a `typeof` guard so it's
-// inert where the define is not applied (Node tests, non-plugin builds). Same
-// pattern already used in `../cms/blockSource.ts`.
-declare const __DECO_BUILD_HASH__: string | undefined;
-
-// Include the build version even when called outside the TanStack worker. The
-// request-scoped store additionally separates sites, content revisions and segments.
-const BUILD =
-  typeof __DECO_BUILD_HASH__ !== "undefined" && __DECO_BUILD_HASH__ ? __DECO_BUILD_HASH__ : "";
+// No build hash in these keys: the request scope (`dataScope`, which defaults
+// to the build-scoped `scope`) already separates deploys when it should. Outside
+// the TanStack worker there is no shared storage — memory lives and dies with
+// the process, so the build can't change under it.
 
 /**
  * `maxAge` above this (10 min) is almost always a mistake for a commerce loader:
@@ -140,6 +133,7 @@ const cache = createCacheStore<CacheEntry>(
   Infinity,
   Infinity,
   (entry) => entry.estimatedBytes,
+  "data",
 );
 
 // Bumped by clearLoaderCache(). A loader invocation captures this at entry and
@@ -257,7 +251,7 @@ export function createCachedLoader<TProps, TResult>(
   if (policy === "no-store") return loaderFn;
 
   return async (props: TProps): Promise<TResult> => {
-    const cacheKey = cache.key(`${BUILD}::${name}::${keyFn(props)}`);
+    const cacheKey = cache.key(`${name}::${keyFn(props)}`);
     const retention =
       maxAge +
       Math.max(staleIfError, policy === "stale-while-revalidate" ? staleWhileRevalidate : 0);
@@ -489,7 +483,7 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     // Explicit null → the loader declared this call uncacheable: run fresh.
     if (keyPart === null) return mod.default(props, req);
 
-    const key = cache.key(`${BUILD}::${name}::${keyPart}`);
+    const key = cache.key(`${name}::${keyPart}`);
     const existing = moduleInflight.get(key) as Promise<TResult> | undefined;
     if (existing) return existing;
 

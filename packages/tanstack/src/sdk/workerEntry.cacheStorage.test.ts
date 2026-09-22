@@ -91,6 +91,36 @@ describe("worker cache storage injection", () => {
     await flush();
   });
 
+  it("DECO_DATA_CACHE_VERSION keeps loader results across deploys, HTML stays per-build", async () => {
+    const upstream = vi.fn(async () => ({ n: upstream.mock.calls.length }));
+    const loader = createCachedLoader("worker-data-version-test", upstream, {
+      policy: "no-cache",
+      maxAge: 60_000,
+    });
+    const origin = {
+      fetch: vi.fn(async () =>
+        Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+      ),
+    };
+    const worker = createDecoWorkerEntry(origin, options);
+    const bindings = { ...env(), DECO_DATA_CACHE_VERSION: "1" };
+    await worker.fetch(request("/one"), bindings, ctx);
+    await flush();
+    clearLoaderCache();
+    // Distinct paths: only the loader cache is under test, not the HTML cache.
+    await worker.fetch(request("/two"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    // Bumping the data version is the purge.
+    clearLoaderCache();
+    await worker.fetch(request("/three"), { ...bindings, DECO_DATA_CACHE_VERSION: "2" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    // Unset = per-build, today's behaviour.
+    clearLoaderCache();
+    await worker.fetch(request("/four"), { ...env(), BUILD_HASH: "build-C" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(3);
+    await flush();
+  });
+
   it("stores public server-function POSTs by body and excludes unmarked responses", async () => {
     const origin = {
       fetch: vi.fn(
