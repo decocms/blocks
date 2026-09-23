@@ -95,7 +95,7 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
-import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
+import { ensureBlocksHydrated, getDataCacheVersion, maybePollRevision } from "./kvHydration";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
 
@@ -2174,6 +2174,8 @@ export function createDecoWorkerEntry(
         /* Missing storage is a cache miss, never a storefront failure. */
       }
       const preserveData = !!dataCacheOnDeployEnv && env[dataCacheOnDeployEnv] === "preserve";
+      // Purge without a deploy: bump `cache:data-version` in DECO_KV.
+      const kvDataVersion = preserveData && storage ? await getDataCacheVersion(env, ctx) : "";
       // Everything but the version is shared by the build and data scopes.
       const variant = [
         getRevision(),
@@ -2198,7 +2200,7 @@ export function createDecoWorkerEntry(
         // to carry `__DECO_BUILD_HASH__` themselves.
         dataScope: scopeFor(
           preserveData
-            ? `data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}`
+            ? `data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}:${kvDataVersion}`
             : getBuildHash(env) ||
                 (typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : ""),
         ),

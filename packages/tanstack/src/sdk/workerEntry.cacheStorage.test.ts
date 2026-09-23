@@ -8,6 +8,7 @@ import {
   getCacheStorageContext,
 } from "@decocms/blocks/sdk/cacheStorage";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetKvHydrationStateForTests } from "./kvHydration";
 import { createDecoWorkerEntry } from "./workerEntry";
 
 function makeKV(): CacheKVNamespace {
@@ -129,6 +130,35 @@ describe("worker cache storage injection", () => {
       ctx,
     );
     expect(upstream).toHaveBeenCalledTimes(4);
+    await flush();
+  });
+
+  it("a new cache:data-version in DECO_KV purges preserved data without a deploy", async () => {
+    __resetKvHydrationStateForTests();
+    const upstream = vi.fn(async () => ({ n: 1 }));
+    const loader = createCachedLoader("worker-kv-data-version", upstream, {
+      policy: "no-cache",
+      maxAge: 60_000,
+    });
+    const worker = createDecoWorkerEntry(
+      {
+        fetch: async () =>
+          Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+      },
+      options,
+    );
+    const DECO_KV = makeKV();
+    const bindings = { ...env(), DECO_KV, DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
+    await worker.fetch(request("/a"), bindings, ctx);
+    await flush();
+    clearLoaderCache();
+    await worker.fetch(request("/b"), bindings, ctx);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    await DECO_KV.put("cache:data-version", "v2", { expirationTtl: 60 });
+    __resetKvHydrationStateForTests(); // skip the poll interval
+    clearLoaderCache();
+    await worker.fetch(request("/c"), bindings, ctx);
+    expect(upstream).toHaveBeenCalledTimes(2);
     await flush();
   });
 

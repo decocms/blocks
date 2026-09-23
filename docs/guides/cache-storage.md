@@ -91,7 +91,10 @@ so a CMS publish still selects new keys.
 With `"preserve"`, a deploy that changes the shape a loader returns can serve the
 old shape until the loader's `maxAge` (longer during upstream errors, via
 `staleIfError`). To drop preserved data once, set `DECO_DATA_CACHE_PURGE` to a
-new value (any string, e.g. the date) in that deploy. During a gradual rollout the
+new value (any string, e.g. the date) in that deploy.
+To purge without a deploy, write a new value to the `cache:data-version` key in
+the site's `DECO_KV` namespace (the control-plane does this through the Cloudflare
+API). Isolates pick it up within 10s; the old keys are orphaned and expire by TTL. During a gradual rollout the
 old and new versions share those keys, so ship shape changes with a purge. The option
 `dataCacheOnDeployEnv` on `createDecoWorkerEntry` renames the variable, or
 disables it with `false`.
