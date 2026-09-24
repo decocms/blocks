@@ -12,6 +12,7 @@ import {
   __resetKvHydrationStateForTests,
   ensureBlocksHydrated,
   getDeploymentId,
+  getMetaKV,
   isFastDeployEnabled,
   maybePollRevision,
 } from "./kvHydration";
@@ -358,5 +359,47 @@ describe("ensureBlocksHydrated when the bundle DOES ship a decofile (default)", 
     await expect(
       ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getMetaKV — the admin schema's read side.
+//
+// The stub (bundle) and the read (KV) must be driven by ONE switch. Gating the
+// read on "are the keys present" instead would silently move /live/_meta onto
+// KV for every site whose build seeds them, opted in or not — the same shape
+// the decofile path already rejects.
+// ---------------------------------------------------------------------------
+declare global {
+  // eslint-disable-next-line no-var
+  var __DECO_META_FROM_KV__: boolean | undefined;
+}
+
+describe("getMetaKV", () => {
+  const kv = { get: () => Promise.resolve(null) } as unknown as KVNamespace;
+
+  beforeEach(() => {
+    globalThis.__DECO_META_FROM_KV__ = undefined;
+  });
+
+  it("returns null when the bundle was not built with metaFromKV", () => {
+    // Keys may well be seeded — seeding is unconditional. That must not be
+    // enough to flip a site that never opted in.
+    expect(getMetaKV({ DECO_KV: kv })).toBeNull();
+  });
+
+  it("returns the namespace when the bundle was built with metaFromKV", () => {
+    globalThis.__DECO_META_FROM_KV__ = true;
+    expect(getMetaKV({ DECO_KV: kv })).toBe(kv);
+  });
+
+  it("returns null when opted in but no namespace is bound", () => {
+    globalThis.__DECO_META_FROM_KV__ = true;
+    expect(getMetaKV({})).toBeNull();
+  });
+
+  it("is independent of DECO_FAST_DEPLOY — different artefact, different seed", () => {
+    globalThis.__DECO_META_FROM_KV__ = true;
+    expect(getMetaKV({ DECO_KV: kv, DECO_FAST_DEPLOY: "0" })).toBe(kv);
   });
 });

@@ -20,11 +20,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // is mocked (rather than exercised for real) because it's a heavier graph
 // than the CMS core — see this file's `@example` JSDoc note in setup.ts.
 // The mock applies to every test in this file; existing tests that pass
-// `meta` don't assert on setMetaData's *internal* effects (only that the
-// `meta` loader itself was invoked), so swapping the real setter for a
+// `meta` don't assert on setMetaProvider's *internal* effects (only that the
+// `meta` thunk was handed over), so swapping the real setter for a
 // stub doesn't change what they verify.
 const adminMocks = vi.hoisted(() => ({
-  setMetaData: vi.fn(),
+  setMetaProvider: vi.fn(),
   setRenderShell: vi.fn(),
   setPreviewWrapper: vi.fn(),
 }));
@@ -57,9 +57,11 @@ describe("createNextSetup", () => {
     });
 
     await ensureSetup();
-    await ensureSetup(); // memoized — meta loader must run once
+    await ensureSetup(); // memoized — the meta thunk must be registered once
 
-    expect(meta).toHaveBeenCalledTimes(1);
+    expect(adminMocks.setMetaProvider).toHaveBeenCalledTimes(1);
+    // Registered lazily: nothing reads the schema until /live/_meta is hit.
+    expect(meta).not.toHaveBeenCalled();
     expect(loadBlocks().myBlock).toBeDefined();
     expect(listRegisteredSections()).toContain("site/sections/Hero.tsx");
   });
@@ -76,28 +78,21 @@ describe("createNextSetup", () => {
   });
 
   it("clears the memo on a rejected bootstrap so the next call retries", async () => {
-    const meta = vi
+    // The meta thunk is no longer awaited during bootstrap (it is registered
+    // lazily), so a bootstrap failure has to come from a step that does run.
+    const extend = vi
       .fn()
       .mockRejectedValueOnce(new Error("transient fetch failure"))
-      .mockResolvedValueOnce({
-        major: 1,
-        version: "test",
-        namespace: "site",
-        site: "test",
-        manifest: { blocks: { sections: {} } },
-        schema: { definitions: {}, root: {} },
-        platform: "test",
-        cloudProvider: "test",
-      });
+      .mockResolvedValueOnce(undefined);
     const ensureSetup = createNextSetup({
       blocksDir: false,
       sections: { "./sections/Hero.tsx": async () => ({ default: () => null }) },
-      meta,
+      extend,
     });
 
     await expect(ensureSetup()).rejects.toThrow("transient fetch failure");
     await expect(ensureSetup()).resolves.toBeUndefined();
-    expect(meta).toHaveBeenCalledTimes(2);
+    expect(extend).toHaveBeenCalledTimes(2);
   });
 
   describe("blocksDir", () => {
@@ -161,7 +156,7 @@ describe("createNextSetup", () => {
     });
   });
 
-  it("reaches blocks-admin's setRenderShell, setPreviewWrapper, and setMetaData with the given args", async () => {
+  it("reaches blocks-admin's setRenderShell, setPreviewWrapper, and setMetaProvider with the given args", async () => {
     const meta = vi.fn().mockResolvedValue({ schema: { definitions: {}, root: {} } });
     const renderShell = { css: "https://cdn.example.com/admin.css", fonts: ["Inter"] };
     const PreviewWrapper = () => null;
@@ -175,7 +170,7 @@ describe("createNextSetup", () => {
     });
     await ensureSetup();
 
-    expect(adminMocks.setMetaData).toHaveBeenCalledWith(await meta.mock.results[0]!.value);
+    expect(adminMocks.setMetaProvider).toHaveBeenCalledWith(meta);
     expect(adminMocks.setRenderShell).toHaveBeenCalledWith(renderShell);
     expect(adminMocks.setPreviewWrapper).toHaveBeenCalledWith(PreviewWrapper);
   });
@@ -187,7 +182,7 @@ describe("createNextSetup", () => {
     });
     await ensureSetup();
 
-    expect(adminMocks.setMetaData).not.toHaveBeenCalled();
+    expect(adminMocks.setMetaProvider).not.toHaveBeenCalled();
     expect(adminMocks.setRenderShell).not.toHaveBeenCalled();
     expect(adminMocks.setPreviewWrapper).not.toHaveBeenCalled();
   });

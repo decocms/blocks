@@ -25,7 +25,7 @@ export {
   setInvokeLoaders,
 } from "./invoke";
 export { LIVE_CONTROLS_SCRIPT } from "./liveControls";
-export { handleMeta, setMetaData } from "./meta";
+export { handleMeta, setMetaData, setMetaKVGetter, setMetaProvider } from "./meta";
 export { handleRender, setPreviewWrapper, setRenderShell } from "./render";
 export {
   type PreviewResolution,

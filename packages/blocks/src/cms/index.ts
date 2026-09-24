@@ -12,6 +12,8 @@ export {
   DEPLOYMENTS_KEY,
   getDeploymentId,
   LIVE_KEY,
+  metaEtagKey,
+  metaKey,
   revisionKey,
   snapshotKey,
 } from "./blockSource";
