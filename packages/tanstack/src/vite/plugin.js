@@ -257,6 +257,26 @@ export function decoVitePlugin({ fastDeploy = false } = {}) {
         // backward-compatible sites that haven't regenerated).
       }
 
+      // meta.gen.json — the admin JSON Schema bundle, on the SERVER.
+      //
+      // Vite's JSON plugin would turn it into an object literal, which V8 must
+      // run through the full JS parser. Emitting `JSON.parse("...")` instead
+      // (same treatment blocks.gen gets, and the same reason) uses V8's fast
+      // JSON parser and — the part that matters for memory — keeps the schema
+      // as ONE string until something actually calls the parse. Since
+      // `createAdminSetup` now only invokes its loader on the first
+      // `/live/_meta`, an isolate that never serves the admin never
+      // materializes the object graph at all.
+      //
+      // The client is stubbed in `resolveId` above and never reaches here.
+      if (id.endsWith("meta.gen.json") && options?.ssr) {
+        if (existsSync(id)) {
+          const raw = readFileSync(id, "utf-8");
+          return `export default JSON.parse(${JSON.stringify(raw)});`;
+        }
+        // Absent (pre-generate-schema) — let Vite report it normally.
+      }
+
       // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
       // It registers every site loader/action behind a dynamic `import()`, so if
       // it stays in the CLIENT module graph (it's reachable via
