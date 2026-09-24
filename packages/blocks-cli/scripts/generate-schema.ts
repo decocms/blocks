@@ -45,6 +45,7 @@ import {
   type Type,
 } from "ts-morph";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
+import { resolvePackageDirectory } from "./lib/installedPackages";
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -1062,8 +1063,8 @@ function generateMeta(): MetaResponse {
   // ---------------------------------------------------------------------------
 
   /** Absolute path to the installed @decocms/apps-<namespace> package, if present. */
-  function getAppPkgDir(namespace: string): string {
-    return path.resolve(root, `node_modules/@decocms/apps-${namespace}`);
+  function getAppPkgDir(namespace: string): string | null {
+    return resolvePackageDirectory(root, `@decocms/apps-${namespace}`);
   }
 
   /** Detect installed app namespaces from src/apps/ bridge files. */
@@ -1093,6 +1094,7 @@ function generateMeta(): MetaResponse {
 
     for (const namespace of installed) {
       const pkgDir = getAppPkgDir(namespace);
+      if (!pkgDir) continue;
       const loadersDir = path.join(pkgDir, "src", "loaders");
       if (!fs.existsSync(loadersDir)) continue;
 

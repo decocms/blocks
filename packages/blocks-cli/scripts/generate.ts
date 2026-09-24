@@ -88,7 +88,7 @@
  *   - args:   the exact argv forwarded to that generator,
  *   - cli:    blocks-cli's own package version,
  *   - deco:   the resolved versions of every @decocms/* package in the
- *             site's node_modules (a lockstep bump invalidates everything),
+ *             site's module search path (a lockstep bump invalidates everything),
  *   - inputs: sha256 over the sorted (relPath, contentSha256) pairs of the
  *             generator's input set — CONTENT hashes, machine-independent.
  * Because the record is content-addressed, a FRESH CLONE with unchanged
@@ -127,6 +127,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
+import { listScopedPackages, resolvePackageDirectory } from "./lib/installedPackages";
+import { resolveInvokeSource } from "./lib/invokeSource";
 
 // Bump when the digests file format or digest recipe changes — recorded in
 // every digest record so old files self-bust instead of mis-validating.
@@ -463,16 +465,9 @@ function readPkgVersion(pkgDir: string): string | null {
 
 function decoPackageVersions(cwd: string): Record<string, string> {
   const versions: Record<string, string> = {};
-  const scopeDir = path.join(cwd, "node_modules", "@decocms");
-  let names: string[];
-  try {
-    names = fs.readdirSync(scopeDir);
-  } catch {
-    return versions;
-  }
-  for (const name of names.sort()) {
-    const v = readPkgVersion(path.join(scopeDir, name));
-    if (v) versions[`@decocms/${name}`] = v;
+  for (const [name, dir] of listScopedPackages(cwd, "@decocms")) {
+    const v = readPkgVersion(dir);
+    if (v) versions[name] = v;
   }
   return versions;
 }
@@ -485,7 +480,25 @@ function ownVersion(): string {
 }
 
 function hasPackage(cwd: string, name: string): boolean {
-  return fs.existsSync(path.join(cwd, "node_modules", ...name.split("/"), "package.json"));
+  const dir = resolvePackageDirectory(cwd, name);
+  return dir !== null && fs.existsSync(path.join(dir, "package.json"));
+}
+
+function isNextjsSite(cwd: string): boolean {
+  // Sibling sites can hoist both bindings. Prefer this site's declaration so
+  // a TanStack workspace does not adopt a sibling's Next.js generation mode.
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf8"));
+    const dependencies = {
+      ...pkg.dependencies,
+      ...pkg.devDependencies,
+      ...pkg.peerDependencies,
+      ...pkg.optionalDependencies,
+    };
+    if ("@decocms/nextjs" in dependencies) return hasPackage(cwd, "@decocms/nextjs");
+    if ("@decocms/tanstack" in dependencies) return false;
+  } catch {}
+  return hasPackage(cwd, "@decocms/nextjs");
 }
 
 // ---------------------------------------------------------------------------
@@ -508,20 +521,6 @@ export interface GeneratorPlan {
   outputs: string[];
 }
 
-/** Resolve generate-invoke's apps dir exactly like the generator does
- * (minus the legacy ../apps-start/vtex fallback, which is dev-checkout-only). */
-function resolveInvokeSource(cwd: string, appsDir: string | null): string | null {
-  const roots = appsDir
-    ? [path.resolve(cwd, appsDir)]
-    : [path.resolve(cwd, "node_modules/@decocms/apps-vtex")];
-  for (const root of roots) {
-    for (const c of [root, path.join(root, "src")]) {
-      if (fs.existsSync(path.join(c, "invoke.ts"))) return path.join(c, "invoke.ts");
-    }
-  }
-  return null;
-}
-
 export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
   const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
   const blocksDirAbs = path.resolve(cwd, opts.blocksDir);
@@ -531,7 +530,7 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
 
   const blocksDirExists = fs.existsSync(blocksDirAbs);
   const sectionsDirExists = fs.existsSync(sectionsDirAbs);
-  const isNext = hasPackage(cwd, "@decocms/nextjs");
+  const isNext = isNextjsSite(cwd);
   const hasTanstackStart = hasPackage(cwd, "@tanstack/react-start");
 
   const blocksGenJson = path.join(".deco", "blocks.gen.json");
@@ -635,10 +634,12 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
       args: opts.appsDir ? ["--apps-dir", opts.appsDir] : [],
       stage: 1,
       ...enabledIf(
-        invokeSource !== null && hasTanstackStart,
+        invokeSource !== null && hasTanstackStart && !isNext,
         invokeSource === null
           ? "no apps invoke.ts found (@decocms/apps-vtex not installed and no --apps-dir)"
-          : "@tanstack/react-start not installed (invoke.gen.ts targets TanStack Start)",
+          : isNext
+            ? "@decocms/nextjs site (invoke.gen.ts targets TanStack Start)"
+            : "@tanstack/react-start not installed (invoke.gen.ts targets TanStack Start)",
       ),
       // invoke.ts is the file the generator parses; the surrounding package's
       // action/type sources are fingerprinted via the @decocms/* version set
@@ -692,13 +693,10 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
           ),
         ];
         if (!opts.skipApps) {
-          const scopeDir = path.join(cwd, "node_modules", "@decocms");
-          let names: string[] = [];
-          try {
-            names = fs.readdirSync(scopeDir).filter((n) => n.startsWith("apps-"));
-          } catch {}
-          for (const name of names.sort()) {
-            entries.push(...walkTree(cwd, path.join(scopeDir, name, "src"), [".ts", ".tsx"]));
+          for (const [name, dir] of listScopedPackages(cwd, "@decocms")) {
+            if (name.startsWith("@decocms/apps-")) {
+              entries.push(...walkTree(cwd, path.join(dir, "src"), [".ts", ".tsx"]));
+            }
           }
         }
         return sortEntries(entries);
