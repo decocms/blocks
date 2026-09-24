@@ -46,6 +46,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Project, type PropertyAssignment, SyntaxKind } from "ts-morph";
+import { resolveInvokeSource } from "./lib/invokeSource";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -77,28 +78,15 @@ const PRIVILEGED_ACTIONS = new Set([
 
 function resolveAppsDir(): string {
   const explicit = arg("apps-dir", "");
+  const source = resolveInvokeSource(cwd, explicit || null);
+  if (source) return path.dirname(source);
+  // Preserve explicit-path errors and the legacy raw-checkout fallback used
+  // only by direct invocation. Published packages can be local or hoisted,
+  // with invoke.ts at the package root or under src/.
   if (explicit) return path.resolve(cwd, explicit);
-
-  // Try common locations: the installed @decocms/apps-vtex package first,
-  // then a raw apps-start checkout's vtex/ subdirectory as a legacy fallback
-  // for anyone still developing against the pre-split monorepo.
-  //
-  // For each root, invoke.ts may sit directly at the root (legacy dev
-  // checkouts) or under src/ — the published @decocms/apps-vtex tarball
-  // ships its sources under src/ (`"files": ["src"]`, `"main":
-  // "./src/index.ts"`), so on any site with npm-installed 7.x packages the
-  // file lives at node_modules/@decocms/apps-vtex/src/invoke.ts. The src/
-  // nesting doesn't affect the emitted imports: relative `./actions/*`
-  // specifiers are rewritten to `@decocms/apps-vtex/actions/*`, which the
-  // package's exports map points back into src/.
-  const roots = [
-    path.resolve(cwd, "node_modules/@decocms/apps-vtex"),
-    path.resolve(cwd, "../apps-start/vtex"),
-  ];
-  for (const root of roots) {
-    for (const c of [root, path.join(root, "src")]) {
-      if (fs.existsSync(path.join(c, "invoke.ts"))) return c;
-    }
+  const legacy = resolveInvokeSource(cwd, "../apps-start/vtex");
+  if (legacy) {
+    return path.dirname(legacy);
   }
   throw new Error("Could not find @decocms/apps-vtex. Use --apps-dir to specify its location.");
 }
