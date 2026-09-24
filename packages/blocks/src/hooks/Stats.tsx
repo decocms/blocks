@@ -7,11 +7,9 @@
  *
  * It lives in `@decocms/blocks` rather than in `@decocms/apps-website` because of what it is:
  * twenty lines of a `<link>` and a `<script>` driven by environment variables, pointing at our
- * own collector. `OneDollarStats` belongs among the apps because it is a VENDOR integration —
- * it wraps `history`, decodes a cookie and feeds a third party\'s SDK. This is framework
- * infrastructure, and putting it here is also what lets `@decocms/tanstack` mount it without
- * importing from an apps package, which would be a new edge in a dependency graph the repo
- * keeps one-way on purpose.
+ * own collector. This is framework infrastructure, and putting it here is also what lets
+ * `@decocms/tanstack` mount it without importing from an apps package, which would be a new
+ * edge in a dependency graph the repo keeps one-way on purpose.
  *
  * `@decocms/apps-website/components/Stats` re-exports it, so anything importing the old path
  * keeps working.

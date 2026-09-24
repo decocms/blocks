@@ -1,4 +1,9 @@
-import { LiveControls, Stats } from "@decocms/blocks/hooks";
+import {
+  FrameworkOneDollarStats,
+  LiveControls,
+  OneDollarStatsScope,
+  Stats,
+} from "@decocms/blocks/hooks";
 import { ANALYTICS_SCRIPT, SPECULATION_DEV_WARN_SCRIPT } from "@decocms/blocks/sdk/analytics";
 import { isDevMode } from "@decocms/blocks/sdk/env";
 import { getRequestNonce } from "@decocms/blocks/sdk/nonce";
@@ -177,11 +182,16 @@ export function DecoRootLayout({
          * change for a site instead of a code change.
          */}
         <Stats />
+        {/* Off unless ONEDOLLAR_AUTOMOUNT=true. The scope makes a site's own
+            <OneDollarStats /> render nothing once this one is mounted. */}
+        <FrameworkOneDollarStats />
         <NavigationProgress />
-        <main>
-          <StableOutlet />
-        </main>
-        {children}
+        <OneDollarStatsScope>
+          <main>
+            <StableOutlet />
+          </main>
+          {children}
+        </OneDollarStatsScope>
         <DraftPreviewIndicator />
         <LiveControls site={siteName} page={page} />
         <ScriptOnce children={ANALYTICS_SCRIPT} />
