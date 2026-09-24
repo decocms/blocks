@@ -73,6 +73,7 @@ function generateRoot(ctx: MigrationContext, siteTitle: string, vtexAccount: str
 
   return `import { createRootRoute } from "@tanstack/react-router";
 import { DecoRootLayout } from "@decocms/tanstack";
+import OneDollarStats from "@decocms/apps-website/components/OneDollarStats";
 // @ts-ignore Vite ?url import
 import appCss from "../styles/app.css?url";
 
@@ -107,7 +108,10 @@ function RootLayout() {
       lang="pt-BR"
       siteName="${deployedSiteName}"${isVtex ? `
       account="${vtexAccount}"` : ""}
-    />
+    >
+      {/* Fresh mounted this on every page; keep it until Deco Analytics replaces it. */}
+      <OneDollarStats />
+    </DecoRootLayout>
   );
 }
 `;

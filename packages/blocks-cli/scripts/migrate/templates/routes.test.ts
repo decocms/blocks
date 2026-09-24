@@ -88,3 +88,23 @@ describe("scaffolded page routes wire the deferred-loader shim, not the raw serv
     });
   }
 });
+
+/**
+ * Regression guard: Fresh sites got OneDollarStats from `website/pages/Page.tsx`
+ * with no setup, and `phase-analyze` deletes their Session component on the
+ * promise that analytics moves to `__root.tsx`. A scaffold without the mount
+ * leaves a migrated site reporting nothing to OneDollarStats, with no error.
+ */
+describe("scaffolded __root.tsx keeps OneDollarStats during the Deco Analytics migration", () => {
+  for (const platform of ["vtex", "custom"] as const) {
+    it(`platform: ${platform} mounts it inside DecoRootLayout`, () => {
+      const root = generateRoutes(makeCtx(platform))["src/routes/__root.tsx"];
+      expect(root).toContain(
+        'import OneDollarStats from "@decocms/apps-website/components/OneDollarStats"',
+      );
+      expect(root).toMatch(
+        /<DecoRootLayout[\s\S]*?>[\s\S]*<OneDollarStats \/>[\s\S]*<\/DecoRootLayout>/,
+      );
+    });
+  }
+});
