@@ -102,6 +102,7 @@ export function loadRedirects(blocks: Record<string, unknown>): RedirectMap {
 
     for (const entry of list) {
       if (!entry.from || !entry.to) continue;
+      if (isSelfRedirect(entry.from, entry.to)) continue;
 
       const redirect: Redirect = {
         from: normalizePath(entry.from),
@@ -148,6 +149,7 @@ export function parseRedirectsCsv(csv: string): Redirect[] {
     // Skip a header row (`from,to[,type]`). Robust for CSVs with or without a
     // header, and for a header repeated when multiple files are concatenated.
     if (from.toLowerCase() === "from" && to.toLowerCase() === "to") continue;
+    if (isSelfRedirect(from, to)) continue;
 
     redirects.push({
       from: normalizePath(from),
@@ -203,6 +205,54 @@ export function matchRedirect(pathname: string, map: RedirectMap): Redirect | nu
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
+
+const isAbsolute = (u: string) => u.startsWith("http://") || u.startsWith("https://");
+
+/** origin + normalized pathname, or null when the URL is malformed. */
+function absoluteKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin + normalizePath(parsed.pathname);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A rule whose source and target resolve to the same page redirects to itself:
+ * the response sends the browser back to the URL it just asked for, which it
+ * reports as ERR_TOO_MANY_REDIRECTS.
+ *
+ * These are routine in bulk migration exports, and `normalizePath` manufactures
+ * more of them: it reduces an absolute `from` to `new URL(p).pathname`, so a
+ * rule scoped to one query (`https://site/x?map=category-1 -> /x`) collapses
+ * onto the bare path it points at.
+ *
+ * Host is compared whenever both sides carry one. A relative target is compared
+ * on path alone — the map is keyed by pathname, so a rule reached from any host
+ * lands the visitor back on this site's copy of that path.
+ *
+ * The Fresh loader this SDK replaced (deco-cx/apps
+ * `website/loaders/redirectsFromCsv.ts`) carried the same `from === to` guard.
+ */
+function isSelfRedirect(from: string, to: string): boolean {
+  const src = from.trim();
+  const dst = to.trim();
+
+  // Both absolute: same site AND same path is a loop; a different host is not.
+  if (isAbsolute(src) && isAbsolute(dst)) {
+    const a = absoluteKey(src);
+    return a !== null && a === absoluteKey(dst);
+  }
+
+  // Target on another origin (absolute or protocol-relative) always goes
+  // somewhere else — the host is what differs, and we cannot know ours.
+  if (isAbsolute(dst) || dst.startsWith("//")) return false;
+
+  const qIdx = dst.indexOf("?");
+  const dstPath = normalizePath(qIdx >= 0 ? dst.slice(0, qIdx) : dst);
+  return dstPath === normalizePath(src);
+}
 
 function normalizePath(path: string): string {
   let p = path.trim();
