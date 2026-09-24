@@ -11,8 +11,15 @@ vi.mock("@decocms/blocks/middleware/observability", () => ({
   withTracing: vi.fn((_name: string, fn: () => unknown) => fn()),
 }));
 
+import { handleInvoke } from "@decocms/blocks-admin";
 import * as adminRoutes from "./adminRoutes";
 import { decoInvokeRouteConfig, decoMetaRouteConfig, decoRenderRouteConfig } from "./adminRoutes";
+
+type HandlerFn = (ctx: { request: Request }) => Promise<Response> | Response;
+const handlerFor = (
+  config: unknown,
+  method: string,
+): HandlerFn => (config as { server: { handlers: Record<string, HandlerFn> } }).server.handlers[method];
 
 /**
  * Regression guard for the dev-HMR brick:
@@ -95,5 +102,49 @@ describe("admin route config factories", () => {
       "decoMetaRouteConfig",
       "decoRenderRouteConfig",
     ]);
+  });
+});
+
+/**
+ * CSRF guard for `/deco/invoke`.
+ *
+ * `handleInvoke` has no auth of its own and honors a `?props=` query string on
+ * GET. A GET is a CORS "simple request" (no preflight), so a third-party page's
+ * `<img src=".../deco/invoke/site/actions/...?props=...">` used to fire mutating
+ * actions with the victim's cookies. The route must reject GET (POST-only,
+ * mirroring the Next dispatcher) so the action handler NEVER runs on a GET.
+ */
+describe("deco/invoke is POST-only (CSRF protection)", () => {
+  it("does NOT execute the action on GET, and returns 405", async () => {
+    vi.mocked(handleInvoke).mockClear();
+    const get = handlerFor(decoInvokeRouteConfig(), "GET");
+
+    const res = await get({
+      // A forged cross-site GET carrying the action + props, as an <img> would.
+      request: new Request(
+        "https://victim.example/deco/invoke/site/actions/checkout/updateCart.ts?props=%7B%22qty%22%3A999%7D",
+      ),
+    });
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("POST");
+    // The load-bearing assertion: the mutating handler was never invoked.
+    expect(handleInvoke).not.toHaveBeenCalled();
+  });
+
+  it("still dispatches the action on POST", async () => {
+    vi.mocked(handleInvoke).mockClear();
+    vi.mocked(handleInvoke).mockResolvedValue(new Response("{}", { status: 200 }));
+    const post = handlerFor(decoInvokeRouteConfig(), "POST");
+
+    const res = await post({
+      request: new Request("https://site.example/deco/invoke/site/actions/checkout/updateCart.ts", {
+        method: "POST",
+        body: JSON.stringify({ qty: 1 }),
+      }),
+    });
+
+    expect(handleInvoke).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
   });
 });
