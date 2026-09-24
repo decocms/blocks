@@ -184,11 +184,23 @@ export function addRedirects(map: RedirectMap, redirects: Redirect[]): void {
  * typically few patterns exist).
  */
 export function matchRedirect(pathname: string, map: RedirectMap): Redirect | null {
+  return matchExactRedirect(pathname, map) ?? matchPatternRedirect(pathname, map);
+}
+
+/**
+ * Exact half of `matchRedirect`. Split out because the KV-keyed path has to
+ * interleave a third source between the two halves: in-memory exact, then the
+ * `redirect:<id>:<path>` KV lookup, then patterns. Collapsing that to
+ * "matchRedirect, then KV" would let a glob win over an exact rule, inverting
+ * the precedence every other path has.
+ */
+export function matchExactRedirect(pathname: string, map: RedirectMap): Redirect | null {
+  return map.exact.get(normalizePath(pathname)) ?? null;
+}
+
+/** Pattern half of `matchRedirect` — ordered prefix scan, `*` suffix carried over. */
+export function matchPatternRedirect(pathname: string, map: RedirectMap): Redirect | null {
   const normalized = normalizePath(pathname);
-
-  const exactMatch = map.exact.get(normalized);
-  if (exactMatch) return exactMatch;
-
   for (const { prefix, redirect } of map.patterns) {
     if (normalized.startsWith(prefix)) {
       const suffix = normalized.slice(prefix.length);
@@ -196,15 +208,106 @@ export function matchRedirect(pathname: string, map: RedirectMap): Redirect | nu
       return { ...redirect, to };
     }
   }
-
   return null;
+}
+
+// -------------------------------------------------------------------------
+// Splitting exact rules out of the decofile (KV-keyed redirects)
+// -------------------------------------------------------------------------
+
+/** One exact rule, ready to be written to its own KV key. */
+export interface ExactRedirect {
+  /** Normalized path — the KV key suffix. */
+  path: string;
+  to: string;
+  status: 301 | 302;
+}
+
+export interface SplitRedirectsResult {
+  /** The blocks map with every EXACT rule removed. Glob rules stay (they can't
+   *  be addressed by key), and a redirect block left with no entries at all is
+   *  dropped entirely rather than left as an empty husk. */
+  blocks: Record<string, unknown>;
+  /** The extracted exact rules, deduped by path (last wins, matching
+   *  `loadRedirects`, which is last-write-wins over insertion order). */
+  exact: ExactRedirect[];
+}
+
+/**
+ * Split a decofile into "blocks without exact redirects" + "the exact rules".
+ *
+ * A bulk-migration site can carry tens of thousands of rules. Left inside the
+ * decofile they sit in every isolate twice — the parsed snapshot graph and the
+ * `RedirectMap` built from it — for data that is consulted at most once per
+ * request and usually matches nothing. Moved to one KV key each, the list is
+ * never loaded.
+ *
+ * Read-only over `blocks`: the returned map shares every untouched value and
+ * only clones the redirect blocks it had to rewrite.
+ */
+export function splitExactRedirects(blocks: Record<string, unknown>): SplitRedirectsResult {
+  const exact = new Map<string, ExactRedirect>();
+  const out: Record<string, unknown> = {};
+
+  for (const [key, block] of Object.entries(blocks)) {
+    const obj = block && typeof block === "object" ? (block as Record<string, unknown>) : null;
+    const resolveType = obj?.__resolveType as string | undefined;
+    if (!obj || !resolveType || !REDIRECT_RESOLVE_TYPES.has(resolveType)) {
+      out[key] = block;
+      continue;
+    }
+
+    const raw = (obj.redirects ?? obj.redirect) as
+      | BlockRedirectEntry[]
+      | BlockRedirectEntry
+      | undefined;
+    if (!raw) {
+      out[key] = block;
+      continue;
+    }
+
+    const kept: BlockRedirectEntry[] = [];
+    for (const entry of Array.isArray(raw) ? raw : [raw]) {
+      if (!entry?.from || !entry.to) continue;
+      const from = normalizePath(entry.from);
+      // Globs must be scanned in order against the request path, so they can
+      // never be a key lookup — they stay in the decofile.
+      if (from.includes("*")) {
+        kept.push(entry);
+        continue;
+      }
+      exact.set(from, {
+        path: from,
+        to: entry.to,
+        status: entry.type === "permanent" ? 301 : 302,
+      });
+    }
+
+    // Nothing left to scan ⇒ drop the block rather than ship an empty husk.
+    if (kept.length === 0) continue;
+    // Rebuild without `redirect` — a block may have carried the singular form,
+    // and leaving it would reintroduce the rule we just extracted.
+    const { redirect: _dropped, ...rest } = obj;
+    out[key] = { ...rest, redirects: kept };
+  }
+
+  return { blocks: out, exact: [...exact.values()] };
 }
 
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
 
-function normalizePath(path: string): string {
+/**
+ * Canonical redirect-path form: origin stripped, leading slash forced, trailing
+ * slash dropped, lower-cased.
+ *
+ * Exported because it is the KV key contract for `redirect:<id>:<path>` — the
+ * sync script that WRITES the keys and the worker that READS them must agree
+ * byte for byte, or a rule is stored under a key nothing ever asks for. Never
+ * inline a different normalization on either side.
+ */
+export function normalizePath(path: string): string {
   let p = path.trim();
 
   // If the "from" is a full URL, extract just the pathname

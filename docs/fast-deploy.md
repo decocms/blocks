@@ -41,6 +41,7 @@ KV DOWN / key absent       serve the bundled blocks.gen snapshot (this build's o
 | `index:revision:<id>` | DJB2 hex hash of that snapshot — polled for change detection | same |
 | `index:live` | the currently-live `<id>` (pointer) | deploy step, **post-activation** |
 | `index:deployments` | JSON `[{id, ts}]` (newest last) — GC bookkeeping | build-time sync |
+| `redirect:<id>:<path>` | `{to, status}` — ONE key per exact redirect | build-time sync; content-push sync |
 
 `index:revision:<id>` **must** equal `computeRevision(blocks)`
 (`packages/blocks/src/cms/blockSource.ts`, DJB2 over `JSON.stringify`) — the
@@ -49,6 +50,41 @@ a hydrating isolate computes a matching revision and the poller doesn't loop. Ke
 builders (`snapshotKey`/`revisionKey`) + `LIVE_KEY`/`DEPLOYMENTS_KEY` +
 `getDeploymentId` are exported from `@decocms/blocks/cms` as the single source of
 truth for the key layout.
+
+## Exact redirects are NOT in the decofile
+
+A bulk-migration site can carry tens of thousands of redirect rules. Inside the
+decofile they are resident in every isolate twice — once in the parsed snapshot
+graph, once in the `RedirectMap` built from it — for data that is consulted at
+most once per request and usually matches nothing. So the sync scripts
+(`splitExactRedirects`, `@decocms/blocks/sdk/redirects`) pull every **exact**
+rule out of the snapshot and write it to its own `redirect:<id>:<path>` key. The
+list is never loaded; `lookupExactRedirect` reads only the path being requested.
+
+**Glob rules stay in the decofile.** `/old/*` must be scanned in order against
+the path, so it can never be a key lookup. There are tens of them, not thousands.
+
+Three consequences worth knowing:
+
+- **`<path>` is `normalizePath(from)`** (origin stripped, trailing slash dropped,
+  lower-cased). The writer and the request-time lookup must produce it
+  identically or a rule is stored under a key nothing asks for. Never inline a
+  different normalization.
+- **Matching order is exact → KV → glob**, not "matchRedirect → KV". Otherwise a
+  glob would win over an exact rule, inverting the precedence. That is why
+  `matchRedirect` is split into `matchExactRedirect` / `matchPatternRedirect`.
+- **A redirect edit propagates on a 60s isolate TTL, not the revision poll.**
+  The rules are outside the decofile, so a redirect-only sync leaves the
+  snapshot byte identical and `index:revision:<id>` never changes. If that delay
+  ever has to be near-zero, the fix is a `index:redirects-revision:<id>` key
+  polled alongside — not a shorter TTL, which just multiplies KV reads.
+
+Add/update/remove is reconciled against a prefix `LIST` rather than a manifest
+key: KV has no "replace everything under this prefix", and a manifest is one
+more thing that can drift from reality. Pruning a deployment in
+`recordAndGcDeployment` deletes its redirect keys too — they are keyed by
+deployment like everything else, so leaving them would leak tens of thousands of
+orphans per deploy.
 
 ## Feature flag
 

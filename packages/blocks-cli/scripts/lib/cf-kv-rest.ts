@@ -3,7 +3,9 @@
  *
  * CI has no Worker KV binding, so the fast-deploy sync/migrate scripts write to
  * KV over the REST API instead. Only the operations the scripts need — single-key
- * GET/PUT/DELETE plus prefix LIST (for per-deployment GC) — are implemented.
+ * GET/PUT/DELETE, prefix LIST (for per-deployment GC), and BULK put/delete (for
+ * the per-path redirect keys, which number in the tens of thousands) — are
+ * implemented.
  *
  * Auth/config via env (read by the scripts, passed to `createKvRestClient`):
  *   - CF_ACCOUNT_ID       Cloudflare account id      (or CLOUDFLARE_ACCOUNT_ID)
@@ -37,6 +39,21 @@ export interface KvRestClient {
   delete(key: string): Promise<void>;
   /** List key names, optionally filtered by prefix. Follows pagination. */
   list(prefix?: string): Promise<string[]>;
+  /** Write many keys. Chunked to the API's per-request ceiling. A site can have
+   *  tens of thousands of redirects; one PUT each would be as many round trips. */
+  putMany(entries: Array<{ key: string; value: string }>): Promise<void>;
+  /** Delete many keys. Same chunking. */
+  deleteMany(keys: string[]): Promise<void>;
+}
+
+/** Cloudflare's per-request ceiling for the bulk KV endpoints. */
+const BULK_CHUNK = 10_000;
+
+/** Split `items` into chunks of at most `size`. */
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
 }
 
 const DEFAULT_BASE = "https://api.cloudflare.com/client/v4";
@@ -105,6 +122,37 @@ export function createKvRestClient(config: KvRestConfig): KvRestClient {
       // 404 is fine — the key is already gone (idempotent delete).
       if (!res.ok && res.status !== 404) {
         throw new Error(`KV DELETE ${key} failed: ${res.status} ${await res.text()}`);
+      }
+    },
+
+    async putMany(entries) {
+      for (const batch of chunk(entries, BULK_CHUNK)) {
+        const res = await fetchImpl(`${root}/bulk`, {
+          method: "PUT",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify(batch),
+        });
+        if (!res.ok) {
+          throw new Error(
+            `KV bulk PUT (${batch.length} keys) failed: ${res.status} ${await res.text()}`,
+          );
+        }
+      }
+    },
+
+    async deleteMany(keys) {
+      for (const batch of chunk(keys, BULK_CHUNK)) {
+        const res = await fetchImpl(`${root}/bulk`, {
+          method: "DELETE",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify(batch),
+        });
+        // 404 is fine — the keys are already gone (idempotent delete).
+        if (!res.ok && res.status !== 404) {
+          throw new Error(
+            `KV bulk DELETE (${batch.length} keys) failed: ${res.status} ${await res.text()}`,
+          );
+        }
       }
     },
 
