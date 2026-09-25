@@ -749,6 +749,7 @@ describe("toProductShelf", () => {
 				},
 			],
 			variations: [{ name: "Cor", values: ["Preto"] }],
+			...overrides,
 		}) as any;
 
 	// Campanha is a PRODUCT specification (in specificationGroups), NOT a sku.variation.
@@ -817,6 +818,69 @@ describe("toProductShelf", () => {
 		expect(variantProps).toEqual(
 			expect.arrayContaining([expect.objectContaining({ name: "RefId", value: "REF-SKU1" })]),
 		);
+	});
+
+	// A real catalog registers the packshot and the colour thumbnail LAST:
+	// measured on a live store, `secondary` sits at index 6 and `color-thumbnail`
+	// at index 7 of 8. A card that selects either BY NAME gets nothing from a
+	// positional cap and silently falls back to the first photo (the model
+	// wearing the piece).
+	const labelledImages = [
+		...Array.from({ length: 6 }, (_, i) => ({
+			imageUrl: `https://img.com/photo-${i}.jpg`,
+			imageText: `Photo ${i}`,
+			imageLabel: `product-photo-${i}`,
+		})),
+		{ imageUrl: "https://img.com/still.jpg", imageText: "Still", imageLabel: "secondary" },
+		{ imageUrl: "https://img.com/thumb.jpg", imageText: "Thumb", imageLabel: "color-thumbnail" },
+	];
+	const skuWithLabels = () => makeSku({ images: labelledImages });
+	const labelledProduct = () => makeProduct({ items: [skuWithLabels()] });
+
+	it("keeps the 2-image cap when keepImageNames is absent", () => {
+		const result = toProductShelf(labelledProduct(), skuWithLabels(), 0, options);
+		expect(result.image?.map((i) => i.name)).toEqual(["product-photo-0", "product-photo-1"]);
+	});
+
+	it("keepImageNames adds back labelled images that fall outside the cap", () => {
+		const result = toProductShelf(labelledProduct(), skuWithLabels(), 0, {
+			...options,
+			keepImageNames: ["secondary", "color-thumbnail"],
+		});
+		expect(result.image?.map((i) => i.name)).toEqual([
+			"product-photo-0",
+			"product-photo-1",
+			"secondary",
+			"color-thumbnail",
+		]);
+	});
+
+	it("keepImageNames does not duplicate a label already inside the cap", () => {
+		const result = toProductShelf(labelledProduct(), skuWithLabels(), 0, {
+			...options,
+			keepImageNames: ["product-photo-0", "secondary"],
+		});
+		expect(result.image?.map((i) => i.name)).toEqual([
+			"product-photo-0",
+			"product-photo-1",
+			"secondary",
+		]);
+	});
+
+	it("keepImageNames listing a label the SKU does not have changes nothing", () => {
+		const result = toProductShelf(labelledProduct(), skuWithLabels(), 0, {
+			...options,
+			keepImageNames: ["vira"],
+		});
+		expect(result.image?.map((i) => i.name)).toEqual(["product-photo-0", "product-photo-1"]);
+	});
+
+	it("maxImages overrides the shelf default cap", () => {
+		const result = toProductShelf(labelledProduct(), skuWithLabels(), 0, {
+			...options,
+			maxImages: 3,
+		});
+		expect(result.image).toHaveLength(3);
 	});
 });
 
@@ -1018,12 +1082,28 @@ describe("toProduct — displayedVariantId / maxImages", () => {
 		);
 	});
 
+	it("keepImageNames rescues a labelled image from the maxImages cap", () => {
+		const capped = toProduct(product, items[0], 0, {
+			...options,
+			maxImages: 2,
+			keepImageNames: ["label3"],
+		});
+		expect(capped.image?.map((i) => i.name)).toEqual(["label0", "label1", "label3"]);
+	});
+
+	it("keepImageNames without maxImages is a no-op — every image is already there", () => {
+		const before = toProduct(product, items[0], 0, options);
+		const after = toProduct(product, items[0], 0, { ...options, keepImageNames: ["label3"] });
+		expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+	});
+
 	it("every option absent is byte-for-byte the previous output", () => {
 		const before = toProduct(product, items[0], 0, options);
 		const after = toProduct(product, items[0], 0, {
 			...options,
 			displayedVariantId: undefined,
 			maxImages: undefined,
+			keepImageNames: undefined,
 			priceSpecifications: undefined,
 		});
 		expect(JSON.stringify(after)).toBe(JSON.stringify(before));
