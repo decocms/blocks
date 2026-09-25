@@ -1,4 +1,8 @@
-import { registerCacheableSections, registerSectionLoader } from "@decocms/blocks/cms";
+import {
+  registerCacheableSections,
+  registerSectionLoader,
+  runSectionLoaders,
+} from "@decocms/blocks/cms";
 import type { ResolvedSection } from "@decocms/blocks/cms";
 import { describe, expect, it } from "vitest";
 import {
@@ -169,6 +173,43 @@ describe("enrichGlobals — site.global loaders run per request", () => {
 
   it("is a no-op when every global is deduped away", async () => {
     expect(await enrichGlobals([], [], new Request("https://store.com/"))).toEqual([]);
+  });
+
+  /**
+   * Both call sites dedupe against the page's RAW sections so the globals'
+   * loaders can run concurrently with the page's instead of behind them. That
+   * is only sound while `runSectionLoaders` leaves `section.component`
+   * untouched — `dedupeGlobals` reads nothing else. If a future change makes a
+   * loader rewrite `component` (or add/drop sections), the two dedupe targets
+   * stop agreeing and an overridden global would render twice. Lock it here.
+   */
+  it("dedupes identically against raw and loader-enriched page sections", async () => {
+    const shared = `test/sections/GlobalInvariant-${Date.now()}.tsx`;
+    const globalOnly = `test/sections/GlobalOnly-${Date.now()}.tsx`;
+    registerSectionLoader(shared, async (props) => ({ ...props, loaded: true }));
+    registerSectionLoader(globalOnly, async (props) => ({ ...props, loaded: true }));
+
+    const globals: ResolvedSection[] = [
+      { component: globalOnly, props: {}, key: globalOnly, index: 0 },
+      { component: shared, props: {}, key: shared, index: 1 },
+    ];
+    const rawPageSections: ResolvedSection[] = [
+      { component: shared, props: { sku: "1" }, key: `${shared}-page`, index: 0 },
+    ];
+
+    const request = new Request("https://store.com/");
+    const enrichedPageSections = await runSectionLoaders(rawPageSections, request);
+
+    // The loader must not have touched `component` — the whole premise.
+    expect(enrichedPageSections.map((s) => s.component)).toEqual(
+      rawPageSections.map((s) => s.component),
+    );
+
+    const viaRaw = await enrichGlobals(globals, rawPageSections, request);
+    const viaEnriched = await enrichGlobals(globals, enrichedPageSections, request);
+
+    expect(viaRaw.map((s) => s.component)).toEqual([globalOnly]);
+    expect(viaRaw.map((s) => s.component)).toEqual(viaEnriched.map((s) => s.component));
   });
 });
 
