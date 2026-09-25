@@ -5,7 +5,7 @@
  */
 
 import type { ProductDetailsPage } from "@decocms/apps-commerce/types";
-import { getVtexConfig, vtexCachedFetch } from "../../client";
+import { getVtexConfig, storeBaseUrl, vtexCachedFetch } from "../../client";
 import PDPDefaultPath from "../paths/PDPDefaultPath";
 import { searchBySlug } from "../../utils/slugCache";
 import { pickSku, toProductPage } from "../../utils/transform";
@@ -74,9 +74,7 @@ export default async function vtexProductDetailsPage(
 		}
 
 		const product = products[0];
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storeBaseUrl(config);
 
 		const sku = pickSku(product, skuId);
 

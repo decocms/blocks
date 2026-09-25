@@ -130,6 +130,15 @@ function sanitizeUrl(input: string): string {
 
 export interface VtexConfig {
 	account: string;
+	/**
+	 * Public storefront host, WITHOUT scheme — e.g. `"www.example.com"`.
+	 *
+	 * Normalized by {@link configureVtex}, which strips a leading `http(s)://`
+	 * and any trailing slash, so a License Manager value pasted as a full URL
+	 * still works. Read it through {@link storeBaseUrl} rather than
+	 * interpolating it: every consumer that built `https://${publicUrl}` by hand
+	 * emitted `https://https//…` for a scheme-carrying value.
+	 */
 	publicUrl?: string;
 	salesChannel?: string;
 	locale?: string;
@@ -150,8 +159,20 @@ export interface VtexConfig {
 let _config: VtexConfig | null = null;
 let _fetch: FetchFn | InstrumentedFetch = withFetchTimeout();
 
+/**
+ * `publicUrl` is a host, not a URL. License Manager shows it with the scheme,
+ * so the value reaches us as `https://store.example.com/` about as often as
+ * `store.example.com` — and every consumer interpolates `https://${publicUrl}`.
+ * Normalize once, here, instead of at each call site.
+ */
+export function normalizePublicUrl(publicUrl?: string): string | undefined {
+	if (!publicUrl) return undefined;
+	const host = publicUrl.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/+$/, "");
+	return host || undefined;
+}
+
 export function configureVtex(config: VtexConfig) {
-	_config = config;
+	_config = { ...config, publicUrl: normalizePublicUrl(config.publicUrl) };
 	console.log(`[VTEX] Configured: ${config.account}.vtexcommercestable.com.br`);
 }
 
@@ -204,6 +225,20 @@ export function vtexHost(environment: string = "vtexcommercestable", config?: Vt
 	const c = config ?? getVtexConfig();
 	const domain = c.domain ?? "com.br";
 	return `${c.account}.${environment}.${domain}`;
+}
+
+/**
+ * Base URL for links the storefront renders — product and category URLs,
+ * canonicals, JSON-LD. The public host when the app is configured with one,
+ * the VTEX commerce host otherwise.
+ *
+ * Not for API calls: those go through the package's fetch clients, which
+ * target {@link vtexHost} directly.
+ */
+export function storeBaseUrl(config?: VtexConfig): string {
+	const c = config ?? getVtexConfig();
+	const publicUrl = normalizePublicUrl(c.publicUrl);
+	return publicUrl ? `https://${publicUrl}` : `https://${vtexHost("vtexcommercestable", c)}`;
 }
 
 function baseUrl(): string {

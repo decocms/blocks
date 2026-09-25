@@ -17,7 +17,7 @@
 
 import type { AppDefinition, AppMiddleware, ResolveSecretFn } from "@decocms/apps-commerce/app-types";
 import type { Secret } from "@decocms/apps-website/mod";
-import { configureVtex, type VtexConfig } from "./client";
+import { configureVtex, normalizePublicUrl, type VtexConfig } from "./client";
 import manifest from "./manifest.gen";
 import { extractVtexContext, propagateISCookies, vtexCacheControl } from "./middleware";
 import { registerVtexSchemas } from "./schemas";
@@ -35,7 +35,7 @@ export interface Props {
 
 	/**
 	 * @title Public store URL
-	 * @description Domain registered on License Manager (e.g. secure.mystore.com.br)
+	 * @description Domain registered on License Manager (e.g. secure.mystore.com.br). A full URL is accepted too — the scheme and any trailing slash are stripped.
 	 */
 	publicUrl: string;
 
@@ -144,7 +144,10 @@ export async function configure(
 
 	const config: VtexConfig = {
 		account: block.account,
-		publicUrl: block.publicUrl,
+		// Normalized here as well as in configureVtex: this object is handed out
+		// as the app's `state.config`, and a caller reading it must see the same
+		// host the client uses.
+		publicUrl: normalizePublicUrl(block.publicUrl),
 		salesChannel: block.salesChannel || "1",
 		locale: block.locale || block.defaultLocale,
 		appKey: appKey ?? undefined,

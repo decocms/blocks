@@ -4,6 +4,7 @@ import {
 	intelligentSearch,
 	type PageType,
 	pageTypesFromPath,
+	storeBaseUrl,
 	toFacetPath,
 } from "../../client";
 import { pickSku, toProduct } from "../../utils/transform";
@@ -441,9 +442,7 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 		const { products: vtexProducts, pagination, recordsFiltered } = productsResult;
 
 		// 3. Transform products using shared transform pipeline (same as deco-cx/apps)
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.com.br`;
+		const baseUrl = storeBaseUrl(config);
 
 		const schemaProducts = (vtexProducts as ProductVTEX[]).map((p) => {
 			const sku = pickSku(p);

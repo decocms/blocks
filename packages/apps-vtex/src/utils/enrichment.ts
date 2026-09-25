@@ -24,7 +24,7 @@
  */
 
 import type { Product, ProductLeaf } from "@decocms/apps-commerce/types";
-import { getVtexConfig, vtexFetch, vtexIOGraphQL } from "../client";
+import { getVtexConfig, storeBaseUrl, vtexFetch, vtexIOGraphQL } from "../client";
 import { listBrands } from "../loaders/brands";
 import { batch } from "./batch";
 import { withIsSimilarTo } from "./similars";
@@ -372,9 +372,7 @@ export function withKitItems(): ProductEnricher {
 		if (!productIDs.size) return products;
 
 		const config = getVtexConfig();
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storeBaseUrl(config);
 
 		const batches = batch([...productIDs], KIT_ITEMS_BATCH_SIZE);
 		const productsById = new Map<string, ProductLeaf>();
@@ -428,9 +426,7 @@ export function withVariants(): ProductEnricher {
 		if (!productIDs.size) return products;
 
 		const config = getVtexConfig();
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storeBaseUrl(config);
 
 		const batches = batch([...productIDs], VARIANTS_BATCH_SIZE);
 		const productsById = new Map<string, Product>();

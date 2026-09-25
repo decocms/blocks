@@ -1,5 +1,5 @@
 import type { Product } from "@decocms/apps-commerce/types";
-import { getVtexConfig, vtexFetch } from "../client";
+import { getVtexConfig, storeBaseUrl, vtexFetch } from "../client";
 import { pickSku, toProduct } from "./transform";
 import type { LegacyProduct } from "./types";
 
@@ -18,9 +18,7 @@ export const withIsSimilarTo = async (product: Product): Promise<Product> => {
 		if (!rawSimilars?.length) return product;
 
 		const config = getVtexConfig();
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storeBaseUrl(config);
 
 		const similars = rawSimilars.map((p) => {
 			const sku = pickSku(p);
