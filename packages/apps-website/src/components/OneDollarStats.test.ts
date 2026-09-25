@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetForTests,
 	initOneDollarStats,
+	readAbAssignments,
 	readFlagsFromCookie,
 	truncate,
 } from "./OneDollarStats";
@@ -32,6 +33,7 @@ beforeEach(() => {
 	history.pushState = ORIGINAL_PUSH_STATE;
 	(globalThis as { stonks?: unknown }).stonks = undefined;
 	(globalThis as { DECO?: unknown }).DECO = undefined;
+	(globalThis as { __ab?: unknown }).__ab = undefined;
 });
 
 afterEach(() => {
@@ -99,6 +101,22 @@ describe("readFlagsFromCookie", () => {
 	});
 });
 
+describe("readAbAssignments", () => {
+	it("returns an empty object when window.__ab is absent", () => {
+		expect(readAbAssignments()).toEqual({});
+	});
+
+	it("copies window.__ab.assignments", () => {
+		(window as Window & { __ab?: unknown }).__ab = { assignments: { "hide-jolie": "variant" } };
+		expect(readAbAssignments()).toEqual({ "hide-jolie": "variant" });
+	});
+
+	it("returns an empty object when assignments is absent", () => {
+		(window as Window & { __ab?: unknown }).__ab = {};
+		expect(readAbAssignments()).toEqual({});
+	});
+});
+
 describe("initOneDollarStats", () => {
 	function setStonks(view = vi.fn(), event = vi.fn()) {
 		(window as Window & { stonks?: unknown }).stonks = { view, event };
@@ -124,7 +142,17 @@ describe("initOneDollarStats", () => {
 		initOneDollarStats();
 		// stonks was ready immediately → first call fires synchronously, no polling.
 		expect(view).toHaveBeenCalledTimes(1);
-		expect(view).toHaveBeenCalledWith({ abtest_a: true });
+		expect(view).toHaveBeenCalledWith({ cms_abtest_a: true });
+	});
+
+	it("merges CMS cookie flags and window.__ab assignments, prefixed so same-named tests in each system cannot collide", () => {
+		const { view } = setStonks();
+		document.cookie = `deco_segment=${btoa(encodeURIComponent(JSON.stringify({ active: ["abtest_a"] })))}`;
+		(window as Window & { __ab?: unknown }).__ab = { assignments: { "hide-jolie": "variant" } };
+
+		initOneDollarStats();
+
+		expect(view).toHaveBeenCalledWith({ cms_abtest_a: true, "ab_hide-jolie": "variant" });
 	});
 
 	it("waits for stonks via polling when SDK loads late", () => {
@@ -188,7 +216,7 @@ describe("initOneDollarStats", () => {
 		dispatch({ name: "add_to_cart", params: { sku: "ABC", price: 99 } });
 		expect(event).toHaveBeenCalledTimes(1);
 		expect(event).toHaveBeenCalledWith("add_to_cart", {
-			v2: true,
+			cms_v2: true,
 			sku: "ABC",
 			price: "99",
 		});
