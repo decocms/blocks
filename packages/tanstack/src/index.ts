@@ -20,7 +20,9 @@ export {
   SectionList,
   SectionRenderer,
   StableOutlet,
+  useExperiment,
 } from "./hooks";
+export type { ExperimentResult } from "./hooks";
 export { createDecoWorkerEntry } from "./sdk/workerEntry";
 export { setupTanstackFastDeploy } from "./setupFastDeploy";
 export {
