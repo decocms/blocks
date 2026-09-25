@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock dependencies before importing the module under test
+// Keys the mocked `isLayoutSection` reports as layout chrome. Tests that care
+// add to it and clear it in `afterEach`; everything else sees the previous
+// always-false behaviour.
+const mockLayoutKeys = new Set<string>();
+
 vi.mock("./sectionLoaders", () => ({
-  isLayoutSection: () => false,
+  isLayoutSection: (key: string) => mockLayoutKeys.has(key),
   runSingleSectionLoader: vi.fn(async (section: any) => section),
 }));
 
@@ -534,6 +539,46 @@ describe("shouldDeferSection — admin is the source of truth", () => {
     registerAlwaysDeferSections([key]);
     const section = { __resolveType: key };
     expect(shouldDeferSection(section, 0, mkCfg({ respectCmsLazy: false }), true)).toBe(false);
+  });
+
+  // ── Layout sections outrank the admin ⚡ ─────────────────────────────────
+  //
+  // A named `Footer` block whose root is `Lazy.tsx` is ordinary in decofiles
+  // carried over from Deco on Fresh. Deferring it re-enters the skeleton on
+  // every SPA navigation, so the structural answer wins over the editorial one.
+  describe("layout sections", () => {
+    afterEach(() => {
+      mockLayoutKeys.clear();
+    });
+
+    it("never defers a layout section the editor marked ⚡", () => {
+      const key = "site/sections/Footer/Footer.tsx";
+      mockLayoutKeys.add(key);
+      const section = lazyWrap({ __resolveType: key });
+      expect(shouldDeferSection(section, 0, mkCfg(), false)).toBe(false);
+    });
+
+    it("still defers a ⚡ CONTENT section on the same page", () => {
+      mockLayoutKeys.add("site/sections/Footer/Footer.tsx");
+      const section = lazyWrap({ __resolveType: "site/sections/Shelf.tsx" });
+      expect(shouldDeferSection(section, 0, mkCfg(), false)).toBe(true);
+    });
+
+    it("never defers a layout section by position either", () => {
+      const key = "site/sections/Header/Header.tsx";
+      mockLayoutKeys.add(key);
+      const section = { __resolveType: key };
+      expect(shouldDeferSection(section, 9, mkCfg({ foldThreshold: 3 }), false)).toBe(false);
+    });
+
+    it("`export const deferred = true` still wins for a layout section", () => {
+      // The per-section force-defer is an explicit, code-level opt-in that sits
+      // above this check — a site that writes it means it.
+      const key = "site/sections/DeliberatelyDeferredChrome.tsx";
+      mockLayoutKeys.add(key);
+      registerAlwaysDeferSections([key]);
+      expect(shouldDeferSection({ __resolveType: key }, 0, mkCfg(), false)).toBe(true);
+    });
   });
 });
 

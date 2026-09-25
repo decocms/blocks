@@ -1603,7 +1603,13 @@ function isCmsDeferralWrapped(section: unknown, matcherCtx?: MatcherContext): bo
  * (wrapped in CMS `Lazy.tsx`/`Deferred.tsx`) is ALWAYS deferred, and a section
  * the editor left unmarked is ALWAYS eager — independent of its position on the
  * page and of any `export const eager`/`neverDefer`/`alwaysEager` flag in the
- * section code. The admin ⚡ check runs first and overrides every code flag.
+ * section code. The admin ⚡ check overrides every code flag.
+ *
+ * Two things outrank it, both structural rather than editorial: crawlers always
+ * get the full page, and LAYOUT sections (Header/Footer/Theme) are never
+ * deferred. A layout section is chrome shared by every route, so deferring it
+ * re-enters the skeleton on each SPA navigation — see the comment at that check
+ * for why it is not something the ⚡ toggle is meant to decide.
  *
  * The position threshold and code-level eager flags are an explicit per-site
  * opt-in: they only take effect when a site sets a finite `foldThreshold`
@@ -1648,6 +1654,31 @@ export function shouldDeferSection(
   // without a site-wide skeleton sweep. Bots already returned eager above.
   if (isAlwaysDeferSection(finalKey)) return true;
 
+  // ── LAYOUT SECTIONS ARE NEVER DEFERRED ────────────────────────────────────
+  // Header/Footer/Theme are page CHROME, not page content: they render on every
+  // route and their resolved output is layout-cached across navigations. A
+  // deferred layout section re-enters its skeleton on every SPA transition and
+  // only resolves once the user scrolls it back into view — a flash on every
+  // navigation, which is the one outcome this whole module is built to avoid.
+  //
+  // This sits ABOVE the admin ⚡ check on purpose, and it is the only thing that
+  // does besides the bot short-circuit. `neverDefer`/`alwaysEager` stay below,
+  // where decocms/blocks#277 put them: those are a section author's opinion
+  // about a CONTENT section and must not beat an editor's explicit ⚡. A layout
+  // section is a different question — "should the site chrome disappear between
+  // pages" is not an editorial choice the ⚡ toggle is meant to express, and the
+  // admin has no separate control to say otherwise.
+  //
+  // Concretely: a storefront migrated from Deco on Fresh carries its CMS blocks
+  // over verbatim, and a named `Footer` block whose root is `Lazy.tsx` is
+  // ordinary in those decofiles. With the check below the ⚡, turning
+  // `respectCmsLazy` on made the footer skeleton flash on every navigation —
+  // measured on a production storefront, it took a scroll to the bottom and
+  // ~530ms to come back each time. The site's only recourse was to disable CMS
+  // deferral globally, which forces every ⚡ CONTENT section to render eagerly
+  // too and inflates the document (3.3x on that storefront's home).
+  if (isLayoutSection(finalKey)) return false;
+
   // ── ADMIN IS THE SOURCE OF TRUTH ──────────────────────────────────────────
   // If the editor marked the section ⚡ (wrapped in CMS Lazy/Deferred at any
   // nesting level, including multivariate flags), it is deferred —
@@ -1660,11 +1691,6 @@ export function shouldDeferSection(
   // the default `foldThreshold = Infinity` and only matter when a site
   // explicitly opts into a finite threshold — where they protect specific
   // NON-⚡ sections from position-based deferral.
-
-  // Layout sections (Header, Footer, Theme) are shared across pages and their
-  // resolved output is cached; deferring them would flash a skeleton on every
-  // navigation.
-  if (isLayoutSection(finalKey)) return false;
 
   // `export const neverDefer = true` — keep eager regardless of threshold.
   if (isNeverDeferSection(finalKey)) return false;
