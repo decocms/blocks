@@ -8,7 +8,7 @@
  */
 
 import type { Product } from "@decocms/apps-commerce/types";
-import { getVtexConfig, vtexCachedFetch } from "../../client";
+import { getVtexConfig, storefrontBaseUrl, vtexCachedFetch } from "../../client";
 import { resolveProductIdBySlug } from "../../utils/slugCache";
 import { pickSku, toProduct } from "../../utils/transform";
 import type { LegacyProduct } from "../../utils/types";
@@ -58,9 +58,7 @@ export default async function vtexRelatedProducts(
 		if (!related?.length) return [];
 
 		const config = getVtexConfig();
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storefrontBaseUrl(config);
 
 		let result = related.slice(0, count).map((p) => {
 			const sku = pickSku(p);

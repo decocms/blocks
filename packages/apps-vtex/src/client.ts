@@ -206,6 +206,55 @@ export function vtexHost(environment: string = "vtexcommercestable", config?: Vt
 	return `${c.account}.${environment}.${domain}`;
 }
 
+/**
+ * Origin every product/SKU/breadcrumb URL in the schema.org payload is built
+ * from.
+ *
+ * Order matters, and the first branch is the whole point: a storefront answers
+ * on the host the shopper actually typed, and that is the host its canonical
+ * URLs, JSON-LD and sitemap entries have to name. deco-cx/apps got this from
+ * the request too (`vtex/loaders/intelligentSearch/productList.ts` passes
+ * `baseUrl: url`), and dropping it here is what made a migrated storefront
+ * publish structured data pointing somewhere else.
+ *
+ * `publicUrl` is only a fallback. It is the VTEX *checkout* host
+ * (`secure.<brand>.com`), which is a different site from the storefront, and
+ * it is stored with whatever shape the admin typed — commonly a full URL
+ * (`https://secure.example.com/`). Interpolating that into `https://${...}`
+ * produced `https://https://secure.example.com/`, which `new URL()` parses
+ * with host `https`, so every product ended up at `https://https/<slug>/p`.
+ * Normalising through `URL` removes that whole class of bug.
+ *
+ * Returns no trailing slash, so `new URL(path, baseUrl)` behaves the same for
+ * every branch.
+ */
+export function storefrontBaseUrl(config?: VtexConfig): string {
+	const c = config ?? getVtexConfig();
+
+	// 1. The host serving this request -- the storefront's own origin.
+	const request = RequestContext.current?.request;
+	if (request) {
+		try {
+			return new URL(request.url).origin;
+		} catch {
+			// Fall through: a synthetic Request may carry an unparseable url.
+		}
+	}
+
+	// 2. Configured public URL, normalised whether or not it carries a scheme.
+	if (c.publicUrl) {
+		const normalised = /^https?:\/\//i.test(c.publicUrl) ? c.publicUrl : `https://${c.publicUrl}`;
+		try {
+			return new URL(normalised).origin;
+		} catch {
+			// Fall through to the account host rather than publish a broken origin.
+		}
+	}
+
+	// 3. The account's VTEX host. Always well-formed; never the public brand.
+	return `https://${vtexHost("vtexcommercestable", c)}`;
+}
+
 function baseUrl(): string {
 	return `https://${vtexHost()}`;
 }
