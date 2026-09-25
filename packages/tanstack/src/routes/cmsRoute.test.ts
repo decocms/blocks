@@ -7,6 +7,7 @@ import {
   cmsRouteConfig,
   parseLoadCmsHomePageInput,
   parseLoadCmsPageInput,
+  enrichGlobals,
   runSectionLoadersWithSeo,
 } from "./cmsRoute";
 
@@ -99,6 +100,75 @@ describe("runSectionLoadersWithSeo (#355)", () => {
 
     expect((enrichedSections[0].props as any).loaded).toBe(true);
     expect(enrichedSeoSection).toBeNull();
+  });
+});
+
+/**
+ * Regression guard: `site.global` / `site.pageSections` entries never went
+ * through `runSectionLoaders`. `resolveSiteGlobals()` resolves only their
+ * *props* (and SWR-caches that across visitors for 5 minutes), so a global
+ * section's `loader` export simply never ran — the component rendered with
+ * raw CMS props and every loader-derived field was `undefined`.
+ *
+ * The visible symptom on a real storefront: an analytics global that has to
+ * emit its event inline, in document order (before the page-view global's
+ * script), could not do so at all. Rewriting it as a client-side `useQuery`
+ * moved the event to after hydration, which reorders the dataLayer.
+ */
+describe("enrichGlobals — site.global loaders run per request", () => {
+  it("runs a global section's loader with the real request", async () => {
+    const component = `test/sections/GlobalLoader-${Date.now()}.tsx`;
+    const seen: string[] = [];
+    registerSectionLoader(component, async (props, req) => {
+      seen.push(req.headers.get("cookie") ?? "");
+      return { ...props, loaded: true };
+    });
+
+    const global: ResolvedSection = { component, props: {}, key: component, index: 0 };
+    const request = new Request("https://store.com/", { headers: { cookie: "sid=abc" } });
+
+    const result = await enrichGlobals([global], [], request);
+
+    expect((result[0].props as any).loaded).toBe(true);
+    expect(seen).toEqual(["sid=abc"]);
+  });
+
+  it("dedupes before running loaders — a page-overridden global never pays for its loader", async () => {
+    const component = `test/sections/GlobalDedupe-${Date.now()}.tsx`;
+    let calls = 0;
+    registerSectionLoader(component, async (props) => {
+      calls++;
+      return props;
+    });
+
+    const global: ResolvedSection = { component, props: {}, key: component, index: 0 };
+    const pageSection: ResolvedSection = { component, props: {}, key: `${component}-page`, index: 1 };
+
+    const result = await enrichGlobals([global], [pageSection], new Request("https://store.com/"));
+
+    expect(result).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("preserves global order and passes through globals with no registered loader", async () => {
+    const withLoader = `test/sections/GlobalA-${Date.now()}.tsx`;
+    const withoutLoader = `test/sections/GlobalB-${Date.now()}.tsx`;
+    registerSectionLoader(withLoader, async (props) => ({ ...props, loaded: true }));
+
+    const globals: ResolvedSection[] = [
+      { component: withLoader, props: {}, key: withLoader, index: 0 },
+      { component: withoutLoader, props: { raw: 1 }, key: withoutLoader, index: 1 },
+    ];
+
+    const result = await enrichGlobals(globals, [], new Request("https://store.com/"));
+
+    expect(result.map((s) => s.component)).toEqual([withLoader, withoutLoader]);
+    expect((result[0].props as any).loaded).toBe(true);
+    expect((result[1].props as any).raw).toBe(1);
+  });
+
+  it("is a no-op when every global is deduped away", async () => {
+    expect(await enrichGlobals([], [], new Request("https://store.com/"))).toEqual([]);
   });
 });
 
