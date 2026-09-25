@@ -95,7 +95,7 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
-import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
+import { ensureBlocksHydrated, getDataCacheVersion, maybePollRevision } from "./kvHydration";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
 
@@ -401,6 +401,34 @@ export interface DecoWorkerEntryOptions {
    * ```
    */
   cacheVersionEnv?: string | false;
+
+  /**
+   * Environment variable choosing what a deploy does to build-independent
+   * DATA caches — `cachedLoader` results and `createFetchCache` upstream
+   * responses — in shared storage (e.g. KV):
+   *
+   *   - `"invalidate"` (or unset — the default): keyed by build, a deploy
+   *     starts them cold. Today's behaviour.
+   *   - `"preserve"`: keyed without the build, they survive deploys.
+   *
+   * HTML responses and resolved sections are always per-build (HTML references
+   * fingerprinted assets). CMS revision, segment/device and geo stay in every
+   * key. Any other value falls back to `"invalidate"`.
+   *
+   * With `"preserve"`, a deploy that changes the shape a loader returns can
+   * serve the old shape until the entry expires (`maxAge`, plus the
+   * stale window). Gradual rollouts share keys between versions, too. To drop the preserved data once, set
+   * `DECO_DATA_CACHE_PURGE` to a new value (any string, e.g. the date).
+   *
+   * @default "DECO_DATA_CACHE_ON_DEPLOY"
+   *
+   * @example
+   * ```jsonc
+   * // wrangler.jsonc
+   * "vars": { "DECO_DATA_CACHE_ON_DEPLOY": "preserve" }
+   * ```
+   */
+  dataCacheOnDeployEnv?: string | false;
 
   /**
    * Security headers appended to every SSR response (HTML pages).
@@ -1072,6 +1100,7 @@ export function createDecoWorkerEntry(
     stripTrackingParams: shouldStripTracking = true,
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
+    dataCacheOnDeployEnv = "DECO_DATA_CACHE_ON_DEPLOY",
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     cspMode = "report-only",
@@ -2144,24 +2173,37 @@ export function createDecoWorkerEntry(
       } catch {
         /* Missing storage is a cache miss, never a storefront failure. */
       }
+      const preserveData = !!dataCacheOnDeployEnv && env[dataCacheOnDeployEnv] === "preserve";
+      // Purge without a deploy: bump `cache:data-version` in DECO_KV.
+      const kvDataVersion = preserveData && storage ? await getDataCacheVersion(env, ctx) : "";
+      // Everything but the version is shared by the build and data scopes.
+      const variant = [
+        getRevision(),
+        segment
+          ? hashSegment(segment)
+          : isMobileUA(request.headers.get("user-agent") ?? "")
+            ? "mobile"
+            : "desktop",
+        buildGeoCacheParam(
+          (request as unknown as { cf?: Record<string, string> }).cf,
+          effectiveGeoKey(),
+        ),
+        privateRequest ? crypto.randomUUID() : null,
+      ];
+      const scopeFor = (version: string) => JSON.stringify([url.origin, version, ...variant]);
       bindCacheStorage({
         storage,
         disabled: privateRequest || isDevMode(),
-        scope: JSON.stringify([
-          new URL(request.url).origin,
-          getBuildHash(env),
-          getRevision(),
-          segment
-            ? hashSegment(segment)
-            : isMobileUA(request.headers.get("user-agent") ?? "")
-              ? "mobile"
-              : "desktop",
-          buildGeoCacheParam(
-            (request as unknown as { cf?: Record<string, string> }).cf,
-            effectiveGeoKey(),
-          ),
-          privateRequest ? crypto.randomUUID() : null,
-        ]),
+        scope: scopeFor(getBuildHash(env)),
+        // Invalidate mode still versions data by the bundle even when
+        // `cacheVersionEnv: false` blanks the response scope — loader keys used
+        // to carry `__DECO_BUILD_HASH__` themselves.
+        dataScope: scopeFor(
+          preserveData
+            ? `data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}:${kvDataVersion}`
+            : getBuildHash(env) ||
+                (typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : ""),
+        ),
         waitUntil: (work) => ctx.waitUntil(work),
       });
     }

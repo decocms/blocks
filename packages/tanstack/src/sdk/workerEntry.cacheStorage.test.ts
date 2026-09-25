@@ -8,6 +8,7 @@ import {
   getCacheStorageContext,
 } from "@decocms/blocks/sdk/cacheStorage";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetKvHydrationStateForTests } from "./kvHydration";
 import { createDecoWorkerEntry } from "./workerEntry";
 
 function makeKV(): CacheKVNamespace {
@@ -89,6 +90,106 @@ describe("worker cache storage injection", () => {
     await worker.fetch(request("/two", { authorization: "Bearer private" }), bindings, ctx);
     expect(upstream).toHaveBeenCalledTimes(2);
     await flush();
+  });
+
+  it("DECO_DATA_CACHE_ON_DEPLOY=preserve keeps loader results across deploys", async () => {
+    const upstream = vi.fn(async () => ({ n: upstream.mock.calls.length }));
+    const loader = createCachedLoader("worker-data-version-test", upstream, {
+      policy: "no-cache",
+      maxAge: 60_000,
+    });
+    const origin = {
+      fetch: vi.fn(async () =>
+        Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+      ),
+    };
+    const worker = createDecoWorkerEntry(origin, options);
+    const bindings = { ...env(), DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
+    await worker.fetch(request("/one"), bindings, ctx);
+    await flush();
+    clearLoaderCache();
+    // Distinct paths: only the loader cache is under test, not the HTML cache.
+    await worker.fetch(request("/two"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    // A new DECO_DATA_CACHE_PURGE value drops the preserved data once.
+    clearLoaderCache();
+    await worker.fetch(
+      request("/three"),
+      { ...bindings, DECO_DATA_CACHE_PURGE: "2026-09-22" },
+      ctx,
+    );
+    expect(upstream).toHaveBeenCalledTimes(2);
+    // "invalidate" and unset = per-build, today's behaviour.
+    clearLoaderCache();
+    await worker.fetch(request("/four"), { ...env(), BUILD_HASH: "build-C" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(3);
+    clearLoaderCache();
+    await worker.fetch(
+      request("/five"),
+      { ...env(), BUILD_HASH: "build-D", DECO_DATA_CACHE_ON_DEPLOY: "invalidate" },
+      ctx,
+    );
+    expect(upstream).toHaveBeenCalledTimes(4);
+    await flush();
+  });
+
+  it("a new cache:data-version in DECO_KV purges preserved data without a deploy", async () => {
+    __resetKvHydrationStateForTests();
+    const upstream = vi.fn(async () => ({ n: 1 }));
+    const loader = createCachedLoader("worker-kv-data-version", upstream, {
+      policy: "no-cache",
+      maxAge: 60_000,
+    });
+    const worker = createDecoWorkerEntry(
+      {
+        fetch: async () =>
+          Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+      },
+      options,
+    );
+    const DECO_KV = makeKV();
+    const bindings = { ...env(), DECO_KV, DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
+    await worker.fetch(request("/a"), bindings, ctx);
+    await flush();
+    clearLoaderCache();
+    await worker.fetch(request("/b"), bindings, ctx);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    await DECO_KV.put("cache:data-version", "v2", { expirationTtl: 60 });
+    __resetKvHydrationStateForTests(); // skip the poll interval
+    clearLoaderCache();
+    await worker.fetch(request("/c"), bindings, ctx);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    await flush();
+  });
+
+  it("honours dataCacheOnDeployEnv renames and opt-out", async () => {
+    const run = async (opts: object, extra: Record<string, string>) => {
+      clearLoaderCache();
+      const upstream = vi.fn(async () => ({ n: 1 }));
+      const loader = createCachedLoader(`env-name-${JSON.stringify(opts)}`, upstream, {
+        policy: "no-cache",
+        maxAge: 60_000,
+      });
+      const worker = createDecoWorkerEntry(
+        {
+          fetch: async () =>
+            Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+        },
+        { ...options, ...opts },
+      );
+      const bindings = { ...env(), ...extra };
+      await worker.fetch(request("/a"), bindings, ctx);
+      await flush();
+      clearLoaderCache();
+      await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+      await flush();
+      return upstream.mock.calls.length;
+    };
+    expect(await run({ dataCacheOnDeployEnv: "KEEP" }, { KEEP: "preserve" })).toBe(1);
+    expect(
+      await run({ dataCacheOnDeployEnv: false }, { DECO_DATA_CACHE_ON_DEPLOY: "preserve" }),
+    ).toBe(2);
+    expect(await run({}, { DECO_DATA_CACHE_ON_DEPLOY: "yes" })).toBe(2);
   });
 
   it("stores public server-function POSTs by body and excludes unmarked responses", async () => {

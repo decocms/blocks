@@ -46,7 +46,10 @@ shared storage without selecting a different backend.
 For another server integration, call `bindCacheStorage({ storage, scope,
 waitUntil })` inside `RequestContext.run`. Scope must identify the site and code
 version; include content revision and any public request variants as needed.
-Bindings must not be assigned to a process-wide mutable variable.
+An optional `dataScope` keys the build-independent data stores (`loaders`,
+`fetch:*`) instead of `scope`: same fields, but without the code version. Only
+stores created with `createCacheStore(..., "data")` use it. Bindings must not be
+assigned to a process-wide mutable variable.
 
 ## TTL and freshness
 
@@ -65,6 +68,36 @@ TanStack scopes data entries by origin, deployment, CMS revision and public
 segment/geo information. Existing response keys retain their URL, segment, geo and
 request-body variation. A deployment or CMS edit selects new keys; old entries
 expire by TTL. There is no distributed invalidation coordinator.
+
+### Keeping data caches across deploys
+
+By default a deploy starts every shared cache cold. Loader results and upstream
+fetch responses don't depend on the build, so a site can keep them:
+
+```jsonc
+// wrangler.jsonc
+"vars": { "DECO_DATA_CACHE_ON_DEPLOY": "preserve" }
+```
+
+| `DECO_DATA_CACHE_ON_DEPLOY` | `loaders`, `fetch:*` on deploy |
+|---|---|
+| `"invalidate"`, unset, or any other value | new keys, start cold (default) |
+| `"preserve"` | same keys, survive |
+
+HTML responses, sections and layouts stay per-build in both modes: HTML
+references fingerprinted assets. CMS revision, segment and geo stay in every key,
+so a CMS publish still selects new keys.
+
+With `"preserve"`, a deploy that changes the shape a loader returns can serve the
+old shape until the loader's `maxAge` (longer during upstream errors, via
+`staleIfError`). To drop preserved data once, set `DECO_DATA_CACHE_PURGE` to a
+new value (any string, e.g. the date) in that deploy.
+To purge without a deploy, write a new value to the `cache:data-version` key in
+the site's `DECO_KV` namespace (the control-plane does this through the Cloudflare
+API). Isolates pick it up within 10s; the old keys are orphaned and expire by TTL. During a gradual rollout the
+old and new versions share those keys, so ship shape changes with a purge. The option
+`dataCacheOnDeployEnv` on `createDecoWorkerEntry` renames the variable, or
+disables it with `false`.
 
 `/_cache/purge` deletes the requested response keys through the configured
 adapter. KV deletion/update visibility follows [KV's eventual consistency](https://developers.cloudflare.com/kv/api/read-key-value-pairs/).
