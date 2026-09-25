@@ -176,6 +176,46 @@ export async function runSectionLoadersWithSeo(
   };
 }
 
+/**
+ * Dedupe `site.global` / `site.pageSections` against the page's own sections,
+ * then run the survivors' loaders against the real per-request Request.
+ *
+ * `resolveSiteGlobals()` only resolves a global's *props* — and it SWR-caches
+ * that result for 5 minutes across every visitor. Until now nothing ever fed
+ * globals through `runSectionLoaders`, so a global section's `loader` export
+ * simply never ran: the component rendered with the raw CMS props and every
+ * loader-derived field arrived `undefined`. Sites worked around it by moving
+ * the work client-side (a `useQuery` over `/deco/invoke`), which changes both
+ * the timing and the SSR output — an analytics global that has to emit its
+ * event inline, in document order, cannot be rewritten that way at all.
+ *
+ * Loaders run per request and are NOT cached here; only the prop resolution
+ * behind `resolveSiteGlobals()` keeps its 5-minute cache. Dedupe runs first so
+ * a global that the page overrides never pays for its loader.
+ *
+ * Section-level caching still applies: a global registered via
+ * `registerLayoutSections` / `registerCacheableSections` goes through the same
+ * cache tiers as any other section inside `runSectionLoaders`.
+ *
+ * `pageSections` may be the page's RAW sections — it does not have to be the
+ * loader-enriched ones. `dedupeGlobals` reads only `section.component`, and no
+ * branch of `runSingleSectionLoaderImpl` ever rewrites `component` (every path
+ * returns `section` or `{ ...section, props }`, 1:1, never adding or dropping
+ * entries). Passing the raw list is what lets this run CONCURRENTLY with the
+ * page's own loaders instead of behind them.
+ *
+ * @internal exported for tests
+ */
+export async function enrichGlobals(
+  globalSections: ResolvedSection[],
+  pageSections: ResolvedSection[],
+  request: Request,
+): Promise<ResolvedSection[]> {
+  const kept = dedupeGlobals(globalSections, pageSections);
+  if (kept.length === 0) return kept;
+  return runSectionLoaders(kept, request);
+}
+
 async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
   const [basePath] = fullPath.split("?");
   // On client-side navigation getRequestUrl() is the /_serverFn/... endpoint,
@@ -207,21 +247,33 @@ async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
   // identical for SSR (F5) and SPA (<Link>) navigations — see #233 for the
   // previous SPA-breakage when `withSiteGlobals` ran client-side and saw an
   // empty client-bundled `blocks.gen.ts`.
-  const [{ enrichedSections, enrichedSeoSection }, globals] = await Promise.all([
-    runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
-    resolveGlobals ? resolveSiteGlobals(matcherCtx) : Promise.resolve(EMPTY_GLOBALS),
-  ]);
+  const [{ enrichedSections, enrichedSeoSection }, { globals, enrichedGlobals }] =
+    await Promise.all([
+      runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
+      (async () => {
+        const globals = resolveGlobals ? await resolveSiteGlobals(matcherCtx) : EMPTY_GLOBALS;
+        return {
+          globals,
+          // Deduped against the page's RAW sections on purpose — see enrichGlobals.
+          // Waiting for `enrichedSections` would put the globals' loaders behind
+          // the page's on the TTFB critical path for no benefit.
+          enrichedGlobals: await enrichGlobals(
+            globals.resolvedSections,
+            page.resolvedSections,
+            request,
+          ),
+        };
+      })(),
+    ]);
 
   // After the loaders — a loader-resolved experiment assignment must be in the
   // cookie this response sets. See persistFlags.
   const flags = persistFlags(matcherCtx, takeExperimentAssignments());
 
-  // Page sections take precedence over globals — dedupe drops any global
-  // whose component is already rendered by the page.
-  const mergedSections: ResolvedSection[] = [
-    ...dedupeGlobals(globals.resolvedSections, enrichedSections),
-    ...enrichedSections,
-  ];
+  // Page sections take precedence over globals — dedupe drops any global whose
+  // component is already rendered by the page. The survivors ran their own
+  // loaders above, concurrently with the page's (see enrichGlobals).
+  const mergedSections: ResolvedSection[] = [...enrichedGlobals, ...enrichedSections];
 
   // Pre-import eager section modules so their default exports are cached
   // in resolvedComponents. This ensures SSR renders with direct component
@@ -345,16 +397,24 @@ export const loadCmsHomePage = createServerFn({ method: "GET" })
     };
     const page = await resolveDecoPage("/", matcherCtx);
     if (!page) return null;
-    const [{ enrichedSections, enrichedSeoSection }, globals] = await Promise.all([
-      runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
-      resolveGlobals ? resolveSiteGlobals(matcherCtx) : Promise.resolve(EMPTY_GLOBALS),
-    ]);
+    const [{ enrichedSections, enrichedSeoSection }, { globals, enrichedGlobals }] =
+      await Promise.all([
+        runSectionLoadersWithSeo(page.resolvedSections, page.seoSection, request),
+        (async () => {
+          const globals = resolveGlobals ? await resolveSiteGlobals(matcherCtx) : EMPTY_GLOBALS;
+          return {
+            globals,
+            enrichedGlobals: await enrichGlobals(
+              globals.resolvedSections,
+              page.resolvedSections,
+              request,
+            ),
+          };
+        })(),
+      ]);
     const flags = persistFlags(matcherCtx, takeExperimentAssignments());
 
-    const mergedSections: ResolvedSection[] = [
-      ...dedupeGlobals(globals.resolvedSections, enrichedSections),
-      ...enrichedSections,
-    ];
+    const mergedSections: ResolvedSection[] = [...enrichedGlobals, ...enrichedSections];
 
     const eagerKeys = mergedSections.map((s) => s.component);
     await preloadSectionComponents(eagerKeys);

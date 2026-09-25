@@ -1,4 +1,8 @@
-import { registerCacheableSections, registerSectionLoader } from "@decocms/blocks/cms";
+import {
+  registerCacheableSections,
+  registerSectionLoader,
+  runSectionLoaders,
+} from "@decocms/blocks/cms";
 import type { ResolvedSection } from "@decocms/blocks/cms";
 import { describe, expect, it } from "vitest";
 import {
@@ -7,6 +11,7 @@ import {
   cmsRouteConfig,
   parseLoadCmsHomePageInput,
   parseLoadCmsPageInput,
+  enrichGlobals,
   runSectionLoadersWithSeo,
 } from "./cmsRoute";
 
@@ -99,6 +104,112 @@ describe("runSectionLoadersWithSeo (#355)", () => {
 
     expect((enrichedSections[0].props as any).loaded).toBe(true);
     expect(enrichedSeoSection).toBeNull();
+  });
+});
+
+/**
+ * Regression guard: `site.global` / `site.pageSections` entries never went
+ * through `runSectionLoaders`. `resolveSiteGlobals()` resolves only their
+ * *props* (and SWR-caches that across visitors for 5 minutes), so a global
+ * section's `loader` export simply never ran — the component rendered with
+ * raw CMS props and every loader-derived field was `undefined`.
+ *
+ * The visible symptom on a real storefront: an analytics global that has to
+ * emit its event inline, in document order (before the page-view global's
+ * script), could not do so at all. Rewriting it as a client-side `useQuery`
+ * moved the event to after hydration, which reorders the dataLayer.
+ */
+describe("enrichGlobals — site.global loaders run per request", () => {
+  it("runs a global section's loader with the real request", async () => {
+    const component = `test/sections/GlobalLoader-${Date.now()}.tsx`;
+    const seen: string[] = [];
+    registerSectionLoader(component, async (props, req) => {
+      seen.push(req.headers.get("cookie") ?? "");
+      return { ...props, loaded: true };
+    });
+
+    const global: ResolvedSection = { component, props: {}, key: component, index: 0 };
+    const request = new Request("https://store.com/", { headers: { cookie: "sid=abc" } });
+
+    const result = await enrichGlobals([global], [], request);
+
+    expect((result[0].props as any).loaded).toBe(true);
+    expect(seen).toEqual(["sid=abc"]);
+  });
+
+  it("dedupes before running loaders — a page-overridden global never pays for its loader", async () => {
+    const component = `test/sections/GlobalDedupe-${Date.now()}.tsx`;
+    let calls = 0;
+    registerSectionLoader(component, async (props) => {
+      calls++;
+      return props;
+    });
+
+    const global: ResolvedSection = { component, props: {}, key: component, index: 0 };
+    const pageSection: ResolvedSection = { component, props: {}, key: `${component}-page`, index: 1 };
+
+    const result = await enrichGlobals([global], [pageSection], new Request("https://store.com/"));
+
+    expect(result).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("preserves global order and passes through globals with no registered loader", async () => {
+    const withLoader = `test/sections/GlobalA-${Date.now()}.tsx`;
+    const withoutLoader = `test/sections/GlobalB-${Date.now()}.tsx`;
+    registerSectionLoader(withLoader, async (props) => ({ ...props, loaded: true }));
+
+    const globals: ResolvedSection[] = [
+      { component: withLoader, props: {}, key: withLoader, index: 0 },
+      { component: withoutLoader, props: { raw: 1 }, key: withoutLoader, index: 1 },
+    ];
+
+    const result = await enrichGlobals(globals, [], new Request("https://store.com/"));
+
+    expect(result.map((s) => s.component)).toEqual([withLoader, withoutLoader]);
+    expect((result[0].props as any).loaded).toBe(true);
+    expect((result[1].props as any).raw).toBe(1);
+  });
+
+  it("is a no-op when every global is deduped away", async () => {
+    expect(await enrichGlobals([], [], new Request("https://store.com/"))).toEqual([]);
+  });
+
+  /**
+   * Both call sites dedupe against the page's RAW sections so the globals'
+   * loaders can run concurrently with the page's instead of behind them. That
+   * is only sound while `runSectionLoaders` leaves `section.component`
+   * untouched — `dedupeGlobals` reads nothing else. If a future change makes a
+   * loader rewrite `component` (or add/drop sections), the two dedupe targets
+   * stop agreeing and an overridden global would render twice. Lock it here.
+   */
+  it("dedupes identically against raw and loader-enriched page sections", async () => {
+    const shared = `test/sections/GlobalInvariant-${Date.now()}.tsx`;
+    const globalOnly = `test/sections/GlobalOnly-${Date.now()}.tsx`;
+    registerSectionLoader(shared, async (props) => ({ ...props, loaded: true }));
+    registerSectionLoader(globalOnly, async (props) => ({ ...props, loaded: true }));
+
+    const globals: ResolvedSection[] = [
+      { component: globalOnly, props: {}, key: globalOnly, index: 0 },
+      { component: shared, props: {}, key: shared, index: 1 },
+    ];
+    const rawPageSections: ResolvedSection[] = [
+      { component: shared, props: { sku: "1" }, key: `${shared}-page`, index: 0 },
+    ];
+
+    const request = new Request("https://store.com/");
+    const enrichedPageSections = await runSectionLoaders(rawPageSections, request);
+
+    // The loader must not have touched `component` — the whole premise.
+    expect(enrichedPageSections.map((s) => s.component)).toEqual(
+      rawPageSections.map((s) => s.component),
+    );
+
+    const viaRaw = await enrichGlobals(globals, rawPageSections, request);
+    const viaEnriched = await enrichGlobals(globals, enrichedPageSections, request);
+
+    expect(viaRaw.map((s) => s.component)).toEqual([globalOnly]);
+    expect(viaRaw.map((s) => s.component)).toEqual(viaEnriched.map((s) => s.component));
   });
 });
 
