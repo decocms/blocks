@@ -678,7 +678,7 @@ const SHELF_PROPERTY_NAMES = new Set([
  * - Offers: best seller only (in-stock first, then cheapest), stripped installments (keeps ListPrice, SalePrice, SRP, PIX, best no-interest)
  * - isVariantOf: single in-stock variant at level 0
  * - additionalProperty: filtered to known-used property names
- * - Drops: description, video, isAccessoryOrSparePartFor, alternateName, gtin, releaseDate, model
+ * - Drops: description, video, isAccessoryOrSparePartFor, alternateName, gtin, releaseDate
  */
 export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 	product: P,
@@ -687,7 +687,7 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 	options: ProductOptions,
 ): Product => {
 	const { baseUrl, priceCurrency } = options;
-	const { productId, items } = product;
+	const { productId, items, productReference } = product;
 	const { name, itemId: skuId } = sku;
 
 	// Images: cap at 2
@@ -762,6 +762,12 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 						// flags that read isVariantOf.additionalProperty (e.g. ReleaseFlag ->
 						// "Lançamento") still fire on shelf/carousel cards.
 						additionalProperty: groupAdditionalProperty,
+						// The product reference (VTEX `productReference`). Analytics reads it
+						// off `isVariantOf.model` — GA4 `dimension1` on view_item_list /
+						// select_item, and the equivalent on productImpression /
+						// productClick. Dropping it silently blanked that dimension on every
+						// shelf, PLP and search result. One short string per product.
+						model: productReference,
 					} satisfies ProductGroup;
 				})()
 			: undefined;
@@ -828,13 +834,19 @@ export const toProductVariant = <P extends LegacyProductVTEX | ProductVTEX>(
 	const includeImage = options.variantIncludeImage !== false;
 	const includeInventory = options.variantIncludeInventory !== false;
 
-	// additionalProperty: only variant-differentiating specs
+	// additionalProperty: variant-differentiating specs, plus the SKU reference
+	// ids. Analytics reads the SKU's `RefId` off this list — GA4 `dimension2` on
+	// view_item_list / select_item, and the equivalent on productImpression /
+	// productClick. It lives in `referenceId`, not in `variations`, so the
+	// `variantProps` filter dropped it and blanked that dimension on every shelf
+	// card rendered with `shelfCompleteVariants`. One short string per SKU.
 	const specificationsAdditionalProperty = isLegacySku(sku)
 		? toAdditionalPropertiesLegacy(sku)
 		: toAdditionalProperties(sku);
-	const additionalProperty = specificationsAdditionalProperty.filter((prop) =>
-		variantProps.has(prop.name ?? ""),
-	);
+	const additionalProperty = [
+		...specificationsAdditionalProperty.filter((prop) => variantProps.has(prop.name ?? "")),
+		...(toAdditionalPropertyReferenceIds(sku.referenceId ?? []) ?? []),
+	];
 
 	// Offers: best seller, lean (availability + seller; optional inventoryLevel)
 	const offerConverter = isLegacyProduct(product) ? toOfferLegacy : toOffer;
