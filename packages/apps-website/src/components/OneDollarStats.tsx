@@ -186,11 +186,17 @@ export function readFlagsFromCookie(
  * `ab_` before being merged into the OneDollar payload (see {@link initOneDollarStats}),
  * mirroring `cms_` for {@link readFlagsFromCookie}.
  *
- * Safe to read synchronously here: the SDK is blocking and resolves
- * `window.__ab.assignments` before the page is revealed (see the SDK's
- * `boot()`), and this only runs from `initOneDollarStats`, itself only called
- * from a `useEffect` that fires after hydration — i.e. after the page (and
- * the SDK's assignment) is already visible.
+ * Not a hard SDK guarantee, just a timing argument: the SDK's `boot()` always
+ * calls `resolveApi()` (which sets `assignments`) inside its `try`/`finally`,
+ * bounded by `cfg.timeoutMs` — even on a slow/failed manifest fetch, that call
+ * happens before `boot()` returns. The mask's own failsafe reveal timer races
+ * that same `timeoutMs` window and can in principle win it, so "resolved
+ * before reveal" is NOT something this function can rely on in isolation.
+ * What makes this read safe is that it never runs that early: it only runs
+ * from `initOneDollarStats`, itself only called from a `useEffect` that fires
+ * after hydration — well after that whole boot window has closed in practice.
+ * If that assumption ever breaks (e.g. `timeoutMs` raised past typical
+ * hydration time), this simply reads a still-empty `assignments`, not a crash.
  *
  * Exported for testing.
  */
