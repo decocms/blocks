@@ -19,6 +19,13 @@ export interface ProductListProps {
 	 * a single in-stock variant per product).
 	 */
 	completeVariants?: boolean;
+	/**
+	 * `imageLabel`s that survive the shelf transform's 2-image cap. Storefronts
+	 * that pick the card image by name (a still/packshot asset, a colour
+	 * thumbnail) need this: those assets are registered last on the SKU, so the
+	 * positional cap drops them and the card falls back to the first photo.
+	 */
+	keepImageNames?: string[];
 }
 
 interface CollectionProps {
@@ -147,6 +154,7 @@ export default async function vtexProductListShelf(
 				baseUrl,
 				priceCurrency: "BRL",
 				shelfCompleteVariants: props.completeVariants,
+				keepImageNames: props.keepImageNames,
 			});
 		});
 

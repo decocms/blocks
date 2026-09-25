@@ -168,9 +168,24 @@ export interface ProductOptions {
 	 * (hover) image sits at index 1 in only 5 of the 19 products that have one —
 	 * index 2 in 12 of them, index 3 in 2. A cap of 2 therefore drops the hover
 	 * image on most cards that use one. Callers that select by name should keep
-	 * the named entries instead of using this option.
+	 * the named entries through {@link keepImageNames}.
 	 */
 	maxImages?: number;
+	/**
+	 * `imageLabel`s that survive the positional cap. An image whose label is
+	 * listed here is kept even when it falls outside {@link maxImages} (and
+	 * outside the shelf transform's own default cap), in its original order.
+	 *
+	 * This is the escape hatch the `maxImages` note asks for. A storefront that
+	 * picks the card image BY NAME — a "still"/packshot asset, a colour
+	 * thumbnail — cannot use a positional cap on its own: those assets are
+	 * registered last on the SKU, so any cap drops them and the card silently
+	 * falls back to the first photo. Pass the labels the card selects and the
+	 * payload stays lean everywhere else.
+	 *
+	 * Undefined (default) preserves the current behaviour byte for byte.
+	 */
+	keepImageNames?: string[];
 	/** Property names to keep on lean variant additionalProperty. Defaults to VARIANT_PROPERTY_NAMES. */
 	variantPropertyNames?: Set<string>;
 	/** When leanVariants is true, still include image[0] on each variant entry. Default true. */
@@ -185,6 +200,28 @@ export interface ProductOptions {
 	 */
 	shelfCompleteVariants?: boolean;
 }
+
+/**
+ * Apply the positional image cap, then add back the entries the caller selects
+ * by name. Order is preserved: the capped head first, then the named tail in
+ * catalog order. No cap means no work.
+ */
+const capImages = <I extends { imageLabel?: string | null }>(
+	images: I[] | null | undefined,
+	maxImages: number | undefined,
+	keepImageNames: string[] | undefined,
+): I[] | null | undefined => {
+	if (!images || typeof maxImages !== "number") return images;
+
+	const capped = images.slice(0, maxImages);
+
+	if (!keepImageNames?.length) return capped;
+
+	const keep = new Set(keepImageNames);
+	const named = images.slice(maxImages).filter((image) => keep.has(image.imageLabel ?? ""));
+
+	return named.length > 0 ? [...capped, ...named] : capped;
+};
 
 /** Returns first available sku */
 const findFirstAvailable = (items: Array<LegacySkuVTEX | SkuVTEX>) =>
@@ -495,8 +532,7 @@ export const toProduct = <P extends LegacyProductVTEX | ProductVTEX>(
 				} satisfies ProductGroup)
 			: undefined;
 
-	const cappedImages =
-		typeof options.maxImages === "number" ? images?.slice(0, options.maxImages) : images;
+	const cappedImages = capImages(images, options.maxImages, options.keepImageNames);
 	const finalImages = cappedImages?.map(({ imageUrl, imageText, imageLabel }) => {
 		const url = imagesByKey.get(getImageKey(imageUrl)) ?? imageUrl;
 		const alternateName = imageText || imageLabel || "";
@@ -659,6 +695,9 @@ const applyPriceSpecifications = (offers: Offer[], options: ProductOptions): Off
 			}))
 		: offers;
 
+/** Default positional image cap for the shelf transform (front + back). */
+const SHELF_MAX_IMAGES = 2;
+
 /** Property names commonly used by ProductCard/Shelf components */
 const SHELF_PROPERTY_NAMES = new Set([
 	"category",
@@ -674,7 +713,8 @@ const SHELF_PROPERTY_NAMES = new Set([
  * Lean product transform for shelf/card display. Same signature as toProduct().
  *
  * Differences from toProduct():
- * - Images: capped at 2 per SKU (front + back)
+ * - Images: capped at 2 per SKU (front + back), overridable via `maxImages`;
+ *   `keepImageNames` adds back labelled assets that fall outside the cap
  * - Offers: best seller only (in-stock first, then cheapest), stripped installments (keeps ListPrice, SalePrice, SRP, PIX, best no-interest)
  * - isVariantOf: single in-stock variant at level 0
  * - additionalProperty: filtered to known-used property names
@@ -690,9 +730,11 @@ export const toProductShelf = <P extends LegacyProductVTEX | ProductVTEX>(
 	const { productId, items, productReference } = product;
 	const { name, itemId: skuId } = sku;
 
-	// Images: cap at 2
+	// Images: cap at 2, keeping any label the caller selects by name
 	const rawImages = nonEmptyArray(sku.images);
-	const mappedImages = (rawImages ?? []).slice(0, 2).map(({ imageUrl, imageText, imageLabel }) => ({
+	const cappedImages =
+		capImages(rawImages, options.maxImages ?? SHELF_MAX_IMAGES, options.keepImageNames) ?? [];
+	const mappedImages = cappedImages.map(({ imageUrl, imageText, imageLabel }) => ({
 		"@type": "ImageObject" as const,
 		alternateName: imageText || imageLabel || "",
 		url: imageUrl,
