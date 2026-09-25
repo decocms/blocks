@@ -649,17 +649,19 @@ describe("toProductVariant", () => {
 		expect(offer.inventoryLevel?.value).toBe(0);
 	});
 
-	it("filters additionalProperty to variant-differentiating names only", () => {
+	it("filters spec additionalProperty to variant-differentiating names only", () => {
 		const product = makeISProduct({ items: [makeISSku()] });
 		const sku = makeISSku();
 		const result = toProductVariant(product, sku, baseOptions);
 
-		const propNames = result.additionalProperty?.map((p) => p.name) ?? [];
+		const specNames = (result.additionalProperty ?? [])
+			.filter((p) => p.valueReference !== "ReferenceID")
+			.map((p) => p.name);
 		// Should only contain Cor, Voltagem, Tamanho (from VARIANT_PROPERTY_NAMES)
-		for (const name of propNames) {
+		for (const name of specNames) {
 			expect(["Cor", "Voltagem", "Tamanho"]).toContain(name);
 		}
-		expect(propNames.length).toBeGreaterThan(0);
+		expect(specNames.length).toBeGreaterThan(0);
 	});
 
 	it("respects custom variantPropertyNames", () => {
@@ -670,8 +672,32 @@ describe("toProductVariant", () => {
 			variantPropertyNames: new Set(["Cor"]),
 		});
 
-		const propNames = result.additionalProperty?.map((p) => p.name) ?? [];
-		expect(propNames).toEqual(["Cor"]);
+		const specNames = (result.additionalProperty ?? [])
+			.filter((p) => p.valueReference !== "ReferenceID")
+			.map((p) => p.name);
+		expect(specNames).toEqual(["Cor"]);
+	});
+
+	// Analytics reads the SKU RefId off additionalProperty for GA4 dimension2
+	// (view_item_list / select_item) and its productImpression / productClick
+	// equivalents. It lives in `referenceId`, not `variations`, so the
+	// variantProps filter used to drop it and blank the dimension.
+	it("keeps the SKU reference ids (RefId) alongside the variant specs", () => {
+		const product = makeISProduct({ items: [makeISSku()] });
+		const sku = { ...makeISSku(), referenceId: [{ Key: "RefId", Value: "010276949803" }] };
+		const result = toProductVariant(product, sku, baseOptions);
+
+		const refId = result.additionalProperty?.find((p) => p.name === "RefId");
+		expect(refId?.value).toBe("010276949803");
+		expect(refId?.valueReference).toBe("ReferenceID");
+	});
+
+	it("omits RefId when the SKU carries no referenceId", () => {
+		const product = makeISProduct({ items: [makeISSku()] });
+		const sku = { ...makeISSku(), referenceId: undefined };
+		const result = toProductVariant(product, sku, baseOptions);
+
+		expect(result.additionalProperty?.some((p) => p.name === "RefId")).toBe(false);
 	});
 
 	it("produces lean offers with availability but no priceSpecification details", () => {
@@ -766,6 +792,31 @@ describe("toProductShelf", () => {
 			options,
 		);
 		expect(result.isVariantOf?.additionalProperty).toEqual([]);
+	});
+
+	// Analytics reads the product reference off isVariantOf.model for GA4
+	// dimension1 (view_item_list / select_item) and its productImpression /
+	// productClick equivalents. toProductShelf used to drop it, blanking the
+	// dimension on every shelf, PLP and search result.
+	it("carries productReference on isVariantOf.model (analytics dimension1)", () => {
+		const result = toProductShelf(
+			makeProduct({ productReference: "0102769498" }),
+			makeSku(),
+			0,
+			options,
+		);
+		expect(result.isVariantOf?.model).toBe("0102769498");
+	});
+
+	it("keeps the SKU RefId reachable on the complete-variants shelf (dimension2)", () => {
+		const result = toProductShelf(makeProduct(), makeSku(), 0, {
+			...options,
+			shelfCompleteVariants: true,
+		});
+		const variantProps = result.isVariantOf?.hasVariant?.[0]?.additionalProperty ?? [];
+		expect(variantProps).toEqual(
+			expect.arrayContaining([expect.objectContaining({ name: "RefId", value: "REF-SKU1" })]),
+		);
 	});
 });
 
