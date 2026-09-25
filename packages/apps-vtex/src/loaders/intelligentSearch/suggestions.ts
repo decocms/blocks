@@ -4,7 +4,7 @@
  */
 
 import type { Product, Suggestion } from "@decocms/apps-commerce/types";
-import { getVtexConfig, intelligentSearch } from "../../client";
+import { getVtexConfig, intelligentSearch, storefrontBaseUrl } from "../../client";
 import { pickSku, toProduct } from "../../utils/transform";
 import type { Product as ProductVTEX } from "../../utils/types";
 
@@ -29,9 +29,7 @@ export default async function vtexSuggestions(props: SuggestionsProps): Promise<
 		}));
 
 		const config = getVtexConfig();
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storefrontBaseUrl(config);
 
 		const products: Product[] = (data.products ?? []).slice(0, props.count ?? 4).map((p) => {
 			const sku = pickSku(p);

@@ -7,7 +7,7 @@
  */
 
 import type { Product } from "@decocms/apps-commerce/types";
-import { getVtexConfig, intelligentSearch, toFacetPath } from "../client";
+import { getVtexConfig, intelligentSearch, storefrontBaseUrl, toFacetPath } from "../client";
 import { pickSku, sortProducts, toProduct } from "../utils/transform";
 import type { Product as ProductVTEX } from "../utils/types";
 
@@ -135,9 +135,7 @@ export default async function vtexProductList(props: ProductListProps): Promise<
 		const data = await intelligentSearch<{ products: ProductVTEX[] }>(endpoint, params);
 
 		const vtexProducts = data.products ?? [];
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storefrontBaseUrl(config);
 
 		let products = vtexProducts.map((p) => {
 			const fetchedSkus = ids ? new Set(ids) : null;

@@ -4,7 +4,7 @@
  * Combines /autocomplete_suggestions/ and /product_search/ in parallel,
  * transforms IS products to schema.org via pickSku + toProduct.
  */
-import { getVtexConfig, intelligentSearch as vtexIS } from "../client";
+import { getVtexConfig, intelligentSearch as vtexIS, storefrontBaseUrl } from "../client";
 import { pickSku, toProduct as toSchemaProduct } from "../utils/transform";
 
 export interface AutocompleteProps {
@@ -40,9 +40,7 @@ export async function autocompleteSearch(props: AutocompleteProps): Promise<Auto
 		]);
 
 		const config = getVtexConfig();
-		const baseUrl = config.publicUrl
-			? `https://${config.publicUrl}`
-			: `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}`;
+		const baseUrl = storefrontBaseUrl(config);
 
 		return {
 			searches: suggestionsData.searches ?? [],
