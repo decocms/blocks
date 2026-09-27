@@ -20,6 +20,14 @@ export {
 } from "./Image";
 export { Picture, Source, type PictureProps, type SourceProps } from "./Picture";
 export { useLoadMore } from "./useLoadMore";
+export { useExperiment, type ExperimentResult } from "./useExperiment";
+export {
+	getExperimentConfig,
+	getExperimentManifest,
+	setExperimentManifest,
+	type ExperimentConfig,
+	type ExperimentManifest,
+} from "./experimentManifest";
 export {
 	ProductJsonLd,
 	PLPJsonLd,
