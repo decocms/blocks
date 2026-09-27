@@ -23,6 +23,7 @@ import {
 	setDanglingReferenceHandler,
 	setResolveErrorHandler,
 } from "./cms/index";
+import { setExperimentManifest, type ExperimentManifest } from "./hooks/experimentManifest";
 import { registerBuiltinMatchers } from "./matchers/builtins";
 import { registerProductionOrigins } from "./sdk/normalizeUrls";
 
@@ -42,6 +43,15 @@ export interface SiteSetupOptions {
 
 	/** Production origins for URL normalization. */
 	productionOrigins?: string[];
+
+	/**
+	 * A/B test manifest — import and pass directly:
+	 * `import experiments from "../.deco/TestesAB.json";` (metadata only:
+	 * which tests exist, their variants, and whether each is active — never
+	 * the per-visitor assignment, which `useExperiment` still resolves via
+	 * `window.__ab` at runtime). See `./hooks/experimentManifest.ts`.
+	 */
+	experiments?: ExperimentManifest;
 
 	/**
 	 * Custom matcher registrations to run alongside builtins.
@@ -82,14 +92,19 @@ export function createSiteSetup(options: SiteSetupOptions): void {
 		setDanglingReferenceHandler(options.onDanglingReference);
 	}
 
-	// 2. Section glob registration — transform Vite paths to CMS keys
+	// 2. Experiment manifest — server AND client (unlike blocks below), since
+	// useExperiment needs it on both sides to size up a test before its first
+	// render.
+	setExperimentManifest(options.experiments ?? {});
+
+	// 3. Section glob registration — transform Vite paths to CMS keys
 	const sections: Record<string, () => Promise<any>> = {};
 	for (const [path, loader] of Object.entries(options.sections)) {
 		sections[`site/${path.slice(2)}`] = loader;
 	}
 	registerSections(sections);
 
-	// 3. Matchers
+	// 4. Matchers
 	registerBuiltinMatchers();
 	if (options.customMatchers) {
 		for (const register of options.customMatchers) {
@@ -97,12 +112,12 @@ export function createSiteSetup(options: SiteSetupOptions): void {
 		}
 	}
 
-	// 4. Production origins
+	// 5. Production origins
 	if (options.productionOrigins?.length) {
 		registerProductionOrigins(options.productionOrigins);
 	}
 
-	// 5. Blocks + platform init (server-only)
+	// 6. Blocks + platform init (server-only)
 	if (typeof document === "undefined") {
 		setBlocks(options.blocks);
 		if (options.initPlatform) {
@@ -110,7 +125,7 @@ export function createSiteSetup(options: SiteSetupOptions): void {
 		}
 	}
 
-	// 6. onBeforeResolve — re-init platform on decofile hot-reload
+	// 7. onBeforeResolve — re-init platform on decofile hot-reload
 	if (options.initPlatform) {
 		const init = options.initPlatform;
 		onBeforeResolve(() => {
