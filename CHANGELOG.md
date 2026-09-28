@@ -19,12 +19,26 @@ the account default: `updateOrderFormAttachment`, `updateItemAttachment`,
 against `vtex/actions/cart/*.ts` in both `0.133.28` and `0.159.3`); the port
 dropped it. They now use the same `scParam()` the rest of the file already does.
 
-**What changes for you.** A site with `salesChannel` in its VTEX config now
-sends that channel on profile, shippingData and attachment writes. Previously
-those writes silently used the account default — a 200 and a well-formed
-orderForm either way, so nothing surfaced. This is the fix, but it is
-observable: prices, availability and promotions on those writes are now
-recalculated against the configured channel.
+**What changes for you — and it is not a subset.** `initVtexFromBlocks()`
+defaults to `salesChannel: vtexBlock.salesChannel || "1"`, so effectively every
+VTEX site has a channel configured. These six writes therefore start carrying
+`?sc=` everywhere, not only on sites that set the field explicitly. Previously
+they used the account default silently — a 200 and a well-formed orderForm
+either way, so nothing surfaced.
+
+Why that is a smaller change than it sounds: `getOrCreateCart` **already** sends
+`sc`, so the orderForm these calls write to was already created in the
+configured channel. The six were the inconsistent ones; they now agree with the
+cart they mutate. A store whose configured channel equals its account default —
+the common case, `sc=1` — sees byte-identical results. A store where the two
+differ sees the writes move to the configured channel, which is the bug being
+fixed.
+
+Verified against a live VTEX account that all six endpoints accept `?sc=`:
+`attachments/marketingData`, `attachments/shippingData`, `profile`,
+`items/:i/attachments/:a` and `items/:i/price` return 200 with the same payload
+shape with and without it. Adding the parameter cannot turn a working call into
+a failing one.
 
 **Multi-channel caveat.** `scParam()` reads the channel from the app config, not
 from the request's `vtex_segment` (which is where `deco-cx/apps` takes it,
