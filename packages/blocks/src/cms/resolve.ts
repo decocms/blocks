@@ -133,9 +133,15 @@ export interface AsyncRenderingConfig {
    * loads (normally `setup.ts`, imported from `router.tsx`). Setting it from
    * server-only code leaves the client on `"intersection"` with no warning.
    * Only `@decocms/tanstack` reads it; a no-op in `@decocms/nextjs`.
+   *
+   * Optional on purpose. `setAsyncRenderingConfig()` always fills it, so the
+   * stored config never actually lacks it — but this interface is exported from
+   * `@decocms/blocks/cms`, and a required field would break the typecheck of
+   * anyone outside the package who builds an `AsyncRenderingConfig` literal.
+   * The only sanctioned reader, `getDeferredTrigger()`, already defaults.
    * @default "intersection"
    */
-  deferredTrigger: DeferredTrigger;
+  deferredTrigger?: DeferredTrigger;
   /**
    * Fold threshold: sections at or above this flat index are DEFERRED
    * (rendered as a skeleton and loaded on scroll), so their resolved props are

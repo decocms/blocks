@@ -480,9 +480,11 @@ describe("async rendering config defaults", () => {
 });
 
 describe("shouldDeferSection — admin is the source of truth", () => {
+  // Deliberately does NOT set `deferredTrigger`: this literal stands in for the
+  // ones outside the package, and it has to keep compiling after the field was
+  // added. If that ever breaks, the option stopped being backwards compatible.
   const mkCfg = (over: Partial<AsyncRenderingConfig> = {}): AsyncRenderingConfig => ({
     respectCmsLazy: true,
-    deferredTrigger: "intersection",
     foldThreshold: Infinity,
     alwaysEager: new Set(),
     botAwareSeo: false,

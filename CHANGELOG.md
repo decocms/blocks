@@ -54,7 +54,9 @@ fire and the document stays short.
 behavior: the wrapper calls its loader straight from the mount effect, skipping
 the frame gate and the observer.
 
-- **Default is `"intersection"`.** A framework bump changes nothing.
+- **Default is `"intersection"`.** A framework bump changes nothing — including
+  at typecheck: the field is optional on the exported `AsyncRenderingConfig`, so
+  a literal built outside the package keeps compiling.
 - **It is read on the CLIENT.** Set it from a module the browser bundle also
   loads — normally `setup.ts`, imported from `router.tsx`. Setting it from
   server-only code (the worker entry, `server.ts`) leaves the client on
