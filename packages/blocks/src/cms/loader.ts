@@ -282,6 +282,36 @@ function pathSpecificityKey(path: string): [number, number, number] {
   return [hasWildcard ? 0 : 1, literals, params];
 }
 
+// Literal rather than WELL_KNOWN_TYPES.PAGE: resolve.ts already imports from
+// this module, so importing back would close a cycle.
+const PAGE_RESOLVE_TYPE = "website/pages/Page.tsx";
+
+/**
+ * Is this block a page?
+ *
+ * The `pages-` prefix is kept as a fast path because it is what the admin
+ * emits and it short-circuits the vast majority of blocks without a property
+ * read. But it cannot be the *only* test: a decofile carried over from Deco on
+ * Fresh can hold page blocks under any key — renaming one in the CMS renames
+ * its snapshot file, and `loadDecofileDirectory` preserves whatever key the
+ * filename already had.
+ *
+ * Those blocks are pages in every way that matters (`website/pages/Page.tsx`,
+ * a `path`, `sections`), and on Fresh they routed fine: `website/loaders/pages.ts`
+ * enumerated by `__resolveType`, not by key. Filtering on the prefix alone makes
+ * them invisible, so every one of their URLs falls through to whatever catch-all
+ * the site has — usually a 404 — and they disappear from the CMS sitemap too.
+ * One storefront in this state has 205 such blocks against 107 prefixed ones.
+ */
+function isPageBlock(key: string, block: unknown): boolean {
+  if (key.startsWith("pages-")) return true;
+  return (
+    typeof block === "object" &&
+    block !== null &&
+    (block as Resolvable).__resolveType === PAGE_RESOLVE_TYPE
+  );
+}
+
 export function getAllPages(): Array<{ key: string; page: DecoPage }> {
   const blocks = loadBlocks();
   const pages: Array<{
@@ -291,7 +321,7 @@ export function getAllPages(): Array<{ key: string; page: DecoPage }> {
   }> = [];
 
   for (const [key, block] of Object.entries(blocks)) {
-    if (!key.startsWith("pages-")) continue;
+    if (!isPageBlock(key, block)) continue;
     const page = block as DecoPage;
     if (!page.sections) continue;
     if (!page.path) continue;

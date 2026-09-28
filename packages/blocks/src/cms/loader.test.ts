@@ -222,6 +222,79 @@ describe("findPageByPath specificity", () => {
   });
 });
 
+describe("getAllPages — page blocks without the `pages-` prefix", () => {
+  afterEach(() => {
+    setBlocks({});
+  });
+
+  it("routes a page block whose key lacks the prefix", () => {
+    // Decofiles carried over from Deco on Fresh hold page blocks under
+    // arbitrary keys: renaming a page in the CMS renames its snapshot file,
+    // and the key follows the filename. Fresh enumerated pages by
+    // __resolveType, so these routed fine there.
+    setBlocks({
+      "plp-verao": {
+        name: "Verão",
+        path: "/verao",
+        sections: [],
+        __resolveType: "website/pages/Page.tsx",
+      },
+    });
+
+    const match = findPageByPath("/verao");
+    expect(match?.blockKey).toBe("plp-verao");
+  });
+
+  it("still ranks by path specificity across both key shapes", () => {
+    setBlocks({
+      "pages-catch-all": {
+        name: "Catch all",
+        path: "/*",
+        sections: [],
+      },
+      "plp-inverno": {
+        name: "Inverno",
+        path: "/inverno",
+        sections: [],
+        __resolveType: "website/pages/Page.tsx",
+      },
+    });
+
+    // The literal must win over the catch-all regardless of which one
+    // carries the prefix.
+    expect(findPageByPath("/inverno")?.blockKey).toBe("plp-inverno");
+    expect(findPageByPath("/qualquer-outra")?.blockKey).toBe("pages-catch-all");
+  });
+
+  it("ignores non-page blocks that happen to carry a path", () => {
+    // A loader block is not a page: no __resolveType match, no prefix.
+    setBlocks({
+      "some-loader": {
+        name: "Not a page",
+        path: "/not-a-page",
+        sections: [],
+        __resolveType: "site/loaders/whatever.ts",
+      },
+    });
+
+    expect(findPageByPath("/not-a-page")).toBeNull();
+  });
+
+  it("keeps honouring the prefix when there is no __resolveType", () => {
+    // The admin emits prefixed keys and does not always write a
+    // __resolveType onto the snapshot — the fast path must still apply.
+    setBlocks({
+      "pages-sem-tipo": {
+        name: "Sem tipo",
+        path: "/sem-tipo",
+        sections: [],
+      },
+    });
+
+    expect(findPageByPath("/sem-tipo")?.blockKey).toBe("pages-sem-tipo");
+  });
+});
+
 describe("loadBlocks draft override — key percent-encoding", () => {
   // The published decofile encodes special characters in block keys
   // (`pages-Home%20(principal)-1`); the Studio draft emits them raw
