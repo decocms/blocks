@@ -126,6 +126,13 @@ export interface AsyncRenderingConfig {
    * Sites migrating from Fresh generally want `"load"`: under `"intersection"`
    * alone, everything below the fold does not exist until the user scrolls, so
    * the document stays short and below-the-fold analytics impressions are lost.
+   * The cost is a request burst — every deferred section POSTs in the same
+   * commit, on load and on each SPA navigation.
+   *
+   * Read on the CLIENT, so it must be set from a module the browser bundle also
+   * loads (normally `setup.ts`, imported from `router.tsx`). Setting it from
+   * server-only code leaves the client on `"intersection"` with no warning.
+   * Only `@decocms/tanstack` reads it; a no-op in `@decocms/nextjs`.
    * @default "intersection"
    */
   deferredTrigger: DeferredTrigger;
