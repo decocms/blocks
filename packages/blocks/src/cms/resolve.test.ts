@@ -460,6 +460,17 @@ describe("async rendering config defaults", () => {
     expect(cfg!.foldThreshold).toBe(Infinity);
     expect(cfg!.respectCmsLazy).toBe(true);
     expect(cfg!.botAwareSeo).toBe(false); // opt-in — off by default
+    expect(cfg!.deferredTrigger).toBe("intersection"); // opt-in — a bump changes nothing
+  });
+
+  it("carries deferredTrigger through, and a later partial call does not reset it", () => {
+    setAsyncRenderingConfig({ deferredTrigger: "load" });
+    expect(getAsyncRenderingConfig()!.deferredTrigger).toBe("load");
+
+    // applySectionConventions() re-calls this with only `alwaysEager` after the
+    // site's setup.ts ran — the trigger must survive that merge.
+    setAsyncRenderingConfig({ alwaysEager: ["site/sections/Header.tsx"] });
+    expect(getAsyncRenderingConfig()!.deferredTrigger).toBe("load");
   });
 
   it("preserves an explicit finite foldThreshold (opt-in)", () => {
@@ -471,6 +482,7 @@ describe("async rendering config defaults", () => {
 describe("shouldDeferSection — admin is the source of truth", () => {
   const mkCfg = (over: Partial<AsyncRenderingConfig> = {}): AsyncRenderingConfig => ({
     respectCmsLazy: true,
+    deferredTrigger: "intersection",
     foldThreshold: Infinity,
     alwaysEager: new Set(),
     botAwareSeo: false,

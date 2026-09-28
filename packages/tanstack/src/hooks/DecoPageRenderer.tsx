@@ -11,6 +11,7 @@ import {
 import { Await, ClientOnly } from "@tanstack/react-router";
 import type { SectionOptions } from "@decocms/blocks/cms/client";
 import {
+  getDeferredTrigger,
   getResolvedComponent,
   getSectionOptions,
   getSectionRegistry,
@@ -323,7 +324,19 @@ function DeferredSectionWrapper({
         .catch((e) => setError(e));
     };
 
-    if (typeof IntersectionObserver === "undefined") {
+    // `"load"` — dispatch on mount, no scroll needed.
+    //
+    // This is what Deco on Fresh does: `DispatchAsyncRender` with
+    // `partialTriggerMode: "load"` clicks the hidden partial trigger as soon as
+    // the island hydrates, so a page ships a light skeleton HTML and then fills
+    // in every deferred section about half a second later. Sites migrating from
+    // Fresh need it for parity — under `"intersection"` alone, everything below
+    // the fold does not exist until the user scrolls: the document stays short
+    // and below-the-fold analytics impressions never fire.
+    //
+    // Opt-in per site via `setAsyncRenderingConfig({ deferredTrigger: "load" })`;
+    // the default stays `"intersection"`, so a framework bump changes nothing.
+    if (getDeferredTrigger() === "load" || typeof IntersectionObserver === "undefined") {
       load();
       return;
     }

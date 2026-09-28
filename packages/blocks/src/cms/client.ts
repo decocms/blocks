@@ -25,6 +25,9 @@
  *   `sdk/requestContextStorage.browser.ts`), so it's already safe for a
  *   browser bundle.
  * - `schema.ts` has no imports at all.
+ * - `deferredTrigger.ts` has no imports at all — it only reads the
+ *   `globalThis.__deco.asyncConfig` bag `resolve.ts` writes, which is exactly
+ *   why it is a standalone module instead of living in `resolve.ts`.
  *
  * Deliberately NOT re-exported here: `loader.ts`, `resolve.ts`,
  * `sectionLoaders.ts`, `loadDecofileDirectory.ts`, `blockSource.ts`, and
@@ -33,6 +36,8 @@
  * storage concerns that only make sense server-side — import them from
  * `@decocms/blocks/cms` instead.
  */
+export type { DeferredTrigger } from "./deferredTrigger";
+export { DEFAULT_DEFERRED_TRIGGER, getDeferredTrigger } from "./deferredTrigger";
 export type { OnBeforeResolveProps, SectionModule, SectionOptions } from "./registry";
 export {
   getResolvedComponent,
