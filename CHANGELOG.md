@@ -8,6 +8,34 @@ merges to `main`; this file is the human-curated breaking-change ledger.
 For per-release auto-generated notes (every commit, every fix), see
 [GitHub Releases](https://github.com/decocms/deco-start/releases).
 
+## Unreleased — `?sc=` restored on orderForm mutations (`@decocms/apps-vtex`)
+
+### Behavior change — writes now carry the configured sales channel
+
+Six orderForm mutations were reaching VTEX without `sc`, so the API fell back to
+the account default: `updateOrderFormAttachment`, `updateItemAttachment`,
+`removeItemAttachment`, `updateItemPrice`, `updateOrderFormProfile` and
+`setShippingPostalCode`. Their `deco-cx/apps` counterparts all send it (verified
+against `vtex/actions/cart/*.ts` in both `0.133.28` and `0.159.3`); the port
+dropped it. They now use the same `scParam()` the rest of the file already does.
+
+**What changes for you.** A site with `salesChannel` in its VTEX config now
+sends that channel on profile, shippingData and attachment writes. Previously
+those writes silently used the account default — a 200 and a well-formed
+orderForm either way, so nothing surfaced. This is the fix, but it is
+observable: prices, availability and promotions on those writes are now
+recalculated against the configured channel.
+
+**Multi-channel caveat.** `scParam()` reads the channel from the app config, not
+from the request's `vtex_segment` (which is where `deco-cx/apps` takes it,
+`segment.payload.channel`). On a store where the segment channel can differ from
+the configured one, these writes now pin to the configured one. That gap is
+pre-existing and applies to every `sc`-sending call in the file; sourcing the
+channel from the segment is a candidate follow-up.
+
+Deliberately left without `sc`, to match `deco-cx/apps`: `addOffering`,
+`removeOffering`, `updateSelectableGifts`, `clearOrderFormMessages`.
+
 ## Unreleased — Admin async (⚡) toggle is the source of truth for deferral
 
 ### Behavior change — position-based auto-deferral is off by default
@@ -39,34 +67,6 @@ HTML small (without marking sections ⚡) have two options:
    ```ts
    setAsyncRenderingConfig({ foldThreshold: 3 });
    ```
-
-## Unreleased — `?sc=` restored on orderForm mutations (`@decocms/apps-vtex`)
-
-### Behavior change — writes now carry the configured sales channel
-
-Six orderForm mutations were reaching VTEX without `sc`, so the API fell back to
-the account default: `updateOrderFormAttachment`, `updateItemAttachment`,
-`removeItemAttachment`, `updateItemPrice`, `updateOrderFormProfile` and
-`setShippingPostalCode`. Their `deco-cx/apps` counterparts all send it (verified
-against `vtex/actions/cart/*.ts` in both `0.133.28` and `0.159.3`); the port
-dropped it. They now use the same `scParam()` the rest of the file already does.
-
-**What changes for you.** A site with `salesChannel` in its VTEX config now
-sends that channel on profile, shippingData and attachment writes. Previously
-those writes silently used the account default — a 200 and a well-formed
-orderForm either way, so nothing surfaced. This is the fix, but it is
-observable: prices, availability and promotions on those writes are now
-recalculated against the configured channel.
-
-**Multi-channel caveat.** `scParam()` reads the channel from the app config, not
-from the request's `vtex_segment` (which is where `deco-cx/apps` takes it,
-`segment.payload.channel`). On a store where the segment channel can differ from
-the configured one, these writes now pin to the configured one. That gap is
-pre-existing and applies to every `sc`-sending call in the file; sourcing the
-channel from the segment is a candidate follow-up.
-
-Deliberately left without `sc`, to match `deco-cx/apps`: `addOffering`,
-`removeOffering`, `updateSelectableGifts`, `clearOrderFormMessages`.
 
 ## 5.0.0 — Drop in-Worker OTLP, converge on Cloudflare-native observability
 
