@@ -40,6 +40,35 @@ HTML small (without marking sections ⚡) have two options:
    setAsyncRenderingConfig({ foldThreshold: 3 });
    ```
 
+### New — `deferredTrigger`, for sites coming from Fresh
+
+Deferred sections fetch their real markup on an IntersectionObserver
+(`rootMargin: 300px`, one frame after mount). Deco on Fresh does not wait for
+scroll: `DispatchAsyncRender` supports `partialTriggerMode: "load"` and
+materializes every ⚡ section right after hydration. A migrated site therefore
+ships a page whose below-the-fold content — shelves, blog, footer — simply does
+not exist until the user scrolls, so below-the-fold analytics impressions never
+fire and the document stays short.
+
+`setAsyncRenderingConfig({ deferredTrigger: "load" })` restores the Fresh
+behavior: the wrapper calls its loader straight from the mount effect, skipping
+the frame gate and the observer.
+
+- **Default is `"intersection"`.** A framework bump changes nothing — including
+  at typecheck: the field is optional on the exported `AsyncRenderingConfig`, so
+  a literal built outside the package keeps compiling.
+- **It is read on the CLIENT.** Set it from a module the browser bundle also
+  loads — normally `setup.ts`, imported from `router.tsx`. Setting it from
+  server-only code (the worker entry, `server.ts`) leaves the client on
+  `"intersection"` with no warning, which looks like the option being ignored.
+- **The cost is a request burst**: every deferred section POSTs in the same
+  commit, on first load and on each SPA navigation. That is what the frame
+  gate + observer exist to avoid, and also exactly what Fresh does. Site-wide
+  for now; a per-section override (honouring the `loading` prop the CMS
+  `Lazy.tsx` wrapper already carries, which the resolver discards today) would
+  be the finer-grained successor.
+- Read only by `@decocms/tanstack`; a no-op in `@decocms/nextjs`.
+
 ## 5.0.0 — Drop in-Worker OTLP, converge on Cloudflare-native observability
 
 ### Breaking — Observability transport rewritten
