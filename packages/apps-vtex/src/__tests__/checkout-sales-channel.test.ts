@@ -18,7 +18,7 @@
  * `clearOrderFormMessages`.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   removeItemAttachment,
   setShippingPostalCode,
@@ -54,8 +54,15 @@ describe("checkout actions — sales channel on orderForm mutations", () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    // `setVtexFetch` writes module-level state, so put the real fetch back
+    // rather than leaving the stub installed for whatever runs next. (Vitest
+    // isolates per file, so this is belt-and-braces — but the stub captures
+    // `lastUrl` from this closure, and a leak would be silent.)
+    setVtexFetch(globalThis.fetch);
   });
+
+  // `configureVtex` is module-level state too, but each inner `describe` sets
+  // it in its own `beforeEach`, so no case here reads another's channel.
 
   describe("with a configured salesChannel", () => {
     beforeEach(() => {
