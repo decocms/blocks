@@ -8,14 +8,15 @@
  */
 import {
   setInvokeLoaders,
-  setMetaData,
+  setMetaProvider,
   setPreviewWrapper,
   setRenderShell,
 } from "./admin/index";
 
 export interface AdminSetupOptions {
   /**
-   * Lazy loader for admin meta schema — only fetched when admin requests it:
+   * Lazy loader for admin meta schema — only fetched when admin requests it
+   * (genuinely lazy: the thunk is stored, not called, at setup time):
    * `() => import("./server/admin/meta.gen.json").then(m => m.default)`
    */
   meta: () => Promise<any>;
@@ -43,8 +44,9 @@ export interface AdminSetupOptions {
  * createSiteSetup() (@decocms/blocks/setup).
  */
 export function createAdminSetup(options: AdminSetupOptions): void {
-  // 7. Admin meta schema (lazy)
-  options.meta().then((data) => setMetaData(data));
+  // 7. Admin meta schema (lazy — see setMetaProvider; keeps the schema off the
+  //    heap until /live/_meta is actually requested)
+  setMetaProvider(options.meta);
 
   // 8. Render shell
   setRenderShell({

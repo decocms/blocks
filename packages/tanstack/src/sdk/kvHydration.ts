@@ -72,6 +72,34 @@ function getKV(env: Env): KVNamespace | null {
   return null;
 }
 
+// Build-time constant injected by `decoVitePlugin({ metaFromKV: true })`: true
+// when `meta.gen` was stubbed out of THIS server bundle. Same `typeof` guard as
+// __DECO_BLOCKS_STUBBED__ above, and inert in the same places.
+declare const __DECO_META_FROM_KV__: boolean | undefined;
+
+/**
+ * Resolve the KV namespace used to serve the admin schema (`meta:<id>`), or
+ * null when this bundle still carries its own copy.
+ *
+ * Gated on the build-time flag rather than on "are the keys there", so the
+ * stub and the read are driven by ONE switch and can never disagree. Keying it
+ * off key presence instead would silently move `/live/_meta` onto KV for every
+ * site whose build seeds the keys — including sites that never opted in — and
+ * the repo already rejects that shape for the decofile (see
+ * `isFastDeployEnabled`: binding a namespace must not by itself flip a site
+ * onto the KV path).
+ *
+ * Note this is NOT gated on `DECO_FAST_DEPLOY`. The schema and the decofile are
+ * independent artefacts with independent seeds and independent plugin flags; a
+ * site may reasonably want one from KV and not the other.
+ */
+export function getMetaKV(env: Env): KVNamespace | null {
+  if (typeof __DECO_META_FROM_KV__ === "undefined" || __DECO_META_FROM_KV__ !== true) {
+    return null;
+  }
+  return getKV(env);
+}
+
 /**
  * Fast-deploy is active only when BOTH hold: `DECO_FAST_DEPLOY` is set to "1"
  * (or "true") — an explicit, per-site opt-in — AND the `DECO_KV` binding is

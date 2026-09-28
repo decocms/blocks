@@ -121,6 +121,8 @@ export interface KVNamespace {
 //
 //   decofile:<id>          full decofile JSON for deployment <id>
 //   index:revision:<id>    DJB2 hex revision of that snapshot (polled)
+//   meta:<id>              admin JSON Schema (meta.gen) for deployment <id>
+//   meta:etag:<id>         precomputed ETag of that schema
 //   index:live             pointer to the currently-live <id> (set post-deploy)
 //   index:deployments      JSON [{id, ts}] (newest last) — GC bookkeeping
 // ---------------------------------------------------------------------------
@@ -133,6 +135,27 @@ export function snapshotKey(id: string): string {
 /** KV key holding the DJB2 hex revision of deployment `id`'s snapshot. */
 export function revisionKey(id: string): string {
   return `index:revision:${id}`;
+}
+
+/** KV key holding the admin JSON Schema (`meta.gen`) for deployment `id`.
+ *
+ * Split from the decofile because the two have different readers and very
+ * different shapes: the decofile is parsed into the resolver on every cold
+ * start, while the schema is only ever streamed byte-for-byte to
+ * `GET /live/_meta`. Keeping it out of the server bundle is worth ~40 MB of
+ * isolate heap on a large site — see docs/fast-deploy.md. */
+export function metaKey(id: string): string {
+  return `meta:${id}`;
+}
+
+/** KV key holding the precomputed ETag of deployment `id`'s admin schema.
+ *
+ * Precomputed at build (not hashed at runtime) so answering `If-None-Match`
+ * costs one small KV read instead of pulling and hashing ~10 MB of JSON — and
+ * so the ETag stays available at all once the schema no longer lives in the
+ * isolate. */
+export function metaEtagKey(id: string): string {
+  return `meta:etag:${id}`;
 }
 
 /** Pointer key naming the currently-live deployment id. Written by a code

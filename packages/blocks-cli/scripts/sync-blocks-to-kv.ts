@@ -34,6 +34,8 @@
  *   --since <ref>         Base git ref for the diff (default: HEAD~1)
  *   --blocks-dir <dir>    Input blocks dir (default: .deco/blocks)
  *   --retain <n>          Deployment snapshots to keep for GC (default: 10)
+ *   --meta <path>         Admin schema to seed as meta:<id> (default: auto-detect)
+ *   --no-meta             Skip the admin-schema seed
  *   --purge-url <origin>  Site origin to POST /_cache/purge after sync
  *   --purge-token <tok>   Purge bearer token (or PURGE_TOKEN env)
  *   --write               Perform writes (otherwise dry-run, exit 0)
@@ -45,6 +47,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import {
@@ -52,6 +55,7 @@ import {
   recordAndGcDeployment,
   setLiveDeployment,
   verifySnapshotInKv,
+  writeMetaToKv,
   writeSnapshotToKv,
 } from "./lib/kv-snapshot";
 import { readDecofileFromDir } from "./lib/read-decofile";
@@ -74,6 +78,8 @@ function parseArgs(argv: string[]) {
     retain: Number(val("--retain", String(DEFAULT_RETAIN))) || DEFAULT_RETAIN,
     since: val("--since", "HEAD~1"),
     blocksDir: val("--blocks-dir", ".deco/blocks"),
+    meta: val("--meta", "") || undefined,
+    noMeta: has("--no-meta"),
     purgeUrl: val("--purge-url", ""),
     purgeToken: val("--purge-token", process.env.PURGE_TOKEN ?? ""),
   };
@@ -94,6 +100,55 @@ async function purgeCache(origin: string, token: string, paths: string[]): Promi
     console.warn(`warning: purge failed: ${res.status} ${await res.text()}`);
   } else {
     console.log(`purged ${paths.length} path(s): ${paths.join(", ")}`);
+  }
+}
+
+// Where sites keep the generated admin schema. `src/server/admin` is what the
+// scaffold writes and what `setup.ts` imports; `.deco` is the generator's own
+// copy, used as a fallback for sites that never wired the former.
+const META_CANDIDATES = ["src/server/admin/meta.gen.json", ".deco/meta.gen.json"];
+
+/**
+ * Seed the admin schema alongside the decofile.
+ *
+ * Unconditional (when the file exists) rather than opt-in, deliberately: the
+ * matching read path only takes effect once a site sets
+ * `decoVitePlugin({ metaFromKV: true })`, and seeding first means that flip is
+ * a one-line change with the data already in place. Seeding a site that never
+ * flips costs two KV keys and nothing else.
+ *
+ * Never fatal — the schema only serves the admin protocol, so a failure here
+ * must not fail a content deploy.
+ */
+async function syncMeta(
+  client: ReturnType<typeof createKvRestClient>,
+  id: string,
+  metaPath: string | undefined,
+  skip: boolean,
+): Promise<void> {
+  if (skip) return;
+
+  const candidates = metaPath ? [metaPath] : META_CANDIDATES;
+  const found = candidates.map((c) => path.resolve(process.cwd(), c)).find((c) => existsSync(c));
+  if (!found) {
+    if (metaPath) console.warn(`warning: --meta ${metaPath} not found — skipping schema seed.`);
+    return;
+  }
+
+  try {
+    const raw = readFileSync(found, "utf-8");
+    if (!raw.trim()) {
+      console.warn(`warning: ${found} is empty — skipping schema seed.`);
+      return;
+    }
+    const etag = await writeMetaToKv(client, raw, id);
+    const mb = (raw.length / 1048576).toFixed(1);
+    console.log(`synced meta:${id} (${mb} MB, etag ${etag}) → KV.`);
+  } catch (e) {
+    console.warn(
+      `warning: admin schema seed failed (${e instanceof Error ? e.message : String(e)}) — ` +
+        `/live/_meta will fall back to the bundled copy.`,
+    );
   }
 }
 
@@ -179,6 +234,7 @@ async function main() {
 
   try {
     await writeSnapshotToKv(client, snap, opts.deploymentId);
+    await syncMeta(client, opts.deploymentId, opts.meta, opts.noMeta);
     const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId);
     if (!verify.ok) {
       console.error(`error: KV verify failed — ${verify.reason}`);
