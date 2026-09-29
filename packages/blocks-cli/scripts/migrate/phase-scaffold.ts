@@ -305,9 +305,10 @@ export function generateWranglerConfig(ctx: MigrationContext): string {
     // index, so a CMS publish goes live without a code deploy. The id is
     // written by the control-plane at site creation and re-forced from
     // CF_KV_NAMESPACE_ID on every build (per-site KV isolation).
-    { "binding": "DECO_KV", "id": "" },
-    // A/B testing assignments.
-    { "binding": "SITES_KV", "id": "" }
+    { "binding": "DECO_KV", "id": "" }
+    // No SITES_KV: withABTesting (server-entry) passes through when it is
+    // unbound, and nothing provisions it — an empty id would fail deploy.
+    // Add it with the shared namespace's real id when starting an A/B test.
   ],
   "vars": {
     "DECO_SITE_NAME": "${ctx.siteName}",
