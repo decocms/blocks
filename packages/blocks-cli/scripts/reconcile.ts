@@ -298,4 +298,6 @@ function main() {
   );
 }
 
-if (process.argv[1] && /reconcile\.ts$/.test(process.argv[1])) main();
+// realpath: under npx/bunx argv[1] is the `.bin/deco-reconcile` symlink, which
+// the regex alone never matched — the CLI exited 0 without running (#515).
+if (process.argv[1] && /reconcile\.ts$/.test(fs.realpathSync(process.argv[1]))) main();
