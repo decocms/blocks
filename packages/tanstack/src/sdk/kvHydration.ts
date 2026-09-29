@@ -138,7 +138,16 @@ function bundleHasNoDecofile(): boolean {
  *   request retries instead of pinning the isolate to an empty decofile.
  */
 export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Promise<void> {
-  if (!isFastDeployEnabled(env)) return Promise.resolve();
+  if (!isFastDeployEnabled(env)) {
+    // A stubbed bundle with fast-deploy off would serve an empty 200 the edge caches.
+    return bundleHasNoDecofile()
+      ? Promise.reject(
+          new Error(
+            `[CMS/KV] this bundle ships no decofile but fast-deploy is off (set ${FAST_DEPLOY_ENV}=1 and bind DECO_KV)`,
+          ),
+        )
+      : Promise.resolve();
+  }
   if (G.__deco!.kvHydrated) return Promise.resolve();
   if (G.__deco!.kvHydration) return G.__deco!.kvHydration;
 

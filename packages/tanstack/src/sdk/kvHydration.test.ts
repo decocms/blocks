@@ -250,6 +250,15 @@ describe("ensureBlocksHydrated when the bundle ships no decofile", () => {
     await expect(ensureBlocksHydrated(env)).rejects.toThrow(/not found and this bundle ships no/);
   });
 
+  it("throws when fast-deploy is off at runtime instead of serving {}", async () => {
+    withStubbedBundle();
+    setBlocks({});
+    const { kv } = makeKV();
+
+    await expect(ensureBlocksHydrated({})).rejects.toThrow(/fast-deploy is off/);
+    await expect(ensureBlocksHydrated({ DECO_KV: kv })).rejects.toThrow(/fast-deploy is off/);
+  });
+
   it("throws when the snapshot exists but is empty", async () => {
     // A seed that wrote `{}` would otherwise take the success branch, latch,
     // and serve the empty edge-cached site this guard exists to prevent.

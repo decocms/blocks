@@ -211,7 +211,9 @@ function isSeededDeployPipeline() {
  *   `DECO_SEEDED_DEPLOY`. A site building through Cloudflare Workers Builds or
  *   a manual `wrangler deploy` never sets it, so it keeps the bundled snapshot
  *   and behaves exactly as before — no site-side config, no way to half-enable
- *   it. `true` forces the stub, `false` disables it.
+ *   it. `true` forces the stub, `false` disables it. A stubbed bundle also
+ *   needs `DECO_FAST_DEPLOY=1` and a `DECO_KV` binding at runtime — without
+ *   them `ensureBlocksHydrated` fails every request rather than serve `{}`.
  * @returns {import("vite").PluginOption}
  */
 export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
