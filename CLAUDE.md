@@ -84,7 +84,11 @@ Every export maps to a source file — no dist indirection. Representative subse
 
 ## Fast Deploy (KV-first content) — `@decocms/tanstack` only
 
-Decouples CMS content updates from code deploys: content served from Cloudflare KV (`decofile:current` + `index:revision`) with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on explicit opt-in — requires both `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise.
+Decouples CMS content updates from code deploys: content served from Cloudflare KV with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on explicit opt-in — requires both `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise.
+
+Keys are **per deployment id** (commit sha), never a single mutable pointer — a rolling deploy must not feed new content to still-live old code. `decofile:<id>`, `index:revision:<id>`, plus `index:live` and `index:deployments`. The builders (`snapshotKey`/`revisionKey`, `LIVE_KEY`, `DEPLOYMENTS_KEY`) are exported from `@decocms/blocks/cms` as the single source of truth — don't hand-write a key.
+
+`decoVitePlugin` additionally stubs `blocks.gen` out of the server bundle so the KV copy is the isolate's only one, which is the fix for the decofile being resident three times (bundled graph + KV graph + escaped JSON string ≈ 27MB for a 9.2MB decofile, against a 128MB cap with no GC knob). **In that mode the bundled snapshot is not a fallback** — `ensureBlocksHydrated` 5xxs rather than serve an empty site the edge would cache. So it is gated on the deploy pipeline declaring it seeds `decofile:<id>` before activation (`DECO_SEEDED_DEPLOY`, default `fastDeploy: "auto"`); CF Workers Builds and a manual `wrangler deploy` never declare it and keep the bundled snapshot.
 
 This is deliberately **not** available in `@decocms/nextjs` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/blocks/src/cms/blockSource.ts`, `packages/blocks-admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
 
