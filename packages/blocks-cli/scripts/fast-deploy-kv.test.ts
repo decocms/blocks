@@ -10,6 +10,7 @@ import {
   snapshotKey,
 } from "@decocms/blocks/cms";
 import { createKvRestClient, type KvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
+import { readDecofileFromDir } from "./lib/read-decofile";
 import { kvNamespaceIdFromToml, kvNamespaceIdFromWrangler } from "./lib/wrangler-config";
 import {
   buildSnapshot,
@@ -339,5 +340,73 @@ describe("sync-helpers", () => {
     expect(paths).toContain("/");
     expect(paths).toContain("/produto/:slug/p");
     expect(paths).not.toContain(undefined);
+  });
+});
+
+describe("readDecofileFromDir — CSV redirects", () => {
+  /** A site tree: `.deco/blocks/*.json` + `public/*.csv`. Returns the blocks dir. */
+  function makeSite(blocks: Record<string, unknown>, csv: Record<string, string>): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "decofile-csv-"));
+    const blocksDir = path.join(root, ".deco", "blocks");
+    fs.mkdirSync(blocksDir, { recursive: true });
+    fs.mkdirSync(path.join(root, "public"), { recursive: true });
+    for (const [name, value] of Object.entries(blocks)) {
+      fs.writeFileSync(path.join(blocksDir, name), JSON.stringify(value));
+    }
+    for (const [name, value] of Object.entries(csv)) {
+      fs.writeFileSync(path.join(root, "public", name), value);
+    }
+    return blocksDir;
+  }
+
+  it("materializes a CSV loader nested under site.routes[] into a top-level block", () => {
+    // The shape that broke production: the CSV loader is nested inside
+    // `site.json -> routes[]`, where `loadRedirects` (top-level only) can't see
+    // it, and the CSV itself was only ever read by the unported Fresh loader.
+    const blocksDir = makeSite(
+      {
+        "site.json": {
+          __resolveType: "site/apps/site.ts",
+          routes: [{ __resolveType: "website/loaders/redirectsFromCsv.ts", from: "static/r.csv" }],
+        },
+      },
+      { "r.csv": "from,to,type\n/old,/new,permanent\n/tmp,/other\n" },
+    );
+
+    const { blocks } = readDecofileFromDir(blocksDir, { silent: true });
+
+    expect(blocks["__csv_redirects__r.csv"]).toEqual({
+      __resolveType: "website/loaders/redirects.ts",
+      redirects: [
+        { from: "/old", to: "/new", type: "permanent" },
+        { from: "/tmp", to: "/other", type: "temporary" },
+      ],
+    });
+    // The real blocks are untouched.
+    expect(blocks.site).toBeDefined();
+  });
+
+  it("lets a real block win over the synthetic one on a key collision", () => {
+    const blocksDir = makeSite(
+      {
+        "site.json": {
+          routes: [{ __resolveType: "website/loaders/redirectsFromCsv.ts", from: "r.csv" }],
+        },
+        // Decodes to exactly the synthetic key the CSV materializer produces.
+        "__csv_redirects__r.csv.json": { curated: true },
+      },
+      { "r.csv": "/old,/new\n" },
+    );
+
+    const { blocks } = readDecofileFromDir(blocksDir, { silent: true });
+
+    // `{ ...csv, ...blocks }` — the curated block wins, never the synthetic one.
+    expect(blocks["__csv_redirects__r.csv"]).toEqual({ curated: true });
+  });
+
+  it("is a no-op when no CSV loader is referenced", () => {
+    const blocksDir = makeSite({ "site.json": { __resolveType: "site/apps/site.ts" } }, {});
+    const { blocks } = readDecofileFromDir(blocksDir, { silent: true });
+    expect(Object.keys(blocks)).toEqual(["site"]);
   });
 });

@@ -6,7 +6,7 @@
  * the fast-deploy CI scripts (`migrate-blocks-to-kv.ts`, `sync-blocks-to-kv.ts`)
  * produce a decofile byte-identical to the bundled `blocks.gen` snapshot.
  *
- * Reuses `scripts/lib/blocks-dedupe.ts`.
+ * Reuses `scripts/lib/blocks-dedupe.ts` and `scripts/lib/csv-redirects.ts`.
  */
 
 import * as fs from "node:fs";
@@ -18,6 +18,7 @@ import {
   decodeBlockNameWithPasses,
   mergeCandidates,
 } from "./blocks-dedupe";
+import { buildCsvRedirectBlocks } from "./csv-redirects";
 
 export interface ReadDecofileResult {
   /** Decoded block key → parsed block JSON. */
@@ -66,5 +67,15 @@ export function readDecofileFromDir(blocksDir: string, opts: { silent?: boolean 
   for (const [key, candidate] of Object.entries(winners)) {
     blocks[key] = candidate.parsed;
   }
-  return { blocks, collisions };
+
+  // Synthetic `__csv_redirects__*` blocks, exactly as `generate-blocks` builds
+  // them. Without this the KV snapshot is NOT byte-identical to `blocks.gen`:
+  // a site whose redirects come from a CSV would lose every one of them the
+  // moment the bundled snapshot stops being the fallback (the fastDeploy stub
+  // makes KV the only source), turning migration 301s into silent 404s.
+  // Same precedence as the generator — a curated CMS redirect wins over CSV.
+  const csvBlocks = buildCsvRedirectBlocks(blocks, { blocksDir, silent: opts.silent });
+  const merged = Object.keys(csvBlocks).length ? { ...csvBlocks, ...blocks } : blocks;
+
+  return { blocks: merged, collisions };
 }
