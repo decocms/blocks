@@ -361,6 +361,7 @@ function imageStats(events, ns) {
   const imgDomains = [
     "vtexassets",
     "decoims",
+    "assets.decocms.com",
     "decoazn",
     "decocache",
     "deco-sites-assets",

@@ -148,7 +148,7 @@ describe("registerImageQuality", () => {
 				fit: "cover",
 			}),
 		).toBe(
-			"https://decoims.com/image?fit=cover&width=200&height=300&quality=high&src=https://cdn.example.com/foo.jpg",
+			"https://assets.decocms.com/image?fit=cover&width=200&height=300&quality=high&src=https://cdn.example.com/foo.jpg",
 		);
 	});
 
