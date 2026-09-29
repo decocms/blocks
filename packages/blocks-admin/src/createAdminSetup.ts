@@ -6,17 +6,17 @@
  * here because these four steps need admin/index.ts's setters, which
  * runtime cannot import without creating a circular dependency.
  */
-import {
-  setInvokeLoaders,
-  setMetaData,
-  setPreviewWrapper,
-  setRenderShell,
-} from "./admin/index";
+import { setInvokeLoaders, setMetaLoader, setPreviewWrapper, setRenderShell } from "./admin/index";
 
 export interface AdminSetupOptions {
   /**
-   * Lazy loader for admin meta schema — only fetched when admin requests it:
+   * Lazy loader for admin meta schema — only invoked on the first `/live/_meta`
+   * request, never at boot:
    * `() => import("./server/admin/meta.gen.json").then(m => m.default)`
+   *
+   * Keep it a dynamic `import()`. A static import would defeat the laziness:
+   * the module graph would pull the schema in at boot no matter when this thunk
+   * runs.
    */
   meta: () => Promise<any>;
 
@@ -43,8 +43,12 @@ export interface AdminSetupOptions {
  * createSiteSetup() (@decocms/blocks/setup).
  */
 export function createAdminSetup(options: AdminSetupOptions): void {
-  // 7. Admin meta schema (lazy)
-  options.meta().then((data) => setMetaData(data));
+  // 7. Admin meta schema — REGISTERED, not loaded. The schema is a JSON Schema
+  // bundle covering every section and app, and exactly one route needs it
+  // (`/live/_meta`). Invoking the thunk here made every isolate parse it at boot
+  // and pin the composed graph for its whole life, for traffic that never
+  // touches the admin.
+  setMetaLoader(options.meta);
 
   // 8. Render shell
   setRenderShell({
