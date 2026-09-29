@@ -1580,6 +1580,22 @@ function resolveFinalSectionKey(section: unknown, matcherCtx?: MatcherContext): 
  * and return true if a deferral wrapper (Lazy.tsx or Deferred.tsx) is found
  * at any level. This is used by shouldDeferSection to determine if the CMS
  * editor intended this section to be deferred.
+ *
+ * A `Lazy` wrapper carrying `loading: "eager"` is NOT a deferral: on Deco for
+ * Fresh that prop short-circuits the wrapper's own loader, which awaits the
+ * inner section and renders it inline, with no FallbackWrapper —
+ * `website/sections/Rendering/Lazy.tsx`:
+ *
+ * ```ts
+ * const shouldRender = loading === "eager" || shouldForceRender({ … });
+ * if (shouldRender) return { loading: "eager", section: await section() };
+ * ```
+ *
+ * Decofiles migrated from Fresh carry that prop (a named `Footer` block whose
+ * root is `Lazy.tsx` + `loading: "eager"` is the common shape), so ignoring it
+ * turns a section prod server-renders into a skeleton that only materializes
+ * client-side. Honouring it keeps the wrapper's meaning identical on both
+ * runtimes.
  */
 function isCmsDeferralWrapped(section: unknown, matcherCtx?: MatcherContext): boolean {
   if (!section || typeof section !== "object") return false;
@@ -1592,6 +1608,15 @@ function isCmsDeferralWrapped(section: unknown, matcherCtx?: MatcherContext): bo
     if (!rt) return false;
 
     if (rt === WELL_KNOWN_TYPES.LAZY || rt === WELL_KNOWN_TYPES.DEFERRED) {
+      // `loading: "eager"` cancels the deferral at this level. Keep walking
+      // inward so a nested wrapper further down still counts, which is what
+      // Fresh does when it awaits the inner section.
+      if (current.loading === "eager") {
+        const inner = current.section ?? current.sections;
+        if (!inner || typeof inner !== "object" || Array.isArray(inner)) return false;
+        current = inner as Record<string, unknown>;
+        continue;
+      }
       return true;
     }
 
