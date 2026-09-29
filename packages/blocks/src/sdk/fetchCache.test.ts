@@ -7,7 +7,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configureMeter, type MeterAdapter } from "../middleware/observability";
+import { bindCacheStorage, createMemoryCacheStorage } from "./cacheStorage";
 import { createFetchCache } from "./fetchCache";
+import { RequestContext } from "./requestContext";
 
 interface Counter {
   name: string;
@@ -54,9 +56,7 @@ afterEach(() => {
 });
 
 const statuses = () =>
-  counters
-    .filter((c) => c.name === "deco.cache.requests")
-    .map((c) => c.labels?.["status"]);
+  counters.filter((c) => c.name === "deco.cache.requests").map((c) => c.labels?.["status"]);
 
 describe("createFetchCache — behavior", () => {
   it("cold call is a MISS, second call is a HIT with the cached body", async () => {
@@ -160,5 +160,47 @@ describe("createFetchCache — telemetry labels", () => {
     await expect(
       cache.fetchWithCache("k", () => Promise.resolve(jsonResponse({}))),
     ).resolves.toEqual({});
+  });
+});
+
+describe("createFetchCache — shared storage scope", () => {
+  const pending: Promise<unknown>[] = [];
+  const bind = <T>(
+    storage: ReturnType<typeof createMemoryCacheStorage>,
+    scope: string,
+    dataScope: string | undefined,
+    fn: () => Promise<T>,
+  ) =>
+    RequestContext.run(new Request("https://site.test/"), () => {
+      bindCacheStorage({ storage, scope, dataScope, waitUntil: (w) => pending.push(w) });
+      return fn();
+    });
+  const flush = () => Promise.all(pending.splice(0));
+
+  // A fresh cache instance per "deploy" so the local tier can't answer.
+  async function acrossDeploy(dataScope: string | undefined) {
+    const storage = createMemoryCacheStorage();
+    let calls = 0;
+    const doFetch = () => {
+      calls++;
+      return Promise.resolve(jsonResponse({ ok: true }));
+    };
+    const before = createFetchCache({ provider: "vtex", ...KNOBS });
+    await bind(storage, "site:build-A", dataScope, () => before.fetchWithCache("k", doFetch));
+    await flush();
+    const after = createFetchCache({ provider: "vtex", ...KNOBS });
+    const body = await bind(storage, "site:build-B", dataScope, () =>
+      after.fetchWithCache("k", doFetch),
+    );
+    await flush();
+    return { body, calls };
+  }
+
+  it("survives a build change when dataScope is bound", async () => {
+    expect(await acrossDeploy("site:data:")).toEqual({ body: { ok: true }, calls: 1 });
+  });
+
+  it("misses after a build change without dataScope", async () => {
+    expect(await acrossDeploy(undefined)).toEqual({ body: { ok: true }, calls: 2 });
   });
 });

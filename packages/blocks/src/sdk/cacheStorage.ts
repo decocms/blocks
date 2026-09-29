@@ -11,6 +11,12 @@ export interface CacheStorageContext {
   storage: CacheStorage | null;
   /** Include site, deployment and content revision. Never use a tenant-wide global binding. */
   scope: string;
+  /**
+   * Scope for build-independent DATA caches (`cachedLoader`, `createFetchCache`).
+   * Same fields as `scope` but with a site-chosen data version in place of the
+   * build hash, so upstream data survives a deploy. Defaults to `scope`.
+   */
+  dataScope?: string;
   /** Bypass both memory and shared storage for previews or private requests. */
   disabled?: boolean;
   waitUntil?: (work: Promise<unknown>) => void;
@@ -186,6 +192,8 @@ export function createCacheStore<T>(
   maxEntries = 200,
   maxBytes = 4 * 1024 * 1024,
   sizeOf?: (value: T) => number,
+  /** `"data"`: key by `dataScope` — only for values that don't depend on the build. */
+  kind: "build" | "data" = "build",
 ) {
   const local = new Map<string, { value: T; expiresAt: number; bytes: number }>();
   let bytes = 0;
@@ -225,7 +233,9 @@ export function createCacheStore<T>(
   }
   return {
     key(raw: string): string {
-      return JSON.stringify([getCacheStorageContext()?.scope ?? "local", namespace, raw]);
+      const context = getCacheStorageContext();
+      const scope = (kind === "data" ? context?.dataScope : undefined) ?? context?.scope;
+      return JSON.stringify([scope ?? "local", namespace, raw]);
     },
     get,
     async read(key: string): Promise<T | undefined> {

@@ -111,6 +111,34 @@ it("hydrates another store and isolates namespace, site and deployment", async (
   ).toBeUndefined();
 });
 
+it("data stores key by dataScope and survive a deploy; build stores do not", async () => {
+  const storage = createKVCacheStorage(fakeKV());
+  const bind = (build: string, fn: () => unknown) =>
+    RequestContext.run(new Request("https://site.test/"), () => {
+      bindCacheStorage({
+        storage,
+        scope: `site:${build}`,
+        dataScope: "site:data:1",
+        waitUntil: (work) => pending.push(work),
+      });
+      return fn();
+    });
+  const data = createCacheStore<{ n: number }>("loaders", 200, undefined, undefined, "data");
+  const html = createCacheStore<{ n: number }>("responses");
+  await bind("build-A", async () => {
+    data.set(data.key("item"), { n: 1 }, Date.now() + 60_000);
+    html.set(html.key("item"), { n: 2 }, Date.now() + 60_000);
+    await flush();
+  });
+  clearLoaderCache();
+  const data2 = createCacheStore<{ n: number }>("loaders", 200, undefined, undefined, "data");
+  const html2 = createCacheStore<{ n: number }>("responses");
+  expect(await bind("build-B", () => data2.read(data2.key("item")))).toEqual({ n: 1 });
+  expect(await bind("build-B", () => html2.read(html2.key("item")))).toBeUndefined();
+  // Without dataScope a data store falls back to the build scope.
+  expect(await run(storage, "site:build-B", () => data2.read(data2.key("item")))).toBeUndefined();
+});
+
 it("does not switch bindings between concurrent requests", async () => {
   const a = createMemoryCacheStorage();
   const b = createMemoryCacheStorage();
