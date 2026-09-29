@@ -86,4 +86,32 @@ describe("createReplaceStream", () => {
       `${big}new.site${big}`,
     );
   });
+
+  it("replaces a self-overlapping match that straddles the hold-back cut", async () => {
+    await expect(run("aaa", "Y", ["xaaaa"])).resolves.toBe("xYa");
+    await expect(run("aa", "Y", ["aaa", "a"])).resolves.toBe("aaaa".replaceAll("aa", "Y"));
+    await expect(run("abab", "Y", ["ababab", "ab"])).resolves.toBe("abababab".replaceAll("abab", "Y"));
+  });
+
+  it("matches native replaceAll over random chunkings", async () => {
+    let seed = 1;
+    const rnd = (n: number) => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n);
+    for (let iter = 0; iter < 500; iter++) {
+      const alpha = "ab\u00e7";
+      const str = (n: number) => Array.from({ length: n }, () => alpha[rnd(alpha.length)]).join("");
+      const search = str(1 + rnd(4));
+      const replace = str(rnd(4));
+      const text = str(rnd(40));
+      const bytes = enc.encode(text);
+      const chunks: Uint8Array[] = [];
+      for (let p = 0; p < bytes.length; ) {
+        const n = 1 + rnd(6);
+        chunks.push(bytes.slice(p, p + n));
+        p += n;
+      }
+      expect(await run(search, replace, chunks), JSON.stringify({ search, replace, text })).toBe(
+        text.replaceAll(search, replace),
+      );
+    }
+  });
 });

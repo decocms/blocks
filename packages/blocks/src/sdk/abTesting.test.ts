@@ -68,12 +68,9 @@ describe("proxyToFallback", () => {
     expect(res.headers.get("content-length")).toBeNull();
   });
 
-  it("forwards a still-compressed body untouched rather than corrupting it", async () => {
-    // A transform over gzip bytes produces garbage. Workerd strips the header
-    // when it decompresses, so this only guards the case where it did not.
-    const body = `see ${FALLBACK_HOST}`;
+  it("still rewrites when content-encoding is retained (workerd keeps the header but yields decoded bytes)", async () => {
     fetchSpy.mockResolvedValue(
-      new Response(body, {
+      new Response(`see ${FALLBACK_HOST}`, {
         status: 200,
         headers: { "content-type": "text/html", "content-encoding": "gzip" },
       }),
@@ -85,7 +82,8 @@ describe("proxyToFallback", () => {
       FALLBACK_HOST,
     );
 
-    await expect(res.text()).resolves.toBe(body);
+    await expect(res.text()).resolves.toBe(`see ${REAL_HOST}`);
+    expect(res.headers.get("content-encoding")).toBe("gzip");
   });
 
   it("leaves a non-2xx body alone", async () => {
