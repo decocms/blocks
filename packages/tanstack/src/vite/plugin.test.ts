@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decoVitePlugin } from "./plugin.js";
 
 /**
@@ -68,6 +68,12 @@ describe("decoVitePlugin — fastDeploy server stub", () => {
   const id = "/repo/.deco/blocks.gen.ts";
   const STUB = "export const blocks = {};";
 
+  // The default is "auto", which reads DECO_SEEDED_DEPLOY. Pin it off so the
+  // "default does not stub" assertions below can't be silently satisfied (or
+  // broken) by an ambient env var.
+  vi.stubEnv("DECO_SEEDED_DEPLOY", "");
+  afterEach(() => vi.stubEnv("DECO_SEEDED_DEPLOY", ""));
+
   /** @param {{fastDeploy?: boolean}} opts @param {"build"|"serve"} command */
   const make = (opts, command) => {
     const p = /** @type {any} */ (decoVitePlugin(opts));
@@ -108,5 +114,63 @@ describe("decoVitePlugin — fastDeploy server stub", () => {
     expect(dev.define.__DECO_BLOCKS_STUBBED__).toBe("false");
     const def = /** @type {any} */ (decoVitePlugin()).config({}, { command: "build" });
     expect(def.define.__DECO_BLOCKS_STUBBED__).toBe("false");
+  });
+});
+
+/**
+ * The `"auto"` default: stub only when the deploy pipeline declares it seeds
+ * `decofile:<deployment-id>` into KV BEFORE activating the new version.
+ *
+ * Stubbing without that guarantee is a hard outage, not a degraded mode — the
+ * bundle has no decofile, so `ensureBlocksHydrated` 5xxs on purpose rather than
+ * serving an empty site the edge would cache. Cloudflare Workers Builds and a
+ * manual `wrangler deploy` do not seed, and they never set the env.
+ */
+describe("decoVitePlugin — fastDeploy auto gate", () => {
+  const id = "/repo/.deco/blocks.gen.ts";
+  const STUB = "export const blocks = {};";
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** @param {"build"|"serve"} command */
+  const makeDefault = (command) => {
+    const p = /** @type {any} */ (decoVitePlugin());
+    const cfg = p.config({}, { command });
+    return { plugin: p, cfg };
+  };
+
+  it("does not stub when the pipeline does not declare a seed step", () => {
+    vi.stubEnv("DECO_SEEDED_DEPLOY", "");
+    const { plugin, cfg } = makeDefault("build");
+    expect(plugin.load(id, { ssr: true })).not.toBe(STUB);
+    expect(cfg.define.__DECO_BLOCKS_STUBBED__).toBe("false");
+  });
+
+  it("stubs on a production build when the pipeline declares it seeds", () => {
+    vi.stubEnv("DECO_SEEDED_DEPLOY", "1");
+    const { plugin, cfg } = makeDefault("build");
+    expect(plugin.load(id, { ssr: true })).toBe(STUB);
+    expect(cfg.define.__DECO_BLOCKS_STUBBED__).toBe("true");
+  });
+
+  it("still never stubs SSR in dev, even inside a seeding pipeline", () => {
+    vi.stubEnv("DECO_SEEDED_DEPLOY", "1");
+    const { plugin, cfg } = makeDefault("serve");
+    expect(plugin.load(id, { ssr: true })).not.toBe(STUB);
+    expect(cfg.define.__DECO_BLOCKS_STUBBED__).toBe("false");
+  });
+
+  it("explicit false wins over a seeding pipeline", () => {
+    vi.stubEnv("DECO_SEEDED_DEPLOY", "1");
+    const p = /** @type {any} */ (decoVitePlugin({ fastDeploy: false }));
+    const cfg = p.config({}, { command: "build" });
+    expect(p.load(id, { ssr: true })).not.toBe(STUB);
+    expect(cfg.define.__DECO_BLOCKS_STUBBED__).toBe("false");
+  });
+
+  it("explicit true wins over a non-seeding pipeline", () => {
+    vi.stubEnv("DECO_SEEDED_DEPLOY", "");
+    const p = /** @type {any} */ (decoVitePlugin({ fastDeploy: true }));
+    expect(p.config({}, { command: "build" }).define.__DECO_BLOCKS_STUBBED__).toBe("true");
   });
 });
