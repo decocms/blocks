@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { MetaResponse } from "@decocms/blocks/cms";
 import { createAdminSetup } from "../createAdminSetup";
 import { handleMeta, invalidateMetaCache, setMetaData, setMetaLoader } from "./meta";
 
@@ -21,7 +22,9 @@ function reset() {
   G.__deco_meta_loading = null;
 }
 
-const SCHEMA = { definitions: { "site/sections/Hero.tsx": { type: "object" } } };
+const SCHEMA = {
+  definitions: { "site/sections/Hero.tsx": { type: "object" } },
+} as unknown as MetaResponse;
 const req = () => new Request("https://site.test/live/_meta");
 
 beforeEach(reset);
