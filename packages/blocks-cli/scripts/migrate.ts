@@ -364,6 +364,7 @@ async function provisionSite(sourceDir: string): Promise<void> {
     const res = await fetch(`${base}/mcp`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
