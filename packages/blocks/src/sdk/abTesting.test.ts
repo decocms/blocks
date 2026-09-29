@@ -48,6 +48,61 @@ describe("proxyToFallback", () => {
     vi.unstubAllGlobals();
   });
 
+  it("streams the hostname rewrite instead of buffering the body", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(`<a href="https://${FALLBACK_HOST}/x">go</a>`, {
+        status: 200,
+        headers: { "content-type": "text/html", "content-length": "999" },
+      }),
+    );
+
+    const res = await proxyToFallback(
+      new Request(`https://${REAL_HOST}/foo`),
+      makeUrl("/foo"),
+      FALLBACK_HOST,
+    );
+
+    await expect(res.text()).resolves.toBe(`<a href="https://${REAL_HOST}/x">go</a>`);
+    // The rewrite changes the body length, so the upstream content-length is a
+    // lie and a streamed body has none to state.
+    expect(res.headers.get("content-length")).toBeNull();
+  });
+
+  it("still rewrites when content-encoding is retained (workerd keeps the header but yields decoded bytes)", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(`see ${FALLBACK_HOST}`, {
+        status: 200,
+        headers: { "content-type": "text/html", "content-encoding": "gzip" },
+      }),
+    );
+
+    const res = await proxyToFallback(
+      new Request(`https://${REAL_HOST}/foo`),
+      makeUrl("/foo"),
+      FALLBACK_HOST,
+    );
+
+    await expect(res.text()).resolves.toBe(`see ${REAL_HOST}`);
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+  });
+
+  it("leaves a non-2xx body alone", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(`moved to ${FALLBACK_HOST}`, {
+        status: 302,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    const res = await proxyToFallback(
+      new Request(`https://${REAL_HOST}/foo`),
+      makeUrl("/foo"),
+      FALLBACK_HOST,
+    );
+
+    await expect(res.text()).resolves.toBe(`moved to ${FALLBACK_HOST}`);
+  });
+
   it("always sets redirect:'manual' to avoid replaying streamed bodies on 3xx", async () => {
     fetchSpy.mockResolvedValue(new Response("ok", { status: 200 }));
 

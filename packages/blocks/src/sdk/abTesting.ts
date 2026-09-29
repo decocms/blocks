@@ -273,6 +273,53 @@ export function tagBucket(
 }
 
 /**
+ * A `TransformStream` that rewrites every occurrence of `search` in a UTF-8 text
+ * stream, without ever holding the whole body in memory.
+ *
+ * Two hazards it exists to handle:
+ *
+ * - **A match straddling a chunk boundary.** Each pass holds back the last
+ *   `search.length - 1` characters and prepends them to the next chunk. The
+ *   held-back slice is taken from the RAW input, never from already-replaced
+ *   output — otherwise a replacement ending in a prefix of `search` could join
+ *   the next chunk and be replaced a second time.
+ * - **A multi-byte character split across chunks.** `TextDecoder` with
+ *   `{ stream: true }` carries the partial code point across `decode` calls.
+ *
+ * Peak memory is one chunk plus `search.length - 1` characters, not the body.
+ */
+export function createReplaceStream(search: string, replace: string): TransformStream<Uint8Array, Uint8Array> {
+	const decoder = new TextDecoder("utf-8");
+	const encoder = new TextEncoder();
+	if (!search) return new TransformStream<Uint8Array, Uint8Array>();
+	const keep = search.length - 1;
+	let tail = "";
+
+	return new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			const buffer = tail + decoder.decode(chunk, { stream: true });
+			// Consume complete matches first (left to right, non-overlapping — same
+			// as replaceAll), then hold back only the last `search.length - 1` chars
+			// of what follows the last match: a not-yet-complete match can only
+			// start there. Cutting before consuming matches can slice a complete,
+			// self-overlapping match ("aaa" in "xaaaa") in half.
+			let end = 0;
+			for (let i = buffer.indexOf(search); i !== -1; i = buffer.indexOf(search, end)) {
+				end = i + search.length;
+			}
+			const cut = Math.max(end, buffer.length - keep);
+			tail = buffer.slice(cut);
+			const head = buffer.slice(0, cut);
+			if (head) controller.enqueue(encoder.encode(head.replaceAll(search, replace)));
+		},
+		flush(controller) {
+			const rest = tail + decoder.decode();
+			if (rest) controller.enqueue(encoder.encode(rest.replaceAll(search, replace)));
+		},
+	});
+}
+
+/**
  * Proxy a request to the fallback origin with full hostname rewriting.
  *
  * Rewrites:
@@ -330,17 +377,27 @@ export async function proxyToFallback(
 	// would consume the stream needlessly and could throw on non-text
 	// content. The Location header is rewritten separately further down.
 	let body: BodyInit | null = response.body;
+	let rewrote = false;
 	if (
 		isText &&
 		response.body &&
 		response.status >= 200 &&
-		response.status < 300
+		response.status < 300 &&
+		fallbackOrigin.length > 0
 	) {
-		const text = await response.text();
-		body = text.replaceAll(fallbackOrigin, url.hostname);
+		// Streamed, not buffered. `response.text()` held the entire body as a
+		// JS string (two bytes per character) plus the replaced copy — multiple
+		// megabytes of a 128MB isolate budget for a hostname substitution.
+		body = response.body.pipeThrough(createReplaceStream(fallbackOrigin, url.hostname));
+		rewrote = true;
 	}
 
 	const rewritten = new Response(body, response);
+
+	// The rewrite changes the body length, so the upstream `content-length` is
+	// now a lie — and a streamed body has no length to state. (This was already
+	// wrong on the buffered path; it just never had to be chunked.)
+	if (rewrote) rewritten.headers.delete("content-length");
 
 	const setCookies = response.headers.getSetCookie?.() ?? [];
 	if (setCookies.length > 0) {
