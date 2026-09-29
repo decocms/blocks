@@ -46,11 +46,14 @@
 
 import { execSync } from "node:child_process";
 import * as path from "node:path";
+import { redirectPrefix } from "@decocms/blocks/cms";
+import { splitExactRedirects } from "@decocms/blocks/sdk/redirects";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import {
   buildSnapshot,
   recordAndGcDeployment,
   setLiveDeployment,
+  syncRedirectsToKv,
   verifySnapshotInKv,
   writeSnapshotToKv,
 } from "./lib/kv-snapshot";
@@ -160,12 +163,20 @@ async function main() {
     process.exit(2);
   }
 
-  const snap = buildSnapshot(blocks);
+  // Exact redirects get ONE KV key each and are removed from the decofile. A
+  // bulk-migration site can carry tens of thousands; inside the snapshot they
+  // are resident in every isolate twice (parsed graph + RedirectMap) for data
+  // that usually matches nothing. Globs stay — they must be scanned in order.
+  const split = splitExactRedirects(blocks);
   const purgePaths = opts.all ? ["/"] : purgePathsForChangedKeys(blocks, changedKeys);
+  const snap = buildSnapshot(split.blocks);
   console.log(`decofile: ${snap.count} blocks, revision ${snap.revision} → deployment ${opts.deploymentId}`);
+  if (split.exact.length > 0) {
+    console.log(`redirects: ${split.exact.length} exact rule(s) → ${redirectPrefix(opts.deploymentId)}*`);
+  }
 
   if (!opts.write) {
-    console.log(`\nDry-run only. Would write decofile:${opts.deploymentId} + revision, GC to ${opts.retain}, purge: ${purgePaths.join(", ")}`);
+    console.log(`\nDry-run only. Would write decofile:${opts.deploymentId} + revision, ${split.exact.length} redirect key(s), GC to ${opts.retain}, purge: ${purgePaths.join(", ")}`);
     process.exit(0);
   }
 
@@ -178,6 +189,13 @@ async function main() {
   }
 
   try {
+    // Redirects FIRST: the decofile no longer carries them, so publishing the
+    // snapshot before the keys exist would leave a window where every migrated
+    // URL 404s instead of redirecting.
+    const red = await syncRedirectsToKv(client, split.exact, opts.deploymentId);
+    if (red.written || red.deleted) {
+      console.log(`redirects: ${red.written} written, ${red.deleted} removed.`);
+    }
     await writeSnapshotToKv(client, snap, opts.deploymentId);
     const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId);
     if (!verify.ok) {

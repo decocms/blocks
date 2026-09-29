@@ -9,6 +9,7 @@ import {
   revisionKey,
   snapshotKey,
 } from "@decocms/blocks/cms";
+import { splitExactRedirects } from "@decocms/blocks/sdk/redirects";
 import { createKvRestClient, type KvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import { readDecofileFromDir } from "./lib/read-decofile";
 import { kvNamespaceIdFromToml, kvNamespaceIdFromWrangler } from "./lib/wrangler-config";
@@ -16,6 +17,7 @@ import {
   buildSnapshot,
   recordAndGcDeployment,
   setLiveDeployment,
+  syncRedirectsToKv,
   verifySnapshotInKv,
   writeSnapshotToKv,
 } from "./lib/kv-snapshot";
@@ -46,6 +48,14 @@ function makeClient(initial: Record<string, string> = {}) {
       Promise.resolve(
         [...store.keys()].filter((k) => !prefix || k.startsWith(prefix)),
       ),
+    putMany: (entries) => {
+      for (const e of entries) store.set(e.key, e.value);
+      return Promise.resolve();
+    },
+    deleteMany: (keys) => {
+      for (const k of keys) store.delete(k);
+      return Promise.resolve();
+    },
   };
   return { client, store, putOrder };
 }
@@ -386,6 +396,24 @@ describe("readDecofileFromDir — CSV redirects", () => {
     expect(blocks.site).toBeDefined();
   });
 
+  it("splits CSV-derived exact redirects out of the snapshot", () => {
+    const blocksDir = makeSite(
+      {
+        "site.json": {
+          __resolveType: "site/apps/site.ts",
+          routes: [{ __resolveType: "website/loaders/redirectsFromCsv.ts", from: "static/r.csv" }],
+        },
+      },
+      { "r.csv": "from,to,type\n/old,/new,permanent\n/g/*,/h/*\n" },
+    );
+    const { blocks } = readDecofileFromDir(blocksDir, { silent: true });
+    const split = splitExactRedirects(blocks);
+
+    expect(split.exact).toEqual([{ path: "/old", to: "/new", status: 301 }]);
+    expect(JSON.stringify(split.blocks)).not.toContain('"/old"');
+    expect(split.blocks["__csv_redirects__r.csv"]).toMatchObject({ redirects: [{ from: "/g/*" }] });
+  });
+
   it("lets a real block win over the synthetic one on a key collision", () => {
     const blocksDir = makeSite(
       {
@@ -408,5 +436,80 @@ describe("readDecofileFromDir — CSV redirects", () => {
     const blocksDir = makeSite({ "site.json": { __resolveType: "site/apps/site.ts" } }, {});
     const { blocks } = readDecofileFromDir(blocksDir, { silent: true });
     expect(Object.keys(blocks)).toEqual(["site"]);
+  });
+});
+
+describe("syncRedirectsToKv", () => {
+  /** In-memory client with the bulk ops the redirect sync uses. */
+  function makeBulkClient(initial: Record<string, string> = {}) {
+    const store = new Map(Object.entries(initial));
+    const client = {
+      get: (k: string) => Promise.resolve(store.get(k) ?? null),
+      put: (k: string, v: string) => {
+        store.set(k, v);
+        return Promise.resolve();
+      },
+      delete: (k: string) => {
+        store.delete(k);
+        return Promise.resolve();
+      },
+      list: (prefix?: string) =>
+        Promise.resolve([...store.keys()].filter((k) => !prefix || k.startsWith(prefix))),
+      putMany: (entries: Array<{ key: string; value: string }>) => {
+        for (const e of entries) store.set(e.key, e.value);
+        return Promise.resolve();
+      },
+      deleteMany: (keys: string[]) => {
+        for (const k of keys) store.delete(k);
+        return Promise.resolve();
+      },
+    };
+    return { client: client as unknown as KvRestClient, store };
+  }
+
+  const rule = (path: string, to: string, status: 301 | 302 = 301) => ({ path, to, status });
+
+  it("adds new rules under redirect:<id>:<path>", async () => {
+    const { client, store } = makeBulkClient();
+    const out = await syncRedirectsToKv(client, [rule("/old", "/new")], ID);
+
+    expect(out).toEqual({ written: 1, deleted: 0 });
+    expect(store.get(`redirect:${ID}:/old`)).toBe('{"to":"/new","status":301}');
+  });
+
+  it("updates a changed target in place", async () => {
+    const { client, store } = makeBulkClient({
+      [`redirect:${ID}:/old`]: '{"to":"/stale","status":302}',
+    });
+    await syncRedirectsToKv(client, [rule("/old", "/fresh")], ID);
+    expect(store.get(`redirect:${ID}:/old`)).toBe('{"to":"/fresh","status":301}');
+  });
+
+  it("removes rules that no longer exist", async () => {
+    // The reason this diffs against a prefix LIST: KV has no "replace
+    // everything under this prefix", so a deleted rule would redirect forever.
+    const { client, store } = makeBulkClient({
+      [`redirect:${ID}:/keep`]: '{"to":"/a","status":301}',
+      [`redirect:${ID}:/gone`]: '{"to":"/b","status":301}',
+    });
+    const out = await syncRedirectsToKv(client, [rule("/keep", "/a")], ID);
+
+    expect(out).toEqual({ written: 1, deleted: 1 });
+    expect(store.has(`redirect:${ID}:/gone`)).toBe(false);
+    expect(store.has(`redirect:${ID}:/keep`)).toBe(true);
+  });
+
+  it("never touches another deployment's keys", async () => {
+    const { client, store } = makeBulkClient({
+      "redirect:other-sha:/gone": '{"to":"/x","status":301}',
+    });
+    await syncRedirectsToKv(client, [], ID);
+    expect(store.has("redirect:other-sha:/gone")).toBe(true);
+  });
+
+  it("does not disturb the decofile keys", async () => {
+    const { client, store } = makeBulkClient({ [snapshotKey(ID)]: "{}" });
+    await syncRedirectsToKv(client, [rule("/a", "/b")], ID);
+    expect(store.has(snapshotKey(ID))).toBe(true);
   });
 });

@@ -30,8 +30,14 @@
  */
 
 import * as path from "node:path";
+import { splitExactRedirects } from "@decocms/blocks/sdk/redirects";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
-import { buildSnapshot, verifySnapshotInKv, writeSnapshotToKv } from "./lib/kv-snapshot";
+import {
+  buildSnapshot,
+  syncRedirectsToKv,
+  verifySnapshotInKv,
+  writeSnapshotToKv,
+} from "./lib/kv-snapshot";
 import { readDecofileFromDir } from "./lib/read-decofile";
 
 function parseArgs(argv: string[]) {
@@ -77,8 +83,15 @@ async function main() {
     process.exit(2);
   }
 
-  const snap = buildSnapshot(blocks);
+  // Exact redirects live under their own `redirect:<id>:<path>` keys, not in
+  // the decofile — see splitExactRedirects. Must match what sync-blocks-to-kv
+  // writes, or a one-shot seed and a CI sync would disagree on the snapshot.
+  const split = splitExactRedirects(blocks);
+  const snap = buildSnapshot(split.blocks);
   console.log(`decofile: ${snap.count} blocks, revision ${snap.revision}, ${snap.snapshot.length} bytes`);
+  if (split.exact.length > 0) {
+    console.log(`redirects: ${split.exact.length} exact rule(s) as individual keys`);
+  }
 
   if (!opts.write) {
     console.log("\nDry-run only. Re-run with --write to populate KV.");
@@ -94,6 +107,7 @@ async function main() {
   }
 
   try {
+    await syncRedirectsToKv(client, split.exact, opts.deploymentId);
     await writeSnapshotToKv(client, snap, opts.deploymentId);
     const verify = await verifySnapshotInKv(client, snap.revision, opts.deploymentId);
     if (!verify.ok) {
