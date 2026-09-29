@@ -72,3 +72,34 @@ function matchTomlString(body: string, key: string): string | null {
   const m = body.match(new RegExp(`(?:^|\\n)\\s*${key}\\s*=\\s*["']([^"']+)["']`));
   return m ? m[1] : null;
 }
+
+/**
+ * Set the `id` of a `kv_namespaces` entry in a `wrangler.jsonc` SOURCE string,
+ * preserving comments and formatting.
+ *
+ * Deliberately text-level rather than parse-and-restringify: the scaffolded
+ * `wrangler.jsonc` carries the comments explaining why each binding exists, and
+ * a round-trip through `JSON.parse`/`stringify` would drop every one of them.
+ *
+ * Returns the original string unchanged when the binding is absent — callers
+ * treat that as "nothing to personalize", never as an error, because the
+ * builder re-forces the id from `CF_KV_NAMESPACE_ID` on every build anyway.
+ */
+export function setKvNamespaceIdInJsonc(
+  src: string,
+  id: string,
+  binding = DEFAULT_BINDING,
+): string {
+  // Match the object literal holding this binding, in either field order, and
+  // rewrite only its `id` value. Bounded to a single `{...}` so it cannot reach
+  // past the entry into the next one.
+  const entry = new RegExp(`\\{[^{}]*?"binding"\\s*:\\s*"${binding}"[^{}]*?\\}`, "s");
+  const m = src.match(entry);
+  if (!m) return src;
+
+  const patched = m[0].includes('"id"')
+    ? m[0].replace(/"id"\s*:\s*"[^"]*"/, `"id": ${JSON.stringify(id)}`)
+    : m[0].replace(/\}$/, `, "id": ${JSON.stringify(id)} }`);
+
+  return src.slice(0, m.index) + patched + src.slice(m.index! + m[0].length);
+}
