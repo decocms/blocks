@@ -509,6 +509,55 @@ export function serverFnPagePath(url: URL): string | null {
 }
 
 /**
+ * `true` when a server-fn payload (GET `payload` param or POST body) embeds a
+ * route path or absolute URL carrying a tracking param — e.g. a deferred
+ * section's `pageUrl` built from `location.href` on an ad landing. Same walk as
+ * {@link canonicalizeServerFnPayloadForCacheKey}. Returns `false` on any parse
+ * failure (fail-safe: the caller keeps its normal behavior).
+ */
+export function payloadHasTrackingParams(payload: string): boolean {
+  try {
+    let found = false;
+    const check = (s: string): void => {
+      let search: string;
+      if (/^https?:\/\//i.test(s)) {
+        try {
+          search = new URL(s).search;
+        } catch {
+          return;
+        }
+      } else if (s.startsWith("/") && !s.startsWith("//")) {
+        const q = s.indexOf("?");
+        if (q < 0) return;
+        search = s.slice(q);
+      } else {
+        return;
+      }
+      for (const k of new URLSearchParams(search).keys()) {
+        if (isTrackingParam(k)) {
+          found = true;
+          return;
+        }
+      }
+    };
+    const visit = (v: unknown): void => {
+      if (found) return;
+      if (typeof v === "string") {
+        check(v);
+      } else if (Array.isArray(v)) {
+        for (const x of v) visit(x);
+      } else if (v && typeof v === "object") {
+        for (const x of Object.values(v)) visit(x);
+      }
+    };
+    visit(JSON.parse(payload));
+    return found;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Search params that never change a CMS page's resolved server-fn response and
  * so must not fragment its edge cache key. `skuId`/`idsku` select a product
  * variant client-side (mirrors `cmsRouteConfig`'s default
