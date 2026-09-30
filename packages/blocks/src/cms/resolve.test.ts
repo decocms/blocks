@@ -33,6 +33,7 @@ import {
   getAsyncRenderingConfig,
   isDeferred,
   isEagerRequest,
+  pickFallbackProps,
   reExtractRawProps,
   registerCommerceLoader,
   registerMatcher,
@@ -50,6 +51,42 @@ import {
   WELL_KNOWN_TYPES,
 } from "./resolve";
 import { runSingleSectionLoader } from "./sectionLoaders";
+
+describe("pickFallbackProps", () => {
+  it("keeps the primitives a LoadingFallback can render", () => {
+    expect(
+      pickFallbackProps({
+        galleryTitle: "Você pode ter perdido",
+        columns: 4,
+        disable: false,
+      }),
+    ).toEqual({ galleryTitle: "Você pode ter perdido", columns: 4, disable: false });
+  });
+
+  it("drops the object graph that made rawProps too big to serialize", () => {
+    const out = pickFallbackProps({
+      title: "Mais vendidos",
+      products: [{ id: "1" }, { id: "2" }],
+      storeConfig: { account: "store" },
+      onClick: () => {},
+      missing: null,
+      absent: undefined,
+    });
+    expect(out).toEqual({ title: "Mais vendidos" });
+  });
+
+  it("drops __resolveType — it addresses a block instead of describing one", () => {
+    expect(pickFallbackProps({ __resolveType: "site/sections/Shelf.tsx", title: "T" })).toEqual({
+      title: "T",
+    });
+  });
+
+  it("drops a string long enough to undo the payload saving", () => {
+    const out = pickFallbackProps({ short: "ok", huge: "x".repeat(513) });
+    expect(out).toEqual({ short: "ok" });
+    expect(pickFallbackProps({ edge: "x".repeat(512) })).toEqual({ edge: "x".repeat(512) });
+  });
+});
 
 describe("resolveDeferredSectionFull", () => {
   it("resolves a deferred section and preserves index", async () => {

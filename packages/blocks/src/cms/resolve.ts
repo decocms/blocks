@@ -100,6 +100,13 @@ export interface DeferredSection {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rawProps?: Record<string, any>;
+  /**
+   * Primitive-only subset of `rawProps`, kept in the serialized payload so the
+   * section's `LoadingFallback` can render the CMS text (and therefore reserve
+   * the right height) before the real section arrives. See
+   * `pickFallbackProps` for what survives and why.
+   */
+  fallbackProps?: Record<string, string | number | boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +309,40 @@ function isAlwaysDeferSection(key: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+/**
+ * Primitive-only projection of a deferred section's raw props.
+ *
+ * `rawProps` are stripped from the serialized payload because they can carry
+ * whole product lists. But the section's `LoadingFallback` is rendered from
+ * them, so stripping everything left it with `{}`: any CMS text in the skeleton
+ * (a title, a subtitle) vanished from the served HTML until hydration, and a
+ * skeleton that cannot render its own text also cannot reserve the real
+ * section's height — the page came out short and shifted as sections landed.
+ * Deco on Fresh passed the resolved props to the fallback, so both worked.
+ *
+ * Only top-level primitives survive: those are the props a skeleton can
+ * actually use, and they cannot pull an object graph into the payload. Strings
+ * are capped so a stray long field cannot undo the payload saving, and
+ * `__resolveType` is dropped because it addresses a block rather than
+ * describing one.
+ */
+const FALLBACK_PROP_MAX_STRING = 512;
+
+export function pickFallbackProps(
+  rawProps: Record<string, unknown>,
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(rawProps)) {
+    if (key === "__resolveType") continue;
+    if (typeof value === "number" || typeof value === "boolean") {
+      out[key] = value;
+    } else if (typeof value === "string" && value.length <= FALLBACK_PROP_MAX_STRING) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 // Deferred rawProps cache — keeps rawProps server-side to trim HTML payload
 // ---------------------------------------------------------------------------
 
@@ -2269,6 +2310,7 @@ async function resolveDecoPageImpl(
               currentFlatIndex,
               deferred.rawProps,
             );
+            deferred.fallbackProps = pickFallbackProps(deferred.rawProps);
             delete deferred.rawProps;
           }
 
