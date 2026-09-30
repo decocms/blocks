@@ -100,6 +100,12 @@ export interface DeferredSection {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rawProps?: Record<string, any>;
+  /**
+   * The props the section declared via `export const fallbackProps`, so its
+   * `LoadingFallback` can render its CMS text before the real section arrives.
+   * Absent for a section that declared none.
+   */
+  fallbackProps?: Record<string, string | number | boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +305,59 @@ export function registerAlwaysDeferSections(keys: string[]): void {
 
 function isAlwaysDeferSection(key: string): boolean {
   return (G.__deco.alwaysDeferSectionKeys as Set<string> | undefined)?.has(key) ?? false;
+}
+
+// ---------------------------------------------------------------------------
+// Fallback props — what a deferred section lets its skeleton render
+// ---------------------------------------------------------------------------
+
+/**
+ * Register the props each section allows its `LoadingFallback` to render,
+ * declared as `export const fallbackProps = ["title"]`.
+ *
+ * `rawProps` are stripped before serialization (they can carry whole product
+ * lists), so the fallback rendered with `{}`: any CMS text in the skeleton was
+ * missing from the served HTML, and a skeleton that cannot render its own text
+ * cannot reserve the real section's height either. Deco on Fresh passed the
+ * resolved props to the fallback, so both worked there.
+ *
+ * Declaring is the opt-in, and it is per section rather than per site: nothing
+ * a section did not name reaches the client, so neither the payload nor a
+ * loader-only prop rides on a size heuristic. A section that declares nothing
+ * keeps rendering its skeleton with `{}`, exactly as before.
+ */
+export function registerFallbackPropsSections(entries: Record<string, string[]>): void {
+  G.__deco.fallbackPropKeys ??= new Map();
+  const map: Map<string, string[]> = G.__deco.fallbackPropKeys;
+  for (const [key, props] of Object.entries(entries)) map.set(key, props);
+}
+
+function getFallbackPropKeys(key: string): string[] | undefined {
+  return (G.__deco.fallbackPropKeys as Map<string, string[]> | undefined)?.get(key);
+}
+
+/**
+ * Project the declared props out of a deferred section's raw props.
+ *
+ * Still primitives only: a declared key holding an object or array would pull
+ * back the graph `rawProps` was stripped to avoid. Empty strings are dropped
+ * because a parameter default (`{ title = DEFAULT }`) only applies to
+ * `undefined`.
+ */
+export function pickFallbackProps(
+  rawProps: Record<string, unknown>,
+  keys: string[],
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const key of keys) {
+    const value = rawProps[key];
+    if (typeof value === "number" || typeof value === "boolean") {
+      out[key] = value;
+    } else if (typeof value === "string" && value.length > 0) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -2269,6 +2328,10 @@ async function resolveDecoPageImpl(
               currentFlatIndex,
               deferred.rawProps,
             );
+            const fallbackKeys = getFallbackPropKeys(deferred.component);
+            if (fallbackKeys?.length) {
+              deferred.fallbackProps = pickFallbackProps(deferred.rawProps, fallbackKeys);
+            }
             delete deferred.rawProps;
           }
 

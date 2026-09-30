@@ -294,7 +294,7 @@ function DeferredSectionWrapper({
   const skeleton = !optionsReady
     ? null
     : hasCustomFallback
-      ? createElement(loadedOptions!.loadingFallback!, deferred.rawProps)
+      ? createElement(loadedOptions!.loadingFallback!, skeletonProps(deferred))
       : (loadingFallback ??
         (isDev ? (
           <DevMissingFallbackWarning component={deferred.component} />
@@ -466,6 +466,18 @@ function DeferredSectionWrapper({
 // DeferredSectionSkeleton — resolves the best fallback for a deferred section
 // ---------------------------------------------------------------------------
 
+/**
+ * Props handed to a section's `LoadingFallback`.
+ *
+ * `resolveDecoPage` deletes `rawProps` before returning, so no render — SSR or
+ * client nav — ever sees them: the primitive projection is all there is, and
+ * only under `setAsyncRenderingConfig({ fallbackProps: true })`. Without it
+ * this stays `{}`, as before.
+ */
+function skeletonProps(deferred: DeferredSection): Record<string, unknown> {
+  return deferred.fallbackProps ?? {};
+}
+
 function DeferredSectionSkeleton({
   deferred,
   fallback,
@@ -475,9 +487,7 @@ function DeferredSectionSkeleton({
 }) {
   const options = getSectionOptions(deferred.component);
   if (options?.loadingFallback) {
-    // rawProps are no longer serialized to the client — pass empty object.
-    // LoadingFallback components should be pure layout skeletons.
-    return createElement(options.loadingFallback, deferred.rawProps ?? {});
+    return createElement(options.loadingFallback, skeletonProps(deferred));
   }
   if (fallback) return <>{fallback}</>;
   if (isDev) return <DevMissingFallbackWarning component={deferred.component} />;

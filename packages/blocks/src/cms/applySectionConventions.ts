@@ -13,6 +13,7 @@ import {
   getAsyncRenderingConfig,
   registerAlwaysDeferSections,
   registerEagerSections,
+  registerFallbackPropsSections,
   registerNeverDeferSections,
   registerSeoSections,
   setAsyncRenderingConfig,
@@ -33,6 +34,8 @@ export interface SectionMetaEntry {
   clientOnly?: boolean;
   seo?: boolean;
   hasLoadingFallback?: boolean;
+  /** `export const fallbackProps = ["title"]` — props the skeleton may render. */
+  fallbackProps?: string[];
   /** `export const renderJson = false` — drop the section from ?renderJson. */
   renderJson?: false;
   /** `export const renderJson = (props) => ...` — a projection fn (in `renderJsons`). */
@@ -61,6 +64,7 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
   const layoutSections: string[] = [];
   const seoSections: string[] = [];
   const cacheableSections: Record<string, CacheableSectionInput> = {};
+  const fallbackPropsSections: Record<string, string[]> = {};
 
   for (const [key, entry] of Object.entries(meta)) {
     if (entry.eager) eagerSections.push(key);
@@ -69,6 +73,7 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
     if (entry.layout) layoutSections.push(key);
     if (entry.seo) seoSections.push(key);
     if (entry.cache) cacheableSections[key] = entry.cache as CacheableSectionInput;
+    if (entry.fallbackProps?.length) fallbackPropsSections[key] = entry.fallbackProps;
 
     if (entry.clientOnly && sectionGlob) {
       const globKey = sectionGlobKey(key, sectionGlob);
@@ -133,6 +138,10 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
 
   if (Object.keys(cacheableSections).length > 0) {
     registerCacheableSections(cacheableSections);
+  }
+
+  if (Object.keys(fallbackPropsSections).length > 0) {
+    registerFallbackPropsSections(fallbackPropsSections);
   }
 }
 

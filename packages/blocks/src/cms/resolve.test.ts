@@ -33,12 +33,14 @@ import {
   getAsyncRenderingConfig,
   isDeferred,
   isEagerRequest,
+  pickFallbackProps,
   reExtractRawProps,
   registerCommerceLoader,
   registerMatcher,
   resolveDeferred,
   registerEagerSections,
   registerAlwaysDeferSections,
+  registerFallbackPropsSections,
   registerNeverDeferSections,
   resolveDecoPage,
   resolveDeferredSectionFull,
@@ -50,6 +52,43 @@ import {
   WELL_KNOWN_TYPES,
 } from "./resolve";
 import { runSingleSectionLoader } from "./sectionLoaders";
+
+describe("pickFallbackProps", () => {
+  it("keeps the declared primitives a LoadingFallback can render", () => {
+    expect(
+      pickFallbackProps({ galleryTitle: "Você pode ter perdido", columns: 4, disable: false }, [
+        "galleryTitle",
+        "columns",
+        "disable",
+      ]),
+    ).toEqual({ galleryTitle: "Você pode ter perdido", columns: 4, disable: false });
+  });
+
+  it("ignores everything the section did not declare", () => {
+    const out = pickFallbackProps(
+      {
+        title: "Mais vendidos",
+        products: [{ id: "1" }, { id: "2" }],
+        apiToken: "plain-string-token",
+        richText: "x".repeat(5000),
+      },
+      ["title"],
+    );
+    expect(out).toEqual({ title: "Mais vendidos" });
+  });
+
+  it("drops a declared key holding an object graph — it would undo the payload saving", () => {
+    expect(
+      pickFallbackProps({ layout: { variation: "Full" }, title: "T" }, ["layout", "title"]),
+    ).toEqual({ title: "T" });
+  });
+
+  it("drops an empty string — it would beat `{ title = DEFAULT }` and blank the skeleton", () => {
+    expect(pickFallbackProps({ title: "", subtitle: "Assine" }, ["title", "subtitle"])).toEqual({
+      subtitle: "Assine",
+    });
+  });
+});
 
 describe("resolveDeferredSectionFull", () => {
   it("resolves a deferred section and preserves index", async () => {
@@ -1387,5 +1426,62 @@ describe("asResolved — deferred props", () => {
       expect(c.userAgent).toBe(ctx.userAgent);
       expect(c.url).toBe(ctx.url);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fallbackProps — end to end through resolveDecoPage
+// ---------------------------------------------------------------------------
+
+describe("resolveDecoPage — fallbackProps on the deferred object", () => {
+  const HERO = "site/sections/Hero.tsx";
+  const lazySec = {
+    __resolveType: WELL_KNOWN_TYPES.LAZY,
+    section: {
+      __resolveType: HERO,
+      galleryTitle: "Você pode ter perdido",
+      columns: 4,
+      apiToken: "plain-string-token",
+      products: [{ id: "1" }],
+    },
+  };
+
+  beforeEach(() => {
+    setAsyncRenderingConfig({ foldThreshold: Infinity, respectCmsLazy: true });
+    (getSection as ReturnType<typeof vi.fn>).mockReturnValue({ default: () => null });
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: { name: "test", sections: [lazySec] },
+      params: {},
+      blockKey: "test-page",
+    });
+  });
+
+  afterEach(() => {
+    registerFallbackPropsSections({ [HERO]: [] });
+    (getSection as ReturnType<typeof vi.fn>).mockReset();
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("section declares nothing: neither rawProps nor fallbackProps are serialized", async () => {
+    const page = await resolveDecoPage("/product/foo", {});
+    const deferred = page!.deferredSections[0];
+    expect(deferred).not.toHaveProperty("rawProps");
+    expect(deferred).not.toHaveProperty("fallbackProps");
+  });
+
+  it("section declares a prop: only that one travels, and rawProps still never survive", async () => {
+    registerFallbackPropsSections({ [HERO]: ["galleryTitle"] });
+    const page = await resolveDecoPage("/product/foo", {});
+    const deferred = page!.deferredSections[0];
+    expect(deferred).not.toHaveProperty("rawProps");
+    expect(deferred.fallbackProps).toEqual({ galleryTitle: "Você pode ter perdido" });
+  });
+
+  it("client nav behaves like SSR — the skeleton renders from the same projection", async () => {
+    registerFallbackPropsSections({ [HERO]: ["galleryTitle"] });
+    const nav = await resolveDecoPage("/product/foo", { isClientNavigation: true });
+    const deferred = nav!.deferredSections[0];
+    expect(deferred).not.toHaveProperty("rawProps");
+    expect(deferred.fallbackProps).toEqual({ galleryTitle: "Você pode ter perdido" });
   });
 });
