@@ -297,7 +297,9 @@ body[data-layout="landing"] .pager,
 body[data-layout="landing"] .doc-footer { display: none; }
 main { display: block; min-width: 0; outline: none; }
 body[data-layout="docs"] main { padding: 40px 56px 96px; }
-body[data-layout="docs"] main > * { max-width: 768px; margin-left: auto; margin-right: auto; }
+/* One column for everything in an article: prose, code, tables, callouts and diagrams share the
+   same left and right edges. Code lines longer than the column scroll inside their panel. */
+body[data-layout="docs"] main > * { max-width: 720px; margin-left: auto; margin-right: auto; }
 .js .page { display: none; }
 .js .page.active { display: block; }
 .js .page > section:not(.is-current) { display: none; }
@@ -457,7 +459,6 @@ body[data-page="roadmap"] .sidebar-foot .sf-link { display: none; }
 .doc-section h2 code, .doc-section h3 code { font-size: .86em; padding: 0; background: none; border: 0; color: inherit; font-weight: 400; letter-spacing: -.03em; }
 .doc-section p, .doc-section li { color: var(--fg-body); font-size: 16px; line-height: 1.72; }
 .doc-section p { margin: 16px 0; }
-.doc-section > p, .doc-section > ul, .doc-section > ol { max-width: 70ch; }
 .doc-section ul, .doc-section ol { margin: 18px 0; padding-left: 22px; }
 .doc-section li { padding-left: 6px; }
 .doc-section li + li { margin-top: 8px; }
@@ -547,21 +548,6 @@ pre code { font: inherit; font-variant-ligatures: none; background: none; border
 .code-panel.is-oneline .code-lang { margin-right: 4px; }
 .code-panel.is-diagram pre { line-height: 1.3; }
 .code-panel.is-cmd pre code::before { content: "$"; margin-right: 12px; color: var(--eyebrow); font-weight: 500; user-select: none; -webkit-user-select: none; }
-
-/* Wide screens: code, tables and diagrams use the article's side gutters (up to 48px each side,
-   always leaving 24px to the sidebar and the rail), so fewer lines run past the panel edge. */
-@media (min-width: 1360px) {
-  body[data-layout="docs"] {
-    --bleed: clamp(0px, (min(100vw, var(--hdr-max)) - 528px - 768px) / 2 - 24px, 48px);
-  }
-  body[data-layout="docs"] .doc-section > .code-panel,
-  body[data-layout="docs"] .doc-section > .code-example,
-  body[data-layout="docs"] .doc-section > .table-wrap,
-  body[data-layout="docs"] .doc-section > .flow,
-  body[data-layout="docs"] .doc-section > .explorer {
-    width: auto; margin-left: calc(-1 * var(--bleed)); margin-right: calc(-1 * var(--bleed));
-  }
-}
 
 /* Syntax */
 pre .token { background: none; text-shadow: none; }
@@ -1240,7 +1226,6 @@ dialog::backdrop { background: rgba(14, 26, 16, .3); -webkit-backdrop-filter: bl
   .doc-section > h2 + p { font-size: 17px; }
   .doc-section h3 { font-size: 23px; margin-top: 48px; }
   .doc-section p, .doc-section li { font-size: 16px; line-height: 1.7; }
-  .doc-section .code-panel:not(.is-oneline) { margin-left: -16px; margin-right: -16px; border-radius: 0; border-left: 0; border-right: 0; }
   .code-panel pre { padding: 14px 16px; font-size: 12.5px; line-height: 21px; }
   .table-wrap { border-radius: 12px; }
   table { font-size: 13.5px; }
