@@ -2918,6 +2918,16 @@ export function createDecoWorkerEntry(
     function revalidationRequest(): Request {
       if (!skipStoreTracking) return request;
       const clean = new URL(cleanPathForCacheKey(url.toString()), url.origin);
+      // A GET server fn can carry the tracking inside `payload` (the page it
+      // loads), not in its own query — strip it there too, or this renders and
+      // stores the tracked page under the clean key.
+      const payload = clean.searchParams.get("payload");
+      if (
+        payload &&
+        (clean.pathname.startsWith("/_serverFn/") || clean.pathname.startsWith("/_server/"))
+      ) {
+        clean.searchParams.set("payload", canonicalizeServerFnPayloadForCacheKey(payload, []));
+      }
       // Build the init field by field instead of passing `request` as init:
       // whether the `new Request(url, request)` form carries `cf` over is
       // runtime-dependent, and a location matcher reading a dropped `cf` would

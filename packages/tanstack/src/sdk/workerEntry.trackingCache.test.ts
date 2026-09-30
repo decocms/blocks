@@ -132,6 +132,33 @@ describe("tracking params never poison the edge cache", () => {
     expect(origin.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("revalidates a stale GET server fn from the clean payload", async () => {
+    const origin = echoOrigin();
+    const bindings = env();
+    const worker = createDecoWorkerEntry(origin, options);
+    const sfn = (pageUrl: string) =>
+      new Request(
+        `https://shop.test/_serverFn/loadCmsPage?payload=${encodeURIComponent(
+          JSON.stringify({ data: { pageUrl } }),
+        )}`,
+      );
+
+    await worker.fetch(sfn("/produtos"), bindings, ctx);
+    await flush();
+
+    clockOffsetMs = INSIDE_SWR_MS;
+    // The tracking lives inside `payload`, not in the URL's own query — so
+    // cleaning the URL alone would render (and store) the tracked page.
+    const stale = await worker.fetch(sfn("/produtos?gclid=POISON42"), bindings, ctx);
+    expect(stale.headers.get("X-Cache")).toBe("STALE-HIT");
+    await flush();
+
+    clockOffsetMs = INSIDE_SWR_MS + 1_000;
+    const next = await worker.fetch(sfn("/produtos"), bindings, ctx);
+    expect(next.headers.get("X-Cache")).toBe("HIT");
+    expect(await next.text()).not.toContain("POISON42");
+  });
+
   it("stores clean pages as before", async () => {
     const origin = echoOrigin();
     const bindings = env();
