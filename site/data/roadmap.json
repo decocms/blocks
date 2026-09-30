@@ -1,0 +1,4359 @@
+{
+  "statuses": [
+    {
+      "id": "to-build",
+      "label": "To build",
+      "word": "to build",
+      "word_one": "to build",
+      "tile": "Nothing in the proposed API yet",
+      "legend": "nothing in the proposed API yet; needs a framework change"
+    },
+    {
+      "id": "to-finish",
+      "label": "To finish",
+      "word": "to finish",
+      "word_one": "to finish",
+      "tile": "The core is there; pieces are missing",
+      "legend": "the core is there; material pieces are missing or undocumented"
+    },
+    {
+      "id": "site-code",
+      "label": "Site code",
+      "word": "site code",
+      "word_one": "site code",
+      "tile": "Left to a few lines of site code",
+      "legend": "deliberately left to the site; a few lines of app code"
+    },
+    {
+      "id": "done",
+      "label": "Done",
+      "word": "done",
+      "word_one": "done",
+      "tile": "Works as documented",
+      "legend": "works as documented"
+    },
+    {
+      "id": "goes-away",
+      "label": "Goes away",
+      "word": "go away",
+      "word_one": "goes away",
+      "tile": "Disappears with the migration",
+      "legend": "disappears with the migration"
+    }
+  ],
+  "sections": [
+    {
+      "id": "roadmap",
+      "nav": "Overview",
+      "eyebrow": "Next-major roadmap",
+      "title": "Roadmap to the next major"
+    },
+    {
+      "id": "roadmap-blockers",
+      "nav": "The ten blockers",
+      "eyebrow": "Release blockers",
+      "title": "Ten blockers to clear before release"
+    },
+    {
+      "id": "roadmap-studio-new",
+      "nav": "On a next-major site",
+      "eyebrow": "Studio support",
+      "title": "Studio on a next-major site"
+    },
+    {
+      "id": "roadmap-studio-legacy",
+      "nav": "With legacy content",
+      "eyebrow": "Studio support",
+      "title": "Studio with legacy content"
+    },
+    {
+      "id": "roadmap-api",
+      "nav": "API additions",
+      "eyebrow": "Work items",
+      "title": "API additions"
+    },
+    {
+      "id": "roadmap-cli",
+      "nav": "CLI and manifest",
+      "eyebrow": "Work items",
+      "title": "CLI and manifest"
+    },
+    {
+      "id": "roadmap-platform",
+      "nav": "Studio and Deco API",
+      "eyebrow": "Work items",
+      "title": "Studio and Deco API"
+    },
+    {
+      "id": "roadmap-docs",
+      "nav": "Docs fixes",
+      "eyebrow": "Work items",
+      "title": "Docs fixes and additions"
+    },
+    {
+      "id": "roadmap-storefront",
+      "nav": "storefront-tanstack",
+      "eyebrow": "Site migrations",
+      "title": "Migrate storefront-tanstack"
+    },
+    {
+      "id": "roadmap-blog",
+      "nav": "blog-tanstack",
+      "eyebrow": "Site migrations",
+      "title": "Migrate blog-tanstack"
+    },
+    {
+      "id": "roadmap-faststore",
+      "nav": "FastStore storefront",
+      "eyebrow": "Site migrations",
+      "title": "Migrate the FastStore storefront"
+    },
+    {
+      "id": "roadmap-features",
+      "nav": "Every feature",
+      "eyebrow": "Feature readiness",
+      "title": "Every feature, and where it stands"
+    }
+  ],
+  "overview": {
+    "intro": "<p>The API in these docs is proposed, not released. This page is the to-do list that gets it to a release. It comes from checking the proposed API, feature by feature, against the three sites that have to migrate to it: <a href=\"#roadmap-storefront\">storefront-tanstack</a>, <a href=\"#roadmap-blog\">blog-tanstack</a> and the <a href=\"#roadmap-faststore\">FastStore storefront</a>.</p>\n<p>No site can migrate on the documented API alone, because each one first hits missing pieces in Studio, the request scope or the SDK surface. The <a href=\"#roadmap-blockers\">ten release blockers</a> gate the release; the status of every feature the three sites use is under <a href=\"#roadmap--release-readiness\">Release readiness</a>.</p>",
+    "readiness_lead": "None of the 111 features those sites use is done yet: 11 are still to build, 66 are to finish, 28 are left to site code, and 6 go away with the migration.",
+    "fix_docs": "<a class=\"rm-do-t\" href=\"#roadmap-docs\">Fix the docs</a> Some statements in these docs are wrong or contradict each other. <a href=\"#studio\">Studio compatibility</a> says Studio reads only the schema and the content files, but it also calls <code>/live/previews</code>, <code>/deco/invoke</code> and <code>/live/invoke</code>. <a href=\"#standalone\">API reference</a> says 'Nothing in the SDK throws', while <a href=\"#routing\">Routing</a> says ambiguous templates make <code>matchRoute</code> throw. The fixes are the first two docs work items: {{item:roadmap-docs--resolve-contradictions-in-these-docs}} and {{item:roadmap-docs--correct-studio-compatibility}}."
+  },
+  "blockers": [
+    {
+      "id": "roadmap-blockers--let-studio-talk-to-a-next-major-site",
+      "title": "Let Studio talk to a next-major site",
+      "today": "Nothing serves <code>/live/_meta</code>, <code>/.decofile</code>, <code>/live/previews</code>, <code>/deco/invoke</code> or the secrets encrypt action, and Studio's code contradicts the claim in <a href=\"#studio\">Studio compatibility</a> that it only reads the schema and files.",
+      "plan": "Ship <code>createStudioHandler({ cms, schema, render })</code> in <code>@decocms/blocks-admin</code>, mounted in one line per binding, and correct <a href=\"#studio\">Studio compatibility</a>.",
+      "features": [
+        "admin-protocol-endpoints",
+        "invoke-and-actions",
+        "section-catalog",
+        "global-layout-sections",
+        "dev-studio-content-loop",
+        "site-bootstrap"
+      ],
+      "delivered_by": [
+        "roadmap-api--ship-the-studio-protocol-handler",
+        "roadmap-docs--correct-studio-compatibility"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--make-the-cli-write-a-schema-studio-can-read",
+      "title": "Make the CLI write a schema Studio can read",
+      "today": "The CLI writes <code>.deco/schema.json</code> with top-level <code>definitions</code>; Studio reads <code>.deco/meta.gen.json</code> in LiveMeta shape (btoa keys, <code>schema.root</code>). There are no <code>apps</code> or <code>actions</code> groups, no per-type variant definitions, and the widget vocabulary is undocumented, so 22 image pickers would become text inputs and HTML fields plain strings.",
+      "plan": "Emit Studio's exact file and shape, add <code>apps</code>/<code>actions</code> groups and one multivariate definition per <code>VariantOf&lt;T&gt;</code>, publish the JSDoc/@format table, and keep widget-alias detection and return-type loader unions.",
+      "features": [
+        "studio-schema-generation",
+        "codegen-pipeline",
+        "ci-and-release-workflows",
+        "editor-widgets-and-image-fields",
+        "rich-text-html-props",
+        "app-domain-types",
+        "inline-loader-props"
+      ],
+      "delivered_by": [
+        "roadmap-cli--write-a-studio-compatible-schema-file",
+        "roadmap-cli--publish-the-tag-and-widget-vocabulary",
+        "roadmap-cli--define-the-loader-picker-rule"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--give-blocks-the-page-url-and-route-params",
+      "title": "Give blocks the page URL and route params",
+      "today": "On SPA navigation <code>getRequest()</code> returns the <code>/_serverFn</code> URL, Next's <code>headers()</code> has no URL, app packages' loaders have no standard way to receive the URL or <code>match.params</code>, and apps-vtex's RequestContext is never populated.",
+      "plan": "Add one binding-owned request scope (<code>url</code>, <code>params</code>, <code>request</code>, <code>client</code>, response headers) that both bindings' openPage populate and apps can import.",
+      "features": [
+        "section-loaders",
+        "plp-filters-sort-pagination",
+        "request-context-cookies",
+        "commerce-platform-binding",
+        "code-composed-pdp"
+      ],
+      "delivered_by": [
+        "roadmap-api--add-a-request-scope"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe",
+      "title": "Make draft preview work inside Studio's iframe",
+      "today": "The SameSite=Lax cookie is rejected cross-site, the TanStack guide never sets it, and <code>?__draft=off</code> is ignored. There's no no-store rule, and no StudioBridge or <code>data-manifest-key</code>, so click-to-select is lost.",
+      "plan": "Ship <code>withDeco()</code>/<code>decoProxy()</code>, which set the cookie as <code>Secure; SameSite=None; Partitioned</code>, treat off/empty as exit and mark drafts private/no-store. Add <code>&lt;StudioBridge/&gt;</code>, and have <code>&lt;Sections&gt;</code> emit <code>section[data-manifest-key]</code>.",
+      "features": [
+        "studio-preview",
+        "worker-server-entry",
+        "root-document-layout",
+        "router-and-client-navigation"
+      ],
+      "delivered_by": [
+        "roadmap-api--ship-the-withdeco-and-decoproxy-entry-wrappers",
+        "roadmap-api--add-a-studio-bridge",
+        "roadmap-api--add-a-section-renderer-and-a-deferral-api"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--define-the-non-cms-sdk-surface",
+      "title": "Define the non-CMS SDK surface",
+      "today": "apps-* and the ClickHouse telemetry depend on <code>sdk/requestContext</code>, <code>instrumentedFetch</code>, <code>fetchCache</code> and <code>cachedLoader</code>, and sites' widgets on <code>sdk/useDevice</code> and the Image and JsonLd hooks. These docs only list 'loaders, client, resolution, router'.",
+      "plan": "Publish a 7.x-to-next surface map, keep <code>sdk/*</code> as a documented utility tier, and ship <code>@decocms/blocks/image</code>.",
+      "features": [
+        "framework-import-surface",
+        "in-isolate-caches",
+        "upstream-fetch-instrumentation",
+        "image-optimization",
+        "json-ld-structured-data",
+        "interactive-ui-widgets"
+      ],
+      "delivered_by": [
+        "roadmap-api--keep-the-utility-tier-and-document-it",
+        "roadmap-api--add-an-image-module"
+      ],
+      "delivered_note": "No work item covers the 7.x-to-next surface map yet."
+    },
+    {
+      "id": "roadmap-blockers--add-a-revision-handle-an-edge-cache-kit-and-an-isr-recipe",
+      "title": "Add a revision handle, an edge cache kit and an ISR recipe",
+      "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached, and <code>update()</code> isn't passed to waitUntil. Content refreshes on a ~5 min poll with cold isolates serving bundled content, versus ~10 s today.",
+      "plan": "Add <code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code> and <code>markDegraded()</code>, plus <code>withEdgeCache()</code> in <code>@decocms/tanstack</code> and an ISR recipe for Next.",
+      "features": [
+        "edge-html-cache-profiles",
+        "fast-deploy-kv",
+        "lazy-deferred-sections",
+        "otel-observability"
+      ],
+      "delivered_by": [
+        "roadmap-api--add-a-revision-handle",
+        "roadmap-api--add-an-edge-cache-kit",
+        "roadmap-api--add-remoteloader-options",
+        "roadmap-docs--fix-the-next-guide"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--stop-resolving-everything-eagerly",
+      "title": "Stop resolving everything eagerly",
+      "today": "The one registry rule resolves inputs bottom-up. Lazy defers nothing (43 wrappers on the storefront), hidden variants still run their loaders, and <code>Resolved&lt;T&gt;</code> can't be expressed.",
+      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;Sections&gt;</code> renders lazily. A multivariate over <code>Deferred</code> values resolves only the winner.",
+      "features": [
+        "lazy-deferred-sections",
+        "matchers-and-variants",
+        "site-search-and-autocomplete"
+      ],
+      "delivered_by": [
+        "roadmap-api--add-a-section-renderer-and-a-deferral-api"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--make-the-next-major-load-and-resolve-legacy-content",
+      "title": "Make the next major load and resolve legacy content",
+      "today": "Filename decoding is unspecified, and the alias bridge covers only pages, matchers and multivariate, while Studio writes Lazy, SeoV2, <code>site/apps/site.ts</code>, redirect, secret and the <code>multi</code> matcher. UNKNOWN_BLOCK now fails the parent section, and <code>list()</code> can't see Content aliases.",
+      "plan": "Specify single-decode filenames, widen the alias bridge, ship <code>deco check</code> and <code>deco bundle</code>, and have the CLI emit a runtime alias table.",
+      "features": [
+        "block-type-discriminator",
+        "orphan-and-dangling-blocks",
+        "content-schema-drift",
+        "content-storage-and-delivery"
+      ],
+      "delivered_by": [
+        "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle",
+        "roadmap-cli--widen-the-legacy-alias-bridge",
+        "roadmap-cli--add-validation-commands-to-the-cli",
+        "roadmap-cli--emit-a-runtime-alias-table"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--make-routing-accept-the-content-sites-already-store",
+      "title": "Make routing accept the content sites already store",
+      "today": "There's no splat, so <code>/*</code> PLPs never match. <code>matchRoute</code> throws per request on an ambiguity a single Studio commit can introduce. <code>Page.seo</code> is required but content stores <code>null</code>, and with no 404 gate unknown URLs return soft 200s.",
+      "plan": "Add a trailing splat and make <code>matchRoute</code> non-throwing, with release-time validation. Make seo optional and add a critical-block notFound/redirect sentinel.",
+      "features": [
+        "cms-page-routing",
+        "not-found-and-error-pages",
+        "redirects",
+        "page-template-targeting"
+      ],
+      "delivered_by": [
+        "roadmap-api--add-a-splat-to-matchroute-and-stop-request-time-throws",
+        "roadmap-api--add-a-not-found-and-redirect-gate-before-streaming",
+        "roadmap-platform--build-the-deco-api-release-service",
+        "roadmap-docs--resolve-contradictions-in-these-docs"
+      ]
+    },
+    {
+      "id": "roadmap-blockers--define-a-model-for-apps-config-and-secrets",
+      "title": "Define a model for apps, config and secrets",
+      "today": "App loaders get no config, there's no <code>apps</code> manifest group, <code>website/loaders/secret.ts</code> can't decrypt, and without the site's encrypt action Studio refuses to save any Secret field.",
+      "plan": "Define an app contract (<code>blocks</code>, <code>Config</code>, <code>configure()</code>), plus <code>@decocms/blocks/secrets</code> (the secret block and the site-side encrypt action) and an <code>apps</code> group.",
+      "features": [
+        "app-installation-and-store-config",
+        "env-vars-and-secrets",
+        "commerce-platform-binding"
+      ],
+      "delivered_by": [
+        "roadmap-api--define-an-app-contract",
+        "roadmap-api--ship-decocms-blocks-secrets",
+        "roadmap-cli--write-a-studio-compatible-schema-file"
+      ]
+    }
+  ],
+  "studio_new": [
+    {
+      "id": "roadmap-studio-new--give-studio-a-schema-it-can-read-so-the-editor-loads",
+      "title": "Give Studio a schema it can read, so the editor loads",
+      "today": "Studio reads <code>.deco/meta.gen.json</code> or <code>/live/_meta</code> in LiveMeta shape, so a next-major site shows 'live meta unavailable'.",
+      "features": [
+        "studio-schema-generation",
+        "ci-and-release-workflows",
+        "codegen-pipeline"
+      ],
+      "delivered_by": [
+        "roadmap-cli--write-a-studio-compatible-schema-file"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--keep-gallery-theme-and-in-place-previews-working",
+      "title": "Keep gallery, theme and in-place previews working",
+      "today": "Section thumbnails, global and theme previews, and Fast Preview in-place render all go through <code>/live/previews</code>.",
+      "features": [
+        "section-catalog",
+        "theming-and-styling",
+        "global-layout-sections"
+      ],
+      "delivered_by": [
+        "roadmap-api--ship-the-studio-protocol-handler",
+        "roadmap-platform--align-the-preview-protocol"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--require-a-draft-grant-for-in-place-preview-renders",
+      "title": "Require a draft grant for in-place preview renders",
+      "today": "The proposed Studio handler doesn't define who may request an in-place render.",
+      "features": [
+        "admin-protocol-endpoints",
+        "studio-preview"
+      ],
+      "delivered_by": [
+        "roadmap-api--ship-the-studio-protocol-handler",
+        "roadmap-platform--align-the-preview-protocol"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--let-editors-save-secret-fields-on-next-major-sites",
+      "title": "Let editors save Secret fields on next-major sites",
+      "today": "Studio encrypts Secret fields through an encrypt action the site serves. On a next-major site without that action, editors can't save any Secret field.",
+      "features": [
+        "env-vars-and-secrets",
+        "app-installation-and-store-config",
+        "invoke-and-actions"
+      ],
+      "delivered_by": [
+        "roadmap-api--ship-decocms-blocks-secrets",
+        "roadmap-api--ship-the-studio-protocol-handler"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--keep-options-run-and-pickers-working",
+      "title": "Keep <code>@options</code>, Run and pickers working",
+      "today": "These need <code>/deco/invoke</code> and <code>/live/invoke</code>. The blog ProductShelf picker even calls production's <code>/deco/invoke</code> with legacy VTEX keys.",
+      "features": [
+        "invoke-and-actions",
+        "app-installation-and-store-config"
+      ],
+      "delivered_by": [
+        "roadmap-api--ship-the-studio-protocol-handler"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--restore-click-to-select",
+      "title": "Restore click-to-select",
+      "today": "There's no <code>editor::inject</code> listener, and the guides' renderers emit no <code>section[data-manifest-key]</code>.",
+      "features": [
+        "root-document-layout",
+        "interactive-ui-widgets"
+      ],
+      "delivered_by": [
+        "roadmap-api--add-a-studio-bridge",
+        "roadmap-api--add-a-section-renderer-and-a-deferral-api"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--keep-the-draft-past-the-first-in-frame-click",
+      "title": "Keep the draft past the first in-frame click",
+      "today": "The Lax cookie isn't stored cross-site and the TanStack guide never sets it. <code>?__draft=off</code> can leave a stale draft behind.",
+      "features": [
+        "studio-preview",
+        "worker-server-entry"
+      ],
+      "delivered_by": [
+        "roadmap-api--ship-the-withdeco-and-decoproxy-entry-wrappers",
+        "roadmap-docs--fix-the-tanstack-guides",
+        "roadmap-platform--align-the-preview-protocol"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--give-field-level-variants-a-schema-contract",
+      "title": "Give field-level variants a schema contract",
+      "today": "Studio's field variant UI needs a single-option block-ref whose definition has <code>variants</code>, and takes the inner field from <code>variants.items.properties.value</code>, else a plain string (schema-form.tsx:76-87, 254-280). The proposed API's one generic <code>multivariate&lt;T&gt;</code> and <code>VariantOf&lt;T&gt;</code> give the CLI no concrete T. Legacy schemas had one flag per kind, e.g. <code>website/flags/multivariate/image.ts</code>.",
+      "features": [
+        "matchers-and-variants",
+        "editor-widgets-and-image-fields",
+        "studio-schema-generation"
+      ],
+      "delivered_by": [
+        "roadmap-cli--write-a-studio-compatible-schema-file",
+        "roadmap-docs--fill-in-the-schema-reference-details"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--keep-variant-tabs-and-the-device-toggle-working",
+      "title": "Keep variant tabs and the device toggle working",
+      "today": "<code>x-deco-matchers-override</code> and <code>?deviceHint</code> have no reader in an app-owned multivariate.",
+      "features": [
+        "device-detection-and-targeting",
+        "matchers-and-variants"
+      ],
+      "delivered_by": [
+        "roadmap-api--add-a-request-scope",
+        "roadmap-platform--align-the-preview-protocol"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--stop-studio-reading-short-type-names-as-saved-entries",
+      "title": "Stop Studio reading short type names as saved entries",
+      "today": "Studio classifies keys by file extension, so site sections must keep <code>site/sections/X.tsx</code> keys until it does a manifest lookup.",
+      "features": [
+        "block-type-discriminator",
+        "section-registration-conventions"
+      ],
+      "delivered_by": [
+        "roadmap-platform--use-manifest-lookup-instead-of-path-heuristics"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--prevent-entry-names-from-colliding-with-types",
+      "title": "Prevent entry names from colliding with types",
+      "today": "Studio's only write guard rejects keys with a source-file extension (block-key.ts:48-50). An editor can save an entry named <code>hero</code>, <code>seo</code> or <code>page</code>; under the proposed API's <code>{ ...savedEntries, ...blocks }</code> the function wins and the entry is silently ignored. Only <code>deco schema</code> in CI catches it, after the commit is on the production branch.",
+      "features": [
+        "block-type-discriminator",
+        "orphan-and-dangling-blocks"
+      ],
+      "delivered_by": [
+        "roadmap-platform--use-manifest-lookup-instead-of-path-heuristics"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--let-studio-see-and-edit-flat-redirect-entries",
+      "title": "Let Studio see and edit flat redirect entries",
+      "today": "The Redirects collection lists only blocks typed exactly <code>website/loaders/redirect.ts</code> and writes <code>{ redirect: { from, to, type, discardQueryParameters } }</code>, with temporary = 307 (redirect-data.ts:14,29-32,77). Flat <code>redirect</code> entries written by developers or agents never appear there and can't be edited.",
+      "features": [
+        "redirects"
+      ],
+      "delivered_by": [
+        "roadmap-platform--read-manifest-groups-for-pages-redirects-content-and-apps"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--fix-local-and-tunnel-modes-show-local-edits-in-dev",
+      "title": "Fix local and tunnel modes; show local edits in dev",
+      "today": "The dev server serves neither endpoint. With a token in <code>.dev.vars</code>, <code>remoteLoader</code> swaps in the production release over local edits.",
+      "features": [
+        "dev-studio-content-loop",
+        "bundler-config"
+      ],
+      "delivered_by": [
+        "roadmap-cli--add-a-local-dev-loop",
+        "roadmap-api--add-remoteloader-options"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--speed-up-publishes-and-make-failures-visible",
+      "title": "Speed up publishes and make failures visible",
+      "today": "The ~5 min poll replaces ~10 s, with no 'content live' signal. A failed <code>forDraft</code> silently shows published content.",
+      "features": [
+        "fast-deploy-kv",
+        "otel-observability"
+      ],
+      "delivered_by": [
+        "roadmap-platform--add-a-content-live-signal",
+        "roadmap-api--add-remoteloader-options"
+      ]
+    },
+    {
+      "id": "roadmap-studio-new--keep-experiments-working-on-next-major-sites",
+      "title": "Keep experiments working on next-major sites",
+      "today": "Results are keyed on the random matcher's saved-entry name, which a pure block function never sees.",
+      "features": [
+        "analytics-trackers"
+      ],
+      "delivered_by": [
+        "roadmap-platform--drop-legacy-names-from-the-blog-tab-and-experiments",
+        "roadmap-api--add-an-analytics-bootstrap-and-experiment-support"
+      ]
+    }
+  ],
+  "studio_legacy": [
+    {
+      "id": "roadmap-studio-legacy--handle-the-legacy-types-studio-keeps-writing",
+      "title": "Handle the legacy types Studio keeps writing",
+      "today": "<code>website/pages/Page.tsx</code>, SeoV2 on every new page, <code>Rendering/Lazy.tsx</code> (the ⚡ toggle), <code>flags/multivariate/section.ts</code> (hide), nested <code>website/loaders/redirect.ts</code>, <code>website/loaders/secret.ts</code>, <code>site/apps/site.ts</code>, the <code>multi</code> matcher, Theme. The bridge only aliases pages, matchers and multivariate, so these Studio actions produce UNKNOWN_BLOCK unless each site registers them.",
+      "features": [
+        "lazy-deferred-sections",
+        "page-seo-blocks",
+        "site-config-block",
+        "redirects",
+        "theming-and-styling",
+        "matchers-and-variants"
+      ],
+      "delivered_by": [
+        "roadmap-cli--widen-the-legacy-alias-bridge"
+      ]
+    },
+    {
+      "id": "roadmap-studio-legacy--stop-hidden-sections-from-running",
+      "title": "Stop hidden sections from running",
+      "today": "'Every variant resolves': a section hidden with a never-rule still runs its loaders, and its <code>undefined</code> renders 'temporarily unavailable'.",
+      "features": [
+        "matchers-and-variants"
+      ],
+      "delivered_by": [
+        "roadmap-api--add-a-section-renderer-and-a-deferral-api",
+        "roadmap-docs--resolve-contradictions-in-these-docs"
+      ]
+    },
+    {
+      "id": "roadmap-studio-legacy--drop-hidden-array-items-instead-of-leaving-holes",
+      "title": "Drop hidden array items instead of leaving holes",
+      "today": "Studio hides a banner or link by wrapping it in <code>website/flags/multivariate.ts</code> with a <code>never</code> rule (array-item-hidden.ts:35-40). Today's resolver drops <code>undefined</code> array items (resolve.ts:849-860). The proposed API's rule and <code>resolve(page.sections)</code> ('one result per section') keep them, so components receive <code>undefined</code> entries.",
+      "features": [
+        "matchers-and-variants"
+      ],
+      "delivered_by": [
+        "roadmap-docs--resolve-contradictions-in-these-docs"
+      ]
+    },
+    {
+      "id": "roadmap-studio-legacy--fix-the-default-variant-rule-that-makes-other-variants-unreachable",
+      "title": "Fix the default-variant rule that makes other variants unreachable",
+      "today": "Studio seeds every new variant with an <code>always</code> rule (section-types.ts:26; a new field variant starts as two) and keeps the first <code>always</code>, else the last variant (section-variants.ts:158-168). These docs say 'put the always() variant first as the default' and 'first match wins', which makes every other variant unreachable; their own HomeHero puts <code>always</code> last.",
+      "features": [
+        "matchers-and-variants"
+      ],
+      "delivered_by": [
+        "roadmap-docs--resolve-contradictions-in-these-docs"
+      ]
+    },
+    {
+      "id": "roadmap-studio-legacy--decode-filenames-exactly-once",
+      "title": "Decode filenames exactly once",
+      "today": "Studio writes <code>encodeURIComponent(key)</code>. Real stems include <code>pages-Category%2520Page-*</code> and <code>collections%2Fblog%2F*</code>.",
+      "features": [
+        "block-type-discriminator",
+        "content-storage-and-delivery"
+      ],
+      "delivered_by": [
+        "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle"
+      ]
+    },
+    {
+      "id": "roadmap-studio-legacy--handle-short-form-pages-in-the-page-list-and-seo",
+      "title": "Handle short-form pages in the page list and SEO",
+      "today": "<code>page</code> entries are missing from the page list and can be mistaken for the site-SEO owner.",
+      "features": [
+        "cms-page-routing",
+        "site-seo-defaults"
+      ],
+      "delivered_by": []
+    },
+    {
+      "id": "roadmap-studio-legacy--stop-keying-the-blog-tab-on-legacy-names",
+      "title": "Stop keying the Blog tab on legacy names",
+      "today": "It looks for <code>blog/loaders/*.ts</code> and <code>@decocms/apps-blog</code> ≥ 7.53.0. blog-tanstack reads as unsupported-runtime today.",
+      "features": [
+        "key-prefix-content-collections",
+        "studio-workspace-spaces"
+      ],
+      "delivered_by": [
+        "roadmap-platform--drop-legacy-names-from-the-blog-tab-and-experiments"
+      ]
+    },
+    {
+      "id": "roadmap-studio-legacy--upgrade-both-tanstack-sites-so-studio-can-frame-them",
+      "title": "Upgrade both TanStack sites so Studio can frame them",
+      "today": "Both TanStack sites send <code>X-Frame-Options: SAMEORIGIN</code> and lack <code>?__draft</code>, so both plans start with an upgrade to the latest 7.x, past #390 (7.20.10) and #442 (7.34.0).",
+      "features": [
+        "csp-security-headers",
+        "worker-server-entry"
+      ],
+      "delivered_by": [
+        "roadmap-storefront--upgrade-7-20-7-to-the-latest-7-x",
+        "roadmap-blog--upgrade-6-12-to-the-latest-7-x-first"
+      ]
+    },
+    {
+      "id": "roadmap-studio-legacy--make-content-drift-visible-to-editors",
+      "title": "Make content drift visible to editors",
+      "today": "Fields missing from the schema are hidden, and defaults apply only on save. The storefront's Header children are typed <code>string[]</code> today.",
+      "features": [
+        "content-schema-drift",
+        "cms-navigation-menus"
+      ],
+      "delivered_by": []
+    }
+  ],
+  "work_items": [
+    {
+      "id": "roadmap-api--add-a-request-scope",
+      "group": "api",
+      "title": "Add a request scope",
+      "plan": "<p>One binding-owned scope in <code>@decocms/blocks</code>, behind conditional exports: <code>requestScope()</code> returns <code>{ url, params, request, client, device, forcedRules }</code>, plus <code>appendResponseHeader()</code>. Both bindings' openPage populate it with the real page href (port <code>derivePageUrl</code>), <code>match.params</code> and the per-request client. It replaces <code>sdk/requestContext</code>, the page-scope helpers and <code>currentClient()</code>, so apps import one framework-neutral port and content-reading loaders stay revision-pinned. <code>device</code> honors <code>?deviceHint</code> and <code>forcedRules</code> exposes <code>x-deco-matchers-override</code>, both on drafts only.</p>",
+      "features": [
+        "section-loaders",
+        "inline-loader-props",
+        "request-context-cookies",
+        "route-params-request-to-param",
+        "code-composed-pdp",
+        "plp-filters-sort-pagination",
+        "home-route-override",
+        "commerce-platform-binding",
+        "section-registration-conventions",
+        "saved-loader-blocks",
+        "session-regionalization",
+        "cart-and-minicart",
+        "shipping-simulation",
+        "otel-observability",
+        "key-prefix-content-collections",
+        "denormalized-collection-references",
+        "page-seo-blocks",
+        "in-isolate-caches",
+        "site-search-and-autocomplete",
+        "device-detection-and-targeting",
+        "matchers-and-variants",
+        "studio-preview"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--ship-the-studio-protocol-handler",
+      "group": "api",
+      "title": "Ship the Studio protocol handler",
+      "plan": "<p><code>createStudioHandler({ cms, schema, render })</code> in blocks-admin serves <code>/live/_meta</code>, <code>/.decofile</code>, <code>/deco/invoke/:key</code> (allowlist, CORS), and <code>POST /live/invoke/website/actions/secrets/encrypt.ts</code> plus the <code>$live/actions/secrets/encrypt.ts</code> key (<code>{ value }</code> → <code>{ value: hex }</code>, what Studio's Secret field calls). It also serves <code>/live/previews</code> (framework render callback, request-scoped CMS, <code>preview</code> resolver), the one preview contract for gallery, theme and in-place renders. In-place renders require a draft grant the content API verifies, or a configured preview host.</p>",
+      "features": [
+        "admin-protocol-endpoints",
+        "invoke-and-actions",
+        "section-catalog",
+        "global-layout-sections",
+        "theming-and-styling",
+        "site-bootstrap",
+        "dev-studio-content-loop",
+        "worker-server-entry",
+        "app-loader-overrides",
+        "section-loaders",
+        "icon-by-name-enums",
+        "env-vars-and-secrets",
+        "studio-preview"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-a-section-renderer-and-a-deferral-api",
+      "group": "api",
+      "title": "Add a section renderer and a deferral API",
+      "plan": "<p><code>&lt;Sections&gt;</code> per binding: per-section Suspense, error boundary, clientOnly, sized fallbacks, eager above the fold, SEO routing, and a <code>section[data-manifest-key]</code> frame on every section for Studio. One deferral API: a <code>Deferred&lt;T&gt;</code> input type passes a ref bound to the client's revision instead of resolving it. <code>&lt;Sections&gt;</code> renders the ref lazily, and a multivariate whose values are <code>Deferred&lt;T&gt;</code> resolves only the winning variant.</p>",
+      "features": [
+        "section-registration-conventions",
+        "lazy-deferred-sections",
+        "core-patches",
+        "theming-and-styling",
+        "orphan-and-dangling-blocks",
+        "site-search-and-autocomplete",
+        "matchers-and-variants",
+        "tabbed-shelf-partial",
+        "global-layout-sections",
+        "inline-loader-props",
+        "root-document-layout",
+        "interactive-ui-widgets",
+        "section-catalog"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--ship-the-withdeco-and-decoproxy-entry-wrappers",
+      "group": "api",
+      "title": "Ship the <code>withDeco()</code> and <code>decoProxy()</code> entry wrappers",
+      "plan": "<p><code>withDeco(handler, { cms })</code> (TanStack) and <code>decoProxy()</code> (Next) own the per-request plumbing. They schedule <code>cms.update()</code> (<code>ctx.waitUntil</code> on Workers, <code>after()</code> on Next). They set the draft cookie as <code>Secure; SameSite=None; Partitioned; HttpOnly</code> and treat <code>__draft=off</code> or an empty value as exit. Drafted responses are private/no-store/noindex, and security headers carry frame-ancestors from an exported <code>STUDIO_FRAME_ANCESTORS</code>, never X-Frame-Options. Studio routes are optional. The CMS keys draft caches on the API ETag, bounded by an LRU.</p>",
+      "features": [
+        "worker-server-entry",
+        "csp-security-headers",
+        "env-vars-and-secrets",
+        "hosting-and-deploy-config",
+        "fast-deploy-kv",
+        "studio-preview",
+        "router-and-client-navigation",
+        "plp-filters-sort-pagination",
+        "edge-html-cache-profiles",
+        "in-isolate-caches",
+        "bundler-config"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-a-revision-handle",
+      "group": "api",
+      "title": "Add a revision handle",
+      "plan": "<p><code>client.revision()</code>, <code>cms.forRevision(rev)</code> / <code>forRelease({ revision })</code>, <code>CMS.onUpdate(cb)</code> and <code>update({ force })</code>.</p>",
+      "features": [
+        "edge-html-cache-profiles",
+        "in-isolate-caches",
+        "lazy-deferred-sections",
+        "tabbed-shelf-partial",
+        "plp-filters-sort-pagination",
+        "section-registration-conventions",
+        "otel-observability",
+        "app-installation-and-store-config"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--keep-the-utility-tier-and-document-it",
+      "group": "api",
+      "title": "Keep the utility tier and document it",
+      "plan": "<p>Document <code>instrumentedFetch</code>, <code>fetchCache</code>, <code>cached()</code> (cachedLoader), <code>fetchTimeout</code> and <code>recordCommerceMetric</code> as importable by apps, with preview bypass and <code>clear()</code>.</p>",
+      "features": [
+        "framework-import-surface",
+        "in-isolate-caches",
+        "upstream-fetch-instrumentation",
+        "commerce-platform-binding",
+        "cart-customer-server-functions",
+        "web-fonts",
+        "vtex-io-app-settings",
+        "bff-custom-endpoints"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-remoteloader-options",
+      "group": "api",
+      "title": "Add <code>remoteLoader</code> options",
+      "plan": "<p><code>{ interval, coldStartTimeoutMs, channel, onUpdate, onError }</code>, local files preferred in dev, and a first-party <code>kvLoader</code>. Scheduling <code>update()</code> is the entry wrappers' job.</p>",
+      "features": [
+        "fast-deploy-kv",
+        "env-vars-and-secrets",
+        "hosting-and-deploy-config",
+        "otel-observability",
+        "dev-studio-content-loop",
+        "bundler-config",
+        "edge-html-cache-profiles"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-session-region-delivery-promise-and-prices-to-apps-vtex",
+      "group": "api",
+      "title": "Add session, region, delivery promise and prices to <code>apps-vtex</code>",
+      "plan": "<p>A session module (<code>resolveRegion</code>, <code>setSegment</code>, <code>useVtexSession</code>), delivery promise in the Intelligent Search loaders, tax-inclusive prices, full installments with InterestRate, an invoke-free cart hook, an Intelligent Search events subscriber and <code>createVtexIoClient</code>.</p>",
+      "features": [
+        "session-regionalization",
+        "delivery-promise",
+        "product-card",
+        "graphql-schema-extensions",
+        "cart-and-minicart",
+        "vtex-io-app-settings",
+        "ecommerce-analytics-events"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-a-studio-bridge",
+      "group": "api",
+      "title": "Add a Studio bridge",
+      "plan": "<p>A client-safe <code>&lt;StudioBridge /&gt;</code> that accepts <code>editor::inject</code> only from an explicit list of Studio origins, configurable for self-hosted and native Studio. Also <code>resolve(t, { withType: true })</code> to recover the block type.</p>",
+      "features": [
+        "root-document-layout",
+        "studio-preview",
+        "interactive-ui-widgets",
+        "section-catalog",
+        "framework-import-surface",
+        "lazy-deferred-sections"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--ship-an-seo-kit-in-apps-website-and-apps-commerce",
+      "group": "api",
+      "title": "Ship an SEO kit in <code>apps-website</code> and <code>apps-commerce</code>",
+      "plan": "<p><code>PageSeo</code>, and SEO functions pre-aliased to SeoV2/Seo/SeoPDPV2/SeoPLPV2. <code>mergeSiteSeo(siteSeo, pageSeo)</code> is the one site-SEO merge, sharing a test suite with Studio. <code>seoToNextMetadata</code> / <code>seoToTanStackHead</code>, JSON-LD builders and a <code>&lt;JsonLd&gt;</code> renderer.</p>",
+      "features": [
+        "page-seo-blocks",
+        "site-seo-defaults",
+        "commerce-seo-sections-in-sections",
+        "json-ld-structured-data",
+        "site-config-block",
+        "robots-and-static-seo-files"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--define-an-app-contract",
+      "group": "api",
+      "title": "Define an app contract",
+      "plan": "<p>Each <code>@decocms/apps-*</code> exports <code>blocks</code> (legacy keys), <code>type Config</code> and <code>configure()</code> from env, with no <code>@decocms/tanstack</code> dependency and no dynamic <code>module</code> import.</p>",
+      "features": [
+        "app-installation-and-store-config",
+        "commerce-platform-binding",
+        "app-loader-overrides",
+        "inline-loader-props",
+        "cart-customer-server-functions",
+        "shopify-autoconfig-workaround"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-an-edge-cache-kit",
+      "group": "api",
+      "title": "Add an edge cache kit",
+      "plan": "<p><code>withEdgeCache(entry, { segment, profiles })</code> in <code>@decocms/tanstack</code>, keyed by URL, build, revision and segment. It skips drafts, cold-start fallback and degraded pages. Plus <code>cacheHeaders(profile)</code> and <code>markDegraded()</code>.</p>",
+      "features": [
+        "edge-html-cache-profiles",
+        "saved-loader-blocks",
+        "inline-loader-props",
+        "device-detection-and-targeting",
+        "session-regionalization",
+        "cart-customer-server-functions"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--define-a-per-client-memoization-contract",
+      "group": "api",
+      "title": "Define a per-client memoization contract",
+      "plan": "<p>A saved entry, or an identical inline block, resolves once per client (keyed by type plus canonical inputs), and concurrent calls share in-flight promises.</p>",
+      "features": [
+        "saved-loader-blocks",
+        "inline-loader-props",
+        "native-section-overrides",
+        "commerce-seo-sections-in-sections",
+        "implicit-page-data-context"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-a-splat-to-matchroute-and-stop-request-time-throws",
+      "group": "api",
+      "title": "Add a splat to <code>matchRoute</code> and stop request-time throws",
+      "plan": "<p>A trailing <code>/*</code> or <code>/:rest*</code> at lowest precedence (also for <code>Redirect.from</code>, with substitution), a deterministic tie-break that returns a Result, and case-insensitive matching as an option.</p>",
+      "features": [
+        "cms-page-routing",
+        "redirects",
+        "page-template-targeting",
+        "plp-filters-sort-pagination",
+        "commerce-platform-binding"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--ship-decocms-blocks-secrets",
+      "group": "api",
+      "title": "Ship <code>@decocms/blocks/secrets</code>",
+      "plan": "<p><code>@decocms/blocks/secrets</code>: a <code>secret</code> block aliased as <code>website/loaders/secret.ts</code> that decrypts with DECO_CRYPTO_KEY, and the encrypt action createStudioHandler serves. Encryption stays on the site, so the key never leaves it. Amend 'the token is the only secret' in <a href=\"#preview\">Preview</a>.</p>",
+      "features": [
+        "app-installation-and-store-config",
+        "invoke-and-actions",
+        "env-vars-and-secrets",
+        "commerce-platform-binding"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-a-site-wide-layout-helper",
+      "group": "api",
+      "title": "Add a site-wide layout helper",
+      "plan": "<p><code>mergeGlobals(site, page)</code>, with layout blocks resolved on the page's client. Site SEO defaults go through the SEO kit's <code>mergeSiteSeo</code>.</p>",
+      "features": [
+        "site-config-block",
+        "global-layout-sections",
+        "theming-and-styling",
+        "build-time-site-globals-snapshot"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--keep-the-tanstack-router-helpers-available",
+      "group": "api",
+      "title": "Keep the TanStack router helpers available",
+      "plan": "<p>Keep <code>createDecoRouter</code>, or export <code>decoParseSearch</code>/<code>decoStringifySearch</code> and the CSP-nonce wiring.</p>",
+      "features": [
+        "router-and-client-navigation",
+        "home-route-override",
+        "plp-filters-sort-pagination",
+        "interactive-ui-widgets"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-an-image-module",
+      "group": "api",
+      "title": "Add an image module",
+      "plan": "<p><code>@decocms/blocks/image</code> (optimized URLs, srcset, Studio quality params), a Next <code>loaderFile</code>, and TanStack <code>&lt;Image&gt;</code>/<code>&lt;Picture&gt;</code>. Export the widget aliases.</p>",
+      "features": [
+        "image-optimization",
+        "editor-widgets-and-image-fields",
+        "framework-import-surface"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-an-analytics-bootstrap-and-experiment-support",
+      "group": "api",
+      "title": "Add an analytics bootstrap and experiment support",
+      "plan": "<p>A framework-neutral <code>&lt;DecoAnalytics /&gt;</code> (DECO.events + ANALYTICS_SCRIPT) and a typed <code>useSendEvent</code>/dispatch. An <code>assignExperiments()</code> middleware helper, and a way for random matchers to know their entry name.</p>",
+      "features": [
+        "analytics-trackers",
+        "ecommerce-analytics-events",
+        "root-document-layout"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-a-not-found-and-redirect-gate-before-streaming",
+      "group": "api",
+      "title": "Add a not-found and redirect gate before streaming",
+      "plan": "<p>A critical block (or seo) may return <code>{ notFound }</code> or <code>{ redirect }</code>, which the app maps to <code>notFound()</code>/<code>redirect()</code>. Framework control-flow errors are rethrown.</p>",
+      "features": [
+        "not-found-and-error-pages",
+        "code-composed-pdp",
+        "redirects"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-observability-seams",
+      "group": "api",
+      "title": "Add observability seams",
+      "plan": "<p>A <code>createCMS</code> <code>onEvent</code>/<code>instrument</code> hook, <code>instrumentRequest(handler)</code> outside createDecoWorkerEntry, a Node/Next meter bootstrap and a traced <code>&lt;Section&gt;</code>.</p>",
+      "features": [
+        "otel-observability",
+        "upstream-fetch-instrumentation"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-predictive-search-and-shipping-rates-to-apps-shopify",
+      "group": "api",
+      "title": "Add predictive search and shipping rates to <code>apps-shopify</code>",
+      "plan": "<p>A predictive-search suggestions loader and a shipping-rates helper.</p>",
+      "features": [
+        "site-search-and-autocomplete",
+        "shipping-simulation"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--generate-the-sitemap-from-a-client",
+      "group": "api",
+      "title": "Generate the sitemap from a client",
+      "plan": "<p><code>sitemapEntries(client, { types, expand, exclude })</code>, keeping <code>toSitemapXml</code>/<code>toSitemapIndex</code>, plus a Shopify sitemap merge.</p>",
+      "features": [
+        "sitemap"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--give-the-traffic-split-a-home-and-bypass-drafts-by-default",
+      "group": "api",
+      "title": "Give the traffic split a home and bypass drafts by default",
+      "plan": "<p>Move <code>withABTesting</code> to <code>@decocms/tanstack/traffic-split</code> and bypass drafts by default.</p>",
+      "features": [
+        "ab-traffic-split"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--write-a-studio-compatible-schema-file",
+      "group": "cli",
+      "title": "Write a Studio-compatible schema file",
+      "plan": "<p>Write <code>.deco/meta.gen.json</code> in LiveMeta shape: <code>manifest.blocks</code>, <code>schema.definitions</code> keyed by padded, path-independent btoa, and <code>schema.root</code> unions. Add <code>apps</code> and <code>actions</code> groups. For every <code>VariantOf&lt;T&gt;</code> field, emit a monomorphized multivariate definition per T (value typed as T) under Studio's legacy per-kind keys (<code>website/flags/multivariate/section.ts</code>, <code>…/image.ts</code>, …), so the field variant UI renders the right input.</p>",
+      "features": [
+        "studio-schema-generation",
+        "codegen-pipeline",
+        "ci-and-release-workflows",
+        "site-bootstrap",
+        "content-storage-and-delivery",
+        "app-domain-types",
+        "cms-schema-upload-pipeline",
+        "section-catalog",
+        "app-installation-and-store-config",
+        "workspace-packages",
+        "matchers-and-variants",
+        "editor-widgets-and-image-fields"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--widen-the-legacy-alias-bridge",
+      "group": "cli",
+      "title": "Widen the legacy alias bridge",
+      "plan": "<p>Alias Lazy/SingleDeferred/Deferred, Seo*, <code>site/apps/site.ts</code>, <code>resolved</code>, requestToParam, secret, redirect (with shape mapping), the device and random matchers, the <code>multi</code> matcher (<code>website/matchers/multi.ts</code> and <code>$live/matchers/MatchMulti.ts</code>, whose and/or combinators keep the <code>{ op, matchers }</code> shape that Studio's variant calendar and rule labels read), Analytics and Theme, and list exactly which paths.</p>",
+      "features": [
+        "block-type-discriminator",
+        "section-catalog",
+        "lazy-deferred-sections",
+        "site-config-block",
+        "site-search-and-autocomplete",
+        "matchers-and-variants",
+        "analytics-trackers",
+        "redirects",
+        "theming-and-styling",
+        "page-seo-blocks",
+        "i18n-and-currency"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--add-validation-commands-to-the-cli",
+      "group": "cli",
+      "title": "Add validation commands to the CLI",
+      "plan": "<p><code>deco schema --check</code>, plus <code>deco check</code>/<code>validate</code> reporting UNKNOWN_BLOCK, NOT_FOUND, orphans, schema violations and route collisions, with an optional resolve-every-page smoke test.</p>",
+      "features": [
+        "orphan-and-dangling-blocks",
+        "content-schema-drift",
+        "newsletter-subscription",
+        "dev-tooling-and-repo-hygiene",
+        "e2e-lighthouse-config",
+        "ci-and-release-workflows",
+        "cms-schema-upload-pipeline",
+        "page-seo-blocks",
+        "site-bootstrap",
+        "codegen-pipeline"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--publish-the-tag-and-widget-vocabulary",
+      "group": "cli",
+      "title": "Publish the tag and widget vocabulary",
+      "plan": "<p>A full JSDoc/@format table (image-uri, video-uri, html, rich-text, rich-text-inline, textarea, markdown, color-input, icon-select, @titleBy, @hide, @options, @label, @minItems…), with widget-alias detection kept, labelled literals, and a golden test against <code>generate-schema.ts</code>.</p>",
+      "features": [
+        "editor-widgets-and-image-fields",
+        "app-domain-types",
+        "icon-by-name-enums",
+        "rich-text-html-props",
+        "framework-import-surface",
+        "conditional-schema-fields",
+        "web-fonts",
+        "theming-and-styling",
+        "cms-navigation-menus"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--ship-migration-codemods",
+      "group": "cli",
+      "title": "Ship migration codemods",
+      "plan": "<p><code>deco migrate block-map</code> from 7.x manifests, one 7 → next import codemod (6.x sites upgrade to 7.x first), an SEO-hoist rule, APP_REGISTRY → block maps and a requestToParam scaffold.</p>",
+      "features": [
+        "codegen-pipeline",
+        "site-bootstrap",
+        "framework-import-surface",
+        "commerce-seo-sections-in-sections",
+        "app-installation-and-store-config",
+        "route-params-request-to-param",
+        "section-registration-conventions"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--build-a-faststore-importer",
+      "group": "cli",
+      "title": "Build a FastStore importer",
+      "plan": "<p><code>deco import faststore</code>: VTEX Headless CMS content becomes <code>.deco/blocks</code> with <code>$componentKey</code> rewritten to path-shaped keys, content types become page entries, and JSONC becomes TS scaffolds.</p>",
+      "features": [
+        "faststore-cli-overlay",
+        "block-type-discriminator",
+        "content-storage-and-delivery",
+        "product-card",
+        "native-platform-sections",
+        "per-page-section-whitelists",
+        "icon-by-name-enums",
+        "cms-schema-upload-pipeline"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--define-the-loader-picker-rule",
+      "group": "cli",
+      "title": "Define the loader-picker rule",
+      "plan": "<p>A field of type T accepts any block function that returns T (anyOf $refs). The CLI follows imported app maps with last-key-wins and warns on <code>any</code>.</p>",
+      "features": [
+        "inline-loader-props",
+        "saved-loader-blocks",
+        "app-loader-overrides",
+        "web-fonts",
+        "product-card",
+        "commerce-platform-binding",
+        "route-params-request-to-param"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--support-typed-section-references",
+      "group": "cli",
+      "title": "Support typed section references",
+      "plan": "<p><code>Section</code> / <code>BlockOf&lt;'hero' | 'alert'&gt;</code> becomes an anyOf or <code>__SECTION_REF__</code>. Also a <code>SectionDescriptor&lt;P&gt;</code> marker, <code>@singleton</code> and <code>@catalog false</code>.</p>",
+      "features": [
+        "nested-section-props",
+        "per-page-section-whitelists",
+        "section-catalog",
+        "site-config-block",
+        "section-registration-conventions",
+        "tabbed-shelf-partial",
+        "dev-tooling-and-repo-hygiene"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle",
+      "group": "cli",
+      "title": "Specify the filename rule and ship a content bundle",
+      "plan": "<p>One <code>decodeURIComponent</code> per stem, with a collision report. <code>deco bundle</code> / <code>localLoader.fromGlob()</code> emits <code>{ revision, blocks, schemaHash }</code>, and <code>computeRevision</code> is exported.</p>",
+      "features": [
+        "block-type-discriminator",
+        "content-storage-and-delivery",
+        "codegen-pipeline",
+        "site-bootstrap",
+        "dev-studio-content-loop",
+        "inline-loader-props"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--emit-a-runtime-alias-table",
+      "group": "cli",
+      "title": "Emit a runtime alias table",
+      "plan": "<p>The CLI emits an alias table that <code>createCMS</code> accepts, so <code>list()</code> and <code>resolve()</code> work through Content aliases.</p>",
+      "features": [
+        "cms-page-routing",
+        "codegen-pipeline",
+        "studio-schema-generation",
+        "key-prefix-content-collections",
+        "redirects"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--add-a-local-dev-loop",
+      "group": "cli",
+      "title": "Add a local dev loop",
+      "plan": "<p><code>deco schema --watch</code> / <code>deco dev</code>: a tunnel, a mounted Studio handler, and a reload broadcast when <code>.deco/blocks</code> changes.</p>",
+      "features": [
+        "dev-studio-content-loop",
+        "bundler-config",
+        "codegen-pipeline",
+        "studio-schema-generation"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--read-manifest-groups-for-pages-redirects-content-and-apps",
+      "group": "studio",
+      "title": "Read manifest groups for pages, redirects, content and apps",
+      "plan": "<p>Support several page types, a content collection screen and singletons. Read flat <code>redirect</code> entries alongside the nested legacy shape, mapping <code>type</code> to <code>permanent</code>.</p>",
+      "features": [
+        "cms-page-routing",
+        "redirects",
+        "per-page-section-whitelists",
+        "page-template-targeting",
+        "session-regionalization",
+        "delivery-promise",
+        "cart-and-minicart",
+        "vtex-io-app-settings",
+        "site-config-block"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--use-manifest-lookup-instead-of-path-heuristics",
+      "group": "studio",
+      "title": "Use manifest lookup instead of path heuristics",
+      "plan": "<p>Replace the file-extension module-or-entry check and the <code>'/sections/'</code> heuristics, and refuse to save an entry whose name is a manifest key.</p>",
+      "features": [
+        "block-type-discriminator",
+        "section-registration-conventions",
+        "faststore-cli-overlay",
+        "native-section-overrides",
+        "codegen-pipeline",
+        "favicon-generation",
+        "section-catalog",
+        "orphan-and-dangling-blocks"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--build-the-deco-api-release-service",
+      "group": "studio",
+      "title": "Build the Deco API release service",
+      "plan": "<p>A release endpoint and site tokens (with a DECO_SITE_TOKEN lifecycle), a schema-hash compatibility input, rejection of ambiguous-route releases, and per-environment channels.</p>",
+      "features": [
+        "content-storage-and-delivery",
+        "cms-page-routing",
+        "orphan-and-dangling-blocks",
+        "codegen-pipeline",
+        "env-vars-and-secrets",
+        "hosting-and-deploy-config",
+        "fast-deploy-kv"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--align-the-preview-protocol",
+      "group": "studio",
+      "title": "Align the preview protocol",
+      "plan": "<p>Send an empty <code>__draft=</code> (or keep 'off' as a documented contract) and force variants in the draft content. Keep gallery, global and in-place previews on <code>/live/previews</code>, which createStudioHandler serves, and include the draft grant in in-place renders, as the handler requires.</p>",
+      "features": [
+        "studio-preview",
+        "device-detection-and-targeting",
+        "matchers-and-variants",
+        "section-catalog",
+        "theming-and-styling",
+        "global-layout-sections"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--drop-legacy-names-from-the-blog-tab-and-experiments",
+      "group": "studio",
+      "title": "Drop legacy names from the Blog tab and experiments",
+      "plan": "<p>Detect the blog from the manifest, and stop keying experiments on the random matcher's entry name.</p>",
+      "features": [
+        "studio-workspace-spaces",
+        "key-prefix-content-collections",
+        "analytics-trackers"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--label-matchers-from-their-schema-and-keep-enum-titles",
+      "group": "studio",
+      "title": "Label matchers from their schema and keep enum titles",
+      "plan": "<p>Label short-key matchers from their schema, dedupe aliased matchers, and keep oneOf const titles.</p>",
+      "features": [
+        "device-detection-and-targeting",
+        "matchers-and-variants",
+        "icon-by-name-enums"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--add-a-per-page-type-catalog-and-a-page-settings-form",
+      "group": "studio",
+      "title": "Add a per-page-type catalog and a page settings form",
+      "plan": "<p>Use a page type's sections anyOf as the catalog, and render the remaining page props as a form.</p>",
+      "features": [
+        "per-page-section-whitelists",
+        "page-level-settings-fields"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--bring-studio-s-seo-merge-to-parity-with-the-kit",
+      "group": "studio",
+      "title": "Bring Studio's SEO merge to parity with the kit",
+      "plan": "<p>Run Studio's <code>mergeSeo</code> (seo-editor.tsx) against the kit's <code>mergeSiteSeo</code> test suite, and decide whether <code>descriptionTemplate</code> applies.</p>",
+      "features": [
+        "site-seo-defaults",
+        "page-seo-blocks"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--add-a-content-live-signal",
+      "group": "studio",
+      "title": "Add a content-live signal",
+      "plan": "<p>Every response carries the served revision in <code>x-deco-revision</code>, and <code>cms.update()</code> reports each revision it swaps in to the Deco API with the site token. Studio polls the API and shows a publish as pending until a report for its revision arrives, then live.</p>",
+      "features": [
+        "fast-deploy-kv",
+        "edge-html-cache-profiles"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--update-the-injected-agent-rules",
+      "group": "studio",
+      "title": "Update the injected agent rules",
+      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. There are no <code>blocks.gen.*</code> files; the one generated file is the schema, which <code>deco schema</code> rewrites after any change to a block's types. A new type needs a block-map entry. <code>remoteLoader</code> has no hot reload, and with DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
+      "features": [
+        "ai-agent-instructions"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--resolve-contradictions-in-these-docs",
+      "group": "docs",
+      "title": "Resolve contradictions in these docs",
+      "plan": "<ul><li>'Nothing in the SDK throws' (<a href=\"#standalone\">API reference</a>) vs <code>matchRoute</code> (<a href=\"#routing\">Routing</a>).</li><li>'The runtime never sees Content' (<a href=\"#schema\">Schema generation</a>) vs list through aliases (<a href=\"#standalone\">API reference</a>).</li><li>'Drafts never fall back' (<a href=\"#standalone\">API reference</a>) vs 'serves published' (<a href=\"#loader-internals\">Loader internals</a>).</li><li>The default variant: the code comment says to put <code>always()</code> first, <a href=\"#variants\">Matchers &amp; variants</a> and <a href=\"#studio\">Studio compatibility</a> say the first tab, and HomeHero puts it last; with first-match-wins, make the default the last variant.</li><li>The registry: <code>{ ...savedEntries, ...blocks }</code> (<a href=\"#model\">Blocks</a>) lets the function win, while <a href=\"#troubleshooting\">Troubleshooting</a> says the entry does.</li></ul><p>Also: make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden section's <code>undefined</code> render nothing, say what a reference to a Content entry resolves to, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
+      "features": [
+        "cms-page-routing",
+        "codegen-pipeline",
+        "key-prefix-content-collections",
+        "otel-observability",
+        "cms-navigation-menus",
+        "denormalized-collection-references",
+        "product-card",
+        "matchers-and-variants",
+        "app-installation-and-store-config",
+        "block-type-discriminator"
+      ],
+      "docs": [
+        "standalone",
+        "routing",
+        "schema",
+        "loader-internals",
+        "variants",
+        "studio",
+        "model",
+        "troubleshooting",
+        "preview"
+      ],
+      "pinned": true
+    },
+    {
+      "id": "roadmap-docs--correct-studio-compatibility",
+      "group": "docs",
+      "title": "Correct Studio compatibility",
+      "plan": "<p>Say in <a href=\"#studio\">Studio compatibility</a> that Studio calls <code>/live/_meta</code>, <code>/.decofile</code>, <code>/live/previews</code>, <code>/deco/invoke</code> and <code>/live/invoke</code> (including the secrets encrypt action). State that sites allow framing through frame-ancestors, never X-Frame-Options, as the entry wrappers do.</p>",
+      "features": [
+        "admin-protocol-endpoints",
+        "invoke-and-actions",
+        "csp-security-headers",
+        "studio-schema-generation"
+      ],
+      "docs": [
+        "studio"
+      ],
+      "pinned": true
+    },
+    {
+      "id": "roadmap-docs--fix-the-tanstack-guides",
+      "group": "docs",
+      "title": "Fix the TanStack guides",
+      "plan": "<p>Mount <code>withDeco()</code> instead of hand-wiring the draft cookie and <code>cms.update()</code>. Add validateSearch/loaderDeps and staleTime, and state that <code>getRequest()</code> is the RPC request on SPA navigation, so the page URL comes from the request scope.</p>",
+      "features": [
+        "worker-server-entry",
+        "env-vars-and-secrets",
+        "otel-observability",
+        "edge-html-cache-profiles",
+        "home-route-override",
+        "section-loaders",
+        "request-context-cookies",
+        "router-and-client-navigation",
+        "plp-filters-sort-pagination",
+        "studio-preview"
+      ],
+      "docs": [
+        "tanstack-data",
+        "tanstack-rsc",
+        "manifest"
+      ],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--write-the-recipes-that-gate-cutover",
+      "group": "docs",
+      "title": "Write the recipes that gate cutover",
+      "plan": "<p>Write these before the first site migrates: site-wide content and layout (header, footer, theme), site settings, 404/500, route params in blocks, per-shopper reads and actions as server functions (invoke → server fn), and regionalization cache keys.</p>",
+      "features": [
+        "site-config-block",
+        "global-layout-sections",
+        "theming-and-styling",
+        "not-found-and-error-pages",
+        "route-params-request-to-param",
+        "site-local-loaders",
+        "newsletter-subscription",
+        "client-commerce-state-hooks",
+        "session-regionalization"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--write-the-post-cutover-recipes",
+      "group": "docs",
+      "title": "Write the post-cutover recipes",
+      "plan": "<p>Page-level data shared by sections, client data fetching, server-only upstream proxies, overriding an app's block, tabs over pre-resolved data, head tags from sections, locale, and robots/static SEO files.</p>",
+      "features": [
+        "implicit-page-data-context",
+        "product-comparison",
+        "bff-custom-endpoints",
+        "app-loader-overrides",
+        "tabbed-shelf-partial",
+        "head-tags-from-sections",
+        "i18n-and-currency",
+        "robots-and-static-seo-files"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--write-a-faststore-to-blocks-guide",
+      "group": "docs",
+      "title": "Write a FastStore-to-Blocks guide",
+      "plan": "<p>Decision: port @faststore/core's sections into the site as vendored code, with no separate storefront UI kit; the commerce hooks they need come from apps-vtex. The guide covers the choice of App Router or TanStack Start (there's no Pages Router path), a core-internals → apps-vtex map, a fragment → loader map and the override → composition recipe.</p>",
+      "features": [
+        "faststore-cli-overlay",
+        "design-system-library",
+        "graphql-fragments-codegen",
+        "native-section-overrides",
+        "native-platform-sections",
+        "framework-import-surface",
+        "workspace-packages",
+        "site-config-block"
+      ],
+      "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--fix-the-next-guide",
+      "group": "docs",
+      "title": "Fix the Next guide",
+      "plan": "<p>Mount <code>decoProxy()</code> instead of wiring the draft cookie and <code>after(() =&gt; cms.update())</code> by hand. Wrap <code>client()</code> in <code>cache()</code>, map the full PageSeo and degrade SEO errors instead of throwing, make release routes ISR/static, and cover transpilePackages and outputFileTracingIncludes.</p>",
+      "features": [
+        "global-layout-sections",
+        "theming-and-styling",
+        "page-seo-blocks",
+        "hosting-and-deploy-config",
+        "bundler-config",
+        "faststore-cli-overlay",
+        "edge-html-cache-profiles"
+      ],
+      "docs": [
+        "nextjs"
+      ],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--write-an-operations-page",
+      "group": "docs",
+      "title": "Write an operations page",
+      "plan": "<p>Five deliverables: (1) the DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without a token; (2) a per-host table of how withDeco/decoProxy schedule <code>update()</code> on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the observability chokepoint rule (<code>createInstrumentedFetch</code> + <code>createFetchCache</code>) and the DECO_OTEL_* contract; (5) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
+      "features": [
+        "env-vars-and-secrets",
+        "hosting-and-deploy-config",
+        "in-isolate-caches",
+        "upstream-fetch-instrumentation",
+        "otel-observability",
+        "legacy-runtime-leftovers",
+        "shopify-autoconfig-workaround"
+      ],
+      "docs": [
+        "operations"
+      ],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--add-notes-to-the-rendering-section",
+      "group": "docs",
+      "title": "Add notes to the Rendering section",
+      "plan": "<p>Add four statements to <a href=\"#rendering\">Rendering</a>. Inline <code>&lt;script&gt;</code> in a streamed boundary runs on parse, before the boundary is revealed, so use effects. <code>&lt;Sections&gt;</code> keeps above-the-fold sections eager, with sized skeletons below. UI stores (drawers, minicart) are app code, created per request. Request-scope values are read during resolve and passed as props, because AsyncLocalStorage is gone by the time a streamed boundary renders.</p>",
+      "features": [
+        "interactive-ui-widgets",
+        "core-patches",
+        "global-ui-state-store",
+        "lazy-deferred-sections",
+        "device-detection-and-targeting"
+      ],
+      "docs": [
+        "rendering"
+      ],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-docs--fill-in-the-schema-reference-details",
+      "group": "docs",
+      "title": "Fill in the schema reference details",
+      "plan": "<p>Unions to anyOf with const discriminators, intersections and recursion, type resolution through packages, filename-to-entry encoding, and how <code>VariantOf&lt;T&gt;</code> becomes one multivariate definition per T.</p>",
+      "features": [
+        "conditional-schema-fields",
+        "cms-navigation-menus",
+        "app-domain-types",
+        "block-type-discriminator",
+        "matchers-and-variants"
+      ],
+      "docs": [
+        "schema"
+      ],
+      "pinned": false
+    }
+  ],
+  "sites": [
+    {
+      "id": "storefront-tanstack",
+      "name": "storefront-tanstack",
+      "short": "storefront",
+      "section": "roadmap-storefront",
+      "description": "Shopify storefront on the current split <code>@decocms</code> 7.x packages (TanStack Start, Cloudflare Workers).",
+      "headline": "Closest to next-major. Before it can move, the proposed API needs successors for the worker entry, edge cache, page-URL plumbing and Studio routes it relies on.",
+      "steps": [
+        {
+          "id": "roadmap-storefront--fix-dark-metrics-and-deco-invoke-404s",
+          "kind": "now",
+          "title": "Fix dark metrics and <code>/deco/invoke</code> 404s",
+          "text": "<code>createInstrumentedFetch('shopify')</code> has no onComplete, so upstream metrics are dark. Site loaders called through <code>/deco/invoke</code> 404.",
+          "features": [
+            "upstream-fetch-instrumentation",
+            "site-local-loaders"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--upgrade-7-20-7-to-the-latest-7-x",
+          "kind": "pre",
+          "title": "Upgrade 7.20.7 to the latest 7.x",
+          "text": "The lockfile pins 7.20.7, which still sends <code>X-Frame-Options: SAMEORIGIN</code> and has no <code>?__draft</code> binding. Moving past #390 (7.20.10) and #442 (7.34.0) lets Studio frame and preview the site today, and leaves one 7 → next step.",
+          "features": [
+            "csp-security-headers",
+            "worker-server-entry",
+            "studio-preview"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--keep-studio-s-forms-previews-and-options-working-after-the-move",
+          "kind": "blocker",
+          "title": "Keep Studio's forms, previews and <code>@options</code> working after the move",
+          "text": "Next-major serves none of <code>/live/_meta</code>, <code>/live/previews</code> or <code>/deco/invoke</code>, and its schema file isn't what Studio reads. Forms, previews, @options fields and the Loaders tab all stop.",
+          "features": [
+            "admin-protocol-endpoints",
+            "studio-schema-generation",
+            "codegen-pipeline"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--drop-apps-shopify-s-decocms-tanstack-dependency-and-document-its-sdk-imports",
+          "kind": "blocker",
+          "title": "Drop <code>apps-shopify</code>'s <code>@decocms/tanstack</code> dependency and document its SDK imports",
+          "text": "It imports <code>@decocms/blocks/sdk/{fetchTimeout,instrumentedFetch}</code> and depends on <code>@decocms/tanstack</code>.",
+          "features": [
+            "framework-import-surface",
+            "commerce-platform-binding"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--keep-the-edge-cache-and-a-b-split-without-createdecoworkerentry",
+          "kind": "blocker",
+          "title": "Keep the edge cache and A/B split without <code>createDecoWorkerEntry</code>",
+          "text": "Workers Cache is on, with segment keys and degraded-page protection. The SITES_KV traffic split has no home.",
+          "features": [
+            "edge-html-cache-profiles",
+            "ab-traffic-split"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--keep-the-page-url-on-spa-navigation-plp-search-pdp",
+          "kind": "blocker",
+          "title": "Keep the page URL on SPA navigation (PLP, search, PDP)",
+          "text": "Today's <code>x-deco-page-url</code> and <code>derivePageUrl</code> workarounds have no successor.",
+          "features": [
+            "section-loaders",
+            "plp-filters-sort-pagination"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--do-the-mechanical-port",
+          "kind": "work",
+          "title": "Do the mechanical port",
+          "text": "Hand-write the block map (27 sections, 12 loaders) with the path-shaped keys Studio needs, add the ~8-line requestToParam shim (app code), and replace Image/Picture (~20 files). The content fixes below register types into this map.",
+          "features": [
+            "site-bootstrap",
+            "section-registration-conventions",
+            "image-optimization",
+            "route-params-request-to-param"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--fix-the-content-before-cutover",
+          "kind": "content",
+          "title": "Fix the content before cutover",
+          "text": "Rewrite the Category page path <code>/*</code> to <code>/:collection</code>, guard the PDP's <code>seo: null</code> and hoist SEO sections out of <code>sections[]</code>. Register in the block map, or remove, ~20 unknown types, including the <code>resolved</code> built-in that Header.json's searchbar uses. Fix the Newsletter and Header drift, and hold MIGRATION_NEXT_STEPS' <code>*Config</code> Props regrouping until a content validator exists.",
+          "features": [
+            "cms-page-routing",
+            "commerce-seo-sections-in-sections",
+            "orphan-and-dangling-blocks",
+            "content-schema-drift"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-storefront--restore-deferral-and-stop-duplicate-loads",
+          "kind": "content",
+          "title": "Restore deferral and stop duplicate loads",
+          "text": "Its 43 Lazy wrappers (21 with inline loaders) lose deferral until <code>Deferred&lt;T&gt;</code> exists. 'PLP Loader' is referenced twice per page and needs the per-client memo.",
+          "features": [
+            "lazy-deferred-sections",
+            "inline-loader-props",
+            "saved-loader-blocks"
+          ],
+          "no_action": false
+        }
+      ]
+    },
+    {
+      "id": "blog-tanstack",
+      "name": "blog-tanstack",
+      "short": "blog",
+      "section": "roadmap-blog",
+      "description": "Blog on the old single-package <code>@decocms/start</code> 6.12 with <code>@decocms/apps</code> 5.2 (TanStack Start, Workers).",
+      "headline": "Simple content and a clean route tree, but it's on 6.12: it upgrades to 7.x first (Studio can't frame it until then), and its Studio blog workflow depends on legacy loader names and apps-blog.",
+      "steps": [
+        {
+          "id": "roadmap-blog--upgrade-6-12-to-the-latest-7-x-first",
+          "kind": "pre",
+          "title": "Upgrade 6.12 to the latest 7.x first",
+          "text": "Fix <code>upgrade-6-to-7</code> for the blog's specifiers (~45 symbols across 13 subpaths), then run it. That also drops <code>X-Frame-Options: SAMEORIGIN</code> and adds <code>?__draft</code>, so Studio can frame the site. The move to next is then the same 7 → next step as the storefront's.",
+          "features": [
+            "framework-import-surface",
+            "codegen-pipeline",
+            "csp-security-headers",
+            "worker-server-entry"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-blog--untie-the-blog-tab-from-legacy-names-and-apps-blog",
+          "kind": "blocker",
+          "title": "Untie the Blog tab from legacy names and <code>apps-blog</code>",
+          "text": "It keys off <code>blog/loaders/*.ts</code> and <code>@decocms/apps-blog</code> ≥ 7.53.0, but the site is on <code>@decocms/apps</code> 5.2.0. Its meta sits at <code>src/server/admin/meta.gen.json</code> with Windows-path keys, and <code>setInvokeLoaders</code> exists only for Studio.",
+          "features": [
+            "key-prefix-content-collections",
+            "studio-schema-generation",
+            "admin-protocol-endpoints",
+            "app-domain-types"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-blog--stop-blog-loaders-reading-the-global-decofile",
+          "kind": "blocker",
+          "title": "Stop blog loaders reading the global decofile",
+          "text": "apps-blog's <code>getRecordsByPath</code> uses <code>loadBlocks()</code>, so under a pure CMS drafts read the wrong revision. It needs the request scope's <code>client</code>, or the lookups move to route code.",
+          "features": [
+            "key-prefix-content-collections",
+            "inline-loader-props",
+            "page-seo-blocks"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-blog--keep-the-live-publish-path",
+          "kind": "blocker",
+          "title": "Keep the live publish path",
+          "text": "<code>regen-blocks.yml</code> (Studio publish, then a regen commit, then a Workers Build) is how content ships today. Keep it until the release service and <code>remoteLoader</code> exist.",
+          "features": [
+            "ci-and-release-workflows",
+            "content-storage-and-delivery"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-blog--return-real-404s-for-unknown-urls-and-stop-routing-404-publicly",
+          "kind": "content",
+          "title": "Return real 404s for unknown URLs and stop routing <code>/404</code> publicly",
+          "text": "The 7 pages form a valid trie, but unknown URLs are soft 200s via <code>/:slug</code> and <code>/404</code> is publicly routable.",
+          "features": [
+            "not-found-and-error-pages",
+            "cms-page-routing"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-blog--alias-legacy-types-and-render-body-blocks",
+          "kind": "content",
+          "title": "Alias legacy types and render body blocks",
+          "text": "25 legacy types (210 occurrences) need aliases, and body blocks become a Content-typed renderer.",
+          "features": [
+            "block-type-discriminator",
+            "post-body-block-renderer"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-blog--handle-images-the-edge-profile-and-app-config",
+          "kind": "work",
+          "title": "Handle images, the edge profile and app config",
+          "text": "The blog uses plain <code>&lt;img&gt;</code>, no edge profile fits posts, and app config goes through apps-blog.",
+          "features": [
+            "image-optimization",
+            "edge-html-cache-profiles",
+            "app-installation-and-store-config"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-blog--two-current-bugs-go-away-with-the-migration",
+          "kind": "fix",
+          "title": "Two current bugs go away with the migration",
+          "text": "One is in the layout cache, the other in the build-time site-globals snapshot, which never reaches draft preview. The migration replaces both.",
+          "features": [
+            "in-isolate-caches",
+            "build-time-site-globals-snapshot"
+          ],
+          "no_action": true
+        }
+      ]
+    },
+    {
+      "id": "faststore",
+      "name": "FastStore storefront",
+      "short": "FastStore",
+      "section": "roadmap-faststore",
+      "description": "VTEX storefront on FastStore v4 (Next.js Pages Router); content in VTEX Headless CMS. Not on deco today.",
+      "headline": "A re-platform, not an upgrade. The target framework, the CMS content, the native sections and the VTEX session model all come before the missing pieces in the proposed API even come into play.",
+      "steps": [
+        {
+          "id": "roadmap-faststore--pick-the-target-framework-and-move-to-it",
+          "kind": "blocker",
+          "title": "Pick the target framework and move to it",
+          "text": "Pick the target first: the App Router (the only guide; the Pages Router has none) or TanStack Start. It decides how the native sections get rebuilt. Its code imports <code>@faststore/core</code> internals, and most of its hook files, and the files that use its translation hook, lack <code>'use client'</code>.",
+          "features": [
+            "faststore-cli-overlay",
+            "framework-import-surface",
+            "design-system-library",
+            "i18n-and-currency"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-faststore--bring-the-content-in-from-vtex-headless-cms",
+          "kind": "blocker",
+          "title": "Bring the content in from VTEX Headless CMS",
+          "text": "The content lives in VTEX Headless CMS. There's no Headless CMS-to-<code>.deco/blocks</code> importer, the JSONC schemas must become TS types, and per-page-type section whitelists and singletons have no TS or Studio expression.",
+          "features": [
+            "faststore-cli-overlay",
+            "content-storage-and-delivery",
+            "block-type-discriminator",
+            "per-page-section-whitelists",
+            "page-template-targeting"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-faststore--rebuild-what-faststore-core-renders",
+          "kind": "blocker",
+          "title": "Rebuild what <code>@faststore/core</code> renders",
+          "text": "Its native sections, including the stateful cart, search and session ones, the global sections and the 404/500 pages. No UI kit exists.",
+          "features": [
+            "native-platform-sections",
+            "native-section-overrides",
+            "global-layout-sections"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-faststore--give-apps-vtex-session-region-and-delivery-promise",
+          "kind": "blocker",
+          "title": "Give <code>apps-vtex</code> session, region and delivery promise",
+          "text": "Without a populated request scope, regionalized Intelligent Search queries also silently fall back to the default region.",
+          "features": [
+            "session-regionalization",
+            "delivery-promise",
+            "commerce-platform-binding"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-faststore--rewrite-the-data-shapes-to-schema-org",
+          "kind": "content",
+          "title": "Rewrite the data shapes to schema.org",
+          "text": "FastStore GraphQL moves to apps-commerce schema.org: the PDP view model, the product card, the BFF fields, tax prices and installments.",
+          "features": [
+            "code-composed-pdp",
+            "product-card",
+            "graphql-schema-extensions",
+            "bff-custom-endpoints"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-faststore--port-client-state-and-the-core-patches",
+          "kind": "work",
+          "title": "Port client state and the core patches",
+          "text": "The useSearch state machine and the client fetches become server functions. The behaviours the core patches add are re-created as app code.",
+          "features": [
+            "plp-filters-sort-pagination",
+            "graphql-fragments-codegen",
+            "core-patches"
+          ],
+          "no_action": false
+        },
+        {
+          "id": "roadmap-faststore--rename-componentkey-values-to-path-shaped-keys-and-avoid-type-name-collisions",
+          "kind": "fix",
+          "title": "Rename <code>$componentKey</code> values to path-shaped keys and avoid type-name collisions",
+          "text": "There's no legacy Deco content, so no legacy-type aliases. The importer must still rename <code>$componentKey</code> values (Navbar, Footer, Alert…) to path-shaped keys until Studio does manifest lookups, and avoid entry names that collide with type names. The Studio handler and schema fixes ({{item:roadmap-api--ship-the-studio-protocol-handler}}, {{item:roadmap-cli--write-a-studio-compatible-schema-file}}) gate editing.",
+          "features": [
+            "studio-schema-generation",
+            "studio-preview",
+            "block-type-discriminator"
+          ],
+          "no_action": false
+        }
+      ]
+    }
+  ],
+  "categories": [
+    {
+      "id": "routing",
+      "title": "Routing",
+      "description": "URL routing, page matching, route params, not-found handling, non-CMS routes, redirects and client navigation."
+    },
+    {
+      "id": "content-model",
+      "title": "Content model",
+      "description": "How content is shaped: block types, named or global blocks, collections, props, rich text, editor widgets, drift and targeting rules."
+    },
+    {
+      "id": "sections",
+      "title": "Sections",
+      "description": "Section registration, the section catalog, platform-native section overrides, and lazy, deferred or viewport-gated rendering."
+    },
+    {
+      "id": "data",
+      "title": "Data",
+      "description": "Loaders, query props, section loaders, invoke/actions/BFF endpoints and search, plus site overrides of app loaders."
+    },
+    {
+      "id": "commerce",
+      "title": "Commerce",
+      "description": "Commerce platform bindings (Shopify, VTEX), cart, session, regionalization, product merchandising and commerce-specific GraphQL."
+    },
+    {
+      "id": "seo",
+      "title": "SEO",
+      "description": "Page and site SEO, head tags, JSON-LD, sitemap and robots."
+    },
+    {
+      "id": "interactivity",
+      "title": "Interactivity",
+      "description": "Client-side UI behaviour and client state: widgets, tabs, PLP navigation, client commerce hooks and UI stores."
+    },
+    {
+      "id": "caching",
+      "title": "Caching",
+      "description": "Edge/HTML cache profiles, in-isolate and client caches, and request context (cookies, headers, device)."
+    },
+    {
+      "id": "studio",
+      "title": "Studio",
+      "description": "Admin/Studio protocol, preview, schema generation or upload, and the local dev-to-Studio content loop."
+    },
+    {
+      "id": "config",
+      "title": "Config",
+      "description": "Site bootstrap, site and app config blocks, app autoconfig, environment variables and secrets."
+    },
+    {
+      "id": "runtime-deploy",
+      "title": "Runtime & deploy",
+      "description": "Worker/server entry, security headers, traffic splitting, hosting, content storage and delivery, and CI/release."
+    },
+    {
+      "id": "build",
+      "title": "Build",
+      "description": "Codegen, bundler config, framework import surface, patches, dev tooling, tests and repo hygiene."
+    },
+    {
+      "id": "design",
+      "title": "Design",
+      "description": "Theming, fonts, icons, images, design-system libraries and i18n."
+    },
+    {
+      "id": "observability-analytics",
+      "title": "Observability & analytics",
+      "description": "OTel and logging, upstream fetch instrumentation, analytics trackers and e-commerce events."
+    }
+  ],
+  "features": {
+    "cms-page-routing": {
+      "name": "CMS pages matched by URL pattern",
+      "category": "routing",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Paths take only literal segments and single-segment params, so the storefront's `/*` Category page never matches. One Studio commit can make `matchRoute` throw on every request, and `Page.seo` is required while stored content holds `seo: null`.",
+      "docs": [
+        "routing",
+        "content-types",
+        "router-internals",
+        "adoption",
+        "standalone",
+        "nextjs",
+        "tanstack-data",
+        "studio",
+        "releases"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "home-route-override": {
+      "name": "Home route override (search params, page-URL header, client preload)",
+      "category": "routing",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "The guide's `/$` route has no validateSearch or loaderDeps, and on `<Link>` navigation `getRequest()` returns the `/_serverFn/...` RPC URL, so search params and the page URL never reach blocks.",
+      "docs": [
+        "tanstack-data",
+        "router-internals",
+        "manifest",
+        "nextjs"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "route-params-request-to-param": {
+      "name": "Route params bound via requestToParam",
+      "category": "routing",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "The CMS never injects `match.params`, so every migrated site repeats the same ~8-line AsyncLocalStorage shim, and every `resolve()` must start inside it. The guides don't show it.",
+      "docs": [
+        "routing",
+        "manifest",
+        "decisions",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "not-found-and-error-pages": {
+      "name": "Not-found and error pages",
+      "category": "routing",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Only URL-level not-found works as documented. Unknown single-segment URLs match a template and stream as cacheable soft 200s, and there's no story for CMS-authored 404 and 500 pages.",
+      "docs": [
+        "routing",
+        "nextjs",
+        "tanstack-data",
+        "rendering"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "non-cms-routes-and-account-pages": {
+      "name": "Code-only routes, account/login pages and external checkout",
+      "category": "routing",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "Code routes stay in the framework's router, so account and login pages are app code. After FastStore, `/pvt/account` falls into the CMS catch-all and 404s unless the account link points at the VTEX-hosted account.",
+      "docs": [
+        "decisions",
+        "routing"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "router-and-client-navigation": {
+      "name": "Router setup, Link and client navigation",
+      "category": "routing",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "`createDecoRouter` carries three behaviours these docs never mention: URLSearchParams search serializers, the CSP nonce, and scroll and intent defaults. The TanStack guide never appends the draft cookie, so preview is lost on the first in-frame `<Link>` click.",
+      "docs": [
+        "tanstack-data",
+        "nextjs",
+        "preview",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "pwa-offline-static-assets": {
+      "name": "Offline page, service worker and public static assets",
+      "category": "routing",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "Static assets are served before the CMS catch-all and `/offline` is an ordinary Route entry; registering `sw.js` and the web manifest takes about 3 lines. Any CSP must allow the Workbox import, and `/offline` must never be a draft render.",
+      "docs": [
+        "routing",
+        "content-types"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "redirects": {
+      "name": "Redirects and route handlers",
+      "category": "routing",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "`/old/*` globs are impossible with single-segment params, Studio's 307 has no counterpart (only 301 or 302), and query, case and duplicate-`from` handling are unspecified. A naive legacy alias doesn't match the nested shape Studio stores.",
+      "docs": [
+        "content-types",
+        "routing",
+        "router-internals",
+        "nextjs",
+        "tanstack-data",
+        "studio",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "page-template-targeting": {
+      "name": "PDP/PLP templates targeted by product slug or category path",
+      "category": "routing",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "The entries live in VTEX Headless CMS, so converting them to `.deco/blocks` comes first. There's no multi-segment catch-all, so category trees need one entry per depth, and [Routing](#routing) and [Router internals](#router-internals) disagree on when two templates are ambiguous.",
+      "docs": [
+        "routing",
+        "router-internals",
+        "standalone",
+        "content-types"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "block-type-discriminator": {
+      "name": "Block type naming (__resolveType / $componentKey)",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Aliases are documented, but the filename-to-entry-name rule isn't (Studio writes every key through `encodeURIComponent`), Studio still classifies keys by their path shape, and an unregistered legacy type now fails its parent section with UNKNOWN_BLOCK.",
+      "docs": [
+        "quickstart",
+        "model",
+        "manifest",
+        "adoption",
+        "tanstack-data",
+        "studio",
+        "decisions"
+      ],
+      "confidence": "high",
+      "first_rated": "done",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "global-layout-sections": {
+      "name": "Global/shared layout sections (header, footer)",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Saved entries with references cover the two TanStack sites, but FastStore's global singletons have no equivalent. A layout and its page can get two clients on different revisions, and Lazy-wrapped headers and footers lose their deferral.",
+      "docs": [
+        "model",
+        "operations",
+        "nextjs",
+        "releases",
+        "rendering",
+        "decisions"
+      ],
+      "confidence": "medium",
+      "first_rated": "done",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "saved-loader-blocks": {
+      "name": "Saved loader blocks and commerce extension wrappers",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "Per-request dedupe is only implied: no cache key, and nothing on shared in-flight promises. Pages that reference 'PLP Loader' or 'PDP Loader' twice would double their Shopify calls, and a failing loader now fails its whole section.",
+      "docs": [
+        "model",
+        "manifest",
+        "routing",
+        "standalone",
+        "troubleshooting",
+        "studio"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "orphan-and-dangling-blocks": {
+      "name": "Unreferenced blocks and dangling references",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "A dangling reference used to return null; now it fails the parent section, and one in `seo` throws. There's no validation tool, and one reading of the release rule would skip every storefront release because of ~20 unregistered types.",
+      "docs": [
+        "model",
+        "standalone",
+        "adoption",
+        "releases",
+        "rendering"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "content-schema-drift": {
+      "name": "Content drift from current props / schemas",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Stored inputs pass through unvalidated, and no documented tool does the 'validate saved content' step. Drift is already live: the storefront's Newsletter content stores a flat shape its Props no longer read.",
+      "docs": [
+        "schema",
+        "standalone",
+        "adoption",
+        "releases"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "rich-text-html-props": {
+      "name": "Rich text / raw HTML props",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Only `@format rich-text` is documented; `html`, `rich-text-inline`, `textarea`, `markdown`, alias-name detection and sanitization aren't, and FastStore's Lexical fields need converting.",
+      "docs": [
+        "content-types",
+        "schema",
+        "rendering"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": "done",
+      "unconfirmed_sub_claim": false
+    },
+    "nested-section-props": {
+      "name": "Section-typed props (nested sections)",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "There's no documented way to type an input that takes a section so the CLI emits a section picker; today's schema uses `__SECTION_REF__`. Nested sections also resolve eagerly, with no Suspense boundary of their own.",
+      "docs": [
+        "model",
+        "rendering",
+        "manifest",
+        "standalone"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "key-prefix-content-collections": {
+      "name": "Content collections read by key-prefix scan",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "blog-tanstack"
+      ],
+      "summary": "Block functions get no access to the content they're resolved against, so apps-blog's loaders, which read the global `loadBlocks()`, must be rewritten around a client the app provides. How `list()` learns Content aliases is unexplained.",
+      "docs": [
+        "standalone",
+        "content-types",
+        "schema",
+        "manifest",
+        "routing"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "denormalized-collection-references": {
+      "name": "Author/category collections with denormalized copies",
+      "category": "content-model",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "blog-tanstack"
+      ],
+      "summary": "The in-memory join is trivial for 4 authors and 5 categories, but it depends on the same unsolved client access as key-prefix collections. A real reference to a Content-only entry would fail with UNKNOWN_BLOCK.",
+      "docs": [
+        "standalone",
+        "model",
+        "schema",
+        "manifest"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "post-body-block-renderer": {
+      "name": "Nested post-body blocks rendered by a site map",
+      "category": "content-model",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "blog-tanstack"
+      ],
+      "summary": "Reading posts with `resolve: true` turns every body block into UNKNOWN_BLOCK and fails the post; registering the types as functions loses the TOC's raw input. Rendering the stored blocks from a site-owned map works.",
+      "docs": [
+        "model",
+        "standalone"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "per-page-section-whitelists": {
+      "name": "Per-page-type section whitelists",
+      "category": "content-model",
+      "status": "to-build",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "A sections field can't be typed as a subset of block types, because `Block` is untyped. Studio's add-section catalog is the union of all sections anyway, so a narrowed schema wouldn't restrict it.",
+      "docs": [
+        "content-types",
+        "standalone",
+        "schema",
+        "studio"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "page-level-settings-fields": {
+      "name": "Page-level settings outside sections",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Studio edits only a page's name, path, SEO and sections, so typed page settings get no form. Only one page type can carry the `website/pages/Page.tsx` alias.",
+      "docs": [
+        "content-types",
+        "routing",
+        "schema",
+        "studio"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "cms-navigation-menus": {
+      "name": "CMS-authored navigation and menus",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "A section that references a Content-typed menu entry fails with UNKNOWN_BLOCK, which contradicts the advice to declare navigation in Content. Nothing says whether `deco schema` handles the intersections and recursion in `SiteNavigationElement`.",
+      "docs": [
+        "model",
+        "content-types",
+        "schema"
+      ],
+      "confidence": "medium",
+      "first_rated": "done",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "conditional-schema-fields": {
+      "name": "Discriminated-union fields (dependencies + oneOf)",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Union handling isn't documented, so this relies on today's generator carrying over (literals to const, object unions to anyOf). JSON Schema `dependencies` has no TS form, and the array constraint tags aren't listed.",
+      "docs": [
+        "schema",
+        "quickstart"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "editor-widgets-and-image-fields": {
+      "name": "Editor widgets and image/media fields",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Image and HTML fields depend on type-alias names these docs never mention. If `deco schema` drops alias detection, all 22 image pickers and the HTML editors become plain text inputs, and the widget vocabulary isn't listed.",
+      "docs": [
+        "quickstart",
+        "content-types",
+        "schema"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "icon-by-name-enums": {
+      "name": "Icon-by-name enums and code-embedded logo",
+      "category": "design",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Union-to-enum, `@format` passthrough and widget tags aren't documented, so icon and image fields may degrade to text, and enum display labels can't be expressed. The content must first be exported from VTEX.",
+      "docs": [
+        "quickstart",
+        "content-types",
+        "manifest",
+        "studio",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "matchers-and-variants": {
+      "name": "Matchers, variants and personalization",
+      "category": "content-model",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Every variant resolves, so a section Studio hides with a never rule still runs its loaders, and its `undefined` renders 'temporarily unavailable'. Device and random matchers no longer ship, and which Studio matcher paths get aliases is unstated.",
+      "docs": [
+        "variants",
+        "studio",
+        "tanstack-data"
+      ],
+      "confidence": "medium",
+      "first_rated": "site-code",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "per-path-section-visibility": {
+      "name": "Per-path section visibility",
+      "category": "content-model",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "This is component logic. A server-side check in a Next layout won't re-evaluate on client navigation, and `router.asPath` includes the query string, so compare pathnames.",
+      "docs": [
+        "manifest",
+        "variants",
+        "rendering"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "device-detection-and-targeting": {
+      "name": "Device detection and device targeting",
+      "category": "caching",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Detection is app code, but device as a cache-key dimension, hydration of request-derived values and Studio's device and variant preview are unaddressed. Studio's variant tabs can't force a variant through an app-owned multivariate.",
+      "docs": [
+        "variants",
+        "decisions",
+        "manifest",
+        "tanstack-data",
+        "studio",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "section-registration-conventions": {
+      "name": "Section registration and file conventions",
+      "category": "sections",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Registration works, but none of the 8 convention flags or section loaders has a home, so each site rebuilds the ~737-line DecoPageRenderer. There's no descriptor type, and `getRequest()` gives URL-dependent loaders the wrong URL on SPA navigation.",
+      "docs": [
+        "manifest",
+        "tanstack-data",
+        "model",
+        "rendering",
+        "adoption",
+        "operations",
+        "standalone",
+        "studio",
+        "decisions"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "section-catalog": {
+      "name": "Section catalog exposed to editors",
+      "category": "sections",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "The catalog works for path-keyed sections, but thumbnails and in-place render go through `/live/previews`, which these docs don't define. The alias bridge skips Lazy and the Seo* types, and a JSX type can't be kept out of the catalog.",
+      "docs": [
+        "studio",
+        "schema",
+        "content-types",
+        "standalone",
+        "adoption",
+        "decisions"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "native-section-overrides": {
+      "name": "Overrides of platform-native sections",
+      "category": "sections",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Overrides collapse into plain composition, but the core sections, contexts and SDK hooks they rely on must be rebuilt. There's no page-level data context, and keys like 'Footer' can collide with saved-entry names.",
+      "docs": [
+        "manifest",
+        "rendering",
+        "adoption",
+        "model",
+        "troubleshooting",
+        "decisions"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "native-platform-sections": {
+      "name": "Native platform sections used via schema only",
+      "category": "sections",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Nothing in the next major renders a section without site code, and UI stays out of `@decocms/apps`. Replacing the core sections, the stateful ones included, is real engineering, and FastStore's global-section and 404/500 content types have no layout pattern.",
+      "docs": [
+        "decisions",
+        "standalone",
+        "studio",
+        "content-types"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "code-composed-pdp": {
+      "name": "Code-composed monolithic PDP section",
+      "category": "sections",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "The block-function part works, but a PDP block has no documented way to get route params, and it can't signal a 404 once a template route matches. Its view model also parses FastStore GraphQL shapes.",
+      "docs": [
+        "rendering",
+        "manifest",
+        "routing",
+        "standalone",
+        "nextjs",
+        "troubleshooting"
+      ],
+      "confidence": "medium",
+      "first_rated": "done",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "product-card": {
+      "name": "Product card organism and CMS card config",
+      "category": "commerce",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Server-side product inputs and typed card config work as documented, but apps-vtex has no tax-inclusive prices, full installment ladders or delivery badges, and a Content-typed card-config entry nested in a section fails with UNKNOWN_BLOCK.",
+      "docs": [
+        "manifest",
+        "model",
+        "schema",
+        "rendering",
+        "content-types",
+        "studio"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "lazy-deferred-sections": {
+      "name": "Lazy / deferred / viewport-gated sections",
+      "category": "sections",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "A wrapper's `section` input resolves fully before Lazy runs, so Lazy defers nothing (43 wrappers on the storefront). Viewport-gated second hops need a revision the client doesn't expose, and today's per-prop deferral has no counterpart.",
+      "docs": [
+        "manifest",
+        "rendering",
+        "tanstack-data",
+        "model",
+        "variants",
+        "releases",
+        "standalone",
+        "decisions"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "section-loaders": {
+      "name": "Section loaders (server-side prop enrichment)",
+      "category": "data",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "The documented request sources don't give blocks the page URL: on TanStack SPA navigation `getRequest()` returns the `/_serverFn` URL, Next's `headers()` has none, and `match.params` has no path to blocks or app packages.",
+      "docs": [
+        "manifest",
+        "model",
+        "rendering",
+        "tanstack-data",
+        "nextjs",
+        "routing",
+        "operations",
+        "studio",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "tabbed-shelf-partial": {
+      "name": "Tabbed shelf / server partial re-render",
+      "category": "interactivity",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "Client-side tabs over pre-resolved data are one `useState`. Fetching only the active tab would need a server partial re-render and a re-resolve at a pinned revision, which the proposed API lacks.",
+      "docs": [
+        "model",
+        "variants",
+        "rendering",
+        "tanstack-data",
+        "nextjs",
+        "adoption",
+        "standalone",
+        "studio"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "inline-loader-props": {
+      "name": "Loaders and query descriptors in section props",
+      "category": "data",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "There's no page-URL or search-param injection, blocks get no client (so apps-blog reads the wrong revision in preview), and both the rule for which loaders a field accepts and the memo key are unspecified. 21 of the storefront's inline loaders sit inside Lazy wrappers.",
+      "docs": [
+        "model",
+        "studio",
+        "schema",
+        "standalone",
+        "troubleshooting",
+        "adoption",
+        "rendering"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "app-loader-overrides": {
+      "name": "Site overrides of app/platform loaders",
+      "category": "data",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Overriding a key is plain JS, but none of the 3 real overrides ports on the proposed API alone. There's no notion of app packages, and no rule says whose schema wins when a site overrides an app's key.",
+      "docs": [
+        "manifest",
+        "adoption",
+        "schema"
+      ],
+      "confidence": "high",
+      "first_rated": "done",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "site-local-loaders": {
+      "name": "Site-local loaders called from the client",
+      "category": "data",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "No framework feature is needed, and the migration fixes a live bug: `/deco/invoke` never finds the site's user and wishlist loaders, so those calls 404 and throw. They become server functions.",
+      "docs": [
+        "manifest",
+        "tanstack-data",
+        "operations",
+        "routing"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "invoke-and-actions": {
+      "name": "Actions, invoke endpoint and client invoke",
+      "category": "data",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "There's no invoke endpoint, and [Studio compatibility](#studio) is wrong: Studio calls `/deco/invoke` for @options fields, Run and the product picker, and `/live/invoke` to encrypt secrets.",
+      "docs": [
+        "studio",
+        "internals",
+        "operations",
+        "standalone",
+        "tanstack-data"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "bff-custom-endpoints": {
+      "name": "BFF: custom GraphQL fields proxying platform REST",
+      "category": "data",
+      "status": "site-code",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Nothing framework-level is needed; API routes belong to the framework. Each handler sets Cache-Control itself once `@cacheControl` goes.",
+      "docs": [
+        "routing",
+        "manifest",
+        "operations",
+        "nextjs"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "implicit-page-data-context": {
+      "name": "Route page data via page context",
+      "category": "data",
+      "status": "site-code",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Routing and looking entries up by name is allowed, but the provider data moves from FastStore fragments to schema.org types. Server block functions can't read client React context, so sharing one fetch needs React cache or an app-owned AsyncLocalStorage.",
+      "docs": [
+        "routing",
+        "nextjs",
+        "content-types"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "plp-filters-sort-pagination": {
+      "name": "PLP/search filters, sort and pagination",
+      "category": "interactivity",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "On SPA navigation blocks see the RPC URL, `/*` never matches, and without loaderDeps the loader doesn't re-run. Show-more needs `/deco/invoke` and a revision, the Lax draft cookie is rejected in Studio's iframe, and FastStore's search state machine must be rebuilt.",
+      "docs": [
+        "manifest",
+        "tanstack-data",
+        "nextjs",
+        "router-internals",
+        "releases",
+        "standalone",
+        "variants",
+        "troubleshooting"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "site-search-and-autocomplete": {
+      "name": "Site search and autocomplete",
+      "category": "data",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Nothing matches `Resolved<T>`: Suggestions keeps its loader unresolved and invokes it with `query`, which an eagerly resolved inline block can't do. `resolved` isn't in the alias bridge, and apps-shopify has no suggestions loader.",
+      "docs": [
+        "model",
+        "variants",
+        "standalone",
+        "tanstack-data"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "graphql-fragments-codegen": {
+      "name": "FastStore GraphQL fragment overrides and codegen",
+      "category": "commerce",
+      "status": "goes-away",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "FastStore tooling with no counterpart once @faststore/api and core are gone. Persisted-query hashes acted as an allowlist, so each replacement server function needs explicit input validation.",
+      "docs": [
+        "manifest",
+        "standalone",
+        "rendering",
+        "tanstack-data"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "graphql-schema-extensions": {
+      "name": "GraphQL schema extensions on product/offer",
+      "category": "commerce",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "A wrapper block can compute the fields, but apps-vtex's lean offers drop the full installment list and interest rates that custom price fields may need. The BFF's per-field cache policy must be restated per server function.",
+      "docs": [
+        "rendering",
+        "model",
+        "operations"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "vtex-io-app-settings": {
+      "name": "Merchandising data from VTEX IO app settings",
+      "category": "commerce",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "A server endpoint plus a client hook, but apps-vtex has no persisted-query client for `/_v/public/graphql/v1`, so the site's IO client still needs porting, and it's unclear what the app should cache with.",
+      "docs": [
+        "manifest",
+        "operations",
+        "variants",
+        "content-types",
+        "standalone"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "commerce-platform-binding": {
+      "name": "Commerce platform binding",
+      "category": "commerce",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "Loaders as block functions and legacy aliases are documented, but not what apps need from the runtime: apps-* import `@decocms/blocks/sdk/*` and depend on `@decocms/tanstack`, and no guide populates `RequestContext`, so apps-vtex's region and cookies silently turn off.",
+      "docs": [
+        "manifest",
+        "routing",
+        "router-internals",
+        "adoption",
+        "decisions",
+        "tanstack-data",
+        "studio",
+        "standalone",
+        "nextjs"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "shopify-autoconfig-workaround": {
+      "name": "Shopify app autoconfig static-module workaround",
+      "category": "config",
+      "status": "goes-away",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "There's no registry left to patch. The package bug is still open and its root cause was never established, so in-body dynamic imports need checking in a production Workers build.",
+      "docs": [
+        "decisions",
+        "manifest",
+        "standalone",
+        "troubleshooting"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "cart-customer-server-functions": {
+      "name": "Cart and customer via server functions",
+      "category": "commerce",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "The four cart server functions touch neither the CMS nor `/deco/invoke`. They break at import time, though, if apps-shopify's `@decocms/blocks/sdk` imports and its `@decocms/tanstack` dependency don't survive.",
+      "docs": [
+        "operations",
+        "tanstack-data",
+        "manifest"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "client-commerce-state-hooks": {
+      "name": "Client commerce state hooks and SSR prefetch",
+      "category": "interactivity",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "The hooks and their SSR prefetch stay app code.",
+      "docs": [
+        "operations",
+        "manifest",
+        "rendering",
+        "tanstack-data"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "cart-and-minicart": {
+      "name": "Add to cart, minicart and checkout handoff",
+      "category": "commerce",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "The proposed API has no cart; the Next guide's CartButton is a counter demo. The invoke-based cart is TanStack-only, the VTEX checkout proxy lives in `createDecoWorkerEntry`, and FastStore's cart rules must be rebuilt by hand.",
+      "docs": [
+        "rendering",
+        "operations",
+        "routing",
+        "content-types"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "session-regionalization": {
+      "name": "Session and regionalization",
+      "category": "commerce",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "There's nothing on sessions or regions beyond cache-key advice. Without a populated `RequestContext`, apps-vtex's regionalized Intelligent Search queries silently fall back to the default region.",
+      "docs": [
+        "manifest",
+        "variants",
+        "operations",
+        "content-types"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "delivery-promise": {
+      "name": "Delivery-promise facets and region slider",
+      "category": "commerce",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Neither these docs nor apps-vtex have it: the Intelligent Search loaders carry no delivery-promise parameters, and the FastStore hooks and region slider it uses don't survive. It also depends on session regionalization.",
+      "docs": [
+        "content-types",
+        "manifest"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "global-ui-state-store": {
+      "name": "Global UI state store",
+      "category": "interactivity",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Shared open/close state is plain React context. A module-level store must never be written during SSR, and the cart sidebar and region slider that lived in @faststore/core become site code.",
+      "docs": [
+        "standalone",
+        "decisions",
+        "rendering",
+        "operations"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "newsletter-subscription": {
+      "name": "Newsletter subscription",
+      "category": "interactivity",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "A form plus a server function or Server Action is a few lines. The content drift (flat fields where Props read nested `notices` and `form`) means editors' copy is ignored today, and the public POST needs rate limiting.",
+      "docs": [
+        "operations",
+        "variants",
+        "manifest",
+        "tanstack-data",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "product-comparison": {
+      "name": "Product comparison",
+      "category": "interactivity",
+      "status": "site-code",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "One server function plus useQuery; the selection context moves unchanged. The cost is re-platforming the comparison sidebar to schema.org products, and it can't ship before ProductGallery's search state is rebuilt.",
+      "docs": [
+        "rendering",
+        "manifest",
+        "operations",
+        "schema"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "shipping-simulation": {
+      "name": "PDP shipping simulation",
+      "category": "commerce",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "It becomes a server function around an existing apps-vtex call. Every `invoke.*` call site needs rewriting, and without `RequestContext` no segment cookie is forwarded, so regional SLAs can differ.",
+      "docs": [
+        "operations",
+        "tanstack-data",
+        "manifest"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "wishlist-notify-reviews": {
+      "name": "Wishlist, notify-me, reviews (stubbed)",
+      "category": "commerce",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "These are placeholders; each becomes a server function in a few lines. The site's demo wishlist code uses `RequestContext`.",
+      "docs": [
+        "operations",
+        "tanstack-data",
+        "manifest"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "interactive-ui-widgets": {
+      "name": "Client UI widgets (sliders, drawers, modals, scripts)",
+      "category": "interactivity",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Plain-React widgets run unchanged, but the storefront's widgets import `@decocms/blocks/sdk/useDevice` and the Image and Picture hooks, the CSP nonce comes from `createDecoRouter`, and the blog's inline scripts misbehave in streamed boundaries.",
+      "docs": [
+        "rendering",
+        "nextjs",
+        "tanstack-data",
+        "manifest",
+        "troubleshooting"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": "done",
+      "unconfirmed_sub_claim": false
+    },
+    "design-system-library": {
+      "name": "Site-owned atomic UI library",
+      "category": "design",
+      "status": "site-code",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "The app owns this entirely. Hook-using files without `'use client'` throw under Server Components, and the FastStore shell's contexts must be re-mounted.",
+      "docs": [
+        "architecture",
+        "manifest",
+        "rendering",
+        "nextjs"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "page-seo-blocks": {
+      "name": "Page-level SEO blocks",
+      "category": "seo",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "`page.seo` resolves, but the guides map only title and description, so canonical, robots, OG and page JSON-LD have no owner. The blog's SEO blocks need cross-entry lookups, and `throw seoError` turns an upstream failure into a full-page error.",
+      "docs": [
+        "content-types",
+        "routing",
+        "rendering",
+        "nextjs",
+        "tanstack-data",
+        "adoption",
+        "studio",
+        "manifest",
+        "decisions"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "site-seo-defaults": {
+      "name": "Site-wide SEO defaults and title templates",
+      "category": "seo",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "There's no site-level SEO concept, so inheritance is app code and must match Studio's `mergeSeo` exactly. Studio's preview applies titleTemplate but not descriptionTemplate, so production and preview already differ.",
+      "docs": [
+        "model",
+        "schema",
+        "manifest",
+        "standalone",
+        "adoption",
+        "decisions"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "commerce-seo-sections-in-sections": {
+      "name": "Commerce SEO sections inside page sections",
+      "category": "seo",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "The target, `page.seo`, is documented; what's missing is the SEO-hoist codemod and the per-client memo-key rule. The problem is live today: storefront PDP and PLP heads carry only the site title.",
+      "docs": [
+        "content-types",
+        "model",
+        "rendering",
+        "routing",
+        "operations",
+        "adoption",
+        "router-internals"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": "to-build",
+      "unconfirmed_sub_claim": false
+    },
+    "head-tags-from-sections": {
+      "name": "Head tags injected from sections",
+      "category": "seo",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "React 19 hoisting lets a section emit head tags, but the per-section Suspense pattern defeats in-section LCP preloads, and nothing says so. Preload from the page component instead.",
+      "docs": [
+        "rendering",
+        "architecture",
+        "model",
+        "nextjs"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "json-ld-structured-data": {
+      "name": "JSON-LD structured data",
+      "category": "seo",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "The JSON-LD helpers live in `@decocms/blocks/hooks`, which has no documented home in a React-free SDK, and the proposed API has no `<JsonLd>` renderer.",
+      "docs": [
+        "model",
+        "rendering",
+        "standalone",
+        "internals",
+        "manifest"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "sitemap": {
+      "name": "Sitemap",
+      "category": "seo",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Only literal pages and Route-typed content are handled: templated pages have no enumeration story, and there's no XML or sitemap-index helper. Next's `app/sitemap.ts` is static by default, which defeats remote releases.",
+      "docs": [
+        "routing",
+        "standalone",
+        "content-types",
+        "router-internals",
+        "releases"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "robots-and-static-seo-files": {
+      "name": "robots.txt, llms.txt and favicons",
+      "category": "seo",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Static files sit outside the CMS, so these are content fixes: the storefront's robots.txt has no Sitemap line, the blog's Sitemap URL is relative, and FastStore must recreate its robots.txt and favicon.",
+      "docs": [
+        "routing",
+        "architecture"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "edge-html-cache-profiles": {
+      "name": "Edge/HTTP cache profiles",
+      "category": "caching",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, there's no revision to key by, and content refreshes on a ~5 min poll instead of ~10 s.",
+      "docs": [
+        "operations",
+        "releases",
+        "standalone",
+        "loader-internals",
+        "nextjs",
+        "tanstack-data",
+        "rendering",
+        "preview",
+        "routing"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "in-isolate-caches": {
+      "name": "In-process caches (layout, loaders, globals)",
+      "category": "caching",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Cross-request caching is 'your policy', and the SWR and dedup utilities apps and telemetry depend on aren't on the documented surface. Draft caches are unbounded, input-keyed caches miss request state, and Studio's bypass flag is ignored.",
+      "docs": [
+        "operations",
+        "standalone",
+        "troubleshooting",
+        "manifest"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "request-context-cookies": {
+      "name": "Request context, cookies and headers",
+      "category": "caching",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Headers and cookies are available, but the page URL and params, Set-Cookie from resolution and the request port apps-* use are not. [Block maps](#manifest) says to read route params through `getRequest()`, which is wrong even on SSR.",
+      "docs": [
+        "manifest",
+        "routing",
+        "tanstack-data",
+        "nextjs",
+        "rendering",
+        "operations"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "admin-protocol-endpoints": {
+      "name": "Admin/Studio protocol endpoints",
+      "category": "studio",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "Nothing serves the endpoints Studio calls (`/live/_meta`, `/.decofile`, `/live/previews`, `/deco/invoke`), and Studio's code contradicts [Studio compatibility](#studio). Invoke is needed in production too, for the blog's product picker.",
+      "docs": [
+        "studio",
+        "internals",
+        "schema",
+        "manifest",
+        "operations"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "studio-preview": {
+      "name": "Studio preview rendering",
+      "category": "studio",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Draft rendering maps directly, but the TanStack guides never append the draft cookie, the SameSite=Lax cookie is rejected in Studio's iframe, and there's no no-store rule for drafts. Recovering `data-manifest-key` takes more than a wrapper.",
+      "docs": [
+        "preview",
+        "standalone",
+        "nextjs",
+        "tanstack-data",
+        "variants",
+        "rendering"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "studio-schema-generation": {
+      "name": "Editor schema generation / catalog",
+      "category": "studio",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "The CLI's documented output isn't what Studio reads: the file name, btoa keys, `schema.root` unions and `schema.definitions` all differ. There are no `apps` or `actions` groups, and the promised JSDoc tag table doesn't exist.",
+      "docs": [
+        "schema",
+        "studio",
+        "adoption",
+        "manifest",
+        "quickstart",
+        "content-types",
+        "operations"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "cms-schema-upload-pipeline": {
+      "name": "CMS schema generate and upload (VTEX CP)",
+      "category": "studio",
+      "status": "goes-away",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "The VTEX upload has no counterpart, because publishing is committing. The replacement inherits the schema-file problems.",
+      "docs": [
+        "schema",
+        "releases"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "studio-workspace-spaces": {
+      "name": "Studio workspace layout (spaces.json)",
+      "category": "studio",
+      "status": "goes-away",
+      "effort": "S",
+      "sites": [
+        "blog-tanstack"
+      ],
+      "summary": "Nothing in Studio reads `spaces.json`. What matters instead: Studio's Blog tab keys off legacy blog loader names and gates scheduling on `@decocms/apps-blog` 7.53.0 or later, while the blog pins `@decocms/apps` 5.2.0.",
+      "docs": [
+        "studio",
+        "model"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "dev-studio-content-loop": {
+      "name": "Local dev daemon and Studio content loop",
+      "category": "studio",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "With a token in dev, `remoteLoader` swaps in the production release over local edits, so Studio sandbox saves vanish from the dev preview. Nothing regenerates the schema or serves the Local-mode endpoints.",
+      "docs": [
+        "standalone",
+        "tanstack-data",
+        "preview",
+        "schema",
+        "loader-internals",
+        "quickstart"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "site-bootstrap": {
+      "name": "Site bootstrap (createSiteSetup + admin setup)",
+      "category": "config",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "`createCMS` plus a block map replace registration, but nothing generates the map (27 sections and 12 loaders by hand on the storefront), bundled content never matches the API hash, and there's no lenient mode or Studio-shaped schema.",
+      "docs": [
+        "quickstart",
+        "manifest",
+        "standalone",
+        "tanstack-data",
+        "loader-internals",
+        "schema",
+        "model",
+        "preview",
+        "studio",
+        "adoption"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "site-config-block": {
+      "name": "Site config block / global settings",
+      "category": "config",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Today the binding resolves the site's theme, globals and page sections into every page. In the next major, SEO-default merging and global-section injection move to app code, there's no singleton concept, and `site/apps/site.ts` isn't in the alias bridge.",
+      "docs": [
+        "content-types",
+        "schema",
+        "model",
+        "manifest",
+        "standalone",
+        "adoption",
+        "studio"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "app-installation-and-store-config": {
+      "name": "App installation blocks, autoconfig and store config",
+      "category": "config",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "There's no concept of an app: no config for app loaders, no autoconfig, no secret resolution, no `apps` manifest group and no encrypt endpoint, so Studio can't save secret fields.",
+      "docs": [
+        "manifest",
+        "decisions",
+        "studio",
+        "schema",
+        "preview",
+        "standalone",
+        "tanstack-data"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "env-vars-and-secrets": {
+      "name": "Environment variables and secrets",
+      "category": "config",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "DECO_SITE_TOKEN's lifecycle is undocumented, there's no channel option, and a production deploy that forgets the token silently serves bundled content. There's no secret story either: the decryptor for secrets stored in content is off the documented surface.",
+      "docs": [
+        "standalone",
+        "tanstack-data",
+        "nextjs",
+        "preview",
+        "releases",
+        "operations"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "build-time-site-globals-snapshot": {
+      "name": "Build-time site-globals snapshot workaround",
+      "category": "config",
+      "status": "goes-away",
+      "effort": "S",
+      "sites": [
+        "blog-tanstack"
+      ],
+      "summary": "A workaround for a current-framework bug, with nothing to port. Half its call sites are server-side, so the site needs a small AsyncLocalStorage hand-off, and the snapshot's defect (edits never reach draft preview) goes away.",
+      "docs": [
+        "model",
+        "content-types",
+        "manifest",
+        "tanstack-data",
+        "releases",
+        "preview"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "app-domain-types": {
+      "name": "App domain types driving Studio schema",
+      "category": "config",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "blog-tanstack"
+      ],
+      "summary": "The mechanism is documented but not the conventions apps-blog relies on: type-alias formats like `ImageWidget`, and `@titleBy`, `@hide` and `@widget`. Without them the blog's forms degrade to plain text inputs.",
+      "docs": [
+        "schema",
+        "quickstart",
+        "content-types",
+        "studio"
+      ],
+      "confidence": "medium",
+      "first_rated": "done",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "worker-server-entry": {
+      "name": "Worker/server entry composition",
+      "category": "runtime-deploy",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Only the CMS and draft slice of the entry is documented. Studio routes, the edge cache, purge, security headers and OTel have no home, the draft cookie is SameSite=Lax, and `?__draft=off` never exits preview.",
+      "docs": [
+        "tanstack-data",
+        "standalone",
+        "preview",
+        "nextjs",
+        "operations",
+        "studio",
+        "internals"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "csp-security-headers": {
+      "name": "CSP and security headers",
+      "category": "runtime-deploy",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "Headers are a few lines of app code, but after migration nothing sets HSTS, nosniff, Referrer-Policy or a framing policy, and the origins Studio needs in frame-ancestors are undocumented.",
+      "docs": [
+        "architecture",
+        "tanstack-data",
+        "nextjs",
+        "studio"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "ab-traffic-split": {
+      "name": "Migration A/B traffic split",
+      "category": "runtime-deploy",
+      "status": "to-build",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack"
+      ],
+      "summary": "Nothing gives `withABTesting` a home, and it isn't few-line app code. It also needs to bypass draft requests by default.",
+      "docs": [
+        "standalone",
+        "internals",
+        "quickstart"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "hosting-and-deploy-config": {
+      "name": "Hosting and deploy configuration",
+      "category": "runtime-deploy",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Only the single-instance happy path is documented: a cron or webhook `update()` refreshes one instance, serverless Node gives no staleness bound, and per-PR preview deploys swap in the production release.",
+      "docs": [
+        "tanstack-data",
+        "tanstack-rsc",
+        "nextjs",
+        "standalone",
+        "releases"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "content-storage-and-delivery": {
+      "name": "Content storage, snapshot and delivery",
+      "category": "runtime-deploy",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "The file model matches, but filename encoding, bundling, the release service and skew protection are unspecified. Nothing gives the loader the app's schema hash, so 'skip a release whose schema doesn't match' can't work as documented.",
+      "docs": [
+        "quickstart",
+        "model",
+        "standalone",
+        "tanstack-data",
+        "releases",
+        "loader-internals",
+        "studio"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "fast-deploy-kv": {
+      "name": "Fast Deploy (KV-first content)",
+      "category": "runtime-deploy",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "`remoteLoader` polls every ~5 min with no option, cold isolates serve build-time content, and a webhook reaches one isolate. Impact on these sites is low: none serves content from KV today.",
+      "docs": [
+        "standalone",
+        "releases",
+        "loader-internals"
+      ],
+      "confidence": "high",
+      "first_rated": "done",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "ci-and-release-workflows": {
+      "name": "CI, content regen and release workflows",
+      "category": "runtime-deploy",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "The CI job is a few lines, but the CLI doesn't emit what Studio reads and has no `--check` mode. The blog's `regen-blocks.yml` is its live content-delivery path today; deleting it early freezes its content.",
+      "docs": [
+        "schema",
+        "releases",
+        "router-internals",
+        "studio",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": "site-code",
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "root-document-layout": {
+      "name": "Root document and layout",
+      "category": "runtime-deploy",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "The document shell is app code, but the Studio bridge and the section marker it needs are neither shipped nor documented. Dropping the DECO.events bootstrap also silently breaks OneDollarStats.",
+      "docs": [
+        "tanstack-data",
+        "nextjs",
+        "rendering",
+        "studio"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "codegen-pipeline": {
+      "name": "Codegen and build pipeline",
+      "category": "build",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "`deco schema` and a hand-written block map replace the registries, but there's no Workers content bundle, no `--check` or `--watch`, no input for the schema gate, and Content aliases can't work at runtime.",
+      "docs": [
+        "schema",
+        "manifest",
+        "tanstack-data",
+        "releases",
+        "loader-internals",
+        "adoption",
+        "studio"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "bundler-config": {
+      "name": "Vite config",
+      "category": "build",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "The guide configs build, but nothing replaces decoVitePlugin's dev and Studio duties: schema regeneration, the Studio tunnel, the build hash and section preloads. Next also needs transpilePackages and file-tracing notes.",
+      "docs": [
+        "architecture",
+        "tanstack-data",
+        "tanstack-rsc",
+        "nextjs",
+        "internals"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "faststore-cli-overlay": {
+      "name": "FastStore CLI .faststore overlay",
+      "category": "build",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "The overlay goes away by design, but the move off it has no guide, no content importer and no serverless deployment note. Everything the overlay supplied becomes app code, and its imports of core internals, `@faststore/core` and `@generated` have to go.",
+      "docs": [
+        "nextjs",
+        "architecture",
+        "schema",
+        "manifest",
+        "standalone"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": "goes-away",
+      "unconfirmed_sub_claim": false
+    },
+    "framework-import-surface": {
+      "name": "Framework import surface and compat shims",
+      "category": "build",
+      "status": "to-build",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "These docs cover about 12 CMS-core symbols and say nothing about the 7.x sdk, hooks, admin or binding tiers that apps-* and the telemetry depend on. Widget aliases are missing, and there's no 7.x to next codemod.",
+      "docs": [
+        "standalone",
+        "variants",
+        "content-types",
+        "manifest",
+        "schema",
+        "internals"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "core-patches": {
+      "name": "patch-package patches to core",
+      "category": "build",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "The patches go away, but the behaviours they add must be re-created in site code.",
+      "docs": [
+        "nextjs",
+        "rendering",
+        "manifest"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": "goes-away",
+      "unconfirmed_sub_claim": false
+    },
+    "dev-tooling-and-repo-hygiene": {
+      "name": "Dev tooling, quality gates and repo hygiene",
+      "category": "build",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Ordinary app work, and the CI drift check is one line, but there's no `--check` mode or content validator. Sites' own lint and quality scripts carry over as app scripts.",
+      "docs": [
+        "schema",
+        "router-internals",
+        "adoption"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "legacy-runtime-leftovers": {
+      "name": "Legacy Deno/Fresh leftovers",
+      "category": "build",
+      "status": "goes-away",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack"
+      ],
+      "summary": "Dead Deno and Fresh files, with nothing to port.",
+      "docs": [
+        "tanstack-data",
+        "preview",
+        "standalone",
+        "operations"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "favicon-generation": {
+      "name": "Build-time favicon generation",
+      "category": "build",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "`metadata.icons` does it in one line.",
+      "docs": [
+        "rendering",
+        "nextjs"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "e2e-lighthouse-config": {
+      "name": "E2E and Lighthouse config",
+      "category": "build",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Tests are the app's job. A 'resolve every page' smoke test needs a fake request context, and there's no framework harness, so every site writes the same test.",
+      "docs": [
+        "architecture",
+        "standalone",
+        "adoption",
+        "manifest"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "ai-agent-instructions": {
+      "name": "AI-agent instructions",
+      "category": "build",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "Agent docs are repo content, but no canonical guidance ships, and Studio's injected rules drift from the next major.",
+      "docs": [
+        "architecture",
+        "schema",
+        "quickstart"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "workspace-packages": {
+      "name": "Sites and block types in workspace packages",
+      "category": "build",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "faststore"
+      ],
+      "summary": "Undocumented: whether `deco schema` follows block types into a workspace or npm package, and how the Deco API and Studio address a site that lives in a package inside a larger repository.",
+      "docs": [
+        "schema",
+        "preview",
+        "nextjs",
+        "standalone",
+        "releases"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": true
+    },
+    "theming-and-styling": {
+      "name": "Theming and styling",
+      "category": "design",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "There's no pattern for site-wide content resolved outside the catch-all, so the theme streams late under Suspense and shifts the layout, and the theme and the page can come from different revisions.",
+      "docs": [
+        "model",
+        "adoption",
+        "schema",
+        "rendering",
+        "releases",
+        "nextjs",
+        "studio"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "web-fonts": {
+      "name": "Web fonts",
+      "category": "design",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "`googleFonts` has no home in the next-major packages and imports `sdk/fetchTimeout`. Making fonts editable also needs the CLI to link `font: Font` to loaders by return type, a rule these docs name but never define.",
+      "docs": [
+        "manifest",
+        "adoption",
+        "operations",
+        "studio",
+        "internals"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "image-optimization": {
+      "name": "Image optimization",
+      "category": "design",
+      "status": "to-build",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Images aren't mentioned. Without a shipped URL builder, migrated sites serve full-size originals and ignore Studio's quality choice, and without `format: image-uri` Studio shows a text box instead of the image picker.",
+      "docs": [
+        "standalone",
+        "internals",
+        "decisions",
+        "content-types",
+        "schema"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "i18n-and-currency": {
+      "name": "i18n and currency",
+      "category": "design",
+      "status": "site-code",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Locale is fixed per deployment, so the only framework need is cache keys. In the FastStore storefront, code that calls its own translation hook without `'use client'` throws as a Server Component until it's rewritten.",
+      "docs": [
+        "manifest",
+        "variants",
+        "operations",
+        "nextjs"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "otel-observability": {
+      "name": "OTel and logging",
+      "category": "observability-analytics",
+      "status": "to-finish",
+      "effort": "L",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "The tracing obligation is stated, but the app gets no seam to meet it: request telemetry is locked in `createDecoWorkerEntry`, `remoteLoader` fails silently, and spans around JSX blocks miss the upstream fetches.",
+      "docs": [
+        "operations",
+        "standalone",
+        "loader-internals",
+        "preview",
+        "releases",
+        "troubleshooting",
+        "manifest",
+        "tanstack-data",
+        "internals"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "upstream-fetch-instrumentation": {
+      "name": "Upstream fetch instrumentation",
+      "category": "observability-analytics",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "The storefront calls `createInstrumentedFetch('shopify')` with no onComplete, so upstream metrics are dark today. The chokepoint rule is never stated, and there's no meter on Next or Node.",
+      "docs": [
+        "operations",
+        "manifest",
+        "rendering",
+        "internals"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "analytics-trackers": {
+      "name": "Analytics trackers",
+      "category": "observability-analytics",
+      "status": "to-finish",
+      "effort": "M",
+      "sites": [
+        "storefront-tanstack",
+        "blog-tanstack",
+        "faststore"
+      ],
+      "summary": "Trackers carry over, but the DECO.events bootstrap is private and copied three times, and experiment results break: Studio keys them on the random matcher's saved-entry name, which a pure block function never sees.",
+      "docs": [
+        "operations",
+        "nextjs",
+        "variants",
+        "decisions",
+        "studio",
+        "adoption",
+        "manifest",
+        "quickstart",
+        "rendering"
+      ],
+      "confidence": "medium",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    },
+    "ecommerce-analytics-events": {
+      "name": "E-commerce events",
+      "category": "observability-analytics",
+      "status": "to-finish",
+      "effort": "S",
+      "sites": [
+        "storefront-tanstack",
+        "faststore"
+      ],
+      "summary": "Emitters are app code, but the receiving pipeline is mounted only by the bindings' DecoRootLayout, which the guides don't use, so every commerce event would drop silently.",
+      "docs": [
+        "rendering",
+        "nextjs",
+        "internals",
+        "operations"
+      ],
+      "confidence": "high",
+      "first_rated": null,
+      "rated_before_review": null,
+      "unconfirmed_sub_claim": false
+    }
+  }
+}

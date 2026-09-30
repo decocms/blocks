@@ -1,0 +1,78 @@
+name: Docs site
+
+# Builds the Deco Blocks docs site (site/) into one self-contained page,
+# site/dist/index.html (python3 site/build.py; standard library only).
+#
+# - Pull requests that touch site/: build, then upload site/dist as the
+#   workflow artifact "docs-site" so reviewers can download the page and
+#   open it locally. Nothing is deployed.
+# - Pushes to main that touch site/, and manual runs on main: build, then
+#   deploy site/dist to GitHub Pages. Only decocms/blocks's main branch
+#   deploys (a manual run on another branch, or a fork, only builds). Needs
+#   Pages enabled with "GitHub Actions" as its source (Settings > Pages);
+#   until then the deploy job fails, and nothing else depends on it.
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, never cancelled midway; a newer push to a PR
+# cancels that PR's older preview build.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('docs-site-preview-{0}', github.ref) || 'docs-site-pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build site/dist
+        run: python3 site/build.py
+
+      - name: Upload the preview (pull requests)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site
+          path: site/dist
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # The page is one self-contained file, so nothing uses this step's
+      # outputs (base URL, origin); it checks Pages is set up before deploying.
+      - uses: actions/configure-pages@v6
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

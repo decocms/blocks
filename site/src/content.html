@@ -1,0 +1,1426 @@
+<!--
+  Deco Blocks docs: the Docs and Under-the-hood pages.
+
+  build.py takes every top-level section element (with an id) of each page div below, in order,
+  and the syntax-highlighter script at the end: a Prism 1.30.0 bundle, MIT licensed, with its
+  license notice at the top of the script. Anything else in this file is ignored. Section ids are
+  link targets: the sidebar, the search index and the Roadmap (data/roadmap.json) link to them,
+  so rename one only together with its links.
+-->
+<div class="page" data-page="docs">
+<section id="architecture" data-nav="How it works" class="doc-section" aria-labelledby="architecture-title">
+  <p class="eyebrow">Getting started</p><h2 id="architecture-title">How it works</h2>
+  <div class="intro-note"><p><strong>Next major.</strong> This reference describes the proposed API for the next major version of Deco Blocks. The APIs shown here and the <code>deco schema</code> command aren't in the current <code>@decocms/blocks</code> release.</p></div>
+  <p>Deco Blocks has two pieces you install, and one you don't:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Piece</th><th>What it does</th><th>Where it runs</th></tr></thead>
+    <tbody>
+      <tr><td><strong>SDK</strong> <code>@decocms/blocks</code></td><td>Reads content from files or the Deco API and runs your block functions on it.</td><td>Your app: any JavaScript server, Node or Cloudflare Workers</td></tr>
+      <tr><td><strong>CLI</strong> <code>deco schema</code></td><td>Generates the JSON Schema from your types.</td><td>Your machine or CI</td></tr>
+      <tr><td><strong>Studio</strong></td><td>Builds a visual editor from that schema and saves edits back to your files.</td><td>Hosted by Deco</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Authoring: from types to an editor</h3>
+  <div class="flow" aria-label="Authoring flow">
+    <div class="flow-node"><strong>Your TypeScript</strong><small>Components and data functions with typed inputs</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong>CLI → JSON Schema</strong><small><code>deco schema</code> writes <code>.deco/schema.json</code></small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong>Studio</strong><small>Forms and previews for editors, built from the schema</small></div>
+  </div>
+  <p>You write functions with typed inputs, for example a hero section that takes a title and an image. The CLI turns those types into a schema, and Studio turns the schema into forms. Editors, and AI agents, save content as JSON files in <code>.deco/blocks</code>, in your repository.</p>
+
+  <h3>Delivery: from files to your app</h3>
+  <div class="flow" aria-label="Delivery flow">
+    <div class="flow-node"><strong>Content in Git</strong><small>JSON files in <code>.deco/blocks</code></small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong>SDK</strong><small><code>client.list</code> and <code>client.resolve</code> read and resolve content</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong>Your app</strong><small>Next.js, TanStack Start, or any server</small></div>
+  </div>
+  <p>At request time, the SDK reads those files, follows references between them, and runs each block through the function you mapped to its type in your <a href="#manifest">block map</a>. What you render, and how, is up to your framework.</p>
+  <p>In production the same files are read from the Deco API instead of disk, but a request never waits for it: content is served from memory and refreshed in the background, and the files the build shipped with are always there as the fallback. See <a href="#loader-internals">how the loader stays current</a>.</p>
+
+  <h3>Small on purpose</h3>
+  <p>Deco Blocks stays out of your way, and every piece is replaceable:</p>
+  <ul>
+    <li><strong>Content is plain JSON.</strong> Open it in any editor, grep it, diff it, or generate it with a script. There's no database and no content API to run.</li>
+    <li><strong>Blocks are plain functions.</strong> No framework plugin, no base classes, no magic directories. The block map is a plain object, and you can call any block function directly in a test.</li>
+    <li><strong>Loaders are one method.</strong> Loading from the filesystem, KV, or your own store is a <code>load()</code> that returns <code>{ revision, blocks }</code>. Swap it and nothing else changes.</li>
+    <li><strong>The schema is a file.</strong> Commit it, inspect it, or generate it another way. Studio only needs the JSON.</li>
+    <li><strong>Nothing is hidden.</strong> If the SDK doesn't do what you need, read the files yourself. The format is documented in <a href="#model">Blocks</a>.</li>
+  </ul>
+</section>
+
+<section id="quickstart" data-nav="Quickstart" class="doc-section">
+  <p class="eyebrow">Getting started</p><h2>Quickstart</h2>
+  <p>Suppose your app has a function that decides which A/B tests a visitor sees. It takes the traffic split for each experiment and returns whether each one is enabled:</p>
+<figure class="code-example"><figcaption>config/experiments.ts</figcaption><pre><code class="language-typescript">export interface Experiments {
+  /** @title New checkout flow @minimum 0 @maximum 100 */
+  newCheckout: number;
+  /** @title Sticky header @minimum 0 @maximum 100 */
+  stickyHeader: number;
+  /** @title Free shipping banner @minimum 0 @maximum 100 */
+  freeShippingBanner: number;
+}
+
+const roll = (percent: number) =&gt; Math.random() * 100 &lt; percent;
+
+export default function experiments(input: Experiments) {
+  return {
+    newCheckout: roll(input.newCheckout),
+    stickyHeader: roll(input.stickyHeader),
+    freeShippingBanner: roll(input.freeShippingBanner),
+  };
+}</code></pre></figure>
+<figure class="code-example"><figcaption>checkout.ts</figcaption><pre><code class="language-typescript">import experiments from "./config/experiments";
+
+experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
+// { newCheckout: false, stickyHeader: true, freeShippingBanner: false }</code></pre></figure>
+  <p>The split is hardcoded at the call site. Ramping the new checkout from 10% to 25% means a pull request and a deploy. In this guide you'll move those numbers into content that your team edits in Studio, and that AI agents edit as files, while the function stays exactly as it is. It runs in plain Node, with no framework.</p>
+  <p><strong>Prerequisites:</strong> Node.js 22 or later and a way to run TypeScript, such as <code>tsx</code>.</p>
+<pre class="code-block"><code class="language-bash">npm install @decocms/blocks</code></pre>
+
+  <h3>1. Make the function configurable</h3>
+  <p>Any function with a typed first parameter can be a block. Give it a name in a block map. The key, <code>experiments</code>, is the block type that content will refer to. This file is plain data: the CLI reads it, and your app hands it to <code>createCMS</code>.</p>
+<figure class="code-example"><figcaption>cms.index.ts</figcaption><pre><code class="language-typescript">import type { Blocks } from "@decocms/blocks";
+import experiments from "./config/experiments";
+
+export default { experiments } satisfies Blocks;</code></pre></figure>
+
+  <h3>2. Give editors a form</h3>
+  <p>The CLI reads the map and turns the <code>Experiments</code> type into a JSON Schema. The JSDoc tags become labels and validation. Studio builds the editor form from it:</p>
+<pre class="code-block"><code class="language-bash">npx deco schema --entry ./cms.index.ts --out ./.deco/schema.json</code></pre>
+  <p>Commit the file. From now on, Studio shows each experiment as a number field clamped to 0–100.</p>
+
+  <h3>3. Add content</h3>
+  <p>There are two ways to create content, and they produce the same thing:</p>
+  <ul>
+    <li><strong>In Studio.</strong> Open the editor, pick the <code>experiments</code> block type, fill in the form, and save. Studio writes the JSON file into your repository.</li>
+    <li><strong>Manually.</strong> Create the JSON file yourself, or let an AI agent asked to "ramp the new checkout to 25%" do it. The file is the only source of truth, so both routes are equivalent.</li>
+  </ul>
+  <p>Either way, the file lands in <code>.deco/blocks</code>. The filename is the entry's name, and <code>__resolveType</code> is the block type:</p>
+<figure class="code-example"><figcaption>.deco/blocks/Experiments.json</figcaption><pre><code class="language-json">{
+  "__resolveType": "experiments",
+  "newCheckout": 10,
+  "stickyHeader": 50,
+  "freeShippingBanner": 0
+}</code></pre></figure>
+
+  <h3>4. Read the content from your code</h3>
+  <p>Create the CMS once, over the <code>.deco</code> directory and your block map. Ask it for a client, then fetch the entry by name. The client runs <code>experiments</code> on the saved inputs, so you get the same result as the direct call, with the same type:</p>
+<figure class="code-example"><figcaption>src/cms/cms.ts</figcaption><pre><code class="language-typescript">import { createCMS } from "@decocms/blocks";
+import blocks from "../../cms.index";
+
+export const cms = createCMS({ loader: "./.deco", blocks });</code></pre></figure>
+<figure class="code-example"><figcaption>checkout.ts</figcaption><pre><code class="language-typescript">import { cms } from "./src/cms/cms";
+
+const client = cms.forRelease();
+const [enabled, error] = await client.resolve("Experiments");
+if (error) throw error;
+
+enabled;
+// { newCheckout: false, stickyHeader: true, freeShippingBanner: false }</code></pre></figure>
+  <p>Every call returns a <code>[value, error]</code> tuple, so a missing entry or a failing function never throws. Pass <code>{ resolve: false }</code> to get the saved JSON instead of the function's result.</p>
+  <p>That's it. The function didn't change, but its inputs now live in a file that editors change through a form and agents change directly, and every change is a commit. A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. The CMS doesn't hand blocks the request; read it the way the rest of your app does (see <a href="#manifest">Block maps</a>).</p>
+
+  <h3>Next steps</h3>
+  <ul>
+    <li><a href="#model">Blocks</a>: nesting, saved entries, and references between them. That's how a whole page is composed out of sections.</li>
+    <li><a href="#schema">Schema generation</a>: every JSDoc tag the CLI understands.</li>
+    <li><a href="#content-types">Routes and redirects</a>: the two framework types behind every URL.</li>
+    <li><a href="#preview">Preview</a>: render drafts in your real pages, no deploy.</li>
+    <li><a href="#routing">Routing</a>: match URLs to pages and redirects.</li>
+    <li><a href="#manifest">Block maps</a>, when you need more: lazy loading and naming types.</li>
+    <li>Framework guides for <a href="#nextjs">Next.js</a> and <a href="#tanstack-data">TanStack Start</a>.</li>
+  </ul>
+</section>
+
+<section id="model" data-nav="Blocks" class="doc-section" aria-labelledby="model-title">
+  <p class="eyebrow">Core concepts</p><h2 id="model-title">Blocks</h2>
+  <p>A block is a JSON object with a <code>__resolveType</code>. The type names what the block is, and the other properties are its inputs. Any input can itself be a block, so content forms a tree:</p>
+<pre class="code-block"><code class="language-json">{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": {
+    "__resolveType": "catalog-product",
+    "slug": "summer-shirt"
+  }
+}</code></pre>
+  <p>Use the same model for anything your site needs: UI sections, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.</p>
+
+  <h3>Saved entries and references</h3>
+  <p>Every file in <code>.deco/blocks</code> is a saved entry, named after the file. Other content refers to an entry by putting its name in <code>__resolveType</code>, and can override some of its inputs for that one use:</p>
+<pre class="code-block"><code class="language-jsonc">// Use the saved entry as is.
+{ "__resolveType": "SummerSEO" }
+
+// Override one input for this occurrence.
+{ "__resolveType": "SummerSEO", "title": "Summer sale" }</code></pre>
+  <p>An entry doesn't have to be a block itself. It can be any JSON value that contains blocks, like the page in the next example.</p>
+
+  <h3>How <code>get</code> works</h3>
+  <p>Every <code>__resolveType</code> is a name looked up in one registry, and a name is either data or code:</p>
+<pre class="code-block"><code class="language-typescript">const registry = { ...savedEntries, ...blocks };   // name → saved JSON | function</code></pre>
+  <p>Saved entries come from the loader. Functions come from the block map you give <code>createCMS</code>. Resolution is one rule, applied to every object with a <code>__resolveType</code>:</p>
+  <ol>
+    <li><strong>Look up the name.</strong></li>
+    <li><strong>Data:</strong> replace the object with <code>{ ...entry, ...inputs }</code>, so your inputs override the entry's, and apply the rule to the result again.</li>
+    <li><strong>Function:</strong> resolve the inputs first, children before parents, then call the function with them. Its return value takes the block's place.</li>
+    <li><strong>Neither:</strong> fail with <code>UNKNOWN_BLOCK</code>.</li>
+  </ol>
+  <p>Take these two entries and a block map with <code>seo</code> and <code>Carousel</code> functions:</p>
+<figure class="code-example"><figcaption>.deco/blocks/pages-summer.json</figcaption><pre><code class="language-json">{
+  "seo": { "__resolveType": "SummerSEO" },
+  "sections": [{ "__resolveType": "Carousel", "banners": [] }]
+}</code></pre></figure>
+<figure class="code-example"><figcaption>.deco/blocks/SummerSEO.json</figcaption><pre><code class="language-json">{ "__resolveType": "seo", "title": "Sunny!" }</code></pre></figure>
+  <p><code>client.resolve("pages-summer")</code> walks the page. <code>seo</code> holds <code>{ "__resolveType": "SummerSEO" }</code>: a data hit, so it becomes <code>{ "__resolveType": "seo", "title": "Sunny!" }</code> and the rule runs again. Now <code>seo</code> is a function hit, so <code>seo({ title: "Sunny!" })</code> runs. <code>Carousel</code> is a function hit straight away. The result:</p>
+<pre class="code-block"><code class="language-typescript">{
+  seo: { title: "Sunny!" },
+  sections: [{ component: "Carousel", props: { banners: [] } }]
+}</code></pre>
+  <p>With <code>{ resolve: false }</code>, the registry holds data only. Names that aren't saved entries pass through untouched, so <code>client.resolve("pages-summer", { resolve: false })</code> returns the page with <code>SummerSEO</code> expanded and the <code>seo</code> and <code>Carousel</code> blocks left as they are. That's how you read content without running anything.</p>
+
+  <h3>The rule in detail</h3>
+  <ul>
+    <li><strong>A saved entry is a preset.</strong> It's a block, or any JSON containing blocks, saved under a name. Referring to it by name and overriding a field is the same as writing the merged block inline. Overrides merge shallowly: an override replaces the whole property, and the saved entry itself doesn't change.</li>
+    <li><strong>Bottom-up and parallel.</strong> A function only runs once its inputs are resolved, so <code>product-card</code> receives product data, never a <code>catalog-product</code> block. Sibling blocks, such as sections, resolve concurrently.</li>
+    <li><strong>Failures stop the parent.</strong> If a nested block fails, its parent never runs and <code>get</code> returns the error. A reference to an entry that doesn't exist fails with <code>NOT_FOUND</code>.</li>
+    <li><strong>Results are opaque.</strong> The CMS never walks a function's return value. Return plain data, a descriptor, or JSX. This is also why a function that returns its input can't loop: <code>__resolveType</code> is stripped before the call, and whatever comes back is never looked up again.</li>
+    <li><strong>Only data can loop.</strong> A data hit is the one branch that says "apply the rule again", so two entries that reference each other, or an entry that references itself, would recurse forever. The CMS tracks the entries expanded on the current path and fails with <code>CYCLE</code> the moment one repeats, with the chain in <code>error.path</code>.</li>
+    <li><strong>Stored form.</strong> To read an entry exactly as saved, with nothing expanded, take it from <code>loader.load()</code>.</li>
+  </ul>
+  <div class="callout warning"><p><strong>Entry names and block types share one registry.</strong> A saved entry called <code>seo</code> and a <code>seo</code> function can't coexist. <code>deco schema</code> fails when an entry name matches a block type, so rename the entry.</p></div>
+</section>
+
+<section id="schema" data-nav="Schema generation" class="doc-section" aria-labelledby="schema-title">
+  <p class="eyebrow">Core concepts</p><h2 id="schema-title">Schema generation</h2>
+  <p>Studio builds its editor from a JSON Schema, and the CLI writes that schema from your TypeScript. Point it at the file that exports your block map, the <code>cms.index.ts</code> from the <a href="#quickstart">quickstart</a>:</p>
+<pre class="code-block"><code class="language-bash">npx deco schema --entry ./cms.index.ts --out ./.deco/schema.json</code></pre>
+  <p>For each block type in the map, the CLI reads the type of the function's first parameter and turns it into a form definition. Commit <code>.deco/schema.json</code> with your code, and run the command in CI so the schema never drifts from your types.</p>
+  <p>The CLI also checks your content model: it fails if a saved entry's name collides with a block type, or if an <a href="#adoption">alias</a> collides with either.</p>
+
+  <h3>Content that is only data</h3>
+  <p>A page, a blog post, a redirect: these have a shape but no function. Nothing runs when they resolve; your app reads them and resolves the blocks <em>inside</em> them. They still need a schema so Studio can create them, so declare them for the CLI in a type-level map next to the block map:</p>
+<figure class="code-example"><figcaption>cms.index.ts</figcaption><pre><code class="language-typescript">import type { Blocks, Redirect } from "@decocms/blocks";
+import type { Page } from "./content/page";
+import type { Post } from "./content/post";
+import seo from "./content/seo";
+import hero from "./views/hero";
+
+export default { seo, hero } satisfies Blocks;          // code: a schema per function parameter
+
+export type Content = {                                  // data: a schema per type
+  page: Page;
+  post: Post;
+  redirect: Redirect;
+};</code></pre></figure>
+  <p>The CLI reads both exports. Keys of the default export get a schema from each function's parameter type; keys of <code>Content</code> get one from the type itself. The two share one namespace, and a key in both is an error. The runtime never sees <code>Content</code>: <code>list("page")</code> works because the entries exist, and resolving a page means resolving its fields, not the page.</p>
+
+  <p>Studio reads the schema this command writes, and nothing else about your code. What it looks for, and how the CLI bridges today's Studio conventions, is covered <a href="#studio">under the hood</a>.</p>
+
+  <div class="callout"><p><strong>There is no publish command.</strong> Content is published by changing it: commit a file in <code>.deco/blocks</code> and push, or save in Studio, which commits for you. Both land in the repository, and the Deco API serves the latest commit of the production branch as the current release. If an agent runs <code>deco publish</code>, the CLI only says this.</p></div>
+</section>
+
+<section id="preview" data-nav="Preview" class="doc-section" aria-labelledby="preview-title">
+  <p class="eyebrow">Core concepts</p><h2 id="preview-title">Preview</h2>
+  <p>Editors want to see a change before it's published. Because block <em>functions</em> ship with your app and only <em>content</em> changes, previewing a draft needs no deploy: the app renders the same code against different content.</p>
+  <p>Here's the whole mechanism. Studio opens your site with a <strong>draft pointer</strong> in the URL:</p>
+<pre class="code-block"><code class="language-bash">https://store.example.com/summer?__draft=studio.decocms.com/api/acme/decofile/store/feat-summer%3Ftoken%3D…@9f3c1a</code></pre>
+  <p>The pointer is a string, <code>&lt;host&gt;&lt;path&gt;@&lt;version&gt;</code>: where the draft content lives, and which version. <code>draftPointer(request)</code> reads it, from <code>?__draft=</code> or from the cookie described below, and the CMS gives you a client over that draft. Everything after that line is the same code that serves visitors:</p>
+<figure class="code-example"><figcaption>A plain request handler</figcaption><pre><code class="language-typescript">import { draftPointer } from '@decocms/blocks'
+import { cms } from './cms'
+
+export async function handle(request: Request) {
+  const pointer = draftPointer(request)               // null on an ordinary request
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
+
+  return render(client, request)                      // list, matchRoute, resolve: as usual
+}</code></pre></figure>
+  <p><code>forDraft</code> hands the pointer to the loader. <code>remoteLoader</code> fetches that exact version from Studio's content API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole revision, deletions included, so a page in preview looks exactly as it will after publishing. <code>localLoader</code> ignores the pointer: in development you're already looking at the files. That's why the code above never checks which loader it has.</p>
+
+  <h3>Keep the draft across navigation</h3>
+  <p>The pointer is only in the URL of the first page Studio opens. <code>draftCookie(request)</code> gives you the <code>Set-Cookie</code> value that response needs, and <code>null</code> on every other request. Append it, and <code>draftPointer</code> reads the cookie from then on, so every link the editor clicks stays in preview:</p>
+<figure class="code-example"><figcaption>Query parameter first, cookie afterwards</figcaption><pre><code class="language-typescript">import { draftPointer, draftCookie } from '@decocms/blocks'
+import { cms } from './cms'
+
+export async function handle(request: Request) {
+  const pointer = draftPointer(request)
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
+  const response = await render(client, request)
+
+  const cookie = draftCookie(request)
+  if (cookie) response.headers.append('Set-Cookie', cookie)
+  return response
+}</code></pre></figure>
+  <p>Studio ends a preview by opening the site with an empty <code>?__draft=</code>; <code>draftCookie</code> returns an expiring cookie for that, so the same two lines cover leaving preview. The parameter and cookie names never appear in your code. In Next.js the two steps split across <code>proxy.ts</code>, which appends the cookie, and a server helper that reads it with <code>cookies()</code>. The <a href="#nextjs">Next.js guide</a> has both files.</p>
+
+  <h3>Not a website</h3>
+  <p><code>forDraft</code> takes the pointer string and nothing else, so nothing here assumes HTTP. A mobile app takes it from the deep link Studio opens, or from a "preview" field on a debug screen, and keeps it in app state:</p>
+<pre class="code-block"><code class="language-typescript">// React Native, on a deep link like mystore://preview?__draft=...
+const pointer = new URL(url).searchParams.get('__draft')
+setClient(pointer ? cms.forDraft(pointer) : cms.forRelease())</code></pre>
+  <p>A script passes it as an argument. To look inside a pointer, or build one from parts, use <code>parseDraftPointer</code> and <code>formatDraftPointer</code> from the <a href="#standalone">reference</a>; <code>forDraft</code> parses on its own, so normally you don't have to.</p>
+
+  <h3>Who may preview</h3>
+  <p>Two checks, and neither needs configuration in your app. <code>remoteLoader</code> uses its token to learn the site's content API from decocms, and <code>forDraft</code> ignores any pointer whose authority isn't that API, so a pointer can never turn into a request to an arbitrary origin. The pointer's path carries a signed grant that the content API verifies, so a draft is only served to someone Studio let in.</p>
+  <p>If a website wants to show drafts on its preview domain only, it checks the request's host before calling <code>forDraft</code>:</p>
+<pre class="code-block"><code class="language-typescript">const host = new URL(request.url).host
+const pointer = host === 'preview.store.example.com' ? draftPointer(request) : null
+const client = pointer ? cms.forDraft(pointer) : cms.forRelease()</code></pre>
+  <div class="callout warning"><p><strong>The token is the only secret.</strong> The site holds no other credential. Invalid or unexpected pointers are ignored and the request falls back to published content, never to an error page.</p></div>
+</section>
+
+<section id="manifest" data-nav="Block maps" class="doc-section" aria-labelledby="manifest-title">
+  <p class="eyebrow">Advanced</p><h2 id="manifest-title">Block maps</h2>
+  <p>A block map is the code half of the <a href="#model">registry</a>: a plain object from block type to function. The quickstart's <code>cms.index.ts</code> is one. This section covers what else can go in it.</p>
+<figure class="code-example"><figcaption>cms.index.ts</figcaption><pre><code class="language-typescript">import type { Blocks } from "@decocms/blocks";
+import seo from "./content/seo";
+import productCard from "./views/product-card";
+import hero from "./views/hero";
+
+export default {
+  seo,
+  "product-card": productCard,
+  hero,
+} satisfies Blocks;</code></pre></figure>
+  <p>Each key is a block type. Each value is a function <code>(inputs) =&gt; value</code>, where <code>inputs</code> is the block without its <code>__resolveType</code>, with nested blocks already resolved. Use <code>satisfies Blocks</code> rather than a type annotation: it checks the shape while keeping the concrete keys and function types, which is what makes <code>resolve&lt;T&gt;</code> inference and the schema work.</p>
+  <p>Keep the map a plain object at module level. The <a href="#schema">CLI</a> reads the file without running it, so build it once and give it to <code>createCMS</code>. Only functions go in the map. Types that are pure data, such as pages, posts, and redirects, have nothing to run; they're declared for the CLI instead, see <a href="#schema">content that is only data</a>.</p>
+  <div class="callout"><p><strong>The CMS is pure.</strong> It passes your function the block and nothing else: no context object, no request, no hidden state. When a block needs the current request, a cookie, or a route parameter, read it the way the rest of your app does, usually through the <code>AsyncLocalStorage</code> your server or framework already provides (<code>next/headers</code> in Next.js, <code>getRequest()</code> in TanStack Start). That keeps block functions ordinary functions you can call and test directly.</p></div>
+
+  <h3>Lazy loading</h3>
+  <p>The map above imports every block at the top, so they all load with the map. That's fine for functions like <code>seo</code>. It's not what you want for a section that drags in a charting library, or for the two hundred sections a large store has when any page uses five.</p>
+  <p>What's heavy is the component a block renders, and your framework already knows how to load components lazily. So do it in one place, the map, and let the block files stay plain components:</p>
+<figure class="code-example"><figcaption>cms.index.tsx (Next.js)</figcaption><pre><code class="language-tsx">import dynamic from 'next/dynamic'
+import type { Blocks } from '@decocms/blocks'
+import seo from './content/seo'
+import type { ProductProps } from './sections/Product'
+import type { HeroProps } from './sections/Hero'
+
+// Each section is split into its own chunk and fetched on first render.
+const Product = dynamic(() =&gt; import('./sections/Product'))
+const Hero    = dynamic(() =&gt; import('./sections/Hero'))
+
+export default {
+  seo,                                                    // eager: tiny, used everywhere
+  product: (input: ProductProps) =&gt; &lt;Product {...input} /&gt;,
+  hero:    (input: HeroProps)    =&gt; &lt;Hero {...input} /&gt;,
+} satisfies Blocks</code></pre></figure>
+  <p>Swap <code>dynamic</code> for React's <code>lazy</code> on TanStack RSC, with the sections rendered under a <code>Suspense</code> boundary. In TanStack's data mode the blocks return descriptors and the browser-side view registry is the map to do this in: <code>const views = { product: lazy(() =&gt; import('./sections/Product')) }</code>. In every case the section files know nothing about the CMS, the map stays a plain object the CLI can read, and the bundler splits on the <code>import()</code>.</p>
+  <p>For a block that's heavy for a non-UI reason, say a data function that pulls in a large SDK, a dynamic import inside the function body is enough. It's one line and needs no helper:</p>
+<pre class="code-block"><code class="language-typescript">"catalog-product": async (input: ProductQuery) =&gt; {
+  const { fetchProduct } = await import("./commerce/client")   // loaded on first call, cached by the runtime
+  return fetchProduct(input)
+},</code></pre>
+  <p>Keep import paths literal in both cases. A bundler can split <code>import("./sections/Product")</code> into its own chunk; it can't split <code>import(`./sections/${name}`)</code>.</p>
+
+  <h3>Choose type names that last</h3>
+  <p>A type name is what content stores in <code>__resolveType</code>, so pick it like a database column, not like a file path: short (<code>seo</code>, <code>hero</code>) or namespaced when a site has many (<code>commerce/product</code>). Moving a file only means updating an import; the name doesn't change. Renaming a type means migrating every block that uses it, or adding an <a href="#adoption">alias</a>.</p>
+</section>
+
+<section id="variants" data-nav="Matchers &amp; variants" class="doc-section" aria-labelledby="variants-title">
+  <p class="eyebrow">Advanced</p><h2 id="variants-title">Matchers and variants</h2>
+  <p>Editors often want content that depends on a condition: a banner that only shows during a campaign, a title that changes on a date, an experiment. Two small ideas cover all of it, and neither knows what a website is, so they work the same in a storefront, a mobile app, or a job.</p>
+  <p>A <strong>matcher</strong> is a block function that returns a boolean. A <strong>multivariate</strong> is a block function that takes a list of <code>{ rule, value }</code> pairs, where each rule is a matcher, and returns the first value whose rule matched. Because the CMS resolves inputs before calling a function, the multivariate never sees a matcher, only booleans.</p>
+
+  <h3>The three matchers that ship</h3>
+  <p>They depend on nothing but the clock, so they're the only ones the framework provides:</p>
+<pre class="code-block"><code class="language-typescript">import { always, never, date } from "@decocms/blocks/matchers";
+
+// always()                              =&gt; true    the default rule of a variant
+// never()                               =&gt; false   how Studio hides a section without deleting it
+// date({ start?: string; end?: string }) =&gt; boolean, true when now is inside [start, end]</code></pre>
+  <p>Everything else that could gate content, a device, a cookie, a country, a user's plan, depends on where your app runs and how it sees its environment. Those are yours to write, below.</p>
+
+  <h3>The multivariate is three lines you own</h3>
+<figure class="code-example"><figcaption>content/multivariate.ts</figcaption><pre><code class="language-typescript">export function multivariate&lt;T&gt;({ variants }: { variants: { rule: boolean; value: T }[] }) {
+  return variants.find((v) =&gt; v.rule)?.value;   // first match wins; put the always() variant first as the default
+}</code></pre></figure>
+<figure class="code-example"><figcaption>cms.index.ts</figcaption><pre><code class="language-typescript">import { always, never, date } from "@decocms/blocks/matchers";
+import { multivariate } from "./content/multivariate";
+
+export default { always, never, date, multivariate, seo, hero } satisfies Blocks;</code></pre></figure>
+  <p>Editors compose them in Studio: a variant is a tab, its rule is picked from the matchers in your map, and the first tab is the default. A hero whose title changes for a campaign is a <code>hero</code> whose <code>title</code> is a <code>multivariate</code>:</p>
+<figure class="code-example"><figcaption>.deco/blocks/HomeHero.json</figcaption><pre><code class="language-json">{
+  "__resolveType": "hero",
+  "title": {
+    "__resolveType": "multivariate",
+    "variants": [
+      { "rule": { "__resolveType": "date", "start": "2026-11-20", "end": "2026-11-30" }, "value": "Black Friday starts now" },
+      { "rule": { "__resolveType": "always" }, "value": "New season, new arrivals" }
+    ]
+  }
+}</code></pre></figure>
+  <p>Resolution does the rest: each rule runs and yields a boolean, <code>multivariate</code> runs with those booleans and yields a string, <code>hero</code> runs with a plain <code>title</code>. Nothing in <code>hero</code> knows a variant was involved. The same shape wraps a whole section, or a page's whole <code>sections</code> array, which is how Studio does page-level variants.</p>
+
+  <h3>Write your own matcher</h3>
+  <p>A matcher is any block function that returns a boolean. It reads whatever your app knows about the current request or user the way every other block does, through the context your runtime already provides:</p>
+<figure class="code-example"><figcaption>content/matchers.ts (website)</figcaption><pre><code class="language-typescript">import { headers } from "next/headers";
+
+// A website: the device from the user agent.
+export async function device({ device }: { device: "mobile" | "desktop" }) {
+  const ua = (await headers()).get("user-agent") ?? "";
+  return (/Mobi|Android/i.test(ua) ? "mobile" : "desktop") === device;
+}</code></pre></figure>
+<figure class="code-example"><figcaption>content/matchers.ts (app)</figcaption><pre><code class="language-typescript">// A mobile app: the user's plan from app state. No request, no headers.
+export const plan = ({ plan }: { plan: "free" | "pro" }) =&gt; session.current().plan === plan;</code></pre></figure>
+  <p>Add them to the map and Studio's rule picker shows them beside <code>date</code>: it lists every function in the manifest's <code>matchers</code> group, which the CLI fills with every block function that returns a boolean. Combinators are matchers too: <code>and</code>, <code>or</code>, and <code>not</code> are one-liners over booleans, if you want them.</p>
+
+  <h3>Every variant resolves</h3>
+  <p>Inputs resolve before a function runs, so every variant's <code>value</code> resolves before <code>multivariate</code> picks one. For a title that's free. For two product queries it isn't, and a failure in a variant you didn't pick still fails the whole thing.</p>
+  <p>The lazy form is to make the values <em>entry names</em> instead of inline blocks. A string isn't a block, so nothing runs; the multivariate returns a name, and whoever holds the client resolves it:</p>
+<pre class="code-block"><code class="language-json">{
+  "__resolveType": "multivariate",
+  "variants": [
+    { "rule": { "__resolveType": "date", "start": "2026-11-20", "end": "2026-11-30" }, "value": "BlackFridayHero" },
+    { "rule": { "__resolveType": "always" }, "value": "DefaultHero" }
+  ]
+}</code></pre>
+<pre class="code-block"><code class="language-typescript">const [name] = await client.resolve(section);   // "BlackFridayHero"
+const [hero] = await client.resolve(name);      // only this variant ran</code></pre>
+  <div class="callout warning"><p><strong>A variant is not access control.</strong> It chooses between values that are all fine to compute and show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</p></div>
+  <p>Anything a matcher looks at is a cache dimension. If a page varies by <code>device</code>, the device belongs in the cache key.</p>
+</section></section>
+
+<section id="content-types" data-nav="Routes &amp; redirects" class="doc-section" aria-labelledby="content-types-title">
+  <p class="eyebrow">Websites</p><h2 id="content-types-title">Routes, redirects, and content types</h2>
+  <p>The framework ships two content types. Everything that has a URL is built from them.</p>
+<pre class="code-block"><code class="language-typescript">/** An entry that lives at a URL. Extend it to make a type routable. */
+interface Route {
+  /** @title Name */
+  name: string;
+  /** @title Path */
+  path: string;        // "/summer", or a template like "/:slug/p"
+}
+
+/** A saved entry of the built-in `redirect` type. */
+interface Redirect {
+  from: string;        // literal or template
+  to: string;
+  permanent: boolean;  // 301 or 302
+}</code></pre>
+  <p>A page is a route with SEO and sections. It's not special to the router; it's just the first type that extends <code>Route</code>. Like every data-only type, it's declared in <a href="#schema"><code>Content</code></a>, not in the block map:</p>
+<pre class="code-block"><code class="language-typescript">interface Page extends Route {
+  seo: PageSeo;
+  sections: VariantOf&lt;Array&lt;VariantOf&lt;Block&gt;&gt;&gt;;
+}</code></pre>
+<figure class="code-example"><figcaption>.deco/blocks/SummerPage.json</figcaption><pre><code class="language-json">{
+  "__resolveType": "page",
+  "name": "Summer campaign",
+  "path": "/summer",
+  "seo": { "__resolveType": "SummerSEO" },
+  "sections": [
+    { "__resolveType": "hero", "title": "Summer starts here", "image": "https://cdn.example.com/summer.jpg" }
+  ]
+}</code></pre></figure>
+<figure class="code-example"><figcaption>.deco/blocks/LegacySummer.json</figcaption><pre><code class="language-json">{
+  "__resolveType": "redirect",
+  "from": "/campaigns/summer",
+  "to": "/summer",
+  "permanent": true
+}</code></pre></figure>
+  <p><strong><code>matchRoute</code>'s rule is one line: an entry with a string <code>path</code> matches at that path.</strong> <code>Route</code> is what makes that intentional. The CLI checks that any type declaring <code>path</code> extends <code>Route</code>, so a stray <code>path</code> field on an unrelated block is a schema error rather than a surprise URL. Editors see <code>name</code> and <code>path</code> as ordinary fields on every routable thing, in Studio, which is how a marketing team gets <code>/summer-sale</code> live without a developer. Keep <code>path</code> and <code>from</code> plain strings, not blocks, so the router can match without running code.</p>
+
+  <h3>Your own routable types</h3>
+  <p>A blog doesn't want a <code>page</code> entry per post. Extend <code>Route</code> and every saved post routes on its own:</p>
+<figure class="code-example"><figcaption>content/post.ts</figcaption><pre><code class="language-typescript">import type { Route } from "@decocms/blocks";
+
+export interface Post extends Route {
+  /** @title Published on @format date */
+  date: string;
+  /** @format rich-text */
+  body: string;
+}</code></pre></figure>
+<figure class="code-example"><figcaption>.deco/blocks/HelloWorld.json</figcaption><pre><code class="language-json">{ "__resolveType": "post", "name": "Hello, world", "path": "/blog/hello-world", "date": "2026-09-01", "body": "…" }</code></pre></figure>
+  <p>Studio pre-fills <code>path</code> from a per-type template such as <code>/blog/{slug}</code>, so editors get consistent URLs by default and can still change one. Two entries with the same path, or two templates that can match the same URL, are rejected by the CLI and by <code>matchRoute</code>.</p>
+
+  <h3>Pages are data; resolve their fields</h3>
+  <p>A page has no function, so you don't resolve the page. You resolve the blocks it holds: <code>client.resolve(page.seo)</code>, and one <code>client.resolve(section)</code> per section, so sections can stream as they finish (see the <a href="#nextjs">framework guides</a>). A redirect is never resolved at all; <code>matchRoute</code> reads it. If you do want code to run for a whole page, such as validation or a layout step, add a <code>page</code> function to the block map and move <code>Page</code> out of <code>Content</code>; then <code>client.resolve(page)</code> runs it after every section has resolved.</p>
+
+  <h3>Content types without a URL</h3>
+  <p>Navigation, email templates, and campaign settings work the same way, minus <code>Route</code>: declare the type in <code>Content</code> if it's data, or register a function if something should run, and save entries of that type. <code>Block</code> is a stored block. <code>VariantOf&lt;T&gt;</code> accepts a <code>T</code> or a <a href="#variants">flag</a> that picks one.</p>
+</section>
+
+<section id="routing" data-nav="Routing" class="doc-section">
+  <p class="eyebrow">Websites</p><h2>Routing</h2>
+  <p>The CMS doesn't route. It lists and resolves. Routing is three steps in your request handler: list the types you want at URLs, hand them to <code>matchRoute</code>, resolve the winner. Because the client is made per request, all three see the same revision.</p>
+<pre class="code-block"><code class="language-typescript">import { matchRoute, type Redirect } from "@decocms/blocks";
+
+const client = cms.forRelease();
+const [pages]     = await client.list&lt;Page&gt;("page");
+const [posts]     = await client.list&lt;Post&gt;("post");
+const [redirects] = await client.list&lt;Redirect&gt;("redirect");
+
+const match = matchRoute(request, { routes: [...pages, ...posts], redirects });
+
+switch (match.kind) {
+  case "not-found":
+    return new Response("Not found", { status: 404 });
+  case "redirect":
+    return Response.redirect(new URL(match.location, request.url), match.status);
+  case "match":
+    switch (match.entry.__resolveType) {
+      case "page": {
+        const sections = match.entry.sections.map((s) =&gt; client.resolve(s));   // start them all
+        const [seo] = await client.resolve(match.entry.seo);                   // then await
+        return render(seo, sections);
+      }
+      case "post":
+        return renderPost(match.entry);                                        // data: nothing to resolve
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th><code>kind</code></th><th>Fields</th></tr></thead>
+    <tbody>
+      <tr><td><code>"match"</code></td><td><code>entry</code> (the stored route you passed in) and <code>params</code> from the path template.</td></tr>
+      <tr><td><code>"redirect"</code></td><td><code>location</code> with parameters filled in, and <code>status</code> (<code>301</code> or <code>302</code>).</td></tr>
+      <tr><td><code>"not-found"</code></td><td>None</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><p><strong><code>matchRoute</code> is a helper, not a requirement.</strong> The CMS has no idea what a URL is. If your framework already routes, or you'd rather look up a page by name (<code>client.resolve("SummerPage")</code>) or by a field of your own, skip it. It exists because "an editor typed a path into Studio and that page is now live" is the common case, and getting precedence and parameters right by hand is tedious.</p></div>
+  <p>Which types route is your decision, per handler: a blog lists <code>post</code>, a docs site lists <code>doc</code>. <code>match.params</code> holds the URL parameters; hand them to your code however your app shares request state. The CMS never injects them into blocks.</p>
+
+  <p>Matching is a lookup, not a scan: entries are compiled into a segment trie once per list, so a match costs the URL's depth, not the catalogue's size. The algorithm is described <a href="#router-internals">under the hood</a>.</p>
+
+  <h3>Path templates and match order</h3>
+  <p>A route's <code>path</code> and a redirect's <code>from</code> accept literal segments and named parameters. A route at <code>/:slug/p</code> matches <code>/summer/p</code> with <code>params.slug = "summer"</code>. Redirects are checked before routes, so a redirect overrides a route at the same path. Within each group, exact paths win over templates. Two entries with the same path, or two templates that can match the same URL, make <code>matchRoute</code> throw, and the CLI reports them at schema time. Serve framework endpoints, API routes, and static assets before the CMS catch-all; those paths don't belong to the CMS.</p>
+
+  <h3>Linking and listing</h3>
+  <p>Because the URL is a field, linking to an entry is reading it, and listing a routable type gives you an index for free:</p>
+<pre class="code-block"><code class="language-typescript">const [posts] = await client.list&lt;Post&gt;("post", { sort: (a, b) =&gt; b.date.localeCompare(a.date) });
+for (const post of posts) link(post.path, post.name);          // "/blog/hello-world", "Hello, world"
+
+const match = matchRoute("/blog/hello-world", { routes: posts });
+// { kind: "match", entry: { __resolveType: "post", name: "Hello, world", path: "/blog/hello-world", … }, params: {} }</code></pre>
+
+  <h3>Example project</h3>
+  <p>The framework guides share these files. The <code>product</code> function is different in each guide.</p>
+<figure class="code-example"><figcaption>src/cms/model.ts</figcaption><pre><code class="language-typescript">import type { Block, Route } from '@decocms/blocks'
+
+export interface SEO { title: string; description: string }
+export interface ProductProps { id: string; name: string; price: number; currency: string }
+export interface SectionData { component: 'product'; props: ProductProps }
+
+// A stored page, as client.list returns it.
+export interface StoredPage extends Route {
+  seo: SEO | Block
+  sections: Block[]
+}</code></pre></figure>
+<figure class="code-example"><figcaption>src/cms/blocks.base.ts</figcaption><pre><code class="language-typescript">import type { Redirect } from '@decocms/blocks'
+import type { SEO, StoredPage } from './model'
+
+export const baseBlocks = {
+  seo: (input: SEO) =&gt; input,
+}
+
+export type Content = {
+  page: StoredPage
+  redirect: Redirect
+}</code></pre></figure>
+<figure class="code-example"><figcaption>.deco/blocks/ProductPage.json</figcaption><pre><code class="language-json">{
+  "__resolveType": "page",
+  "name": "Product page",
+  "path": "/:slug/p",
+  "seo": {
+    "__resolveType": "seo",
+    "title": "Summer shirt | Deco example",
+    "description": "A small example of independently resolved fields."
+  },
+  "sections": [
+    { "__resolveType": "product", "id": "details", "name": "Summer shirt", "price": 49, "currency": "USD" },
+    { "__resolveType": "product", "id": "related", "name": "Related shirt", "price": 39, "currency": "USD" }
+  ]
+}</code></pre></figure>
+<figure class="code-example"><figcaption>.deco/blocks/LegacyProduct.json</figcaption><pre><code class="language-json">{
+  "__resolveType": "redirect",
+  "from": "/old-products/:slug",
+  "to": "/:slug/p",
+  "permanent": true
+}</code></pre></figure>
+  <p>The redirect sends <code>/old-products/summer</code> to <code>/summer/p</code>. The page uses literal product values to keep the example small. A real page would use a block that fetches the product for the slug in <code>match.params</code>.</p>
+</section>
+
+<section id="rendering" data-nav="Rendering" class="doc-section">
+  <p class="eyebrow">Websites</p><h2>Rendering</h2>
+  <p>The CMS returns whatever your block function returns. Your framework decides how that value reaches the browser:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Integration</th><th>Block returns</th><th>Streaming</th><th>Ships to the browser</th></tr></thead>
+    <tbody>
+      <tr><td><a href="#nextjs">Next.js App Router</a></td><td>JSX</td><td>Server Component Suspense boundaries</td><td>Client Components</td></tr>
+      <tr><td><a href="#tanstack-data">TanStack Start, data</a></td><td>Serializable descriptors</td><td>Deferred promises with <code>Await</code></td><td>The view registry and its components</td></tr>
+      <tr><td><a href="#tanstack-rsc">TanStack Start, RSC</a></td><td>JSX</td><td>React Flight</td><td>Client references and the RSC runtime</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Block functions run on the server</h3>
+  <p>In all three integrations, block functions run on the server, so data fetching belongs there. In data mode, a block returns a descriptor and a synchronous React view renders its props. With RSC, a block returns JSX that can include Client Components.</p>
+  <p>Render interactive components as elements, such as <code>&lt;CartButton /&gt;</code>. Don't register a Client Component as a block function: the <code>"use client"</code> boundary preserves a reference, not a callable function.</p>
+
+  <h3>Errors, streaming, and cancellation</h3>
+  <ul>
+    <li><strong>Start every section first.</strong> Await critical data, such as SEO, only after all sections have started.</li>
+    <li><strong>One Suspense boundary per section</strong> lets each section appear as soon as it's ready.</li>
+    <li><strong>Suspense handles loading, not errors.</strong> Check each section's error and render a fallback. Errors thrown later while React renders need an error boundary.</li>
+    <li><strong>Cancellation is your app's job.</strong> The CMS never sees the request. A block that fetches upstream should take the request's <code>signal</code> from wherever your app keeps request state.</li>
+    <li><strong>Once streaming starts, the status code is fixed.</strong> A later error can't change it.</li>
+  </ul>
+
+  <h3>Choose a transport</h3>
+  <p>Use descriptors when views must render in an ordinary browser React app. Use RSC when your framework supports it and you want server-only view code to stay off the client. RSC doesn't guarantee smaller responses, so measure payload size, hydration, and navigation on real pages.</p>
+</section>
+
+<section id="standalone" data-nav="API reference" class="doc-section" aria-labelledby="standalone-title">
+  <p class="eyebrow">Reference</p><h2 id="standalone-title">API reference</h2>
+  <p>Everything is exported from <code>@decocms/blocks</code>.</p>
+
+  <h3><code>createCMS(config)</code></h3>
+  <p>Two levels. A <strong>CMS</strong> is a loader plus a block map, created once at module scope. It hands out <strong>clients</strong>, one per request, for the release or for a draft, and keeps content current. A client resolves and lists, and that's all. Both are cheap: content caches in the loader, and dynamically imported modules are cached by the runtime.</p>
+<pre class="code-block"><code class="language-typescript">function createCMS(config: {
+  loader:
+    | string                             // a content directory: localLoader(path)
+    | { root?: string; token?: string }  // local content in root (default "./.deco"); with a token, remote releases over it
+    | Loader;                            // anything else: bundled content, KV, your own
+  blocks: Blocks;
+}): CMS;
+
+interface CMS {
+  forRelease(): Client;                         // a client reading loader.load()
+  forDraft(pointer: string): Client;            // a client reading loader.load(pointer); an invalid pointer behaves like the release
+  update(): Promise&lt;{ updated: boolean }&gt;;      // loader.update(), or a no-op
+}
+
+interface Client {
+  resolve&lt;T = unknown&gt;(target: unknown, options?: { resolve?: boolean }): Promise&lt;Result&lt;T&gt;&gt;;   // resolve: false reads without running
+  list&lt;T = Block&gt;(type: string, options?: ListOptions&lt;T&gt;): Promise&lt;Result&lt;T[]&gt;&gt;;
+}</code></pre>
+  <p>The <code>loader</code> option covers the common cases by shape. A path is the files in that directory. <code>{ token }</code> is releases from the Deco API with the files in <code>./.deco</code> as fallback, and <code>root</code> changes the directory. Leave <code>token</code> undefined and it's just the files, which is what makes one line work in development and production. Anything else is a <code>Loader</code> you built yourself. <strong>Create the CMS once, at module scope, and ask it for a client per request</strong>: <code>forRelease()</code> for visitors, <code>forDraft(pointer)</code> when the request carries one. Clients are free to make and hold nothing you'd want to share. Everything either does is a few lines over a loader, and the registry rule from <a href="#model">Blocks</a> is how it resolves; those internals aren't part of the public API.</p>
+
+  <h3>Loaders</h3>
+  <p>One interface. <code>load()</code> with no argument is production; <code>load(pointer)</code> is a draft. <code>update()</code> checks for newer content.</p>
+<pre class="code-block"><code class="language-typescript">interface Loader {
+  load(pointer?: string | null): Promise&lt;{ revision: string; blocks: Record&lt;string, Block&gt; }&gt;;
+  update?(): Promise&lt;{ updated: boolean }&gt;;
+}</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Loader</th><th>Loads</th><th>Use it for</th></tr></thead>
+    <tbody>
+      <tr><td><code>localLoader(dir)</code><br><code>localLoader({ revision, blocks })</code></td><td>The content that ships with the app: a <code>.deco</code> directory on Node, or JSON imported at build time on Workers. Ignores the pointer: there are no drafts in local content. No <code>update()</code>.</td><td>Development, tests, and the fallback in production</td></tr>
+      <tr><td><code>remoteLoader(fallback, { token })</code></td><td>The current release from the Deco API over a fallback loader, or the draft a pointer names. The token identifies the site; everything else comes from decocms.</td><td>Production</td></tr>
+    </tbody>
+  </table></div>
+  <p><code>remoteLoader(localLoader("./.deco"), { token })</code>: <code>load()</code> never waits on the network. It returns what's in memory, the newest release fetched or else the fallback loader's content, and <code>update()</code> checks for newer content in the background. See <a href="#loader-internals">how it stays current</a>. <code>load(pointer)</code> fetches the draft a pointer names and caches it by version; drafts never fall back. See <a href="#preview">Preview</a>.</p>
+  <p><code>update()</code> is rate-limited to the polling interval, never throws, and resolves at once if a check ran recently. On Node, <code>remoteLoader</code> calls it on its own timer. Cloudflare Workers have no timers between requests, so call it yourself, off the request path, with <code>ctx.waitUntil(cms.update())</code> or from a Cron Trigger. A webhook or an admin "refresh now" button calls the same method. A loader without <code>update()</code> is always current by construction, like the filesystem.</p>
+  <h3>Draft pointers</h3>
+  <p>A pointer is a string, <code>&lt;host[:port]&gt;&lt;path[?query]&gt;@&lt;version&gt;</code>, that names where a draft lives and which version it is. Studio makes them; <code>forDraft</code> reads them. Two helpers cover everything in between:</p>
+<pre class="code-block"><code class="language-typescript">interface DraftPointer {
+  host: string;      // content-API authority, e.g. "studio.decocms.com"
+  path: string;      // rooted path, with the signed grant in its query
+  version: string;   // opaque, immutable: the branch head or ETag
+}
+
+function parseDraftPointer(raw: string | null | undefined): DraftPointer | null;
+function formatDraftPointer(pointer: DraftPointer): string;</code></pre>
+  <p><code>parseDraftPointer</code> is strict and returns <code>null</code> on anything unexpected: a scheme, a stray <code>@</code>, an unrooted path, an odd character in the host or version. It's what <code>forDraft</code> calls, so an app only needs it to look inside a pointer, for example to show which version is being previewed, to key a cache on <code>version</code>, or to reject a pointer before storing it in a cookie. <code>formatDraftPointer</code> is the inverse, for building one from parts, as a mobile app might from a deep link.</p>
+  <p>For websites, two more helpers do the handshake, so the parameter and cookie names never appear in app code:</p>
+<pre class="code-block"><code class="language-typescript">function draftPointer(request: Request | { url: string; headers: Headers }): string | null;
+// ?__draft= from the URL first, then the deco-draft cookie. Null when neither is present.
+
+function draftCookie(request: Request | { url: string; headers: Headers }): string | null;
+// When the URL carries ?__draft=, the Set-Cookie value that stores it (HttpOnly, SameSite=Lax, Path=/),
+// or one that expires the cookie when the value is empty. Null on every other request.
+
+const DRAFT_COOKIE = "deco-draft";   // for frameworks whose cookie API has no Request, e.g. Next.js cookies()</code></pre>
+  <p>Both take anything with a <code>url</code> and <code>headers</code>, so they work with a fetch <code>Request</code>, a Next.js <code>NextRequest</code>, or a framework's request wrapper. <code>DRAFT_COOKIE</code> is for the one place that has no request at all: reading the cookie in a Next.js Server Component.</p>
+<pre class="code-block"><code class="language-typescript">const pointer = parseDraftPointer(cookie);
+if (pointer) console.log(`previewing ${pointer.version} from ${pointer.host}`);
+
+formatDraftPointer({ host: "studio.decocms.com", path: "/api/acme/decofile/store/main?token=…", version: "9f3c1a" });
+// "studio.decocms.com/api/acme/decofile/store/main?token=…@9f3c1a"</code></pre>
+  <p>Caching, ETags, and fallbacks live inside the loader, which may be shared by any number of clients. The client only ever sees <code>{ revision, blocks }</code>.</p>
+
+  <h3><code>client.resolve(target, options?)</code></h3>
+  <p>Loads the content once and applies the <a href="#model">registry rule</a> to the target: saved entries expand, and each block type in the map runs with its resolved inputs. <code>{ resolve: false }</code> expands entries but runs nothing.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Call</th><th>Returns</th></tr></thead>
+    <tbody>
+      <tr><td><code>resolve("SummerSEO")</code></td><td>The result of running the entry's function</td></tr>
+      <tr><td><code>resolve("SummerSEO", { resolve: false })</code></td><td>The saved entry, with references expanded and nothing run</td></tr>
+      <tr><td><code>resolve({ __resolveType: "seo", title: "Sale" })</code></td><td>The result for an inline block</td></tr>
+      <tr><td><code>resolve(page.sections)</code></td><td>An array of results, one per section</td></tr>
+      <tr><td><code>resolve({ title: "Store" })</code></td><td>The same object: it contains no blocks</td></tr>
+    </tbody>
+  </table></div>
+  <p>A string target is always an entry name. Any other value is walked as is, so you can pass a page field without checking whether it's a block or a literal. <code>T</code> describes the result you expect; it isn't validated at runtime. </p>
+  <p><strong>A client reads one revision for its lifetime.</strong> Its first call loads; every later call, <code>list</code> or <code>resolve</code>, reuses that content and shares a cache. That's why a client is made per request: everything a response renders agrees with itself, sections can stream as separate calls, and the next request sees the next revision. Two clients can see different revisions, so don't share one across requests.</p>
+
+  <h3><code>client.list(type, options?)</code></h3>
+  <p>Every saved entry of a block type, through aliases. Returns stored entries by default; <code>resolve: true</code> runs each one.</p>
+<pre class="code-block"><code class="language-typescript">interface ListOptions&lt;T&gt; {
+  where?: (entry: T) =&gt; boolean;
+  sort?: (a: T, b: T) =&gt; number;
+  limit?: number;
+  resolve?: boolean;
+}
+
+const [posts] = await client.list&lt;Post&gt;("post", {
+  where: (p) =&gt; p.date &lt;= today,
+  sort: (a, b) =&gt; b.date.localeCompare(a.date),
+  limit: 20,
+});</code></pre>
+  <p>Filters run in memory over the loaded content, which is the honest cost of a file-based store. Sites with tens of thousands of entries of one type should keep an index elsewhere.</p>
+
+  <h3><code>matchRoute(url, items)</code></h3>
+  <p>A pure function. Given a URL and the entries you want to route, it returns the one that matches. The CMS doesn't know about URLs; this is the companion that does. See <a href="#routing">Routing</a>.</p>
+<pre class="code-block"><code class="language-typescript">function matchRoute&lt;T extends Route&gt;(
+  url: string | URL | Request,
+  items: { routes: T[]; redirects?: Redirect[] },
+): Match&lt;T&gt;;
+
+type Match&lt;T&gt; =
+  | { kind: "match";    entry: T; params: Record&lt;string, string&gt; }
+  | { kind: "redirect"; location: string; status: 301 | 302 }
+  | { kind: "not-found" };</code></pre>
+  <p>Redirects win over routes, exact paths win over templates, and two entries that can match the same URL throw. Entries are compiled into a segment trie, cached per <code>items</code> array, so a lookup costs the URL's depth, not the catalogue's size; see <a href="#router-internals">how it matches</a>.</p>
+
+  <h3>Types</h3>
+<pre class="code-block"><code class="language-typescript">type Block = { __resolveType: string; [input: string]: unknown };
+
+// A block map: what cms.index.ts exports and the CLI reads.
+type BlockFunction = (inputs: any) =&gt; unknown | Promise&lt;unknown&gt;;
+type Blocks = Record&lt;string, BlockFunction&gt;;
+
+interface Loader {
+  load(pointer?: string | null): Promise&lt;{ revision: string; blocks: Record&lt;string, Block&gt; }&gt;;
+  update?(): Promise&lt;{ updated: boolean }&gt;;
+}
+
+interface DraftPointer { host: string; path: string; version: string }
+
+interface Route { name: string; path: string }                    // extend it to give a type a URL
+interface Redirect { from: string; to: string; permanent: boolean }
+
+type Match&lt;T&gt; =
+  | { kind: "match";    entry: T; params: Record&lt;string, string&gt; }
+  | { kind: "redirect"; location: string; status: 301 | 302 }
+  | { kind: "not-found" };
+
+type Result&lt;T&gt; = [T, null] | [null, CMSError];</code></pre>
+
+  <h3>Errors</h3>
+  <p>Nothing in the SDK throws. Every call returns <code>[value, null]</code> or <code>[null, error]</code>. Check the error, not the value, because a block function can legitimately return <code>null</code>.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Code</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td><code>NOT_FOUND</code></td><td>A string target or a reference names an entry that doesn't exist.</td></tr>
+      <tr><td><code>UNKNOWN_BLOCK</code></td><td>A name is neither a saved entry nor a type in <code>blocks</code>.</td></tr>
+      <tr><td><code>CYCLE</code></td><td>References lead back to an entry that's already being expanded.</td></tr>
+      <tr><td><code>BLOCK_FAILED</code></td><td>A block function threw. The original error is in <code>cause</code>.</td></tr>
+      <tr><td><code>LOADER_FAILED</code></td><td>The loader couldn't load the content. The original error is in <code>cause</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <p>A <code>CMSError</code> has a <code>code</code>, a <code>message</code>, a <code>path</code> (where in the tree it happened, such as <code>["sections", 2, "product"]</code>), and an optional <code>cause</code>. Log it on the server, and show visitors a generic message.</p>
+</section>
+
+<section id="nextjs" data-nav="Next.js App Router" class="doc-section">
+  <p class="eyebrow">Framework guides</p><h2>Next.js App Router</h2>
+  <p>In this guide, you'll render CMS pages with Server Components, stream each section under its own Suspense boundary, and generate metadata from the page's SEO block.</p>
+  <p><strong>Prerequisites:</strong> an App Router app on the Node runtime with a root layout, plus the <a href="#routing">example project</a> files under <code>src</code>.</p>
+
+  <h3>1. Add the views</h3>
+<figure class="code-example"><figcaption>src/views/CartButton.tsx</figcaption><pre><code class="language-tsx">'use client'
+import { useState } from 'react'
+
+export default function CartButton() {
+  const [count, setCount] = useState(0)
+  return (
+    &lt;button type="button" onClick={() =&gt; setCount((value) =&gt; value + 1)}&gt;
+      Add to cart ({count})
+    &lt;/button&gt;
+  )
+}</code></pre></figure>
+<figure class="code-example"><figcaption>src/views/Product.tsx</figcaption><pre><code class="language-tsx">import CartButton from './CartButton'
+import type { ProductProps } from '../cms/model'
+
+const money = (props: ProductProps) =&gt;
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: props.currency }).format(props.price)
+
+export default function Product(props: ProductProps) {
+  return (
+    &lt;section id={props.id}&gt;
+      &lt;h2&gt;{props.name}&lt;/h2&gt;
+      &lt;p&gt;{money(props)}&lt;/p&gt;
+      &lt;CartButton /&gt;
+    &lt;/section&gt;
+  )
+}</code></pre></figure>
+
+  <h3>2. Create the CMS</h3>
+  <p>The <code>product</code> block returns JSX. Next renders it as a Server Component, and <code>CartButton</code> stays a Client Component.</p>
+<figure class="code-example"><figcaption>src/blocks/product.tsx</figcaption><pre><code class="language-tsx">import Product from '../views/Product'
+import type { ProductProps } from '../cms/model'
+
+export default async function product(input: ProductProps) {
+  return &lt;Product {...input} /&gt;
+}</code></pre></figure>
+<figure class="code-example"><figcaption>src/cms/blocks.ts</figcaption><pre><code class="language-typescript">import type { Blocks } from '@decocms/blocks'
+import { baseBlocks } from './blocks.base'
+import product from '../blocks/product'
+
+export default { ...baseBlocks, product } satisfies Blocks</code></pre></figure>
+<figure class="code-example"><figcaption>src/cms/cms.ts</figcaption><pre><code class="language-typescript">import { createCMS } from '@decocms/blocks'
+import blocks from './blocks'
+
+// Development (no token) reads the files in .deco. Production reads releases from the Deco API
+// and falls back to those same files.
+export const cms = createCMS({ loader: { token: process.env.DECO_SITE_TOKEN }, blocks })</code></pre></figure>
+<figure class="code-example"><figcaption>src/cms/client.server.ts</figcaption><pre><code class="language-typescript">import 'server-only'
+import { cookies } from 'next/headers'
+import { DRAFT_COOKIE } from '@decocms/blocks'
+import { cms } from './cms'
+
+// The client for this request: a draft when the cookie holds a valid pointer, production otherwise.
+// Without a token, in development, this is always the release client; only the API loader fetches drafts.
+export async function client() {
+  const pointer = (await cookies()).get(DRAFT_COOKIE)?.value
+  return pointer ? cms.forDraft(pointer) : cms.forRelease()
+}</code></pre></figure>
+  <p>Generate the schema from the map file: <code>npx deco schema --entry ./src/cms/blocks.ts --out ./.deco/schema.json</code>. For <a href="#preview">preview</a>, let <code>proxy.ts</code> store the draft pointer in a cookie on the request Studio opens, so navigation keeps it:</p>
+
+<figure class="code-example"><figcaption>src/proxy.ts</figcaption><pre><code class="language-typescript">import { NextResponse, type NextRequest } from 'next/server'
+import { draftCookie } from '@decocms/blocks'
+
+export function proxy(request: NextRequest) {
+  const response = NextResponse.next()
+  const cookie = draftCookie(request)          // only set on the request Studio opens; expiring when leaving preview
+  if (cookie) response.headers.append('Set-Cookie', cookie)
+  return response
+}</code></pre></figure>
+
+  <h3>3. Open the page once per request</h3>
+  <p><code>generateMetadata</code> and the page component both need the page. Wrap the lookup in React's <code>cache</code> so they share one client, one match, and the same section promises.</p>
+<figure class="code-example"><figcaption>src/cms/open-page.server.ts</figcaption><pre><code class="language-typescript">import 'server-only'
+import { cache } from 'react'
+import type { ReactNode } from 'react'
+import { notFound, permanentRedirect, redirect } from 'next/navigation'
+import { matchRoute, type Redirect } from '@decocms/blocks'
+import { client } from './client.server'
+import type { SEO, StoredPage } from './model'
+
+export const openPage = cache(async (pathname: string) =&gt; {
+  const c = await client()
+  const [pages, pagesError] = await c.list&lt;StoredPage&gt;('page')
+  if (pagesError) throw pagesError
+  const [redirects, redirectsError] = await c.list&lt;Redirect&gt;('redirect')
+  if (redirectsError) throw redirectsError
+
+  const match = matchRoute(pathname, { routes: pages, redirects })
+  if (match.kind === 'not-found') notFound()
+  if (match.kind === 'redirect') {
+    if (match.status === 301) permanentRedirect(match.location)
+    redirect(match.location)
+  }
+
+  const page = match.entry
+  return {
+    sections: page.sections.map((section, index) =&gt; ({
+      key: `${pathname}:${index}`,
+      result: c.resolve&lt;ReactNode&gt;(section),
+    })),
+    seo: c.resolve&lt;SEO&gt;(page.seo),
+  }
+})
+
+export const pathnameFor = (segments: string[] = []) =&gt;
+  '/' + segments.map(encodeURIComponent).join('/')</code></pre></figure>
+
+  <h3>4. Render the catch-all route</h3>
+<figure class="code-example"><figcaption>src/app/[[...path]]/page.tsx</figcaption><pre><code class="language-tsx">import { Suspense, type ReactNode } from 'react'
+import type { Metadata } from 'next'
+import type { Result } from '@decocms/blocks'
+import { openPage, pathnameFor } from '../../cms/open-page.server'
+
+export const runtime = 'nodejs'
+type Props = { params: Promise&lt;{ path?: string[] }&gt; }
+
+export async function generateMetadata({ params }: Props): Promise&lt;Metadata&gt; {
+  const page = await openPage(pathnameFor((await params).path))
+  const [seo, error] = await page.seo
+  if (error) throw error
+  return { title: seo.title, description: seo.description }
+}
+
+async function Section({ result }: { result: Promise&lt;Result&lt;ReactNode&gt;&gt; }) {
+  const [node, error] = await result
+  if (error) {
+    console.error(error)
+    return &lt;p role="status"&gt;This section is temporarily unavailable.&lt;/p&gt;
+  }
+  return node
+}
+
+export default async function Page({ params }: Props) {
+  const page = await openPage(pathnameFor((await params).path))
+  return (
+    &lt;main&gt;
+      {page.sections.map((section) =&gt; (
+        &lt;Suspense key={section.key} fallback={&lt;p&gt;Loading section…&lt;/p&gt;}&gt;
+          &lt;Section result={section.result} /&gt;
+        &lt;/Suspense&gt;
+      ))}
+    &lt;/main&gt;
+  )
+}</code></pre></figure>
+
+  <h3>5. List another content type</h3>
+  <p>A blog index needs no page entry. List the <code>post</code> type; each entry carries its own <code>path</code>:</p>
+<figure class="code-example"><figcaption>src/app/blog/page.tsx</figcaption><pre><code class="language-tsx">import Link from 'next/link'
+import { client } from '../../cms/client.server'
+import type { Post } from '../../../content/post'
+
+export default async function BlogIndex() {
+  const c = await client()
+  const [posts, error] = await c.list&lt;Post&gt;('post', { sort: (a, b) =&gt; b.date.localeCompare(a.date) })
+  if (error) throw error
+  return (
+    &lt;ul&gt;
+      {posts.map((post) =&gt; (
+        &lt;li key={post.path}&gt;&lt;Link href={post.path}&gt;{post.name}&lt;/Link&gt;&lt;/li&gt;
+      ))}
+    &lt;/ul&gt;
+  )
+}</code></pre></figure>
+  <h3>How it works</h3>
+  <ul>
+    <li><strong>Preview is a different client.</strong> <code>client()</code> is <code>pointer ? cms.forDraft(pointer) : cms.forRelease()</code>, and the pointer only exists while the cookie does. Nothing else in the guide knows about preview.</li>
+    <li><strong><code>openPage</code> takes a pathname.</strong> React's <code>cache</code> compares arguments by identity, so pass a primitive. If content depends on query parameters, include a normalized search string in the argument. A block that needs headers or cookies reads them with <code>next/headers</code>, like any other server code.</li>
+    <li><strong>Metadata waits only for SEO.</strong> Next can stream metadata separately. A metadata error after streaming starts can't change headers that were already sent.</li>
+    <li><strong>Redirect status codes.</strong> Next's navigation helpers send 308 and 307. For an exact 301 or 302, match redirects in <code>proxy.ts</code> with <code>matchRoute</code> and return <code>NextResponse.redirect(url, match.status)</code>. Proxy runs separately and doesn't share the page's revision.</li>
+  </ul>
+  <p>These files use the default App Router configuration. Cache Components adds caching and Suspense requirements of its own. See the Next.js docs on <a href="https://nextjs.org/docs/app/api-reference/functions/generate-metadata">metadata</a> and <a href="https://nextjs.org/docs/app/api-reference/file-conventions/proxy">proxy</a>.</p>
+</section>
+
+<section id="tanstack-data" data-nav="TanStack · data" class="doc-section">
+  <p class="eyebrow">Framework guides</p><h2>TanStack Start with data descriptors</h2>
+  <p>In this guide, block functions return serializable descriptors, and a component registry renders them. Start streams each section's result, server-renders the views, and hydrates the same views in the browser. It deploys to Cloudflare Workers.</p>
+  <p><strong>Prerequisites:</strong> a Start app with its route tree, router, and document shell, plus the <a href="#routing">example project</a> files and the <code>Product</code> and <code>CartButton</code> views from the <a href="#nextjs">Next.js guide</a>. Enable <code>resolveJsonModule</code> in <code>tsconfig.json</code>.</p>
+
+  <h3>1. Return descriptors from blocks</h3>
+<figure class="code-example"><figcaption>src/blocks/product.data.ts</figcaption><pre><code class="language-typescript">import type { ProductProps, SectionData } from '../cms/model'
+
+export default async function product(input: ProductProps): Promise&lt;SectionData&gt; {
+  return { component: 'product', props: input }
+}</code></pre></figure>
+
+  <h3>2. Create the CMS</h3>
+  <p>Workers have no filesystem, so local content is the JSON imported at build time, and <code>remoteLoader</code> serves releases over it. <code>wrangler dev</code> reads the token from <code>.dev.vars</code>.</p>
+<figure class="code-example"><figcaption>src/cms/blocks.ts</figcaption><pre><code class="language-typescript">import type { Blocks } from '@decocms/blocks'
+import { baseBlocks } from './blocks.base'
+import product from '../blocks/product.data'
+
+export default { ...baseBlocks, product } satisfies Blocks</code></pre></figure>
+<figure class="code-example"><figcaption>src/cms/cms.ts</figcaption><pre><code class="language-typescript">import { createCMS, localLoader, remoteLoader, draftPointer } from '@decocms/blocks'
+import { env } from 'cloudflare:workers'
+import ProductPage from '../../.deco/blocks/ProductPage.json'
+import LegacyProduct from '../../.deco/blocks/LegacyProduct.json'
+import blocks from './blocks'
+
+// The content this build shipped with. remoteLoader falls back to it if the API is unreachable.
+const local = localLoader({ revision: 'bundled', blocks: { ProductPage, LegacyProduct } })
+
+export const cms = createCMS({ loader: remoteLoader(local, { token: env.DECO_SITE_TOKEN }), blocks })
+
+// The client for this request: the draft it points at, or the current release.
+// Workers have no timers between requests, so each request also kicks the update check;
+// it returns at once unless five minutes have passed, and never blocks the response.
+export const client = (request: Request) =&gt; {
+  cms.update()
+  const pointer = draftPointer(request)
+  return pointer ? cms.forDraft(pointer) : cms.forRelease()
+}</code></pre></figure>
+
+  <h3>3. Open the page</h3>
+  <p>This helper is shared by both TanStack guides. The server function hands the incoming request to <code>client()</code>, so preview needs no framework support. Each section promise resolves to the value, or to <code>null</code> if the section failed, so no internal error details reach the browser.</p>
+<figure class="code-example"><figcaption>src/cms/open-page.server.ts</figcaption><pre><code class="language-typescript">import { notFound, redirect } from '@tanstack/react-router'
+import { matchRoute, type Redirect } from '@decocms/blocks'
+import { client } from './cms'
+import type { SEO, StoredPage } from './model'
+
+export async function openPage&lt;T&gt;(href: string, request: Request) {
+  const c = client(request)
+  const [pages, pagesError] = await c.list&lt;StoredPage&gt;('page')
+  if (pagesError) throw pagesError
+  const [redirects, redirectsError] = await c.list&lt;Redirect&gt;('redirect')
+  if (redirectsError) throw redirectsError
+
+  const match = matchRoute(href, { routes: pages, redirects })
+  if (match.kind === 'not-found') throw notFound()
+  if (match.kind === 'redirect') throw redirect({ href: match.location, statusCode: match.status })
+
+  const page = match.entry
+  const sections = page.sections.map((section, index) =&gt; ({
+    key: `${href}:${index}`,
+    value: c.resolve&lt;T&gt;(section).then(([value, sectionError]) =&gt; {
+      if (sectionError) console.error(sectionError)
+      return sectionError ? null : value
+    }),
+  }))
+
+  // Every section has started before SEO is awaited.
+  const [seo, seoError] = await c.resolve&lt;SEO&gt;(page.seo)
+  if (seoError) throw seoError
+  return { seo, sections }
+}</code></pre></figure>
+
+  <h3>4. Expose it through a server function</h3>
+<figure class="code-example"><figcaption>src/server/page.functions.ts</figcaption><pre><code class="language-typescript">import { createServerFn } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { z } from 'zod'
+import { openPage } from '../cms/open-page.server'
+import type { SectionData } from '../cms/model'
+
+export const loadPage = createServerFn({ method: 'GET' })
+  .inputValidator(z.object({ href: z.string().startsWith('/') }))
+  .handler(({ data }) =&gt; openPage&lt;SectionData&gt;(data.href, getRequest()))</code></pre></figure>
+
+  <h3>5. Render the catch-all route</h3>
+<figure class="code-example"><figcaption>src/routes/$.tsx</figcaption><pre><code class="language-tsx">import { Suspense } from 'react'
+import { Await, createFileRoute } from '@tanstack/react-router'
+import Product from '../views/Product'
+import { loadPage } from '../server/page.functions'
+
+const views = { product: Product }
+
+export const Route = createFileRoute('/$')({
+  loader: ({ location }) =&gt; loadPage({ data: { href: location.pathname + location.searchStr } }),
+  head: ({ loaderData }) =&gt; ({
+    meta: loaderData
+      ? [{ title: loaderData.seo.title }, { name: 'description', content: loaderData.seo.description }]
+      : [],
+  }),
+  component: Page,
+  pendingComponent: () =&gt; &lt;p&gt;Opening page…&lt;/p&gt;,
+  errorComponent: () =&gt; &lt;p&gt;The page could not be loaded.&lt;/p&gt;,
+})
+
+function Page() {
+  const page = Route.useLoaderData()
+  return (
+    &lt;main&gt;
+      {page.sections.map((section) =&gt; (
+        &lt;Suspense key={section.key} fallback={&lt;p&gt;Loading section…&lt;/p&gt;}&gt;
+          &lt;Await promise={section.value}&gt;
+            {(data) =&gt; {
+              if (!data) return &lt;p role="status"&gt;This section is temporarily unavailable.&lt;/p&gt;
+              const View = views[data.component]
+              return &lt;View {...data.props} /&gt;
+            }}
+          &lt;/Await&gt;
+        &lt;/Suspense&gt;
+      ))}
+    &lt;/main&gt;
+  )
+}</code></pre></figure>
+  <div class="callout"><p><strong>Keep section promises unawaited.</strong> Start streams nested promises through its own transport and <code>Await</code> consumes them. A plain JSON endpoint can't do this: it has to await every value first.</p></div>
+  <p>Import the server function statically from the route, so Start can replace it with an RPC stub in the client build. The component registry and its views ship to the browser. A block that needs the request calls <code>getRequest()</code> from <code>@tanstack/react-start/server</code>. Check preview authorization in the handler before selecting a private release. See <a href="https://tanstack.com/start/latest/docs/framework/react/server-functions">Start server functions</a>.</p>
+
+  <h3>6. Configure Cloudflare Workers</h3>
+<figure class="code-example"><figcaption>vite.config.ts</figcaption><pre><code class="language-typescript">import { defineConfig } from 'vite'
+import { cloudflare } from '@cloudflare/vite-plugin'
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [cloudflare({ viteEnvironment: { name: 'ssr' } }), tanstackStart(), react()],
+})</code></pre></figure>
+<figure class="code-example"><figcaption>wrangler.jsonc</figcaption><pre><code class="language-jsonc">{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cms-rendering-example",
+  "main": "@tanstack/react-start/server-entry",
+  "compatibility_date": "2026-02-14",
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"]
+}</code></pre></figure>
+  <p class="small muted">Tested with Start 1.168.58, Router 1.170.39, React 19.2.7, Vite 7.3.6, Cloudflare Vite plugin 1.44.0, and Wrangler 4.110.0.</p>
+</section>
+
+<section id="tanstack-rsc" data-nav="TanStack · RSC" class="doc-section">
+  <p class="eyebrow">Framework guides</p><h2>TanStack Start with React Server Components</h2>
+  <div class="callout warning"><p><strong>Experimental.</strong> TanStack Start's RSC APIs are experimental and need an RSC compiler configuration.</p></div>
+  <p>This guide reuses the <a href="#tanstack-data">data guide</a>'s content, CMS, and <code>openPage</code> helper, but the <code>product</code> block returns JSX instead of a descriptor. The server renders the tree through React Flight, so the browser needs no view registry.</p>
+
+  <h3>1. Swap the product block</h3>
+  <p>Use <code>src/blocks/product.tsx</code> from the <a href="#nextjs">Next.js guide</a>, and import it in <code>src/cms/blocks.ts</code> in place of <code>product.data</code>. Keep <code>cms.ts</code> as it is.</p>
+
+  <h3>2. Render sections on the server</h3>
+<figure class="code-example"><figcaption>src/server/page.functions.tsx</figcaption><pre><code class="language-tsx">import { Suspense, type ReactNode } from 'react'
+import { createServerFn } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { renderServerComponent } from '@tanstack/react-start/rsc'
+import { z } from 'zod'
+import { openPage } from '../cms/open-page.server'
+
+async function Section({ value }: { value: Promise&lt;ReactNode | null&gt; }) {
+  const node = await value
+  return node ?? &lt;p role="status"&gt;This section is temporarily unavailable.&lt;/p&gt;
+}
+
+export const loadPage = createServerFn({ method: 'GET' })
+  .inputValidator(z.object({ href: z.string().startsWith('/') }))
+  .handler(async ({ data }) =&gt; {
+    const page = await openPage&lt;ReactNode&gt;(data.href, getRequest())
+    const content = await renderServerComponent(
+      &lt;main&gt;
+        {page.sections.map((section) =&gt; (
+          &lt;Suspense key={section.key} fallback={&lt;p&gt;Loading section…&lt;/p&gt;}&gt;
+            &lt;Section value={section.value} /&gt;
+          &lt;/Suspense&gt;
+        ))}
+      &lt;/main&gt;,
+    )
+    return { seo: page.seo, content }
+  })</code></pre></figure>
+
+  <h3>3. Render the route</h3>
+<figure class="code-example"><figcaption>src/routes/$.tsx</figcaption><pre><code class="language-tsx">import { createFileRoute } from '@tanstack/react-router'
+import { loadPage } from '../server/page.functions'
+
+export const Route = createFileRoute('/$')({
+  loader: ({ location }) =&gt; loadPage({ data: { href: location.pathname + location.searchStr } }),
+  head: ({ loaderData }) =&gt; ({
+    meta: loaderData
+      ? [{ title: loaderData.seo.title }, { name: 'description', content: loaderData.seo.description }]
+      : [],
+  }),
+  component: () =&gt; &lt;&gt;{Route.useLoaderData().content}&lt;/&gt;,
+  pendingComponent: () =&gt; &lt;p&gt;Opening page…&lt;/p&gt;,
+  errorComponent: () =&gt; &lt;p&gt;The page could not be loaded.&lt;/p&gt;,
+})</code></pre></figure>
+  <p><code>renderServerComponent</code> serializes the tree through Flight, including references to Client Components like <code>CartButton</code>. Adding <code>"use client"</code> alone doesn't enable this. Start's custom serializers don't apply inside the server tree. If you cache RSC values with TanStack Query, set <code>structuralSharing: false</code>. See <a href="https://tanstack.com/start/latest/docs/framework/react/server-components">Start Server Components</a>.</p>
+
+  <h3>4. Configure Cloudflare Workers</h3>
+  <p>Make <code>rsc</code> a child environment of the <code>ssr</code> Worker, and keep <code>wrangler.jsonc</code> from the data guide.</p>
+<figure class="code-example"><figcaption>vite.config.ts</figcaption><pre><code class="language-typescript">import { defineConfig } from 'vite'
+import { cloudflare } from '@cloudflare/vite-plugin'
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import react from '@vitejs/plugin-react'
+import rsc from '@vitejs/plugin-rsc'
+
+export default defineConfig({
+  plugins: [
+    cloudflare({ viteEnvironment: { name: 'ssr', childEnvironments: ['rsc'] } }),
+    tanstackStart({ rsc: { enabled: true } }),
+    rsc(),
+    react(),
+  ],
+  environments: {
+    rsc: { build: { outDir: 'dist/server/rsc' } },
+  },
+})</code></pre></figure>
+  <p class="small muted">Also requires <code>@vitejs/plugin-rsc</code> 0.5.30 and <code>react-server-dom-webpack</code> 19.2.7. If one repository maintains both integrations, give each its own build configuration.</p>
+</section>
+
+<section id="releases" data-nav="Loaders &amp; deployment" class="doc-section" aria-labelledby="releases-title">
+  <p class="eyebrow">Production</p><h2 id="releases-title">Loaders and deployment</h2>
+  <p>A loader returns a <strong>revision</strong>: a hash of the content plus every saved entry in it. <code>localLoader</code>, the CLI, and the Deco API all compute the hash the same way, so "is what I have current?" is one string comparison. Your block functions don't know where content came from, so the same code runs against local files, content bundled into the build, or published releases.</p>
+<pre class="code-block"><code class="language-json">{
+  "revision": "b1946ac92492d2347c6235b4d2611184",
+  "blocks": {
+    "SummerSEO": { "__resolveType": "seo", "title": "Summer collection" }
+  }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Content from</th><th>Deployment</th></tr></thead>
+    <tbody>
+      <tr><td><code>localLoader</code></td><td>The content that ships with the app: a directory on Node, or JSON bundled into the build on Workers. On its own, changing content means redeploying (or, on Node, editing files); as the fallback of <code>remoteLoader</code>, it's what the app serves when the API is down.</td></tr>
+      <tr><td><code>remoteLoader(fallback, …)</code></td><td>The Deco API serves each commit of the production branch as an immutable release. The loader reads the current one at request time, cached by revision, with the content the build shipped with as the fallback. A content change reaches visitors without a deploy. This is what "instant deploys" means.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Revisions are immutable: change any entry and the hash changes. A revision is a safe cache key everywhere.</p>
+
+  <h3>One revision per response</h3>
+  <p>A client reads one revision for its lifetime: its first call loads, and every later <code>list</code> and <code>resolve</code> reuses that content, even concurrent ones. Two clients can see different revisions, so make one client per request and do everything the response needs through it.</p>
+  <p>When the browser requests more data for a page it has already rendered, send the page's revision along so the data matches the HTML. A revision ID picks content; it doesn't grant access. Preview access is the draft pointer's signed grant and the site's preview hosts on decocms, see <a href="#preview">Preview</a>.</p>
+
+  <h3>Publishing</h3>
+  <p>Publishing is committing. A developer or an agent edits <code>.deco/blocks</code> and pushes; an editor saves in Studio, which commits to the same repository. Either way the production branch moves, and the Deco API turns that commit into a release. <code>remoteLoader</code> resolves the production channel to a revision once per load, caches immutable releases indefinitely, and polls for a new revision every five minutes, so a change reaches every visitor within about five minutes of the commit. Because content and code share one history, a deploy and a content change are the same kind of event: a commit. Rolling content back is reverting one.</p>
+  <p>The API skips a release whose schema doesn't match the running app's, so content can't get ahead of code: if a commit adds a block type the deployed build doesn't have, the loader keeps serving the previous release until the build catches up.</p>
+
+  <h3>Never waiting on the network</h3>
+  <p>A production request never waits for the API. <code>load()</code> returns from memory, immediately, every time, and the loader checks for newer content in the background every five minutes. Publishing reaches visitors within about that long. How that works, step by step, is <a href="#loader-internals">under the hood</a>.</p>
+
+  <h3>Fallback</h3>
+  <p>The fallback loader is the only fallback, and it's always available: it's the content the build shipped with, which is the content the deploy was tested against, so it's always compatible with the code. It always swaps whole revisions: mixing entries from different revisions breaks references and can bring back deleted content. The loader reports the revision it actually served.</p>
+
+  <h3>Write your own loader</h3>
+  <p>The contract is one method. A KV-backed loader for a Worker:</p>
+<figure class="code-example"><figcaption>src/cms/kv-loader.ts</figcaption><pre><code class="language-typescript">import type { Loader } from '@decocms/blocks'
+
+export function kvLoader(kv: KVNamespace, key = 'release:current'): Loader {
+  return {
+    async load() {
+      const content = await kv.get(key, 'json')
+      if (!content) throw new Error('No content in KV')
+      return content   // { revision, blocks }
+    },
+  }
+}</code></pre></figure>
+  <p>Pass it as <code>createCMS</code>'s <code>loader</code>, or as the fallback of <code>remoteLoader</code>. If your store has drafts, honour the <code>pointer</code> argument; if it can go stale, add <code>update()</code>. The client only ever sees <code>{ revision, blocks }</code>.</p>
+</section>
+
+<section id="operations" data-nav="Caching &amp; observability" class="doc-section" aria-labelledby="operations-title">
+  <p class="eyebrow">Production</p><h2 id="operations-title">Caching and observability</h2>
+  <p>Each cache layer has its own lifetime and key:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Layer</th><th>Lifetime</th><th>Your responsibility</th></tr></thead>
+    <tbody>
+      <tr><td>Dynamically imported modules</td><td>Cached by the JavaScript runtime after the first <code>import()</code>, for the life of the process.</td><td>Keep per-request state out of module globals.</td></tr>
+      <tr><td>Resolved blocks</td><td>One client: one request.</td><td>Make a client per request and resolve everything the response renders through it.</td></tr>
+      <tr><td>Cross-request results</td><td>Your policy.</td><td>Key by revision, app version, inputs, and relevant request context. Define TTL and invalidation.</td></tr>
+      <tr><td>Upstream data</td><td>Follows the upstream API.</td><td>Include tenant, locale, currency, or customer in the key. Never cache private data as public.</td></tr>
+    </tbody>
+  </table></div>
+  <p>A block type alone is never a cache key. Include every input that can change the result. A cache hit doesn't bypass authorization. Keep state-changing operations out of content resolution entirely.</p>
+
+  <h3>Tracing</h3>
+  <p>Make each request span the parent of block resolution spans and outbound HTTP spans. Record the block type, revision, duration, errors, and cache outcome, and keep credentials and customer data out of attributes. Export telemetry asynchronously, so an unavailable collector never blocks rendering. <a href="https://opentelemetry.io/">OpenTelemetry</a> covers traces, metrics, and logs.</p>
+  <p>Studio and MCP tools build authoring and publishing workflows on these sources. They're not part of a storefront's request path.</p>
+</section>
+
+<section id="adoption" data-nav="Upgrading &amp; compatibility" class="doc-section" aria-labelledby="adoption-title">
+  <p class="eyebrow">Production</p><h2 id="adoption-title">Upgrading and compatibility</h2>
+  <p>Block type names and input shapes are persistent interfaces: saved content depends on them. Moving a file is free. Renaming a type or removing an input affects every block that uses it.</p>
+
+  <h3>Rename a type with an alias</h3>
+  <p>An alias is another key pointing at the same thing: the same function in the block map, or the same type in <code>Content</code>. Content that stores the old name keeps working, and routing is unaffected because it looks at <code>path</code>, not the type name:</p>
+<figure class="code-example"><figcaption>cms.index.ts</figcaption><pre><code class="language-typescript">export default {
+  "product-card": productCard,
+  "site/sections/Product.tsx": productCard,     // the name legacy content stores
+} satisfies Blocks;
+
+export type Content = {
+  page: Page;
+  "website/pages/Page.tsx": Page;               // same type, legacy name; entries still route
+  redirect: Redirect;
+};</code></pre></figure>
+  <p>An alias only works while both names take the same inputs. If the old shape differs, register a function that converts it, or migrate the content first. <code>deco schema</code> rejects an alias that collides with an entry name.</p>
+
+  <h3>Upgrade checklist</h3>
+  <ol>
+    <li><strong>Keep existing names.</strong> Register existing path-like types as they are, or alias them.</li>
+    <li><strong>Check inputs.</strong> Regenerate the schema and validate saved content. Review new required fields, narrowed unions, and changed defaults.</li>
+    <li><strong>Migrate into a new revision.</strong> Keep unknown fields for inspection, and report unresolved references instead of dropping them.</li>
+    <li><strong>Test the integration.</strong> Check routing, metadata, streamed sections, error fallbacks, and client navigation against the migrated content.</li>
+    <li><strong>Keep a rollback pair.</strong> Keep the previous build with compatible content. Rolling back content alone can't restore removed code.</li>
+  </ol>
+  <p>Test behavior, not just schemas. A function can keep its input type and still change its output, defaults, or upstream calls.</p>
+</section>
+
+<section id="troubleshooting" data-nav="Troubleshooting" class="doc-section" aria-labelledby="troubleshooting-title">
+  <p class="eyebrow">Production</p><h2 id="troubleshooting-title">Troubleshooting</h2>
+  <p>Start with three facts: the revision served, the entry name, and the block type. Call <code>client.resolve(target, { resolve: false })</code> to see the content before any code runs, and <code>loader.load()</code> to see an entry exactly as stored.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Symptom</th><th>What to check</th></tr></thead>
+    <tbody>
+      <tr><td><code>UNKNOWN_BLOCK</code></td><td>Compare <code>__resolveType</code> with your block map's keys, including case. Add an <a href="#adoption">alias</a> for renamed types. If the function does a dynamic <code>import()</code>, confirm the imported module has a default export.</td></tr>
+      <tr><td><code>NOT_FOUND</code></td><td>A string target is always an entry name, never a block type. Confirm the entry exists in the served revision. To run a type directly, pass an inline block: <code>client.resolve({ __resolveType: "seo", … })</code>.</td></tr>
+      <tr><td>My function never runs for a type</td><td>A saved entry probably has the same name. Run <code>deco schema</code>, which reports the collision, and rename the entry.</td></tr>
+      <tr><td>Content comes back unresolved</td><td>You passed <code>{ resolve: false }</code>, or the client was created without a block map.</td></tr>
+      <tr><td>A function runs more than once per request</td><td>Use one client for the whole request, and keep the block map at module level. Each new client, and each new map object, gets its own cache.</td></tr>
+      <tr><td><code>CYCLE</code></td><td>Follow the references in <code>error.path</code> and remove the one that leads back to an entry already being expanded.</td></tr>
+      <tr><td>Wrong fields in the editor</td><td>Regenerate the schema from the right <code>cms.index.ts</code>. Check the first parameter's type and its property JSDoc.</td></tr>
+      <tr><td>A result can't cross the network</td><td>JSON can't carry functions or React trees. Return serializable descriptors, or use an RSC integration.</td></tr>
+      <tr><td>Hydration mismatch</td><td>Compare revisions and request context between server and client. Look for time-dependent or random rendering, and send the page's revision with follow-up requests.</td></tr>
+      <tr><td>Content changes mid-response</td><td>Use one client for the whole response; a client never changes revision. Check that the loader never rewrites an existing revision.</td></tr>
+      <tr><td>Stale or fallback content</td><td>Check the revision the loader served, channel freshness, and release availability. Never mix entries from different revisions.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+</div>
+<div class="page" data-page="internals">
+<section id="internals" data-nav="Overview" class="doc-section" aria-labelledby="internals-title">
+  <p class="eyebrow">Under the hood</p><h2 id="internals-title">Under the hood</h2>
+  <p>The <a href="#architecture">developer docs</a> describe how to use Deco Blocks. This part describes how it works as a whole: the resolution algorithm, how the production loader stays current without ever blocking a request, how the router matches, what Deco Studio reads and how the framework stays compatible with it, and the decisions behind all of that. It's for contributors, for anyone integrating a new framework or store, and for the curious.</p>
+
+  <h3>Contributing</h3>
+  <p>The framework is a Bun workspace at <code>decocms/blocks</code>. Five packages, one-way dependency graph, and that direction is load-bearing:</p>
+<pre class="code-block"><code class="language-text">packages/
+├── blocks/        @decocms/blocks         the SDK: loaders, client, resolution, router. Zero deco dependencies.
+├── blocks-admin/  @decocms/blocks-admin   the Studio protocol handlers.            depends on: blocks
+├── blocks-cli/    @decocms/blocks-cli     schema generation and migrations.        depends on: blocks
+├── tanstack/      @decocms/tanstack       TanStack Start + Cloudflare binding.     depends on: blocks, admin, cli
+└── next/          @decocms/nextjs         Next.js App Router binding.              depends on: blocks, admin</code></pre>
+  <p><code>blocks</code> never imports from the others, and the two framework bindings never import from each other. When a concern needs both sides, split it rather than adding a back-edge. Cross-package imports resolve to <code>.ts</code> source, so no package bundles another's output; that's the guarantee the split exists for.</p>
+<pre class="code-block"><code class="language-bash">bun install
+bun run check     # typecheck + lint
+bun run test      # vitest, per package</code></pre>
+  <p>Two rules worth knowing before a first PR. A site must never need a local shim for something a package should export: if a symbol is missing from a package's public surface, add the export. And if a test named after a production incident fails, don't relax the assertion; it's there because that exact invariant broke once.</p>
+</section>
+
+<section id="walkthrough" data-nav="How resolution works" class="doc-section">
+  <p class="eyebrow">Under the hood</p><h2>How resolution works</h2>
+  <p>Step through the registry rule for one saved entry. Switch between reading and resolving, and between a descriptor and a React tree as the function output. This is an illustration, so it doesn't run any application code.</p>
+  <div class="explorer">
+    <div class="explorer-top"><strong>ProductCard · one saved entry</strong><div class="segmented" role="group" aria-label="CMS call"><button data-trace-operation="get" aria-pressed="false">resolve(name, { resolve: false })</button><button data-trace-operation="resolve" aria-pressed="true">resolve(name)</button></div></div>
+    <div class="explorer-top"><span class="small muted">Function output</span><div class="segmented" role="group" aria-label="Output representation"><button data-trace-mode="data" aria-pressed="true">Descriptor</button><button data-trace-mode="rsc" aria-pressed="false">React tree</button></div></div>
+    <div class="explorer-body"><div class="trace-steps" aria-label="Resolution steps"><button data-trace-step="0" aria-current="step">1 · Stored</button><button data-trace-step="1">2 · CurrentProduct: data</button><button data-trace-step="2">3 · catalog-product: function</button><button data-trace-step="3">4 · product-card: function</button></div><pre aria-label="Resolution example"><code id="trace-code" class="language-json">{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": { "__resolveType": "CurrentProduct" }
+}</code></pre><p class="trace-caption" id="trace-caption" aria-live="polite">The saved entry. Its product input names CurrentProduct, another saved entry.</p><div class="explorer-footer"><span class="trace-stat" id="trace-stat">0 function calls</span><button class="primary-button" id="trace-next">Next step →</button></div></div>
+  </div>
+  <p class="small muted"><code>CurrentProduct</code> is a saved <code>catalog-product</code> block, so looking it up is a data hit followed by a function hit. A descriptor names a view for the browser to render. A React tree is consumed by an RSC-capable framework. Either way, the CMS returns it untouched.</p>
+</section>
+
+<section id="loader-internals" data-nav="Loader internals" class="doc-section" aria-labelledby="loader-internals-title">
+  <p class="eyebrow">Under the hood</p><h2 id="loader-internals-title">How <code>remoteLoader</code> stays current</h2>
+  <p>The rule that matters: <strong>a production request never waits for the network.</strong> <code>load()</code> returns from memory, immediately, every time. Staying current happens beside requests, not in front of them.</p>
+  <p class="small muted" style="margin-bottom:6px">Request path · synchronous, never touches the network</p>
+  <div class="flow" aria-label="Request path">
+    <div class="flow-node"><strong>Request</strong><small><code>client.list</code> or <code>client.resolve</code></small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong><code>load()</code> from memory</strong><small>Newest fetched release, or the fallback loader's content</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong>Your blocks run</strong><small>Same revision for the whole request</small></div>
+  </div>
+  <p class="small muted" style="margin:18px 0 6px">Background path · on first use, then every ~5 minutes</p>
+  <div class="flow" aria-label="Background refresh">
+    <div class="flow-node"><strong>Ask for the hash</strong><small>A few bytes from the Deco API</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong>Compare</strong><small>Same as memory: done. Same as disk: use disk, no download.</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+    <div class="flow-node"><strong>Fetch, verify, swap</strong><small>Whole revision at once. Any error: keep what's there.</small></div>
+  </div>
+  <ol>
+    <li><strong>Serve from memory.</strong> <code>load()</code> returns the newest release this process has fetched, or, if it hasn't fetched one yet, the fallback loader's content. A cold start serves the content the build shipped with on its very first request.</li>
+    <li><strong>Ask for the hash.</strong> In the background, on first use and then every five minutes, <code>update()</code> fetches the current revision hash from the API. That's a few bytes. Each wait is jittered by up to 30 seconds, so a fleet of servers that started together doesn't poll together.</li>
+    <li><strong>Compare.</strong> If the hash equals what's in memory, there's nothing to do. If it equals the fallback loader's revision, the disk is current: the loader uses that content and never downloads it. This is the common case right after a deploy.</li>
+    <li><strong>Fetch and swap.</strong> Otherwise it fetches that revision, checks that the content hashes to it and that its schema matches the running app, and swaps it in whole. Requests in flight keep the revision they started with.</li>
+    <li><strong>Fail quietly.</strong> Any network or validation error leaves memory as it was. Nothing reaches a request.</li>
+  </ol>
+  <p>So production content is eventually consistent, by design, with the polling interval as the bound: a commit is live everywhere within about five minutes, and one process only ever does one tiny request per interval, however many requests it serves. Drafts are the opposite: a preview must show exactly the version Studio asked for, so <code>load(pointer)</code> fetches that version and waits for it, cached by version afterwards. If the draft can't be fetched, it serves published content, never the disk.</p>
+
+</section>
+
+<section id="router-internals" data-nav="Router internals" class="doc-section" aria-labelledby="router-internals-title">
+  <p class="eyebrow">Under the hood</p><h2 id="router-internals-title">How <code>matchRoute</code> matches</h2>
+  <p>The naive version of this function walks every entry and tests each path against the URL. That's fine for fifty pages and wrong for fifty thousand. <code>matchRoute</code> instead compiles the entries into a <strong>segment trie</strong>, once per list, and matches in time proportional to the URL's length, not the catalogue's size.</p>
+<pre class="code-block"><code class="language-text">/summer                 /:slug/p                /blog/:slug             /blog/archive
+                                    ┌── root ──┐
+                                    │           │
+            ┌───────────────────────┼───────────┼──────────────────┐
+         "summer"                "blog"                        :slug
+            │                       │                            │
+        [SummerPage]     ┌──────────┴──────────┐                "p"
+                     "archive"                :slug               │
+                         │                      │           [ProductPage]
+                    [BlogArchive]           [Post …]</code></pre>
+  <ol>
+    <li><strong>Build, once per list.</strong> Every path is split on <code>/</code> and inserted segment by segment. A literal segment becomes a named child; a <code>:param</code> segment becomes the node's single parameter child. The entry is stored at the leaf. Cost is the total number of segments, and the result is cached in a <code>WeakMap</code> keyed by the array you passed, so the second request with the same list skips this entirely.</li>
+    <li><strong>Reject ambiguity while building.</strong> Two entries reaching the same leaf, or two parameter children under one node (<code>/:slug/p</code> and <code>/:id/p</code>), throw with both names in the message. The CLI runs the same build at schema time, so this surfaces in CI, not in production.</li>
+    <li><strong>Match, one segment at a time.</strong> Walk the URL's segments from the root. At each node try the literal child first, then the parameter child. If a branch dead-ends, backtrack once to the parameter child of the last node that had one. Backtracking is bounded by the URL's depth, so a lookup is O(segments), typically four or five steps, regardless of how many entries exist.</li>
+    <li><strong>Precedence falls out of the walk order.</strong> Trying the literal child before the parameter child at every node is exactly "exact paths win over templates", per segment rather than per path: <code>/blog/archive</code> beats <code>/blog/:slug</code> for <code>/blog/archive</code>, and <code>/blog/:slug</code> still serves <code>/blog/hello-world</code>. No sorting, no regex.</li>
+    <li><strong>Redirects are a second trie</strong>, checked first, with the same rules. A hit fills the parameters into <code>to</code> and returns <code>{ kind: "redirect" }</code>.</li>
+  </ol>
+  <p>Before matching, the URL is normalised: percent-decoded, query and fragment dropped, trailing slash removed except for <code>/</code>. Parameters capture one segment and never contain a slash. That's the whole algorithm; it's the same shape as the routers in Fastify and Hono, and it's about a hundred lines.</p>
+
+</section>
+
+<section id="studio" data-nav="Studio compatibility" class="doc-section" aria-labelledby="studio-title">
+  <p class="eyebrow">Under the hood</p><h2 id="studio-title">Deco Studio compatibility</h2>
+  <h3>What Studio reads</h3>
+  <p>Studio never calls the SDK. It reads two things: the schema the CLI wrote, served as <code>/live/_meta</code>, and the content files. So everything Studio knows about your site is inferred from your types, and the CLI does the inferring. It groups every key into a <em>manifest</em> by what the type says:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Manifest group</th><th>What lands there</th><th>Studio uses it for</th></tr></thead>
+    <tbody>
+      <tr><td><code>sections</code></td><td>Block functions that return JSX or a render descriptor</td><td>The section catalog when composing a page</td></tr>
+      <tr><td><code>matchers</code></td><td>Block functions that return <code>boolean</code></td><td>The rule picker on a variant</td></tr>
+      <tr><td><code>loaders</code></td><td>Every other block function</td><td>Data fields that can point at a function</td></tr>
+      <tr><td><code>pages</code></td><td><code>Content</code> types that extend <code>Route</code></td><td>The page list, "new page", the URL field</td></tr>
+      <tr><td><code>redirects</code></td><td><code>Redirect</code></td><td>The redirects screen</td></tr>
+      <tr><td><code>content</code></td><td>Every other <code>Content</code> type</td><td>Plain entries: navigation, settings, posts</td></tr>
+    </tbody>
+  </table></div>
+<figure class="code-example"><figcaption>.deco/schema.json, abridged</figcaption><pre><code class="language-json">{
+  "manifest": {
+    "blocks": {
+      "sections": { "hero": { "$ref": "#/definitions/hero" } },
+      "matchers": { "always": { "$ref": "…" }, "never": { "$ref": "…" }, "date": { "$ref": "…" } },
+      "loaders":  { "seo": { "$ref": "…" }, "multivariate": { "$ref": "…" } },
+      "pages":    { "page": { "$ref": "…" } },
+      "redirects": { "redirect": { "$ref": "…" } }
+    }
+  },
+  "definitions": { "hero": { "type": "object", "properties": { "title": { "type": "string", "title": "Heading" } } } }
+}</code></pre></figure>
+  <p>Three conventions follow from this, and they're the ones the rest of the doc already uses. A key is a <strong>module type if it's in the manifest and a saved entry if it isn't</strong>, so short names like <code>hero</code> are fine. A variant is <code>{ "variants": [{ "rule", "value" }] }</code> with the default first. A redirect is a flat <code>{ from, to, permanent }</code> entry.</p>
+
+  <h3>Studio compatibility today</h3>
+  <p>Today's Studio predates this design and hardcodes a few of the things above: it tells modules from saved entries by whether the key has a file extension, and it looks for pages, the default and hidden rules, and variant wrappers by their old module paths (<code>website/pages/Page.tsx</code>, <code>website/matchers/always.ts</code>, <code>website/flags/multivariate.ts</code>, …). Until it reads the manifest instead, the CLI bridges the gap: for every key in a framework-known group it also emits the legacy path as an alias, and content Studio saves under a legacy name resolves through the <a href="#adoption">same alias mechanism</a> your own renames use. Your code uses <code>page</code> and <code>always</code>; the manifest carries both spellings; nothing in the runtime changes.</p>
+  <p>Two gaps the bridge doesn't cover, both Studio-side and both small: redirects created in Studio are saved in the old nested shape, which <code>matchRoute</code> accepts as well; and Studio's module-or-entry check needs to become a manifest lookup before a site can drop the aliases. Both are tracked against Studio, not against sites.</p>
+
+</section>
+
+<section id="decisions" data-nav="Design decisions" class="doc-section" aria-labelledby="decisions-title">
+  <p class="eyebrow">Under the hood</p><h2 id="decisions-title">Design decisions</h2>
+  <p>Each of these was argued over. The one-line version, and why it won.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Decision</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><strong>The CMS is pure.</strong> A block function gets its inputs and nothing else.</td><td>No context object means block functions are ordinary functions you can call and test, and the same code runs in a website, a mobile app, or a job. Request state comes from the runtime's own context, where it already lives.</td></tr>
+      <tr><td><strong>Git is the source of truth.</strong> Publishing is committing; the API serves commits as releases.</td><td>History, review, branches, and rollback come for free, and agents can edit content with the tools they already have. There is no publish command because there is nothing to publish that a commit doesn't already express.</td></tr>
+      <tr><td><strong>One registry rule.</strong> A name is data or code; data merges and re-applies, code resolves inputs then runs; outputs are opaque.</td><td>Saved entries become presets rather than a second concept, identity functions can't loop, and the only recursion is over data, where a cycle check ends it.</td></tr>
+      <tr><td><strong>The CMS at module scope, a client per request, pinned to one revision.</strong></td><td>Everything a response renders agrees with itself, sections can stream as separate calls, and the next request sees the next revision. Clients are cheap because every cache lives in the loader.</td></tr>
+      <tr><td><strong>Loaders are one interface</strong>: <code>load(pointer?)</code> and <code>update()</code>.</td><td>Production, drafts, and staying current are three uses of one method pair, so <code>localLoader</code> and <code>remoteLoader</code> are interchangeable and a custom loader is a few lines.</td></tr>
+      <tr><td><strong>A production request never waits for the network.</strong></td><td>Serve from memory, poll for a hash in the background, fall back to the content the build shipped with. Eventual consistency for visitors, strict consistency for drafts.</td></tr>
+      <tr><td><strong>The CMS doesn't route.</strong> <code>matchRoute</code> is a helper over entries you list.</td><td>Which types have URLs is an app decision, a non-website has none, and the framework's file-system router still owns code routes. Editors get pages at arbitrary paths because the path is a field.</td></tr>
+      <tr><td><strong>Data-only types live in <code>Content</code>, not the block map. No built-in entries.</strong></td><td>A map entry means "run this". Pages, posts, and redirects have nothing to run; they need a schema, which is the CLI's job. Nothing ships that a site couldn't write in one line.</td></tr>
+      <tr><td><strong>Lazy loading belongs to the framework.</strong></td><td>What's heavy is the component, and React and Next already load components lazily. The block map stays a plain object the CLI can read.</td></tr>
+      <tr><td><strong>Three matchers ship; the rest is app code.</strong></td><td><code>always</code>, <code>never</code>, and <code>date</code> depend on nothing but the clock. A device or cookie matcher is an opinion about the request, and the app owns those.</td></tr>
+      <tr><td><strong>Short type names, aliases for legacy paths.</strong></td><td>A type name is a column name, not a file path. Existing content keeps working through aliases while new code uses names that survive a refactor.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+</div>
+
+<script id="syntax-highlighter">
+/*! Prism 1.30.0 — https://prismjs.com/
+MIT LICENSE
+
+Copyright (c) 2012 Lea Verou
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+window.Prism = { manual: true };
+var _self="undefined"!=typeof window?window:"undefined"!=typeof WorkerGlobalScope&&self instanceof WorkerGlobalScope?self:{},Prism=function(e){var n=/(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i,t=0,r={},a={manual:e.Prism&&e.Prism.manual,disableWorkerMessageHandler:e.Prism&&e.Prism.disableWorkerMessageHandler,util:{encode:function e(n){return n instanceof i?new i(n.type,e(n.content),n.alias):Array.isArray(n)?n.map(e):n.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/\u00a0/g," ")},type:function(e){return Object.prototype.toString.call(e).slice(8,-1)},objId:function(e){return e.__id||Object.defineProperty(e,"__id",{value:++t}),e.__id},clone:function e(n,t){var r,i;switch(t=t||{},a.util.type(n)){case"Object":if(i=a.util.objId(n),t[i])return t[i];for(var l in r={},t[i]=r,n)n.hasOwnProperty(l)&&(r[l]=e(n[l],t));return r;case"Array":return i=a.util.objId(n),t[i]?t[i]:(r=[],t[i]=r,n.forEach((function(n,a){r[a]=e(n,t)})),r);default:return n}},getLanguage:function(e){for(;e;){var t=n.exec(e.className);if(t)return t[1].toLowerCase();e=e.parentElement}return"none"},setLanguage:function(e,t){e.className=e.className.replace(RegExp(n,"gi"),""),e.classList.add("language-"+t)},currentScript:function(){if("undefined"==typeof document)return null;if(document.currentScript&&"SCRIPT"===document.currentScript.tagName)return document.currentScript;try{throw new Error}catch(r){var e=(/at [^(\r\n]*\((.*):[^:]+:[^:]+\)$/i.exec(r.stack)||[])[1];if(e){var n=document.getElementsByTagName("script");for(var t in n)if(n[t].src==e)return n[t]}return null}},isActive:function(e,n,t){for(var r="no-"+n;e;){var a=e.classList;if(a.contains(n))return!0;if(a.contains(r))return!1;e=e.parentElement}return!!t}},languages:{plain:r,plaintext:r,text:r,txt:r,extend:function(e,n){var t=a.util.clone(a.languages[e]);for(var r in n)t[r]=n[r];return t},insertBefore:function(e,n,t,r){var i=(r=r||a.languages)[e],l={};for(var o in i)if(i.hasOwnProperty(o)){if(o==n)for(var s in t)t.hasOwnProperty(s)&&(l[s]=t[s]);t.hasOwnProperty(o)||(l[o]=i[o])}var u=r[e];return r[e]=l,a.languages.DFS(a.languages,(function(n,t){t===u&&n!=e&&(this[n]=l)})),l},DFS:function e(n,t,r,i){i=i||{};var l=a.util.objId;for(var o in n)if(n.hasOwnProperty(o)){t.call(n,o,n[o],r||o);var s=n[o],u=a.util.type(s);"Object"!==u||i[l(s)]?"Array"!==u||i[l(s)]||(i[l(s)]=!0,e(s,t,o,i)):(i[l(s)]=!0,e(s,t,null,i))}}},plugins:{},highlightAll:function(e,n){a.highlightAllUnder(document,e,n)},highlightAllUnder:function(e,n,t){var r={callback:t,container:e,selector:'code[class*="language-"], [class*="language-"] code, code[class*="lang-"], [class*="lang-"] code'};a.hooks.run("before-highlightall",r),r.elements=Array.prototype.slice.apply(r.container.querySelectorAll(r.selector)),a.hooks.run("before-all-elements-highlight",r);for(var i,l=0;i=r.elements[l++];)a.highlightElement(i,!0===n,r.callback)},highlightElement:function(n,t,r){var i=a.util.getLanguage(n),l=a.languages[i];a.util.setLanguage(n,i);var o=n.parentElement;o&&"pre"===o.nodeName.toLowerCase()&&a.util.setLanguage(o,i);var s={element:n,language:i,grammar:l,code:n.textContent};function u(e){s.highlightedCode=e,a.hooks.run("before-insert",s),s.element.innerHTML=s.highlightedCode,a.hooks.run("after-highlight",s),a.hooks.run("complete",s),r&&r.call(s.element)}if(a.hooks.run("before-sanity-check",s),(o=s.element.parentElement)&&"pre"===o.nodeName.toLowerCase()&&!o.hasAttribute("tabindex")&&o.setAttribute("tabindex","0"),!s.code)return a.hooks.run("complete",s),void(r&&r.call(s.element));if(a.hooks.run("before-highlight",s),s.grammar)if(t&&e.Worker){var c=new Worker(a.filename);c.onmessage=function(e){u(e.data)},c.postMessage(JSON.stringify({language:s.language,code:s.code,immediateClose:!0}))}else u(a.highlight(s.code,s.grammar,s.language));else u(a.util.encode(s.code))},highlight:function(e,n,t){var r={code:e,grammar:n,language:t};if(a.hooks.run("before-tokenize",r),!r.grammar)throw new Error('The language "'+r.language+'" has no grammar.');return r.tokens=a.tokenize(r.code,r.grammar),a.hooks.run("after-tokenize",r),i.stringify(a.util.encode(r.tokens),r.language)},tokenize:function(e,n){var t=n.rest;if(t){for(var r in t)n[r]=t[r];delete n.rest}var a=new s;return u(a,a.head,e),o(e,a,n,a.head,0),function(e){for(var n=[],t=e.head.next;t!==e.tail;)n.push(t.value),t=t.next;return n}(a)},hooks:{all:{},add:function(e,n){var t=a.hooks.all;t[e]=t[e]||[],t[e].push(n)},run:function(e,n){var t=a.hooks.all[e];if(t&&t.length)for(var r,i=0;r=t[i++];)r(n)}},Token:i};function i(e,n,t,r){this.type=e,this.content=n,this.alias=t,this.length=0|(r||"").length}function l(e,n,t,r){e.lastIndex=n;var a=e.exec(t);if(a&&r&&a[1]){var i=a[1].length;a.index+=i,a[0]=a[0].slice(i)}return a}function o(e,n,t,r,s,g){for(var f in t)if(t.hasOwnProperty(f)&&t[f]){var h=t[f];h=Array.isArray(h)?h:[h];for(var d=0;d<h.length;++d){if(g&&g.cause==f+","+d)return;var v=h[d],p=v.inside,m=!!v.lookbehind,y=!!v.greedy,k=v.alias;if(y&&!v.pattern.global){var x=v.pattern.toString().match(/[imsuy]*$/)[0];v.pattern=RegExp(v.pattern.source,x+"g")}for(var b=v.pattern||v,w=r.next,A=s;w!==n.tail&&!(g&&A>=g.reach);A+=w.value.length,w=w.next){var P=w.value;if(n.length>e.length)return;if(!(P instanceof i)){var E,S=1;if(y){if(!(E=l(b,A,e,m))||E.index>=e.length)break;var L=E.index,O=E.index+E[0].length,C=A;for(C+=w.value.length;L>=C;)C+=(w=w.next).value.length;if(A=C-=w.value.length,w.value instanceof i)continue;for(var j=w;j!==n.tail&&(C<O||"string"==typeof j.value);j=j.next)S++,C+=j.value.length;S--,P=e.slice(A,C),E.index-=A}else if(!(E=l(b,0,P,m)))continue;L=E.index;var N=E[0],_=P.slice(0,L),M=P.slice(L+N.length),W=A+P.length;g&&W>g.reach&&(g.reach=W);var I=w.prev;if(_&&(I=u(n,I,_),A+=_.length),c(n,I,S),w=u(n,I,new i(f,p?a.tokenize(N,p):N,k,N)),M&&u(n,w,M),S>1){var T={cause:f+","+d,reach:W};o(e,n,t,w.prev,A,T),g&&T.reach>g.reach&&(g.reach=T.reach)}}}}}}function s(){var e={value:null,prev:null,next:null},n={value:null,prev:e,next:null};e.next=n,this.head=e,this.tail=n,this.length=0}function u(e,n,t){var r=n.next,a={value:t,prev:n,next:r};return n.next=a,r.prev=a,e.length++,a}function c(e,n,t){for(var r=n.next,a=0;a<t&&r!==e.tail;a++)r=r.next;n.next=r,r.prev=n,e.length-=a}if(e.Prism=a,i.stringify=function e(n,t){if("string"==typeof n)return n;if(Array.isArray(n)){var r="";return n.forEach((function(n){r+=e(n,t)})),r}var i={type:n.type,content:e(n.content,t),tag:"span",classes:["token",n.type],attributes:{},language:t},l=n.alias;l&&(Array.isArray(l)?Array.prototype.push.apply(i.classes,l):i.classes.push(l)),a.hooks.run("wrap",i);var o="";for(var s in i.attributes)o+=" "+s+'="'+(i.attributes[s]||"").replace(/"/g,"&quot;")+'"';return"<"+i.tag+' class="'+i.classes.join(" ")+'"'+o+">"+i.content+"</"+i.tag+">"},!e.document)return e.addEventListener?(a.disableWorkerMessageHandler||e.addEventListener("message",(function(n){var t=JSON.parse(n.data),r=t.language,i=t.code,l=t.immediateClose;e.postMessage(a.highlight(i,a.languages[r],r)),l&&e.close()}),!1),a):a;var g=a.util.currentScript();function f(){a.manual||a.highlightAll()}if(g&&(a.filename=g.src,g.hasAttribute("data-manual")&&(a.manual=!0)),!a.manual){var h=document.readyState;"loading"===h||"interactive"===h&&g&&g.defer?document.addEventListener("DOMContentLoaded",f):window.requestAnimationFrame?window.requestAnimationFrame(f):window.setTimeout(f,16)}return a}(_self);"undefined"!=typeof module&&module.exports&&(module.exports=Prism),"undefined"!=typeof global&&(global.Prism=Prism);
+;
+Prism.languages.markup={comment:{pattern:/<!--(?:(?!<!--)[\s\S])*?-->/,greedy:!0},prolog:{pattern:/<\?[\s\S]+?\?>/,greedy:!0},doctype:{pattern:/<!DOCTYPE(?:[^>"'[\]]|"[^"]*"|'[^']*')+(?:\[(?:[^<"'\]]|"[^"]*"|'[^']*'|<(?!!--)|<!--(?:[^-]|-(?!->))*-->)*\]\s*)?>/i,greedy:!0,inside:{"internal-subset":{pattern:/(^[^\[]*\[)[\s\S]+(?=\]>$)/,lookbehind:!0,greedy:!0,inside:null},string:{pattern:/"[^"]*"|'[^']*'/,greedy:!0},punctuation:/^<!|>$|[[\]]/,"doctype-tag":/^DOCTYPE/i,name:/[^\s<>'"]+/}},cdata:{pattern:/<!\[CDATA\[[\s\S]*?\]\]>/i,greedy:!0},tag:{pattern:/<\/?(?!\d)[^\s>\/=$<%]+(?:\s(?:\s*[^\s>\/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s'">=]+(?=[\s>]))|(?=[\s/>])))+)?\s*\/?>/,greedy:!0,inside:{tag:{pattern:/^<\/?[^\s>\/]+/,inside:{punctuation:/^<\/?/,namespace:/^[^\s>\/:]+:/}},"special-attr":[],"attr-value":{pattern:/=\s*(?:"[^"]*"|'[^']*'|[^\s'">=]+)/,inside:{punctuation:[{pattern:/^=/,alias:"attr-equals"},{pattern:/^(\s*)["']|["']$/,lookbehind:!0}]}},punctuation:/\/?>/,"attr-name":{pattern:/[^\s>\/]+/,inside:{namespace:/^[^\s>\/:]+:/}}}},entity:[{pattern:/&[\da-z]{1,8};/i,alias:"named-entity"},/&#x?[\da-f]{1,8};/i]},Prism.languages.markup.tag.inside["attr-value"].inside.entity=Prism.languages.markup.entity,Prism.languages.markup.doctype.inside["internal-subset"].inside=Prism.languages.markup,Prism.hooks.add("wrap",(function(a){"entity"===a.type&&(a.attributes.title=a.content.replace(/&amp;/,"&"))})),Object.defineProperty(Prism.languages.markup.tag,"addInlined",{value:function(a,e){var s={};s["language-"+e]={pattern:/(^<!\[CDATA\[)[\s\S]+?(?=\]\]>$)/i,lookbehind:!0,inside:Prism.languages[e]},s.cdata=/^<!\[CDATA\[|\]\]>$/i;var t={"included-cdata":{pattern:/<!\[CDATA\[[\s\S]*?\]\]>/i,inside:s}};t["language-"+e]={pattern:/[\s\S]+/,inside:Prism.languages[e]};var n={};n[a]={pattern:RegExp("(<__[^>]*>)(?:<!\\[CDATA\\[(?:[^\\]]|\\](?!\\]>))*\\]\\]>|(?!<!\\[CDATA\\[)[^])*?(?=</__>)".replace(/__/g,(function(){return a})),"i"),lookbehind:!0,greedy:!0,inside:t},Prism.languages.insertBefore("markup","cdata",n)}}),Object.defineProperty(Prism.languages.markup.tag,"addAttribute",{value:function(a,e){Prism.languages.markup.tag.inside["special-attr"].push({pattern:RegExp("(^|[\"'\\s])(?:"+a+")\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s'\">=]+(?=[\\s>]))","i"),lookbehind:!0,inside:{"attr-name":/^[^\s=]+/,"attr-value":{pattern:/=[\s\S]+/,inside:{value:{pattern:/(^=\s*(["']|(?!["'])))\S[\s\S]*(?=\2$)/,lookbehind:!0,alias:[e,"language-"+e],inside:Prism.languages[e]},punctuation:[{pattern:/^=/,alias:"attr-equals"},/"|'/]}}}})}}),Prism.languages.html=Prism.languages.markup,Prism.languages.mathml=Prism.languages.markup,Prism.languages.svg=Prism.languages.markup,Prism.languages.xml=Prism.languages.extend("markup",{}),Prism.languages.ssml=Prism.languages.xml,Prism.languages.atom=Prism.languages.xml,Prism.languages.rss=Prism.languages.xml;
+;
+Prism.languages.clike={comment:[{pattern:/(^|[^\\])\/\*[\s\S]*?(?:\*\/|$)/,lookbehind:!0,greedy:!0},{pattern:/(^|[^\\:])\/\/.*/,lookbehind:!0,greedy:!0}],string:{pattern:/(["'])(?:\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1/,greedy:!0},"class-name":{pattern:/(\b(?:class|extends|implements|instanceof|interface|new|trait)\s+|\bcatch\s+\()[\w.\\]+/i,lookbehind:!0,inside:{punctuation:/[.\\]/}},keyword:/\b(?:break|catch|continue|do|else|finally|for|function|if|in|instanceof|new|null|return|throw|try|while)\b/,boolean:/\b(?:false|true)\b/,function:/\b\w+(?=\()/,number:/\b0x[\da-f]+\b|(?:\b\d+(?:\.\d*)?|\B\.\d+)(?:e[+-]?\d+)?/i,operator:/[<>]=?|[!=]=?=?|--?|\+\+?|&&?|\|\|?|[?*/~^%]/,punctuation:/[{}[\];(),.:]/};
+;
+Prism.languages.javascript=Prism.languages.extend("clike",{"class-name":[Prism.languages.clike["class-name"],{pattern:/(^|[^$\w\xA0-\uFFFF])(?!\s)[_$A-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?=\.(?:constructor|prototype))/,lookbehind:!0}],keyword:[{pattern:/((?:^|\})\s*)catch\b/,lookbehind:!0},{pattern:/(^|[^.]|\.\.\.\s*)\b(?:as|assert(?=\s*\{)|async(?=\s*(?:function\b|\(|[$\w\xA0-\uFFFF]|$))|await|break|case|class|const|continue|debugger|default|delete|do|else|enum|export|extends|finally(?=\s*(?:\{|$))|for|from(?=\s*(?:['"]|$))|function|(?:get|set)(?=\s*(?:[#\[$\w\xA0-\uFFFF]|$))|if|implements|import|in|instanceof|interface|let|new|null|of|package|private|protected|public|return|static|super|switch|this|throw|try|typeof|undefined|var|void|while|with|yield)\b/,lookbehind:!0}],function:/#?(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?=\s*(?:\.\s*(?:apply|bind|call)\s*)?\()/,number:{pattern:RegExp("(^|[^\\w$])(?:NaN|Infinity|0[bB][01]+(?:_[01]+)*n?|0[oO][0-7]+(?:_[0-7]+)*n?|0[xX][\\dA-Fa-f]+(?:_[\\dA-Fa-f]+)*n?|\\d+(?:_\\d+)*n|(?:\\d+(?:_\\d+)*(?:\\.(?:\\d+(?:_\\d+)*)?)?|\\.\\d+(?:_\\d+)*)(?:[Ee][+-]?\\d+(?:_\\d+)*)?)(?![\\w$])"),lookbehind:!0},operator:/--|\+\+|\*\*=?|=>|&&=?|\|\|=?|[!=]==|<<=?|>>>?=?|[-+*/%&|^!=<>]=?|\.{3}|\?\?=?|\?\.?|[~:]/}),Prism.languages.javascript["class-name"][0].pattern=/(\b(?:class|extends|implements|instanceof|interface|new)\s+)[\w.\\]+/,Prism.languages.insertBefore("javascript","keyword",{regex:{pattern:RegExp("((?:^|[^$\\w\\xA0-\\uFFFF.\"'\\])\\s]|\\b(?:return|yield))\\s*)/(?:(?:\\[(?:[^\\]\\\\\r\n]|\\\\.)*\\]|\\\\.|[^/\\\\\\[\r\n])+/[dgimyus]{0,7}|(?:\\[(?:[^[\\]\\\\\r\n]|\\\\.|\\[(?:[^[\\]\\\\\r\n]|\\\\.|\\[(?:[^[\\]\\\\\r\n]|\\\\.)*\\])*\\])*\\]|\\\\.|[^/\\\\\\[\r\n])+/[dgimyus]{0,7}v[dgimyus]{0,7})(?=(?:\\s|/\\*(?:[^*]|\\*(?!/))*\\*/)*(?:$|[\r\n,.;:})\\]]|//))"),lookbehind:!0,greedy:!0,inside:{"regex-source":{pattern:/^(\/)[\s\S]+(?=\/[a-z]*$)/,lookbehind:!0,alias:"language-regex",inside:Prism.languages.regex},"regex-delimiter":/^\/|\/$/,"regex-flags":/^[a-z]+$/}},"function-variable":{pattern:/#?(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?=\s*[=:]\s*(?:async\s*)?(?:\bfunction\b|(?:\((?:[^()]|\([^()]*\))*\)|(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*)\s*=>))/,alias:"function"},parameter:[{pattern:/(function(?:\s+(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*)?\s*\(\s*)(?!\s)(?:[^()\s]|\s+(?![\s)])|\([^()]*\))+(?=\s*\))/,lookbehind:!0,inside:Prism.languages.javascript},{pattern:/(^|[^$\w\xA0-\uFFFF])(?!\s)[_$a-z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?=\s*=>)/i,lookbehind:!0,inside:Prism.languages.javascript},{pattern:/(\(\s*)(?!\s)(?:[^()\s]|\s+(?![\s)])|\([^()]*\))+(?=\s*\)\s*=>)/,lookbehind:!0,inside:Prism.languages.javascript},{pattern:/((?:\b|\s|^)(?!(?:as|async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|finally|for|from|function|get|if|implements|import|in|instanceof|interface|let|new|null|of|package|private|protected|public|return|set|static|super|switch|this|throw|try|typeof|undefined|var|void|while|with|yield)(?![$\w\xA0-\uFFFF]))(?:(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*\s*)\(\s*|\]\s*\(\s*)(?!\s)(?:[^()\s]|\s+(?![\s)])|\([^()]*\))+(?=\s*\)\s*\{)/,lookbehind:!0,inside:Prism.languages.javascript}],constant:/\b[A-Z](?:[A-Z_]|\dx?)*\b/}),Prism.languages.insertBefore("javascript","string",{hashbang:{pattern:/^#!.*/,greedy:!0,alias:"comment"},"template-string":{pattern:/`(?:\\[\s\S]|\$\{(?:[^{}]|\{(?:[^{}]|\{[^}]*\})*\})+\}|(?!\$\{)[^\\`])*`/,greedy:!0,inside:{"template-punctuation":{pattern:/^`|`$/,alias:"string"},interpolation:{pattern:/((?:^|[^\\])(?:\\{2})*)\$\{(?:[^{}]|\{(?:[^{}]|\{[^}]*\})*\})+\}/,lookbehind:!0,inside:{"interpolation-punctuation":{pattern:/^\$\{|\}$/,alias:"punctuation"},rest:Prism.languages.javascript}},string:/[\s\S]+/}},"string-property":{pattern:/((?:^|[,{])[ \t]*)(["'])(?:\\(?:\r\n|[\s\S])|(?!\2)[^\\\r\n])*\2(?=\s*:)/m,lookbehind:!0,greedy:!0,alias:"property"}}),Prism.languages.insertBefore("javascript","operator",{"literal-property":{pattern:/((?:^|[,{])[ \t]*)(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?=\s*:)/m,lookbehind:!0,alias:"property"}}),Prism.languages.markup&&(Prism.languages.markup.tag.addInlined("script","javascript"),Prism.languages.markup.tag.addAttribute("on(?:abort|blur|change|click|composition(?:end|start|update)|dblclick|error|focus(?:in|out)?|key(?:down|up)|load|mouse(?:down|enter|leave|move|out|over|up)|reset|resize|scroll|select|slotchange|submit|unload|wheel)","javascript")),Prism.languages.js=Prism.languages.javascript;
+;
+!function(t){var n=t.util.clone(t.languages.javascript),e="(?:\\{<S>*\\.{3}(?:[^{}]|<BRACES>)*\\})";function a(t,n){return t=t.replace(/<S>/g,(function(){return"(?:\\s|//.*(?!.)|/\\*(?:[^*]|\\*(?!/))\\*/)"})).replace(/<BRACES>/g,(function(){return"(?:\\{(?:\\{(?:\\{[^{}]*\\}|[^{}])*\\}|[^{}])*\\})"})).replace(/<SPREAD>/g,(function(){return e})),RegExp(t,n)}e=a(e).source,t.languages.jsx=t.languages.extend("markup",n),t.languages.jsx.tag.pattern=a("</?(?:[\\w.:-]+(?:<S>+(?:[\\w.:$-]+(?:=(?:\"(?:\\\\[^]|[^\\\\\"])*\"|'(?:\\\\[^]|[^\\\\'])*'|[^\\s{'\"/>=]+|<BRACES>))?|<SPREAD>))*<S>*/?)?>"),t.languages.jsx.tag.inside.tag.pattern=/^<\/?[^\s>\/]*/,t.languages.jsx.tag.inside["attr-value"].pattern=/=(?!\{)(?:"(?:\\[\s\S]|[^\\"])*"|'(?:\\[\s\S]|[^\\'])*'|[^\s'">]+)/,t.languages.jsx.tag.inside.tag.inside["class-name"]=/^[A-Z]\w*(?:\.[A-Z]\w*)*$/,t.languages.jsx.tag.inside.comment=n.comment,t.languages.insertBefore("inside","attr-name",{spread:{pattern:a("<SPREAD>"),inside:t.languages.jsx}},t.languages.jsx.tag),t.languages.insertBefore("inside","special-attr",{script:{pattern:a("=<BRACES>"),alias:"language-javascript",inside:{"script-punctuation":{pattern:/^=(?=\{)/,alias:"punctuation"},rest:t.languages.jsx}}},t.languages.jsx.tag);var s=function(t){return t?"string"==typeof t?t:"string"==typeof t.content?t.content:t.content.map(s).join(""):""},g=function(n){for(var e=[],a=0;a<n.length;a++){var o=n[a],i=!1;if("string"!=typeof o&&("tag"===o.type&&o.content[0]&&"tag"===o.content[0].type?"</"===o.content[0].content[0].content?e.length>0&&e[e.length-1].tagName===s(o.content[0].content[1])&&e.pop():"/>"===o.content[o.content.length-1].content||e.push({tagName:s(o.content[0].content[1]),openedBraces:0}):e.length>0&&"punctuation"===o.type&&"{"===o.content?e[e.length-1].openedBraces++:e.length>0&&e[e.length-1].openedBraces>0&&"punctuation"===o.type&&"}"===o.content?e[e.length-1].openedBraces--:i=!0),(i||"string"==typeof o)&&e.length>0&&0===e[e.length-1].openedBraces){var r=s(o);a<n.length-1&&("string"==typeof n[a+1]||"plain-text"===n[a+1].type)&&(r+=s(n[a+1]),n.splice(a+1,1)),a>0&&("string"==typeof n[a-1]||"plain-text"===n[a-1].type)&&(r=s(n[a-1])+r,n.splice(a-1,1),a--),n[a]=new t.Token("plain-text",r,null,r)}o.content&&"string"!=typeof o.content&&g(o.content)}};t.hooks.add("after-tokenize",(function(t){"jsx"!==t.language&&"tsx"!==t.language||g(t.tokens)}))}(Prism);
+;
+!function(e){e.languages.typescript=e.languages.extend("javascript",{"class-name":{pattern:/(\b(?:class|extends|implements|instanceof|interface|new|type)\s+)(?!keyof\b)(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?:\s*<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>)?/,lookbehind:!0,greedy:!0,inside:null},builtin:/\b(?:Array|Function|Promise|any|boolean|console|never|number|string|symbol|unknown)\b/}),e.languages.typescript.keyword.push(/\b(?:abstract|declare|is|keyof|readonly|require)\b/,/\b(?:asserts|infer|interface|module|namespace|type)\b(?=\s*(?:[{_$a-zA-Z\xA0-\uFFFF]|$))/,/\btype\b(?=\s*(?:[\{*]|$))/),delete e.languages.typescript.parameter,delete e.languages.typescript["literal-property"];var s=e.languages.extend("typescript",{});delete s["class-name"],e.languages.typescript["class-name"].inside=s,e.languages.insertBefore("typescript","function",{decorator:{pattern:/@[$\w\xA0-\uFFFF]+/,inside:{at:{pattern:/^@/,alias:"operator"},function:/^[\s\S]+/}},"generic-function":{pattern:/#?(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*\s*<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>(?=\s*\()/,greedy:!0,inside:{function:/^#?(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*/,generic:{pattern:/<[\s\S]+/,alias:"class-name",inside:s}}}}),e.languages.ts=e.languages.typescript}(Prism);
+;
+!function(e){var a=e.util.clone(e.languages.typescript);e.languages.tsx=e.languages.extend("jsx",a),delete e.languages.tsx.parameter,delete e.languages.tsx["literal-property"];var t=e.languages.tsx.tag;t.pattern=RegExp("(^|[^\\w$]|(?=</))(?:"+t.pattern.source+")",t.pattern.flags),t.lookbehind=!0}(Prism);
+;
+!function(a){var e=a.languages.javadoclike={parameter:{pattern:/(^[\t ]*(?:\/{3}|\*|\/\*\*)\s*@(?:arg|arguments|param)\s+)\w+/m,lookbehind:!0},keyword:{pattern:/(^[\t ]*(?:\/{3}|\*|\/\*\*)\s*|\{)@[a-z][a-zA-Z-]+\b/m,lookbehind:!0},punctuation:/[{}]/};Object.defineProperty(e,"addSupport",{value:function(e,n){"string"==typeof e&&(e=[e]),e.forEach((function(e){!function(e,n){var t="doc-comment",r=a.languages[e];if(r){var o=r[t];if(o||(o=(r=a.languages.insertBefore(e,"comment",{"doc-comment":{pattern:/(^|[^\\])\/\*\*[^/][\s\S]*?(?:\*\/|$)/,lookbehind:!0,alias:"comment"}}))[t]),o instanceof RegExp&&(o=r[t]={pattern:o}),Array.isArray(o))for(var i=0,s=o.length;i<s;i++)o[i]instanceof RegExp&&(o[i]={pattern:o[i]}),n(o[i]);else n(o)}}(e,(function(a){a.inside||(a.inside={}),a.inside.rest=n}))}))}}),e.addSupport(["java","javascript","php"],e)}(Prism);
+;
+!function(e){var a=e.languages.javascript,n="\\{(?:[^{}]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})+\\}",t="(@(?:arg|argument|param|property)\\s+(?:"+n+"\\s+)?)";e.languages.jsdoc=e.languages.extend("javadoclike",{parameter:{pattern:RegExp(t+"(?:(?!\\s)[$\\w\\xA0-\\uFFFF.])+(?=\\s|$)"),lookbehind:!0,inside:{punctuation:/\./}}}),e.languages.insertBefore("jsdoc","keyword",{"optional-parameter":{pattern:RegExp(t+"\\[(?:(?!\\s)[$\\w\\xA0-\\uFFFF.])+(?:=[^[\\]]+)?\\](?=\\s|$)"),lookbehind:!0,inside:{parameter:{pattern:/(^\[)[$\w\xA0-\uFFFF\.]+/,lookbehind:!0,inside:{punctuation:/\./}},code:{pattern:/(=)[\s\S]*(?=\]$)/,lookbehind:!0,inside:a,alias:"language-javascript"},punctuation:/[=[\]]/}},"class-name":[{pattern:RegExp("(@(?:augments|class|extends|interface|memberof!?|template|this|typedef)\\s+(?:<TYPE>\\s+)?)[A-Z]\\w*(?:\\.[A-Z]\\w*)*".replace(/<TYPE>/g,(function(){return n}))),lookbehind:!0,inside:{punctuation:/\./}},{pattern:RegExp("(@[a-z]+\\s+)"+n),lookbehind:!0,inside:{string:a.string,number:a.number,boolean:a.boolean,keyword:e.languages.typescript.keyword,operator:/=>|\.\.\.|[&|?:*]/,punctuation:/[.,;=<>{}()[\]]/}}],example:{pattern:/(@example\s+(?!\s))(?:[^@\s]|\s+(?!\s))+?(?=\s*(?:\*\s*)?(?:@\w|\*\/))/,lookbehind:!0,inside:{code:{pattern:/^([\t ]*(?:\*\s*)?)\S.*$/m,lookbehind:!0,inside:a,alias:"language-javascript"}}}}),e.languages.javadoclike.addSupport("javascript",e.languages.jsdoc)}(Prism);
+;
+Prism.languages.json={property:{pattern:/(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,lookbehind:!0,greedy:!0},string:{pattern:/(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?!\s*:)/,lookbehind:!0,greedy:!0},comment:{pattern:/\/\/.*|\/\*[\s\S]*?(?:\*\/|$)/,greedy:!0},number:/-?\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b/i,punctuation:/[{}[\],]/,operator:/:/,boolean:/\b(?:false|true)\b/,null:{pattern:/\bnull\b/,alias:"keyword"}},Prism.languages.webmanifest=Prism.languages.json;
+;
+!function(e){var t="\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b",a={pattern:/(^(["']?)\w+\2)[ \t]+\S.*/,lookbehind:!0,alias:"punctuation",inside:null},n={bash:a,environment:{pattern:RegExp("\\$"+t),alias:"constant"},variable:[{pattern:/\$?\(\([\s\S]+?\)\)/,greedy:!0,inside:{variable:[{pattern:/(^\$\(\([\s\S]+)\)\)/,lookbehind:!0},/^\$\(\(/],number:/\b0x[\dA-Fa-f]+\b|(?:\b\d+(?:\.\d*)?|\B\.\d+)(?:[Ee]-?\d+)?/,operator:/--|\+\+|\*\*=?|<<=?|>>=?|&&|\|\||[=!+\-*/%<>^&|]=?|[?~:]/,punctuation:/\(\(?|\)\)?|,|;/}},{pattern:/\$\((?:\([^)]+\)|[^()])+\)|`[^`]+`/,greedy:!0,inside:{variable:/^\$\(|^`|\)$|`$/}},{pattern:/\$\{[^}]+\}/,greedy:!0,inside:{operator:/:[-=?+]?|[!\/]|##?|%%?|\^\^?|,,?/,punctuation:/[\[\]]/,environment:{pattern:RegExp("(\\{)"+t),lookbehind:!0,alias:"constant"}}},/\$(?:\w+|[#?*!@$])/],entity:/\\(?:[abceEfnrtv\\"]|O?[0-7]{1,3}|U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,2})/};e.languages.bash={shebang:{pattern:/^#!\s*\/.*/,alias:"important"},comment:{pattern:/(^|[^"{\\$])#.*/,lookbehind:!0},"function-name":[{pattern:/(\bfunction\s+)[\w-]+(?=(?:\s*\(?:\s*\))?\s*\{)/,lookbehind:!0,alias:"function"},{pattern:/\b[\w-]+(?=\s*\(\s*\)\s*\{)/,alias:"function"}],"for-or-select":{pattern:/(\b(?:for|select)\s+)\w+(?=\s+in\s)/,alias:"variable",lookbehind:!0},"assign-left":{pattern:/(^|[\s;|&]|[<>]\()\w+(?:\.\w+)*(?=\+?=)/,inside:{environment:{pattern:RegExp("(^|[\\s;|&]|[<>]\\()"+t),lookbehind:!0,alias:"constant"}},alias:"variable",lookbehind:!0},parameter:{pattern:/(^|\s)-{1,2}(?:\w+:[+-]?)?\w+(?:\.\w+)*(?=[=\s]|$)/,alias:"variable",lookbehind:!0},string:[{pattern:/((?:^|[^<])<<-?\s*)(\w+)\s[\s\S]*?(?:\r?\n|\r)\2/,lookbehind:!0,greedy:!0,inside:n},{pattern:/((?:^|[^<])<<-?\s*)(["'])(\w+)\2\s[\s\S]*?(?:\r?\n|\r)\3/,lookbehind:!0,greedy:!0,inside:{bash:a}},{pattern:/(^|[^\\](?:\\\\)*)"(?:\\[\s\S]|\$\([^)]+\)|\$(?!\()|`[^`]+`|[^"\\`$])*"/,lookbehind:!0,greedy:!0,inside:n},{pattern:/(^|[^$\\])'[^']*'/,lookbehind:!0,greedy:!0},{pattern:/\$'(?:[^'\\]|\\[\s\S])*'/,greedy:!0,inside:{entity:n.entity}}],environment:{pattern:RegExp("\\$?"+t),alias:"constant"},variable:n.variable,function:{pattern:/(^|[\s;|&]|[<>]\()(?:add|apropos|apt|apt-cache|apt-get|aptitude|aspell|automysqlbackup|awk|basename|bash|bc|bconsole|bg|bzip2|cal|cargo|cat|cfdisk|chgrp|chkconfig|chmod|chown|chroot|cksum|clear|cmp|column|comm|composer|cp|cron|crontab|csplit|curl|cut|date|dc|dd|ddrescue|debootstrap|df|diff|diff3|dig|dir|dircolors|dirname|dirs|dmesg|docker|docker-compose|du|egrep|eject|env|ethtool|expand|expect|expr|fdformat|fdisk|fg|fgrep|file|find|fmt|fold|format|free|fsck|ftp|fuser|gawk|git|gparted|grep|groupadd|groupdel|groupmod|groups|grub-mkconfig|gzip|halt|head|hg|history|host|hostname|htop|iconv|id|ifconfig|ifdown|ifup|import|install|ip|java|jobs|join|kill|killall|less|link|ln|locate|logname|logrotate|look|lpc|lpr|lprint|lprintd|lprintq|lprm|ls|lsof|lynx|make|man|mc|mdadm|mkconfig|mkdir|mke2fs|mkfifo|mkfs|mkisofs|mknod|mkswap|mmv|more|most|mount|mtools|mtr|mutt|mv|nano|nc|netstat|nice|nl|node|nohup|notify-send|npm|nslookup|op|open|parted|passwd|paste|pathchk|ping|pkill|pnpm|podman|podman-compose|popd|pr|printcap|printenv|ps|pushd|pv|quota|quotacheck|quotactl|ram|rar|rcp|reboot|remsync|rename|renice|rev|rm|rmdir|rpm|rsync|scp|screen|sdiff|sed|sendmail|seq|service|sftp|sh|shellcheck|shuf|shutdown|sleep|slocate|sort|split|ssh|stat|strace|su|sudo|sum|suspend|swapon|sync|sysctl|tac|tail|tar|tee|time|timeout|top|touch|tr|traceroute|tsort|tty|umount|uname|unexpand|uniq|units|unrar|unshar|unzip|update-grub|uptime|useradd|userdel|usermod|users|uudecode|uuencode|v|vcpkg|vdir|vi|vim|virsh|vmstat|wait|watch|wc|wget|whereis|which|who|whoami|write|xargs|xdg-open|yarn|yes|zenity|zip|zsh|zypper)(?=$|[)\s;|&])/,lookbehind:!0},keyword:{pattern:/(^|[\s;|&]|[<>]\()(?:case|do|done|elif|else|esac|fi|for|function|if|in|select|then|until|while)(?=$|[)\s;|&])/,lookbehind:!0},builtin:{pattern:/(^|[\s;|&]|[<>]\()(?:\.|:|alias|bind|break|builtin|caller|cd|command|continue|declare|echo|enable|eval|exec|exit|export|getopts|hash|help|let|local|logout|mapfile|printf|pwd|read|readarray|readonly|return|set|shift|shopt|source|test|times|trap|type|typeset|ulimit|umask|unalias|unset)(?=$|[)\s;|&])/,lookbehind:!0,alias:"class-name"},boolean:{pattern:/(^|[\s;|&]|[<>]\()(?:false|true)(?=$|[)\s;|&])/,lookbehind:!0},"file-descriptor":{pattern:/\B&\d\b/,alias:"important"},operator:{pattern:/\d?<>|>\||\+=|=[=~]?|!=?|<<[<-]?|[&\d]?>>|\d[<>]&?|[<>][&=]?|&[>&]?|\|[&|]?/,inside:{"file-descriptor":{pattern:/^\d/,alias:"important"}}},punctuation:/\$?\(\(?|\)\)?|\.\.|[{}[\];\\]/,number:{pattern:/(^|\s)(?:[1-9]\d*|0)(?:[.,]\d+)?\b/,lookbehind:!0}},a.inside=e.languages.bash;for(var s=["comment","function-name","for-or-select","assign-left","parameter","string","environment","function","keyword","builtin","boolean","file-descriptor","operator","punctuation","number"],o=n.variable[1].inside,i=0;i<s.length;i++)o[s[i]]=e.languages.bash[s[i]];e.languages.sh=e.languages.bash,e.languages.shell=e.languages.bash}(Prism);
+;Prism.languages.jsonc = Prism.languages.json;
+</script>
