@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeServerFnPayloadForCacheKey,
+  payloadHasTrackingParams,
   detectCacheProfile,
   getCacheProfile,
   registerCachePattern,
@@ -230,5 +231,28 @@ describe("cache configuration can tighten, not loosen", () => {
     expect(detectCacheProfile("/checkout")).toBe("private");
     // ...but it still applies everywhere else.
     expect(detectCacheProfile("/tenis")).toBe("static");
+  });
+});
+
+describe("payloadHasTrackingParams", () => {
+  const p = (v: unknown) => JSON.stringify(v);
+
+  it("finds a tracking param in an embedded absolute URL", () => {
+    expect(payloadHasTrackingParams(p({ data: { pageUrl: "https://x.test/p?gclid=1" } }))).toBe(
+      true,
+    );
+  });
+
+  it("finds a tracking param in an embedded route path", () => {
+    expect(payloadHasTrackingParams(p(["/produtos?utm_source=ads&page=2"]))).toBe(true);
+  });
+
+  it("ignores real params and plain strings", () => {
+    expect(payloadHasTrackingParams(p({ pageUrl: "/produtos?sort=price:asc&page=2" }))).toBe(false);
+    expect(payloadHasTrackingParams(p({ label: "gclid=1 in a sentence" }))).toBe(false);
+  });
+
+  it("is fail-safe on malformed payloads", () => {
+    expect(payloadHasTrackingParams("not json {")).toBe(false);
   });
 });

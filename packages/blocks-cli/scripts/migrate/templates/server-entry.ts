@@ -98,14 +98,10 @@ const decoWorker = createDecoWorkerEntry(serverEntry, {
     handleRender,
     corsHeaders,
   },
-  // Region splits the cache so a RJ-cached response isn't served to SP visitors
-  // when pages use the website/matchers/location.ts matcher. Without this, the
-  // first geo-resolved response leaks across regions.
-  buildSegment: (request) => {
-    const cf = (request as unknown as { cf?: { regionCode?: string } }).cf;
-    const regionCode = request.headers.get("cf-region-code") ?? cf?.regionCode ?? "";
-    return regionCode ? { regionId: regionCode } : {};
-  },
+  // No geo in buildSegment: createDecoWorkerEntry's geoCacheKey: "auto" already
+  // backfills the region into the segment — but only when the decofile has a
+  // website/matchers/location.ts block. Setting it here unconditionally split
+  // every page's cache per state (~27 copies per URL in Brazil) for nothing.
 });
 
 export default instrumentWorker(decoWorker, {
@@ -174,16 +170,15 @@ const decoWorker = createDecoWorkerEntry(serverEntry, {
   csp: CSP_DIRECTIVES,
   buildSegment: (request) => {
     const vtx = extractVtexContext(request);
-    const cf = (request as unknown as { cf?: { regionCode?: string } }).cf;
-    const geoRegion = request.headers.get("cf-region-code") ?? cf?.regionCode ?? "";
     return {
       device: MOBILE_RE.test(request.headers.get("user-agent") ?? "") ? "mobile" : "desktop",
       loggedIn: vtx.isLoggedIn,
       salesChannel: vtx.salesChannel,
-      // Prefer VTEX regionalization regionId when present; otherwise fall back
-      // to Cloudflare geo so the website/matchers/location.ts matcher gets a
-      // properly segmented cache.
-      regionId: (vtx as any).regionId ?? (geoRegion || undefined),
+      // VTEX regionalization only. Don't fall back to Cloudflare geo here:
+      // geoCacheKey: "auto" adds the region only when a
+      // website/matchers/location.ts block exists; doing it unconditionally
+      // splits every page's cache per state.
+      regionId: (vtx as any).regionId,
     };
   },
   admin: {
