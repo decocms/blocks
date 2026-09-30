@@ -967,6 +967,15 @@ const FINGERPRINTED_ASSET_RE = /(?:\/_build)?\/assets\/.*-[a-zA-Z0-9_-]{8,}\.\w+
 // Sites that need city precision should set geoCacheKey: "city" explicitly.
 
 let _autoGeoKey: "off" | "region" = "off";
+/**
+ * Whether `_autoGeoKey` is an answer or still the pre-hydration default. It
+ * starts `"off"` and only becomes `"region"` once a decofile carrying a
+ * location matcher loads, so anything that *reports* on `"off"` (rather than
+ * just keying on it) has to wait for a non-empty decofile first. Recomputed on
+ * every change rather than latched, so a reset back to an empty decofile
+ * un-settles it.
+ */
+let _autoGeoSettled = false;
 let _autoGeoListenerInstalled = false;
 
 function installAutoGeoListener(): void {
@@ -974,6 +983,7 @@ function installAutoGeoListener(): void {
   _autoGeoListenerInstalled = true;
   const update = (blocks: Record<string, unknown>) => {
     _autoGeoKey = detectLocationMatcher(blocks) ? "region" : "off";
+    _autoGeoSettled = Object.keys(blocks).length > 0;
   };
   onChange(update);
   update(loadBlocks());
@@ -1145,6 +1155,16 @@ export function createDecoWorkerEntry(
   // framework already does this backfill below, and only when a location
   // matcher exists — so flag the redundant, unconditional version once.
   let warnedGeoSegment = false;
+  /**
+   * Whether `effectiveGeoKey() === "off"` is a real answer or just the
+   * pre-hydration default. Under `geoCacheKey: "auto"` a request that lands
+   * before the decofile loads would otherwise latch the warning below and tell
+   * the team to delete a geo fallback its location matcher actually needs. An
+   * explicit `geoCacheKey` has no such race.
+   */
+  function geoKeySettled(): boolean {
+    return geoCacheKeyOpt !== "auto" || _autoGeoSettled;
+  }
   const buildSegment = rawBuildSegment
     ? (request: Request): SegmentKey => {
         const seg = rawBuildSegment(request);
@@ -1152,6 +1172,7 @@ export function createDecoWorkerEntry(
           !warnedGeoSegment &&
           seg.regionId &&
           effectiveGeoKey() === "off" &&
+          geoKeySettled() &&
           seg.regionId === readRegionFromRequest(request)
         ) {
           warnedGeoSegment = true;
@@ -2643,13 +2664,20 @@ export function createDecoWorkerEntry(
           ctx.waitUntil(
             (async () => {
               try {
-                const bgReq = new Request(request, { body, method: "POST" });
+                // Revalidate from the canonical body, for the same reason the
+                // HTML path revalidates from the clean URL: the entry is keyed
+                // on it, and a render from the tracked body embeds that landing
+                // URL. Rendering the tracked body would only be discarded,
+                // leaving the entry stale for the rest of the SWR window.
+                const bgBody = sfnCarriesTracking
+                  ? canonicalizeServerFnPayloadForCacheKey(body, [])
+                  : body;
+                const bgReq = new Request(request, { body: bgBody, method: "POST" });
                 const bgOrigin = await serverEntry.fetch(bgReq, env, ctx);
                 if (
                   bgOrigin.status === 200 &&
                   bgOrigin.headers.get("X-Deco-Cacheable") === "true" &&
                   !bgOrigin.headers.has("set-cookie") &&
-                  !sfnCarriesTracking &&
                   serverFnCache
                 ) {
                   const ttl = sfnEdge.fresh + Math.max(sfnEdge.swr, sfnEdge.sie);
@@ -2724,6 +2752,9 @@ export function createDecoWorkerEntry(
       for (const [k, v] of Object.entries(hdrs)) resp.headers.set(k, v);
       resp.headers.set("X-Cache", "MISS");
       resp.headers.set("X-Cache-Profile", sfnProfile);
+      // Same label the HTML path emits, so the documented probe works on a
+      // deferred section too.
+      if (sfnCarriesTracking) resp.headers.set("X-Cache-Store", "skipped-tracking");
       return resp;
     }
 
@@ -2855,9 +2886,11 @@ export function createDecoWorkerEntry(
       return out;
     }
 
-    // Helper: store a response in Cache API with the full retention window
+    // Helper: store a response in Cache API with the full retention window.
+    // Callers own the tracking decision: a response is storable iff it was
+    // rendered from the clean URL this `cacheKey` represents.
     function storeInCache(resp: Response) {
-      if (!cache || skipStoreTracking) return;
+      if (!cache) return;
       try {
         const storageTtl = edgeConfig.fresh + Math.max(edgeConfig.swr, edgeConfig.sie);
         const toStore = resp.clone();
@@ -2875,10 +2908,36 @@ export function createDecoWorkerEntry(
       }
     }
 
+    // A tracked request must revalidate from the CLEAN URL. The renderer
+    // embeds the URL it was given, and the entry being refreshed is keyed
+    // clean — so rendering the tracked URL here is either poisoning (what this
+    // used to do) or dead weight (`storeInCache` drops it), which would leave
+    // the entry stale for the whole SWR window while every ad visitor pays a
+    // full SSR that refreshes nothing. Rendering clean costs the same fetch
+    // and actually warms the entry, so paid traffic keeps the cache alive.
+    function revalidationRequest(): Request {
+      if (!skipStoreTracking) return request;
+      const clean = new URL(cleanPathForCacheKey(url.toString()), url.origin);
+      // Build the init field by field instead of passing `request` as init:
+      // whether the `new Request(url, request)` form carries `cf` over is
+      // runtime-dependent, and a location matcher reading a dropped `cf` would
+      // store a wrong-region render under a region-keyed entry. No body — this
+      // path is GET-only (every other method bypasses the cache above) — and
+      // no `signal`, so a client disconnecting mid-revalidation doesn't abort
+      // the refresh that the next visitor is going to read.
+      const cf = (request as unknown as { cf?: unknown }).cf;
+      return new Request(clean.toString(), {
+        method: request.method,
+        headers: request.headers,
+        redirect: request.redirect,
+        ...(cf ? { cf } : {}),
+      } as RequestInit);
+    }
+
     // Helper: background revalidation (fetch origin, store result)
     function revalidateInBackground() {
       ctx.waitUntil(
-        Promise.resolve(serverEntry.fetch(request, env, ctx))
+        Promise.resolve(serverEntry.fetch(revalidationRequest(), env, ctx))
           .then((origin) => {
             // Never overwrite a good entry with a degraded 200 (a critical
             // section failed) — that would poison the cache. Leave the stale
@@ -3053,7 +3112,9 @@ export function createDecoWorkerEntry(
     const cacheOrigin = origin.headers.has("set-cookie")
       ? stripSafeCookiesForCache(origin, safeCookieSet)
       : origin;
-    storeInCache(cacheOrigin);
+    // This render saw the tracked URL and embedded it — never store it under
+    // the clean key. The next clean visitor fills the entry.
+    if (!skipStoreTracking) storeInCache(cacheOrigin);
     return dressResponse(
       origin,
       "MISS",

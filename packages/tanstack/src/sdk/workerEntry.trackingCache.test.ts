@@ -54,10 +54,23 @@ const echoOrigin = () => ({
 const page = (path: string) =>
   new Request(`https://shop.test${path}`, { headers: { accept: "text/html" } });
 
+/**
+ * Move the clock forward without fake timers (the cache storage and tracing
+ * helpers await real promises). The `listing` profile is fresh=120s, swr=900s,
+ * so +200s lands squarely in the stale-while-revalidate window.
+ */
+let clockOffsetMs = 0;
+const INSIDE_SWR_MS = 200_000;
+
 beforeEach(() => {
   clearLoaderCache();
   setBlocks({});
+  clockOffsetMs = 0;
+  const realNow = Date.now.bind(Date);
+  vi.spyOn(Date, "now").mockImplementation(() => realNow() + clockOffsetMs);
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("tracking params never poison the edge cache", () => {
   it("does not store a page rendered from a tracked URL", async () => {
@@ -91,6 +104,34 @@ describe("tracking params never poison the edge cache", () => {
     expect(origin.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("revalidates a stale entry from the clean URL, not the tracked one", async () => {
+    const origin = echoOrigin();
+    const bindings = env();
+    const worker = createDecoWorkerEntry(origin, options);
+
+    await worker.fetch(page("/produtos"), bindings, ctx);
+    await flush();
+
+    clockOffsetMs = INSIDE_SWR_MS;
+    const stale = await worker.fetch(page("/produtos?gclid=POISON42"), bindings, ctx);
+    expect(stale.headers.get("X-Cache")).toBe("STALE-HIT");
+    await flush();
+
+    // The background render must see the clean URL. Rendering the tracked one
+    // would be discarded by the store guard — a full SSR for nothing, on every
+    // ad visitor, for the rest of the SWR window.
+    const rendered = origin.fetch.mock.calls.map((c) => (c[0] as Request).url);
+    expect(rendered).toHaveLength(2);
+    expect(rendered[1]).not.toContain("POISON42");
+
+    // And it refreshed the entry, so paid traffic keeps the cache warm.
+    clockOffsetMs = INSIDE_SWR_MS + 1_000;
+    const next = await worker.fetch(page("/produtos"), bindings, ctx);
+    expect(next.headers.get("X-Cache")).toBe("HIT");
+    expect(await next.text()).not.toContain("POISON42");
+    expect(origin.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("stores clean pages as before", async () => {
     const origin = echoOrigin();
     const bindings = env();
@@ -119,8 +160,6 @@ describe("POST server fn: tracked pageUrl converges on one key and is never stor
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ data: { component: "Shelf", pageUrl } }),
     });
-
-  afterEach(() => vi.restoreAllMocks());
 
   it("serves a tracked body from the clean body's entry", async () => {
     const origin = sfnOrigin();
@@ -152,31 +191,90 @@ describe("POST server fn: tracked pageUrl converges on one key and is never stor
     expect(clean.headers.get("X-Cache")).toBe("MISS");
     expect(await clean.text()).not.toContain("POISON42");
   });
+
+  it("labels the skipped store, like the HTML path does", async () => {
+    const worker = createDecoWorkerEntry(sfnOrigin(), options);
+
+    const tracked = await worker.fetch(
+      post("https://shop.test/produtos?gclid=POISON42"),
+      env(),
+      ctx,
+    );
+    expect(tracked.headers.get("X-Cache")).toBe("MISS");
+    expect(tracked.headers.get("X-Cache-Store")).toBe("skipped-tracking");
+  });
+
+  it("revalidates a stale entry from the canonical body", async () => {
+    const origin = sfnOrigin();
+    const bindings = env();
+    const worker = createDecoWorkerEntry(origin, options);
+
+    await worker.fetch(post("https://shop.test/produtos"), bindings, ctx);
+    await flush();
+
+    clockOffsetMs = INSIDE_SWR_MS;
+    const stale = await worker.fetch(
+      post("https://shop.test/produtos?gclid=POISON42"),
+      bindings,
+      ctx,
+    );
+    expect(stale.headers.get("X-Cache")).toBe("STALE-HIT");
+    await flush();
+
+    // Refreshed rather than discarded: a third request HITs without a third
+    // origin render, and the stored section never saw the landing URL.
+    clockOffsetMs = INSIDE_SWR_MS + 1_000;
+    const next = await worker.fetch(post("https://shop.test/produtos"), bindings, ctx);
+    expect(next.headers.get("X-Cache")).toBe("HIT");
+    expect(await next.text()).not.toContain("POISON42");
+    expect(origin.fetch).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("buildSegment geo split warning", () => {
-  afterEach(() => vi.restoreAllMocks());
+  const geo = (path: string) =>
+    new Request(`https://shop.test${path}`, {
+      headers: { accept: "text/html", "cf-region-code": "RJ" },
+    });
+  const cfRegionSegment = (req: Request) => ({
+    device: "desktop" as const,
+    regionId: req.headers.get("cf-region-code") ?? undefined,
+  });
+  const warned = (warn: { mock: { calls: unknown[][] } }) =>
+    warn.mock.calls.filter((c) => String(c[0]).includes("buildSegment sets regionId"));
 
   it("warns once when regionId is the CF region and no location matcher exists", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // A loaded decofile with no location matcher — that's what makes
+    // `geoCacheKey: "auto"` resolving to "off" an answer and not a default.
+    setBlocks({ "/": { __resolveType: "website/pages/Page.tsx" } });
+    const worker = createDecoWorkerEntry(echoOrigin(), {
+      ...options,
+      geoCacheKey: "auto",
+      buildSegment: cfRegionSegment,
+    });
+    await worker.fetch(geo("/a"), env(), ctx);
+    await worker.fetch(geo("/b"), env(), ctx);
+    expect(warned(warn)).toHaveLength(1);
+  });
+
+  it("stays quiet before the decofile loads", async () => {
+    // `_autoGeoKey` defaults to "off", so warning here would tell a site that
+    // DOES have a location matcher to delete the fallback it needs — and the
+    // flag latches, so the bogus advice is all they ever see.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const worker = createDecoWorkerEntry(echoOrigin(), {
       ...options,
       geoCacheKey: "auto",
-      buildSegment: (req: Request) => ({
-        device: "desktop" as const,
-        regionId: req.headers.get("cf-region-code") ?? undefined,
-      }),
+      buildSegment: cfRegionSegment,
     });
-    const geo = (path: string) =>
-      new Request(`https://shop.test${path}`, {
-        headers: { accept: "text/html", "cf-region-code": "RJ" },
-      });
     await worker.fetch(geo("/a"), env(), ctx);
+    expect(warned(warn)).toHaveLength(0);
+
+    // Once the decofile lands and really has no matcher, it does warn.
+    setBlocks({ "/": { __resolveType: "website/pages/Page.tsx" } });
     await worker.fetch(geo("/b"), env(), ctx);
-    const calls = warn.mock.calls.filter((c) =>
-      String(c[0]).includes("buildSegment sets regionId"),
-    );
-    expect(calls).toHaveLength(1);
+    expect(warned(warn)).toHaveLength(1);
   });
 
   it("stays quiet for a VTEX regionId", async () => {
