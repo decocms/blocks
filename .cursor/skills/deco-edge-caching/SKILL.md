@@ -166,6 +166,14 @@ curl -X POST "https://site.com/_cache/purge" \
 
 **Important**: Use GET requests for testing (not `curl -I` which sends HEAD). The worker-entry only caches GET requests.
 
+## Tracking Params, Geo and Cache Poisoning
+
+- **Tracking params** (`utm_*`, `gclid`, `fbclid`, … plus anything registered via `registerTrackingParams`) are dropped from the key. A request that *carries* them is served from the clean entry but **never stored** (`X-Cache-Store: skipped-tracking`). The renderer saw the raw URL and embeds it, so storing it would serve one visitor's `gclid` to everyone.
+- **POST server-fn bodies** are hashed with tracking params stripped, so deferred sections of ad visitors share the clean entry.
+- **Geo:** don't put the Cloudflare region in `buildSegment`. `geoCacheKey: "auto"` adds it only when a `website/matchers/location.ts` block exists. The worker warns once if it sees a raw-geo `regionId` with no location matcher.
+
+Probes, fixes and a PR checklist for these and the other egress regressions: `deco-storefront-egress-guardrails`.
+
 ## Loader Cache (Server-Side SWR)
 
 In `setup.ts`, wrap commerce loaders with `createCachedLoader`:
