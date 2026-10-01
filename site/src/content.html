@@ -51,7 +51,7 @@
 <section id="quickstart" data-nav="Quickstart" class="doc-section">
   <p class="eyebrow">Getting started</p><h2>Quickstart</h2>
   <p>Suppose your app has a function that decides which A/B tests a visitor sees. It takes the traffic split for each experiment and returns whether each one is enabled:</p>
-<figure class="code-example"><figcaption>config/experiments.ts</figcaption><pre><code class="language-typescript">export interface Experiments {
+<figure class="code-example"><figcaption>experiments.ts</figcaption><pre><code class="language-typescript">export interface Experiments {
   /** @title New checkout flow @minimum 0 @maximum 100 */
   newCheckout: number;
   /** @title Sticky header @minimum 0 @maximum 100 */
@@ -69,7 +69,7 @@ export default function experiments(input: Experiments) {
     freeShippingBanner: roll(input.freeShippingBanner),
   };
 }</code></pre></figure>
-<figure class="code-example"><figcaption>checkout.ts</figcaption><pre><code class="language-typescript">import experiments from "./config/experiments";
+<figure class="code-example"><figcaption>checkout.ts</figcaption><pre><code class="language-typescript">import experiments from "./experiments";
 
 experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
 // { newCheckout: false, stickyHeader: true, freeShippingBanner: false }</code></pre></figure>
@@ -80,7 +80,7 @@ experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
   <h3>1. Make the function configurable</h3>
   <p>Any function with a typed first parameter can be a block. Give it a name in a block map. The key, <code>experiments</code>, is the block type that content will refer to. This file is plain data: the CLI reads it, and your app hands it to <code>createCMS</code>.</p>
 <figure class="code-example"><figcaption>cms.index.ts</figcaption><pre><code class="language-typescript">import type { Blocks } from "@decocms/blocks";
-import experiments from "./config/experiments";
+import experiments from "./experiments";
 
 export default { experiments } satisfies Blocks;</code></pre></figure>
 

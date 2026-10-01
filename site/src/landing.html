@@ -17,7 +17,7 @@
         <div class="win-bar"><span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="win-title">Deco Blocks · my-store — Experiments</span></div>
         <div class="journey" role="group" aria-label="From a TypeScript type to a resolved value">
           <div class="jp jp-type">
-            <div class="jp-head"><span class="jp-step">01</span><span class="jp-title">Type it</span><span class="jp-meta">config/experiments.ts</span></div>
+            <div class="jp-head"><span class="jp-step">01</span><span class="jp-title">Type it</span><span class="jp-meta">experiments.ts</span></div>
 <pre class="jp-pre has-ln"><code><span class="l"><span class="tk-k">export</span> <span class="tk-k">interface</span> <span class="tk-t">Experiments</span> {</span><span class="l">  <span class="tk-c">/** <span class="tk-ck">@title</span> New checkout flow</span></span><span class="l"><span class="tk-c">   *  <span class="tk-ck">@minimum</span> 0 <span class="tk-ck">@maximum</span> 100 */</span></span><span class="l">  <span class="tk-p">newCheckout</span>: <span class="tk-t">number</span>;</span><span class="l">  <span class="tk-c">/** <span class="tk-ck">@title</span> Sticky header … */</span></span><span class="l">  <span class="tk-p">stickyHeader</span>: <span class="tk-t">number</span>;</span><span class="l">  <span class="tk-c">/** <span class="tk-ck">@title</span> Free shipping … */</span></span><span class="l">  <span class="tk-p">freeShippingBanner</span>: <span class="tk-t">number</span>;</span><span class="l">}</span></code></pre>
             <div class="jp-foot"><span class="mono">npx deco schema</span><span class="jp-foot-sep" aria-hidden="true">→</span><span class="mono">.deco/schema.json</span></div>
             <span class="jp-arrow" aria-hidden="true">{{icon:chevron-right}}</span>
@@ -54,7 +54,7 @@
 
           <div class="jp jp-call">
             <div class="jp-head"><span class="jp-step">04</span><span class="jp-title">Resolve it</span><span class="jp-meta">checkout.ts</span></div>
-<pre class="jp-pre has-ln"><code><span class="l"><span class="tk-k">import</span> { createCMS } <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;@decocms/blocks&quot;</span>;</span><span class="l"><span class="tk-k">import</span> experiments <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;./config/experiments&quot;</span>;</span><span class="l"> </span><span class="l"><span class="tk-k">const</span> cms = <span class="tk-f">createCMS</span>({</span><span class="l">  blocks: { experiments },</span><span class="l">});</span><span class="l"><span class="tk-k">const</span> [enabled, error] = <span class="tk-k">await</span> cms</span><span class="l">  .<span class="tk-f">forRelease</span>()</span><span class="l">  .<span class="tk-f">resolve</span>(<span class="tk-s">&quot;Experiments&quot;</span>);</span><span class="l"><span class="tk-k">if</span> (error) <span class="tk-k">throw</span> error;</span><span class="l"><span class="tk-c">// true on ~<span id="exp-odds">25</span>% of calls</span></span></code></pre>
+<pre class="jp-pre has-ln"><code><span class="l"><span class="tk-k">import</span> { createCMS } <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;@decocms/blocks&quot;</span>;</span><span class="l"><span class="tk-k">import</span> experiments <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;./experiments&quot;</span>;</span><span class="l"> </span><span class="l"><span class="tk-k">const</span> cms = <span class="tk-f">createCMS</span>({</span><span class="l">  blocks: { experiments },</span><span class="l">});</span><span class="l"><span class="tk-k">const</span> [enabled, error] = <span class="tk-k">await</span> cms</span><span class="l">  .<span class="tk-f">forRelease</span>()</span><span class="l">  .<span class="tk-f">resolve</span>(<span class="tk-s">&quot;Experiments&quot;</span>);</span><span class="l"><span class="tk-k">if</span> (error) <span class="tk-k">throw</span> error;</span><span class="l"><span class="tk-c">// true on ~<span id="exp-odds">25</span>% of calls</span></span></code></pre>
             <div class="jp-foot">{{icon:check}}<span>Same result as the direct call, same type</span></div>
           </div>
         </div>
@@ -242,14 +242,14 @@
           <div class="sw-tabs" aria-hidden="true"><span class="sw-tab is-on" data-step="1">{{icon:file}}cms.index.ts</span><span class="sw-tab" data-step="2">{{icon:terminal}}Terminal</span><span class="sw-tab" data-step="3">{{icon:file}}src/cms/cms.ts</span></div>
           <div class="sw-panes">
             <div class="sw-pane is-on" id="step-pane-1" role="tabpanel" aria-labelledby="step-tab-1">
-<pre><code class="language-typescript">// config/experiments.ts: the function you already have
+<pre><code class="language-typescript">// experiments.ts: the function you already have
 export default function experiments(input: Experiments) {
   return { newCheckout: roll(input.newCheckout), /* … */ };
 }
 
 // cms.index.ts: give it a name in a block map
 import type { Blocks } from "@decocms/blocks";
-import experiments from "./config/experiments";
+import experiments from "./experiments";
 
 export default { experiments } satisfies Blocks;</code></pre>
               <p class="sw-result">{{icon:check}}<span>The key <code>experiments</code> is now a block type content can refer to.</span></p>
