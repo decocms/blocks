@@ -179,7 +179,7 @@
       "id": "roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe",
       "title": "Make draft preview work inside Studio's iframe",
       "today": "The SameSite=Lax cookie is rejected cross-site, the TanStack guide never sets it, and <code>?__draft=off</code> is ignored. There's no no-store rule, and no StudioBridge or <code>data-manifest-key</code>, so click-to-select is lost.",
-      "plan": "Ship <code>withDeco()</code>/<code>decoProxy()</code>, which set the cookie as <code>Secure; SameSite=None; Partitioned</code>, treat off/empty as exit and mark drafts private/no-store. Add <code>&lt;StudioBridge/&gt;</code>, and have <code>&lt;Sections&gt;</code> emit <code>section[data-manifest-key]</code>.",
+      "plan": "Ship <code>withDeco()</code>/<code>decoProxy()</code>, which set the cookie as <code>Secure; SameSite=None; Partitioned</code>, treat off/empty as exit and mark drafts private/no-store. Add <code>&lt;StudioBridge/&gt;</code>, and have <code>&lt;BlockList&gt;</code> emit Studio's <code>section[data-manifest-key]</code> marker.",
       "features": [
         "studio-preview",
         "worker-server-entry",
@@ -233,7 +233,7 @@
       "id": "roadmap-blockers--stop-resolving-everything-eagerly",
       "title": "Stop resolving everything eagerly",
       "today": "The one registry rule resolves inputs bottom-up. Lazy defers nothing (43 wrappers on the storefront), hidden variants still run their loaders, and <code>Resolved&lt;T&gt;</code> can't be expressed.",
-      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;Sections&gt;</code> renders lazily. A multivariate over <code>Deferred</code> values resolves only the winner.",
+      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;BlockList&gt;</code> renders lazily. A multivariate over <code>Deferred</code> values resolves only the winner.",
       "features": [
         "lazy-deferred-sections",
         "matchers-and-variants",
@@ -246,7 +246,7 @@
     {
       "id": "roadmap-blockers--make-the-next-major-load-and-resolve-legacy-content",
       "title": "Make the next major load and resolve legacy content",
-      "today": "Filename decoding is unspecified, and the alias bridge covers only pages, matchers and multivariate, while Studio writes Lazy, SeoV2, <code>site/apps/site.ts</code>, redirect, secret and the <code>multi</code> matcher. UNKNOWN_BLOCK now fails the parent section, and <code>list()</code> can't see Content aliases.",
+      "today": "Filename decoding is unspecified, and the alias bridge covers only pages, matchers and multivariate, while Studio writes Lazy, SeoV2, <code>site/apps/site.ts</code>, redirect, secret and the <code>multi</code> matcher. UNKNOWN_BLOCK now fails the parent block, and <code>list()</code> can't see Content aliases.",
       "plan": "Specify single-decode filenames, widen the alias bridge, ship <code>deco check</code> and <code>deco bundle</code>, and have the CLI emit a runtime alias table.",
       "features": [
         "block-type-discriminator",
@@ -313,7 +313,7 @@
     {
       "id": "roadmap-studio-new--keep-gallery-theme-and-in-place-previews-working",
       "title": "Keep gallery, theme and in-place previews working",
-      "today": "Section thumbnails, global and theme previews, and Fast Preview in-place render all go through <code>/live/previews</code>.",
+      "today": "Studio's section thumbnails (its legacy name for block previews), global and theme previews, and Fast Preview in-place render all go through <code>/live/previews</code>.",
       "features": [
         "section-catalog",
         "theming-and-styling",
@@ -366,7 +366,7 @@
     {
       "id": "roadmap-studio-new--restore-click-to-select",
       "title": "Restore click-to-select",
-      "today": "There's no <code>editor::inject</code> listener, and the guides' renderers emit no <code>section[data-manifest-key]</code>.",
+      "today": "There's no <code>editor::inject</code> listener, and the guides' renderers emit no Studio <code>section[data-manifest-key]</code> marker.",
       "features": [
         "root-document-layout",
         "interactive-ui-widgets"
@@ -420,7 +420,7 @@
     {
       "id": "roadmap-studio-new--stop-studio-reading-short-type-names-as-saved-entries",
       "title": "Stop Studio reading short type names as saved entries",
-      "today": "Studio classifies keys by file extension, so site sections must keep <code>site/sections/X.tsx</code> keys until it does a manifest lookup.",
+      "today": "Studio classifies keys by file extension, so a site's UI blocks must keep legacy <code>site/sections/X.tsx</code> keys until it does a manifest lookup.",
       "features": [
         "block-type-discriminator",
         "section-registration-conventions"
@@ -510,8 +510,8 @@
     },
     {
       "id": "roadmap-studio-legacy--stop-hidden-sections-from-running",
-      "title": "Stop hidden sections from running",
-      "today": "'Every variant resolves': a section hidden with a never-rule still runs its loaders, and its <code>undefined</code> renders 'temporarily unavailable'.",
+      "title": "Stop hidden blocks from running",
+      "today": "'Every variant resolves': a block hidden with a never-rule still runs its loaders, and its <code>undefined</code> renders 'temporarily unavailable'.",
       "features": [
         "matchers-and-variants"
       ],
@@ -523,7 +523,7 @@
     {
       "id": "roadmap-studio-legacy--drop-hidden-array-items-instead-of-leaving-holes",
       "title": "Drop hidden array items instead of leaving holes",
-      "today": "Studio hides a banner or link by wrapping it in <code>website/flags/multivariate.ts</code> with a <code>never</code> rule (array-item-hidden.ts:35-40). Today's resolver drops <code>undefined</code> array items (resolve.ts:849-860). The proposed API's rule and <code>resolve(page.sections)</code> ('An array of results, one per section') keep them, so components receive <code>undefined</code> entries.",
+      "today": "Studio hides a banner or link by wrapping it in <code>website/flags/multivariate.ts</code> with a <code>never</code> rule (array-item-hidden.ts:35-40). Today's resolver drops <code>undefined</code> array items (resolve.ts:849-860). The proposed API's rule and <code>resolve(page.sections)</code> ('An array of results, one per block in the list') keep them, so components receive <code>undefined</code> entries.",
       "features": [
         "matchers-and-variants"
       ],
@@ -659,8 +659,8 @@
     {
       "id": "roadmap-api--add-a-section-renderer-and-a-deferral-api",
       "group": "api",
-      "title": "Add a section renderer and a deferral API",
-      "plan": "<p><code>&lt;Sections&gt;</code> per binding: per-section Suspense, error boundary, clientOnly, sized fallbacks, eager above the fold, SEO routing, and a <code>section[data-manifest-key]</code> frame on every section for Studio. One deferral API: a <code>Deferred&lt;T&gt;</code> input type passes a ref bound to the client's revision instead of resolving it. <code>&lt;Sections&gt;</code> renders the ref lazily, and a multivariate whose values are <code>Deferred&lt;T&gt;</code> resolves only the winning variant.</p>",
+      "title": "Add a block renderer and a deferral API",
+      "plan": "<p><code>&lt;BlockList&gt;</code> per binding: per-block Suspense, error boundary, clientOnly, sized fallbacks, eager above the fold, SEO routing, and Studio's <code>section[data-manifest-key]</code> frame on every block. One deferral API: a <code>Deferred&lt;T&gt;</code> input type passes a ref bound to the client's revision instead of resolving it. <code>&lt;BlockList&gt;</code> renders the ref lazily, and a multivariate whose values are <code>Deferred&lt;T&gt;</code> resolves only the winning variant.</p>",
       "features": [
         "section-registration-conventions",
         "lazy-deferred-sections",
@@ -949,7 +949,7 @@
       "id": "roadmap-api--add-observability-seams",
       "group": "api",
       "title": "Add observability seams",
-      "plan": "<p>A <code>createCMS</code> <code>onEvent</code>/<code>instrument</code> hook, <code>instrumentRequest(handler)</code> outside createDecoWorkerEntry, a Node/Next meter bootstrap and a traced <code>&lt;Section&gt;</code>.</p>",
+      "plan": "<p>A <code>createCMS</code> <code>onEvent</code>/<code>instrument</code> hook, <code>instrumentRequest(handler)</code> outside createDecoWorkerEntry, a Node/Next meter bootstrap and a traced <code>&lt;BlockSlot&gt;</code>.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation"
@@ -1128,8 +1128,8 @@
     {
       "id": "roadmap-cli--support-typed-section-references",
       "group": "cli",
-      "title": "Support typed section references",
-      "plan": "<p><code>Section</code> / <code>BlockOf&lt;'hero' | 'alert'&gt;</code> becomes an anyOf or <code>__SECTION_REF__</code>. Also a <code>SectionDescriptor&lt;P&gt;</code> marker, <code>@singleton</code> and <code>@catalog false</code>.</p>",
+      "title": "Support typed block references",
+      "plan": "<p><code>BlockOf&lt;'hero' | 'alert'&gt;</code> becomes an anyOf or Studio's legacy <code>__SECTION_REF__</code>. Also a <code>Descriptor&lt;P&gt;</code> marker, <code>@singleton</code> and <code>@catalog false</code>.</p>",
       "features": [
         "nested-section-props",
         "per-page-section-whitelists",
@@ -1226,7 +1226,7 @@
       "id": "roadmap-platform--use-manifest-lookup-instead-of-path-heuristics",
       "group": "studio",
       "title": "Use manifest lookup instead of path heuristics",
-      "plan": "<p>Replace the file-extension module-or-entry check and the <code>'/sections/'</code> heuristics, and refuse to save an entry whose name is a manifest key.</p>",
+      "plan": "<p>Replace the file-extension module-or-entry check and Studio's legacy <code>'/sections/'</code> path heuristics, and refuse to save an entry whose name is a manifest key.</p>",
       "features": [
         "block-type-discriminator",
         "section-registration-conventions",
@@ -1303,7 +1303,7 @@
       "id": "roadmap-platform--add-a-per-page-type-catalog-and-a-page-settings-form",
       "group": "studio",
       "title": "Add a per-page-type catalog and a page settings form",
-      "plan": "<p>Use a page type's sections anyOf as the catalog, and render the remaining page props as a form.</p>",
+      "plan": "<p>Use the anyOf on a page type's <code>sections</code> list as Studio's catalog, and render the remaining page props as a form.</p>",
       "features": [
         "per-page-section-whitelists",
         "page-level-settings-fields"
@@ -1350,7 +1350,7 @@
       "id": "roadmap-docs--resolve-contradictions-in-these-docs",
       "group": "docs",
       "title": "Resolve contradictions in these docs",
-      "plan": "<ul><li>'The CMS never sees Content' (<a href=\"#schema\">Schema generation</a>) vs list through aliases (<a href=\"#standalone\">API reference</a>).</li></ul><p>Also: make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden section's <code>undefined</code> render nothing, say what a reference to a Content entry resolves to, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
+      "plan": "<ul><li>'The CMS never sees Content' (<a href=\"#schema\">Schema generation</a>) vs list through aliases (<a href=\"#standalone\">API reference</a>).</li></ul><p>Also: make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden block's <code>undefined</code> render nothing, say what a reference to a Content entry resolves to, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
       "features": [
         "cms-page-routing",
         "codegen-pipeline",
@@ -1439,7 +1439,7 @@
       "id": "roadmap-docs--write-the-post-cutover-recipes",
       "group": "docs",
       "title": "Write the post-cutover recipes",
-      "plan": "<p>Page-level data shared by sections, client data fetching, server-only upstream proxies, overriding an app's block, tabs over pre-resolved data, head tags from sections, locale, and robots/static SEO files.</p>",
+      "plan": "<p>Page-level data shared by a page's blocks, client data fetching, server-only upstream proxies, overriding an app's block, tabs over pre-resolved data, head tags from blocks, locale, and robots/static SEO files.</p>",
       "features": [
         "implicit-page-data-context",
         "product-comparison",
@@ -1457,7 +1457,7 @@
       "id": "roadmap-docs--write-a-faststore-to-blocks-guide",
       "group": "docs",
       "title": "Write a FastStore-to-Blocks guide",
-      "plan": "<p>Decision: port @faststore/core's sections into the site as vendored code, with no separate storefront UI kit; the commerce hooks they need come from apps-vtex. The guide covers the choice of App Router or TanStack Start (there's no Pages Router path), a core-internals → apps-vtex map, a fragment → loader map and the override → composition recipe.</p>",
+      "plan": "<p>Decision: port @faststore/core's UI components (FastStore calls them sections) into the site as vendored code, with no separate storefront UI kit; the commerce hooks they need come from apps-vtex. The guide covers the choice of App Router or TanStack Start (there's no Pages Router path), a core-internals → apps-vtex map, a fragment → loader map and the override → composition recipe.</p>",
       "features": [
         "faststore-cli-overlay",
         "design-system-library",
@@ -1512,8 +1512,8 @@
     {
       "id": "roadmap-docs--add-notes-to-the-rendering-section",
       "group": "docs",
-      "title": "Add notes to the Rendering section",
-      "plan": "<p>Add four statements to <a href=\"#rendering\">Rendering</a>. Inline <code>&lt;script&gt;</code> in a streamed boundary runs on parse, before the boundary is revealed, so use effects. <code>&lt;Sections&gt;</code> keeps above-the-fold sections eager, with sized skeletons below. UI stores (drawers, minicart) are app code, created per request. Request-scope values are read during resolve and passed as props, because AsyncLocalStorage is gone by the time a streamed boundary renders.</p>",
+      "title": "Add notes to the Rendering page",
+      "plan": "<p>Add four statements to <a href=\"#rendering\">Rendering</a>. Inline <code>&lt;script&gt;</code> in a streamed boundary runs on parse, before the boundary is revealed, so use effects. <code>&lt;BlockList&gt;</code> keeps above-the-fold blocks eager, with sized skeletons below. UI stores (drawers, minicart) are app code, created per request. Request-scope values are read during resolve and passed as props, because AsyncLocalStorage is gone by the time a streamed boundary renders.</p>",
       "features": [
         "interactive-ui-widgets",
         "core-patches",
@@ -1625,7 +1625,7 @@
           "id": "roadmap-storefront--do-the-mechanical-port",
           "kind": "work",
           "title": "Do the mechanical port",
-          "text": "Hand-write the block map (27 sections, 12 loaders) with the path-shaped keys Studio needs, add the ~8-line requestToParam shim (app code), and replace Image/Picture (~20 files). The content fixes below register types into this map.",
+          "text": "Hand-write the block map (27 UI blocks, 12 loaders) with the path-shaped keys Studio needs, add the ~8-line requestToParam shim (app code), and replace Image/Picture (~20 files). The content fixes below register types into this map.",
           "features": [
             "site-bootstrap",
             "section-registration-conventions",
@@ -1638,7 +1638,7 @@
           "id": "roadmap-storefront--fix-the-content-before-cutover",
           "kind": "content",
           "title": "Fix the content before cutover",
-          "text": "Rewrite the Category page path <code>/*</code> to <code>/:collection</code>, guard the PDP's <code>seo: null</code> and hoist SEO sections out of <code>sections[]</code>. Register in the block map, or remove, ~20 unknown types, including the <code>resolved</code> built-in that Header.json's searchbar uses. Fix the Newsletter and Header drift, and hold MIGRATION_NEXT_STEPS' <code>*Config</code> Props regrouping until a content validator exists.",
+          "text": "Rewrite the Category page path <code>/*</code> to <code>/:collection</code>, guard the PDP's <code>seo: null</code> and hoist SEO blocks out of <code>sections[]</code>. Register in the block map, or remove, ~20 unknown types, including the <code>resolved</code> built-in that Header.json's searchbar uses. Fix the Newsletter and Header drift, and hold MIGRATION_NEXT_STEPS' <code>*Config</code> Props regrouping until a content validator exists.",
           "features": [
             "cms-page-routing",
             "commerce-seo-sections-in-sections",
@@ -1771,13 +1771,13 @@
       "short": "Next.js store",
       "section": "roadmap-faststore",
       "description": "A Next.js storefront on another CMS. Not on Deco today, so this is a re-platform, not an upgrade.",
-      "headline": "A re-platform, not an upgrade. The target framework, the content, the native sections and the session model all come before the missing pieces in the proposed API even come into play.",
+      "headline": "A re-platform, not an upgrade. The target framework, the content, FastStore's native sections and the session model all come before the missing pieces in the proposed API even come into play.",
       "steps": [
         {
           "id": "roadmap-faststore--pick-the-target-framework-and-move-to-it",
           "kind": "blocker",
           "title": "Pick the target framework and move to it",
-          "text": "Pick the target first: the App Router (the only guide; the Pages Router has none) or TanStack Start. It decides how the native sections get rebuilt. Its code imports <code>@faststore/core</code> internals, and most of its hook files, and the files that use its translation hook, lack <code>'use client'</code>.",
+          "text": "Pick the target first: the App Router (the only guide; the Pages Router has none) or TanStack Start. It decides how FastStore's native sections get rebuilt. Its code imports <code>@faststore/core</code> internals, and most of its hook files, and the files that use its translation hook, lack <code>'use client'</code>.",
           "features": [
             "faststore-cli-overlay",
             "framework-import-surface",
@@ -1790,7 +1790,7 @@
           "id": "roadmap-faststore--bring-the-content-in-from-vtex-headless-cms",
           "kind": "blocker",
           "title": "Bring the content in from VTEX Headless CMS",
-          "text": "The content lives in VTEX Headless CMS. There's no Headless CMS-to-<code>.deco/blocks</code> importer, the JSONC schemas must become TS types, and per-page-type section whitelists and singletons have no TS or Studio expression.",
+          "text": "The content lives in VTEX Headless CMS. There's no Headless CMS-to-<code>.deco/blocks</code> importer, the JSONC schemas must become TS types, and per-page-type whitelists of allowed blocks and singletons have no TS or Studio expression.",
           "features": [
             "faststore-cli-overlay",
             "content-storage-and-delivery",
@@ -1804,7 +1804,7 @@
           "id": "roadmap-faststore--rebuild-what-faststore-core-renders",
           "kind": "blocker",
           "title": "Rebuild what <code>@faststore/core</code> renders",
-          "text": "Its native sections, including the stateful cart, search and session ones, the global sections and the 404/500 pages. No UI kit exists.",
+          "text": "Its native sections (FastStore's UI components), including the stateful cart, search and session ones, the global ones (header, footer) and the 404/500 pages. No UI kit exists.",
           "features": [
             "native-platform-sections",
             "native-section-overrides",
@@ -1877,13 +1877,13 @@
     },
     {
       "id": "sections",
-      "title": "Sections",
-      "description": "Section registration, the section catalog, platform-native section overrides, and lazy, deferred or viewport-gated rendering."
+      "title": "UI blocks",
+      "description": "Registering blocks that render UI, Studio's block catalog, overrides of platform-native components, and lazy, deferred or viewport-gated rendering."
     },
     {
       "id": "data",
       "title": "Data",
-      "description": "Loaders, query props, section loaders, invoke/actions/BFF endpoints and search, plus site overrides of app loaders."
+      "description": "Loaders, query props, legacy section loaders (server-side prop enrichment), invoke/actions/BFF endpoints and search, plus site overrides of app loaders."
     },
     {
       "id": "commerce",
@@ -2140,7 +2140,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Aliases are documented, but the filename-to-entry-name rule isn't (Studio writes every key through `encodeURIComponent`), Studio still classifies keys by their path shape, and an unregistered legacy type now fails its parent section with UNKNOWN_BLOCK.",
+      "summary": "Aliases are documented, but the filename-to-entry-name rule isn't (Studio writes every key through `encodeURIComponent`), Studio still classifies keys by their path shape, and an unregistered legacy type now fails its parent block with UNKNOWN_BLOCK.",
       "docs": [
         "quickstart",
         "model",
@@ -2156,7 +2156,7 @@
       "unconfirmed_sub_claim": false
     },
     "global-layout-sections": {
-      "name": "Global/shared layout sections (header, footer)",
+      "name": "Global/shared layout blocks (header, footer)",
       "category": "content-model",
       "status": "to-finish",
       "effort": "M",
@@ -2187,7 +2187,7 @@
       "sites": [
         "storefront-tanstack"
       ],
-      "summary": "Per-request dedupe is only implied: no cache key, and nothing on shared in-flight promises. Pages that reference 'PLP Loader' or 'PDP Loader' twice would double their Shopify calls, and a failing loader now fails its whole section.",
+      "summary": "Per-request dedupe is only implied: no cache key, and nothing on shared in-flight promises. Pages that reference 'PLP Loader' or 'PDP Loader' twice would double their Shopify calls, and a failing loader now fails its whole block.",
       "docs": [
         "model",
         "manifest",
@@ -2210,7 +2210,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "A dangling reference used to return null; now it fails the parent section, and one in `seo` throws. There's no validation tool, and one reading of the release rule would skip every storefront release because of ~20 unregistered types.",
+      "summary": "A dangling reference used to return null; now it fails the parent block, and one in `seo` throws. There's no validation tool, and one reading of the release rule would skip every storefront release because of ~20 unregistered types.",
       "docs": [
         "model",
         "standalone",
@@ -2267,14 +2267,14 @@
       "unconfirmed_sub_claim": false
     },
     "nested-section-props": {
-      "name": "Section-typed props (nested sections)",
+      "name": "Block-typed props (nested blocks)",
       "category": "content-model",
       "status": "to-finish",
       "effort": "S",
       "sites": [
         "storefront-tanstack"
       ],
-      "summary": "There's no documented way to type an input that takes a section so the CLI emits a section picker; today's schema uses `__SECTION_REF__`. Nested sections also resolve eagerly, with no Suspense boundary of their own.",
+      "summary": "There's no documented way to type an input that takes a block so the CLI emits a block picker; today's schema uses Studio's legacy `__SECTION_REF__`. Nested blocks also resolve eagerly, with no Suspense boundary of their own.",
       "docs": [
         "model",
         "rendering",
@@ -2346,14 +2346,14 @@
       "unconfirmed_sub_claim": false
     },
     "per-page-section-whitelists": {
-      "name": "Per-page-type section whitelists",
+      "name": "Per-page-type block whitelists",
       "category": "content-model",
       "status": "to-build",
       "effort": "M",
       "sites": [
         "faststore"
       ],
-      "summary": "A sections field can't be typed as a subset of block types, because `Block` is untyped. Studio's add-section catalog is the union of all sections anyway, so a narrowed schema wouldn't restrict it.",
+      "summary": "A page's sections list can't be typed as a subset of block types, because `Block` is untyped. Studio's add-section catalog (its legacy name) is the union of all UI blocks anyway, so a narrowed schema wouldn't restrict it.",
       "docs": [
         "content-types",
         "standalone",
@@ -2366,14 +2366,14 @@
       "unconfirmed_sub_claim": false
     },
     "page-level-settings-fields": {
-      "name": "Page-level settings outside sections",
+      "name": "Page-level settings outside the block list",
       "category": "content-model",
       "status": "to-finish",
       "effort": "S",
       "sites": [
         "faststore"
       ],
-      "summary": "Studio edits only a page's name, path, SEO and sections, so typed page settings get no form. Only one page type can carry the `website/pages/Page.tsx` alias.",
+      "summary": "Studio edits only a page's name, path, SEO and block list, so typed page settings get no form. Only one page type can carry the `website/pages/Page.tsx` alias.",
       "docs": [
         "content-types",
         "routing",
@@ -2395,7 +2395,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "A section that references a Content-typed menu entry fails with UNKNOWN_BLOCK, which contradicts the advice to declare navigation in Content. Nothing says whether `deco schema` handles the intersections and recursion in `SiteNavigationElement`.",
+      "summary": "A block that references a Content-typed menu entry fails with UNKNOWN_BLOCK, which contradicts the advice to declare navigation in Content. Nothing says whether `deco schema` handles the intersections and recursion in `SiteNavigationElement`.",
       "docs": [
         "model",
         "content-types",
@@ -2476,7 +2476,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Every variant resolves, so a section Studio hides with a never rule still runs its loaders, and its `undefined` renders 'temporarily unavailable'. Device and random matchers no longer ship, and which Studio matcher paths get aliases is unstated.",
+      "summary": "Every variant resolves, so a block Studio hides with a never rule still runs its loaders, and its `undefined` renders 'temporarily unavailable'. Device and random matchers no longer ship, and which Studio matcher paths get aliases is unstated.",
       "docs": [
         "variants",
         "studio",
@@ -2488,7 +2488,7 @@
       "unconfirmed_sub_claim": false
     },
     "per-path-section-visibility": {
-      "name": "Per-path section visibility",
+      "name": "Per-path block visibility",
       "category": "content-model",
       "status": "site-code",
       "effort": "S",
@@ -2531,7 +2531,7 @@
       "unconfirmed_sub_claim": false
     },
     "section-registration-conventions": {
-      "name": "Section registration and file conventions",
+      "name": "UI block registration and file conventions",
       "category": "sections",
       "status": "to-finish",
       "effort": "M",
@@ -2540,7 +2540,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Registration works, but none of the 8 convention flags or section loaders has a home, so each site rebuilds the ~737-line DecoPageRenderer. There's no descriptor type, and `getRequest()` gives URL-dependent loaders the wrong URL on SPA navigation.",
+      "summary": "Registration works, but none of the 8 legacy convention flags or section loaders has a home, so each site rebuilds the ~737-line DecoPageRenderer. There's no descriptor type, and `getRequest()` gives URL-dependent loaders the wrong URL on SPA navigation.",
       "docs": [
         "manifest",
         "tanstack-data",
@@ -2558,7 +2558,7 @@
       "unconfirmed_sub_claim": false
     },
     "section-catalog": {
-      "name": "Section catalog exposed to editors",
+      "name": "Block catalog exposed to editors (Studio's section catalog)",
       "category": "sections",
       "status": "to-finish",
       "effort": "M",
@@ -2567,7 +2567,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "The catalog works for path-keyed sections, but thumbnails and in-place render go through `/live/previews`, which these docs don't define. The alias bridge skips Lazy and the Seo* types, and a JSX type can't be kept out of the catalog.",
+      "summary": "The catalog works for legacy path-keyed (site/sections/…) blocks, but thumbnails and in-place render go through `/live/previews`, which these docs don't define. The alias bridge skips Lazy and the Seo* types, and a JSX type can't be kept out of the catalog.",
       "docs": [
         "studio",
         "schema",
@@ -2582,14 +2582,14 @@
       "unconfirmed_sub_claim": false
     },
     "native-section-overrides": {
-      "name": "Overrides of platform-native sections",
+      "name": "Overrides of platform-native components",
       "category": "sections",
       "status": "to-finish",
       "effort": "M",
       "sites": [
         "faststore"
       ],
-      "summary": "Overrides collapse into plain composition, but the core sections, contexts and SDK hooks they rely on must be rebuilt. There's no page-level data context, and keys like 'Footer' can collide with saved-entry names.",
+      "summary": "Overrides collapse into plain composition, but the core components, contexts and SDK hooks they rely on must be rebuilt. There's no page-level data context, and keys like 'Footer' can collide with saved-entry names.",
       "docs": [
         "manifest",
         "rendering",
@@ -2604,14 +2604,14 @@
       "unconfirmed_sub_claim": false
     },
     "native-platform-sections": {
-      "name": "Native platform sections used via schema only",
+      "name": "Native platform components used via schema only",
       "category": "sections",
       "status": "to-build",
       "effort": "L",
       "sites": [
         "faststore"
       ],
-      "summary": "Nothing in the next major renders a section without site code, and UI stays out of `@decocms/apps`. Replacing the core sections, the stateful ones included, is real engineering, and FastStore's global-section and 404/500 content types have no layout pattern.",
+      "summary": "Nothing in the next major renders UI without site code, and UI stays out of `@decocms/apps`. Replacing the core components, the stateful ones included, is real engineering, and FastStore's global-section (its term) and 404/500 content types have no layout pattern.",
       "docs": [
         "decisions",
         "standalone",
@@ -2624,7 +2624,7 @@
       "unconfirmed_sub_claim": false
     },
     "code-composed-pdp": {
-      "name": "Code-composed monolithic PDP section",
+      "name": "Code-composed monolithic PDP block",
       "category": "sections",
       "status": "to-finish",
       "effort": "M",
@@ -2653,7 +2653,7 @@
       "sites": [
         "faststore"
       ],
-      "summary": "Server-side product inputs and typed card config work as documented, but apps-vtex has no tax-inclusive prices, full installment ladders or delivery badges, and a Content-typed card-config entry nested in a section fails with UNKNOWN_BLOCK.",
+      "summary": "Server-side product inputs and typed card config work as documented, but apps-vtex has no tax-inclusive prices, full installment ladders or delivery badges, and a Content-typed card-config entry nested in a block fails with UNKNOWN_BLOCK.",
       "docs": [
         "manifest",
         "model",
@@ -2668,7 +2668,7 @@
       "unconfirmed_sub_claim": false
     },
     "lazy-deferred-sections": {
-      "name": "Lazy / deferred / viewport-gated sections",
+      "name": "Lazy / deferred / viewport-gated blocks",
       "category": "sections",
       "status": "to-finish",
       "effort": "L",
@@ -2677,7 +2677,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "A wrapper's `section` input resolves fully before Lazy runs, so Lazy defers nothing (43 wrappers on the storefront). Viewport-gated second hops need a revision the client doesn't expose, and today's per-prop deferral has no counterpart.",
+      "summary": "A legacy Lazy wrapper's `section` input resolves fully before Lazy runs, so Lazy defers nothing (43 wrappers on the storefront). Viewport-gated second hops need a revision the client doesn't expose, and today's per-prop deferral has no counterpart.",
       "docs": [
         "manifest",
         "rendering",
@@ -2694,7 +2694,7 @@
       "unconfirmed_sub_claim": false
     },
     "section-loaders": {
-      "name": "Section loaders (server-side prop enrichment)",
+      "name": "Prop-enrichment loaders (legacy section loaders)",
       "category": "data",
       "status": "to-finish",
       "effort": "M",
@@ -2744,7 +2744,7 @@
       "unconfirmed_sub_claim": true
     },
     "inline-loader-props": {
-      "name": "Loaders and query descriptors in section props",
+      "name": "Loaders and query descriptors in block props",
       "category": "data",
       "status": "to-finish",
       "effort": "L",
@@ -3319,7 +3319,7 @@
       "unconfirmed_sub_claim": false
     },
     "commerce-seo-sections-in-sections": {
-      "name": "Commerce SEO sections inside page sections",
+      "name": "Commerce SEO blocks inside a page's block list",
       "category": "seo",
       "status": "to-finish",
       "effort": "M",
@@ -3342,14 +3342,14 @@
       "unconfirmed_sub_claim": false
     },
     "head-tags-from-sections": {
-      "name": "Head tags injected from sections",
+      "name": "Head tags injected from blocks",
       "category": "seo",
       "status": "site-code",
       "effort": "S",
       "sites": [
         "faststore"
       ],
-      "summary": "React 19 hoisting lets a section emit head tags, but the per-section Suspense pattern defeats in-section LCP preloads, and nothing says so. Preload from the page component instead.",
+      "summary": "React 19 hoisting lets a block emit head tags, but the per-block Suspense pattern defeats in-block LCP preloads, and nothing says so. Preload from the page component instead.",
       "docs": [
         "rendering",
         "architecture",
@@ -3639,7 +3639,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`createCMS` plus a block map replace registration, but nothing generates the map (27 sections and 12 loaders by hand on the storefront), bundled content never matches the API hash, and there's no lenient mode or Studio-shaped schema.",
+      "summary": "`createCMS` plus a block map replace registration, but nothing generates the map (27 UI blocks and 12 loaders by hand on the storefront), bundled content never matches the API hash, and there's no lenient mode or Studio-shaped schema.",
       "docs": [
         "quickstart",
         "manifest",
@@ -3667,7 +3667,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Today the binding resolves the site's theme, globals and page sections into every page. In the next major, SEO-default merging and global-section injection move to app code, there's no singleton concept, and `site/apps/site.ts` isn't in the alias bridge.",
+      "summary": "Today the binding resolves the site's theme, globals and page blocks into every page. In the next major, SEO-default merging and global-block injection move to app code, there's no singleton concept, and `site/apps/site.ts` isn't in the alias bridge.",
       "docs": [
         "content-types",
         "schema",
@@ -3939,7 +3939,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "The document shell is app code, but the Studio bridge and the section marker it needs are neither shipped nor documented. Dropping the DECO.events bootstrap also silently breaks OneDollarStats.",
+      "summary": "The document shell is app code, but the Studio bridge and the `section[data-manifest-key]` marker it needs are neither shipped nor documented. Dropping the DECO.events bootstrap also silently breaks OneDollarStats.",
       "docs": [
         "tanstack-data",
         "nextjs",
@@ -3984,7 +3984,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "The guide configs build, but nothing replaces decoVitePlugin's dev and Studio duties: schema regeneration, the Studio tunnel, the build hash and section preloads. Next also needs transpilePackages and file-tracing notes.",
+      "summary": "The guide configs build, but nothing replaces decoVitePlugin's dev and Studio duties: schema regeneration, the Studio tunnel, the build hash and block preloads. Next also needs transpilePackages and file-tracing notes.",
       "docs": [
         "architecture",
         "tanstack-data",
