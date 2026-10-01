@@ -842,8 +842,15 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     // Highest-position breadcrumb item wins.
     expect(seo.canonical).toBe("https://x.com/a/b");
     expect(seo.noIndexing).toBe(false);
-    expect(seo.jsonLDs).toHaveLength(1);
-    expect(seo.jsonLDs?.[0]).toMatchObject({ "@type": "ProductListingPage" });
+    expect(seo.jsonLDs).toHaveLength(2);
+    expect(seo.jsonLDs?.[0]).toMatchObject({
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+    });
+    expect(seo.jsonLDs?.[1]).toMatchObject({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+    });
   });
 
   it("emits the product image and JSON-LD for a PDP", () => {
@@ -873,7 +880,7 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     });
     expect(seo.title).toBe("Manual Title");
     expect(seo.canonical).toBe("https://x.com/manual");
-    expect(seo.jsonLDs).toHaveLength(1);
+    expect(seo.jsonLDs).toHaveLength(2);
   });
 
   it("omits structured data for humans when ignoreStructuredData is set", () => {
@@ -893,7 +900,7 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
       { jsonLD: plp(), configJsonLD: { ignoreStructuredData: true } },
       { isEager: true },
     );
-    expect(seo.jsonLDs).toHaveLength(1);
+    expect(seo.jsonLDs).toHaveLength(2);
     expect(seo.title).toBe("PLP Title");
   });
 
@@ -927,18 +934,49 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     expect(seo.jsonLDs).toBe(existing);
   });
 
-  it("removeVideos clones rather than mutating the source jsonLD", () => {
-    const source = plp({
-      products: [{ "@type": "Product", name: "P1", video: [{ "@type": "VideoObject" }] }],
-    });
+  it("emits a compact ItemList (position/url/name), not the whole listing page", () => {
+    const heavy = {
+      "@type": "Product",
+      name: "SKU name",
+      url: "https://x.com/p1/p",
+      isVariantOf: { name: "Product 1", hasVariant: [{ sku: "1" }, { sku: "2" }] },
+      additionalProperty: [{ name: "cluster", value: "42" }],
+      image: [{ url: "https://x.com/1.jpg" }],
+      video: [{ "@type": "VideoObject" }],
+    };
     const seo = extractSeoFromProps({
-      jsonLD: source,
-      configJsonLD: { removeVideos: true },
+      jsonLD: plp({
+        products: [heavy, { "@type": "Product", name: "P2", url: "https://x.com/p2/p" }],
+      }),
     });
-    expect(seo.jsonLDs?.[0].products[0].video).toBeUndefined();
-    // Source untouched — it may be shared with a body section.
-    // biome-ignore lint/suspicious/noExplicitAny: test fixture
-    expect((source.products[0] as any).video).toBeDefined();
+    expect(seo.jsonLDs?.[0]).toEqual({
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      numberOfItems: 2,
+      itemListElement: [
+        { "@type": "ListItem", position: 1, url: "https://x.com/p1/p", name: "Product 1" },
+        { "@type": "ListItem", position: 2, url: "https://x.com/p2/p", name: "P2" },
+      ],
+    });
+    const json = JSON.stringify(seo.jsonLDs);
+    expect(json).not.toContain("hasVariant");
+    expect(json).not.toContain("additionalProperty");
+    expect(json).not.toContain("VideoObject");
+  });
+
+  it("omits the BreadcrumbList when the listing has no breadcrumb", () => {
+    const seo = extractSeoFromProps({ jsonLD: plp({ breadcrumb: undefined }) });
+    expect(seo.jsonLDs).toHaveLength(1);
+    expect(seo.jsonLDs?.[0]).toMatchObject({ "@type": "ItemList" });
+  });
+
+  it("omitVariants empties PDP variants without mutating the source", () => {
+    const source = pdp({
+      product: { "@type": "Product", name: "P1", isVariantOf: { hasVariant: [{ sku: "1" }] } },
+    });
+    const seo = extractSeoFromProps({ jsonLD: source, omitVariants: true });
+    expect(seo.jsonLDs?.[0].product.isVariantOf.hasVariant).toEqual([]);
+    expect((source.product as any).isVariantOf.hasVariant).toHaveLength(1);
   });
 });
 

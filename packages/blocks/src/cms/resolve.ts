@@ -1981,28 +1981,51 @@ function canonicalFromBreadcrumb(breadcrumb: unknown): string | undefined {
 }
 
 /**
- * Shallow-prune a commerce `jsonLD` before emitting it as structured data.
+ * Shallow-prune a PDP `jsonLD` before emitting it as structured data.
  * Clones only when a prune option is set (the common path emits as-is), so a
  * jsonLD shared with a body section is never mutated out from under it.
  */
 function pruneCommerceJsonLD(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   jsonLD: Record<string, any>,
-  opts: { removeVideos: boolean; omitVariants: boolean },
+  opts: { omitVariants: boolean },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Record<string, any> {
-  if (!opts.removeVideos && !opts.omitVariants) return jsonLD;
+  if (!opts.omitVariants || !jsonLD.product?.isVariantOf?.hasVariant) return jsonLD;
   const clone = structuredClone(jsonLD);
-  if (opts.removeVideos && Array.isArray(clone.products)) {
-    for (const product of clone.products) {
-      product.video = undefined;
-      for (const variant of product.isVariantOf?.hasVariant ?? []) variant.video = undefined;
-    }
-  }
-  if (opts.omitVariants && clone.product?.isVariantOf?.hasVariant) {
-    clone.product.isVariantOf.hasVariant = [];
-  }
+  clone.product.isVariantOf.hasVariant = [];
   return clone;
+}
+
+/**
+ * schema.org structured data for a listing page: an `ItemList` of
+ * position/url/name (what search engines read on category pages) plus the
+ * `BreadcrumbList`. Emitting the resolved ProductListingPage itself is not
+ * schema.org (no such type, no `@context`) and inlines every product with
+ * variants/specs/images — multiple MB per page, in the HTML *and* in the
+ * serialized route data, which pushes Workers past their memory limit.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function plpStructuredData(plp: Record<string, any>): Record<string, unknown>[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const itemListElement = (plp.products as any[]).map((p, i) => ({
+    "@type": "ListItem",
+    position: i + 1,
+    url: p.url ?? p.isVariantOf?.url,
+    name: p.isVariantOf?.name ?? p.name,
+  }));
+  const out: Record<string, unknown>[] = [
+    {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      numberOfItems: itemListElement.length,
+      itemListElement,
+    },
+  ];
+  if (plp.breadcrumb?.itemListElement?.length) {
+    out.push({ "@context": "https://schema.org", ...plp.breadcrumb });
+  }
+  return out;
 }
 
 /**
@@ -2062,18 +2085,13 @@ function deriveCommerceSeoFromJsonLD(
   // humans only; crawlers (and the `?__deco_ssr=1` audit override) still get it
   // so indexing/rich results are unaffected. An empty page contributes no
   // ItemList regardless.
-  const configJsonLD = props.configJsonLD as
-    | { ignoreStructuredData?: boolean; removeVideos?: boolean }
-    | undefined;
   const ignore = sectionIgnoresStructuredData(props);
   if ((ignore && !isEager) || isEmpty) return;
 
-  seo.jsonLDs = [
-    pruneCommerceJsonLD(jsonLD, {
-      removeVideos: configJsonLD?.removeVideos === true,
-      omitVariants: props.omitVariants === true,
-    }),
-  ];
+  seo.jsonLDs =
+    type === "ProductListingPage"
+      ? plpStructuredData(jsonLD)
+      : [pruneCommerceJsonLD(jsonLD, { omitVariants: props.omitVariants === true })];
 }
 
 /**
