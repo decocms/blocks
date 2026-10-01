@@ -214,7 +214,7 @@
     {
       "id": "roadmap-blockers--add-a-revision-handle-an-edge-cache-kit-and-an-isr-recipe",
       "title": "Add a revision handle, an edge cache kit and an ISR recipe",
-      "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached, and <code>update()</code> isn't passed to waitUntil. Content refreshes on a ~5 min poll with cold isolates serving bundled content, versus ~10 s today.",
+      "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached. The planned check for a new release runs once a minute, at an idle moment (inside <code>ctx.waitUntil</code> on Workers), so a publish is live everywhere within about a minute; a cold isolate serves the content module it was deployed with until its first check.",
       "plan": "Add a revision handle, a way to read and pin the revision a client serves (<code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code>), and <code>markDegraded()</code>. Add an edge cache kit, <code>withEdgeCache()</code> in <code>@decocms/tanstack</code>, for caching rendered pages at the edge, and an ISR (Incremental Static Regeneration: re-rendering cached pages in the background) recipe for Next.js.",
       "features": [
         "edge-html-cache-profiles",
@@ -247,7 +247,7 @@
       "id": "roadmap-blockers--make-the-next-major-load-and-resolve-legacy-content",
       "title": "Make the next major load and resolve legacy content",
       "today": "Filename decoding is unspecified, and the alias bridge covers only pages, matchers and multivariate, while Studio writes Lazy, SeoV2, <code>site/apps/site.ts</code>, redirect, secret and the <code>multi</code> matcher. UNKNOWN_BLOCK now fails the parent block, and <code>list()</code> can't see Content aliases.",
-      "plan": "Specify single-decode filenames, widen the alias bridge, ship <code>deco check</code> and <code>deco bundle</code>, and have the CLI emit a runtime alias table.",
+      "plan": "Specify single-decode filenames, widen the alias bridge, ship <code>deco check</code> and <code>deco content</code>, and have the CLI emit a runtime alias table.",
       "features": [
         "block-type-discriminator",
         "orphan-and-dangling-blocks",
@@ -468,7 +468,7 @@
     {
       "id": "roadmap-studio-new--speed-up-publishes-and-make-failures-visible",
       "title": "Speed up publishes and make failures visible",
-      "today": "The ~5 min poll replaces ~10 s, with no 'content live' signal. A failed <code>forDraft</code> silently shows published content.",
+      "today": "The planned once-a-minute check makes a publish live within about a minute, but nothing tells the editor when it is live. A failed <code>forDraft</code> silently shows published content.",
       "features": [
         "fast-deploy-kv",
         "otel-observability"
@@ -683,7 +683,7 @@
       "id": "roadmap-api--ship-the-withdeco-and-decoproxy-entry-wrappers",
       "group": "api",
       "title": "Ship the <code>withDeco()</code> and <code>decoProxy()</code> entry wrappers",
-      "plan": "<p><code>withDeco(handler, { cms })</code> (TanStack) and <code>decoProxy()</code> (Next) own the per-request plumbing. They schedule <code>cms.update()</code> (<code>ctx.waitUntil</code> on Workers, <code>after()</code> on Next). They set the draft cookie as <code>Secure; SameSite=None; Partitioned; HttpOnly</code> and treat <code>__draft=off</code> or an empty value as exit. Drafted responses are private/no-store/noindex, and security headers carry frame-ancestors from an exported <code>STUDIO_FRAME_ANCESTORS</code>, never X-Frame-Options. Studio routes are optional. The CMS keys draft caches on the API ETag, bounded by an LRU.</p>",
+      "plan": "<p><code>withDeco(handler, { cms })</code> (TanStack) and <code>decoProxy()</code> (Next) own the per-request plumbing. They set the draft cookie as <code>Secure; SameSite=None; Partitioned; HttpOnly</code> and treat <code>__draft=off</code> or an empty value as exit. Drafted responses are private/no-store/noindex, and security headers carry frame-ancestors from an exported <code>STUDIO_FRAME_ANCESTORS</code>, never X-Frame-Options. Studio routes are optional. The CMS keys draft caches on the API ETag, bounded by an LRU.</p>",
       "features": [
         "worker-server-entry",
         "csp-security-headers",
@@ -740,7 +740,7 @@
       "id": "roadmap-api--add-remoteloader-options",
       "group": "api",
       "title": "Add <code>remoteLoader</code> options",
-      "plan": "<p><code>{ interval, coldStartTimeoutMs, channel, onUpdate, onError }</code>, local files preferred in dev, and a first-party <code>kvLoader</code>. Scheduling <code>update()</code> is the entry wrappers' job.</p>",
+      "plan": "<p><code>{ interval, coldStartTimeoutMs, channel, onUpdate, onError }</code>, also accepted by <code>createCMS</code>. <code>interval</code> is in milliseconds, defaults to <code>DECO_CONTENT_INTERVAL</code> or 60 000, and has a 60 000 minimum (lower values are raised to one minute with a warning). Each check runs one interval ± 10 s after the previous one and fetches only the revision hash. The SDK schedules due checks itself at an idle moment: <code>requestIdleCallback</code>, then <code>scheduler.postTask</code>, then <code>setTimeout</code>; an unref'd timer on Node; and after the response inside <code>ctx.waitUntil</code> on Workers. Instances are process-wide singletons keyed by configuration, with a <code>resetForTests()</code> helper. Also ship a first-party <code>kvLoader(env.CONTENT, { key })</code> so sites don't hand-write the KV loader the docs show.</p>",
       "features": [
         "fast-deploy-kv",
         "env-vars-and-secrets",
@@ -1146,7 +1146,7 @@
       "id": "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle",
       "group": "cli",
       "title": "Specify the filename rule and ship a content bundle",
-      "plan": "<p>One <code>decodeURIComponent</code> per stem, with a collision report. <code>deco bundle</code> / <code>localLoader.fromGlob()</code> emits <code>{ revision, blocks, schemaHash }</code>, and <code>computeRevision</code> is exported.</p>",
+      "plan": "<p>One <code>decodeURIComponent</code> per stem, with a collision report. <code>deco content</code> writes <code>.deco/blocks.gen.ts</code>, one import per JSON file, exporting the snapshot <code>{ revision, blocks }</code> with the revision computed the same way the Deco API computes it, and <code>computeRevision</code> is exported.</p>",
       "features": [
         "block-type-discriminator",
         "content-storage-and-delivery",
@@ -1177,7 +1177,7 @@
       "id": "roadmap-cli--add-a-local-dev-loop",
       "group": "cli",
       "title": "Add a local dev loop",
-      "plan": "<p><code>deco schema --watch</code> / <code>deco dev</code>: a tunnel, a mounted Studio handler, and a reload broadcast when <code>.deco/blocks</code> changes.</p>",
+      "plan": "<p><code>deco schema --watch</code> and <code>deco content --watch</code> run next to the framework's own dev server; there is no <code>deco dev</code> wrapper. Editing a JSON file hot-reloads through the framework's HMR, and only adding or removing a file needs <code>deco content</code> to regenerate. Still to build: a tunnel and a mounted Studio handler so Studio can edit a local checkout.</p>",
       "features": [
         "dev-studio-content-loop",
         "bundler-config",
@@ -1191,7 +1191,7 @@
       "id": "roadmap-cli--ship-the-deco-command",
       "group": "cli",
       "title": "Ship the <code>deco</code> command",
-      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with <code>schema</code> first and the other <code>deco</code> subcommands on this page added to it.</p>",
+      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its two commands, <code>deco schema</code> and <code>deco content</code> (both take <code>--watch</code> and <code>--root</code>), and the other <code>deco</code> subcommands on this page added to it.</p>",
       "features": [
         "codegen-pipeline",
         "studio-schema-generation",
@@ -1327,7 +1327,7 @@
       "id": "roadmap-platform--add-a-content-live-signal",
       "group": "studio",
       "title": "Add a content-live signal",
-      "plan": "<p>Every response carries the served revision in <code>x-deco-revision</code>, and <code>cms.update()</code> reports each revision it swaps in to the Deco API with the site token. Studio polls the API and shows a publish as pending until a report for its revision arrives, then live.</p>",
+      "plan": "<p>Every response carries the served revision in <code>x-deco-revision</code>, and the CMS reports each revision it swaps in to the Deco API with the site token. Studio polls the API and shows a publish as pending until a report for its revision arrives, then live.</p>",
       "features": [
         "fast-deploy-kv",
         "edge-html-cache-profiles"
@@ -1339,7 +1339,7 @@
       "id": "roadmap-platform--update-the-injected-agent-rules",
       "group": "studio",
       "title": "Update the injected agent rules",
-      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. There are no <code>blocks.gen.*</code> files; the one generated file is the schema, which <code>deco schema</code> rewrites after any change to a block's types. A new type needs a block-map entry. <code>remoteLoader</code> has no hot reload, and with DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
+      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. Two files are generated and never edited by hand: <code>.deco/schema.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within about a minute, not on save, and with DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
       "features": [
         "ai-agent-instructions"
       ],
@@ -1396,7 +1396,7 @@
       "id": "roadmap-docs--fix-the-tanstack-guides",
       "group": "docs",
       "title": "Fix the TanStack guides",
-      "plan": "<p>Mount <code>withDeco()</code> instead of hand-wiring the draft cookie and <code>cms.update()</code>. Add validateSearch/loaderDeps and staleTime, and state that <code>getRequest()</code> is the RPC request on SPA navigation, so the page URL comes from the request scope.</p>",
+      "plan": "<p>Mount <code>withDeco()</code> instead of hand-wiring the draft cookie. Add validateSearch/loaderDeps and staleTime, and state that <code>getRequest()</code> is the RPC request on SPA navigation, so the page URL comes from the request scope.</p>",
       "features": [
         "worker-server-entry",
         "env-vars-and-secrets",
@@ -1475,7 +1475,7 @@
       "id": "roadmap-docs--fix-the-next-guide",
       "group": "docs",
       "title": "Fix the Next guide",
-      "plan": "<p>Mount <code>decoProxy()</code> instead of wiring the draft cookie and <code>after(() =&gt; cms.update())</code> by hand. Wrap <code>client()</code> in <code>cache()</code>, map the full PageSeo and degrade SEO errors instead of throwing, make release routes ISR/static, and cover transpilePackages and outputFileTracingIncludes.</p>",
+      "plan": "<p>Mount <code>decoProxy()</code> instead of wiring the draft cookie by hand. Wrap <code>client()</code> in <code>cache()</code>, map the full PageSeo and degrade SEO errors instead of throwing, make release routes ISR/static, and cover transpilePackages and outputFileTracingIncludes.</p>",
       "features": [
         "global-layout-sections",
         "theming-and-styling",
@@ -1494,7 +1494,7 @@
       "id": "roadmap-docs--write-an-operations-page",
       "group": "docs",
       "title": "Write an operations page",
-      "plan": "<p>Five deliverables: (1) the DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without a token; (2) a per-host table of how withDeco/decoProxy schedule <code>update()</code> on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the observability chokepoint rule (<code>createInstrumentedFetch</code> + <code>createFetchCache</code>) and the DECO_OTEL_* contract; (5) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
+      "plan": "<p>Five deliverables: (1) the DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without a token; (2) a per-host table of how the SDK schedules its once-a-minute check on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the observability chokepoint rule (<code>createInstrumentedFetch</code> + <code>createFetchCache</code>) and the DECO_OTEL_* contract; (5) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
       "features": [
         "env-vars-and-secrets",
         "hosting-and-deploy-config",
@@ -3437,7 +3437,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, there's no revision to key by, and content refreshes on a ~5 min poll instead of ~10 s.",
+      "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, and there's no revision to key by. The planned once-a-minute check makes content consistent within about a minute.",
       "docs": [
         "operations",
         "releases",
@@ -3639,7 +3639,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`createCMS` plus a block map replace registration, but nothing generates the map (27 UI blocks and 12 loaders by hand on the storefront), bundled content never matches the API hash, and there's no lenient mode or Studio-shaped schema.",
+      "summary": "`createCMS` plus a block map replace registration, but nothing generates the map (27 UI blocks and 12 loaders by hand on the storefront), the revision of generated content must match the API hash (planned: <code>deco content</code> computes it the same way), and there's no lenient mode or Studio-shaped schema.",
       "docs": [
         "quickstart",
         "manifest",
@@ -3895,7 +3895,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`remoteLoader` polls every ~5 min with no option, cold isolates serve build-time content, and a webhook reaches one isolate. Impact on these sites is low: none serves content from KV today.",
+      "summary": "`remoteLoader` will check once a minute (configurable with `interval`), cold isolates serve the deployed content module until their first check, a webhook reaches one isolate, and the first-party `kvLoader` is still to ship. Impact on these sites is low: none serves content from KV today.",
       "docs": [
         "standalone",
         "releases",
@@ -3960,7 +3960,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`deco schema` and a hand-written block map replace the registries, but there's no Workers content bundle, no `--check` or `--watch`, no input for the schema gate, and Content aliases can't work at runtime.",
+      "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `--check` yet, no input for the schema gate, and Content aliases can't work at runtime.",
       "docs": [
         "schema",
         "manifest",

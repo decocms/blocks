@@ -228,7 +228,7 @@
       const wrap = document.createElement('div'); wrap.className = 'table-wrap';
       table.before(wrap); wrap.append(table);
     }
-    // Multi-word code (signatures like `localLoader({ revision, blocks })`) may wrap at its
+    // Multi-word code (signatures like `remoteLoader(content, { token })`) may wrap at its
     // spaces on phones; single identifiers such as "not-found" stay on one line.
     $$('td code, th code', table).forEach(c => { if (/\s/.test(c.textContent.trim())) c.classList.add('can-wrap'); });
   });
