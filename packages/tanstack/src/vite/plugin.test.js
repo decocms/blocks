@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { decoVitePlugin, generateSchemaArgs } from "./plugin.js";
 
 /**
@@ -120,5 +123,42 @@ describe("decoVitePlugin __DECO_BUILD_HASH__ injection", () => {
     } finally {
       delete process.env.DECO_SITE_NAME;
     }
+  });
+});
+
+describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-parse)", () => {
+  // Vite's json plugin transforms every id matching this regex — even when
+  // another plugin already loaded it as JS.
+  const viteJsonIdRE = /\.json(?:$|\?)(?!commonjs-(?:proxy|external))/;
+  let dir;
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "deco-meta-"));
+    mkdirSync(path.join(dir, ".deco"));
+    mkdirSync(path.join(dir, "src"));
+    writeFileSync(path.join(dir, ".deco", "meta.gen.json"), '{"major":1,"schema":{}}');
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolves to a virtual id vite:json does not transform, and loads it as JSON.parse", () => {
+    const p = getPlugin();
+    const importer = path.join(dir, "src", "setup.ts");
+    const id = p.resolveId.call({}, "../.deco/meta.gen.json", importer, { ssr: true });
+    expect(id).toBeTypeOf("string");
+    expect(viteJsonIdRE.test(id)).toBe(false);
+
+    const watched = [];
+    const code = p.load.call({ addWatchFile: (f) => watched.push(f) }, id, { ssr: true });
+    expect(code).toBe(`export default JSON.parse(${JSON.stringify('{"major":1,"schema":{}}')});`);
+    expect(watched).toEqual([path.join(dir, ".deco", "meta.gen.json")]);
+  });
+
+  it("still stubs meta.gen.json on the client", () => {
+    const p = getPlugin();
+    const importer = path.join(dir, "src", "setup.ts");
+    expect(p.resolveId.call({}, "../.deco/meta.gen.json", importer, { ssr: false })).toBe("\0stub:meta-gen");
   });
 });
