@@ -43,7 +43,7 @@
   pages.forEach(page => $$(':scope > section', page).forEach(section => pageOf.set(section.id, page.dataset.page)));
   const groupsByPage = {
     home: [],
-    docs: [["Getting started", ["architecture", "quickstart"]], ["Core concepts", ["model", "schema", "preview"]], ["Advanced", ["manifest", "variants"]], ["Websites", ["content-types", "routing", "rendering"]], ["Reference", ["standalone"]], ["Framework guides", ["nextjs", "tanstack-data", "tanstack-rsc"]], ["Production", ["releases", "operations", "adoption", "troubleshooting"]]],
+    docs: [["Getting started", ["architecture", "quickstart"]], ["Core concepts", ["model", "content", "schema", "preview"]], ["Advanced", ["manifest", "variants"]], ["Websites", ["content-types", "routing", "rendering"]], ["Reference", ["standalone"]], ["Framework guides", ["nextjs", "tanstack-data", "tanstack-rsc"]], ["Production", ["releases", "operations", "adoption", "troubleshooting"]]],
     internals: [["Under the hood", ["internals", "walkthrough", "loader-internals", "router-internals", "studio", "decisions"]]],
     roadmap: [["Overview", ["roadmap"]], ["Release blockers", ["roadmap-blockers"]], ["Studio support", ["roadmap-studio-new", "roadmap-studio-legacy"]], ["Work items", ["roadmap-api", "roadmap-cli", "roadmap-platform", "roadmap-docs"]], ["Site migrations", ["roadmap-storefront", "roadmap-blog", "roadmap-faststore"]], ["Feature readiness", ["roadmap-features"]]],
   };
@@ -868,7 +868,7 @@
       ],
       get: [
         'The saved entry. Its product input names CurrentProduct, another saved entry.',
-        'With { resolve: false }, only saved entries are in the registry. CurrentProduct expands; catalog-product and product-card are left as they are. No code runs.',
+        'Reading without running: saved entries still expand, so CurrentProduct is replaced with its JSON. catalog-product and product-card name functions, so they come back as JSON, untouched. No code runs.',
       ],
     };
     const stats = {

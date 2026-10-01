@@ -57,7 +57,7 @@ def page_fragment(name):
 docs = balanced_sections(page_fragment("docs"))
 internals = balanced_sections(page_fragment("internals"))
 assert [s for s, _ in docs][:2] == ["architecture", "quickstart"], docs[:2]
-assert len(docs) == 18 and len(internals) == 6, (len(docs), len(internals))
+assert len(docs) == 19 and len(internals) == 6, (len(docs), len(internals))
 
 prism = re.search(r'<script id="syntax-highlighter">.*?</script>', content, re.S).group(0)
 assert "MIT LICENSE" in prism, "keep the Prism license notice in the bundle"

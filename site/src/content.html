@@ -14,7 +14,7 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Piece</th><th>What it does</th><th>Where it runs</th></tr></thead>
     <tbody>
-      <tr><td><strong>SDK</strong> <code>@decocms/blocks</code></td><td>Reads content from files or the Deco API and runs your block functions on it.</td><td>Your app: any JavaScript server, Node or Cloudflare Workers</td></tr>
+      <tr><td><strong>SDK</strong> <code>@decocms/blocks</code></td><td>Reads content through a loader (files, the Deco API, or your own store) and runs your block functions on it.</td><td>Your app: any JavaScript server, Node or Cloudflare Workers</td></tr>
       <tr><td><strong>CLI</strong> <code>deco schema</code></td><td>Generates the JSON Schema from your types.</td><td>Your machine or CI</td></tr>
       <tr><td><strong>Studio</strong></td><td>Builds a visual editor from that schema and saves edits back to your files.</td><td>Hosted by Deco</td></tr>
     </tbody>
@@ -34,15 +34,15 @@
     <div class="flow-node"><strong>SDK</strong><small><code>client.list</code> and <code>client.resolve</code> read and resolve content</small></div><div class="flow-arrow" aria-hidden="true">→</div>
     <div class="flow-node"><strong>Your app</strong><small>Next.js, TanStack Start, or any server</small></div>
   </div>
-  <p>At request time, the SDK reads those files, follows references between them, and runs each block through the function you mapped to its type in your <a href="#manifest">block map</a>. What you render, and how, is up to your framework.</p>
-  <p>In production the same files are read from the Deco API instead of disk, but a request never waits for it: content is served from memory and refreshed in the background, and the files the build shipped with are always there as the fallback. See <a href="#loader-internals">how the loader stays current</a>.</p>
+  <p>At request time, the SDK reads that content through a <a href="#content">loader</a> (by default, those same files), follows references between entries, and runs each block through the function you mapped to its type in your <a href="#manifest">block map</a>. What you render, and how, is up to your framework.</p>
+  <p>With the hosted Deco CMS, production reads the same content from the Deco API instead of disk, but a request never waits for it: content is served from memory and refreshed in the background, and the files the build shipped with are always there as the fallback. See <a href="#loader-internals">how the loader stays current</a>.</p>
 
   <h3>Small on purpose</h3>
   <p>Deco Blocks stays out of your way, and every piece is replaceable:</p>
   <ul>
     <li><strong>Content is plain JSON.</strong> Open it in any editor, grep it, diff it, or generate it with a script. There's no database and no content API to run.</li>
     <li><strong>Blocks are plain functions.</strong> No framework plugin, no base classes, no magic directories. The block map is a plain object, and you can call any block function directly in a test.</li>
-    <li><strong>Loaders are one method.</strong> Loading from the filesystem, KV, or your own store is a <code>load()</code> that returns <code>{ revision, blocks }</code>. Swap it and nothing else changes.</li>
+    <li><strong>Loaders are one method.</strong> Loading from the filesystem, KV, or your own store is a <code>load()</code> that returns <code>{ revision, blocks }</code>. Swap it and nothing else changes (see <a href="#content">Content and loaders</a>).</li>
     <li><strong>The schema is a file.</strong> Commit it, inspect it, or generate it another way. Studio only needs the JSON.</li>
     <li><strong>Nothing is hidden.</strong> If the SDK doesn't do what you need, read the files yourself. The format is documented in <a href="#model">Blocks</a>.</li>
   </ul>
@@ -93,9 +93,9 @@ export default { experiments } satisfies Blocks;</code></pre></figure>
   <p>There are two ways to create content, and they produce the same thing:</p>
   <ul>
     <li><strong>In Studio.</strong> Open the editor, pick the <code>experiments</code> block type, fill in the form, and save. Studio writes the JSON file into your repository.</li>
-    <li><strong>Manually.</strong> Create the JSON file yourself, or let an AI agent asked to "ramp the new checkout to 25%" do it. The file is the only source of truth, so both routes are equivalent.</li>
+    <li><strong>Manually.</strong> Create the JSON file yourself, or let an AI agent asked to "ramp the new checkout to 25%" do it. Either way the result is the same file, so both routes are equivalent.</li>
   </ul>
-  <p>Either way, the file lands in <code>.deco/blocks</code>. The filename is the entry's name, and <code>__resolveType</code> is the block type:</p>
+  <p>Either way, the file lands in <code>.deco/blocks</code>, which is where the CMS reads content from by default. The filename is the entry's name, and <code>__resolveType</code> is the block type:</p>
 <figure class="code-example"><figcaption>.deco/blocks/Experiments.json</figcaption><pre><code class="language-json">{
   "__resolveType": "experiments",
   "newCheckout": 10,
@@ -104,7 +104,7 @@ export default { experiments } satisfies Blocks;</code></pre></figure>
 }</code></pre></figure>
 
   <h3>4. Read the content from your code</h3>
-  <p>Create the CMS once with your block map. It reads the <code>.deco</code> directory by default, so there's nothing else to configure (to change the directory or connect the hosted Deco CMS, see <a href="#releases--configuring-the-loader">Configuring the loader</a>). Ask it for a client, then fetch the entry by name. The client runs <code>experiments</code> on the saved inputs, so you get the same result as the direct call, with the same type:</p>
+  <p>Create the CMS once with your block map. It reads the <code>.deco</code> directory by default, so there's nothing else to configure (to read it from somewhere else, or connect the hosted Deco CMS, see <a href="#content--configuring-the-loader">Configuring the loader</a>). Ask it for a client, then fetch the entry by name. The client runs <code>experiments</code> on the saved inputs, so you get the same result as the direct call, with the same type:</p>
 <figure class="code-example"><figcaption>cms.ts</figcaption><pre><code class="language-typescript">import { createCMS } from "@decocms/blocks";
 import blocks from "./blocks";
 
@@ -115,12 +115,13 @@ const client = cms.forRelease();
 const [flags, error] = await client.resolve("Experiments");
 if (error) throw error;
 // flags: { newCheckout: false, stickyHeader: true, freeShippingBanner: false }</code></pre></figure>
-  <p>Every call returns a <code>[value, error]</code> tuple, so a missing entry or a failing function never throws. Pass <code>{ resolve: false }</code> to get the saved JSON instead of the function's result.</p>
+  <p>Every call returns a <code>[value, error]</code> tuple, so a missing entry or a failing function never throws.</p>
   <p>That's it. The function didn't change, but its inputs now live in a file that editors change through a form and agents change directly, and every change is a commit. A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. The CMS doesn't hand blocks the request; read it the way the rest of your app does (see <a href="#manifest">Block maps</a>).</p>
 
   <h3>Next steps</h3>
   <ul>
     <li><a href="#model">Blocks</a>: nesting, saved entries, and references between them. That's how a whole page is composed out of sections.</li>
+    <li><a href="#content">Content and loaders</a>: where saved entries come from, and how to read them from somewhere other than <code>.deco/blocks</code>.</li>
     <li><a href="#schema">Schema generation</a>: every JSDoc tag the CLI understands.</li>
     <li><a href="#content-types">Routes and redirects</a>: the two framework types behind every URL.</li>
     <li><a href="#preview">Preview</a>: render drafts in your real pages, no deploy.</li>
@@ -132,60 +133,158 @@ if (error) throw error;
 
 <section id="model" data-nav="Blocks" class="doc-section" aria-labelledby="model-title">
   <p class="eyebrow">Core concepts</p><h2 id="model-title">Blocks</h2>
-  <p>A block is a JSON object with a <code>__resolveType</code>. The type names what the block is, and the other properties are its inputs. Any input can itself be a block, so content forms a tree:</p>
-<pre class="code-block"><code class="language-json">{
+  <p>Most of what changes on a website isn't the code. It's the values the code is given: a headline, a banner image, the share of visitors who see the new checkout. Deco is built on that idea: developers write the functions, and the people who run the site decide what goes into them.</p>
+  <p>Blocks are how they make those decisions. A block is a small piece of JSON that names one of your functions and lists the inputs to call it with. Editors change the inputs in Studio, and agents edit the file directly. When your app resolves the block, Deco calls the function with whatever is saved and gives you back the result. This page shows what a block looks like, how blocks fit inside each other, and exactly how they turn into values.</p>
+
+  <h3>Start from code you already write</h3>
+  <p>Here's the kind of code you write every day:</p>
+<pre class="code-block"><code class="language-typescript">productCard({
+  title: "Summer collection",
+  product: catalogProduct({ slug: "summer-shirt" }),
+})</code></pre>
+  <p>It's function composition. The inner call runs first, and its result becomes an input to the outer one, so <code>productCard</code> receives product data, never a pending call. The functions are the developer's job. The composition is a decision: which product, which title, which function fetches the data. Written in code, changing that decision means editing code and deploying it.</p>
+
+  <h3>A block is that composition, stored as data</h3>
+  <p>Write the same composition as JSON and nobody has to edit code to change it. <code>__resolveType</code> names the function, the other properties are its inputs, and a block inside an input is a call inside a call. Here <code>productCard</code> and <code>catalogProduct</code> are the functions your map registers as <code>"product-card"</code> and <code>"catalog-product"</code>:</p>
+<pre class="code-block"><code class="language-jsonc">// Stored as JSON
+{
   "__resolveType": "product-card",
   "title": "Summer collection",
-  "product": {
-    "__resolveType": "catalog-product",
-    "slug": "summer-shirt"
-  }
+  "product": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
+}
+
+// Means
+productCard({
+  title: "Summer collection",
+  product: catalogProduct({ slug: "summer-shirt" }),
+})</code></pre>
+  <p>Now an editor can change the title or the slug in Studio, and an agent can even point <code>product</code> at a different function, and the composition changes without a deploy. The functions are whatever your <a href="#manifest">block map</a> registers, and each one's input type is what <code>deco schema</code> turns into the editor form. Use the same model for anything your site needs: UI sections, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.</p>
+
+  <h3>Name a composition, reuse it</h3>
+  <p>In code, you'd give a composition you use often a name and reuse it. Saved entries do that. Alongside the block map of functions, the CMS reads a second map, the content map, where each name holds a piece of saved JSON. <code>{ "__resolveType": "SummerSEO" }</code> means whatever is saved under the name <code>SummerSEO</code>, written in place. The map can come from files in your repository, the hosted Deco CMS, or your own store; see <a href="#content">Content and loaders</a>.</p>
+  <p>Unlike a <code>const</code> that holds a result, what's named here is the call itself, inputs and all. That's why you can add inputs to a reference to override the saved block's inputs for this one use:</p>
+<pre class="code-block"><code class="language-jsonc">// Saved as SummerSEO
+{ "__resolveType": "seo", "title": "Sunny!", "description": "Light layers for long days." }
+
+// A reference to it, anywhere in your content
+{ "__resolveType": "SummerSEO", "title": "Summer sale" }
+
+// Means
+seo({ title: "Summer sale", description: "Light layers for long days." })</code></pre>
+  <ul>
+    <li><strong>Overrides are shallow.</strong> The merge is <code>{ ...entry, ...inputs }</code>, so an override replaces the whole top-level property, and the saved entry itself doesn't change. It isn't currying or partial application: the reference is expanded into one complete call.</li>
+    <li><strong>An entry doesn't have to be a block.</strong> It can be any JSON that contains blocks, like a page with a list of sections: an object literal with calls inside. Resolving it calls each block inside and leaves the rest of the JSON as it is.</li>
+  </ul>
+
+  <h3>Resolving a page, step by step</h3>
+  <p>Resolving a block is evaluating its composition: named entries expand, then calls run from the inside out. Here's a page saved as <code>pages-summer</code>. It uses the <code>SummerSEO</code> entry with an override, and one <code>Carousel</code> section. The block map has two functions: <code>seo</code> returns its inputs, and <code>Carousel</code> returns a <code>{ component, props }</code> descriptor.</p>
+<pre class="code-block"><code class="language-jsonc">// Saved as pages-summer
+{
+  "seo": { "__resolveType": "SummerSEO", "title": "Summer sale" },
+  "sections": [{ "__resolveType": "Carousel", "banners": [] }]
 }</code></pre>
-  <p>Use the same model for anything your site needs: UI sections, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.</p>
+  <p>Call <code>client.resolve("pages-summer")</code> and follow the page as it changes.</p>
+  <p><strong>Step 1. The reference expands.</strong> <code>SummerSEO</code> is a saved entry, so it's data. The entry merges under the override, and its <code>__resolveType</code> now names a function.</p>
+<pre class="code-block"><code class="language-jsonc">{
+  "seo": { "__resolveType": "seo", "title": "Summer sale", "description": "Light layers for long days." },
+  "sections": [{ "__resolveType": "Carousel", "banners": [] }]
+}</code></pre>
+  <p><strong>Step 2. The functions are called.</strong> What's left is a composition of plain calls. Both blocks have plain inputs, so both functions run. They're siblings, so neither waits for the other.</p>
+<pre class="code-block"><code class="language-typescript">{
+  seo: seo({ title: "Summer sale", description: "Light layers for long days." }),
+  sections: [Carousel({ banners: [] })]
+}</code></pre>
+  <p><strong>Step 3. The result.</strong> Each return value takes its block's place. The page itself was never a block, so its shape stays the same.</p>
+<pre class="code-block"><code class="language-typescript">{
+  seo: { title: "Summer sale", description: "Light layers for long days." },
+  sections: [{ component: "Carousel", props: { banners: [] } }]
+}</code></pre>
+  <p>To step through a deeper example, see <a href="#walkthrough">How resolution works</a>.</p>
+  <div class="callout"><p><strong>Reading without running.</strong> Pass <code>{ resolve: false }</code> to read content without calling any functions. <code>client.resolve("pages-summer", { resolve: false })</code> stops after step 1: saved entries like <code>SummerSEO</code> still expand, and blocks that name a function, like <code>seo</code> and <code>Carousel</code>, come back as JSON, untouched. Nothing runs. That's useful for previews, editor tooling, and debugging. To read an entry exactly as stored, with its references left in place, look it up in the map your <a href="#content">loader</a> returns, for example <code>(await localLoader("./.deco").load()).blocks["pages-summer"]</code>.</p></div>
 
-  <h3>Saved entries and references</h3>
-  <p>Every file in <code>.deco/blocks</code> is a saved entry, named after the file. Other content refers to an entry by putting its name in <code>__resolveType</code>, and can override some of its inputs for that one use:</p>
-<pre class="code-block"><code class="language-jsonc">// Use the saved entry as is.
-{ "__resolveType": "SummerSEO" }
-
-// Override one input for this occurrence.
-{ "__resolveType": "SummerSEO", "title": "Summer sale" }</code></pre>
-  <p>An entry doesn't have to be a block itself. It can be any JSON value that contains blocks, like the page in the next example.</p>
-
-  <h3>How <code>resolve</code> works</h3>
-  <p>Every <code>__resolveType</code> is a name looked up in one registry, and a name is either data or code:</p>
+  <h3>The rule</h3>
+  <p>Every <code>__resolveType</code> is a name looked up in one registry, and a name is either data or code: a named composition to expand, or a function to call.</p>
 <pre class="code-block"><code class="language-typescript">const registry = { ...savedEntries, ...blocks };   // name → saved JSON | function</code></pre>
-  <p>Saved entries come from the loader. Functions come from the block map you give <code>createCMS</code>. Resolution is one rule, applied to every object with a <code>__resolveType</code>:</p>
+  <p>Saved entries are the content map your <a href="#content">loader</a> returns. Functions come from the block map you give <code>createCMS</code>. The CMS applies one rule to every object with a <code>__resolveType</code>:</p>
   <ol>
     <li><strong>Look up the name.</strong></li>
     <li><strong>Data:</strong> replace the object with <code>{ ...entry, ...inputs }</code>, so your inputs override the entry's, and apply the rule to the result again.</li>
-    <li><strong>Function:</strong> resolve the inputs first, children before parents, then call the function with them. Its return value takes the block's place.</li>
+    <li><strong>Function:</strong> resolve the inputs first, children before parents and siblings concurrently, then call the function. Its return value takes the block's place.</li>
     <li><strong>Neither:</strong> fail with <code>UNKNOWN_BLOCK</code>.</li>
   </ol>
-  <p>Take these two entries and a block map with <code>seo</code> and <code>Carousel</code> functions:</p>
-<figure class="code-example"><figcaption>.deco/blocks/pages-summer.json</figcaption><pre><code class="language-json">{
-  "seo": { "__resolveType": "SummerSEO" },
-  "sections": [{ "__resolveType": "Carousel", "banners": [] }]
-}</code></pre></figure>
-<figure class="code-example"><figcaption>.deco/blocks/SummerSEO.json</figcaption><pre><code class="language-json">{ "__resolveType": "seo", "title": "Sunny!" }</code></pre></figure>
-  <p><code>client.resolve("pages-summer")</code> walks the page. <code>seo</code> holds <code>{ "__resolveType": "SummerSEO" }</code>: a data hit, so it becomes <code>{ "__resolveType": "seo", "title": "Sunny!" }</code> and the rule runs again. Now <code>seo</code> is a function hit, so <code>seo({ title: "Sunny!" })</code> runs. <code>Carousel</code> is a function hit straight away. The result:</p>
-<pre class="code-block"><code class="language-typescript">{
-  seo: { title: "Sunny!" },
-  sections: [{ component: "Carousel", props: { banners: [] } }]
-}</code></pre>
-  <p>With <code>{ resolve: false }</code>, the registry holds data only. Names that aren't saved entries pass through untouched, so <code>client.resolve("pages-summer", { resolve: false })</code> returns the page with <code>SummerSEO</code> expanded and the <code>seo</code> and <code>Carousel</code> blocks left as they are. That's how you read content without running anything.</p>
 
   <h3>The rule in detail</h3>
   <ul>
-    <li><strong>A saved entry is a preset.</strong> It's a block, or any JSON containing blocks, saved under a name. Referring to it by name and overriding a field is the same as writing the merged block inline. Overrides merge shallowly: an override replaces the whole property, and the saved entry itself doesn't change.</li>
-    <li><strong>Bottom-up and parallel.</strong> A function only runs once its inputs are resolved, so <code>product-card</code> receives product data, never a <code>catalog-product</code> block. Sibling blocks, such as sections, resolve concurrently.</li>
-    <li><strong>Failures stop the parent.</strong> If a nested block fails, its parent never runs and <code>resolve</code> returns the error. A reference to an entry that doesn't exist fails with <code>NOT_FOUND</code>.</li>
-    <li><strong>Results are opaque.</strong> The CMS never walks a function's return value. Return plain data, a descriptor, or JSX. This is also why a function that returns its input can't loop: <code>__resolveType</code> is stripped before the call, and whatever comes back is never looked up again.</li>
-    <li><strong>Only data can loop.</strong> A data hit is the one branch that says "apply the rule again", so two entries that reference each other, or an entry that references itself, would recurse forever. The CMS tracks the entries expanded on the current path and fails with <code>CYCLE</code> the moment one repeats, with the chain in <code>error.path</code>.</li>
-    <li><strong>Stored form.</strong> To read an entry exactly as saved, with nothing expanded, take it from <code>loader.load()</code>.</li>
+    <li><strong>Failures stop the parent.</strong> If a nested block fails, its parent never runs and <code>resolve</code> returns the error, much as an outer call never runs when an inner one throws. A reference to an entry that doesn't exist fails with <code>NOT_FOUND</code>.</li>
+    <li><strong>Results are opaque.</strong> The CMS never walks a function's return value. Return plain data, a descriptor, or JSX. This is also why a function that returns its input, like <code>seo</code> above, can't loop: <code>__resolveType</code> is stripped before the call, and whatever comes back is never looked up again.</li>
+    <li><strong>Only data can loop.</strong> A data hit is the one branch that applies the rule again, so two entries that reference each other, or an entry that references itself, would recurse forever. The CMS tracks the entries expanded on the current path and fails with <code>CYCLE</code> the moment one repeats, with the chain in <code>error.path</code>.</li>
   </ul>
-  <div class="callout warning"><p><strong>Entry names and block types share one registry.</strong> A saved entry called <code>seo</code> and a <code>seo</code> function can't coexist. <code>deco schema</code> fails when an entry name matches a block type, so rename the entry.</p></div>
+  <div class="callout warning"><p><strong>Entry names and block types share one registry.</strong> If a name is both, the function wins, so a saved entry called <code>seo</code> and a <code>seo</code> function can't coexist. <code>deco schema</code> fails when an entry name matches a block type, so rename the entry.</p></div>
 </section>
+
+<section id="content" data-nav="Content &amp; loaders" class="doc-section" aria-labelledby="content-title">
+  <p class="eyebrow">Core concepts</p><h2 id="content-title">Content and loaders</h2>
+  <p>Resolving takes two maps. The <a href="#manifest">block map</a> holds your functions, and it ships with your code. The content map holds your saved entries: each name points at a piece of JSON. A <strong>loader</strong> supplies the content map, and it's the only part of the runtime that knows where content lives. Your functions, the resolver, and your pages never do. (This isn't the same thing as the data-fetching block functions some Deco apps call loaders, like <code>catalogProduct</code> in <a href="#model">Blocks</a>. Those are ordinary functions in your block map.)</p>
+  <p>A loader returns the whole map at once, with a <strong>revision</strong> that identifies it:</p>
+<pre class="code-block"><code class="language-json">{
+  "revision": "b1946ac92492d2347c6235b4d2611184",
+  "blocks": {
+    "SummerSEO": { "__resolveType": "seo", "title": "Sunny!", "description": "Light layers for long days." },
+    "pages-summer": {
+      "seo": { "__resolveType": "SummerSEO", "title": "Summer sale" },
+      "sections": [{ "__resolveType": "Carousel", "banners": [] }]
+    }
+  }
+}</code></pre>
+  <p>Each key under <code>blocks</code> is an entry name. It's the name a <code>__resolveType</code> refers to, and the name you pass to <code>client.resolve("SummerSEO")</code>. Despite the field name, these are saved entries: any JSON, never functions. Functions only ever come from the block map you give <code>createCMS</code>. The revision names this exact set of entries, so any change to any entry must give a new revision. The built-in loaders use a hash of the whole map. How releases use it is in <a href="#releases">Releases and deployment</a>.</p>
+
+  <h3>Where content comes from</h3>
+  <p>The content map can come from anywhere that can return JSON. These are the usual sources:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Content in</th><th>Loader</th><th>Use it for</th></tr></thead>
+    <tbody>
+      <tr><td>Files in your repository (the default)</td><td><code>localLoader("./.deco")</code>: one JSON file per entry in <code>.deco/blocks</code>; the file name without <code>.json</code> is the entry name (<code>.deco/blocks/SummerSEO.json</code> → <code>"SummerSEO"</code>)</td><td>Development, tests, and the fallback of <code>remoteLoader</code> in production</td></tr>
+      <tr><td>JSON bundled into the build</td><td><code>localLoader({ revision, blocks })</code></td><td>Cloudflare Workers, which have no filesystem</td></tr>
+      <tr><td>The hosted Deco CMS</td><td><code>remoteLoader(fallback, { token })</code></td><td>Production: publish without a deploy, and preview drafts</td></tr>
+      <tr><td>KV, a database, or your own API</td><td>A <code>Loader</code> you write</td><td>Anything else</td></tr>
+    </tbody>
+  </table></div>
+  <p>When you edit with Studio or an agent, content is authored as files: they write to <code>.deco/blocks</code> in your repository, and every change is a commit. The loader only decides where your app reads that content from at runtime. With the hosted Deco CMS, each commit becomes a release, a published version of your content that reaches your app without a deploy, and the files the build shipped with are the fallback (see <a href="#releases">Releases and deployment</a>). If you load from your own store, how content gets there is up to you.</p>
+
+  <h3>Configuring the loader</h3>
+  <p>Most apps never pass a loader: <code>createCMS</code> reads the <code>./.deco</code> directory by default. Pass an object to keep your content somewhere else, to connect the hosted Deco CMS, or both. These are shortcuts for the loaders in the table above: <code>{ root }</code> is <code>localLoader(root)</code>, and adding <code>token</code> wraps it as <code>remoteLoader(localLoader(root), { token })</code>.</p>
+<figure class="code-example"><figcaption>cms.ts</figcaption><pre><code class="language-typescript">// Default: the files in ./.deco
+createCMS({ blocks });
+
+// Content in another directory
+createCMS({ loader: { root: "./content/.deco" }, blocks });
+
+// Releases from the hosted Deco CMS, with the files in ./.deco as the fallback
+createCMS({ loader: { token: process.env.DECO_SITE_TOKEN }, blocks });
+
+// Both: hosted releases, with ./content/.deco as the fallback
+createCMS({
+  loader: { root: "./content/.deco", token: process.env.DECO_SITE_TOKEN },
+  blocks,
+});</code></pre></figure>
+  <p><code>token</code> is the site's API key for the Deco API. Keep it in an environment variable, never in the repository. When it's undefined, in development for example, the CMS reads the files only, so the same line works everywhere. For anything else, such as content bundled into a Workers build or your own store, pass a <code>Loader</code> (see <a href="#standalone">API reference</a>).</p>
+
+  <h3>Write your own loader</h3>
+  <p>The contract is one method. A KV-backed loader for a Worker:</p>
+<figure class="code-example"><figcaption>kv-loader.ts</figcaption><pre><code class="language-typescript">import type { Loader } from '@decocms/blocks'
+
+export function kvLoader(kv: KVNamespace, key = 'release:current'): Loader {
+  return {
+    async load() {
+      const content = await kv.get(key, 'json')
+      if (!content) throw new Error('No content in KV')
+      return content   // { revision, blocks }
+    },
+  }
+}</code></pre></figure>
+  <p>Pass it as <code>createCMS</code>'s <code>loader</code>, or as the fallback of <code>remoteLoader</code>. Store the revision with the content, and change it whenever any entry changes. If your store has drafts, honor the <a href="#standalone">draft pointer</a> passed to <code>load(pointer)</code>. If it can go stale, add <code>update()</code>. The client only ever sees <code>{ revision, blocks }</code>.</p>
+</section>
+
 
 <section id="schema" data-nav="Schema generation" class="doc-section" aria-labelledby="schema-title">
   <p class="eyebrow">Core concepts</p><h2 id="schema-title">Schema generation</h2>
@@ -578,12 +677,12 @@ interface Client {
   resolve&lt;T = unknown&gt;(target: unknown, options?: { resolve?: boolean }): Promise&lt;Result&lt;T&gt;&gt;;   // resolve: false reads without running
   list&lt;T = Block&gt;(type: string, options?: ListOptions&lt;T&gt;): Promise&lt;Result&lt;T[]&gt;&gt;;
 }</code></pre>
-  <p>The <code>loader</code> option covers the common cases by shape. Leave it out and the CMS reads the files in <code>./.deco</code>. A path is the files in that directory. <code>{ token }</code> is releases from the Deco API with the files in <code>./.deco</code> as fallback, and <code>root</code> changes the directory. Leave <code>token</code> undefined and it's just the files, which is what makes one line work in development and production. Anything else is a <code>Loader</code> you built yourself. <strong>Create the CMS once, at module scope, and ask it for a client per request</strong>: <code>forRelease()</code> for visitors, <code>forDraft(pointer)</code> when the request carries one. Clients are free to make and hold nothing you'd want to share. Everything either does is a few lines over a loader, and the registry rule from <a href="#model">Blocks</a> is how it resolves; those internals aren't part of the public API.</p>
+  <p>The <code>loader</code> option covers the common cases by shape. Leave it out and the CMS reads the files in <code>./.deco</code>. A path is the files in that directory. <code>{ token }</code> is releases from the Deco API with the files in <code>./.deco</code> as fallback, and <code>root</code> changes the directory. Leave <code>token</code> undefined and it's just the files, which is what makes one line work in development and production. Anything else is a <code>Loader</code> you built yourself (examples in <a href="#content">Content and loaders</a>). <strong>Create the CMS once, at module scope, and ask it for a client per request</strong>: <code>forRelease()</code> for visitors, <code>forDraft(pointer)</code> when the request carries one. Clients are free to make and hold nothing you'd want to share. Everything either does is a few lines over a loader, and the registry rule from <a href="#model">Blocks</a> is how it resolves; those internals aren't part of the public API.</p>
 
   <h3>Loaders</h3>
-  <p>One interface. <code>load()</code> with no argument is production; <code>load(pointer)</code> is a draft. <code>update()</code> checks for newer content.</p>
+  <p>One interface. <code>load()</code> with no argument is production; <code>load(pointer)</code> is a draft. <code>update()</code> checks for newer content. Which one to use, and how to write your own, is in <a href="#content">Content and loaders</a>.</p>
 <pre class="code-block"><code class="language-typescript">interface Loader {
-  load(pointer?: string | null): Promise&lt;{ revision: string; blocks: Record&lt;string, Block&gt; }&gt;;
+  load(pointer?: string | null): Promise&lt;{ revision: string; blocks: Record&lt;string, Block&gt; }&gt;;   // Block: any saved JSON
   update?(): Promise&lt;{ updated: boolean }&gt;;
 }</code></pre>
   <div class="table-wrap"><table>
@@ -1098,15 +1197,9 @@ export default defineConfig({
   <p class="small muted">Also requires <code>@vitejs/plugin-rsc</code> 0.5.30 and <code>react-server-dom-webpack</code> 19.2.7. If one repository maintains both integrations, give each its own build configuration.</p>
 </section>
 
-<section id="releases" data-nav="Loaders &amp; deployment" class="doc-section" aria-labelledby="releases-title">
-  <p class="eyebrow">Production</p><h2 id="releases-title">Loaders and deployment</h2>
-  <p>A loader returns a <strong>revision</strong>: a hash of the content plus every saved entry in it. <code>localLoader</code>, the CLI, and the Deco API all compute the hash the same way, so "is what I have current?" is one string comparison. Your block functions don't know where content came from, so the same code runs against local files, content bundled into the build, or published releases.</p>
-<pre class="code-block"><code class="language-json">{
-  "revision": "b1946ac92492d2347c6235b4d2611184",
-  "blocks": {
-    "SummerSEO": { "__resolveType": "seo", "title": "Summer collection" }
-  }
-}</code></pre>
+<section id="releases" data-nav="Releases &amp; deployment" class="doc-section" aria-labelledby="releases-title">
+  <p class="eyebrow">Production</p><h2 id="releases-title">Releases and deployment</h2>
+  <p>Every loader returns a <strong>revision</strong> with its content (see <a href="#content">Content and loaders</a>). <code>localLoader</code>, the CLI, and the Deco API all compute it as the same hash of the entries, so "is what I have current?" is one string comparison.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Content from</th><th>Deployment</th></tr></thead>
     <tbody>
@@ -1115,24 +1208,6 @@ export default defineConfig({
     </tbody>
   </table></div>
   <p>Revisions are immutable: change any entry and the hash changes. A revision is a safe cache key everywhere.</p>
-
-  <h3>Configuring the loader</h3>
-  <p>Most apps never pass a loader: <code>createCMS</code> reads the <code>./.deco</code> directory by default. Pass an object to keep your content somewhere else, to connect the hosted Deco CMS, or both:</p>
-<figure class="code-example"><figcaption>cms.ts</figcaption><pre><code class="language-typescript">// Default: the files in ./.deco
-createCMS({ blocks });
-
-// Content in another directory
-createCMS({ loader: { root: "./content/.deco" }, blocks });
-
-// Releases from the hosted Deco CMS, with the files in ./.deco as the fallback
-createCMS({ loader: { token: process.env.DECO_SITE_TOKEN }, blocks });
-
-// Both: hosted releases, with ./content/.deco as the fallback
-createCMS({
-  loader: { root: "./content/.deco", token: process.env.DECO_SITE_TOKEN },
-  blocks,
-});</code></pre></figure>
-  <p><code>token</code> is the site's API key for the Deco API. Keep it in an environment variable, never in the repository. When it's undefined, in development for example, the CMS reads the files only, so the same line works everywhere. For anything else, such as content bundled into a Workers build or your own store, pass a <code>Loader</code> (see <a href="#standalone">API reference</a>).</p>
 
   <h3>One revision per response</h3>
   <p>A client reads one revision for its lifetime: its first call loads, and every later <code>list</code> and <code>resolve</code> reuses that content, even concurrent ones. Two clients can see different revisions, so make one client per request and do everything the response needs through it.</p>
@@ -1148,20 +1223,7 @@ createCMS({
   <h3>Fallback</h3>
   <p>The fallback loader is the only fallback, and it's always available: it's the content the build shipped with, which is the content the deploy was tested against, so it's always compatible with the code. It always swaps whole revisions: mixing entries from different revisions breaks references and can bring back deleted content. The loader reports the revision it actually served.</p>
 
-  <h3>Write your own loader</h3>
-  <p>The contract is one method. A KV-backed loader for a Worker:</p>
-<figure class="code-example"><figcaption>kv-loader.ts</figcaption><pre><code class="language-typescript">import type { Loader } from '@decocms/blocks'
-
-export function kvLoader(kv: KVNamespace, key = 'release:current'): Loader {
-  return {
-    async load() {
-      const content = await kv.get(key, 'json')
-      if (!content) throw new Error('No content in KV')
-      return content   // { revision, blocks }
-    },
-  }
-}</code></pre></figure>
-  <p>Pass it as <code>createCMS</code>'s <code>loader</code>, or as the fallback of <code>remoteLoader</code>. If your store has drafts, honour the <code>pointer</code> argument; if it can go stale, add <code>update()</code>. The client only ever sees <code>{ revision, blocks }</code>.</p>
+  <p>To point the CMS at a different source, or to write a loader for your own store, see <a href="#content">Content and loaders</a>.</p>
 </section>
 
 <section id="operations" data-nav="Caching &amp; observability" class="doc-section" aria-labelledby="operations-title">
@@ -1218,13 +1280,13 @@ export type Content = {
 
 <section id="troubleshooting" data-nav="Troubleshooting" class="doc-section" aria-labelledby="troubleshooting-title">
   <p class="eyebrow">Production</p><h2 id="troubleshooting-title">Troubleshooting</h2>
-  <p>Start with three facts: the revision served, the entry name, and the block type. Call <code>client.resolve(target, { resolve: false })</code> to see the content before any code runs, and <code>loader.load()</code> to see an entry exactly as stored.</p>
+  <p>Start with three facts: the revision served, the entry name, and the block type. Call <code>client.resolve(target, { resolve: false })</code> to see the content before any code runs, and the map your <a href="#content">loader</a> returns to see an entry exactly as stored.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Symptom</th><th>What to check</th></tr></thead>
     <tbody>
       <tr><td><code>UNKNOWN_BLOCK</code></td><td>Compare <code>__resolveType</code> with your block map's keys, including case. Add an <a href="#adoption">alias</a> for renamed types. If the function does a dynamic <code>import()</code>, confirm the imported module has a default export.</td></tr>
       <tr><td><code>NOT_FOUND</code></td><td>A string target is always an entry name, never a block type. Confirm the entry exists in the served revision. To run a type directly, pass an inline block: <code>client.resolve({ __resolveType: "seo", … })</code>.</td></tr>
-      <tr><td>My function never runs for a type</td><td>A saved entry probably has the same name. Run <code>deco schema</code>, which reports the collision, and rename the entry.</td></tr>
+      <tr><td>My saved entry is ignored</td><td>A block type probably has the same name, and the function wins. Run <code>deco schema</code>, which reports the collision, and rename the entry.</td></tr>
       <tr><td>Content comes back unresolved</td><td>You passed <code>{ resolve: false }</code>, or the client was created without a block map.</td></tr>
       <tr><td>A function runs more than once per request</td><td>Use one client for the whole request, and keep the block map at module level. Each new client, and each new map object, gets its own cache.</td></tr>
       <tr><td><code>CYCLE</code></td><td>Follow the references in <code>error.path</code> and remove the one that leads back to an entry already being expanded.</td></tr>
