@@ -1,0 +1,69 @@
+---
+title: Block maps
+group: Advanced
+order: 7
+---
+
+# Block maps
+
+A block map is the code half of the [registry](/next/model): a plain object from block type to function. The other half is the content map of saved entries, which you pass to `createCMS` as [`content`](/next/content). The quickstart's `blocks.ts` is one. This section covers what else can go in it.
+
+```ts title="blocks.ts"
+import type { Blocks } from "@decocms/blocks";
+import seo from "./seo";
+import productCard from "./product-card";
+import hero from "./hero";
+
+export default {
+  seo,
+  "product-card": productCard,
+  hero,
+} satisfies Blocks;
+```
+
+Each key is a block type. Each value is a function `(inputs) => value`, where `inputs` is the block without its `__resolveType`: saved entries already expanded and merged, and nested calls already run, so the function receives values, never a pending call. Use `satisfies Blocks` rather than a type annotation: it checks the shape while keeping the concrete keys and function types, which is what the schema is generated from.
+
+Keep the map a plain object at module level. The [CLI](/next/schema) reads the file without running it, so build it once and give it to `createCMS`. Only functions go in the map. Types that are pure data, such as pages, posts, and redirects, have nothing to run; they're declared for the CLI instead, see [content that is only data](/next/schema).
+
+<Callout>**The CMS is pure.** It passes your function the block and nothing else: no context object, no request, no hidden state. When a block needs the current request, a cookie, or a route parameter, read it the way the rest of your app does, usually through request-scoped storage your framework already provides (Node's `AsyncLocalStorage`, which `next/headers` and TanStack Start's `getRequest()` use under the hood). That keeps block functions ordinary functions you can call and test directly.</Callout>
+
+## Lazy loading
+
+The map above imports every block at the top, so they all load with the map. That's fine for functions like `seo`. It's not what you want for a component that drags in a charting library, or for the two hundred components a large store has when any page uses five.
+
+What's heavy is the component a block renders, and your framework already knows how to load components lazily. So do it in one place, the map, and let the block files stay plain components:
+
+```tsx title="blocks.tsx (Next.js)"
+import dynamic from 'next/dynamic'
+import type { Blocks } from '@decocms/blocks'
+import seo from './seo'
+import type { ProductProps } from './components/Product'
+import type { HeroProps } from './components/Hero'
+
+// Each component is split into its own chunk and fetched on first render.
+const Product = dynamic(() => import('./components/Product'))
+const Hero    = dynamic(() => import('./components/Hero'))
+
+export default {
+  seo,                                                    // eager: tiny, used everywhere
+  product: (input: ProductProps) => <Product {...input} />,
+  hero:    (input: HeroProps)    => <Hero {...input} />,
+} satisfies Blocks
+```
+
+With TanStack Start, use React's `lazy` instead of `dynamic`. Where it goes depends on which of the two rendering modes you use (see [Rendering](/next/rendering)), and the [TanStack guides](/next/tanstack-data) show the code. In every case the component files know nothing about the CMS, the map stays a plain object the CLI can read, and the bundler splits on the `import()`.
+
+For a block that's heavy for a non-UI reason, say a data function that pulls in a large SDK, a dynamic import inside the function body is enough. It's one line and needs no helper:
+
+```ts
+"catalog-product": async (input: ProductQuery) => {
+  const { fetchProduct } = await import("./commerce")   // loaded on first call; the JS module system caches it after that
+  return fetchProduct(input)
+},
+```
+
+Keep import paths literal in both cases. A bundler can split `import("./components/Product")` into its own chunk; it can't split `` import(`./components/${name}`) ``.
+
+## Choose type names that last
+
+A block type's name is what content stores in `__resolveType` to call it, so pick it like a database column, not like a file path: short (`seo`, `hero`) or namespaced when a site has many (`commerce/product`). Moving a file only means updating an import; the name doesn't change. Renaming a type means migrating every block that uses it, or adding an alias, a second name for the same block type (see [Renaming and migrating](/next/adoption)). Type names share one namespace with saved entry names (see [Blocks](/next/model)), and `deco schema` fails on a clash (at runtime, the function wins). A simple convention avoids clashes: lowercase or kebab-case for block types (`seo`, `product-card`), capitalized names for entries (`SummerSEO`).

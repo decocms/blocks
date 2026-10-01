@@ -1,0 +1,44 @@
+---
+title: Releases and deployment
+nav: Releases & deployment
+group: Production
+order: 16
+---
+
+# Releases and deployment
+
+Your code ships when you deploy. Your content can ship the same way, or on its own. This page covers how a content change reaches visitors, how each response stays consistent, and what happens when the network fails. It rests on one idea from [Content and loaders](/next/content): a revision identifies one exact content map. `deco content`, `remoteLoader` and the Deco API all compute it as the same hash of the whole map, so two copies of the content are the same exactly when their revisions match, and `remoteLoader` recognizes the build's content module as the current release and skips a download. A loader you write only has to change its revision whenever content changes (see [Write your own loader](/next/content#write-your-own-loader)).
+
+| Content from | How a content change reaches visitors |
+|---|---|
+| The content module | The content ships with the app: `.deco/blocks.gen.ts`, which `deco content` generates from your files, is bundled like any other import. On its own, changing content means a deploy (in development, editing a file hot-reloads). With a token, it's the fallback: what a server serves until it has fetched its first release. |
+| `content` plus `token` (`remoteLoader`) | The Deco API serves each commit of the production branch as a release that never changes. The loader keeps the current one in memory, with the content the build shipped with as the fallback. A content change reaches visitors without a deploy. |
+| A `Loader` you write | Whatever your store does. Content reaches visitors when the loader returns a new revision; if it can go stale, implement `update()`, which the CMS calls once a minute at an idle moment (see [Write your own loader](/next/content#write-your-own-loader)). |
+
+A revision never changes once it exists: change any entry and you get a new revision. That makes a revision a safe cache key everywhere.
+
+## Publishing
+
+With the hosted Deco CMS, publishing is committing. A developer or an agent edits the entry files in your content directory (`.deco/blocks`, or the folder you give the CLI's `--root`) and pushes; an editor saves in Studio, which commits to the same repository. (If you load from your own store, see [Content and loaders](/next/content).) Either way, the production branch (the branch the hosted Deco CMS publishes from, usually `main`) moves.
+
+Publishing takes seconds: the Deco API serves that commit as the current release as soon as it lands. Each server checks for a new release about once a minute, at an idle moment, so a publish is live everywhere within about a minute. Calling `cms.update()`, for example from a webhook, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check (see [Loaders](/next/standalone#loaders)). Requests never wait on this: `load()` always returns from memory, and the check runs in the background. Step by step: [under the hood](/next/loader-internals).
+
+Because content and code share one history, a deploy and a content change are the same kind of event: a commit. Rolling content back is reverting one.
+
+Publishing without a deploy means the code that's already running renders the new content. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and `remoteLoader` doesn't compare schemas. They're checked before anything merges instead; the rules and a CI workflow are in [Keep the schema compatible](/next/schema#keep-the-schema-compatible).
+
+## Fallback
+
+Until a server has fetched its first release (a new server, or one that has never reached the Deco API), `remoteLoader` serves its fallback's content. If the Deco API becomes unreachable later, the server keeps serving the newest release it already has. With the content module, that's the content the build shipped with, the content this deploy was tested against, so it's always there and always compatible with the code. If your `content` is a loader you wrote (see [Write your own loader](/next/content#write-your-own-loader)), keeping those guarantees is up to you. `remoteLoader` always switches between whole revisions, never mixing entries from two of them, because a mix can break references or bring back deleted entries. The loader reports the revision it actually served.
+
+## One revision per response
+
+Because new content can arrive in the background at any moment, two reads a few milliseconds apart could see different revisions; a header from one and a footer from the other make an inconsistent page. A client prevents that: its first call picks a revision, and every later `list` and `resolve` on it, including concurrent ones, uses the same one. So make one client per request.
+
+Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response. (A way to read and pin the served revision is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle).)
+
+A revision only selects content; it isn't a secret and unlocks nothing. Unpublished drafts are protected by the signed token in the draft pointer (see [Preview](/next/preview)).
+
+## Deploying on Workers
+
+Workers need nothing special, except on sites with several megabytes of content (see “Large content on Workers” under [Create the CMS](/next/tanstack-data#2-create-the-cms)). The content module is bundled like any other import, and because Workers run no timers between requests, the SDK runs a due release check after the response inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent). You don't call `cms.update()`. The [deploying checklist](/next/tanstack-data#deploying-checklist) in the TanStack Start guide lists every step.

@@ -1,0 +1,183 @@
+---
+title: Schema generation
+group: Core concepts
+order: 5
+---
+
+# Schema generation
+
+Studio builds its editor from a JSON Schema, and the CLI writes that schema from your TypeScript. It reads the file that exports your block map, the `blocks.ts` from the [quickstart](/next/quickstart), and writes `.deco/schema.json`. It looks for that file as `blocks.ts` or `blocks.tsx`, in the project root or in `src/`. If your block map lives somewhere else, pass its path with `--entry`, for example `deco schema --entry app/cms/blocks.ts`:
+
+```bash
+npx deco schema
+```
+
+For each block type in the map, the CLI reads the type of the function's first parameter and turns it into a form definition. Commit `.deco/schema.json` with your code, and run the command in CI so the schema never drifts from your types (see [Keep the schema compatible](#keep-the-schema-compatible)).
+
+The CLI also checks your content model: it fails if a saved entry in `.deco/blocks` has the name of a block type, or if an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/adoption)) collides with either.
+
+## The two CLI commands
+
+The CLI has two commands, and each does one job:
+
+- **`deco schema`** turns the types in your block map into `.deco/schema.json`. Commit this file.
+- **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`. It's generated, so gitignore it.
+
+```bash
+deco schema [--entry <path>] [--root <dir>] [--watch] [--check <base>]
+deco content [--root <dir>] [--watch]
+```
+
+- `--entry <path>` (`deco schema` only): the file that exports your block map. By default the CLI looks for `blocks.ts` or `blocks.tsx` in the project root or in `src/`.
+- `--root <dir>`: the `.deco` folder to use (by default `./.deco`).
+- `--watch`: regenerate as files change.
+- `--check <base>` (`deco schema` only): compare the schema your code generates now with an earlier one, and fail on breaking changes. It writes nothing, and it isn't built yet (see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check)). See [Keep the schema compatible](#keep-the-schema-compatible).
+
+There's no separate dev command: run both before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in [The content module](/next/content#the-content-module).
+
+```json title="package.json"
+{
+  "scripts": {
+    "predev": "deco schema && deco content",
+    "prebuild": "deco schema && deco content"
+  }
+}
+```
+
+## Keep the schema compatible
+
+With the hosted Deco CMS, content goes live without a deploy, so the code that's already running renders it. That's the point of publishing without a deploy. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and `remoteLoader` doesn't compare schemas. They're kept compatible before anything merges, in two directions. (`deco schema --check`, which the first one relies on, is planned; see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).)
+
+- **Backward compatible: new code still renders all existing content.** A code change must not break content that's already saved. `deco schema --check <base>` enforces this. It generates the schema from your code and compares it with `<base>`, the path to an earlier `.deco/schema.json`, such as the one on `main`. It lists every breaking change and exits with a non-zero code if it finds one. It writes nothing.
+- **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. Studio builds its forms from whichever schema you point it at, usually the one on your main branch (see [What Studio reads](/next/studio#what-studio-reads)). Keep that schema in step with what's deployed, and deploy the code first, then publish content that uses it. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/standalone#errors)) until the code ships. Rolling code back is the exception: content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.
+
+What `--check` treats as breaking:
+
+| Change | Breaking? |
+|---|---|
+| Removing a block type (a function in the block map) or a `Content` type | Yes. `--check` compares schemas only, so any removal counts, whether or not saved content uses the type. Remove a type in a later change, once no content uses it. To rename a block type, keep the old name as an alias (see [Rename a type with an alias](/next/adoption#rename-a-type-with-an-alias)); the old name stays in the schema, so the check passes. Don't rename a `Content` type this way yet: the check would pass, but Content aliases don't work at runtime (see the [Roadmap](/roadmap#roadmap-cli--emit-a-runtime-alias-table)). |
+| Removing or renaming a field | Yes. Fields have no aliases, so rename in steps: add the new name as an optional field, move the content over, then remove the old field once no content uses it. |
+| Adding a required field, or making an optional field required | Yes: existing entries don't have it |
+| Narrowing a field's type: a `string` becoming a union of allowed values, a union losing a member, a tighter limit (a lower `@maximum` or `@maxLength`, or a higher `@minimum` or `@minLength`) | Yes: saved values may fall outside it |
+| Adding a block type, a `Content` type or a built-in type | No |
+| Adding an optional field | No |
+| Widening a field's type: a union gaining a member, a required field becoming optional | No |
+
+Run it in CI on every pull request. This GitHub Actions workflow first checks that the committed `.deco/schema.json` is up to date: it regenerates the schema and fails if the file changed or was never committed. It then compares the schema with the one on the pull request's target branch. On the first pull request that adds a schema there's nothing to compare with yet, so it skips that step. Any other problem, such as a missing branch, fails the job instead of skipping it:
+
+```yaml title=".github/workflows/schema.yml"
+name: Schema
+on: pull_request
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    env:
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: The committed schema matches the code
+        run: |
+          npx --no-install deco schema
+          if [ -n "$(git status --porcelain -- .deco/schema.json)" ]; then
+            git diff -- .deco/schema.json
+            echo ".deco/schema.json is missing or out of date: run deco schema and commit it."
+            exit 1
+          fi
+      - name: Fetch the base schema
+        run: |
+          git rev-parse --verify --quiet "origin/$BASE_REF" > /dev/null \
+            || { echo "origin/$BASE_REF not found"; exit 1; }
+          if git cat-file -e "origin/$BASE_REF:.deco/schema.json" 2> /dev/null; then
+            git show "origin/$BASE_REF:.deco/schema.json" > base-schema.json
+          fi
+      - name: No breaking changes
+        run: |
+          if [ -f base-schema.json ]; then
+            npx --no-install deco schema --check base-schema.json
+          else
+            echo "No .deco/schema.json on $BASE_REF yet; skipping the compatibility check."
+          fi
+```
+
+`--no-install` makes `npx` fail if `@decocms/blocks-cli` isn't installed, instead of downloading some other package named `deco`. If you use `--root`, pass it to both `deco schema` calls and replace `.deco/schema.json` in the workflow with `<dir>/schema.json`. Make the job a required check in your branch protection rules, so a failing pull request can't merge.
+
+Studio's saves are commits to the same repository. They only change content, never the schema, so `--check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions). When Studio saves through pull requests, this workflow checks them before merge. When it commits straight to your production branch, they're live as soon as they land, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` and guard the two comparison steps with `if: github.event_name == 'pull_request'`, since a push has no target branch.
+
+## Annotate fields with JSDoc
+
+The TypeScript type decides what kind of field each input gets: a `string` is a text box, a `number` a number field, a union of string literals a select, an array a list editors can add to and reorder. JSDoc tags on a field refine the form:
+
+| Tag | Effect in the editor | Example |
+|---|---|---|
+| `@title` | The field's label (the default is the property name) | `@title Headline` |
+| `@description` | Help text under the field | `@description Shown above the fold` |
+| `@default` | The value a new block starts with, parsed as JSON when it can be | `@default 10` |
+| `@minimum` / `@maximum` | The allowed range of a number | `@maximum 100` |
+| `@minLength` / `@maxLength` | The allowed length of a string | `@maxLength 60` |
+| `@format` | A specialized input for a string, such as `date`, `date-time`, `rich-text`, `textarea`, `color` or `image-uri` | `@format rich-text` |
+| `@ignore` | Leaves the field out of the form | `@ignore` |
+
+Put each tag on its own line. This type:
+
+```ts
+export interface HeroProps {
+  /**
+   * @title Headline
+   * @maxLength 60
+   */
+  title: string;
+  /**
+   * @title Body
+   * @format rich-text
+   */
+  body?: string;
+  /**
+   * @title Ends on
+   * @format date
+   */
+  endsOn?: string;
+}
+```
+
+becomes a form with a *Headline* text box limited to 60 characters, an optional *Body* rich-text editor, and an optional *Ends on* date picker.
+
+## Content that is only data
+
+A page, a blog post, a redirect: these have a shape but no function. They're never resolved themselves: your app reads them, by type with `client.list("post")` or by URL with `matchRoute` (see [Routing](/next/routing)), and resolves the blocks *inside* them. They still need a schema so Studio can create them, so declare them for the CLI in a type-level map next to the block map. `deco schema` always includes two built-in content types, `page: Page` and `redirect: Redirect`, so you declare only your own, like `post: Post`. `Page`, `Redirect` and `Route` are exported from `@decocms/blocks`.
+
+```ts title="blocks.ts"
+import type { Blocks } from "@decocms/blocks";
+import type { Post } from "./post";
+import seo from "./seo";
+import hero from "./hero";
+
+export default { seo, hero } satisfies Blocks;          // code: a schema per function parameter
+
+export type Content = {                                  // data: a schema per type
+  post: Post;                                            // page and redirect are built in
+};
+```
+
+The CLI reads both exports. Keys of the default export get a schema from each function's parameter type; keys of `Content` get one from the type itself. The two share one namespace, and a key in both is an error. The CMS never sees `Content`: `list("page")` works because the entries exist, and resolving a page means resolving its fields, not the page.
+
+**Override or opt out.** Declaring a built-in key in `Content` replaces it. Extend the exported type to add fields, or to narrow `sections`, a page's ordered list of blocks:
+
+```ts
+import type { Page } from "@decocms/blocks";
+
+interface StorePage extends Page { theme: "light" | "dark" }
+
+export type Content = { page: StorePage; post: Post };
+```
+
+An app that isn't a website opts out with `page: never` or `redirect: never`. Either way, only the schema changes: the CMS never reads `Content`.
+
+Studio learns the shape of your content only from the schema this command writes. What it looks for, which endpoints it calls on your site, and how the CLI bridges today's Studio conventions are covered [under the hood](/next/studio).

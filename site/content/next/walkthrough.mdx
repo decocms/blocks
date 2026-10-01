@@ -1,0 +1,14 @@
+---
+title: How resolution works
+group: Under the hood
+kind: internals
+order: 2
+---
+
+# How resolution works
+
+Here's the setup. Your block map registers two functions, `product-card` and `catalog-product`. Your content map holds two saved entries: `CurrentProduct`, which is `{ "__resolveType": "catalog-product", "slug": "summer-shirt" }`, and `SummerCard`, shown in step 1, which uses it. As code, `SummerCard` means `productCard({ title: "Summer collection", product: catalogProduct({ slug: "summer-shirt" }) })`.
+
+Step through `client.resolve("SummerCard")` to watch [the rule](/next/model#the-rule) at work, or switch to `{ run: false }` to see what a read returns. `product-card` can return a descriptor or a React element (for frameworks that render React Server Components, such as the Next.js App Router); the second toggle compares them. This is an illustration, so it doesn't run any application code.
+
+<Walkthrough />

@@ -1,16 +1,18 @@
 name: Docs site
 
-# Builds the Deco Blocks docs site (site/) into one self-contained page,
-# site/dist/index.html (python3 site/build.py; standard library only).
+# Builds the Deco Blocks docs site (site/: TanStack Start + MDX, prerendered to static HTML,
+# with a Pagefind search index). site/ is a standalone Bun package with its own bun.lock, so
+# every step runs in site/.
 #
-# - Pull requests that touch site/: build, then upload site/dist as the
-#   workflow artifact "docs-site" so reviewers can download the page and
-#   open it locally. Nothing is deployed.
-# - Pushes to main that touch site/, and manual runs on main: build, then
-#   deploy site/dist to GitHub Pages. Only decocms/blocks's main branch
-#   deploys (a manual run on another branch, or a fork, only builds). Needs
-#   Pages enabled with "GitHub Actions" as its source (Settings > Pages);
-#   until then the deploy job fails, and nothing else depends on it.
+# - Pull requests that touch site/: check, build, then upload site/dist/client as the workflow
+#   artifact "docs-site". It's built for the root path; to view it, unzip it and serve the
+#   folder with any static server that maps /x to x.html (or copy it into site/dist/client and
+#   run `bun run preview`). Nothing is deployed.
+# - Pushes to main that touch site/, and manual runs on main: check, build for the /blocks/
+#   base path GitHub Pages serves this repository under, then deploy site/dist/client to
+#   GitHub Pages. Only decocms/blocks's main branch deploys (a manual run on another branch,
+#   or a fork, only builds). Needs Pages enabled with "GitHub Actions" as its source
+#   (Settings > Pages); until then the deploy job fails, and nothing else depends on it.
 
 on:
   pull_request:
@@ -36,20 +38,45 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    env:
+      # Pages serves the repository at https://<owner>.github.io/blocks/; previews build for /.
+      BASE_PATH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks' && '/blocks/' || '/' }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Build site/dist
-        run: python3 site/build.py
+      # `vite build` (and its prerender) runs under Node: the vite bin is `#!/usr/bin/env node`, and
+      # TanStack Start needs Node >= 22.12 (site/package.json "engines"). Bun installs and runs
+      # the scripts; pin Node so the build doesn't depend on whatever the runner has.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Same Bun as the rest of the repo (package.json "packageManager").
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Check (types, content, Roadmap data)
+        run: bun run check
+
+      # vite build (prerenders every page), then 404.html, the link check and the Pagefind index.
+      - name: Build site/dist/client
+        run: bun run build
 
       - name: Upload the preview (pull requests)
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: docs-site
-          path: site/dist
+          path: site/dist/client
           if-no-files-found: error
           retention-days: 14
 
@@ -57,7 +84,7 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks'
         uses: actions/upload-pages-artifact@v5
         with:
-          path: site/dist
+          path: site/dist/client
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks'
@@ -70,8 +97,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # The page is one self-contained file, so nothing uses this step's
-      # outputs (base URL, origin); it checks Pages is set up before deploying.
+      # The build hardcodes the /blocks/ base path, so nothing uses this step's outputs; it
+      # checks Pages is set up before deploying.
       - uses: actions/configure-pages@v6
 
       - id: deployment

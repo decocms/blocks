@@ -1,0 +1,84 @@
+---
+title: Preview
+group: Core concepts
+order: 6
+---
+
+# Preview
+
+A **draft** is content an editor has changed in Studio but not published yet, kept on a branch until someone publishes it. Editors want to see a draft before it's published. Because block *functions* ship with your app and only *content* changes, previewing a draft needs no deploy: the app renders the same code against different content.
+
+Here's the whole mechanism. Studio opens your site with a **draft pointer** in the URL:
+
+```bash
+https://store.example.com/summer?__draft=studio.decocms.com/api/acme/decofile/store/feat-summer%3Ftoken%3D…@9f3c1a
+```
+
+The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `studio.decocms.com/api/…/feat-summer?token=…` is where the draft lives: the Deco API's address for this site's `feat-summer` branch, plus a token signed by Studio. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
+
+The pointer is a string, `<host><path>@<version>`: where the draft content lives, and which version. `draftPointer(request)` reads it, from `?__draft=` or from the cookie described below, and the CMS gives you a client over that draft. Everything after that line is the same code that serves visitors:
+
+```ts title="A plain request handler"
+import { draftPointer } from '@decocms/blocks'
+import { cms } from './cms'
+
+export async function handle(request: Request) {
+  const pointer = draftPointer(request)               // null on an ordinary request
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
+
+  return render(client, request)                      // your own function: list, matchRoute and resolve as usual
+}
+```
+
+`forDraft` hands the pointer to whatever supplies your content. `remoteLoader` fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole revision, deletions included, so a page in preview looks exactly as it will after publishing. The content module has no drafts, so it ignores the pointer: in development you're already looking at the files. A loader you write honors it if your store has drafts (see [Write your own loader](/next/content#write-your-own-loader)). That's why the code above never checks where its content comes from.
+
+## Keep the draft across navigation
+
+The pointer is only in the URL of the first page Studio opens. `draftCookie(request)` gives you the `Set-Cookie` value that response needs, and `null` on every other request. Append it, and `draftPointer` reads the cookie from then on, so every link the editor clicks stays in preview:
+
+```ts title="Query parameter first, cookie afterwards"
+import { draftPointer, draftCookie } from '@decocms/blocks'
+import { cms } from './cms'
+
+export async function handle(request: Request) {
+  const pointer = draftPointer(request)
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
+  const response = await render(client, request)
+
+  const cookie = draftCookie(request)
+  if (cookie) response.headers.append('Set-Cookie', cookie)
+  return response
+}
+```
+
+Studio ends a preview by opening the site with an empty `?__draft=`; `draftCookie` returns an expiring cookie for that, so the same two lines cover leaving preview. The parameter and cookie names never appear in your code. In Next.js the two steps split across `proxy.ts` (Next.js 16's name for `middleware.ts`), which appends the cookie, and a server helper that reads it with `cookies()`. The [Next.js guide](/next/nextjs) has both files.
+
+## Not a website
+
+`forDraft` takes the pointer string and nothing else, so nothing here assumes HTTP. A mobile app takes it from the deep link Studio opens, or from a "preview" field on a debug screen, and keeps it in app state:
+
+```ts
+// React Native, on a deep link like mystore://preview?__draft=...
+const pointer = new URL(url).searchParams.get('__draft')
+setClient(pointer ? cms.forDraft(pointer) : cms.forRelease())
+```
+
+A script passes it as an argument. To look inside a pointer, or build one from parts, use `parseDraftPointer` and `formatDraftPointer` from the [reference](/next/standalone); `forDraft` parses on its own, so normally you don't have to.
+
+## Who may preview
+
+Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs configuration in your app. First, the pointer must name your site's own Deco API host, which `remoteLoader` looks up with your token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by Studio, which the Deco API checks before serving the draft.
+
+If a website wants to show drafts on its preview domain only, it checks the request's host before calling `forDraft`:
+
+```ts
+const host = new URL(request.url).host
+const pointer = host === 'preview.store.example.com' ? draftPointer(request) : null
+const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
+```
+
+<Callout type="warning">**The token is the only secret.** The site holds no other credential. Invalid or unexpected pointers are ignored and the request falls back to published content, never to an error page.</Callout>
+
+## Connect Studio to your site
+
+Studio opens previews on your site's URL, so the site has to be set up in the hosted Deco CMS with your token (creating a site and a token for this API is on the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service)). Support for sites on this API, including previews inside Studio's frame, is still being built; see the [Roadmap](/roadmap#roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe). To try the mechanism locally: with only local files, `forDraft` returns the release, because the content module has no drafts. Testing a real draft needs a token.

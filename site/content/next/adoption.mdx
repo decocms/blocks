@@ -1,0 +1,54 @@
+---
+title: Renaming and migrating
+nav: Renames & migrations
+group: Production
+order: 18
+---
+
+# Renaming and migrating
+
+Saved content refers to your code by name: every block stores a type name in `__resolveType`, references store entry names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content. Renaming a type or removing an input affects every block that uses it, and renaming a saved entry breaks every reference to it (`NOT_FOUND`).
+
+This page covers renaming safely, and bringing in content from a site built on Deco's earlier framework, where type names were file paths such as `site/sections/Product.tsx`. Moving source files is free; only names matter.
+
+## Rename a type with an alias
+
+An alias is another key pointing at the same thing: the same function in the block map, or the same type in [`Content`](/next/schema). Content that stores the old name keeps working, and routing is unaffected because `matchRoute` looks at each entry's `path` field (see [Routes and redirects](/next/content-types)), not its type name. Here, [`Page`](/next/content-types) is the built-in page type from `@decocms/blocks`; you declare only the legacy name, since `page` itself is built in:
+
+```ts title="blocks.ts"
+import type { Blocks, Page } from "@decocms/blocks";
+import productCard from "./product-card";
+
+export default {
+  "product-card": productCard,
+  "site/sections/Product.tsx": productCard,     // the name legacy content stores
+} satisfies Blocks;
+
+export type Content = {
+  "website/pages/Page.tsx": Page;               // the built-in page type, legacy name; entries still route
+};
+```
+
+An alias only works while both names take the same inputs. If the old shape differs, register a function under the old name that converts the old inputs and calls the new function, or migrate the content first. Here the old content called the title `name`:
+
+```ts
+type CardInput = Parameters<typeof productCard>[0];
+
+export default {
+  "product-card": productCard,
+  "site/sections/Product.tsx": ({ name, ...rest }: Omit<CardInput, "title"> & { name: string }) =>
+    productCard({ ...rest, title: name }),      // converts the old inputs
+} satisfies Blocks;
+```
+
+`deco schema` rejects an alias that collides with an entry name.
+
+## Checklist for migrating existing content
+
+1. **Keep existing names.** If the content stores file-path type names, register them as they are or alias them.
+2. **Check inputs.** Regenerate the schema and validate saved content. Review new required fields, narrowed unions, and changed defaults.
+3. **Migrate the content in one commit.** A script reads the JSON in `.deco/blocks`, rewrites it, and writes it back. The commit is a new revision you can revert in one step. Keep fields the script doesn't recognize instead of deleting them, and report references to missing entries (`NOT_FOUND`) instead of dropping them.
+4. **Test the integration.** Load real pages against the migrated content: routes resolve, titles and SEO tags are right, blocks that load later (if your framework streams them) appear, failing blocks show their fallback, and navigation works.
+5. **Keep a rollback pair.** Keep the previous build plus the content revision it was tested with. Rolling back content alone can't bring back code you removed.
+
+Test behavior, not just schemas. A function can keep its input type and still change its output, defaults, or upstream calls.

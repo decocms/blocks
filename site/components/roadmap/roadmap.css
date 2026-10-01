@@ -1,0 +1,328 @@
+/* ==========================================================================
+   Roadmap pages (components/roadmap/, data from data/roadmap.json). Ported from the former
+   Python build's roadmap.css (removed); the selectors follow the new heading levels: the page title is the h1,
+   sub-headings and to-dos are h2 (were h3), feature rows are h3 (were h4).
+
+   Everything is in the `legacy` cascade layer, like the rest of the ported CSS (src/styles/app.css),
+   so it competes with legacy.css and prose.css by specificity and order exactly as the old
+   roadmap.css competed with style.css.
+
+   Classes are gx-* (and rm-* for the to-do parts); statuses are data-v codes:
+   g to build · p to finish · a site code · c done · n goes away.
+   Done is the only status in lime/forest, and nothing else on this page uses
+   those colours: plan rows, the filter's pressed state and the target flash
+   are neutral. Every to-do is open, so every box is drawn unchecked.
+   ========================================================================== */
+@layer legacy {
+:root {
+  --gx-g: #D9432F; --gx-g-bg: #FDECE8; --gx-g-fg: #9E2B18;
+  --gx-p: #E0A106; --gx-p-bg: #FDF3D6; --gx-p-fg: #7A5200;
+  --gx-a: #2F7BD4; --gx-a-bg: #E7F0FB; --gx-a-fg: #1D5796;
+  --gx-c: #8CAA25; --gx-c-bg: #EFF6CC; --gx-c-fg: #07401A;
+  --gx-n: #8B7BF0; --gx-n-bg: #EFECFE; --gx-n-fg: #4A3AA7;
+  --gx-now-bg: #9E2B18; --gx-now-fg: #FFFFFF;
+  --gx-track: #EFEDEA;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --gx-g: #F07A64; --gx-g-bg: rgba(240, 122, 100, .15); --gx-g-fg: #FFAB98;
+    --gx-p: #E9B949; --gx-p-bg: rgba(242, 193, 78, .14); --gx-p-fg: #F5CD6E;
+    --gx-a: #6FA8E8; --gx-a-bg: rgba(111, 168, 232, .15); --gx-a-fg: #A9CBF2;
+    --gx-c: #C3DD1F; --gx-c-bg: rgba(208, 236, 26, .12); --gx-c-fg: #D9F05A;
+    --gx-n: #A595FF; --gx-n-bg: rgba(165, 149, 255, .16); --gx-n-fg: #C8BEFF;
+    --gx-now-bg: #FFAB98; --gx-now-fg: #2A120C;
+    --gx-track: rgba(255, 255, 255, .07);
+  }
+}
+:root[data-theme="dark"] {
+  --gx-g: #F07A64; --gx-g-bg: rgba(240, 122, 100, .15); --gx-g-fg: #FFAB98;
+  --gx-p: #E9B949; --gx-p-bg: rgba(242, 193, 78, .14); --gx-p-fg: #F5CD6E;
+  --gx-a: #6FA8E8; --gx-a-bg: rgba(111, 168, 232, .15); --gx-a-fg: #A9CBF2;
+  --gx-c: #C3DD1F; --gx-c-bg: rgba(208, 236, 26, .12); --gx-c-fg: #D9F05A;
+  --gx-n: #A595FF; --gx-n-bg: rgba(165, 149, 255, .16); --gx-n-fg: #C8BEFF;
+  --gx-now-bg: #FFAB98; --gx-now-fg: #2A120C;
+  --gx-track: rgba(255, 255, 255, .07);
+}
+
+/* Anything carrying a verdict exposes its colours to its children. */
+.gx-sec [data-v="g"] { --vc: var(--gx-g); --vbg: var(--gx-g-bg); --vfg: var(--gx-g-fg); }
+.gx-sec [data-v="p"] { --vc: var(--gx-p); --vbg: var(--gx-p-bg); --vfg: var(--gx-p-fg); }
+.gx-sec [data-v="a"] { --vc: var(--gx-a); --vbg: var(--gx-a-bg); --vfg: var(--gx-a-fg); }
+.gx-sec [data-v="c"] { --vc: var(--gx-c); --vbg: var(--gx-c-bg); --vfg: var(--gx-c-fg); }
+.gx-sec [data-v="n"] { --vc: var(--gx-n); --vbg: var(--gx-n-bg); --vfg: var(--gx-n-fg); }
+
+.gx-sec { container-type: inline-size; }
+.gx-sec ul.gx-tiles, .gx-sec ul.gx-fx { list-style: none; margin-left: 0; padding: 0; max-width: none; }
+.gx-sec :is(.gx-tiles, .gx-fx) > li { margin: 0; padding-left: 0; }
+.gx-sec :is(.gx-tiles, .gx-fx) > li::marker { content: none; }
+.gx-sec .gx-note { font-size: 14px; line-height: 22px; color: var(--muted-fg); margin: 20px 0 12px; }
+.gx-sec .gx-meta-k, .gx-sec .gx-wf dt {
+  font-size: 12px; line-height: 18px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; color: var(--eyebrow);
+}
+
+/* Verdict pill and legend */
+.gx-vp {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 8px; flex: none;
+  border-radius: 999px; background: var(--vbg); color: var(--vfg);
+  font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .01em; white-space: nowrap;
+}
+.gx-vp::before, .gx-lg::before, .gx-fg button i { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--vc); flex: none; }
+.gx-lg { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.gx-lg b { font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; }
+.gx-key { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; margin-left: 4px; font-size: 13.5px; }
+
+/* Feature chips (links to rows of the feature index; filled in by the page script) */
+.gx-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 16px 0 0; }
+.gx-chips:empty { display: none; }
+.gx-chips::before { content: "Features"; margin-right: 6px; font-size: 12px; line-height: 18px; letter-spacing: .04em; text-transform: uppercase; color: var(--eyebrow); }
+.gx-sec .gx-chips a:not(.heading-anchor) {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 28px; max-width: 100%; padding: 4px 12px 4px 10px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  color: var(--fg-body); font-size: 13px; line-height: 18px; text-decoration: none;
+  transition: border-color .25s ease, color .25s ease, background-color .25s ease;
+}
+.gx-sec .gx-chips a:not(.heading-anchor)::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--vc, var(--faint)); flex: none; }
+.gx-sec .gx-chips a:not(.heading-anchor):hover { border-color: var(--border-strong); color: var(--fg); background: var(--bg-subtle); }
+/* The to-build marker is a diamond, every other status's a dot, so red and amber never differ by colour alone. */
+.gx-sec :is(.gx-chips a[data-v="g"]:not(.heading-anchor), .gx-lg[data-v="g"], [data-v="g"] .gx-vp, .gx-vp[data-v="g"])::before, .gx-fg i[data-v="g"] { border-radius: 1px; transform: rotate(45deg) scale(.9); }
+
+/* Numbered headings: the number is a quiet tabular index, in the article and in the rail. In the
+   article the number and the title sit side by side, so a wrapped title hangs under itself. */
+.gx-n { display: inline-block; min-width: 1.6em; margin-right: .35em; font-size: .56em; line-height: 1; vertical-align: .22em; font-variant-numeric: tabular-nums; letter-spacing: 0; color: var(--eyebrow); }
+.gx-sec h2:has(> .gx-n) { display: flex; align-items: baseline; }
+.gx-sec h2 > .gx-n { flex: none; margin-right: .6em; position: relative; top: -.39em; }
+#rail-list .gx-n, .toc-inline .gx-n { min-width: 22px; margin: 0; font-size: 11.5px; vertical-align: 0; text-indent: 0; color: var(--quiet); }
+#rail-list a:has(> .gx-n) { padding-left: 38px; text-indent: -22px; }
+.doc-section .toc-inline li a:has(> .gx-n) { padding-left: 22px; text-indent: -22px; }
+
+/* To-dos. The unchecked box is drawn here (decorative); each item's first child, .rm-sr, says
+   "To do" to screen readers. The same box marks the overview's blocker list, its two to-do
+   callouts, and (small) the count in each section's eyebrow. */
+.rm-sr { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.gx-sec .rm-list > li > h2::before, .gx-sec ol.gx-toplist > li::after, .gx-sec .rm-do::before, .rm-count::before {
+  content: ""; box-sizing: border-box; width: 18px; height: 18px; flex: none;
+  border: 1.5px solid var(--quiet); border-radius: 5px; background: var(--surface);
+  -webkit-mask: none; mask: none;
+}
+/* One item: box, (number,) title; everything below hangs under the title's column. A note with
+   nothing to do (.rm-note) gets a short rule in the box's place instead of a box. */
+.gx-sec .rm-list { list-style: none; max-width: none; margin: 0; padding: 0; border: 0; }
+.gx-sec .rm-list > li { position: relative; margin: 48px 0 0; padding: 30px 0 0 34px; border-top: 1px solid var(--hairline); }
+.gx-sec .rm-list > li::before { content: none; }
+.gx-sec ul.rm-list > li::marker { content: none; }
+.gx-sec .rm-list > li > h2 { display: flex; align-items: baseline; margin: 0 0 12px -34px; font-size: 23px; line-height: 1.28; }
+.gx-sec .rm-list > li > h2 > span:not(.gx-n) { min-width: 0; }
+.gx-sec .rm-list > li > h2::before { align-self: flex-start; margin: calc(.5lh - 9px) 16px 0 0; }
+.gx-sec .rm-list > li.rm-note > h2::before { border: 0; border-radius: 0; background: linear-gradient(var(--quiet), var(--quiet)) center / 10px 1.5px no-repeat; }
+/* Each section's count sits beside its eyebrow. */
+.gx-sec > .eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.rm-count {
+  display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 10px 0 8px; border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--border-strong); color: var(--muted-fg);
+  font-size: 12px; line-height: 16px; letter-spacing: .01em; text-transform: none; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.rm-count::before { width: 10px; height: 10px; border-width: 1.25px; border-radius: 3px; }
+.gx-sec .gx-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 12px; font-size: 13px; line-height: 20px; color: var(--muted-fg); }
+.gx-sec .gx-meta + p { margin-top: 0; }
+.gx-sec .gx-meta a { font-size: 13px; }
+.gx-meta-n { color: var(--fg-body); }
+.gx-st { color: var(--muted-fg); }
+.gx-meta .gx-st::before { content: "Sites"; margin-right: 8px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--eyebrow); }
+
+/* Overview: the two to-do callouts, one shape: the box in the icon's place, an imperative title
+   that links to the item, then the text. "Fix the docs" keeps the warning colours; the fix-now
+   item is neutral, with the site plans' "Fix now" pill leading its text. Same box model as .callout. */
+.gx-sec .rm-do::before { position: absolute; left: 20px; top: 19px; }
+.rm-do-t { display: block; width: fit-content; margin-bottom: 4px; font-weight: 500; }
+.gx-sec .gx-now { position: relative; margin: 28px 0; padding: 16px 22px 16px 50px; border-radius: 14px; background: var(--bg-subtle); border: 1px solid var(--border); }
+.gx-sec .gx-now p { margin: 0; max-width: none; font-size: 15px; line-height: 25px; }
+.gx-now .gx-kind { margin-right: 8px; vertical-align: 1px; }
+
+/* Overview: verdict tiles (the legend and the totals in one) */
+.gx-sec .gx-tiles {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 24px 0 8px;
+  background: var(--border); border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+}
+.gx-sec .gx-tiles > li { display: grid; grid-template-columns: 64px minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 14px 18px; background: var(--bg); }
+.gx-tile-n { font-size: 34px; line-height: 1; font-weight: 300; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--fg); }
+.gx-tiles .gx-vp { justify-self: start; }
+.gx-tiles > li[data-v="c"] .gx-tile-n { color: var(--quiet); }
+/* Each tile's short definition, in place of a separate legend. */
+.gx-tile-d { grid-column: 2; margin-top: 6px; font-size: 13px; line-height: 18px; color: var(--muted-fg); }
+@container (min-width: 640px) {
+  .gx-sec .gx-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .gx-sec .gx-tiles > li { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 20px 16px 20px; }
+  .gx-tile-n { font-size: 44px; }
+  .gx-tile-d { margin-top: -4px; }
+}
+
+/* Verdict bars, overall and per site */
+.gx-bars { display: grid; gap: 20px; margin: 28px 0 32px; }
+.gx-barrow { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 8px; }
+.gx-sec .gx-bar-h { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin: 0; font-size: 14px; line-height: 20px; color: var(--fg); }
+.gx-bar-h b { font-weight: 500; }
+.gx-sec .gx-bar-h a:not(.heading-anchor) { font-size: 14px; }
+.gx-bar-h span { font-size: 12.5px; color: var(--muted-fg); }
+.gx-bar { display: flex; gap: 2px; height: 12px; border-radius: 999px; overflow: hidden; background: var(--gx-track); }
+.gx-bar i { flex: var(--n) 0 0; min-width: 4px; background: var(--vc); }
+.gx-barrow:first-child .gx-bar { height: 16px; }
+.gx-sec .gx-bar-l { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; font-size: 12.5px; line-height: 20px; color: var(--muted-fg); }
+.gx-ow { margin-left: auto; }
+.gx-sec .gx-bar-d { margin: 2px 0 0; max-width: none; font-size: 14px; line-height: 1.6; color: var(--fg-body); }
+.gx-bar-d > span { color: var(--muted-fg); }
+.gx-bar-d code { font-size: 12.5px; }
+.gx-ow b { font-weight: 500; color: var(--fg-body); }
+@container (min-width: 640px) {
+  .gx-barrow { grid-template-columns: 200px minmax(0, 1fr); grid-template-areas: "h bar" "h leg" "h d"; column-gap: 24px; }
+  .gx-bar-d { grid-area: d; }
+  .gx-bar-h { grid-area: h; flex-direction: column; justify-content: flex-start; align-self: start; }
+  .gx-bar { grid-area: bar; align-self: center; margin-top: 4px; }
+  .gx-bar-l { grid-area: leg; }
+}
+
+/* The status legend on Feature readiness (final copy): one status per line, label (with its marker) then meaning */
+.gx-sec dl.rm-legend { display: grid; gap: 4px; margin: 20px 0 0; font-size: 14px; line-height: 22px; }
+.rm-legend > div { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); column-gap: 12px; }
+.rm-legend dt { margin: 0; }
+.rm-legend dd { margin: 0; color: var(--muted-fg); }
+.rm-legend .gx-lg { display: inline-flex; font-weight: 500; color: var(--fg); }
+@container (max-width: 459px) {
+  .rm-legend > div { grid-template-columns: minmax(0, 1fr); }
+  .gx-sec dl.rm-legend { gap: 8px; }
+}
+
+/* Overview: the ten release blockers (numbered hairline rows from the docs' <ol>, each with its box) */
+.gx-sec ol.gx-toplist > li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; padding-left: 78px; }
+.gx-sec ol.gx-toplist > li::before { left: 36px; }
+.gx-sec ol.gx-toplist > li::after { position: absolute; left: 2px; top: 19px; }
+.gx-sec .gx-toplist a:not(.heading-anchor) { font-weight: 500; }
+.gx-tl-s { flex: none; font-size: 12.5px; line-height: 20px; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+
+/* A to-do's detail: Today (where it stands now) on the plain surface, then Plan and the link
+   rows (Delivered by, In these docs, Part of blocker) together on a neutral fill. No overflow
+   clipping, so focus rings on the links inside stay whole; the rows round their own corners. */
+.gx-sec dl.gx-wf { margin: 18px 0 0; border: 1px solid var(--border); border-radius: 14px; background: var(--muted); }
+.gx-wf > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 16px 18px; }
+.gx-wf > div:first-child { border-radius: 13px 13px 0 0; }
+.gx-wf > div:last-child { border-radius: 0 0 13px 13px; }
+.gx-wf > div:only-child { border-radius: 13px; }
+.gx-wf > .rm-t { background: var(--surface); }
+.gx-wf > .rm-t + div { border-top: 1px solid var(--hairline); }
+.gx-wf > div:not(.rm-t) + div { padding-top: 0; }
+.gx-sec .gx-wf dt { font-size: 12px; line-height: 18px; }
+.gx-sec .gx-wf dd { margin: 0; font-size: 15px; line-height: 1.65; color: var(--fg-body); }
+.gx-sec .gx-wf dd > :is(p, ul) { margin: 0; max-width: none; font-size: inherit; line-height: inherit; }
+.gx-sec .gx-wf dd > * + * { margin-top: 10px; }
+.gx-sec .gx-wf dd li { font-size: inherit; line-height: inherit; }
+@container (min-width: 600px) {
+  .gx-wf > div { grid-template-columns: 124px minmax(0, 1fr); column-gap: 20px; padding: 16px 20px; }
+  .gx-wf > div:not(.rm-t) + div { padding-top: 0; }
+  .gx-sec .gx-wf dt { line-height: 25px; }
+}
+
+/* Site plans */
+.gx-kind { display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: 999px; background: var(--muted); color: var(--fg-body); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .01em; white-space: nowrap; }
+.gx-kind[data-k="now"] { background: var(--gx-now-bg); color: var(--gx-now-fg); }
+.gx-kind[data-k="pre"] { background: var(--gx-a-bg); color: var(--gx-a-fg); }
+.gx-kind[data-k="blocker"] { background: var(--gx-g-bg); color: var(--gx-g-fg); }
+.gx-kind[data-k="content"] { background: var(--gx-p-bg); color: var(--gx-p-fg); }
+.gx-kind[data-k="fix"] { background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); color: var(--muted-fg); }
+.gx-sec .gx-sitedesc { margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: var(--muted-fg); }
+.gx-sitedesc .gx-meta-k { margin-right: 10px; }
+
+/* Links in a run ("Delivered by", "In these docs", "Part of blocker", "Addressed by"): set apart by
+   space alone, since a separator glyph either gets underlined or can start a wrapped line. A link to
+   a site step carries its site and number beside it; a run may end with a plain note. */
+.gx-sec :is(.gx-wf dd.rm-links, .gx-fx-d, .gx-fx-c) > :is(a, .rm-sref):not(:last-child) { margin-right: .85em; }
+.rm-ref { font-size: 13.5px; color: var(--muted-fg); }
+.rm-dnote { display: block; margin-top: 4px; font-size: 14px; color: var(--muted-fg); }
+
+/* Feature index: filter */
+html:not(.js) .gx-filter { display: none; }
+.gx-filter { display: flex; flex-direction: column; gap: 10px; margin: 28px 0 8px; padding: 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-subtle); }
+.gx-fg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gx-fg + .gx-fg { padding-top: 10px; border-top: 1px solid var(--hairline); }
+.gx-fl { min-width: 56px; margin-right: 4px; font-size: 12px; line-height: 18px; letter-spacing: .04em; text-transform: uppercase; color: var(--eyebrow); }
+.gx-fg button {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted-fg);
+  font: inherit; font-size: 13px; line-height: 18px; cursor: pointer;
+  transition: color .25s ease, border-color .25s ease, background-color .25s ease, transform .25s var(--ease);
+}
+.gx-fg button span { color: var(--quiet); font-variant-numeric: tabular-nums; }
+.gx-fg button:hover { color: var(--fg); border-color: var(--border-strong); }
+.gx-fg button:active { transform: scale(.97); }
+/* Pressed is neutral ink, not the site's forest/lime pill: on this page lime/forest means Done. */
+.gx-fg button[aria-pressed="true"] { background: var(--fg); border-color: transparent; color: var(--bg); }
+.gx-fg button[aria-pressed="true"] span { color: inherit; opacity: .8; }
+.gx-sec .gx-fcount { margin: 0; font-size: 13px; line-height: 20px; color: var(--muted-fg); }
+
+/* Feature index: categories and rows */
+.doc-section.doc-page.gx-index h2 { font-size: 25px; margin-top: 56px; }
+.gx-sec .gx-catd, .doc-section.gx-sec > h2 + p.gx-catd { margin: 0 0 16px; font-size: 14px; line-height: 22px; color: var(--muted-fg); }
+.gx-catc { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 6px; font-size: 12.5px; }
+/* ul. outranks the list reset above (margin-left: 0), so rows bleed evenly and their text lines up with the column. */
+.gx-sec ul.gx-fx { margin: 0 -12px; border-top: 1px solid var(--hairline); }
+.gx-sec .gx-fx > li {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 18px 12px 20px;
+  border-bottom: 1px solid var(--hairline); color: var(--fg-body); transition: background-color .3s ease;
+}
+.gx-sec .gx-fx > li + li { margin-top: 0; }
+.gx-sec .gx-fx > li > h3 { margin: 0; text-wrap: wrap; font-size: 16px; line-height: 23px; font-weight: 500; letter-spacing: -.01em; color: var(--fg); }
+.gx-sec .gx-fx p { margin: 0; max-width: none; }
+.gx-sec .gx-fx .gx-fx-m { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12.5px; line-height: 20px; color: var(--muted-fg); }
+.gx-tg { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--border-strong); font-size: 11.5px; font-style: normal; line-height: 16px; color: var(--muted-fg); white-space: nowrap; }
+.gx-sec .gx-fx > li > div > p:first-child { font-size: 15px; line-height: 1.62; color: var(--fg-body); }
+.gx-sec .gx-fx > li > div > p:first-child code { font-size: 12.5px; }
+/* Where these docs cover the feature, and what addresses it; the labels are CSS so each row stays small. */
+.gx-sec .gx-fx :is(.gx-fx-d, .gx-fx-c) { margin-top: 8px; font-size: 13px; line-height: 21px; color: var(--muted-fg); }
+.gx-sec .gx-fx :is(.gx-fx-d, .gx-fx-c) a:not(.heading-anchor) { font-size: 13px; padding-block: 4px; } /* inline padding: a 24px target (WCAG 2.5.8) without moving the lines */
+.gx-fx-d::before, .gx-fx-c::before { content: "In these docs"; margin-right: 10px; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--eyebrow); }
+.gx-fx-c::before { content: "Addressed by"; }
+.gx-sec .gx-fx .gx-fx-c { margin-top: 2px; }
+@container (min-width: 640px) {
+  .gx-sec .gx-fx > li { grid-template-columns: minmax(0, 14.5rem) minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "n s" "m s"; column-gap: 28px; }
+  .gx-sec .gx-fx > li > h3 { grid-area: n; }
+  .gx-sec .gx-fx .gx-fx-m { grid-area: m; align-self: start; }
+  .gx-sec .gx-fx > li > div { grid-area: s; align-self: start; }
+}
+
+@media (max-width: 767px) {
+  .gx-sec .rm-list > li { margin-top: 40px; padding: 26px 0 0 30px; }
+  .gx-sec .rm-list > li > h2 { margin-left: -30px; font-size: 21px; }
+  .gx-sec .rm-list > li > h2::before { margin-right: 12px; }
+}
+@media (max-width: 559px) {
+  /* The callouts' phone padding (style.css), for both to-do callouts and their boxes. */
+  .gx-sec .gx-now { padding: 14px 16px 14px 44px; }
+  .gx-sec .rm-do::before { left: 15px; top: 17px; }
+  .doc-section.doc-page.gx-index h2 { font-size: 22px; margin-top: 44px; }
+  .gx-sec ul.gx-fx { margin: 0 -8px; }
+  .gx-sec .gx-fx > li { padding: 16px 8px 18px; }
+  .gx-filter { padding: 12px; }
+  .gx-fg button { height: 30px; padding: 0 11px; }
+}
+
+@media print {
+  :root, :root:not([data-theme="light"]), :root[data-theme="dark"] {
+    --gx-g: #D9432F; --gx-g-bg: #FDECE8; --gx-g-fg: #9E2B18;
+    --gx-p: #E0A106; --gx-p-bg: #FDF3D6; --gx-p-fg: #7A5200;
+    --gx-a: #2F7BD4; --gx-a-bg: #E7F0FB; --gx-a-fg: #1D5796;
+    --gx-c: #8CAA25; --gx-c-bg: #EFF6CC; --gx-c-fg: #07401A;
+    --gx-n: #8B7BF0; --gx-n-bg: #EFECFE; --gx-n-fg: #4A3AA7;
+    --gx-now-bg: #9E2B18; --gx-now-fg: #FFFFFF;
+    --gx-track: #EFEDEA;
+  }
+  .gx-filter { display: none !important; }
+  .gx-fx > li, .gx-wf, .gx-tiles, .gx-barrow, .gx-now { break-inside: avoid; }
+  .gx-sec .rm-list > li > h2 { break-after: avoid; }
+  .gx-vp, .gx-kind, .gx-bar i, .gx-wf, .gx-wf > div { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* Whatever the feature filter hides stays hidden, whatever display a row's own styles set, and a
+   feature row reached by a deep link flashes once so the eye finds it in the list. The flash is
+   neutral, not the lime tint: on this page lime/forest means "Done". */
+.gx-sec [hidden] { display: none !important; }
+:where(main [id^="roadmap-f-"]):target { animation: roadmap-target 2.4s var(--ease); }
+@keyframes roadmap-target { from, 35% { background-color: var(--hover); } }
+}

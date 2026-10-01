@@ -1,0 +1,133 @@
+---
+title: Matchers and variants
+nav: Matchers & variants
+group: Advanced
+order: 8
+---
+
+# Matchers and variants
+
+Editors often want content that depends on a condition: a banner that only shows during a campaign, a title that changes on a date, an experiment. Two small ideas cover all of it, and neither knows what a website is, so they work the same in a website, a mobile app, or a background job (a script or cron task).
+
+A **variant** is one of several alternative values for the same input, together with the rule that selects it. A **matcher** is a block function that returns a boolean, used as a variant's rule. A **multivariate** (after multivariate testing) is a block function that takes a list of variants, `{ rule, value }` pairs, and returns the first value whose rule is true. It's three lines, so you own it and can change how it picks. Because the CMS resolves inputs before calling a function, the multivariate never sees a matcher, only booleans.
+
+## The three matchers that ship
+
+They depend on nothing but the clock, so they're the only ones the framework provides:
+
+```ts
+import { always, never, date } from "@decocms/blocks/matchers";
+
+// always()                              => true    the default rule of a variant
+// never()                               => false   Studio hides a block by wrapping it in a variant whose rule is never()
+// date({ start?: string; end?: string }) => boolean, true when now is inside [start, end]
+```
+
+`start` and `end` are ISO 8601 strings. A date without a time, like `"2026-11-30"`, means midnight UTC, so add a time and offset (`"2026-11-30T23:59:59-03:00"`) to end on your own clock.
+
+Everything else that could gate content, a device, a cookie, a country, a user's plan, depends on where your app runs and how it sees its environment. Those are yours to write, below.
+
+## The multivariate is three lines you own
+
+```ts title="multivariate.ts"
+export function multivariate<T>({ variants }: { variants: { rule: boolean; value: T }[] }) {
+  return variants.find((v) => v.rule)?.value;   // first match wins, so put the always() variant last, as the fallback
+}
+```
+
+```ts title="blocks.ts"
+import type { Blocks } from "@decocms/blocks";
+import { always, never, date } from "@decocms/blocks/matchers";
+import { multivariate } from "./multivariate";
+import hero from "./hero";
+
+export default { always, never, date, multivariate, hero } satisfies Blocks;
+```
+
+Editors compose them in Studio. Each variant is a tab, and its rule is picked from the matchers in your map. Variants are checked in order, so the one with the `always` rule goes last and catches everything else. A hero whose title changes for a campaign is a `hero` whose `title` is a `multivariate`:
+
+```json title="Saved as HomeHero"
+{
+  "__resolveType": "hero",
+  "title": {
+    "__resolveType": "multivariate",
+    "variants": [
+      { "rule": { "__resolveType": "date", "start": "2026-11-20", "end": "2026-11-30" }, "value": "Black Friday starts now" },
+      { "rule": { "__resolveType": "always" }, "value": "New season, new arrivals" }
+    ]
+  }
+}
+```
+
+```ts
+// Means
+hero({
+  title: multivariate({
+    variants: [
+      { rule: date({ start: "2026-11-20", end: "2026-11-30" }), value: "Black Friday starts now" },
+      { rule: always(), value: "New season, new arrivals" },
+    ],
+  }),
+})
+```
+
+Resolution does the rest: each rule runs and yields a boolean, `multivariate` runs with those booleans and yields a string, `hero` runs with a plain `title`. Nothing in `hero` knows a variant was involved. The same shape wraps any block in a page, or the page's whole `sections` list, which is how Studio does page-level variants.
+
+## Write your own matcher
+
+A matcher is any block function that returns a boolean. It reads whatever your app knows about the current request or user the way every other block does, through the context your runtime already provides:
+
+```ts title="matchers.ts (website)"
+import { headers } from "next/headers";
+
+// A website: the device from the user agent.
+export async function device({ device }: { device: "mobile" | "desktop" }) {
+  const ua = (await headers()).get("user-agent") ?? "";
+  return (/Mobi|Android/i.test(ua) ? "mobile" : "desktop") === device;
+}
+```
+
+```ts title="matchers.ts (app)"
+// A mobile app: the user's plan from app state. No request, no headers.
+export const plan = ({ plan }: { plan: "free" | "pro" }) => session.current().plan === plan;
+```
+
+Add them to the map and Studio's rule picker shows them next to `date`. The CLI lists every block function that returns a boolean as a matcher, which is how Studio knows to offer it in the rule picker (see [what Studio reads](/next/studio#what-studio-reads)). Combinators are matchers too: `and`, `or`, and `not` are one-liners over booleans, if you want them.
+
+## Every variant resolves
+
+Inputs resolve before a function runs, so every variant's `value` resolves before `multivariate` picks one. For a title that's free. For two product queries it isn't, and a failure in a variant you didn't pick still fails the whole thing.
+
+The lazy form is to make the values *entry names* instead of inline blocks. A string isn't a block, so nothing runs; the multivariate returns a name, and your app resolves it:
+
+```json
+{
+  "__resolveType": "multivariate",
+  "variants": [
+    { "rule": { "__resolveType": "date", "start": "2026-11-20", "end": "2026-11-30" }, "value": "BlackFridayHero" },
+    { "rule": { "__resolveType": "always" }, "value": "DefaultHero" }
+  ]
+}
+```
+
+```ts
+// Means
+multivariate({
+  variants: [
+    { rule: date({ start: "2026-11-20", end: "2026-11-30" }), value: "BlackFridayHero" },
+    { rule: always(), value: "DefaultHero" },
+  ],
+})   // the values are entry names, not calls: only the rules and multivariate run
+
+// block is the JSON above, e.g. from a page's sections list;
+// client.resolve accepts an entry name or an inline block
+const [name, err] = await client.resolve(block);     // "BlackFridayHero"
+if (err) throw err;
+const [hero] = await client.resolve(name);           // only this variant ran
+```
+
+<Callout type="warning">**A variant is not access control.** It chooses between values that are all fine to compute and show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
+
+If you cache rendered pages, at a CDN for example, anything a matcher looks at must be part of the cache key. Otherwise the first visitor's variant is cached and served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors. See [Caching and observability](/next/operations).
+
+Nothing so far has assumed a website. The next part adds URLs.

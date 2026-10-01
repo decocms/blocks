@@ -1,0 +1,108 @@
+---
+title: Routes, redirects, and content types
+nav: Routes & redirects
+group: Websites
+order: 9
+---
+
+# Routes, redirects, and content types
+
+A **content type** is a kind of saved entry that holds data and runs no function, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. You declare your own in `Content`; `page` and `redirect` are built in, and `deco schema` always includes them (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
+
+```ts
+/** An entry that lives at a URL. Extend it to make a type routable. */
+interface Route {
+  /** @title Name */
+  name: string;
+  /** @title Path */
+  path: string;        // "/summer", or a template like "/:slug/p"
+}
+
+/** A saved entry of the built-in `redirect` content type. */
+interface Redirect {
+  from: string;        // literal or template
+  to: string;
+  permanent: boolean;  // 301 or 302
+}
+```
+
+A page is a route with SEO and a list of [blocks](/next/model#resolving-a-page-step-by-step) (its `sections` field). It's not special to the router; it's just the first type that extends `Route`. It's shaped like the `SummerSale` entry in [Blocks](/next/model), with three additions: `"__resolveType": "page"`, so the CMS can list it by type, and a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override it in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
+
+```ts
+/** The built-in `page` content type. */
+interface Page extends Route {
+  seo: Block;                                       // an SEO block, or a reference to a saved one
+  sections: VariantOf<Array<VariantOf<Block>>>;   // a list of blocks; the whole list, or any one block, can be a variant
+}
+```
+
+`Block` is a block as stored: JSON whose `__resolveType` names a function or a saved entry. `VariantOf<T>` accepts a `T` or a [multivariate](/next/variants) block that picks one. Both fields are deliberately loose, because the package can't know your block types. To narrow them, override `page`: for example `interface StorePage extends Page { seo: MySeoBlock; sections: Block[] }`, then `export type Content = { page: StorePage }`.
+
+```json title="Saved as SummerPage"
+{
+  "__resolveType": "page",
+  "name": "Summer campaign",
+  "path": "/summer",
+  "seo": { "__resolveType": "SummerSEO" },
+  "sections": [
+    { "__resolveType": "hero", "title": "Summer starts here", "image": "https://cdn.example.com/summer.jpg" }
+  ]
+}
+```
+
+```ts
+// What its fields mean. page isn't a function, so the object stays data and you resolve each field separately.
+{
+  __resolveType: "page",
+  name: "Summer campaign",
+  path: "/summer",
+  seo: seo({ title: "Sunny!", description: "Light layers for long days." }),   // SummerSEO, expanded
+  sections: [hero({ title: "Summer starts here", image: "https://cdn.example.com/summer.jpg" })],
+}
+```
+
+```json title="Saved as LegacySummer"
+{
+  "__resolveType": "redirect",
+  "from": "/campaigns/summer",
+  "to": "/summer",
+  "permanent": true
+}
+```
+
+Two SDK functions turn these entries into URLs. `client.list("page")` returns every saved entry whose `__resolveType` is `page`. `matchRoute(url, { routes, redirects })` picks the entry that matches a URL. [Routing](/next/routing) puts them together.
+
+**The router's rule is one line: an entry with a string `path` matches at that path.** `Route` is what makes that intentional. The CLI checks that any type declaring `path` extends `Route`, so a stray `path` field on an unrelated block is a schema error rather than a surprise URL. Editors see `name` and `path` as ordinary fields on every routable thing, in Studio, which is how a marketing team gets `/summer-sale` live without a developer. Keep `path` and `from` plain strings, not blocks, so the router can match without running code.
+
+## Your own routable types
+
+A blog doesn't want a `page` entry per post. Make `Post` extend `Route`, declare it in `Content` as `post: Post`, and pass the saved posts to `matchRoute` along with your pages (see [Routing](/next/routing)). Each post is then served at its own `path`:
+
+```ts title="src/post.ts"
+import type { Route } from "@decocms/blocks";
+
+export interface Post extends Route {
+  /** @title Published on @format date */
+  date: string;
+  /** @format rich-text */
+  body: string;
+}
+```
+
+```json title="Saved as HelloWorld"
+{ "__resolveType": "post", "name": "Hello, world", "path": "/blog/hello-world", "date": "2026-09-01", "body": "…" }
+```
+
+Two entries with the same path, or two templates that can match the same URL, are rejected by the CLI and by `matchRoute` (see [Path templates and match order](/next/routing#path-templates-and-match-order)).
+
+## Pages are data; resolve their fields
+
+A page runs no function, so you never resolve the page itself. Read it, then resolve the blocks inside it: `client.resolve(page.seo)`, and one `client.resolve(block)` per block in `page.sections`. Separate calls let each block render as soon as its own data is ready (see [Rendering](/next/rendering)). A redirect is never resolved; `matchRoute` only reads it.
+
+`client.resolve("SummerPage")` and `client.list("page", { run: true })` fail with `UNKNOWN_BLOCK`, because `page` names no function, and the CMS never sees `Content` (see [the rule](/next/model#the-rule)). To read a page, list it, or pass `{ run: false }`.
+
+<Callout>**Running code for a whole page.** If you want code to run for a whole page, such as validation or a layout step, add a `page` function to the block map and opt the built-in type out with `page: never` in `Content`, since a key can't be both. Then `client.resolve(page)` runs it after every block in the page has resolved.</Callout>
+
+## Content types without a URL
+
+Navigation, email templates, and campaign settings work the same way, minus `Route`: declare the type in `Content` if it's data, or register a function if something should run, and save entries of that type.

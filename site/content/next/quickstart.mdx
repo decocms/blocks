@@ -1,0 +1,180 @@
+---
+title: Quickstart
+group: Getting started
+order: 2
+---
+
+# Quickstart
+
+<Callout>**Status.** Deco Blocks is being designed in the open: the API on these pages is proposed and not released yet. The [Roadmap](/roadmap) lists what's left.</Callout>
+
+Suppose your app has a function that decides which A/B tests a visitor sees. It takes the traffic split for each experiment and returns whether each one is enabled:
+
+```ts title="experiments.ts"
+export interface Experiments {
+  /**
+   * @title New checkout flow
+   * @minimum 0
+   * @maximum 100
+   */
+  newCheckout: number;
+  /**
+   * @title Sticky header
+   * @minimum 0
+   * @maximum 100
+   */
+  stickyHeader: number;
+  /**
+   * @title Free shipping banner
+   * @minimum 0
+   * @maximum 100
+   */
+  freeShippingBanner: number;
+}
+
+const roll = (percent: number) => Math.random() * 100 < percent;
+
+export default function experiments(input: Experiments) {
+  return {
+    newCheckout: roll(input.newCheckout),
+    stickyHeader: roll(input.stickyHeader),
+    freeShippingBanner: roll(input.freeShippingBanner),
+  };
+}
+```
+
+```ts title="checkout.ts"
+import experiments from "./experiments";
+
+experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
+// e.g. { newCheckout: false, stickyHeader: true, freeShippingBanner: false }
+```
+
+The split is hardcoded at the call site. Ramping the new checkout from 10% to 25% means a pull request and a deploy. In this guide you'll move those numbers into content: a JSON file that you, an AI agent, or an editor in Deco Studio can change, while the function stays exactly as it is. It runs in plain Node, with no framework.
+
+This function doesn't render anything; it returns flags. A block function can just as well return JSX, and [Blocks](/next/model) shows how.
+
+**Prerequisites:**
+
+- Node.js 24 or later, and `tsx` to run TypeScript.
+- An ESM project (`"type": "module"` in `package.json`), because the examples use top-level `await`.
+- Optional: a site on the hosted Deco CMS connected to this repository, and its token, if you want to try Studio or publish without a deploy. Creating a site and issuing a token for this API isn't available yet (see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service)). Everything on this page works without it.
+
+```bash
+npm install @decocms/blocks
+npm install -D @decocms/blocks-cli
+```
+
+The second package provides the `deco` command.
+
+## 1. Make the function configurable
+
+Any function with a typed first parameter can become a block function. Register it in a block map, a plain object of functions. Each key is a block type, the name content uses to call that function; here it's `experiments`. The CLI reads this file, and your app hands it to `createCMS`.
+
+```ts title="blocks.ts"
+import type { Blocks } from "@decocms/blocks";
+import experiments from "./experiments";
+
+export default { experiments } satisfies Blocks;
+```
+
+`satisfies Blocks` checks the map's shape without widening it, so TypeScript keeps each function's exact input and return types. The CLI generates the editor form from those types in step 2.
+
+## 2. Give editors a form
+
+The CLI reads the map and turns the `Experiments` type into a JSON Schema. The JSDoc tags shape the form: `@title` becomes the field's label, and `@minimum`/`@maximum` its allowed range. [Schema generation](/next/schema) lists every tag.
+
+```bash
+npx deco schema
+```
+
+It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in `src/` (`--entry` points it at any other file; see [Schema generation](/next/schema)), and writes `.deco/schema.json`. Commit the file. If the repository is connected to the hosted Deco CMS, then once that code is deployed, Studio shows each experiment as a number field clamped to 0–100. Without it, the schema still describes the content you or an agent write by hand.
+
+## 3. Add content
+
+There are two ways to create content:
+
+- **By hand.** Write the JSON file yourself, or ask an AI agent to "ramp the new checkout to 25%" and let it edit the file.
+- **In Studio (hosted Deco CMS).** Pick the `experiments` block type, fill in the form, and save. Studio commits the same file.
+
+Both routes produce the same file in `.deco/blocks`, which is where the CLI looks for content (its `--root` flag points it at another `.deco` folder):
+
+```json title=".deco/blocks/Experiments.json"
+{
+  "__resolveType": "experiments",
+  "newCheckout": 10,
+  "stickyHeader": 50,
+  "freeShippingBanner": 0
+}
+```
+
+```ts
+// Means
+experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 })
+```
+
+The file is a saved entry: one named piece of content that code, or other content, can refer to. Its file name without `.json` is its name (see [Content and loaders](/next/content)). `__resolveType` is a reserved key (the underscores keep it from clashing with your fields) that names the function to call by its block type. The other keys are that function's inputs.
+
+Two names are in play, on purpose: `experiments` is the block type and names a function, and `Experiments` is the entry name and names this one piece of saved content. You could save several entries that call `experiments`, such as `HolidayExperiments`. Names are case-sensitive, so they don't clash.
+
+## 4. Generate the content module
+
+The SDK never reads files itself, so it runs the same way in any JavaScript runtime. Instead, the CLI turns your content files into a module your app imports, the **content module**:
+
+```bash
+npx deco content
+```
+
+It writes `.deco/blocks.gen.ts`, which imports each JSON file in `.deco/blocks` separately and exports a **snapshot**, `{ revision, blocks }`: one fixed copy of all your saved entries, plus its revision, an ID the CLI computes from their contents. The file is generated, so add it to `.gitignore`, as you would TanStack Router's `routeTree.gen.ts`. For this guide, running `npx deco content` once is enough. Rerun it when you add or remove a file in `.deco/blocks`; editing an existing file needs no rerun. In an app with dev and build scripts, add the two commands to `package.json` so they run first (see [The content module](/next/content#the-content-module)):
+
+```json
+"predev": "deco schema && deco content",
+"prebuild": "deco schema && deco content"
+```
+
+## 5. Read the content from your code
+
+Create the CMS once, at module scope, with your block map and the content module (to connect the hosted Deco CMS or another store, see [Configuring content](/next/content#configuring-content)).
+
+```ts title="cms.ts"
+import { createCMS } from "@decocms/blocks";
+import content from "./.deco/blocks.gen";
+import blocks from "./blocks";
+
+export const cms = createCMS({ blocks, content });
+```
+
+Then ask it for a client, the object you read content with. `forRelease()` returns a client over the published content, the release; with plain files, the release is simply what's in the content module. Its sibling `forDraft()` reads unpublished drafts for previews (see [Preview](/next/preview)). Make one client per request: a client reads one consistent version of the content for its whole life.
+
+Fetch the entry by name. The client runs `experiments` on the saved inputs, so you get the same value as calling `experiments()` yourself. An entry name is just a string, so TypeScript can't infer the result type from it; pass the type you expect, and it's checked at compile time, not at runtime:
+
+```ts title="checkout.ts"
+import { cms } from "./cms";
+import type experiments from "./experiments";
+
+const client = cms.forRelease();
+const [flags, error] = await client.resolve<ReturnType<typeof experiments>>("Experiments");
+if (error) throw error;
+console.log(flags);
+// e.g. { newCheckout: false, stickyHeader: true, freeShippingBanner: false }
+// (newCheckout is true about 10% of the time)
+```
+
+Every call returns a `[value, error]` tuple, so a missing entry or a failing function never throws. The error names what went wrong, for example `NOT_FOUND`. [Troubleshooting](/next/troubleshooting) lists every code.
+
+Run it with `npx tsx checkout.ts`. Now open `.deco/blocks/Experiments.json`, change `newCheckout` to `100`, and run it again (no need to rerun `deco content`: only adding or removing a file needs that): `newCheckout` is `true` every time. You changed what the code does without touching the code.
+
+That's it. The function didn't change, but its inputs now live in a file that editors change through a form and agents change directly, and every change is a commit. A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Block maps](/next/manifest)).
+
+## Next steps
+
+- [Blocks](/next/model): how blocks nest and refer to each other, which is how a page is built from a list of blocks.
+- [Content and loaders](/next/content): where saved entries come from, and how to read them from somewhere other than `.deco/blocks`.
+- [Schema generation](/next/schema): how your types become editor forms, and the JSDoc tags that shape them.
+- [Preview](/next/preview): render drafts in your real pages, no deploy.
+- [Block maps](/next/manifest), when you need more: lazy loading and naming types.
+- [Matchers and variants](/next/variants): let content pick different values per visitor, date or experiment.
+- [Routes and redirects](/next/content-types): the content types that give pages and redirects their URLs.
+- [Rendering](/next/rendering): the two ways a block becomes UI.
+- [Routing](/next/routing): match URLs to pages and redirects.
+- Framework guides for [Next.js](/next/nextjs) and [TanStack Start](/next/tanstack-data).

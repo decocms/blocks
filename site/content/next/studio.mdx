@@ -1,0 +1,60 @@
+---
+title: Deco Studio compatibility
+nav: Studio compatibility
+group: Under the hood
+kind: internals
+order: 5
+---
+
+# Deco Studio compatibility
+
+## What Studio reads
+
+Studio learns about your site from your site. Your app serves a few HTTP endpoints for it. The main one, `/live/_meta`, returns the schema the CLI wrote; Studio also calls your app to render previews (`/live/previews`), to run functions for pickers and the Run button (`/deco/invoke`), and to encrypt secret fields (`/live/invoke`). In today's packages, these handlers come from `@decocms/blocks-admin`; how the new API mounts them is on the [Roadmap](/roadmap#roadmap-studio-new). Studio also reads your content files in `.deco/blocks`. Which schema Studio uses is up to you: usually the one on your main branch, but you can point it at another. Everything Studio knows about the shape of your content comes from the schema, so it's all inferred from your types; the other endpoints run your code, they don't describe it.
+
+The schema file has two parts. `definitions` holds one JSON Schema per type: the form Studio shows. `manifest` lists every key of your block map and your `Content` type, grouped by kind, so Studio knows which keys render UI, which are rules, and so on. The group names are Studio's, inherited from Deco's previous framework. Each manifest entry points at its definition with a JSON Schema `$ref`. The CLI picks the group from the type:
+
+| Manifest group | What lands there | Studio uses it for |
+|---|---|---|
+| `sections` (Studio's legacy name) | Block functions that return JSX or a render descriptor | Studio's "add" catalog: the blocks an editor can add to a page |
+| `matchers` | Block functions that return `boolean` | The rule picker on a variant |
+| `loaders` | Every other block function. Studio calls these loaders, after the old framework's name for data functions; they're not the content loaders from [Content and loaders](/next/content). | Data fields that can point at a function |
+| `pages` | `Content` types that extend `Route` | The page list, "new page", the URL field |
+| `redirects` | `Redirect` | The redirects screen |
+| `content` | Every other `Content` type | Plain entries: navigation, settings, posts |
+
+```json title=".deco/schema.json, abridged"
+{
+  "manifest": {
+    "blocks": {
+      "sections": { "hero": { "$ref": "#/definitions/hero" } },
+      "matchers": { "always": { "$ref": "…" }, "never": { "$ref": "…" }, "date": { "$ref": "…" } },
+      "loaders":  { "seo": { "$ref": "…" }, "multivariate": { "$ref": "…" } },
+      "pages":    { "page": { "$ref": "…" } },
+      "redirects": { "redirect": { "$ref": "…" } }
+    }
+  },
+  "definitions": { "hero": { "type": "object", "properties": { "title": { "type": "string", "title": "Heading" } } } }
+}
+```
+
+Three conventions follow from this, and they're the ones the rest of the doc already uses. A key is a **block type if it's in the manifest and a saved entry if it isn't**, so short names like `hero` are fine, as long as no saved entry uses the same name (see [Blocks](/next/model)). A variant is `{ "variants": [{ "rule": …, "value": … }, …] }`. The first variant whose rule is true wins, so the default, with the `always` rule, goes last. A redirect is a flat `{ from, to, permanent }` entry.
+
+## Studio compatibility today
+
+Deco's previous framework named every block type by the path of the file that defined it, so a page type was `website/pages/Page.tsx` and the always-true rule was `website/matchers/always.ts`. Today's Studio was built for that framework and still expects those names. It decides whether a key is a block type or a saved entry by checking for a file extension, and it finds pages, the `always` rule (the default variant), the `never` rule (how it hides a block) and `multivariate` (`website/flags/multivariate.ts`) by their old paths.
+
+Until Studio reads the manifest instead, the CLI bridges the gap: for the types Studio looks up by name, it also writes the old path into the manifest as an alias (a second key for the same type). Content Studio saves under an old name resolves through the [same alias mechanism](/next/adoption) your own renames use. Your code uses `page` and `always`; the manifest carries both spellings; nothing in the SDK changes.
+
+Two gaps remain. Redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/content-types):
+
+```json
+// Saved by today's Studio
+{ "__resolveType": "website/loaders/redirect.ts",
+  "redirect": { "from": "/campaigns/summer", "to": "/summer", "type": "permanent" } }
+
+// The shape these docs use
+{ "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": true }
+```
+
+`matchRoute` accepts both. And Studio's file-extension check must become a manifest lookup before a site can drop the aliases. Both are Studio work, tracked in the [Roadmap](/roadmap#roadmap-studio-legacy), not something sites do.

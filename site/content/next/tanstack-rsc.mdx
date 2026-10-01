@@ -1,0 +1,96 @@
+---
+title: TanStack Start with React Server Components
+nav: TanStack Start · RSC
+group: Framework guides
+order: 15
+---
+
+# TanStack Start with React Server Components
+
+<Callout type="warning">**Experimental.** TanStack Start's RSC support is experimental and needs the extra Vite plugin configured in step 4.</Callout>
+
+This guide reuses the [data guide](/next/tanstack-data)'s content, CMS and `openPage`, but the `product` block returns JSX instead of a descriptor. The server renders it as React Server Components and streams the result in React's wire format (Flight). Because the browser receives rendered output, it needs no view registry, and view code used only on the server never ships.
+
+## 1. Swap the product block
+
+Replace `src/blocks.ts` with the [Next.js guide](/next/nextjs)'s `src/blocks.tsx`. Keep `src/cms.ts`, `src/open-page.server.ts` and `src/start.ts` (the preview cookie) from the data guide as they are. `deco schema` finds `src/blocks.tsx` on its own, so the scripts don't change.
+
+## 2. Render blocks on the server
+
+Replace `src/page.functions.ts` with this file. It's `.tsx` now, because it contains JSX.
+
+```tsx title="src/page.functions.tsx"
+import { Suspense, type ReactNode } from 'react'
+import { createServerFn } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { renderServerComponent } from '@tanstack/react-start/rsc'
+import { z } from 'zod'
+import { openPage } from './open-page.server'
+
+async function BlockSlot({ value }: { value: Promise<ReactNode | null> }) {
+  return (await value) ?? <p role="status">This content is temporarily unavailable.</p>
+}
+
+export const loadPage = createServerFn({ method: 'GET' })
+  .inputValidator(z.object({ href: z.string().startsWith('/') }))
+  .handler(async ({ data }) => {
+    const page = await openPage<ReactNode>(data.href, getRequest())
+    const content = await renderServerComponent(
+      <main>
+        {page.blocks.map((block) => (
+          <Suspense key={block.key} fallback={<p>Loading…</p>}>
+            <BlockSlot value={block.value} />
+          </Suspense>
+        ))}
+      </main>,
+    )
+    return { seo: page.seo, content }
+  })
+```
+
+## 3. Render the route
+
+```tsx title="src/routes/$.tsx"
+import { createFileRoute } from '@tanstack/react-router'
+import { loadPage } from '../page.functions'
+
+export const Route = createFileRoute('/$')({
+  loader: ({ location }) => loadPage({ data: { href: location.pathname + location.searchStr } }),
+  head: ({ loaderData }) => ({
+    meta: loaderData
+      ? [{ title: loaderData.seo.title }, { name: 'description', content: loaderData.seo.description }]
+      : [],
+  }),
+  component: () => <>{Route.useLoaderData().content}</>,
+  pendingComponent: () => <p>Opening page…</p>,
+  errorComponent: () => <p>The page could not be loaded.</p>,
+})
+```
+
+`renderServerComponent` serializes the tree in Flight. Client Components like `CartButton` travel as references the browser loads and hydrates. That only works with the RSC plugin from step 4; the `"use client"` directive marks the boundary, but the plugin does the work. Inside this tree, only values React's Flight format can serialize are allowed; serialization adapters you register with Start for loader data don't apply here. If you cache the result with TanStack Query, set `structuralSharing: false`, because Query would otherwise try to diff the RSC payload as plain data. See [Start Server Components](https://tanstack.com/start/latest/docs/framework/react/server-components).
+
+## 4. Configure Cloudflare Workers
+
+Server Components build as a separate Vite environment named `rsc`. Listing it under `childEnvironments` bundles it into the same Worker as server rendering, so one deploy serves both. Keep `wrangler.jsonc` from the data guide.
+
+```ts title="vite.config.ts"
+import { defineConfig } from 'vite'
+import { cloudflare } from '@cloudflare/vite-plugin'
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import react from '@vitejs/plugin-react'
+import rsc from '@vitejs/plugin-rsc'
+
+export default defineConfig({
+  plugins: [
+    cloudflare({ viteEnvironment: { name: 'ssr', childEnvironments: ['rsc'] } }),
+    tanstackStart({ rsc: { enabled: true } }),
+    rsc(),
+    react(),
+  ],
+  environments: {
+    rsc: { build: { outDir: 'dist/server/rsc' } },
+  },
+})
+```
+
+<Small>Also requires `@vitejs/plugin-rsc` 0.5.30 and `react-server-dom-webpack` 19.2.7. If one repository builds both the data and the RSC version, give each its own Vite config: the RSC plugins change how every component is bundled.</Small>

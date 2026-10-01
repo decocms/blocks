@@ -1,0 +1,29 @@
+---
+title: Design decisions
+group: Under the hood
+kind: internals
+order: 6
+---
+
+# Design decisions
+
+Each of these was argued over. The one-line version, and why it won.
+
+| Decision | Why |
+|---|---|
+| **The CMS is pure.** A block function gets its inputs and nothing else. | No context object means block functions are ordinary functions you can call and test, and the same code runs in a website, a mobile app, or a background job. Request state comes from your framework's own request scope, where it already lives. |
+| **For content edited in Studio, Git is the source of truth.** Publishing is committing; the Deco API serves commits as releases. (Any other store is [a loader you write](/next/content).) | History, review, branches, and rollback come for free, and agents can edit content with the tools they already have. There is no publish command because there is nothing to publish that a commit doesn't already express. |
+| **A block is either a function (code) or saved content (JSON).** One namespace: an entry is merged in and checked again; a function gets its inputs resolved, then runs, and its result is returned as is. | Saved entries are just named compositions, not a second concept. A function that returns its input, like `seo`, can't loop, because results are never looked up again. The only recursion is over saved entries, and a cycle check stops it. |
+| **The CMS at module scope, a client per request, pinned to one revision.** | Everything a response renders agrees with itself, a page's blocks can be resolved and streamed to the browser one at a time, and the next request sees the next revision. Clients are cheap because every cache lives in the loader. |
+| **`content` is a snapshot or one `Loader` interface**: `load(pointer?)`, plus an optional `update()`. | Production, drafts, and staying current are uses of the same interface, so the content module, `remoteLoader` and a custom loader can replace each other in the `content` option and [a custom loader](/next/content#write-your-own-loader) is a few lines. |
+| **A production request never waits for the network.** | Serve from memory, check for a hash about once a minute, at idle moments, fall back to the content the build shipped with. Eventual consistency for visitors, strict consistency for drafts. |
+| **The CMS doesn't route.** `matchRoute` is a helper over entries you list. | Which types have URLs is an app decision, a non-website has none, and the framework's file-system router still owns code routes. Editors get pages at arbitrary paths because the path is a field. |
+| **Data-only types live in `Content`; `page` and `redirect` are built in**, and you can override them or opt out. | A block map entry means "run this". Pages, posts, and redirects have nothing to run; they need a schema, which is the CLI's job. Almost every website needs pages and redirects, and Studio's page list and redirects screen look for them. Overriding with `extends Page` keeps them yours, and an app that isn't a website opts out with `never`. Posts and the rest stay your own types. |
+| **Lazy loading belongs to your web framework, not the CMS.** | What's heavy is the component, and React and Next.js already load components lazily. The block map stays a plain object the CLI can read. |
+| **Three matchers ship; the rest is app code.** | `always`, `never`, and `date` depend on nothing but the clock. A device or cookie matcher is an opinion about the request, and the app owns those. |
+| **Short type names; aliases for the old file-path names.** | A type name is a column name, not a file path. Content saved under the previous framework's names, like `website/pages/Page.tsx`, keeps working through aliases, while new code uses names that survive a refactor. |
+| **Packages export TypeScript source and depend on each other in one direction.** | Bundling one package into another can leave two copies of a module that must be one, like the block registry. Importing source keeps one copy, and the one-way graph keeps the core free of framework code. Instances also live on `globalThis`, so a module loaded twice still shares one cache and one poller. |
+| **The SDK never touches the filesystem.** | One setup for every runtime: Node, Workers, Deno, Bun, React Native and browsers. The CLI turns files into a module, and your framework's hot module replacement gives hot reload. |
+| **Two CLI commands, no dev wrapper.** | `deco schema` and `deco content` each do one job and run from `predev` and `prebuild`. Both take `--root` and `--watch`; `deco schema` also takes `--entry`, for a block map outside the default locations, and `--check`, for CI. |
+| **Compatibility is a CI check, not a runtime gate.** | Publishing without a deploy exists so code that's already live can render new content; holding content back until a deploy would undo that. `deco schema --check` (planned) flags a code change that would break saved content before it merges, and Studio offers what the schema you point it at has, usually main's. |
+| **Poll a hash once a minute, at idle moments; no push.** | A few bytes per server per minute, no infrastructure to reach every server, and never in front of rendering. |

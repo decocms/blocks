@@ -1,0 +1,38 @@
+---
+title: Rendering
+group: Websites
+order: 10
+---
+
+# Rendering
+
+A block function can return anything. For a website it usually returns something that becomes UI, and there are two ways to get that to the browser.
+
+- **Descriptors (data mode):** the block returns plain JSON such as `{ component: "product", props: {…} }`, and a view registry in your app (an object mapping each `component` name to a React component) renders it on the server and again in the browser.
+- **React Server Components (RSC):** the block returns JSX that renders only on the server. React sends the result to the browser in its own wire format, called Flight, and only components marked `"use client"` ship JavaScript.
+
+The CMS doesn't care which you pick; it returns whatever your block function returns. Each integration uses one of the two:
+
+| Integration | Block returns | Streaming | Ships to the browser |
+|---|---|---|---|
+| [Next.js App Router](/next/nextjs) | JSX | Server Component Suspense boundaries | Client Components |
+| [TanStack Start, data](/next/tanstack-data) | Serializable descriptors | Deferred promises with `Await` | The view registry and its components |
+| [TanStack Start, RSC](/next/tanstack-rsc) | JSX | RSC stream (Flight) | Client references and the RSC runtime |
+
+## Which mode to use
+
+Use descriptors when views must render in an ordinary browser React app. Use RSC when your framework supports it and you want server-only view code to stay off the client. RSC doesn't guarantee smaller responses, so measure payload size, hydration, and navigation on real pages.
+
+## Block functions run on the server
+
+In all three integrations, block functions run on the server, so data fetching belongs there. In data mode, a block returns a descriptor and a synchronous React view renders its props. With RSC, a block returns JSX that can include Client Components.
+
+Don't put a Client Component (a component from a `"use client"` file) in the block map directly. On the server, importing it gives you a placeholder React can render but your code can't call, and the CMS calls every block function. Wrap it instead: `cart: (input: CartProps) => <CartButton {...input} />`.
+
+## Errors, streaming, and cancellation
+
+- **Start every block first.** Await critical data, such as SEO, only after all of the page's blocks have started, so they fetch in parallel instead of waiting behind the SEO call.
+- **One Suspense boundary per block** lets each block appear as soon as it's ready.
+- **Suspense handles loading, not errors.** Each `client.resolve(block)` returns `[value, error]`; render a fallback when `error` is set. Errors thrown later while React renders need an error boundary.
+- **Cancellation is your app's job.** The CMS never sees the request. A block that fetches upstream should take the request's `signal` from wherever your app keeps request state.
+- **Once streaming starts, the status code is fixed.** The status line and headers are already sent, so a later error can't change them. Decide 404s and redirects (the `matchRoute` result) before you stream.

@@ -1,0 +1,138 @@
+---
+title: Blocks
+group: Core concepts
+order: 3
+---
+
+# Blocks
+
+Most of what changes on a website isn't the code. It's the values the code is given: a headline, a banner image, the share of visitors who see the new checkout. Deco is built on that idea: developers write the functions, and the people who run the site decide what goes into them.
+
+Blocks are how they make those decisions. A block is a small piece of JSON that names one of your functions and lists the inputs to call it with. Editors change the inputs in Studio, and agents edit the file directly. When your app resolves the block, Deco calls the function with whatever is saved and gives you back the result. This page shows what a block looks like, how blocks fit inside each other, and exactly how they turn into values.
+
+## Start from code you already write
+
+Here's the kind of code you write every day:
+
+```ts
+productCard({
+  title: "Summer collection",
+  product: catalogProduct({ slug: "summer-shirt" }),
+})
+```
+
+It's function composition. The inner call runs first, and its result becomes an input to the outer one, so `productCard` receives product data, never a pending call. The functions are the developer's job. The composition is a decision: which product, which title, which function fetches the data. Written in code, changing that decision means editing code and deploying it.
+
+## A block is that composition, stored as data
+
+Write the same composition as JSON and nobody has to edit code to change it. `__resolveType` names the function, the other properties are its inputs, and a block inside an input is a call inside a call. Here `productCard` and `catalogProduct` are the functions your block map registers as `"product-card"` and `"catalog-product"`:
+
+```jsonc
+// Stored as JSON
+{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
+}
+
+// Means
+productCard({
+  title: "Summer collection",
+  product: catalogProduct({ slug: "summer-shirt" }),
+})
+```
+
+Now an editor can change the title or the slug in Studio, and an agent can even point `product` at a different function, and the composition changes without a deploy. The functions are whatever your [block map](/next/manifest) registers, and each one's input type is what `deco schema` turns into the editor form. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.
+
+## Name a composition, reuse it
+
+In code, you'd give a composition you use often a name and reuse it. Saved entries do that. Alongside the block map of functions, the CMS reads a second map, the content map, where each name holds a piece of saved JSON. `{ "__resolveType": "SummerSEO" }` means whatever is saved under the name `SummerSEO`, written in place. The map can come from files in your repository, the hosted Deco CMS, or your own store; see [Content and loaders](/next/content).
+
+Unlike a `const` that holds a result, what's named here is the call itself, inputs and all. That's why you can add inputs to a reference to override the saved entry's inputs for this one use:
+
+```jsonc
+// Saved as SummerSEO
+{ "__resolveType": "seo", "title": "Sunny!", "description": "Light layers for long days." }
+
+// A reference to it, anywhere in your content
+{ "__resolveType": "SummerSEO", "title": "Summer sale" }
+
+// Means
+seo({ title: "Summer sale", description: "Light layers for long days." })
+```
+
+- **Overrides are shallow.** The merge is `{ ...entry, ...inputs }`, so an override replaces the whole top-level property, and the saved entry itself doesn't change. It isn't currying or partial application: the reference is expanded into one complete call.
+- **An entry doesn't have to be a block.** It can be any JSON that contains blocks, like a page with a list of blocks: an object literal with calls inside. Resolving it calls each block inside and leaves the rest of the JSON as it is.
+
+## Resolving a page, step by step
+
+Resolving a block is evaluating its composition: named entries expand, then calls run from the inside out. Here's a page saved as `SummerSale`. It uses the `SummerSEO` entry with an override, and one `carousel` block in its `sections` list. A page is mostly an ordered list of blocks that editors add, remove and reorder. The block map has two functions. `seo` returns its inputs; that's still worth registering, because it gives editors a form for SEO and lets them save it as a reusable entry. `carousel` returns a **descriptor**, `{ component, props }`: a plain object that says which component to render with which props, for your app to render later. A block function can also return JSX directly; [Rendering](/next/rendering) compares the two.
+
+```jsonc
+// Saved as SummerSale
+{
+  "seo": { "__resolveType": "SummerSEO", "title": "Summer sale" },
+  "sections": [{ "__resolveType": "carousel", "banners": [] }]
+}
+```
+
+This page has no `__resolveType`, so the page object itself isn't a call: resolving it resolves the blocks inside and keeps the rest of the JSON as it is. (Real pages usually carry `"__resolveType": "page"` so they can be listed by type. That name has no function behind it, so for those you resolve the fields instead; see [below](#the-rule-in-detail).)
+
+Call `client.resolve("SummerSale")` and follow the page as it changes. `resolve` takes either an entry name (a string; a string is always an entry name) or any JSON value, such as one field of a page.
+
+**Step 1. The reference expands.** `SummerSEO` is a saved entry, so it's data. The saved entry is merged with the reference's own inputs, and the reference's inputs win. The `__resolveType` from the entry, `seo`, names a function.
+
+```jsonc
+{
+  "seo": { "__resolveType": "seo", "title": "Summer sale", "description": "Light layers for long days." },
+  "sections": [{ "__resolveType": "carousel", "banners": [] }]
+}
+```
+
+**Step 2. The functions are called.** What's left is a composition of plain calls. Both blocks have plain inputs, so both functions run. They're siblings, so neither waits for the other.
+
+```ts
+{
+  seo: seo({ title: "Summer sale", description: "Light layers for long days." }),
+  sections: [carousel({ banners: [] })]
+}
+```
+
+**Step 3. The result.** Each return value takes its block's place. The page itself was never a block, so its shape stays the same.
+
+```ts
+{
+  seo: { title: "Summer sale", description: "Light layers for long days." },
+  sections: [{ component: "Carousel", props: { banners: [] } }]
+}
+```
+
+To step through a deeper example, see [How resolution works](/next/walkthrough).
+
+<Callout>**Reading without running.** Pass `{ run: false }` to read content without running any function. `client.resolve("SummerSale", { run: false })` stops after step 1: saved entries like `SummerSEO` still expand, and blocks that name a function, like `seo` and `carousel`, come back as JSON, untouched. Nothing runs. That's useful for previews, editor tooling, and debugging.</Callout>
+
+## The rule
+
+Every `__resolveType` names a block, and a block is either a function (code) or saved content (JSON): a function in your block map to call, or a saved entry in your content to expand. Both share one namespace, one registry. They differ in how they change: functions ship with a deploy, while saved content is versioned (each version has a revision), can have drafts, and can be published without a deploy.
+
+```ts
+const registry = { ...savedEntries, ...blocks };   // name → saved JSON | function
+```
+
+Saved entries are the content map you pass as `createCMS`'s [`content`](/next/content). Functions come from the block map you give `createCMS`. The CMS applies one rule to every object with a `__resolveType`:
+
+1. **Look up the name.**
+2. **Data:** replace the object with `{ ...entry, ...inputs }`, so your inputs override the entry's, and apply the rule to the result again.
+3. **Function:** resolve the inputs first, children before parents and siblings concurrently, then call the function. Its return value takes the block's place.
+4. **Neither:** fail with `UNKNOWN_BLOCK`.
+
+## The rule in detail
+
+- **Failures stop the parent.** If a nested block fails, its parent never runs and `resolve` returns the error, much as an outer call never runs when an inner one throws. A reference to an entry that doesn't exist fails with `NOT_FOUND`.
+- **Results are returned as is.** The CMS never walks a function's return value. Return plain data, a descriptor, or JSX. This is also why a function that returns its input, like `seo` above, can't loop: `__resolveType` is stripped before the call, and whatever comes back is never looked up again.
+- **Block functions should only read.** They run whenever content is resolved: for a visitor, in a Studio preview, for an agent. Put side effects in your own route handlers (see [Caching and observability](/next/operations)).
+- **Only data can loop.** A saved-entry expansion is the one branch that applies the rule again, so two entries that reference each other, or an entry that references itself, would recurse forever. The CMS tracks the entries expanded on the current path and fails with `CYCLE` the moment one repeats, with the chain in `error.path`.
+
+<Callout>**Pages that are only data.** Some saved entries describe a shape but have no function behind them, such as a page (`page` is a built-in content type, saved with `"__resolveType": "page"`). Nothing can be called for them, so resolving the entry fails with `UNKNOWN_BLOCK`. Read the entry instead, then resolve the blocks inside it, for example `client.resolve(page.seo)`. (`SummerSale` above had no `__resolveType` at all, which is why it could be resolved whole.) [Schema generation](/next/schema#content-that-is-only-data) shows how to declare such types, and [Routes and redirects](/next/content-types) how to read them.</Callout>
+
+<Callout type="warning">**Entry names and block types share one registry.** If a name is both, the function wins, so a saved entry called `seo` and a `seo` function can't coexist. `deco schema` fails when an entry in `.deco/blocks` has the name of a block type, so rename the entry. By convention, functions are lowercase or kebab-case and saved content is Capitalized.</Callout>

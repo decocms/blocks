@@ -1,0 +1,46 @@
+---
+title: How Deco Blocks works inside
+nav: Overview
+group: Under the hood
+kind: internals
+order: 1
+---
+
+# How Deco Blocks works inside
+
+The [developer docs](/next/architecture) describe how to use Deco Blocks. This part describes how it works inside. It's for contributors, for anyone connecting a new framework or content store, and for the curious:
+
+- [How resolution works](/next/walkthrough): one saved entry, expanded and run step by step.
+- [How `remoteLoader` stays current](/next/loader-internals): new releases arrive without a request ever waiting on the network.
+- [How `matchRoute` matches](/next/router-internals): the data structure that maps a URL to an entry.
+- [Studio compatibility](/next/studio): what Deco Studio reads from your site, and how the CLI keeps today's Studio working.
+- [Design decisions](/next/decisions): the choices behind all of the above, and why they won.
+
+## Contributing
+
+The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Five core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are integrations with commerce and other services built on top of them. The core packages depend on each other in one direction only:
+
+```text
+packages/
+├── blocks/        @decocms/blocks         the SDK: loaders, client, resolution, router.
+│                                          Depends on no other @decocms package.
+├── blocks-admin/  @decocms/blocks-admin   the HTTP endpoints Studio calls on your site.
+│                                          depends on: @decocms/blocks
+├── blocks-cli/    @decocms/blocks-cli     deco schema and deco content, plus scripts that
+│                                          move sites off the previous framework.
+│                                          depends on: @decocms/blocks
+├── tanstack/      @decocms/tanstack       the adapter for TanStack Start on Cloudflare Workers.
+│                                          depends on: @decocms/blocks, @decocms/blocks-admin, @decocms/blocks-cli
+└── nextjs/        @decocms/nextjs         the adapter for the Next.js App Router.
+                                           depends on: @decocms/blocks, @decocms/blocks-admin
+```
+
+The framework used to be a single bundled package, and bundling one package into another can create two copies of a module that must exist once, such as the block registry; two registries in one process disagree in ways that are hard to find. So packages import each other's TypeScript source, never a bundled build. The SDK also guards against this at runtime: `createCMS` and `remoteLoader` keep their instances on `globalThis`, so a second copy reuses the first (see [One instance per process](/next/standalone#one-instance-per-process)). `blocks` never imports from the others, and the two adapters never import from each other; if a feature needs both sides, split it into two functions rather than import in reverse. Apps following these docs need only `@decocms/blocks` at runtime, plus `@decocms/blocks-cli` as a dev dependency. The two adapters serve sites on Studio's current protocol; apps written against the API in these docs don't need them.
+
+```bash
+bun install
+bun run check     # typecheck + lint
+bun run test      # vitest, per package
+```
+
+Two rules before your first PR. If a site has to copy or wrap code because a package doesn't export something it needs, add the export to the package. And some tests guard bugs that already reached production, such as the test that keeps one request's layout data from leaking into another's; if one fails, fix the code, not the assertion.

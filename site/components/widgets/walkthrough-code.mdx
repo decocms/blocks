@@ -1,0 +1,78 @@
+{/*
+  The code the Walkthrough widget shows, one block per state. It is MDX only so the blocks go
+  through the same build-time Shiki highlighting as every other code block on the site
+  (build/rehype-docs.ts); Walkthrough.tsx picks one <TraceCode> to render.
+  Generated from the old app.js data: JSON.stringify(value, null, 2).
+*/}
+
+<TraceCode state="stored">
+
+```json
+{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": {
+    "__resolveType": "CurrentProduct"
+  }
+}
+```
+
+</TraceCode>
+
+<TraceCode state="expanded">
+
+```json
+{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": {
+    "__resolveType": "catalog-product",
+    "slug": "summer-shirt"
+  }
+}
+```
+
+</TraceCode>
+
+<TraceCode state="children">
+
+```json
+{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": {
+    "name": "Summer shirt",
+    "price": 49
+  }
+}
+```
+
+</TraceCode>
+
+<TraceCode state="descriptor">
+
+```json
+{
+  "component": "ProductCard",
+  "props": {
+    "title": "Summer collection",
+    "product": {
+      "name": "Summer shirt",
+      "price": 49
+    }
+  }
+}
+```
+
+</TraceCode>
+
+<TraceCode state="element">
+
+```tsx
+<ProductCard
+  title="Summer collection"
+  product={{ name: "Summer shirt", price: 49 }}
+/>
+```
+
+</TraceCode>

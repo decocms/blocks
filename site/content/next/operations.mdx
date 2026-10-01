@@ -1,0 +1,26 @@
+---
+title: Caching and observability
+nav: Caching & observability
+group: Production
+order: 17
+---
+
+# Caching and observability
+
+A request passes through several caches. Deco Blocks manages the first two, the JavaScript runtime the third, and the last two are yours, and getting their keys wrong is how a site shows one customer's cart to another or serves last week's prices.
+
+| Layer | Lifetime | Your responsibility |
+|---|---|---|
+| Content map | Cached in the CMS: releases by revision, indefinitely; drafts by version. One cache per process, even if the package is loaded twice (see [One instance per process](/next/standalone#one-instance-per-process)). See [Content and loaders](/next/content) and [how remoteLoader stays current](/next/loader-internals). | Nothing, unless you write a loader: then key by revision. |
+| Resolved blocks | For one client. A client runs each block once and reuses the result for the rest of the request. | Make a client per request and resolve everything the response renders through it. |
+| Dynamically imported modules | Block functions you load lazily with `import()` (see [Block maps](/next/manifest)) are cached by the JavaScript runtime for the life of the process, so anything a module stores in a top-level variable is shared by every request. | Keep per-request state out of module globals. |
+| Cross-request results | Anything you cache across requests yourself (rendered HTML at a CDN, a resolved page in KV). Your policy. | Key by revision, app version (new code can render the same content differently), inputs, and relevant request context. Define TTL and invalidation. |
+| Upstream data | Responses from the APIs your blocks call (a commerce platform, a search service). Follows the upstream API. | Include tenant, locale, currency, or customer in the key. Never cache private data as public. |
+
+A block type alone is never a cache key. Include every input that can change the result. A cache hit doesn't bypass authorization.
+
+Block functions run whenever content is resolved: for a visitor, in a Studio preview, for an agent, possibly more than once. So they should only read. Put anything that changes state, like adding to a cart, in your own route handlers.
+
+## Tracing
+
+If you use [OpenTelemetry](https://opentelemetry.io/), make each request span the parent of block resolution spans and outbound HTTP spans. One way to get block spans is to wrap each function in your block map in a span named after its block type. Record the entry name (when the block came from a saved entry), the block type, duration, errors, and cache outcome, and keep credentials and customer data out of attributes. Recording the served revision needs the client to expose it, which is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle). Export telemetry asynchronously, so an unavailable collector never blocks rendering.

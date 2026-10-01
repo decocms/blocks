@@ -1,0 +1,133 @@
+---
+title: Content and loaders
+nav: Content & loaders
+group: Core concepts
+order: 4
+---
+
+# Content and loaders
+
+Resolving takes two maps. The [block map](/next/manifest) holds your functions, and it ships with your code. The content map holds your saved entries: each name points at a piece of JSON. You hand `createCMS` your content through its `content` option, the only setting that knows where content lives: either the content module the CLI generates from your files, or a **loader**, any object with a `load()` method that returns the content map. Your functions, the resolver, and your pages never do.
+
+<Callout>**Other meanings of "loader".** In these docs, a loader on its own always means a content loader: the object that supplies the content map. Two other things share the name. In Studio, and in sites built on Deco's earlier framework, "loader" also means a block function that fetches data, like `catalogProduct` in [Blocks](/next/model); those are ordinary functions in your block map. And frameworks such as TanStack Router and Remix call the function that fetches a route's data a route loader. Nothing on this page applies to either.</Callout>
+
+Content always arrives as the whole map at once, with a **revision** that identifies it. This pair, `{ revision, blocks }`, is called a **snapshot**: one fixed copy of all your saved entries.
+
+```json
+{
+  "revision": "b1946ac92492d2347c6235b4d2611184",
+  "blocks": {
+    "SummerSEO": { "__resolveType": "seo", "title": "Sunny!", "description": "Light layers for long days." },
+    "SummerSale": {
+      "seo": { "__resolveType": "SummerSEO", "title": "Summer sale" },
+      "sections": [{ "__resolveType": "carousel", "banners": [] }]
+    }
+  }
+}
+```
+
+Each key under `blocks` is an entry name. It's the name a `__resolveType` refers to, and the name you pass to `client.resolve("SummerSEO")`. The field is called `blocks` for compatibility with Studio's file format, but it holds saved entries: any JSON, never functions. Functions only ever come from the block map you give `createCMS`.
+
+The revision names this exact set of entries. The CMS and your app use it like a version number: to tell when content changed, to keep cached data from different versions apart, and to tell one release from the next. The one hard rule: any change to any entry must produce a new revision, and a revision must never be reused for different content. `deco content`, `remoteLoader` and the Deco API all use the same content hash of the whole map, so two copies of the same content get the same revision wherever they're computed. A loader you write can use any string that follows the rule; [Releases and deployment](/next/releases) shows what matching the hash buys you.
+
+To read an entry exactly as stored, with references in place, index the map: `content.blocks["SummerSEO"]`, with `content` imported from `./.deco/blocks.gen` (the content module, below).
+
+The map itself isn't a call: it's what the names in your content refer to. What each entry means is in [Blocks](/next/model#name-a-composition-reuse-it).
+
+## Where content comes from
+
+When you edit with Studio or an agent, content is authored as files: they write to `.deco/blocks` in your repository, and every change is a commit. The `content` option only decides where your app reads that content from at runtime. A **release** is one published version of the whole content map. A **draft** is content an editor has changed in Studio but not published yet (see [Preview](/next/preview)). With the hosted Deco CMS, each commit to the production branch becomes a release that reaches your app without a deploy, and the content the build shipped with is the fallback (see [Releases and deployment](/next/releases)). If you load from your own store, how content gets there is up to you.
+
+<Callout>**There is no publish step.** Content is published by changing it: commit a file in `.deco/blocks` and push, or save in Studio, which commits for you. With the hosted Deco CMS, that commit becomes the current release without a deploy; without it, the content goes live with your next deploy. See [Publishing](/next/releases#publishing). (Running `deco publish` only prints this explanation, so an agent that tries it learns to commit instead.)</Callout>
+
+The content map can come from anywhere that can return JSON. These are the usual sources:
+
+| Content in | `createCMS` options | Use it for |
+|---|---|---|
+| Files in your repository | `content`: the content module, `.deco/blocks.gen.ts`, which `deco content` generates from one JSON file per entry in `.deco/blocks`; the file name without `.json` is the entry name (`.deco/blocks/SummerSEO.json` → `"SummerSEO"`) | Development, tests, every runtime, and the fallback under `token` in production |
+| The hosted Deco CMS | Add `token`, which wraps your content as `remoteLoader(content, { token })` | Production: reads the current release from the Deco API without a deploy, and falls back to your content module when it can't. Also serves drafts for preview |
+| KV, a database, or your own API | `content`: a `Loader` you write | Anything else |
+
+## The content module
+
+The SDK never touches the filesystem, so the same setup runs on Node, Cloudflare Workers, Deno, Bun, React Native and in browsers. Files reach your app through the **content module** instead: `.deco/blocks.gen.ts`, which the CLI command `deco content` generates from `.deco/blocks`. It imports each JSON file separately, using JSON import attributes (the `with { type: "json" }` clause), and its default export is the snapshot `{ revision, blocks }`, with the revision computed by the CLI:
+
+```ts title=".deco/blocks.gen.ts (excerpt)"
+// Generated by deco content; don't edit.
+import Experiments from "./blocks/Experiments.json" with { type: "json" };
+import SummerSEO from "./blocks/SummerSEO.json" with { type: "json" };
+// … one import per file
+
+export default {
+  revision: "b1946ac92492d2347c6235b4d2611184",
+  blocks: { Experiments, SummerSEO /* , … */ },
+};
+```
+
+The file is generated, so add it to `.gitignore`, like TanStack Router's `routeTree.gen.ts`, and run `deco content` before your dev server and your build, from `package.json`:
+
+```json title="package.json"
+{
+  "scripts": {
+    "predev": "deco schema && deco content",
+    "prebuild": "deco schema && deco content"
+  }
+}
+```
+
+Both commands are described in [The two CLI commands](/next/schema#the-two-cli-commands). Because each file is an ordinary import, editing one reloads through your framework's own hot module replacement (HMR, which swaps changed modules into the running app without a restart), and the new content is handed to the running CMS. Only adding or removing a file needs `deco content` again, or `deco content --watch` left running beside your dev server.
+
+To keep content in another folder, point the CLI at it and import from there: `deco content --root ./content/.deco`, then `import content from "./content/.deco/blocks.gen"`.
+
+## Configuring content
+
+`createCMS` takes your content in its `content` option: usually the content module, or a `Loader` for your own store. Add `token` to connect the hosted Deco CMS; it's shorthand for `remoteLoader(content, { token, interval })`, with your content as the fallback.
+
+```ts title="cms.ts"
+import content from "./.deco/blocks.gen";
+
+// Your files, through the content module
+createCMS({ blocks, content });
+
+// Releases from the hosted Deco CMS, with the content module as the fallback
+createCMS({ blocks, content, token: process.env.DECO_SITE_TOKEN });
+
+// Check for new releases every 2 minutes instead of every minute
+createCMS({ blocks, content, token: process.env.DECO_SITE_TOKEN, interval: 120_000 });
+
+// Content from your own store (see Write your own loader)
+createCMS({ blocks, content: kvContent });
+```
+
+`token` is your site's API key from the hosted Deco CMS, used to call the Deco API. (Issuing tokens for this API isn't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).) Keep it in an environment variable, never in the repository. When it's undefined, in development for example, the CMS reads `content` only, so the same line works everywhere.
+
+`interval` is how often each server checks for a new release, in milliseconds. It defaults to the `DECO_CONTENT_INTERVAL` environment variable, or 60 000 (one minute) when that's unset. The minimum is 60 000: lower values are raised to one minute, with a warning. Each check runs one interval, plus or minus up to 10 seconds, after the previous one. How and when checks run is in [Loader internals](/next/loader-internals).
+
+The content module you pass with `token` stays in memory as the fallback, alongside the live release. On Cloudflare Workers with a large content set, see “Large content on Workers” under [Create the CMS](/next/tanstack-data#2-create-the-cms).
+
+## Write your own loader
+
+The contract is one required method, `load(pointer?)`, which returns `{ revision, blocks }`. Here is one backed by Cloudflare Workers KV, Workers' key-value store, with the revision and the entries stored together under one key:
+
+```ts title="cms.ts"
+import { createCMS, type Loader, type Snapshot } from "@decocms/blocks";
+import { env } from "cloudflare:workers";
+import blocks from "./blocks";
+
+const kvContent: Loader = {
+  async load() {
+    // { revision, blocks }, stored together under one key
+    const snapshot = await env.CONTENT.get<Snapshot>("content", "json");
+    if (!snapshot) throw new Error("no content in KV");
+    return snapshot;
+  },
+};
+
+export const cms = createCMS({ blocks, content: kvContent });
+```
+
+On Workers, importing `env` from `cloudflare:workers` gives you your bindings (here the KV namespace `CONTENT`) at module scope, so the CMS can still be created once, outside any request. `Snapshot` is the `{ revision, blocks }` type. If `load()` throws, the read fails with `LOADER_FAILED` (see [Errors](/next/standalone#errors)). A first-party `kvLoader(env.CONTENT, { key })` helper is planned (see the [Roadmap](/roadmap#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites)).
+
+Pass it as `content`; add `token` to use it as the fallback under hosted releases. Store the revision with the content, and change it whenever any entry changes (see [the rule above](/next/content)).
+
+Two optional extras. If your store has drafts, use the `pointer` argument, the [draft pointer](/next/preview) that names which draft to read. If content can change while the process runs, add `update()`, which checks for newer content; the CMS calls it on the same idle schedule and `interval` as `remoteLoader` (see [Loader internals](/next/loader-internals)). Either way, the client only ever sees `{ revision, blocks }`.
