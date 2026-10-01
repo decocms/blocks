@@ -463,6 +463,10 @@ body[data-page="roadmap"] .sidebar-foot .sf-link { display: none; }
 .doc-section li { padding-left: 6px; }
 .doc-section li + li { margin-top: 8px; }
 .doc-section ul > li::marker { color: var(--olive-ring); content: "–  "; }
+.doc-section dl.terms { margin: 18px 0; }
+.doc-section dl.terms dt { margin-top: 14px; color: var(--fg); font-size: 16px; line-height: 1.6; font-weight: 600; }
+.doc-section dl.terms dt:first-child { margin-top: 0; }
+.doc-section dl.terms dd { margin: 2px 0 0; color: var(--fg-body); font-size: 16px; line-height: 1.72; }
 /* Ordered lists: the site's numbered hairline rows */
 .doc-section ol { list-style: none; padding-left: 0; counter-reset: n; border-bottom: 1px solid var(--hairline); }
 .doc-section ol > li { position: relative; counter-increment: n; margin: 0; padding: 14px 0 14px 44px; border-top: 1px solid var(--hairline); }

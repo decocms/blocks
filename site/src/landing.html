@@ -98,14 +98,14 @@
           <div class="ci-visual ci-code win" aria-hidden="true">
             <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title">blocks.ts</span></div>
 <pre class="mini-pre"><code><span class="sy-k">export default</span> {
-  <span class="sy-p">experiments</span>,  <span class="sy-c">// a function</span>
-  <span class="sy-p">hero</span>,         <span class="sy-c">// a section</span>
-  <span class="sy-p">seo</span>,
+  <span class="sy-p">experiments</span>,  <span class="sy-c">// returns A/B flags</span>
+  <span class="sy-p">hero</span>,         <span class="sy-c">// renders a page section</span>
+  <span class="sy-p">seo</span>,          <span class="sy-c">// returns page metadata</span>
 } <span class="sy-k">satisfies</span> <span class="sy-t">Blocks</span>;</code></pre>
           </div>
           <span class="num">01</span>
           <h3>Headless for developers</h3>
-          <p>Write a function, type its inputs, and it's a block. Deco Blocks stays out of your stack: no database and no content API to run, just JSON files in your repository and a small SDK that works with Next.js, TanStack Start, or any JavaScript server.</p>
+          <p>Write a function, type its inputs, and add it to your block map. Content can now call it. Deco Blocks stays out of your stack: no database and no content API to run, just JSON files in your repository and a small SDK that works with Next.js, TanStack Start, or any JavaScript server.</p>
         </div>
         <div class="contract-item">
           <div class="ci-visual ci-form win" aria-hidden="true">
@@ -172,7 +172,7 @@
             <li>{{icon:check}}<span class="rp-body"><strong>Fast on every page</strong><span>Every page is built from content your site already holds, so it loads as fast as your own code.</span></span></li>
             <li>{{icon:check}}<span class="rp-body"><strong>Stable by design</strong><span>Your site depends on no other service to show its content. Every deploy carries a tested copy of it as the fallback, so what visitors see is always a version you shipped or published.</span></span></li>
           </ul>
-          <a class="text-link dev-link reveal" href="#loader-internals"><span class="dev-k">For developers:</span> how content <span class="dl-end">loads{{icon:arrow-right}}</span></a>
+          <a class="text-link dev-link reveal" href="#releases"><span class="dev-k">For developers:</span> how content <span class="dl-end">loads{{icon:arrow-right}}</span></a>
         </div>
       </div>
     </div>
@@ -232,8 +232,8 @@
           <h2 class="reveal" style="--d:60ms">Your function stays. <span class="dim">Its inputs move into a file.</span></h2>
           <p class="section-lede reveal" style="--d:120ms">No rewrite and no new runtime. Name the function in a block map, generate a form from its types, and connect your app to your content with one call.</p>
           <div class="steps reveal" style="--d:160ms" role="tablist" aria-label="Three steps" aria-orientation="vertical">
-            <button class="step" type="button" role="tab" id="step-tab-1" aria-controls="step-pane-1" aria-selected="true" data-step="1"><span class="num" aria-hidden="true">01</span><span class="step-body"><span class="step-title">Write a function</span><span class="step-text"><span>Any TypeScript function with typed inputs is a block: a hero section, a product feed, an A/B test split. Nothing to learn, nothing to install in the function itself.</span></span></span></button>
-            <button class="step" type="button" role="tab" id="step-tab-2" aria-controls="step-pane-2" aria-selected="false" tabindex="-1" data-step="2"><span class="num" aria-hidden="true">02</span><span class="step-body"><span class="step-title">It becomes editable</span><span class="step-text"><span>One command turns the function's types into a form in Deco Studio. Marketing changes copy, images, and campaigns without waiting on a developer.</span></span></span></button>
+            <button class="step" type="button" role="tab" id="step-tab-1" aria-controls="step-pane-1" aria-selected="true" data-step="1"><span class="num" aria-hidden="true">01</span><span class="step-body"><span class="step-title">Write a function</span><span class="step-text"><span>Write a function, type its inputs, and add it to your block map. Content can now call it: a hero section, a product feed, an A/B test split. Nothing to learn, nothing to install in the function itself.</span></span></span></button>
+            <button class="step" type="button" role="tab" id="step-tab-2" aria-controls="step-pane-2" aria-selected="false" tabindex="-1" data-step="2"><span class="num" aria-hidden="true">02</span><span class="step-body"><span class="step-title">It becomes editable</span><span class="step-text"><span>One command turns the function's types into a form. With the hosted Deco CMS, that's the form editors use in Deco Studio, so marketing can change copy, images and campaigns without waiting on a developer.</span></span></span></button>
             <button class="step" type="button" role="tab" id="step-tab-3" aria-controls="step-pane-3" aria-selected="false" tabindex="-1" data-step="3"><span class="num" aria-hidden="true">03</span><span class="step-body"><span class="step-title">Ship from Git</span><span class="step-text"><span>Every change is a commit you can review like code. Add the hosted Deco CMS to preview drafts on your real pages and publish without a deploy.</span></span></span></button>
           </div>
         </div>
@@ -271,6 +271,7 @@ import blocks from "./blocks";
 // Production (with a token) reads the hosted Deco CMS;
 // development reads the files in .deco.
 export const cms = createCMS({
+  // your site's API key for the hosted Deco CMS
   loader: { token: process.env.DECO_SITE_TOKEN },
   blocks,
 });</code></pre>
@@ -300,7 +301,7 @@ export const cms = createCMS({
       </div>
       <div class="hood-right">
         <div class="hood-links reveal" style="--d:120ms">
-          <a href="#model"><span class="hl-body"><strong>Nothing to export</strong><span>Content is plain, documented files you already hold: open them in any editor, search them, or generate them with a script.</span><span class="hl-k">Read: Blocks</span></span>{{icon:arrow-right}}</a>
+          <a href="#model"><span class="hl-body"><strong>Nothing to export</strong><span>Content is plain, documented files you already hold: open them in any editor, search them, or generate them with a script.</span><span class="hl-k">Read: How a page is built from content</span></span>{{icon:arrow-right}}</a>
           <a href="#walkthrough"><span class="hl-body"><strong>Small enough to read</strong><span>Content is plain files and features are ordinary code, so any developer or AI agent can follow how a page is made, with the tools they already use.</span><span class="hl-k">Read: How resolution works</span></span>{{icon:arrow-right}}</a>
           <a href="#content"><span class="hl-body"><strong>Swap any piece</strong><span>Where content comes from is one small part you can swap: files in your repository, the hosted Deco CMS, or your own storage. Nothing else in your site changes.</span><span class="hl-k">Read: Content &amp; loaders</span></span>{{icon:arrow-right}}</a>
           <a href="#decisions"><span class="hl-body"><strong>Openly documented</strong><span>How each part works, and why it was built that way, is written down in these docs, and the source is public on GitHub.</span><span class="hl-k">Read: Design decisions</span></span>{{icon:arrow-right}}</a>
@@ -339,7 +340,7 @@ export const cms = createCMS({
           </nav>
           <nav class="footer-col" aria-label="Project">
             <p>Project</p>
-            <a href="https://github.com/decocms/blocks" rel="noopener">GitHub</a><a href="#internals--contributing">Contributing</a><a href="#adoption">Upgrading</a><a href="#roadmap">Roadmap</a>
+            <a href="https://github.com/decocms/blocks" rel="noopener">GitHub</a><a href="#internals--contributing">Contributing</a><a href="#adoption">Renaming &amp; migrating</a><a href="#roadmap">Roadmap</a>
           </nav>
         </div>
       </div>

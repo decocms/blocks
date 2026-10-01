@@ -403,7 +403,7 @@ class Roadmap:
 
     def blocker_lede(self):
         all_sites = all(self.sites_of(g["features"]) == self.REPOS for g in self.TOP)
-        return ("Ranked by blast radius, the assessment's judgment of how much each one blocks, so the order doesn't follow the "
+        return ("Ranked by how much each one blocks, in the reviewers' judgment, so the order doesn't follow the "
                 "feature count shown beside each." + (" Every one hits all three sites." if all_sites else ""))
 
     # ------------------------------------------------------------------ 1 · overview
@@ -448,7 +448,7 @@ class Roadmap:
 <p>{lead}</p>
 <ul class="gx-tiles" aria-label="Features by status">{tiles}</ul>
 <div class="gx-bars">{bars}</div>
-<p class="gx-note">Each bar counts the features in its scope: all three sites, then each site. Open work is the effort of the features to build, to finish and left to site code; effort is the assessor's relative size, S, M or L. Short names on this page: {short_names}.</p>
+<p class="gx-note">Each bar counts the features in its scope: all three sites, then each site. Open work counts the features still to build, finish or leave to site code, by relative effort: S, M or L. Short names on this page: {short_names}.</p>
 {fix_docs}
 <h3 id="roadmap--using-this-page">Using this page</h3>
 <ul class="gx-map">
@@ -459,7 +459,7 @@ class Roadmap:
 <li><a href="#roadmap-features">Feature readiness</a>: every feature with its status, effort, sites and a short summary, the parts of these docs it concerns, and the roadmap items that address it. Feature chips anywhere on this page link there.</li>
 </ul>
 <p>The lists overlap, so their counts don't add up to one total: the release blockers and most Studio items are delivered by work items, and link to them, and several site steps depend on the same work. Nothing is checked off yet; the boxes mark open items and don't track progress.</p>
-<p class="small muted">How this list was made: each site's features were catalogued from its code, with file and line evidence, and grouped into {len(self.CATS)} categories. Each feature was then assessed against these docs and verified against Studio's and the framework's code. The verifier changed {n_first} statuses, all toward “to finish”, and a later review changed {n_review} more. {n_medium} of the {n} assessments are medium confidence and the rest are high, and {n_unv} contain a sub-claim the verifier couldn't confirm. Feature readiness marks each of these on its row.</p>"""
+<p class="small muted">How this list was made: each site's features were catalogued from its code, with file and line evidence, and grouped into {len(self.CATS)} categories. Each feature was then assessed against these docs, and a second reviewer checked each assessment against Studio's and the framework's code. That check changed {n_first} statuses, all to “to finish”, and a later review changed {n_review} more. {n_medium} of the {n} assessments are medium confidence and the rest are high, and {n_unv} contain a sub-claim the second reviewer couldn't confirm. Feature readiness marks each of these on its row.</p>"""
         return self.section("roadmap", body)
 
     # ------------------------------------------------------------------ 2 · release blockers

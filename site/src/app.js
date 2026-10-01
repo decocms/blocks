@@ -43,7 +43,7 @@
   pages.forEach(page => $$(':scope > section', page).forEach(section => pageOf.set(section.id, page.dataset.page)));
   const groupsByPage = {
     home: [],
-    docs: [["Getting started", ["architecture", "quickstart"]], ["Core concepts", ["model", "content", "schema", "preview"]], ["Advanced", ["manifest", "variants"]], ["Websites", ["content-types", "routing", "rendering"]], ["Reference", ["standalone"]], ["Framework guides", ["nextjs", "tanstack-data", "tanstack-rsc"]], ["Production", ["releases", "operations", "adoption", "troubleshooting"]]],
+    docs: [["Getting started", ["architecture", "quickstart"]], ["Core concepts", ["model", "content", "schema", "preview"]], ["Advanced", ["manifest", "variants"]], ["Websites", ["content-types", "rendering", "routing"]], ["Reference", ["standalone"]], ["Framework guides", ["nextjs", "tanstack-data", "tanstack-rsc"]], ["Production", ["releases", "operations", "adoption", "troubleshooting"]]],
     internals: [["Under the hood", ["internals", "walkthrough", "loader-internals", "router-internals", "studio", "decisions"]]],
     roadmap: [["Overview", ["roadmap"]], ["Release blockers", ["roadmap-blockers"]], ["Studio support", ["roadmap-studio-new", "roadmap-studio-legacy"]], ["Work items", ["roadmap-api", "roadmap-cli", "roadmap-platform", "roadmap-docs"]], ["Site migrations", ["roadmap-storefront", "roadmap-blog", "roadmap-faststore"]], ["Feature readiness", ["roadmap-features"]]],
   };
@@ -862,9 +862,9 @@
     const captions = {
       resolve: [
         'The saved entry. Its product input names CurrentProduct, another saved entry.',
-        'Look up CurrentProduct: data. The reference is replaced with the entry, and the rule runs again on the result.',
-        'Look up catalog-product: function. Its inputs contain no blocks, so it runs, and the product data takes its place.',
-        'Look up product-card: function. Its inputs are resolved, so it runs. resolve returns the result untouched.',
+        'CurrentProduct is a saved entry, so it\'s replaced with its JSON, and the rule runs again on what came back.',
+        'catalog-product is a function. Its inputs hold no more blocks, so it runs, and the product data takes its place.',
+        'product-card is a function. Its inputs are all values now, so it runs. The CMS never looks inside what it returns.',
       ],
       get: [
         'The saved entry. Its product input names CurrentProduct, another saved entry.',
@@ -872,7 +872,7 @@
       ],
     };
     const stats = {
-      resolve: ['0 function calls', '0 function calls · data hit', '1 function call · catalog-product', '2 function calls · opaque result'],
+      resolve: ['0 function calls', '0 function calls · entry expanded', '1 function call · catalog-product', '2 function calls · result returned as is'],
       get: ['0 function calls', '0 function calls · final value'],
     };
     function renderTrace() {

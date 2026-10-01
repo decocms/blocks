@@ -92,21 +92,21 @@
     },
     {
       "id": "roadmap-storefront",
-      "nav": "storefront-tanstack",
+      "nav": "TanStack storefront",
       "eyebrow": "Site migrations",
-      "title": "Migrate storefront-tanstack"
+      "title": "Migrate the TanStack storefront"
     },
     {
       "id": "roadmap-blog",
-      "nav": "blog-tanstack",
+      "nav": "TanStack blog",
       "eyebrow": "Site migrations",
-      "title": "Migrate blog-tanstack"
+      "title": "Migrate the TanStack blog"
     },
     {
       "id": "roadmap-faststore",
-      "nav": "FastStore storefront",
+      "nav": "Next.js storefront",
       "eyebrow": "Site migrations",
-      "title": "Migrate the FastStore storefront"
+      "title": "Migrate the Next.js storefront"
     },
     {
       "id": "roadmap-features",
@@ -116,9 +116,9 @@
     }
   ],
   "overview": {
-    "intro": "<p>The API in these docs is proposed, not released. This page is the to-do list that gets it to a release. It comes from checking the proposed API, feature by feature, against the three sites that have to migrate to it: <a href=\"#roadmap-storefront\">storefront-tanstack</a>, <a href=\"#roadmap-blog\">blog-tanstack</a> and the <a href=\"#roadmap-faststore\">FastStore storefront</a>.</p>\n<p>No site can migrate on the documented API alone, because each one first hits missing pieces in Studio, the request scope or the SDK surface. The <a href=\"#roadmap-blockers\">ten release blockers</a> gate the release; the status of every feature the three sites use is under <a href=\"#roadmap--release-readiness\">Release readiness</a>.</p>",
+    "intro": "<p>Deco Blocks is the next major version of Deco's framework, which ships today as the <code>@decocms</code> 7.x packages. The API in these docs is proposed and hasn't shipped yet; this page is the to-do list for releasing it (a release of the framework, not to be confused with content releases). To build it, we checked the proposed API feature by feature against three real sites that will move to it: a <a href=\"#roadmap-storefront\">TanStack storefront</a> on the current packages, a <a href=\"#roadmap-blog\">TanStack blog</a> on an older package, and a <a href=\"#roadmap-faststore\">Next.js storefront</a> on another CMS.</p>\n<p>No site can move using only what these docs describe. Each first needs something missing: Studio support, a way for blocks to read the current request, or SDK functions beyond the CMS. The <a href=\"#roadmap-blockers\">ten release blockers</a> gate the release; the status of every feature the three sites use is under <a href=\"#roadmap--release-readiness\">Release readiness</a>.</p>",
     "readiness_lead": "None of the 111 features those sites use is done yet: 11 are still to build, 66 are to finish, 28 are left to site code, and 6 go away with the migration.",
-    "fix_docs": "<a class=\"rm-do-t\" href=\"#roadmap-docs\">Fix the docs</a> Some statements in these docs are wrong or contradict each other. <a href=\"#studio\">Studio compatibility</a> says Studio reads only the schema and the content files, but it also calls <code>/live/previews</code>, <code>/deco/invoke</code> and <code>/live/invoke</code>. <a href=\"#standalone\">API reference</a> says 'Nothing in the SDK throws', while <a href=\"#routing\">Routing</a> says ambiguous templates make <code>matchRoute</code> throw. The fixes are the first two docs work items: {{item:roadmap-docs--resolve-contradictions-in-these-docs}} and {{item:roadmap-docs--correct-studio-compatibility}}."
+    "fix_docs": "<a class=\"rm-do-t\" href=\"#roadmap-docs\">Fix the docs</a> A few statements in these docs still disagree. <a href=\"#schema\">Schema generation</a> says the CMS never sees <code>Content</code>, while the <a href=\"#standalone\">API reference</a> says <code>list</code> also matches aliases of a type, which for a <code>Content</code> type only the CLI knows. The fixes are the first two docs work items: {{item:roadmap-docs--resolve-contradictions-in-these-docs}} and {{item:roadmap-docs--correct-studio-compatibility}}."
   },
   "blockers": [
     {
@@ -215,7 +215,7 @@
       "id": "roadmap-blockers--add-a-revision-handle-an-edge-cache-kit-and-an-isr-recipe",
       "title": "Add a revision handle, an edge cache kit and an ISR recipe",
       "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached, and <code>update()</code> isn't passed to waitUntil. Content refreshes on a ~5 min poll with cold isolates serving bundled content, versus ~10 s today.",
-      "plan": "Add <code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code> and <code>markDegraded()</code>, plus <code>withEdgeCache()</code> in <code>@decocms/tanstack</code> and an ISR recipe for Next.",
+      "plan": "Add a revision handle, a way to read and pin the revision a client serves (<code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code>), and <code>markDegraded()</code>. Add an edge cache kit, <code>withEdgeCache()</code> in <code>@decocms/tanstack</code>, for caching rendered pages at the edge, and an ISR (Incremental Static Regeneration: re-rendering cached pages in the background) recipe for Next.js.",
       "features": [
         "edge-html-cache-profiles",
         "fast-deploy-kv",
@@ -567,7 +567,7 @@
     {
       "id": "roadmap-studio-legacy--stop-keying-the-blog-tab-on-legacy-names",
       "title": "Stop keying the Blog tab on legacy names",
-      "today": "It looks for <code>blog/loaders/*.ts</code> and <code>@decocms/apps-blog</code> ≥ 7.53.0. blog-tanstack reads as unsupported-runtime today.",
+      "today": "It looks for <code>blog/loaders/*.ts</code> and <code>@decocms/apps-blog</code> ≥ 7.53.0. The TanStack blog reads as unsupported-runtime today.",
       "features": [
         "key-prefix-content-collections",
         "studio-workspace-spaces"
@@ -1188,6 +1188,22 @@
       "pinned": false
     },
     {
+      "id": "roadmap-cli--ship-the-deco-command",
+      "group": "cli",
+      "title": "Ship the <code>deco</code> command",
+      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with <code>schema</code> first and the other <code>deco</code> subcommands on this page added to it.</p>",
+      "features": [
+        "codegen-pipeline",
+        "studio-schema-generation",
+        "dev-tooling-and-repo-hygiene"
+      ],
+      "docs": [
+        "quickstart",
+        "schema"
+      ],
+      "pinned": false
+    },
+    {
       "id": "roadmap-platform--read-manifest-groups-for-pages-redirects-content-and-apps",
       "group": "studio",
       "title": "Read manifest groups for pages, redirects, content and apps",
@@ -1334,7 +1350,7 @@
       "id": "roadmap-docs--resolve-contradictions-in-these-docs",
       "group": "docs",
       "title": "Resolve contradictions in these docs",
-      "plan": "<ul><li>'Nothing in the SDK throws' (<a href=\"#standalone\">API reference</a>) vs <code>matchRoute</code> (<a href=\"#routing\">Routing</a>).</li><li>'The runtime never sees Content' (<a href=\"#schema\">Schema generation</a>) vs list through aliases (<a href=\"#standalone\">API reference</a>).</li><li>'Drafts never fall back' (<a href=\"#standalone\">API reference</a>) vs 'serves published' (<a href=\"#loader-internals\">Loader internals</a>).</li><li>The default variant: the code comment says to put <code>always()</code> first, <a href=\"#variants\">Matchers &amp; variants</a> and <a href=\"#studio\">Studio compatibility</a> say the first tab, and HomeHero puts it last; with first-match-wins, make the default the last variant.</li></ul><p>Also: make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden section's <code>undefined</code> render nothing, say what a reference to a Content entry resolves to, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
+      "plan": "<ul><li>'The CMS never sees Content' (<a href=\"#schema\">Schema generation</a>) vs list through aliases (<a href=\"#standalone\">API reference</a>).</li></ul><p>Also: make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden section's <code>undefined</code> render nothing, say what a reference to a Content entry resolves to, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
       "features": [
         "cms-page-routing",
         "codegen-pipeline",
@@ -1364,7 +1380,7 @@
       "id": "roadmap-docs--correct-studio-compatibility",
       "group": "docs",
       "title": "Correct Studio compatibility",
-      "plan": "<p>Say in <a href=\"#studio\">Studio compatibility</a> that Studio calls <code>/live/_meta</code>, <code>/.decofile</code>, <code>/live/previews</code>, <code>/deco/invoke</code> and <code>/live/invoke</code> (including the secrets encrypt action). State that sites allow framing through frame-ancestors, never X-Frame-Options, as the entry wrappers do.</p>",
+      "plan": "<p><a href=\"#studio\">Studio compatibility</a> now lists <code>/live/_meta</code>, <code>/live/previews</code>, <code>/deco/invoke</code> and <code>/live/invoke</code>. Add <code>/.decofile</code> and the secrets encrypt action, say how the new API mounts these endpoints, and state that sites allow framing through frame-ancestors, never X-Frame-Options, as the entry wrappers do.</p>",
       "features": [
         "admin-protocol-endpoints",
         "invoke-and-actions",
@@ -1531,11 +1547,11 @@
   "sites": [
     {
       "id": "storefront-tanstack",
-      "name": "storefront-tanstack",
+      "name": "TanStack storefront",
       "short": "storefront",
       "section": "roadmap-storefront",
-      "description": "Shopify storefront on the current split <code>@decocms</code> 7.x packages (TanStack Start, Cloudflare Workers).",
-      "headline": "Closest to next-major. Before it can move, the proposed API needs successors for the worker entry, edge cache, page-URL plumbing and Studio routes it relies on.",
+      "description": "A storefront on TanStack Start and Cloudflare Workers, on the current <code>@decocms</code> 7.x packages.",
+      "headline": "Closest to the next major. Before it can move, the proposed API needs successors for the pieces it relies on today: the worker entry (the Workers request handler that wraps the app), the edge cache, the page-URL plumbing and the endpoints Studio calls.",
       "steps": [
         {
           "id": "roadmap-storefront--fix-dark-metrics-and-deco-invoke-404s",
@@ -1647,11 +1663,11 @@
     },
     {
       "id": "blog-tanstack",
-      "name": "blog-tanstack",
+      "name": "TanStack blog",
       "short": "blog",
       "section": "roadmap-blog",
-      "description": "Blog on the old single-package <code>@decocms/start</code> 6.12 with <code>@decocms/apps</code> 5.2 (TanStack Start, Workers).",
-      "headline": "Simple content and a clean route tree, but it's on 6.12: it upgrades to 7.x first (Studio can't frame it until then), and its Studio blog workflow depends on legacy loader names and apps-blog.",
+      "description": "A blog on TanStack Start and Cloudflare Workers, on an older single-package version of the framework.",
+      "headline": "Simple content and a clean route tree, but it's on an older package: it upgrades to 7.x first (until then, Studio can't open it in its preview frame), and its Studio blog workflow depends on old loader names and <code>apps-blog</code>.",
       "steps": [
         {
           "id": "roadmap-blog--upgrade-6-12-to-the-latest-7-x-first",
@@ -1751,11 +1767,11 @@
     },
     {
       "id": "faststore",
-      "name": "FastStore storefront",
-      "short": "FastStore",
+      "name": "Next.js storefront",
+      "short": "Next.js store",
       "section": "roadmap-faststore",
-      "description": "VTEX storefront on FastStore v4 (Next.js Pages Router); content in VTEX Headless CMS. Not on deco today.",
-      "headline": "A re-platform, not an upgrade. The target framework, the CMS content, the native sections and the VTEX session model all come before the missing pieces in the proposed API even come into play.",
+      "description": "A Next.js storefront on another CMS. Not on Deco today, so this is a re-platform, not an upgrade.",
+      "headline": "A re-platform, not an upgrade. The target framework, the content, the native sections and the session model all come before the missing pieces in the proposed API even come into play.",
       "steps": [
         {
           "id": "roadmap-faststore--pick-the-target-framework-and-move-to-it",
