@@ -687,6 +687,8 @@ function patchConsole(state: BootState): void {
       const msg = args
         .map((a) => {
           if (typeof a === "string") return a;
+          // Error has no enumerable props — JSON.stringify would ship "{}".
+          if (a instanceof Error) return a.stack ?? `${a.name}: ${a.message}`;
           try { return JSON.stringify(a); } catch { return String(a); }
         })
         .join(" ");

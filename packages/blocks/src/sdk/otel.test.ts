@@ -506,6 +506,36 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     expect(payload.resourceLogs[0].scopeLogs[0].logRecords[0].severityText).toBe("info");
   });
 
+  it("console.error(err) ships the error message, not \"{}\"", async () => {
+    const { impl, calls } = makeFetchSpy();
+    const handler = {
+      fetch: vi.fn(async () => {
+        console.error("[VTEX] PLP error:", new TypeError("boom"));
+        return new Response("ok");
+      }),
+    };
+    const wrapped = instrumentWorker(handler, {
+      otlpLogsFetchImpl: impl,
+    });
+
+    const env: TestEnv = {
+      DECO_OTEL_LOGS_ENDPOINT: "https://ingest.test/v1/logs",
+    } as TestEnv & { DECO_OTEL_LOGS_ENDPOINT: string };
+    const ctx = fakeCtx();
+    await wrapped.fetch(new Request("https://example.test/"), env, ctx);
+    await Promise.all(ctx.waited);
+
+    expect(calls).toHaveLength(1);
+    const payload = JSON.parse(calls[0].body) as {
+      resourceLogs: Array<{
+        scopeLogs: Array<{ logRecords: Array<{ body: { stringValue: string } }> }>;
+      }>;
+    };
+    const body = payload.resourceLogs[0].scopeLogs[0].logRecords[0].body.stringValue;
+    expect(body).toContain("[VTEX] PLP error: TypeError: boom");
+    expect(body).not.toContain("{}");
+  });
+
   it("otlpLogsEnabled=false disables the channel even when env is set", async () => {
     const { impl, calls } = makeFetchSpy();
     const handler = {
