@@ -118,8 +118,8 @@
   }
 
   /* ------------------------------------------------------------ Code blocks */
-  const languageLabels = { typescript: 'TypeScript', tsx: 'TSX', json: 'JSON', jsonc: 'JSON', bash: 'Shell', text: 'Text' };
-  const extensionLanguages = { ts: 'typescript', mts: 'typescript', tsx: 'tsx', jsx: 'tsx', js: 'typescript', json: 'json', jsonc: 'jsonc', sh: 'bash' };
+  const languageLabels = { typescript: 'TypeScript', tsx: 'TSX', json: 'JSON', jsonc: 'JSON', bash: 'Shell', yaml: 'YAML', text: 'Text' };
+  const extensionLanguages = { ts: 'typescript', mts: 'typescript', tsx: 'tsx', jsx: 'tsx', js: 'typescript', json: 'json', jsonc: 'jsonc', sh: 'bash', yml: 'yaml', yaml: 'yaml' };
   // JSX in a TypeScript block: a closing tag, a self-closing capitalized tag, or a fragment.
   const looksLikeJsx = text => /<\/[A-Za-z][\w.]*>|<[A-Z][\w.]*(\s[^<>]*)?\/>|<>|<\/>/.test(text);
   function fileNameFor(pre) {

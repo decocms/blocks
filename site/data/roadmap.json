@@ -657,6 +657,22 @@
       "pinned": false
     },
     {
+      "id": "roadmap-api--build-studio-forms-only-from-the-deployed-schema",
+      "group": "api",
+      "title": "Build Studio forms only from the deployed schema",
+      "plan": "<p>Publishing without a deploy relies on editors only using block types and fields the deployed code has. Studio must build its forms from the schema the deployed site serves at <code>/live/_meta</code>, never from the schema file committed in the repository, which changes as soon as a code change merges and before it's deployed. Until then, an editor can add a block type the live code lacks, and it fails with <code>UNKNOWN_BLOCK</code>. Update <a href=\"#schema\">Schema generation</a> once it ships.</p>",
+      "features": [
+        "admin-protocol-endpoints",
+        "content-schema-drift",
+        "studio-schema-generation"
+      ],
+      "docs": [
+        "schema",
+        "studio"
+      ],
+      "pinned": false
+    },
+    {
       "id": "roadmap-api--add-a-section-renderer-and-a-deferral-api",
       "group": "api",
       "title": "Add a block renderer and a deferral API",
@@ -740,7 +756,7 @@
       "id": "roadmap-api--add-remoteloader-options",
       "group": "api",
       "title": "Add <code>remoteLoader</code> options",
-      "plan": "<p><code>{ interval, coldStartTimeoutMs, channel, onUpdate, onError }</code>, also accepted by <code>createCMS</code>. <code>interval</code> is in milliseconds, defaults to <code>DECO_CONTENT_INTERVAL</code> or 60 000, and has a 60 000 minimum (lower values are raised to one minute with a warning). Each check runs one interval ± 10 s after the previous one and fetches only the revision hash. The SDK schedules due checks itself at an idle moment: <code>requestIdleCallback</code>, then <code>scheduler.postTask</code>, then <code>setTimeout</code>; an unref'd timer on Node; and after the response inside <code>ctx.waitUntil</code> on Workers. Instances are process-wide singletons keyed by configuration, with a <code>resetForTests()</code> helper. Also ship a first-party <code>kvLoader(env.CONTENT, { key })</code> so sites don't hand-write the KV loader the docs show.</p>",
+      "plan": "<p><code>{ interval, coldStartTimeoutMs, channel, onUpdate, onError }</code>, also accepted by <code>createCMS</code>. <code>interval</code> is in milliseconds, defaults to <code>DECO_CONTENT_INTERVAL</code> or 60 000, and has a 60 000 minimum (lower values are raised to one minute with a warning). Each check runs one interval ± 10 s after the previous one and fetches only the revision hash. The SDK schedules due checks itself at an idle moment: <code>requestIdleCallback</code>, then <code>scheduler.postTask</code>, then <code>setTimeout</code>; an unref'd timer on Node; and after the response inside <code>ctx.waitUntil</code> on Workers. Instances are process-wide singletons keyed by configuration, with a <code>resetForTests()</code> helper.</p>",
       "features": [
         "fast-deploy-kv",
         "env-vars-and-secrets",
@@ -751,6 +767,24 @@
         "edge-html-cache-profiles"
       ],
       "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--document-and-support-kv-only-content-for-large-workers-sites",
+      "group": "api",
+      "title": "Document and support KV-only content for large Workers sites",
+      "plan": "<p>With <code>content</code> plus <code>token</code>, the bundled content module stays in memory as the fallback next to the live release, against a Worker isolate's 128 MB limit, and it also counts toward the script size limit. Document passing a KV-backed <code>Loader</code> as <code>content</code> for large sites, so no copy is bundled and the fallback is read from KV only when needed. Ship a first-party <code>kvLoader(env.CONTENT, { key })</code>, and a documented deploy step that writes the content to the key before the new Worker takes traffic, since with a missing key every new isolate fails its first reads until its first release check.</p>",
+      "features": [
+        "fast-deploy-kv",
+        "hosting-and-deploy-config",
+        "in-isolate-caches",
+        "content-storage-and-delivery"
+      ],
+      "docs": [
+        "tanstack-data",
+        "content",
+        "releases"
+      ],
       "pinned": false
     },
     {
@@ -1038,7 +1072,7 @@
       "id": "roadmap-cli--add-validation-commands-to-the-cli",
       "group": "cli",
       "title": "Add validation commands to the CLI",
-      "plan": "<p><code>deco schema --check</code>, plus <code>deco check</code>/<code>validate</code> reporting UNKNOWN_BLOCK, NOT_FOUND, orphans, schema violations and route collisions, with an optional resolve-every-page smoke test.</p>",
+      "plan": "<p><code>deco check</code>/<code>validate</code> reporting UNKNOWN_BLOCK, NOT_FOUND, orphans, schema violations and route collisions, with an optional resolve-every-page smoke test.</p>",
       "features": [
         "orphan-and-dangling-blocks",
         "content-schema-drift",
@@ -1052,6 +1086,24 @@
         "codegen-pipeline"
       ],
       "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-cli--add-deco-schema-check-a-compatibility-check",
+      "group": "cli",
+      "title": "Add <code>deco schema --check</code>, a compatibility check",
+      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type or <code>Content</code> type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes; Content types wait for the <a href=\"#roadmap-cli--emit-a-runtime-alias-table\">runtime alias table</a>. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime.</p>",
+      "features": [
+        "content-schema-drift",
+        "ci-and-release-workflows",
+        "codegen-pipeline",
+        "dev-tooling-and-repo-hygiene",
+        "content-storage-and-delivery"
+      ],
+      "docs": [
+        "schema",
+        "releases"
+      ],
       "pinned": false
     },
     {
@@ -1191,7 +1243,7 @@
       "id": "roadmap-cli--ship-the-deco-command",
       "group": "cli",
       "title": "Ship the <code>deco</code> command",
-      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its two commands, <code>deco schema</code> and <code>deco content</code> (both take <code>--watch</code> and <code>--root</code>), and the other <code>deco</code> subcommands on this page added to it.</p>",
+      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its two commands, <code>deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code> and <code>deco content [--root &lt;dir&gt;] [--watch]</code>. By default <code>deco schema</code> looks for the block map at <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>; <code>--entry</code> overrides it. Add the other <code>deco</code> subcommands on this page to it.</p>",
       "features": [
         "codegen-pipeline",
         "studio-schema-generation",
@@ -1244,7 +1296,7 @@
       "id": "roadmap-platform--build-the-deco-api-release-service",
       "group": "studio",
       "title": "Build the Deco API release service",
-      "plan": "<p>A release endpoint and site tokens (with a DECO_SITE_TOKEN lifecycle), a schema-hash compatibility input, rejection of ambiguous-route releases, and per-environment channels.</p>",
+      "plan": "<p>A release endpoint and site tokens (with a DECO_SITE_TOKEN lifecycle), rejection of ambiguous-route releases, and per-environment channels. The service serves every commit as it lands and doesn't compare schemas; compatibility is checked in CI by <code>deco schema --check</code>.</p>",
       "features": [
         "content-storage-and-delivery",
         "cms-page-routing",
@@ -3871,7 +3923,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "The file model matches, but filename encoding, bundling, the release service and skew protection are unspecified. Nothing gives the loader the app's schema hash, so 'skip a release whose schema doesn't match' can't work as documented.",
+      "summary": "The file model matches, but filename encoding, bundling, the release service and skew protection are unspecified. Compatibility between content and the deployed code is meant to be checked in CI by `deco schema --check`, which isn't built yet.",
       "docs": [
         "quickstart",
         "model",
@@ -3960,7 +4012,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `--check` yet, no input for the schema gate, and Content aliases can't work at runtime.",
+      "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `--check` compatibility check yet, and Content aliases can't work at runtime.",
       "docs": [
         "schema",
         "manifest",

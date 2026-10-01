@@ -17,7 +17,7 @@
     <thead><tr><th>Piece</th><th>What it does</th><th>Where it runs</th></tr></thead>
     <tbody>
       <tr><td><strong>SDK</strong> <code>@decocms/blocks</code></td><td>Reads your content (a module the CLI generates from files in your repo, the hosted Deco CMS, or your own store) and calls your functions with it.</td><td>Your app, in any JavaScript runtime: Node, Cloudflare Workers, Deno, Bun, React Native or the browser</td></tr>
-      <tr><td><strong>CLI</strong> <code>@decocms/blocks-cli</code></td><td>Provides the <code>deco</code> command. <code>deco schema</code> generates a JSON Schema from your types, and <code>deco content</code> turns your content files into a module your app imports.</td><td>Your machine or CI</td></tr>
+      <tr><td><strong>CLI</strong> <code>@decocms/blocks-cli</code></td><td>Provides the <code>deco</code> command. <code>deco schema</code> generates a JSON Schema from your types (and, in CI, checks a change against the previous one), and <code>deco content</code> turns your content files into a module your app imports.</td><td>Your machine or CI</td></tr>
       <tr><td><strong>Studio</strong></td><td>Builds a visual editor from that schema and saves edits back to your files.</td><td>Part of the hosted Deco CMS (optional)</td></tr>
     </tbody>
   </table></div>
@@ -132,7 +132,7 @@ export default { experiments } satisfies Blocks;</code></pre></figure>
   <h3>2. Give editors a form</h3>
   <p>The CLI reads the map and turns the <code>Experiments</code> type into a JSON Schema. The JSDoc tags shape the form: <code>@title</code> becomes the field's label, and <code>@minimum</code>/<code>@maximum</code> its allowed range. <a href="#schema">Schema generation</a> lists every tag.</p>
 <pre class="code-block"><code class="language-bash">npx deco schema</code></pre>
-  <p>It finds the block map in <code>blocks.ts</code> (or <code>src/blocks.ts</code>; see <a href="#schema">Schema generation</a>) and writes <code>.deco/schema.json</code>. Commit the file. If the repository is connected to the hosted Deco CMS, Studio now shows each experiment as a number field clamped to 0–100. Without it, the schema still describes the content you or an agent write by hand.</p>
+  <p>It finds the block map in <code>blocks.ts</code> or <code>blocks.tsx</code>, in the project root or in <code>src/</code> (<code>--entry</code> points it at any other file; see <a href="#schema">Schema generation</a>), and writes <code>.deco/schema.json</code>. Commit the file. If the repository is connected to the hosted Deco CMS, then once that code is deployed, Studio shows each experiment as a number field clamped to 0–100. Without it, the schema still describes the content you or an agent write by hand.</p>
 
   <h3>3. Add content</h3>
   <p>There are two ways to create content:</p>
@@ -361,6 +361,7 @@ createCMS({ blocks, content, token: process.env.DECO_SITE_TOKEN, interval: 120_0
 createCMS({ blocks, content: kvContent });</code></pre></figure>
   <p><code>token</code> is your site's API key from the hosted Deco CMS, used to call the Deco API. (Issuing tokens for this API isn't available yet; see the <a href="#roadmap-platform--build-the-deco-api-release-service">Roadmap</a>.) Keep it in an environment variable, never in the repository. When it's undefined, in development for example, the CMS reads <code>content</code> only, so the same line works everywhere.</p>
   <p><code>interval</code> is how often each server checks for a new release, in milliseconds. It defaults to the <code>DECO_CONTENT_INTERVAL</code> environment variable, or 60 000 (one minute) when that's unset. The minimum is 60 000: lower values are raised to one minute, with a warning. Each check runs one interval, plus or minus up to 10 seconds, after the previous one. How and when checks run is in <a href="#loader-internals">Loader internals</a>.</p>
+  <p>The content module you pass with <code>token</code> stays in memory as the fallback, alongside the live release. On Cloudflare Workers with a large content set, see “Large content on Workers” under <a href="#tanstack-data--2-create-the-cms">Create the CMS</a>.</p>
 
   <h3>Write your own loader</h3>
   <p>The contract is one required method, <code>load(pointer?)</code>, which returns <code>{ revision, blocks }</code>. Here is one backed by Cloudflare Workers KV, Workers' key-value store, with the revision and the entries stored together under one key:</p>
@@ -378,7 +379,7 @@ const kvContent: Loader = {
 };
 
 export const cms = createCMS({ blocks, content: kvContent });</code></pre></figure>
-  <p>On Workers, importing <code>env</code> from <code>cloudflare:workers</code> gives you your bindings (here the KV namespace <code>CONTENT</code>) at module scope, so the CMS can still be created once, outside any request. <code>Snapshot</code> is the <code>{ revision, blocks }</code> type. If <code>load()</code> throws, the read fails with <code>LOADER_FAILED</code> (see <a href="#standalone--errors">Errors</a>). A first-party <code>kvLoader(env.CONTENT, { key })</code> helper is planned (see the <a href="#roadmap-api--add-remoteloader-options">Roadmap</a>).</p>
+  <p>On Workers, importing <code>env</code> from <code>cloudflare:workers</code> gives you your bindings (here the KV namespace <code>CONTENT</code>) at module scope, so the CMS can still be created once, outside any request. <code>Snapshot</code> is the <code>{ revision, blocks }</code> type. If <code>load()</code> throws, the read fails with <code>LOADER_FAILED</code> (see <a href="#standalone--errors">Errors</a>). A first-party <code>kvLoader(env.CONTENT, { key })</code> helper is planned (see the <a href="#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites">Roadmap</a>).</p>
   <p>Pass it as <code>content</code>; add <code>token</code> to use it as the fallback under hosted releases. Store the revision with the content, and change it whenever any entry changes (see <a href="#content">the rule above</a>).</p>
   <p>Two optional extras. If your store has drafts, use the <code>pointer</code> argument, the <a href="#preview">draft pointer</a> that names which draft to read. If content can change while the process runs, add <code>update()</code>, which checks for newer content; the CMS calls it on the same idle schedule and <code>interval</code> as <code>remoteLoader</code> (see <a href="#loader-internals">Loader internals</a>). Either way, the client only ever sees <code>{ revision, blocks }</code>.</p>
 </section>
@@ -386,9 +387,9 @@ export const cms = createCMS({ blocks, content: kvContent });</code></pre></figu
 
 <section id="schema" data-nav="Schema generation" class="doc-section" aria-labelledby="schema-title">
   <p class="eyebrow">Core concepts</p><h2 id="schema-title">Schema generation</h2>
-  <p>Studio builds its editor from a JSON Schema, and the CLI writes that schema from your TypeScript. It reads the file that exports your block map, the <code>blocks.ts</code> from the <a href="#quickstart">quickstart</a>, and writes <code>.deco/schema.json</code>. It looks for that file as <code>blocks.ts</code> or <code>blocks.tsx</code>, in the project root or in <code>src/</code>:</p>
+  <p>Studio builds its editor from a JSON Schema, and the CLI writes that schema from your TypeScript. It reads the file that exports your block map, the <code>blocks.ts</code> from the <a href="#quickstart">quickstart</a>, and writes <code>.deco/schema.json</code>. It looks for that file as <code>blocks.ts</code> or <code>blocks.tsx</code>, in the project root or in <code>src/</code>. If your block map lives somewhere else, pass its path with <code>--entry</code>, for example <code>deco schema --entry app/cms/blocks.ts</code>:</p>
 <pre class="code-block"><code class="language-bash">npx deco schema</code></pre>
-  <p>For each block type in the map, the CLI reads the type of the function's first parameter and turns it into a form definition. Commit <code>.deco/schema.json</code> with your code, and run the command in CI so the schema never drifts from your types.</p>
+  <p>For each block type in the map, the CLI reads the type of the function's first parameter and turns it into a form definition. Commit <code>.deco/schema.json</code> with your code, and run the command in CI so the schema never drifts from your types (see <a href="#schema--keep-the-schema-compatible">Keep the schema compatible</a>).</p>
   <p>The CLI also checks your content model: it fails if a saved entry in <code>.deco/blocks</code> has the name of a block type, or if an alias (a second name for a block type, used when you rename one; see <a href="#adoption">Renaming and migrating</a>) collides with either.</p>
 
   <h3>The two CLI commands</h3>
@@ -397,13 +398,83 @@ export const cms = createCMS({ blocks, content: kvContent });</code></pre></figu
     <li><strong><code>deco schema</code></strong> turns the types in your block map into <code>.deco/schema.json</code>. Commit this file.</li>
     <li><strong><code>deco content</code></strong> turns the files in <code>.deco/blocks</code> into the <a href="#content--the-content-module">content module</a>, <code>.deco/blocks.gen.ts</code>. It's generated, so gitignore it.</li>
   </ul>
-  <p>Both take <code>--watch</code>, to regenerate as files change, and <code>--root</code>, the <code>.deco</code> folder to use (by default <code>./.deco</code>). There's no separate dev command: run both before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in <a href="#content--the-content-module">The content module</a>.</p>
+<pre class="code-block"><code class="language-bash">deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]
+deco content [--root &lt;dir&gt;] [--watch]</code></pre>
+  <ul>
+    <li><code>--entry &lt;path&gt;</code> (<code>deco schema</code> only): the file that exports your block map. By default the CLI looks for <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>.</li>
+    <li><code>--root &lt;dir&gt;</code>: the <code>.deco</code> folder to use (by default <code>./.deco</code>).</li>
+    <li><code>--watch</code>: regenerate as files change.</li>
+    <li><code>--check &lt;base&gt;</code> (<code>deco schema</code> only): compare the schema your code generates now with an earlier one, and fail on breaking changes. It writes nothing, and it isn't built yet (see the <a href="#roadmap-cli--add-deco-schema-check-a-compatibility-check">Roadmap</a>). See <a href="#schema--keep-the-schema-compatible">Keep the schema compatible</a>.</li>
+  </ul>
+  <p>There's no separate dev command: run both before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in <a href="#content--the-content-module">The content module</a>.</p>
 <figure class="code-example"><figcaption>package.json</figcaption><pre><code class="language-json">{
   "scripts": {
     "predev": "deco schema &amp;&amp; deco content",
     "prebuild": "deco schema &amp;&amp; deco content"
   }
 }</code></pre></figure>
+
+  <h3>Keep the schema compatible</h3>
+  <p>With the hosted Deco CMS, content goes live without a deploy, so the code that's already running renders it. That's the point of publishing without a deploy. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and <code>remoteLoader</code> doesn't compare schemas. They're kept compatible before anything merges, in two directions. (<code>deco schema --check</code>, which the first one relies on, is planned; see the <a href="#roadmap-cli--add-deco-schema-check-a-compatibility-check">Roadmap</a>.)</p>
+  <ul>
+    <li><strong>Backward compatible: new code still renders all existing content.</strong> A code change must not break content that's already saved. <code>deco schema --check &lt;base&gt;</code> enforces this. It generates the schema from your code and compares it with <code>&lt;base&gt;</code>, the path to an earlier <code>.deco/schema.json</code>, such as the one on <code>main</code>. It lists every breaking change and exits with a non-zero code if it finds one. It writes nothing.</li>
+    <li><strong>Forward: already-deployed code renders new content.</strong> This holds as long as content only uses block types and fields that the deployed schema has. Studio is meant to build its forms from the schema the deployed site serves (see <a href="#studio--what-studio-reads">What Studio reads</a>), so editors can't add a block type before the code that defines it is deployed. Today Studio can also read the schema file committed in the repository, which changes as soon as a code change merges; using only the deployed schema is on the <a href="#roadmap-api--build-studio-forms-only-from-the-deployed-schema">Roadmap</a>. Deploy the code first, then publish content that uses it. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with <code>UNKNOWN_BLOCK</code> (see <a href="#standalone--errors">Errors</a>) until the code ships. Rolling code back is the exception: content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.</li>
+  </ul>
+  <p>What <code>--check</code> treats as breaking:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Change</th><th>Breaking?</th></tr></thead>
+    <tbody>
+      <tr><td>Removing a block type (a function in the block map) or a <code>Content</code> type</td><td>Yes. <code>--check</code> compares schemas only, so any removal counts, whether or not saved content uses the type. Remove a type in a later change, once no content uses it. To rename a block type, keep the old name as an alias (see <a href="#adoption--rename-a-type-with-an-alias">Rename a type with an alias</a>); the old name stays in the schema, so the check passes. Don't rename a <code>Content</code> type this way yet: the check would pass, but Content aliases don't work at runtime (see the <a href="#roadmap-cli--emit-a-runtime-alias-table">Roadmap</a>).</td></tr>
+      <tr><td>Removing or renaming a field</td><td>Yes. Fields have no aliases, so rename in steps: add the new name as an optional field, move the content over, then remove the old field once no content uses it.</td></tr>
+      <tr><td>Adding a required field, or making an optional field required</td><td>Yes: existing entries don't have it</td></tr>
+      <tr><td>Narrowing a field's type: a <code>string</code> becoming a union of allowed values, a union losing a member, a tighter limit (a lower <code>@maximum</code> or <code>@maxLength</code>, or a higher <code>@minimum</code> or <code>@minLength</code>)</td><td>Yes: saved values may fall outside it</td></tr>
+      <tr><td>Adding a block type, a <code>Content</code> type or a built-in type</td><td>No</td></tr>
+      <tr><td>Adding an optional field</td><td>No</td></tr>
+      <tr><td>Widening a field's type: a union gaining a member, a required field becoming optional</td><td>No</td></tr>
+    </tbody>
+  </table></div>
+  <p>Run it in CI on every pull request. This GitHub Actions workflow first checks that the committed <code>.deco/schema.json</code> is up to date: it regenerates the schema and fails if the file changed or was never committed. It then compares the schema with the one on the pull request's target branch. On the first pull request that adds a schema there's nothing to compare with yet, so it skips that step. Any other problem, such as a missing branch, fails the job instead of skipping it:</p>
+<figure class="code-example"><figcaption>.github/workflows/schema.yml</figcaption><pre><code class="language-yaml">name: Schema
+on: pull_request
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    env:
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: The committed schema matches the code
+        run: |
+          npx --no-install deco schema
+          if [ -n "$(git status --porcelain -- .deco/schema.json)" ]; then
+            git diff -- .deco/schema.json
+            echo ".deco/schema.json is missing or out of date: run deco schema and commit it."
+            exit 1
+          fi
+      - name: Fetch the base schema
+        run: |
+          git rev-parse --verify --quiet "origin/$BASE_REF" &gt; /dev/null \
+            || { echo "origin/$BASE_REF not found"; exit 1; }
+          if git cat-file -e "origin/$BASE_REF:.deco/schema.json" 2&gt; /dev/null; then
+            git show "origin/$BASE_REF:.deco/schema.json" &gt; base-schema.json
+          fi
+      - name: No breaking changes
+        run: |
+          if [ -f base-schema.json ]; then
+            npx --no-install deco schema --check base-schema.json
+          else
+            echo "No .deco/schema.json on $BASE_REF yet; skipping the compatibility check."
+          fi</code></pre></figure>
+  <p><code>--no-install</code> makes <code>npx</code> fail if <code>@decocms/blocks-cli</code> isn't installed, instead of downloading some other package named <code>deco</code>. If you use <code>--root</code>, pass it to both <code>deco schema</code> calls and replace <code>.deco/schema.json</code> in the workflow with <code>&lt;dir&gt;/schema.json</code>. Make the job a required check in your branch protection rules, so a failing pull request can't merge.</p>
+  <p>Studio's saves are commits to the same repository. They only change content, never the schema, so <code>--check</code> always passes them, and <code>deco schema</code> still checks the content model (entry names, aliases and route collisions). When Studio saves through pull requests, this workflow checks them before merge. When it commits straight to your production branch, they're live as soon as they land, so a check can only report a problem afterwards: add <code>push: { branches: [main] }</code> under <code>on</code> and guard the two comparison steps with <code>if: github.event_name == 'pull_request'</code>, since a push has no target branch.</p>
 
   <h3>Annotate fields with JSDoc</h3>
   <p>The TypeScript type decides what kind of field each input gets: a <code>string</code> is a text box, a <code>number</code> a number field, a union of string literals a select, an array a list editors can add to and reorder. JSDoc tags on a field refine the form:</p>
@@ -1028,7 +1099,7 @@ interface CMSError {
 }</code></pre>
 
   <h3>Errors</h3>
-  <p>Client calls never throw: <code>resolve</code> and <code>list</code> return <code>[value, null]</code> or <code>[null, error]</code>. The one exception in the SDK is <code>matchRoute</code>, which throws when two entries can match the same URL. That's a content bug <code>deco schema</code> also reports, so run it in CI on every commit, including Studio's, and catch the throw in your handler (see <a href="#routing--path-templates-and-match-order">Path templates and match order</a>). Check the error, not the value, because a block function can legitimately return <code>null</code>.</p>
+  <p>Client calls never throw: <code>resolve</code> and <code>list</code> return <code>[value, null]</code> or <code>[null, error]</code>. The one exception in the SDK is <code>matchRoute</code>, which throws when two entries can match the same URL. That's a content bug <code>deco schema</code> also reports, so run it in CI on every commit, including Studio's (see <a href="#schema--keep-the-schema-compatible">Keep the schema compatible</a>), and catch the throw in your handler (see <a href="#routing--path-templates-and-match-order">Path templates and match order</a>). Check the error, not the value, because a block function can legitimately return <code>null</code>.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Code</th><th>When</th></tr></thead>
     <tbody>
@@ -1298,6 +1369,13 @@ export const client = (request: Request) =&gt; {
   return pointer ? cms.forDraft(pointer) : cms.forRelease()
 }</code></pre></figure>
   <p>The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. Its revision is the same content hash the Deco API computes, so a new Worker instance whose build already holds the current release skips downloading it (see <a href="#loader-internals">Loader internals</a>). Workers run no timers between requests, so when a release check is due, the SDK runs it after the response inside <code>ctx.waitUntil</code> (<code>ctx</code> is the Worker's execution context; <code>waitUntil</code> lets work finish after the response is sent): you don't call <code>cms.update()</code>.</p>
+  <p><strong>Large content on Workers.</strong> When you pass both <code>content</code> and <code>token</code>, the content module stays in memory as the fallback, alongside the release the loader fetched. Once you publish, the live release and the fallback are different revisions, so your content is in memory more than once. A Worker isolate has a 128 MB memory limit, and the bundled content also counts toward the Worker's script size limit. For a few hundred kilobytes of JSON this doesn't matter; for several megabytes, it can. On large sites, pass a <a href="#content--write-your-own-loader">loader that reads from KV</a> as <code>content</code> instead of the content module. No copy is bundled into the Worker, and none is held in memory just because the module was imported: the fallback is read from KV only when it's needed. Once read, it's held in memory like any other content, so this removes the bundled copy, not every duplicate:</p>
+<figure class="code-example"><figcaption>src/cms.ts (large sites)</figcaption><pre><code class="language-typescript">import { env } from "cloudflare:workers"
+// kvContent: the KV loader from "Write your own loader"
+
+// The fallback comes from KV, not from the bundle
+export const cms = createCMS({ blocks, content: kvContent, token: env.DECO_SITE_TOKEN })</code></pre></figure>
+  <p>The trade-off: the fallback is now only as good as the KV key. Your deploy pipeline must write the current content to it before the new Worker serves traffic. Until a new isolate's first release check (about a minute), and whenever the Deco API can't be reached, reads come from the KV key. So if the key is missing, every new isolate fails its first reads with <code>LOADER_FAILED</code> until it has fetched a release, and keeps failing if it can't reach the API. A first-party <code>kvLoader</code> helper is planned (see the <a href="#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites">Roadmap</a>).</p>
 
   <h3>3. Match the URL to a page</h3>
   <p>This helper is shared by both TanStack guides. <code>T</code> is what your <code>product</code> block returns: <code>ProductDescriptor</code> here, <code>ReactNode</code> in the <a href="#tanstack-rsc">RSC guide</a>, which reuses this file unchanged. The server function hands the incoming request to <code>client()</code>, and <code>draftPointer</code> finds the pointer in the URL or in the cookie from step 6. Each block promise resolves to the value, or to <code>null</code> if the block failed, so no internal error details reach the browser.</p>
@@ -1428,7 +1506,8 @@ export default defineConfig({
     <li>Run <code>deco schema &amp;&amp; deco content</code> before each build (the <code>prebuild</code> script).</li>
     <li>Pass <code>token</code> to <code>createCMS</code> so releases arrive without a deploy.</li>
     <li>Set the token with <code>npx wrangler secret put DECO_SITE_TOKEN</code>.</li>
-    <li>Expect each new Worker instance (Cloudflare calls it an isolate) to serve the build's content module until its first check. Checks run after responses, about once a minute.</li>
+    <li>Expect each new Worker instance (Cloudflare calls it an isolate) to serve the build's content module until its first check, or the content in your KV key if you pass a KV loader as <code>content</code> (write the key before the deploy). Checks run after responses, about once a minute.</li>
+    <li>If your content is several megabytes, use a KV loader instead of the bundled content module, and write the KV key before the new Worker takes traffic (see <a href="#tanstack-data--2-create-the-cms">Create the CMS</a>).</li>
     <li>Keep both compatibility flags.</li>
     <li>The <a href="#nextjs">Next.js guide</a> targets Node, not Workers.</li>
   </ul>
@@ -1528,7 +1607,7 @@ export default defineConfig({
   <p>With the hosted Deco CMS, publishing is committing. A developer or an agent edits the entry files in your content directory (<code>.deco/blocks</code>, or the folder you give the CLI's <code>--root</code>) and pushes; an editor saves in Studio, which commits to the same repository. (If you load from your own store, see <a href="#content">Content and loaders</a>.) Either way, the production branch (the branch the hosted Deco CMS publishes from, usually <code>main</code>) moves.</p>
   <p>Publishing takes seconds: the Deco API serves that commit as the current release as soon as it lands. Each server checks for a new release about once a minute, at an idle moment, so a publish is live everywhere within about a minute. Calling <code>cms.update()</code>, for example from a webhook, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check (see <a href="#standalone--loaders">Loaders</a>). Requests never wait on this: <code>load()</code> always returns from memory, and the check runs in the background. Step by step: <a href="#loader-internals">under the hood</a>.</p>
   <p>Because content and code share one history, a deploy and a content change are the same kind of event: a commit. Rolling content back is reverting one.</p>
-  <p>Content can't get ahead of code. <code>remoteLoader</code> tells the Deco API which schema your build shipped with (a hash of the committed <code>.deco/schema.json</code>), and the API serves only releases whose content fits that schema. That's why the schema must be regenerated and committed with every code change; run <code>deco schema</code> in CI. If a commit adds a block type the deployed build doesn't have, visitors see that commit only after you deploy the code that defines the type; until then, the loader keeps serving the previous release. (Sending the schema hash is part of the Deco API release service, still on the <a href="#roadmap-platform--build-the-deco-api-release-service">Roadmap</a>.)</p>
+  <p>Publishing without a deploy means the code that's already running renders the new content. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and <code>remoteLoader</code> doesn't compare schemas. They're checked before anything merges instead; the rules and a CI workflow are in <a href="#schema--keep-the-schema-compatible">Keep the schema compatible</a>.</p>
 
   <h3>Fallback</h3>
   <p>Until a server has fetched its first release (a new server, or one that has never reached the Deco API), <code>remoteLoader</code> serves its fallback's content. If the Deco API becomes unreachable later, the server keeps serving the newest release it already has. With the content module, that's the content the build shipped with, the content this deploy was tested against, so it's always there and always compatible with the code. If your <code>content</code> is a loader you wrote (see <a href="#content--write-your-own-loader">Write your own loader</a>), keeping those guarantees is up to you. <code>remoteLoader</code> always switches between whole revisions, never mixing entries from two of them, because a mix can break references or bring back deleted entries. The loader reports the revision it actually served.</p>
@@ -1539,7 +1618,7 @@ export default defineConfig({
   <p>A revision only selects content; it isn't a secret and unlocks nothing. Unpublished drafts are protected by the signed token in the draft pointer (see <a href="#preview">Preview</a>).</p>
 
   <h3>Deploying on Workers</h3>
-  <p>Workers need nothing special. The content module is bundled like any other import, and because Workers run no timers between requests, the SDK runs a due release check after the response inside <code>ctx.waitUntil</code> (<code>ctx</code> is the Worker's execution context; <code>waitUntil</code> lets work finish after the response is sent). You don't call <code>cms.update()</code>. The <a href="#tanstack-data--deploying-checklist">deploying checklist</a> in the TanStack Start guide lists every step.</p>
+  <p>Workers need nothing special, except on sites with several megabytes of content (see “Large content on Workers” under <a href="#tanstack-data--2-create-the-cms">Create the CMS</a>). The content module is bundled like any other import, and because Workers run no timers between requests, the SDK runs a due release check after the response inside <code>ctx.waitUntil</code> (<code>ctx</code> is the Worker's execution context; <code>waitUntil</code> lets work finish after the response is sent). You don't call <code>cms.update()</code>. The <a href="#tanstack-data--deploying-checklist">deploying checklist</a> in the TanStack Start guide lists every step.</p>
 </section>
 
 <section id="operations" data-nav="Caching &amp; observability" class="doc-section" aria-labelledby="operations-title">
@@ -1617,7 +1696,8 @@ export default {
       <tr><td>Serialization error when sending a block's result to the browser</td><td>JSON can't carry functions or React elements. Return plain data (descriptors, see <a href="#rendering">Rendering</a>), or use an integration that renders on the server, like <a href="#tanstack-rsc">TanStack RSC</a> or <a href="#nextjs">Next.js</a>.</td></tr>
       <tr><td>Hydration mismatch (React's browser render doesn't match the server's HTML)</td><td>Look for time-dependent or random rendering, and for request context the server and browser see differently. If the browser fetches data after the page loads, it may get a newer revision; render data that must match the HTML in the same response.</td></tr>
       <tr><td>Content changes mid-response</td><td>Use one client for the whole response; a client never changes revision. If you wrote the loader, check that it never returns different content under an existing revision.</td></tr>
-      <tr><td>Stale or fallback content</td><td>Compare the revision your server serves (see above) with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ: the newest release may be held back because its schema doesn't match this build (deploy the matching code), or the server hasn't checked yet: allow about a minute after publishing. See <a href="#releases">Releases and deployment</a> and <a href="#loader-internals">how remoteLoader stays current</a>.</td></tr>
+      <tr><td>Stale or fallback content</td><td>Compare the revision your server serves (see above) with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow about a minute after publishing. See <a href="#releases">Releases and deployment</a> and <a href="#loader-internals">how remoteLoader stays current</a>.</td></tr>
+      <tr><td><code>UNKNOWN_BLOCK</code> right after publishing</td><td>The content uses a block type the deployed code doesn't have, usually because the content went out before the code that defines the type, or the code was rolled back to a version without it. Deploy the code, or revert the content commit. See <a href="#schema--keep-the-schema-compatible">Keep the schema compatible</a>.</td></tr>
       <tr><td>A new content file isn't found in development</td><td>Run <code>deco content</code>, or keep <code>deco content --watch</code> running beside your dev server. Only adding or removing a file needs it; edits to an existing file hot-reload.</td></tr>
       <tr><td>Warning about an instance with different options</td><td><code>createCMS</code> (or <code>remoteLoader</code>) ran twice with the same token and content but different options, such as another <code>interval</code>. The first instance is kept. Create the CMS once, at module scope (see <a href="#standalone--one-instance-per-process">One instance per process</a>).</td></tr>
       <tr><td>Warning that <code>interval</code> was raised</td><td>The minimum is 60 000 ms (one minute); lower values, from <code>interval</code> or <code>DECO_CONTENT_INTERVAL</code>, are raised to it.</td></tr>
@@ -1701,7 +1781,7 @@ bun run test      # vitest, per package</code></pre>
       </ul>
       Updating never competes with rendering, and a request never waits. There's no push signal: servers ask, the API never calls them.</li>
     <li><strong>Compare.</strong> If the hash equals what's in memory, there's nothing to do. If it equals the fallback's revision, the content the build shipped with is current: the loader uses it and never downloads it. This is the common case right after a deploy: the content module's revision is the CLI's copy of the same hash. A loader you write with its own revision scheme is downloaded once.</li>
-    <li><strong>Fetch and swap.</strong> Otherwise it fetches that revision, checks that the content hashes to it, and swaps it in whole. The API answers only with releases whose content fits the schema the build shipped with (see <a href="#releases--publishing">Publishing</a>), so content never gets ahead of code. Requests in flight keep the revision they started with.</li>
+    <li><strong>Fetch and swap.</strong> Otherwise it fetches that revision, checks that the content hashes to it, and swaps it in whole. Whether that content fits this build was settled before it merged, not here (see <a href="#schema--keep-the-schema-compatible">Keep the schema compatible</a>). Requests in flight keep the revision they started with.</li>
     <li><strong>Fail quietly.</strong> Any network or validation error leaves memory as it was, so a server that loses the API keeps serving the newest release it has. Nothing reaches a request.</li>
   </ol>
   <p>So different servers can briefly serve different releases, by design. A published change reaches each server on its next check, within about a minute (or at once on the one server where you call <code>cms.update()</code>), and each server sends one tiny request per interval, however much traffic it serves. (This is called eventual consistency.)</p>
@@ -1729,7 +1809,7 @@ bun run test      # vitest, per package</code></pre>
   <p class="small muted">Top: four route paths. Below: the trie built from them. Quoted words are literal segments, <code>:slug</code> is a parameter, and [Brackets] mark the entry stored at that node.</p>
   <ol>
     <li><strong>Build, once per list.</strong> Every path is split on <code>/</code> and inserted segment by segment. A literal segment becomes a named child; a <code>:param</code> segment becomes the node's single parameter child. The entry is stored at the leaf. Cost is the total number of segments, and the result is cached in a <code>WeakMap</code> keyed by the array you passed, so the second call with the same array skips this entirely. A new array rebuilds the trie, which is one pass over the paths.</li>
-    <li><strong>Reject ambiguity while building.</strong> Two entries reaching the same leaf, or two parameter children under one node (<code>/:slug/p</code> and <code>/:id/p</code> have the same shape, so every URL that matches one matches the other), throw with both names in the message. The CLI runs the same build at schema time, so running <code>deco schema</code> in CI on every commit, including Studio's, catches it before it ships.</li>
+    <li><strong>Reject ambiguity while building.</strong> Two entries reaching the same leaf, or two parameter children under one node (<code>/:slug/p</code> and <code>/:id/p</code> have the same shape, so every URL that matches one matches the other), throw with both names in the message. The CLI runs the same build at schema time, so <code>deco schema</code> in CI reports it: a pull request check catches it before merge, and a check on pushes to the production branch reports a Studio commit that went straight there, after it's live (see <a href="#schema--keep-the-schema-compatible">Keep the schema compatible</a>).</li>
     <li><strong>Match, one segment at a time.</strong> Walk the URL's segments from the root. At each node try the literal child first, then the parameter child. If a branch dead-ends, go back up and try the parameter child you skipped. Each node has at most one literal match and one parameter, so a lookup visits about as many nodes as the URL has segments, however many entries exist.</li>
     <li><strong>Precedence falls out of the walk order.</strong> Trying the literal child before the parameter child at every node is exactly "exact paths win over templates", per segment rather than per path: <code>/blog/archive</code> beats <code>/blog/:slug</code> for <code>/blog/archive</code>, and <code>/blog/:slug</code> still serves <code>/blog/hello-world</code>. No sorting, no regex.</li>
     <li><strong>Redirects are a second trie</strong>, checked first, with the same rules. A hit fills the parameters into the redirect's <code>to</code> path and returns <code>{ kind: "redirect", location, status }</code>.</li>
@@ -1801,7 +1881,8 @@ bun run test      # vitest, per package</code></pre>
       <tr><td><strong>Short type names; aliases for the old file-path names.</strong></td><td>A type name is a column name, not a file path. Content saved under the previous framework's names, like <code>website/pages/Page.tsx</code>, keeps working through aliases, while new code uses names that survive a refactor.</td></tr>
       <tr><td><strong>Packages export TypeScript source and depend on each other in one direction.</strong></td><td>Bundling one package into another can leave two copies of a module that must be one, like the block registry. Importing source keeps one copy, and the one-way graph keeps the core free of framework code. Instances also live on <code>globalThis</code>, so a module loaded twice still shares one cache and one poller.</td></tr>
       <tr><td><strong>The SDK never touches the filesystem.</strong></td><td>One setup for every runtime: Node, Workers, Deno, Bun, React Native and browsers. The CLI turns files into a module, and your framework's hot module replacement gives hot reload.</td></tr>
-      <tr><td><strong>Two CLI commands, no dev wrapper.</strong></td><td><code>deco schema</code> and <code>deco content</code> each do one job, run from <code>predev</code> and <code>prebuild</code>, and take <code>--watch</code>.</td></tr>
+      <tr><td><strong>Two CLI commands, no dev wrapper.</strong></td><td><code>deco schema</code> and <code>deco content</code> each do one job and run from <code>predev</code> and <code>prebuild</code>. Both take <code>--root</code> and <code>--watch</code>; <code>deco schema</code> also takes <code>--entry</code>, for a block map outside the default locations, and <code>--check</code>, for CI.</td></tr>
+      <tr><td><strong>Compatibility is a CI check, not a runtime gate.</strong></td><td>Publishing without a deploy exists so code that's already live can render new content; holding content back until a deploy would undo that. <code>deco schema --check</code> (planned) flags a code change that would break saved content before it merges, and Studio is meant to offer only what the deployed schema has.</td></tr>
       <tr><td><strong>Poll a hash once a minute, at idle moments; no push.</strong></td><td>A few bytes per server per minute, no infrastructure to reach every server, and never in front of rendering.</td></tr>
     </tbody>
   </table></div>
