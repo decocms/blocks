@@ -85,6 +85,16 @@ describe("getOptimizedMediaUrl", () => {
 		expect(result).toContain("fit=cover");
 		expect(result).toContain("src=https://cdn.example.com/foo.jpg");
 	});
+
+	it("strips the legacy decoims.com host so the CDN doesn't fetch itself (508)", () => {
+		const result = getOptimizedMediaUrl({
+			originalSrc: "https://decoims.com/site/2026/09/banner.png",
+			width: 100,
+			fit: "cover",
+		});
+		expect(result).toContain("&src=site/2026/09/banner.png");
+		expect(result).not.toContain("src=https://decoims.com/");
+	});
 });
 
 describe("getSrcSet", () => {

@@ -7,6 +7,9 @@ import { forwardRef } from "react";
 
 const DECO_CACHE_URL = "https://assets.decocache.com/";
 const S3_URL = "https://deco-sites-assets.s3.sa-east-1.amazonaws.com/";
+// Legacy default image CDN (pre-#495). Decofiles are full of these URLs;
+// passing one as `src=` to any Deco CDN makes it fetch itself → 508 Loop Detected.
+const DECOIMS_URL = "https://decoims.com/";
 
 // -------------------------------------------------------------------------
 // Configurable CDN domain
@@ -169,7 +172,11 @@ export function getOptimizedMediaUrl(opts: OptimizationOptions): string {
 		return optimizeShopify(originalSrc, width, height);
 	}
 
-	let imageSource = originalSrc.replace(DECO_CACHE_URL, "").replace(S3_URL, "").split("?")[0];
+	let imageSource = originalSrc
+		.replace(DECO_CACHE_URL, "")
+		.replace(S3_URL, "")
+		.replace(DECOIMS_URL, "")
+		.split("?")[0];
 
 	// Already on the image CDN — strip the host so we don't proxy through ourselves.
 	const cdnPrefix = `https://${imageCdnDomain}/`;
