@@ -104,11 +104,11 @@ export default { experiments } satisfies Blocks;</code></pre></figure>
 }</code></pre></figure>
 
   <h3>4. Read the content from your code</h3>
-  <p>Create the CMS once, over the <code>.deco</code> directory and your block map. Ask it for a client, then fetch the entry by name. The client runs <code>experiments</code> on the saved inputs, so you get the same result as the direct call, with the same type:</p>
+  <p>Create the CMS once with your block map. It reads the <code>.deco</code> directory by default, so there's nothing else to configure (to change the directory or connect the hosted Deco CMS, see <a href="#releases--configuring-the-loader">Configuring the loader</a>). Ask it for a client, then fetch the entry by name. The client runs <code>experiments</code> on the saved inputs, so you get the same result as the direct call, with the same type:</p>
 <figure class="code-example"><figcaption>src/cms/cms.ts</figcaption><pre><code class="language-typescript">import { createCMS } from "@decocms/blocks";
 import blocks from "../../cms.index";
 
-export const cms = createCMS({ loader: "./.deco", blocks });</code></pre></figure>
+export const cms = createCMS({ blocks });</code></pre></figure>
 <figure class="code-example"><figcaption>checkout.ts</figcaption><pre><code class="language-typescript">import { cms } from "./src/cms/cms";
 
 const client = cms.forRelease();
@@ -572,7 +572,7 @@ export type Content = {
   <h3><code>createCMS(config)</code></h3>
   <p>Two levels. A <strong>CMS</strong> is a loader plus a block map, created once at module scope. It hands out <strong>clients</strong>, one per request, for the release or for a draft, and keeps content current. A client resolves and lists, and that's all. Both are cheap: content caches in the loader, and dynamically imported modules are cached by the runtime.</p>
 <pre class="code-block"><code class="language-typescript">function createCMS(config: {
-  loader:
+  loader?:                               // optional: defaults to "./.deco"
     | string                             // a content directory: localLoader(path)
     | { root?: string; token?: string }  // local content in root (default "./.deco"); with a token, remote releases over it
     | Loader;                            // anything else: bundled content, KV, your own
@@ -589,7 +589,7 @@ interface Client {
   resolve&lt;T = unknown&gt;(target: unknown, options?: { resolve?: boolean }): Promise&lt;Result&lt;T&gt;&gt;;   // resolve: false reads without running
   list&lt;T = Block&gt;(type: string, options?: ListOptions&lt;T&gt;): Promise&lt;Result&lt;T[]&gt;&gt;;
 }</code></pre>
-  <p>The <code>loader</code> option covers the common cases by shape. A path is the files in that directory. <code>{ token }</code> is releases from the Deco API with the files in <code>./.deco</code> as fallback, and <code>root</code> changes the directory. Leave <code>token</code> undefined and it's just the files, which is what makes one line work in development and production. Anything else is a <code>Loader</code> you built yourself. <strong>Create the CMS once, at module scope, and ask it for a client per request</strong>: <code>forRelease()</code> for visitors, <code>forDraft(pointer)</code> when the request carries one. Clients are free to make and hold nothing you'd want to share. Everything either does is a few lines over a loader, and the registry rule from <a href="#model">Blocks</a> is how it resolves; those internals aren't part of the public API.</p>
+  <p>The <code>loader</code> option covers the common cases by shape. Leave it out and the CMS reads the files in <code>./.deco</code>. A path is the files in that directory. <code>{ token }</code> is releases from the Deco API with the files in <code>./.deco</code> as fallback, and <code>root</code> changes the directory. Leave <code>token</code> undefined and it's just the files, which is what makes one line work in development and production. Anything else is a <code>Loader</code> you built yourself. <strong>Create the CMS once, at module scope, and ask it for a client per request</strong>: <code>forRelease()</code> for visitors, <code>forDraft(pointer)</code> when the request carries one. Clients are free to make and hold nothing you'd want to share. Everything either does is a few lines over a loader, and the registry rule from <a href="#model">Blocks</a> is how it resolves; those internals aren't part of the public API.</p>
 
   <h3>Loaders</h3>
   <p>One interface. <code>load()</code> with no argument is production; <code>load(pointer)</code> is a draft. <code>update()</code> checks for newer content.</p>
@@ -1131,6 +1131,24 @@ export default defineConfig({
     </tbody>
   </table></div>
   <p>Revisions are immutable: change any entry and the hash changes. A revision is a safe cache key everywhere.</p>
+
+  <h3>Configuring the loader</h3>
+  <p>Most apps never pass a loader: <code>createCMS</code> reads the <code>./.deco</code> directory by default. Pass an object to keep your content somewhere else, to connect the hosted Deco CMS, or both:</p>
+<figure class="code-example"><figcaption>src/cms/cms.ts</figcaption><pre><code class="language-typescript">// Default: the files in ./.deco
+createCMS({ blocks });
+
+// Content in another directory
+createCMS({ loader: { root: "./content/.deco" }, blocks });
+
+// Releases from the hosted Deco CMS, with the files in ./.deco as the fallback
+createCMS({ loader: { token: process.env.DECO_SITE_TOKEN }, blocks });
+
+// Both: hosted releases, with ./content/.deco as the fallback
+createCMS({
+  loader: { root: "./content/.deco", token: process.env.DECO_SITE_TOKEN },
+  blocks,
+});</code></pre></figure>
+  <p><code>token</code> is the site's API key for the Deco API. Keep it in an environment variable, never in the repository. When it's undefined, in development for example, the CMS reads the files only, so the same line works everywhere. For anything else, such as content bundled into a Workers build or your own store, pass a <code>Loader</code> (see <a href="#standalone">API reference</a>).</p>
 
   <h3>One revision per response</h3>
   <p>A client reads one revision for its lifetime: its first call loads, and every later <code>list</code> and <code>resolve</code> reuses that content, even concurrent ones. Two clients can see different revisions, so make one client per request and do everything the response needs through it.</p>
