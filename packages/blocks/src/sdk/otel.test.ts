@@ -506,11 +506,11 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
     expect(payload.resourceLogs[0].scopeLogs[0].logRecords[0].severityText).toBe("info");
   });
 
-  it("console.error(err) ships the error message, not \"{}\"", async () => {
+  async function shipConsoleError(...args: unknown[]): Promise<string> {
     const { impl, calls } = makeFetchSpy();
     const handler = {
       fetch: vi.fn(async () => {
-        console.error("[VTEX] PLP error:", new TypeError("boom"));
+        console.error(...args);
         return new Response("ok");
       }),
     };
@@ -531,9 +531,34 @@ describe("instrumentWorker — OTLP/HTTP error-log channel wiring", () => {
         scopeLogs: Array<{ logRecords: Array<{ body: { stringValue: string } }> }>;
       }>;
     };
-    const body = payload.resourceLogs[0].scopeLogs[0].logRecords[0].body.stringValue;
+    return payload.resourceLogs[0].scopeLogs[0].logRecords[0].body.stringValue;
+  }
+
+  it("console.error(err) ships message and stack, not \"{}\"", async () => {
+    const body = await shipConsoleError("[VTEX] PLP error:", new TypeError("boom"));
     expect(body).toContain("[VTEX] PLP error: TypeError: boom");
+    expect(body).toMatch(/TypeError: boom\n\s+at /); // stack frames shipped
     expect(body).not.toContain("{}");
+  });
+
+  it("keeps enumerable fields of an Error subclass", async () => {
+    const err = Object.assign(new Error("circuit open"), { host: "x.vtex.com", status: 503 });
+    const body = await shipConsoleError(err);
+    expect(body).toContain("Error: circuit open");
+    expect(body).toContain('{"host":"x.vtex.com","status":503}');
+  });
+
+  it("expands errors nested in objects and arrays", async () => {
+    const body = await shipConsoleError({ error: new Error("nested") }, [new RangeError("in array")]);
+    expect(body).toContain('"message":"nested"');
+    expect(body).toContain('"name":"RangeError","message":"in array"');
+    expect(body).not.toContain('{"error":{}}');
+  });
+
+  it("formats error-like values that are not instanceof Error", async () => {
+    const domLike = { name: "AbortError", message: "aborted", stack: "AbortError: aborted\n    at x" };
+    const body = await shipConsoleError(domLike);
+    expect(body).toBe("AbortError: aborted\n    at x");
   });
 
   it("otlpLogsEnabled=false disables the channel even when env is set", async () => {

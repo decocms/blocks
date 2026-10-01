@@ -652,6 +652,42 @@ function configureTracerStack(otlpAdapter: OtlpHttpTracer | null): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Error's `name`/`message`/`stack` are non-enumerable, so a plain
+ * `JSON.stringify(err)` ships `"{}"`. Duck-typed so DOMException and
+ * cross-realm errors are covered too.
+ */
+function isErrorLike(v: unknown): v is Error {
+  return v instanceof Error || (
+    typeof v === "object" && v !== null &&
+    typeof (v as Error).message === "string" &&
+    typeof (v as Error).name === "string" &&
+    "stack" in v
+  );
+}
+
+/** Expands nested errors (`{ error: err }`, `[err]`) instead of `{}`. */
+const errorReplacer = (_key: string, v: unknown) =>
+  isErrorLike(v) ? { ...(v as object), name: v.name, message: v.message, stack: v.stack } : v;
+
+/** Formats one `console.*` argument as a log-body fragment. */
+function formatConsoleArg(a: unknown): string {
+  if (typeof a === "string") return a;
+  try {
+    if (isErrorLike(a)) {
+      const head = a.stack ?? `${a.name}: ${a.message}`;
+      // Keep enumerable own fields (e.g. `status`, `host`) the old
+      // JSON.stringify path used to ship.
+      const { name: _n, message: _m, stack: _s, ...rest } = a as object as Record<string, unknown>;
+      const extra = JSON.stringify(rest, errorReplacer);
+      return extra === "{}" ? head : `${head} ${extra}`;
+    }
+    return JSON.stringify(a, errorReplacer);
+  } catch {
+    return String(a);
+  }
+}
+
+/**
  * Replaces `console.*` with thin shims that route every call through the
  * framework `logger`, which forwards to the configured adapter (direct-POST
  * OTLP when active). The original functions are saved on `BootState` so
@@ -684,14 +720,7 @@ function patchConsole(state: BootState): void {
     if (busy) return;
     busy = true;
     try {
-      const msg = args
-        .map((a) => {
-          if (typeof a === "string") return a;
-          // Error has no enumerable props — JSON.stringify would ship "{}".
-          if (a instanceof Error) return a.stack ?? `${a.name}: ${a.message}`;
-          try { return JSON.stringify(a); } catch { return String(a); }
-        })
-        .join(" ");
+      const msg = args.map(formatConsoleArg).join(" ");
       logger[level](msg);
     } finally {
       busy = false;
