@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decoVitePlugin, generateSchemaArgs } from "./plugin.js";
 
 /**
@@ -159,6 +159,8 @@ describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-pars
   it("still stubs meta.gen.json on the client", () => {
     const p = getPlugin();
     const importer = path.join(dir, "src", "setup.ts");
-    expect(p.resolveId.call({}, "../.deco/meta.gen.json", importer, { ssr: false })).toBe("\0stub:meta-gen");
+    expect(p.resolveId.call({}, "../.deco/meta.gen.json", importer, { ssr: false })).toBe(
+      "\0stub:meta-gen",
+    );
   });
 });
