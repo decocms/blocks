@@ -145,7 +145,7 @@
         <div class="section-head">
           <p class="kicker reveal">Built for stability</p>
           <h2 class="reveal" style="--d:60ms">Your site ships with its content. <span class="dim">Nothing stands between it and your visitors.</span></h2>
-          <p class="section-lede reveal" style="--d:120ms">Your pages, banners and settings are files in your own repository, and every deploy carries them alongside the code. The content your visitors see is already inside your site, even when you publish through the optional hosted Deco CMS.</p>
+          <p class="section-lede reveal" style="--d:120ms">Your pages, banners and settings are files in your own repository, and every deploy carries them alongside the code. Your site always has the content it needs at hand, so a page never waits on a content server.</p>
         </div>
         <div class="rely-grid">
           <div class="status win reveal" style="--d:160ms" role="group" aria-labelledby="status-title">
@@ -170,7 +170,7 @@
           <ul class="rely-points reveal" style="--d:200ms" role="list">
             <li>{{icon:check}}<span class="rp-body"><strong>No content servers to run</strong><span>No content database or content server to host, scale or keep online.</span></span></li>
             <li>{{icon:check}}<span class="rp-body"><strong>Fast on every page</strong><span>Every page is built from content your site already holds, so it loads as fast as your own code.</span></span></li>
-            <li>{{icon:check}}<span class="rp-body"><strong>Stable by design</strong><span>Your site depends on no other service to show its content. Every deploy carries a tested copy of it, so what visitors see is always a version you shipped.</span></span></li>
+            <li>{{icon:check}}<span class="rp-body"><strong>Stable by design</strong><span>Your site depends on no other service to show its content. Every deploy carries a tested copy of it as the fallback, so what visitors see is always a version you shipped or published.</span></span></li>
           </ul>
           <a class="text-link dev-link reveal" href="#loader-internals"><span class="dev-k">For developers:</span> how content <span class="dl-end">loads{{icon:arrow-right}}</span></a>
         </div>
@@ -300,7 +300,7 @@ export const cms = createCMS({
       </div>
       <div class="hood-right">
         <div class="hood-links reveal" style="--d:120ms">
-          <a href="#model"><span class="hl-body"><strong>Nothing to export</strong><span>Content is plain, documented files you already hold: open them in any editor, search them, or generate them with a script.</span><span class="hl-k">Read: The content format</span></span>{{icon:arrow-right}}</a>
+          <a href="#model"><span class="hl-body"><strong>Nothing to export</strong><span>Content is plain, documented files you already hold: open them in any editor, search them, or generate them with a script.</span><span class="hl-k">Read: Blocks</span></span>{{icon:arrow-right}}</a>
           <a href="#walkthrough"><span class="hl-body"><strong>Small enough to read</strong><span>Content is plain files and features are ordinary code, so any developer or AI agent can follow how a page is made, with the tools they already use.</span><span class="hl-k">Read: How resolution works</span></span>{{icon:arrow-right}}</a>
           <a href="#content"><span class="hl-body"><strong>Swap any piece</strong><span>Where content comes from is one small part you can swap: files in your repository, the hosted Deco CMS, or your own storage. Nothing else in your site changes.</span><span class="hl-k">Read: Content &amp; loaders</span></span>{{icon:arrow-right}}</a>
           <a href="#decisions"><span class="hl-body"><strong>Openly documented</strong><span>How each part works, and why it was built that way, is written down in these docs, and the source is public on GitHub.</span><span class="hl-k">Read: Design decisions</span></span>{{icon:arrow-right}}</a>

@@ -523,7 +523,7 @@
     {
       "id": "roadmap-studio-legacy--drop-hidden-array-items-instead-of-leaving-holes",
       "title": "Drop hidden array items instead of leaving holes",
-      "today": "Studio hides a banner or link by wrapping it in <code>website/flags/multivariate.ts</code> with a <code>never</code> rule (array-item-hidden.ts:35-40). Today's resolver drops <code>undefined</code> array items (resolve.ts:849-860). The proposed API's rule and <code>resolve(page.sections)</code> ('one result per section') keep them, so components receive <code>undefined</code> entries.",
+      "today": "Studio hides a banner or link by wrapping it in <code>website/flags/multivariate.ts</code> with a <code>never</code> rule (array-item-hidden.ts:35-40). Today's resolver drops <code>undefined</code> array items (resolve.ts:849-860). The proposed API's rule and <code>resolve(page.sections)</code> ('An array of results, one per section') keep them, so components receive <code>undefined</code> entries.",
       "features": [
         "matchers-and-variants"
       ],
@@ -1857,7 +1857,7 @@
     {
       "id": "content-model",
       "title": "Content model",
-      "description": "How content is shaped: block types, named or global blocks, collections, props, rich text, editor widgets, drift and targeting rules."
+      "description": "How content is shaped: block types, saved entries (named or global), collections, props, rich text, editor widgets, drift and targeting rules."
     },
     {
       "id": "sections",
@@ -2319,7 +2319,7 @@
       "sites": [
         "blog-tanstack"
       ],
-      "summary": "Reading posts with `resolve: true` turns every body block into UNKNOWN_BLOCK and fails the post; registering the types as functions loses the TOC's raw input. Rendering the stored blocks from a site-owned map works.",
+      "summary": "Listing posts with `run: true`, or resolving one, turns every body block into UNKNOWN_BLOCK and fails the post; registering the types as functions loses the TOC's raw input. Rendering the stored blocks from a site-owned map works.",
       "docs": [
         "model",
         "standalone"
