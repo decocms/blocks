@@ -160,7 +160,7 @@
     return btn;
   }
   const langBadge = label => { const lang = document.createElement('span'); lang.className = 'code-lang'; lang.textContent = label; lang.setAttribute('aria-hidden', 'true'); return lang; };
-  // "src/cms/cms.ts" is a path; "A plain request handler" describes the block; "cms.index.tsx
+  // "cms.ts" is a path; "A plain request handler" describes the block; "blocks.tsx
   // (Next.js)" and ".deco/schema.json, abridged" are a path with a note.
   const PATH = /^([^\s,]*\/[^\s,]*|[^\s,]+\.[a-z]\w*)(?=$|[\s,])/i;
   $$('pre').forEach(pre => {
@@ -864,7 +864,7 @@
         'The saved entry. Its product input names CurrentProduct, another saved entry.',
         'Look up CurrentProduct: data. The reference is replaced with the entry, and the rule runs again on the result.',
         'Look up catalog-product: function. Its inputs contain no blocks, so it runs, and the product data takes its place.',
-        'Look up product-card: function. Its inputs are resolved, so it runs. get returns the result untouched.',
+        'Look up product-card: function. Its inputs are resolved, so it runs. resolve returns the result untouched.',
       ],
       get: [
         'The saved entry. Its product input names CurrentProduct, another saved entry.',

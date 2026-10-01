@@ -54,7 +54,7 @@
 
           <div class="jp jp-call">
             <div class="jp-head"><span class="jp-step">04</span><span class="jp-title">Resolve it</span><span class="jp-meta">checkout.ts</span></div>
-<pre class="jp-pre has-ln"><code><span class="l"><span class="tk-k">import</span> { createCMS } <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;@decocms/blocks&quot;</span>;</span><span class="l"><span class="tk-k">import</span> experiments <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;./experiments&quot;</span>;</span><span class="l"> </span><span class="l"><span class="tk-k">const</span> cms = <span class="tk-f">createCMS</span>({</span><span class="l">  blocks: { experiments },</span><span class="l">});</span><span class="l"><span class="tk-k">const</span> [enabled, error] = <span class="tk-k">await</span> cms</span><span class="l">  .<span class="tk-f">forRelease</span>()</span><span class="l">  .<span class="tk-f">resolve</span>(<span class="tk-s">&quot;Experiments&quot;</span>);</span><span class="l"><span class="tk-k">if</span> (error) <span class="tk-k">throw</span> error;</span><span class="l"><span class="tk-c">// true on ~<span id="exp-odds">25</span>% of calls</span></span></code></pre>
+<pre class="jp-pre has-ln"><code><span class="l"><span class="tk-k">import</span> { createCMS } <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;@decocms/blocks&quot;</span>;</span><span class="l"><span class="tk-k">import</span> experiments <span class="tk-k">from</span></span><span class="l">  <span class="tk-s">&quot;./experiments&quot;</span>;</span><span class="l"> </span><span class="l"><span class="tk-k">const</span> cms = <span class="tk-f">createCMS</span>({</span><span class="l">  blocks: { experiments },</span><span class="l">});</span><span class="l"><span class="tk-k">const</span> [flags, error] = <span class="tk-k">await</span> cms</span><span class="l">  .<span class="tk-f">forRelease</span>()</span><span class="l">  .<span class="tk-f">resolve</span>(<span class="tk-s">&quot;Experiments&quot;</span>);</span><span class="l"><span class="tk-k">if</span> (error) <span class="tk-k">throw</span> error;</span><span class="l"><span class="tk-c">// true on ~<span id="exp-odds">25</span>% of calls</span></span></code></pre>
             <div class="jp-foot">{{icon:check}}<span>Same result as the direct call, same type</span></div>
           </div>
         </div>
@@ -96,7 +96,7 @@
       <div class="contract-list reveal" style="--d:160ms">
         <div class="contract-item">
           <div class="ci-visual ci-code win" aria-hidden="true">
-            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title">cms.index.ts</span></div>
+            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title">blocks.ts</span></div>
 <pre class="mini-pre"><code><span class="sy-k">export default</span> {
   <span class="sy-p">experiments</span>,  <span class="sy-c">// a function</span>
   <span class="sy-p">hero</span>,         <span class="sy-c">// a section</span>
@@ -239,7 +239,7 @@
         </div>
         <div class="sw win reveal" style="--d:140ms">
           <div class="win-bar"><span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="win-title">Deco Blocks · my-store — setup</span></div>
-          <div class="sw-tabs" aria-hidden="true"><span class="sw-tab is-on" data-step="1">{{icon:file}}cms.index.ts</span><span class="sw-tab" data-step="2">{{icon:terminal}}Terminal</span><span class="sw-tab" data-step="3">{{icon:file}}src/cms/cms.ts</span></div>
+          <div class="sw-tabs" aria-hidden="true"><span class="sw-tab is-on" data-step="1">{{icon:file}}blocks.ts</span><span class="sw-tab" data-step="2">{{icon:terminal}}Terminal</span><span class="sw-tab" data-step="3">{{icon:file}}cms.ts</span></div>
           <div class="sw-panes">
             <div class="sw-pane is-on" id="step-pane-1" role="tabpanel" aria-labelledby="step-tab-1">
 <pre><code class="language-typescript">// experiments.ts: the function you already have
@@ -247,7 +247,7 @@ export default function experiments(input: Experiments) {
   return { newCheckout: roll(input.newCheckout), /* … */ };
 }
 
-// cms.index.ts: give it a name in a block map
+// blocks.ts: give it a name in a block map
 import type { Blocks } from "@decocms/blocks";
 import experiments from "./experiments";
 
@@ -255,7 +255,7 @@ export default { experiments } satisfies Blocks;</code></pre>
               <p class="sw-result">{{icon:check}}<span>The key <code>experiments</code> is now a block type content can refer to.</span></p>
             </div>
             <div class="sw-pane" id="step-pane-2" role="tabpanel" aria-labelledby="step-tab-2">
-              <div class="sw-term"><span class="sw-prompt" aria-hidden="true">$</span><span>npx deco schema --entry ./cms.index.ts --out ./.deco/schema.json</span></div>
+              <div class="sw-term"><span class="sw-prompt" aria-hidden="true">$</span><span>npx deco schema --entry ./blocks.ts --out ./.deco/schema.json</span></div>
               <div class="sw-form" aria-label="The form Studio builds from the schema">
                 <div class="swf-head">{{symbol}}<span>Experiments</span><span class="swf-type">experiments</span></div>
                 <div class="swf-row"><span>New checkout flow</span><span class="swf-num">10</span><span class="swf-range">0–100</span></div>
@@ -266,7 +266,7 @@ export default { experiments } satisfies Blocks;</code></pre>
             </div>
             <div class="sw-pane" id="step-pane-3" role="tabpanel" aria-labelledby="step-tab-3">
 <pre><code class="language-typescript">import { createCMS } from "@decocms/blocks";
-import blocks from "../../cms.index";
+import blocks from "./blocks";
 
 // Production (with a token) reads the hosted Deco CMS;
 // development reads the files in .deco.

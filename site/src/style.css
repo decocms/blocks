@@ -524,7 +524,7 @@ pre code { font: inherit; font-variant-ligatures: none; background: none; border
 .code-file { flex: 1; color: var(--fg); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-head.is-lang .code-file { font-family: var(--font-sans); font-size: 13px; font-weight: 400; letter-spacing: -.005em; text-transform: uppercase; color: var(--eyebrow); }
 /* A caption that describes the block rather than naming a file reads as text, not as a path;
-   a path with a note ("cms.index.tsx (Next.js)") keeps the path in mono and the note in text. */
+   a path with a note ("blocks.tsx (Next.js)") keeps the path in mono and the note in text. */
 .code-head.is-desc .code-file { font-family: var(--font-sans); font-size: 13.5px; letter-spacing: -.005em; }
 .code-file .cf-note { font-family: var(--font-sans); font-size: 13px; letter-spacing: -.005em; color: var(--muted-fg); }
 .code-lang { flex: none; height: 22px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 999px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--code-border); font: 400 11px/16px var(--font-sans); letter-spacing: .02em; color: var(--muted-fg); }
