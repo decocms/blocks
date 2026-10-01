@@ -102,6 +102,8 @@ export default { experiments } satisfies Blocks;</code></pre></figure>
   "stickyHeader": 50,
   "freeShippingBanner": 0
 }</code></pre></figure>
+<pre class="code-block"><code class="language-typescript">// Means
+experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 })</code></pre>
 
   <h3>4. Read the content from your code</h3>
   <p>Create the CMS once with your block map. It reads the <code>.deco</code> directory by default, so there's nothing else to configure (to read it from somewhere else, or connect the hosted Deco CMS, see <a href="#content--configuring-the-loader">Configuring the loader</a>). Ask it for a client, then fetch the entry by name. The client runs <code>experiments</code> on the saved inputs, so you get the same result as the direct call, with the same type:</p>
@@ -446,6 +448,15 @@ export default { always, never, date, multivariate, hero } satisfies Blocks;</co
     ]
   }
 }</code></pre></figure>
+<pre class="code-block"><code class="language-typescript">// Means
+hero({
+  title: multivariate({
+    variants: [
+      { rule: date({ start: "2026-11-20", end: "2026-11-30" }), value: "Black Friday starts now" },
+      { rule: always(), value: "New season, new arrivals" },
+    ],
+  }),
+})</code></pre>
   <p>Resolution does the rest: each rule runs and yields a boolean, <code>multivariate</code> runs with those booleans and yields a string, <code>hero</code> runs with a plain <code>title</code>. Nothing in <code>hero</code> knows a variant was involved. The same shape wraps a whole section, or a page's whole <code>sections</code> array, which is how Studio does page-level variants.</p>
 
   <h3>Write your own matcher</h3>
@@ -471,7 +482,10 @@ export const plan = ({ plan }: { plan: "free" | "pro" }) =&gt; session.current()
     { "rule": { "__resolveType": "always" }, "value": "DefaultHero" }
   ]
 }</code></pre>
-<pre class="code-block"><code class="language-typescript">const [name] = await client.resolve(section);   // "BlackFridayHero"
+<pre class="code-block"><code class="language-typescript">// section (the JSON above) means
+// multivariate({ variants: [{ rule: date({ … }), value: "BlackFridayHero" }, { rule: always(), value: "DefaultHero" }] })
+// The values are strings, not calls: only the rules and multivariate run.
+const [name] = await client.resolve(section);   // "BlackFridayHero"
 const [hero] = await client.resolve(name);      // only this variant ran</code></pre>
   <div class="callout warning"><p><strong>A variant is not access control.</strong> It chooses between values that are all fine to compute and show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</p></div>
   <p>Anything a matcher looks at is a cache dimension. If a page varies by <code>device</code>, the device belongs in the cache key.</p>
@@ -508,6 +522,14 @@ interface Redirect {
     { "__resolveType": "hero", "title": "Summer starts here", "image": "https://cdn.example.com/summer.jpg" }
   ]
 }</code></pre></figure>
+<pre class="code-block"><code class="language-typescript">// Means: page is a Content type, not a function, so the page stays data with calls inside
+{
+  __resolveType: "page",
+  name: "Summer campaign",
+  path: "/summer",
+  seo: seo({ title: "Sunny!", description: "Light layers for long days." }),   // SummerSEO, expanded
+  sections: [hero({ title: "Summer starts here", image: "https://cdn.example.com/summer.jpg" })],
+}</code></pre>
 <figure class="code-example"><figcaption>.deco/blocks/LegacySummer.json</figcaption><pre><code class="language-json">{
   "__resolveType": "redirect",
   "from": "/campaigns/summer",
@@ -615,6 +637,18 @@ export interface StoredPage extends Route {
     { "__resolveType": "product", "id": "related", "name": "Related shirt", "price": 39, "currency": "USD" }
   ]
 }</code></pre></figure>
+<pre class="code-block"><code class="language-typescript">// Means: page is a Content type, not a function, so the page stays data with calls inside
+{
+  __resolveType: "page",
+  name: "Product page",
+  path: "/:slug/p",
+  seo: seo({ title: "Summer shirt | Deco example", description: "A small example of independently resolved fields." }),
+  sections: [
+    product({ id: "details", name: "Summer shirt", price: 49, currency: "USD" }),
+    product({ id: "related", name: "Related shirt", price: 39, currency: "USD" }),
+  ],
+}
+// product is whatever each guide's block map registers: JSX in Next.js and TanStack RSC, a descriptor in data mode</code></pre>
 <figure class="code-example"><figcaption>.deco/blocks/LegacyProduct.json</figcaption><pre><code class="language-json">{
   "__resolveType": "redirect",
   "from": "/old-products/:slug",
@@ -727,9 +761,9 @@ formatDraftPointer({ host: "studio.decocms.com", path: "/api/acme/decofile/store
   <div class="table-wrap"><table>
     <thead><tr><th>Call</th><th>Returns</th></tr></thead>
     <tbody>
-      <tr><td><code>resolve("SummerSEO")</code></td><td>The result of running the entry's function</td></tr>
+      <tr><td><code>resolve("SummerSEO")</code></td><td>The result of running the entry's function: for <code>SummerSEO</code>, <code>seo({ title: "Sunny!", description: "Light layers for long days." })</code></td></tr>
       <tr><td><code>resolve("SummerSEO", { resolve: false })</code></td><td>The saved entry, with references expanded and nothing run</td></tr>
-      <tr><td><code>resolve({ __resolveType: "seo", title: "Sale" })</code></td><td>The result for an inline block</td></tr>
+      <tr><td><code>resolve({ __resolveType: "seo", title: "Sale" })</code></td><td>The result for an inline block: <code>seo({ title: "Sale" })</code></td></tr>
       <tr><td><code>resolve(page.sections)</code></td><td>An array of results, one per section</td></tr>
       <tr><td><code>resolve({ title: "Store" })</code></td><td>The same object: it contains no blocks</td></tr>
     </tbody>
@@ -1332,7 +1366,7 @@ bun run test      # vitest, per package</code></pre>
   "product": { "__resolveType": "CurrentProduct" }
 }</code></pre><p class="trace-caption" id="trace-caption" aria-live="polite">The saved entry. Its product input names CurrentProduct, another saved entry.</p><div class="explorer-footer"><span class="trace-stat" id="trace-stat">0 function calls</span><button class="primary-button" id="trace-next">Next step →</button></div></div>
   </div>
-  <p class="small muted"><code>CurrentProduct</code> is a saved <code>catalog-product</code> block, so looking it up is a data hit followed by a function hit. A descriptor names a view for the browser to render. A React tree is consumed by an RSC-capable framework. Either way, the CMS returns it untouched.</p>
+  <p class="small muted"><code>CurrentProduct</code> is a saved <code>catalog-product</code> block, so looking it up is a data hit followed by a function hit. Once <code>CurrentProduct</code> expands, the stored entry means <code>productCard({ title: "Summer collection", product: catalogProduct({ slug: "summer-shirt" }) })</code>. A descriptor names a view for the browser to render. A React tree is consumed by an RSC-capable framework. Either way, the CMS returns it untouched.</p>
 </section>
 
 <section id="loader-internals" data-nav="Loader internals" class="doc-section" aria-labelledby="loader-internals-title">
