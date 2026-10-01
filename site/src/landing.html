@@ -144,8 +144,8 @@
       <div class="prod rely">
         <svg class="cobogo cobogo-right" aria-hidden="true" focusable="false"><rect class="cb-lg" width="100%" height="100%" fill="url(#cb-lg)"/><rect class="cb-sm" width="100%" height="100%" fill="url(#cb-sm)"/></svg>
         <div class="section-head">
-          <p class="kicker reveal">Nothing extra to run</p>
-          <h2 class="reveal" style="--d:60ms">Your site ships with its content. <span class="dim">If the hosted CMS fails, your site doesn't.</span></h2>
+          <p class="kicker reveal">Built for stability</p>
+          <h2 class="reveal" style="--d:60ms">Your site ships with its content. <span class="dim">Nothing stands between it and your visitors.</span></h2>
           <p class="section-lede reveal" style="--d:120ms">Your pages, banners and settings are files in your own repository, and every deploy carries them alongside the code. The content your visitors see is already inside your site, even when you publish through the optional hosted Deco CMS.</p>
         </div>
         <div class="rely-grid">
@@ -162,22 +162,18 @@
                 <p class="pkg-cap">Packed together, tested together.</p>
               </div>
               <ul class="st-rows" role="list">
-                <li><span class="st-k">Your site</span><span class="st-pill is-serving"><i aria-hidden="true"></i>Serving</span></li>
-                <li><span class="st-k">Hosted Deco CMS</span><span class="st-pill is-cms" aria-live="polite"><i aria-hidden="true"></i><span class="st-down">Unreachable</span><span class="st-up">Connected</span></span></li>
-                <li><span class="st-k">Visitors</span><span class="st-pill is-ok">{{icon:check}}No errors</span></li>
+                <li><span class="st-k">Your site</span><span class="st-pill is-serving"><i aria-hidden="true"></i>Online</span></li>
+                <li><span class="st-k">Content</span><span class="st-pill is-ok">{{icon:check}}Inside this deploy</span></li>
+                <li><span class="st-k">Page loads</span><span class="st-pill is-ok">{{icon:check}}No extra round trip</span></li>
               </ul>
-            </div>
-            <div class="st-bar">
-              <p class="st-foot" aria-live="polite"><span class="st-down">New changes go live once it's back.</span><span class="st-up">Publishing works as usual.</span></p>
-              <label class="st-switch"><input type="checkbox" checked><span>Simulate a CMS outage</span></label>
             </div>
           </div>
           <ul class="rely-points reveal" style="--d:200ms" role="list">
             <li>{{icon:check}}<span class="rp-body"><strong>No content servers to run</strong><span>No content database or content server to host, scale or keep online.</span></span></li>
-            <li>{{icon:check}}<span class="rp-body"><strong>Never slowed by the CMS</strong><span>Every page your visitors see is built from content your site already holds, so a slow CMS can't slow your site down.</span></span></li>
-            <li>{{icon:check}}<span class="rp-body"><strong>Stays up through outages</strong><span>If the hosted Deco CMS can't be reached, your site keeps serving the content it already has, with no error pages. A server that starts during the outage uses the content from your last deploy; new changes go live once the CMS is back.</span></span></li>
+            <li>{{icon:check}}<span class="rp-body"><strong>Fast on every page</strong><span>Every page is built from content your site already holds, so it loads as fast as your own code.</span></span></li>
+            <li>{{icon:check}}<span class="rp-body"><strong>Stable by design</strong><span>Your site depends on no other service to show its content. Every deploy carries a tested copy of it, so what visitors see is always a version you shipped.</span></span></li>
           </ul>
-          <a class="text-link dev-link reveal" href="#loader-internals"><span class="dev-k">For developers:</span> how content loads and <span class="dl-end">falls back{{icon:arrow-right}}</span></a>
+          <a class="text-link dev-link reveal" href="#loader-internals"><span class="dev-k">For developers:</span> how content <span class="dl-end">loads{{icon:arrow-right}}</span></a>
         </div>
       </div>
     </div>
@@ -187,8 +183,8 @@
     <div class="container section">
       <div class="section-head">
         <p class="kicker reveal">Hosted Deco CMS · optional</p>
-        <h2 class="reveal" style="--d:60ms">Publish in minutes, <span class="dim">not on the next deploy.</span></h2>
-        <p class="section-lede reveal" style="--d:120ms">The hosted Deco CMS adds Deco Studio, the visual editor, and publishing without a redeploy: each change reaches every visitor within about five minutes, and editors preview drafts on your real pages first. Without it, developers and agents edit the files, and content goes live with your next deploy.</p>
+        <h2 class="reveal" style="--d:60ms">Publish in seconds, <span class="dim">not on the next deploy.</span></h2>
+        <p class="section-lede reveal" style="--d:120ms">The hosted Deco CMS adds Deco Studio, the visual editor, and publishing without a redeploy: each change reaches every visitor in seconds, and editors preview drafts on your real pages first. Without it, developers and agents edit the files, and content goes live with your next deploy.</p>
       </div>
       <div class="pub win reveal" style="--d:160ms" aria-hidden="true">
         <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title">Publishing a change — store.example.com</span></div>
@@ -215,7 +211,7 @@
               <li class="is-skip is-merged">No build · no deploy</li>
               <li style="--c:6" class="is-live">Live everywhere</li>
             </ol>
-            <div class="pub-notes"><span class="pub-bracket is-skip">not needed</span><span class="pub-cap is-live">within about five minutes</span></div>
+            <div class="pub-notes"><span class="pub-bracket is-skip">not needed</span><span class="pub-cap is-live">in seconds</span></div>
           </div>
         </div>
       </div>
@@ -279,7 +275,7 @@ export const cms = createCMS({
   loader: { token: process.env.DECO_SITE_TOKEN },
   blocks,
 });</code></pre>
-              <p class="sw-result">{{icon:check}}<span>With the hosted Deco CMS (the token above), a commit is live everywhere within about five minutes, no deploy. Without it, content ships with each deploy.</span></p>
+              <p class="sw-result">{{icon:check}}<span>With the hosted Deco CMS (the token above), a commit is live everywhere in seconds, no deploy. Without it, content ships with each deploy.</span></p>
             </div>
           </div>
         </div>
