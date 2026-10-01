@@ -657,10 +657,10 @@
       "pinned": false
     },
     {
-      "id": "roadmap-api--build-studio-forms-only-from-the-deployed-schema",
+      "id": "roadmap-api--let-studio-follow-the-deployed-schema",
       "group": "api",
-      "title": "Build Studio forms only from the deployed schema",
-      "plan": "<p>Publishing without a deploy relies on editors only using block types and fields the deployed code has. Studio must build its forms from the schema the deployed site serves at <code>/live/_meta</code>, never from the schema file committed in the repository, which changes as soon as a code change merges and before it's deployed. Until then, an editor can add a block type the live code lacks, and it fails with <code>UNKNOWN_BLOCK</code>. Update <a href=\"#schema\">Schema generation</a> once it ships.</p>",
+      "title": "Let Studio follow the deployed schema",
+      "plan": "<p>Studio builds its forms from whichever schema the user points it at, usually the one on the main branch. An option to follow the schema the deployed site serves at <code>/live/_meta</code> would keep editors from adding a block type before the code that defines it is live. Update <a href=\"#schema\">Schema generation</a> once it ships.</p>",
       "features": [
         "admin-protocol-endpoints",
         "content-schema-drift",
