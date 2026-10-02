@@ -80,7 +80,7 @@ export default {
 
 `seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/model#built-in-blocks), so they aren't listed here. The `Content` export overrides the page *schema* with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), a page whose `sections` is a plain list, so Studio only saves pages this guide's code can read, including the [streaming step](#7-stream-each-block-optional).
 
-`cms.ts` imports the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved entries). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
+`cms.ts` imports the [content module](/next/model#the-deco-content-command), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved entries). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
 
 ```ts title="src/cms.ts"
 import { createCMS } from "@decocms/blocks";
@@ -91,7 +91,7 @@ import blocks from "./blocks";
 export const cms = createCMS({ blocks, content });
 ```
 
-The content options are in [Configuring content](/next/content#configuring-content). Upstream caching comes from the [framework binding](/next/architecture#key-terms), which this guide doesn't use yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
+The content options are in [Configuring content](/next/standalone#configuring-content). Upstream caching comes from the [framework binding](/next/architecture#key-terms), which this guide doesn't use yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
 
 ```ts title="src/client.server.ts"
 import "server-only";
@@ -120,7 +120,7 @@ Two CLI commands generate the files the app and Studio need (see [CLI reference]
 }
 ```
 
-Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts`. What reloads on its own is in [The content module](/next/content#the-content-module); while you work, you can leave `deco content --watch` running beside `next dev`.
+Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts`. What reloads on its own is in [The `deco content` command](/next/model#the-deco-content-command); while you work, you can leave `deco content --watch` running beside `next dev`.
 
 ## 4. Match the URL to a page
 

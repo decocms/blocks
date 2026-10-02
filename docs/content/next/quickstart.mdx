@@ -112,7 +112,7 @@ Both routes produce the same file in `.deco/blocks`, which is where the CLI look
 experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
 ```
 
-The file is a saved entry: one named piece of content that code, or other content, can refer to. Its file name without `.json` is its name (see [Your content in Git](/next/content)). `__resolveType` is a reserved key (the underscores keep it from clashing with your fields) that names the function to call by its block type. The other keys are that function's inputs.
+The file is a saved entry: one named piece of content that code, or other content, can refer to. Its file name without `.json` is its name (see [Blocks in your repository](/next/model#blocks-in-your-repository)). `__resolveType` is a reserved key (the underscores keep it from clashing with your fields) that names the function to call by its block type. The other keys are that function's inputs.
 
 Two names are in play, on purpose: `experiments` is the block type and names a function, and `Experiments` is the entry name and names this one piece of saved content. You could save several entries that call `experiments`, such as `HolidayExperiments`. Names are case-sensitive, so they don't clash.
 
@@ -124,7 +124,7 @@ The SDK never reads files itself, so it runs the same way in any JavaScript runt
 npx deco content
 ```
 
-It writes `.deco/blocks.gen.ts`, which imports each JSON file in `.deco/blocks` separately and exports a **snapshot**, `{ revision, blocks }`: one fixed copy of all your saved entries, plus its revision, an ID the CLI computes from their contents. The file is generated, so add it to `.gitignore`, as you would TanStack Router's `routeTree.gen.ts`. For this guide, running `npx deco content` once is enough. Rerun it when you add or remove a file in `.deco/blocks`; editing an existing file needs no rerun. In an app with dev and build scripts, add the two commands to `package.json` so they run first (see [The content module](/next/content#the-content-module)):
+It writes `.deco/blocks.gen.ts`, which imports each JSON file in `.deco/blocks` separately and exports a **snapshot**, `{ revision, blocks }`: one fixed copy of all your saved entries, plus its revision, an ID the CLI computes from their contents. The file is generated, so add it to `.gitignore`, as you would TanStack Router's `routeTree.gen.ts`. For this guide, running `npx deco content` once is enough. Rerun it when you add or remove a file in `.deco/blocks`; editing an existing file needs no rerun. In an app with dev and build scripts, add the two commands to `package.json` so they run first (see [The `deco content` command](/next/model#the-deco-content-command)):
 
 ```json
 "predev": "deco schema && deco content",
@@ -169,8 +169,7 @@ The function didn't change, but its inputs now live in a file that editors chang
 
 ## Next steps
 
-- [Blocks](/next/model): how blocks nest and refer to each other, which is how a page is built from a list of blocks.
-- [Your content in Git](/next/content): where your saved entries live, how your app reads them, and how a change goes live.
+- [Blocks](/next/model): blocks as function calls in JSON, how they compose and get reused, and how saved blocks live in your repository and go live.
 - [Schema generation](/next/schema): how your types become editor forms, and the JSDoc tags that shape them.
 - [Preview](/next/preview): see a content change in your real pages before it ships.
 - [Block maps](/next/manifest), when you need more: lazy loading and naming types.

@@ -495,10 +495,10 @@ const HOOD_LINKS: { href: string; title: string; text: string; read: string }[] 
     read: 'Read: How resolution works',
   },
   {
-    href: '/next/content',
+    href: '/next/model#blocks-in-your-repository',
     title: 'Publish by committing',
     text: 'Every change is a commit in your repository, with its history and a one-step revert. Add the hosted Deco CMS and a published commit reaches visitors in seconds, with no redeploy.',
-    read: 'Read: Your content in Git',
+    read: 'Read: Blocks in your repository',
   },
   {
     href: '/next/decisions',

@@ -40,7 +40,7 @@ You write functions with typed inputs, for example a hero block that takes a tit
   <FlowNode title="Your app">Next.js, TanStack Start, or any server</FlowNode>
 </Flow>
 
-At request time, your app asks the SDK for a piece of saved content by name. The SDK reads it from your content: the content module that `deco content` generates from `.deco/blocks` (see [Your content in Git](/next/content)). If that content refers to other saved entries, the SDK expands them. Then it calls the matching function from your [block map](/next/quickstart) with the saved inputs and returns the result. How you render it is up to your framework. When you need more from the block map, such as lazy loading, see [Block maps](/next/manifest).
+At request time, your app asks the SDK for a piece of saved content by name. The SDK reads it from your content: the content module that `deco content` generates from `.deco/blocks` (see [Blocks in your repository](/next/model#blocks-in-your-repository)). If that content refers to other saved entries, the SDK expands them. Then it calls the matching function from your [block map](/next/quickstart) with the saved inputs and returns the result. How you render it is up to your framework. When you need more from the block map, such as lazy loading, see [Block maps](/next/manifest).
 
 The content module is part of your build, so content ships the way code does: you change a block's function, its saved inputs, or both, in commits, and your normal deploy takes them live. Each build serves exactly one version of your content. See [Releases and deployment](/next/releases).
 
@@ -54,8 +54,8 @@ These terms come up on every page. Each is explained again where it's first used
   <Term name="Block map">A plain object of your block functions, such as `{ experiments }`. `createCMS` adds the built-in blocks under it. See [Quickstart](/next/quickstart).</Term>
   <Term name="Block type">A key in the block map: the name content uses to call that function.</Term>
   <Term name="Built-in block">A block the framework adds to every block map: `page`, `redirect` and `telemetry`. See [Built-in blocks](/next/model#built-in-blocks).</Term>
-  <Term name="Saved entry">A piece of saved JSON stored under a name: one file in `.deco/blocks`, whose file name is the entry name. It's versioned in Git like your code. See [Your content in Git](/next/content).</Term>
-  <Term name="Content module">`.deco/blocks.gen.ts`, the file `deco content` generates from `.deco/blocks`. It imports each JSON file and exports a snapshot, `{ revision, blocks }`: one fixed copy of all your saved entries. See [Your content in Git](/next/content).</Term>
+  <Term name="Saved entry">Also called a saved block. A piece of saved JSON stored under a name: one file in `.deco/blocks`, whose file name is the entry name. It's versioned in Git like your code. See [Blocks in your repository](/next/model#blocks-in-your-repository).</Term>
+  <Term name="Content module">`.deco/blocks.gen.ts`, the file `deco content` generates from `.deco/blocks`. It imports each JSON file and exports a snapshot, `{ revision, blocks }`: one fixed copy of all your saved entries. See [The `deco content` command](/next/model#the-deco-content-command).</Term>
   <Term name="Client">The object you read content with, one per request: `cms.forRelease()` for visitors, `cms.forDraft(pointer)` for a draft from a content source that has drafts, such as [hosted drafts](/next/hosted-drafts). It has two methods, `list` and `resolve`. See [Quickstart](/next/quickstart).</Term>
   <Term name="Release">The content your app serves to visitors: with the content module, the content of the deployed commit. A release never changes, and its revision identifies it. See [Releases and deployment](/next/releases).</Term>
   <Term name="Draft">Content changes not yet on your production branch, kept on a branch. See [Preview](/next/preview).</Term>
@@ -97,4 +97,4 @@ Deco Blocks stays out of your way:
 - **Block functions are plain functions.** No framework plugin, no base classes, no magic directories. The block map is a plain object, and you can call any block function directly in a test.
 - **Data fetching is your code.** The framework doesn't fetch data. Third-party APIs are called through thin [upstream clients](/next/clients), which time every request the same way.
 - **The schema is a file.** Commit it, inspect it, or generate it another way. Studio builds its forms from that JSON alone, and edits your content files without running your code.
-- **Nothing is hidden.** If the SDK doesn't do what you need, read the content yourself: the block format is documented in [Blocks](/next/model), and the files and the content map in [Your content in Git](/next/content).
+- **Nothing is hidden.** If the SDK doesn't do what you need, read the content yourself: the block format is documented in [Blocks](/next/model), and the content map in [Snapshots and revisions](/next/internals#snapshots-and-revisions).

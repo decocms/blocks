@@ -1355,8 +1355,7 @@
       "docs": [
         "studio-protocol",
         "studio",
-        "schema",
-        "content"
+        "schema"
       ],
       "pinned": false
     },

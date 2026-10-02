@@ -40,13 +40,17 @@ interface Client {
 }
 ```
 
-`content` takes the content module or a `Loader` (see [Configuring content](/next/content#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `site` and `token` connect the hosted Deco CMS and do nothing on their own: with either of them unset, the CMS reads `content` only and sends nothing anywhere. The [rule from Blocks](/next/model#the-rule) is how a client resolves.
+`content` takes the content module or a `Loader` (see [Configuring content](#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `site` and `token` connect the hosted Deco CMS and do nothing on their own: with either of them unset, the CMS reads `content` only and sends nothing anywhere. The [rule from Blocks](/next/model#the-lookup-rule) is how a client resolves.
 
 <Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Hosted options.** With `site` and `token` set, the CMS serves releases published without a deploy, loads drafts for `forDraft`, and sends sampled telemetry.</Hosted>
 
+### Configuring content
+
+`content` is the content module, `.deco/blocks.gen.ts`, in almost every app (see [The `deco content` command](/next/model#the-deco-content-command)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
+
 ## Loaders
 
-One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module (see [Configuring content](/next/content#configuring-content)). Here a loader is a source of content; it isn't Studio's "loaders" or a router's route loader.
+One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module (see [Configuring content](#configuring-content)). Here a loader is a source of content; it isn't Studio's "loaders" or a router's route loader.
 
 ```ts
 interface Loader {
@@ -120,7 +124,7 @@ formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=â€
 
 ## `client.resolve(target, options?)`
 
-Loads the content once and applies the [registry rule](/next/model#the-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/model#built-in-blocks) are always defined.
+Loads the content once and applies the [registry rule](/next/model#the-lookup-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/model#built-in-blocks) are always defined.
 
 | Call | Returns |
 |---|---|
@@ -155,7 +159,7 @@ const [posts] = await client.list<Post>("post", {
 });
 ```
 
-Filters run in memory over the loaded content map, the cost of content arriving as the whole map at once (see [Your content in Git](/next/content#snapshots-and-revisions)). Sites with tens of thousands of entries of one type should keep an index elsewhere.
+Filters run in memory over the loaded content map, the cost of content arriving as the whole map at once (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). Sites with tens of thousands of entries of one type should keep an index elsewhere.
 
 ## `matchRoute(url, items)`
 
@@ -249,7 +253,7 @@ Client calls never throw: `resolve` and `list` return `[value, null]` or `[null,
 
 | Code | When |
 |---|---|
-| `NOT_FOUND` | A string target or a reference names an entry that doesn't exist. |
+| `NOT_FOUND` | A string target names no saved entry. |
 | `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map nor a saved entry. [Built-in blocks](/next/model#built-in-blocks) never cause it. |
 | `CYCLE` | References lead back to an entry that's already being expanded (see [The rule in full](/next/walkthrough#the-rule-in-full)). |
 | `BLOCK_FAILED` | A block function threw. The original error is in `cause`. |

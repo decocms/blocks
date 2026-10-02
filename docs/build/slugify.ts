@@ -1,6 +1,6 @@
 /**
  * Heading ids. Same algorithm as the old single-page site (its page script), so an old anchor such as
- * `#content--the-content-module` maps to `/next/content#the-content-module` by dropping the
+ * `#releases--publishing` maps to `/next/releases#publishing` by dropping the
  * `<section id>--` prefix.
  */
 export function slugify(text: string): string {

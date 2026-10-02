@@ -10,55 +10,48 @@ Most of what changes on a website isn't the code. It's the values the code is gi
 
 Blocks are how they make those decisions. A block is a small piece of JSON that names one of your functions and lists the inputs to call it with. Editors change the inputs in Studio, and agents edit the file directly. When your app resolves the block, Deco calls the function with whatever is saved and gives you back the result. This page shows what a block looks like, how blocks fit inside each other, and exactly how they turn into values.
 
-## Start from code you already write
+## Functions as blocks
 
-Here's the kind of code you write every day:
+A block is a function call written as JSON. `__resolveType` names the function, and the other properties are its arguments.
 
-```ts
-productCard({
-  title: "Summer collection",
-  product: catalogProduct({ slug: "summer-shirt" }),
-});
-```
+Here's the free-shipping bar at the top of a store, an ordinary React component:
 
-`ProductCard` is an ordinary React component: typed props in, JSX out. `productCard` is the function that calls it, the one your block map registers:
-
-```tsx title="product-card.tsx"
-export interface ProductCardProps {
+```tsx title="promo-banner.tsx"
+export interface PromoBannerProps {
   title: string;
-  product: { name: string; price: number; image: string; url: string };
+  href: string;
 }
 
-export function ProductCard({ title, product }: ProductCardProps) {
-  return (
-    <a href={product.url}>
-      <img src={product.image} alt={product.name} />
-      <h3>{title}</h3>
-      <p>{product.name} · ${product.price}</p>
-    </a>
-  );
+export function PromoBanner({ title, href }: PromoBannerProps) {
+  return <a href={href}>{title}</a>;
+}
+```
+
+And here's a block that calls it. `"promo-banner"` is the name your site gives `PromoBanner`; [Reusing blocks](#reusing-blocks) shows where names come from.
+
+```jsonc
+// Stored as JSON
+{
+  "__resolveType": "promo-banner",
+  "title": "Free shipping over $50",
+  "href": "/summer"
 }
 
-export const productCard = (input: ProductCardProps) => <ProductCard {...input} />;
+// Means
+PromoBanner({ title: "Free shipping over $50", href: "/summer" });
 ```
 
-That first snippet is function composition. The inner call runs first, and its result becomes an input to the outer one, so `productCard` receives product data, never a pending call. The functions are the developer's job. The composition is a decision: which product, which title, which function fetches the data. Written in code, changing that decision means editing code and deploying it.
+The function is code, and only developers change it. The call is plain JSON, so anyone can change it: editors through a form in Studio, and AI agents by editing the JSON directly. Changing the headline or the link touches no code. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings.
 
-Your site lists these functions in one object, exported from your blocks file:
+What a block can contain:
 
-```ts title="blocks.tsx"
-import type { Blocks } from "@decocms/blocks";
-import { productCard } from "./product-card";
-import { catalogProduct } from "./catalog-product";
+- **`__resolveType`**, a string: the name of the function to call. It's a reserved key; the underscores keep it from clashing with your props.
+- **Any JSON value as an argument**: strings, numbers, booleans, `null`, arrays and objects. Anything JSON can't hold, such as a function or a `Date`, can't be an argument.
+- **Other blocks**, anywhere inside an argument. That's the next section.
 
-export default { "product-card": productCard, "catalog-product": catalogProduct } satisfies Blocks;
-```
+## Composing blocks
 
-This object is your block map: it gives each function the name content uses to call it.
-
-## A block is that composition, stored as data
-
-Write the same composition as JSON and nobody has to edit code to change it. `__resolveType` names the function, the other properties are its inputs, and a block inside an input is a call inside a call. `"product-card"` and `"catalog-product"` are the names from your block map:
+A block inside an argument is a call inside a call. Here a product card gets its product from a second function, `catalogProduct`, which fetches it from your catalog:
 
 ```jsonc
 // Stored as JSON
@@ -72,16 +65,51 @@ Write the same composition as JSON and nobody has to edit code to change it. `__
 productCard({
   title: "Summer collection",
   product: catalogProduct({ slug: "summer-shirt" }),
-})
+});
 ```
 
-Now an editor can change the title or the slug in Studio, and an agent can even point `product` at a different function, and the composition changes without a code change. The functions are whatever your [block map](/next/manifest) registers, and each one's input type is what [`deco schema`](/next/schema), a CLI command, turns into the editor form. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.
+Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives a product, never a pending call. If a function is `async`, its result is awaited first.
 
-## Name a composition, reuse it
+To resolve a block from your code, pass it to `client.resolve`. `cms` is created once with `createCMS` (see [The `deco content` command](#the-deco-content-command)). `cms.forRelease()` gives you a client that reads your published content; create one per request so a response sees one consistent version:
 
-In code, you'd give a composition you use often a name and reuse it. Saved entries do that. Alongside the block map of functions, the CMS reads your saved entries, where each name holds a piece of saved JSON. `{ "__resolveType": "SummerSEO" }` means whatever is saved under the name `SummerSEO`, written in place. Your saved entries are the JSON files in `.deco/blocks`, one file per name; see [Your content in Git](/next/content).
+```tsx
+import { cms } from "./cms";
 
-Unlike a `const` that holds a result, what's named here is the call itself, inputs and all. That's why you can add inputs to a reference to override the saved entry's inputs for this one use:
+const client = cms.forRelease();
+const [card, error] = await client.resolve({
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": { "__resolveType": "catalog-product", "slug": "summer-shirt" },
+});
+// card = <ProductCard title="Summer collection" product={{ name: "Summer shirt", … }} />
+```
+
+`resolve` never throws: it returns `[value, null]`, or `[null, error]` if something failed. It accepts any JSON value, not only a block: blocks anywhere inside are resolved, and everything else comes back as it is. Pass an array of blocks and you get an array of results.
+
+<Callout>**Reading without running.** `client.resolve(target, { run: false })` returns the JSON that would be called, with nothing run. It's most useful with saved blocks ([next section](#reusing-blocks)), which it writes in place, and handy for previews, tooling and debugging. See [`client.resolve`](/next/standalone#client-resolve-target-options).</Callout>
+
+## Reusing blocks
+
+In code, you'd give a call you use often a name. A **saved block** is a block with a name (the rest of the docs also call it a saved entry). Here's the card from the previous section, saved as `SummerCard`:
+
+```jsonc
+// Saved as SummerCard
+{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "product": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
+}
+```
+
+Resolve it by name. A string passed to `resolve` is always the name of a saved block:
+
+```tsx
+const [card, error] = await client.resolve("SummerCard");
+```
+
+Other blocks can use it too. `{ "__resolveType": "SummerCard" }` means whatever is saved under `SummerCard`, written in place, so a home page and a campaign page can show the same card, and changing the saved block changes both.
+
+What's saved is the call, not its result, so a reference can override some of its arguments for one use:
 
 ```jsonc
 // Saved as SummerSEO
@@ -91,117 +119,97 @@ Unlike a `const` that holds a result, what's named here is the call itself, inpu
 { "__resolveType": "SummerSEO", "title": "Summer sale" }
 
 // Means
-seo({ title: "Summer sale", description: "Light layers for long days." })
+seo({ title: "Summer sale", description: "Light layers for long days." });
 ```
 
-- **Overrides are shallow.** The merge is `{ ...entry, ...inputs }`, so an override replaces the whole top-level property, and the saved entry itself doesn't change. The reference becomes one complete call.
-- **An entry doesn't have to be a block.** It can be any JSON that contains blocks: an object literal with calls inside. Resolving it calls each block inside and leaves the rest of the JSON as it is.
+Overrides are shallow. The merge is `{ ...saved, ...arguments }`, so an override replaces a whole top-level property, and the saved block itself doesn't change.
 
-## Resolving a composition
+### The block map
 
-Resolving a composition is evaluating it: saved entries expand, then calls run from the inside out. Here's the card from the top of the page, saved as `SummerCard`. Its `product` refers to a second saved entry, `CurrentProduct`:
+So far, names like `"product-card"` simply worked. They come from your **block map**: the object you pass to `createCMS` that decides which functions blocks can call. Each key is a name, each value a function:
 
-```jsonc
-// Saved as CurrentProduct
-{ "__resolveType": "catalog-product", "slug": "summer-shirt" }
-
-// Saved as SummerCard
-{
-  "__resolveType": "product-card",
-  "title": "Summer collection",
-  "product": { "__resolveType": "CurrentProduct" }
-}
-```
-
-`client` is the object you read content with; [Quickstart](/next/quickstart) shows how to create one. Its `resolve` method takes an entry name (a string is always an entry name) or any JSON value.
-
-**Step 1. Expand the entries.** `client.resolve("SummerCard")` first replaces each reference with its saved entry. `CurrentProduct` names a function, `catalog-product`, so expansion stops there:
-
-```jsonc
-{
-  "__resolveType": "product-card",
-  "title": "Summer collection",
-  "product": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
-}
-```
-
-**Step 2. Run the calls, inside out.** `catalog-product` has plain inputs, so it runs first. Then the outer call, `product-card`, runs with that result as its `product` input:
-
-```ts
-const product = catalogProduct({ slug: "summer-shirt" });         // inner call first
-const card = productCard({ title: "Summer collection", product }); // then the outer one
-```
-
-**Step 3. Use the result.** `client.resolve("SummerCard")` returns the outer call's result, here a React element:
-
-```tsx
-const [card, error] = await client.resolve("SummerCard");
-// card = <ProductCard title="Summer collection" product={{ name: "Summer shirt", … }} />
-```
-
-`resolve` never throws: it returns `[result, null]`, or `[null, error]` if something failed.
-
-A page is a composition too: the built-in `page` block takes SEO and a list of blocks, and resolves the same way (see [Built-in blocks](#built-in-blocks)). To step through this example interactively, see [How resolution works](/next/walkthrough).
-
-## The rule
-
-Every `__resolveType` names one of two things: a block function to call (code), or a saved entry to expand (JSON). Give entries and functions different names; if they clash, the function wins and `deco schema` warns you. Functions are written by developers; saved entries are edited by editors and agents, as files in the same repository. The CMS applies one rule to every object with a `__resolveType`:
-
-1. **Look up the name.**
-2. **Saved entry:** replace the object with `{ ...entry, ...inputs }`, so your inputs override the entry's, and apply the rule to the result again.
-3. **Function:** resolve the inputs first, then call the function with them. Its return value takes the block's place.
-4. **Neither:** fail with `UNKNOWN_BLOCK`.
-
-## The rule in detail
-
-- **Failures stop the parent.** If a block fails, the block that contains it doesn't run, and `resolve` returns the error. `client.resolve("Name")` with a name that has no saved entry fails with `NOT_FOUND`.
-- **Results are used as is.** Whatever your function returns, plain data or JSX, takes the block's place, and the CMS doesn't look inside it.
-- **Block functions should only read.** They run whenever content is resolved: for a visitor, in a preview, or when an agent checks its edit. Put side effects in your own route handlers or server functions (see [Call a client](/next/clients#call-a-client)).
-
-How the CMS handles the harder cases, such as entries that refer to each other in a loop, is [under the hood](/next/walkthrough#the-rule-in-full).
-
-## Built-in blocks
-
-Every website needs pages and redirects, so you don't write those functions yourself. Built-in blocks are block functions the framework adds to your block map for you:
-
-```ts
-{ ...savedEntries, ...builtIns, ...blocks }   // where every __resolveType is looked up; later keys win
-```
-
-A built-in is always defined, so it never fails with `UNKNOWN_BLOCK`, and you don't register it. To replace one, declare the same key in your block map.
-
-### `page`
-
-**Inputs:** `name`, `path`, `seo` (the page's SEO data, usually a block your map registers, such as `seo`) and `sections` (the page's blocks, in order). **Resolving it** returns the page with `seo` and every block in `sections` resolved, ready to render. [Routes and redirects](/next/content-types) shows how to find the page for a URL.
-
-To wrap every page in your own layout, declare `page` in your block map. Your function runs after the page's blocks, with their results as its input, and `client.resolve` returns whatever it returns:
-
-```tsx title="blocks.tsx"
-import type { ReactNode } from "react";
+```ts title="blocks.ts"
 import type { Blocks } from "@decocms/blocks";
-import type { ResolvedPage } from "./model";
-import { Layout } from "./layout";
+import { catalogProduct } from "./catalog-product";
+import { productCard } from "./product-card";
+import { PromoBanner } from "./promo-banner";
 
 export default {
-  page: ({ seo, sections }: ResolvedPage<ReactNode>) => (
-    <Layout seo={seo}>{sections}</Layout>
-  ),
-  // …your other blocks
+  "catalog-product": catalogProduct,
+  "product-card": productCard,
+  "promo-banner": PromoBanner,
 } satisfies Blocks;
 ```
 
-Code that reads `page.seo` or `page.sections` from the result, like the [Next.js guide](/next/nextjs), must change too, since the result is now your layout.
+Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. For lazy loading and more, see [Block maps](/next/manifest).
 
-### `redirect`
+### Built-in blocks
 
-**Inputs:** `from` (the old path), `to` (where to send visitors) and `permanent` (`true` for a 301, `false` for a 302). **Resolving it** returns the redirect data as saved. [Routing](/next/routing) turns redirects into responses.
+Every website needs pages and redirects, so the framework adds these functions to your block map for you:
 
-### `telemetry`
+- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. [Routes and redirects](/next/content-types) shows how to find the page for a URL.
+- **`redirect`** takes `from`, `to` and `permanent` (`true` for a 301, `false` for a 302), and returns them as saved. [Routing](/next/routing) turns redirects into responses.
+- **`telemetry`** holds settings read by the [hosted Deco CMS](/next/hosted-telemetry); it does nothing otherwise.
 
-Settings for the [hosted Deco CMS](/next/hosted-telemetry)'s monitoring, such as where telemetry is sent. Without the hosted CMS, the entry does nothing.
+**Changing a built-in.** Declare `page` in your block map to replace it, for example to wrap every page in your layout. To change the fields editors see, see [Schema generation](/next/schema#content-that-is-only-data).
 
-### Changing a built-in
+### The lookup rule
 
-To change the fields editors see for a built-in in Studio, override its type in `Content` (see [Schema generation](/next/schema#content-that-is-only-data)); to change what runs, override it in your block map. You can do both.
+Every `__resolveType` is looked up in one registry, `{ ...savedBlocks, ...builtIns, ...blocks }`, where later keys win. A function is called with its arguments, after they're resolved. A saved block is replaced by its contents, merged with your overrides, and that result is looked up the same way. Any other name fails with `UNKNOWN_BLOCK`. Give saved blocks and functions different names; if they clash, the function wins and you'll get a warning. What happens when a block fails, or when saved blocks refer to each other in a loop, is in [The rule in full](/next/walkthrough#the-rule-in-full).
 
-Matchers (`always`, `never`, `date`) aren't built in: import them from `@decocms/blocks/matchers` and add them to your block map (see [Variants](/next/variants)).
+## Blocks in your repository
+
+Saved blocks are files in your repository: one JSON file per saved block in `.deco/blocks`, and the file name without `.json` is its name.
+
+```text
+.deco/blocks/
+├── HomePage.json
+├── PromoBanner.json
+└── SummerCard.json
+```
+
+Developers edit them like any other file, AI agents edit them with the file tools they already use, and editors edit them in Studio, which shows each one as a form (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)). Because they're files in Git, you get what you already have for code: history, review in pull requests, branches, and rollback by reverting a commit.
+
+Publishing is committing and pushing. There's no separate publish step: push the change to your production branch (usually `main`), and your next deploy serves it, like any other change (see [Releases and deployment](/next/releases#publishing)).
+
+<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Go live without a deploy.** With the hosted Deco CMS, a published commit goes live in about a minute, without a rebuild or deploy.</Hosted>
+
+### The `deco content` command
+
+The CLI turns `.deco/blocks` into a module your app imports, so the SDK never touches the filesystem and runs anywhere: Node, Cloudflare Workers, Deno, Bun or a browser.
+
+```bash
+npx deco content
+```
+
+It writes `.deco/blocks.gen.ts`: one JSON import per file, exported together, so your bundler packs your content into the build like any other module:
+
+```ts title=".deco/blocks.gen.ts (excerpt)"
+// Generated by deco content; don't edit.
+import HomePage from "./blocks/HomePage.json" with { type: "json" };
+import PromoBanner from "./blocks/PromoBanner.json" with { type: "json" };
+// … one import per file, exported together
+```
+
+Pass it to `createCMS`, next to your block map:
+
+```ts title="cms.ts"
+import { createCMS } from "@decocms/blocks";
+import content from "./.deco/blocks.gen";
+import blocks from "./blocks";
+
+export const cms = createCMS({ blocks, content });
+```
+
+The generated file belongs in `.gitignore`, like TanStack Router's `routeTree.gen.ts`. Run `deco content` before your dev server and your build:
+
+```json title="package.json"
+{
+  "scripts": {
+    "predev": "deco content",
+    "prebuild": "deco content"
+  }
+}
+```
+
+Editing a file reloads through your framework's hot module replacement (HMR), with no rerun. Adding or removing a file needs `deco content` again, or leave `deco content --watch` running beside your dev server. Every option is in the [CLI reference](/next/schema#the-cli-commands).

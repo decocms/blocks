@@ -1,5 +1,6 @@
 ---
 title: Schema generation
+nav: Schema
 group: Core concepts
 order: 5
 ---
@@ -150,7 +151,7 @@ Content-only changes, from Studio, an agent or by hand, never change the schema,
 The CLI has three commands, and each does one job:
 
 - **`deco schema`** turns the types in your block map into `.deco/schema.json`. Commit this file.
-- **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`. It's generated, so gitignore it. If `.deco/blocks` has no `Telemetry.json`, it also scaffolds one: settings only the [hosted Deco CMS](/next/hosted-telemetry) reads. Without a connected site the entry is inert, and you can delete it.
+- **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/model#the-deco-content-command), `.deco/blocks.gen.ts`. It's generated, so gitignore it. If `.deco/blocks` has no `Telemetry.json`, it also scaffolds one: settings only the [hosted Deco CMS](/next/hosted-telemetry) reads. Without a connected site the entry is inert, and you can delete it.
 - **`deco serve`** is the local server Studio edits your checkout through (see [below](#edit-local-content-from-studio)).
 
 ```bash
@@ -164,7 +165,7 @@ deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--toke
 - `--watch`: regenerate as files change.
 - `--check <base>` (`deco schema` only): compare the schema your code generates now with an earlier one, and fail on breaking changes. It writes nothing. It isn't built yet and ships with the first release (see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check)). See [Keep the schema compatible](#keep-the-schema-compatible).
 
-There's no separate dev command: run `deco schema` and `deco content` before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in [The content module](/next/content#the-content-module).
+There's no separate dev command: run `deco schema` and `deco content` before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in [The `deco content` command](/next/model#the-deco-content-command).
 
 ```json title="package.json"
 {

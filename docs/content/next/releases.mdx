@@ -7,7 +7,7 @@ order: 17
 
 # Releases and deployment
 
-Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Your content in Git](/next/content)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back.
+Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Blocks in your repository](/next/model#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back.
 
 | Step | What happens |
 |---|---|
@@ -15,7 +15,7 @@ Your block functions and your content ship together. Both live in your repositor
 | Build | `prebuild` runs `deco schema && deco content`. `deco content` turns `.deco/blocks` into the content module, `.deco/blocks.gen.ts`, which the app imports and the bundler includes like any other module. |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 
-A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/content#snapshots-and-revisions)). A revision never changes once it exists: change any entry and you get a new revision. That makes a revision a safe cache key everywhere.
+A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any entry and you get a new revision. That makes a revision a safe cache key everywhere.
 
 <h2 id="publishing">Publishing is committing</h2>
 
