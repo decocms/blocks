@@ -7,7 +7,7 @@ order: 15
 
 # TanStack Start with data descriptors
 
-There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: 'product-hero', props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It isn't a content loader from [Content and loaders](/next/content).) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
+There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: "product-hero", props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It isn't a content loader from [Content and loaders](/next/content).) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
 
 Editors choose page URLs in Studio, so your app can't know its routes ahead of time. One catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's [blocks](/next/model#resolving-a-page-step-by-step).
 
@@ -16,16 +16,16 @@ Editors choose page URLs in Studio, so your app can't know its routes ahead of t
 ## 1. Return descriptors from blocks
 
 ```ts title="src/blocks.ts"
-import type { Blocks } from '@decocms/blocks'
-import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, SEO, StoredPage } from './model'
+import type { Blocks } from "@decocms/blocks";
+import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, SEO, StoredPage } from "./model";
 
-export type Content = { page: StoredPage }
+export type Content = { page: StoredPage };
 
 export default {
   seo: (input: SEO) => input,
-  'promo-banner': (input: PromoBannerProps): BlockDescriptor => ({ component: 'promo-banner', props: input }),
-  'product-hero': (input: ProductHeroProps): BlockDescriptor => ({ component: 'product-hero', props: input }),
-} satisfies Blocks
+  "promo-banner": (input: PromoBannerProps): BlockDescriptor => ({ component: "promo-banner", props: input }),
+  "product-hero": (input: ProductHeroProps): BlockDescriptor => ({ component: "product-hero", props: input }),
+} satisfies Blocks;
 ```
 
 As in the Next.js guide, `Content` overrides the built-in `page` with the narrower `StoredPage`. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/schema#the-two-cli-commands)):
@@ -46,19 +46,19 @@ Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts` (see [The content
 `DECO_SITE` is your site's ID in the hosted Deco CMS and `DECO_SITE_TOKEN` its site token; together they load hosted content and send [telemetry](/next/operations#telemetry). On Workers, environment variables come from `env` in `cloudflare:workers`; locally, `wrangler dev` reads them from a `.dev.vars` file you keep out of Git. In production, set the site ID as a plain variable in `wrangler.jsonc` (`vars`) and the token with `npx wrangler secret put DECO_SITE_TOKEN`.
 
 ```ts title="src/cms.ts"
-import { createCMS, draftPointer } from '@decocms/blocks'
-import { env } from 'cloudflare:workers'
-import content from '../.deco/blocks.gen'
-import blocks from './blocks'
+import { createCMS, draftPointer } from "@decocms/blocks";
+import { env } from "cloudflare:workers";
+import content from "../.deco/blocks.gen";
+import blocks from "./blocks";
 
 // Production reads releases from the Deco API and falls back to the content module.
-export const cms = createCMS({ blocks, content, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN })
+export const cms = createCMS({ blocks, content, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN });
 
 // The client for this request: the draft it points at, or the current release.
 export const client = (request: Request) => {
-  const pointer = draftPointer(request)
-  return pointer ? cms.forDraft(pointer) : cms.forRelease()
-}
+  const pointer = draftPointer(request);
+  return pointer ? cms.forDraft(pointer) : cms.forRelease();
+};
 ```
 
 The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. Its revision is the same content hash the Deco API computes, so a new Worker instance whose build already holds the current release skips downloading it (see [Loader internals](/next/loader-internals)). Workers run no timers between requests, so when a release check is due, the SDK runs it after the response inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent): you don't call `cms.update()`.
@@ -66,11 +66,11 @@ The content module is ordinary imports, so Vite bundles it into the Worker like 
 **Large content on Workers.** When you pass `content` with `site` and `token`, the content module stays in memory as the fallback, alongside the release the loader fetched. Once you publish, the live release and the fallback are different revisions, so your content is in memory more than once. A Worker isolate has a 128 MB memory limit, and the bundled content also counts toward the Worker's script size limit. For a few hundred kilobytes of JSON this doesn't matter; for several megabytes, it can. On large sites, pass a [loader that reads from KV](/next/content#write-your-own-loader) as `content` instead of the content module. No copy is bundled into the Worker, and none is held in memory just because the module was imported: the fallback is read from KV only when it's needed. Once read, it's held in memory like any other content, so this removes the bundled copy, not every duplicate:
 
 ```ts title="src/cms.ts (large sites)"
-import { env } from 'cloudflare:workers'
+import { env } from "cloudflare:workers";
 // kvContent: the KV loader from Write your own loader
 
 // The fallback comes from KV, not from the bundle
-export const cms = createCMS({ blocks, content: kvContent, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN })
+export const cms = createCMS({ blocks, content: kvContent, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN });
 ```
 
 The trade-off: the fallback is now only as good as the KV key. Your deploy pipeline must write the current content to it before the new Worker serves traffic. Until a new isolate's first release check (about a minute), and whenever the Deco API can't be reached, reads come from the KV key. So if the key is missing, every new isolate fails its first reads with `LOADER_FAILED` until it has fetched a release, and keeps failing if it can't reach the API. A first-party `kvLoader` helper is planned (see the [Roadmap](/roadmap#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites)).
@@ -80,35 +80,35 @@ The trade-off: the fallback is now only as good as the KV key. Your deploy pipel
 This helper is shared by both TanStack guides. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`, and `draftPointer` finds the pointer in the URL or in the cookie from step 6. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
 
 ```ts title="src/open-page.server.ts"
-import { notFound, redirect } from '@tanstack/react-router'
-import { matchRoute, type Redirect } from '@decocms/blocks'
-import { client } from './cms'
-import type { SEO, StoredPage } from './model'
+import { notFound, redirect } from "@tanstack/react-router";
+import { matchRoute, type Redirect } from "@decocms/blocks";
+import { client } from "./cms";
+import type { SEO, StoredPage } from "./model";
 
 export async function openPage<T>(href: string, request: Request) {
-  const c = client(request)
-  const [pages, pagesError] = await c.list<StoredPage>('page')
-  if (pagesError) throw pagesError
-  const [redirects, redirectsError] = await c.list<Redirect>('redirect')
-  if (redirectsError) throw redirectsError
+  const c = client(request);
+  const [pages, pagesError] = await c.list<StoredPage>("page");
+  if (pagesError) throw pagesError;
+  const [redirects, redirectsError] = await c.list<Redirect>("redirect");
+  if (redirectsError) throw redirectsError;
 
-  const match = matchRoute(href, { routes: pages, redirects })
-  if (match.kind === 'not-found') throw notFound()
-  if (match.kind === 'redirect') throw redirect({ href: match.location, statusCode: match.status })
+  const match = matchRoute(href, { routes: pages, redirects });
+  if (match.kind === "not-found") throw notFound();
+  if (match.kind === "redirect") throw redirect({ href: match.location, statusCode: match.status });
 
-  const page = match.entry
+  const page = match.entry;
   const blocks = page.sections.map((block, index) => ({
     key: `${href}:${index}`,
     value: c.resolve<T>(block).then(([value, blockError]) => {
-      if (blockError) console.error(blockError)
-      return value
+      if (blockError) console.error(blockError);
+      return value;
     }),
-  }))
+  }));
 
   // Every block has started before SEO is awaited.
-  const [seo, seoError] = await c.resolve<SEO>(page.seo)
-  if (seoError) throw seoError
-  return { seo, blocks }
+  const [seo, seoError] = await c.resolve<SEO>(page.seo);
+  if (seoError) throw seoError;
+  return { seo, blocks };
 }
 ```
 
@@ -117,65 +117,65 @@ export async function openPage<T>(href: string, request: Request) {
 A server function runs only on the server. During server rendering it's a plain call; in the browser, Start replaces it with a fetch to the server, so the CMS, your token and the content never ship to the client. That makes it a public HTTP endpoint, so validate its input: here, a path that starts with `/`.
 
 ```ts title="src/page.functions.ts"
-import { createServerFn } from '@tanstack/react-start'
-import { getRequest } from '@tanstack/react-start/server'
-import { z } from 'zod'
-import { openPage } from './open-page.server'
-import type { BlockDescriptor } from './model'
+import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
+import { z } from "zod";
+import { openPage } from "./open-page.server";
+import type { BlockDescriptor } from "./model";
 
-export const loadPage = createServerFn({ method: 'GET' })
-  .inputValidator(z.object({ href: z.string().startsWith('/') }))
-  .handler(({ data }) => openPage<BlockDescriptor>(data.href, getRequest()))
+export const loadPage = createServerFn({ method: "GET" })
+  .inputValidator(z.object({ href: z.string().startsWith("/") }))
+  .handler(({ data }) => openPage<BlockDescriptor>(data.href, getRequest()));
 ```
 
 ## 5. Render the catch-all route
 
 ```tsx title="src/routes/$.tsx"
-import { Suspense } from 'react'
-import { Await, createFileRoute } from '@tanstack/react-router'
-import ProductHero from '../ProductHero'
-import PromoBanner from '../PromoBanner'
-import type { BlockDescriptor } from '../model'
-import { loadPage } from '../page.functions'
+import { Suspense } from "react";
+import { Await, createFileRoute } from "@tanstack/react-router";
+import ProductHero from "../ProductHero";
+import PromoBanner from "../PromoBanner";
+import type { BlockDescriptor } from "../model";
+import { loadPage } from "../page.functions";
 
 // Maps each descriptor to its component. Add a case per block type.
 function View({ block }: { block: BlockDescriptor }) {
   switch (block.component) {
-    case 'promo-banner':
-      return <PromoBanner {...block.props} />
-    case 'product-hero':
-      return <ProductHero {...block.props} />
+    case "promo-banner":
+      return <PromoBanner {...block.props} />;
+    case "product-hero":
+      return <ProductHero {...block.props} />;
   }
 }
 
-export const Route = createFileRoute('/$')({
+export const Route = createFileRoute("/$")({
   loader: ({ location }) => loadPage({ data: { href: location.pathname + location.searchStr } }),
   head: ({ loaderData }) => ({
     meta: loaderData
-      ? [{ title: loaderData.seo.title }, { name: 'description', content: loaderData.seo.description }]
+      ? [{ title: loaderData.seo.title }, { name: "description", content: loaderData.seo.description }]
       : [],
   }),
   component: Page,
   pendingComponent: () => <p>Opening page…</p>,
   errorComponent: () => <p>The page could not be loaded.</p>,
-})
+});
 
 function Page() {
-  const page = Route.useLoaderData()
+  const page = Route.useLoaderData();
   return (
     <main>
       {page.blocks.map((block) => (
         <Suspense key={block.key} fallback={<p>Loading…</p>}>
           <Await promise={block.value}>
             {(data) => {
-              if (!data) return <p role="status">This content is temporarily unavailable.</p>
-              return <View block={data} />
+              if (!data) return <p role="status">This content is temporarily unavailable.</p>;
+              return <View block={data} />;
             }}
           </Await>
         </Suspense>
       ))}
     </main>
-  )
+  );
 }
 ```
 
@@ -186,30 +186,30 @@ function Page() {
 Studio opens your site with the [draft pointer](/next/preview) in the URL, but only on the first page. Append the draft cookie to the document response so every link the editor clicks stays in preview. Start's request middleware runs around every request (see [Keep the draft across navigation](/next/preview#keep-the-draft-across-navigation)):
 
 ```ts title="src/start.ts"
-import { createMiddleware, createStart } from '@tanstack/react-start'
-import { draftCookie } from '@decocms/blocks'
+import { createMiddleware, createStart } from "@tanstack/react-start";
+import { draftCookie } from "@decocms/blocks";
 
 const draftCookieMiddleware = createMiddleware().server(async ({ request, next }) => {
-  const result = await next()
-  const cookie = draftCookie(request)   // only set on the request Studio opens; expiring when leaving preview
-  if (cookie) result.response.headers.append('Set-Cookie', cookie)
-  return result
-})
+  const result = await next();
+  const cookie = draftCookie(request);   // only set on the request Studio opens; expiring when leaving preview
+  if (cookie) result.response.headers.append("Set-Cookie", cookie);
+  return result;
+});
 
-export const startInstance = createStart(() => ({ requestMiddleware: [draftCookieMiddleware] }))
+export const startInstance = createStart(() => ({ requestMiddleware: [draftCookieMiddleware] }));
 ```
 
 ## 7. Configure Cloudflare Workers
 
 ```ts title="vite.config.ts"
-import { defineConfig } from 'vite'
-import { cloudflare } from '@cloudflare/vite-plugin'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import { cloudflare } from "@cloudflare/vite-plugin";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [cloudflare({ viteEnvironment: { name: 'ssr' } }), tanstackStart(), react()],
-})
+  plugins: [cloudflare({ viteEnvironment: { name: "ssr" } }), tanstackStart(), react()],
+});
 ```
 
 ```jsonc title="wrangler.jsonc"

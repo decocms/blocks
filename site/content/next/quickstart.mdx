@@ -110,7 +110,7 @@ Both routes produce the same file in `.deco/blocks`, which is where the CLI look
 
 ```ts
 // Means
-experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 })
+experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
 ```
 
 The file is a saved entry: one named piece of content that code, or other content, can refer to. Its file name without `.json` is its name (see [Content and loaders](/next/content)). `__resolveType` is a reserved key (the underscores keep it from clashing with your fields) that names the function to call by its block type. The other keys are that function's inputs.

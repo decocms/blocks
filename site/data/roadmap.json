@@ -1030,7 +1030,7 @@
       "id": "roadmap-api--add-the-telemetry-block-sampling-and-aggregation",
       "group": "api",
       "title": "Add the Telemetry block, sampling and aggregation",
-      "plan": "<p><code>createCMS({ blocks, content, site, token })</code>: the site ID and site token (usually <code>DECO_SITE</code> and <code>DECO_SITE_TOKEN</code>) load hosted content and send telemetry; without both, nothing is sent. Telemetry settings (on or off, sample rates) live in a well-known saved entry, <code>Telemetry</code>, whose schema the framework provides: a committed <code>.deco/blocks/Telemetry.json</code> that <code>deco content</code> scaffolds and editors change in Studio. It travels with every release and each server picks it up with the once-a-minute content check; without it, the framework's defaults apply. Error logs are sampled; metrics are aggregated in memory before they're sent.</p>",
+      "plan": "<p><code>createCMS({ blocks, content, site, token })</code>: the site ID and site token (usually <code>DECO_SITE</code> and <code>DECO_SITE_TOKEN</code>) load hosted content and send telemetry; without both, nothing is sent. Telemetry settings (on or off, sample rates) live in a well-known saved entry, <code>Telemetry</code>, whose schema the framework provides: a committed <code>.deco/blocks/Telemetry.json</code> that <code>deco content</code> scaffolds. Editors change it in Studio, which commits it through its GitHub integration like any content edit; it travels with every release and running servers pick it up with their next content check; without it, the framework's defaults apply. Error logs are sampled; metrics are aggregated in memory before they're sent.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",
@@ -1172,7 +1172,7 @@
       "id": "roadmap-cli--add-deco-schema-check-a-compatibility-check",
       "group": "cli",
       "title": "Add <code>deco schema --check</code>, a compatibility check",
-      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type or <code>Content</code> type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes; Content types wait for the <a href=\"#roadmap-cli--emit-a-runtime-alias-table\">runtime alias table</a>. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime.</p>",
+      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type or <code>Content</code> type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes; Content types wait for the <a href=\"#roadmap-cli--emit-a-runtime-alias-table\">runtime alias table</a>. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime. Ships with the first release.</p>",
       "features": [
         "content-schema-drift",
         "ci-and-release-workflows",
@@ -1278,7 +1278,7 @@
       "id": "roadmap-cli--support-typed-section-references",
       "group": "cli",
       "title": "Support typed block references",
-      "plan": "<p><code>BlockOf&lt;'hero' | 'alert'&gt;</code> becomes an anyOf or Studio's legacy <code>__SECTION_REF__</code>. Also a <code>Descriptor&lt;P&gt;</code> marker, <code>@singleton</code> and <code>@catalog false</code>.</p>",
+      "plan": "<p><code>BlockOf&lt;\"hero\" | \"alert\"&gt;</code> becomes an anyOf or Studio's legacy <code>__SECTION_REF__</code>. Also a <code>Descriptor&lt;P&gt;</code> marker, <code>@singleton</code> and <code>@catalog false</code>.</p>",
       "features": [
         "nested-section-props",
         "per-page-section-whitelists",
@@ -1432,7 +1432,7 @@
       "id": "roadmap-platform--use-manifest-lookup-instead-of-path-heuristics",
       "group": "studio",
       "title": "Use manifest lookup instead of path heuristics",
-      "plan": "<p>Replace the file-extension module-or-entry check and Studio's legacy <code>'/sections/'</code> path heuristics, and refuse to save an entry whose name is a manifest key.</p>",
+      "plan": "<p>Replace the file-extension module-or-entry check and Studio's legacy <code>\"/sections/\"</code> path heuristics, and refuse to save an entry whose name is a manifest key.</p>",
       "features": [
         "block-type-discriminator",
         "section-registration-conventions",
@@ -1545,7 +1545,7 @@
       "id": "roadmap-platform--build-the-telemetry-collector",
       "group": "studio",
       "title": "Build the telemetry collector",
-      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token. Deco switches a site's telemetry off remotely by committing a change to the site's <code>.deco/blocks/Telemetry.json</code>, which reaches its servers as a normal release.</p>",
+      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token. Switching a site's telemetry off needs no special channel: Studio commits the change to the site's <code>.deco/blocks/Telemetry.json</code> through its GitHub integration, like any content edit, and running servers pick it up with their next content check.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",
@@ -1830,7 +1830,7 @@
           "id": "roadmap-storefront--fix-dark-metrics-and-deco-invoke-404s",
           "kind": "now",
           "title": "Fix dark metrics and <code>/deco/invoke</code> 404s",
-          "text": "<code>createInstrumentedFetch('shopify')</code> has no onComplete, so upstream metrics are dark. Site loaders called through <code>/deco/invoke</code> 404.",
+          "text": "<code>createInstrumentedFetch(\"shopify\")</code> has no onComplete, so upstream metrics are dark. Site loaders called through <code>/deco/invoke</code> 404.",
           "features": [
             "upstream-fetch-instrumentation",
             "site-local-loaders"
@@ -2050,7 +2050,7 @@
           "id": "roadmap-faststore--pick-the-target-framework-and-move-to-it",
           "kind": "blocker",
           "title": "Pick the target framework and move to it",
-          "text": "Pick the target first: the App Router (the only guide; the Pages Router has none) or TanStack Start. It decides how FastStore's native sections get rebuilt. Its code imports <code>@faststore/core</code> internals, and most of its hook files, and the files that use its translation hook, lack <code>'use client'</code>.",
+          "text": "Pick the target first: the App Router (the only guide; the Pages Router has none) or TanStack Start. It decides how FastStore's native sections get rebuilt. Its code imports <code>@faststore/core</code> internals, and most of its hook files, and the files that use its translation hook, lack <code>\"use client\"</code>.",
           "features": [
             "faststore-cli-overlay",
             "framework-import-surface",
@@ -3530,7 +3530,7 @@
       "sites": [
         "faststore"
       ],
-      "summary": "The app owns this entirely. Hook-using files without `'use client'` throw under Server Components, and the FastStore shell's contexts must be re-mounted.",
+      "summary": "The app owns this entirely. Hook-using files without `\"use client\"` throw under Server Components, and the FastStore shell's contexts must be re-mounted.",
       "docs": [
         "architecture",
         "manifest",
@@ -4541,7 +4541,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Locale is fixed per deployment, so the only framework need is cache keys. In the FastStore storefront, code that calls its own translation hook without `'use client'` throws as a Server Component until it's rewritten.",
+      "summary": "Locale is fixed per deployment, so the only framework need is cache keys. In the FastStore storefront, code that calls its own translation hook without `\"use client\"` throws as a Server Component until it's rewritten.",
       "docs": [
         "manifest",
         "variants",
@@ -4589,7 +4589,7 @@
         "storefront-tanstack",
         "faststore"
       ],
-      "summary": "The storefront calls `createInstrumentedFetch('shopify')` with no onComplete, so upstream metrics are dark today. The chokepoint rule is never stated, and there's no meter on Next or Node.",
+      "summary": "The storefront calls `createInstrumentedFetch(\"shopify\")` with no onComplete, so upstream metrics are dark today. The chokepoint rule is never stated, and there's no meter on Next or Node.",
       "docs": [
         "operations",
         "manifest",

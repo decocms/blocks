@@ -68,7 +68,7 @@ hero({
       { rule: always(), value: "New season, new arrivals" },
     ],
   }),
-})
+});
 ```
 
 Resolution does the rest: each rule runs and yields a boolean, `multivariate` runs with those booleans and yields a string, `hero` runs with a plain `title`. Nothing in `hero` knows a variant was involved. The same shape wraps any block in a page, or the page's whole `sections` list, which is how Studio does page-level variants.
@@ -117,7 +117,7 @@ multivariate({
     { rule: date({ start: "2026-11-20", end: "2026-11-30" }), value: "BlackFridayHero" },
     { rule: always(), value: "DefaultHero" },
   ],
-})   // the values are entry names, not calls: only the rules and multivariate run
+});   // the values are entry names, not calls: only the rules and multivariate run
 
 // block is the JSON above, e.g. from a page's sections list;
 // client.resolve accepts an entry name or an inline block

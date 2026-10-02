@@ -19,14 +19,14 @@ The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F`
 The pointer is a string, `<host><path>@<version>`: where the draft content lives, and which version. `draftPointer(request)` reads it, from `?__draft=` or from the cookie described below, and the CMS gives you a client over that draft. Everything after that line is the same code that serves visitors:
 
 ```ts title="A plain request handler"
-import { draftPointer } from '@decocms/blocks'
-import { cms } from './cms'
+import { draftPointer } from "@decocms/blocks";
+import { cms } from "./cms";
 
 export async function handle(request: Request) {
-  const pointer = draftPointer(request)               // null on an ordinary request
-  const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
+  const pointer = draftPointer(request);               // null on an ordinary request
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
-  return render(client, request)                      // your own function: list, matchRoute and resolve as usual
+  return render(client, request);                      // your own function: list, matchRoute and resolve as usual
 }
 ```
 
@@ -37,17 +37,17 @@ export async function handle(request: Request) {
 The pointer is only in the URL of the first page Studio opens. `draftCookie(request)` gives you the `Set-Cookie` value that response needs, and `null` on every other request. Append it, and `draftPointer` reads the cookie from then on, so every link the editor clicks stays in preview:
 
 ```ts title="Query parameter first, cookie afterwards"
-import { draftPointer, draftCookie } from '@decocms/blocks'
-import { cms } from './cms'
+import { draftPointer, draftCookie } from "@decocms/blocks";
+import { cms } from "./cms";
 
 export async function handle(request: Request) {
-  const pointer = draftPointer(request)
-  const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
-  const response = await render(client, request)
+  const pointer = draftPointer(request);
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+  const response = await render(client, request);
 
-  const cookie = draftCookie(request)
-  if (cookie) response.headers.append('Set-Cookie', cookie)
-  return response
+  const cookie = draftCookie(request);
+  if (cookie) response.headers.append("Set-Cookie", cookie);
+  return response;
 }
 ```
 
@@ -59,8 +59,8 @@ Studio ends a preview by opening the site with an empty `?__draft=`; `draftCooki
 
 ```ts
 // React Native, on a deep link like mystore://preview?__draft=...
-const pointer = new URL(url).searchParams.get('__draft')
-setClient(pointer ? cms.forDraft(pointer) : cms.forRelease())
+const pointer = new URL(url).searchParams.get("__draft");
+setClient(pointer ? cms.forDraft(pointer) : cms.forRelease());
 ```
 
 A script passes it as an argument. To look inside a pointer, or build one from parts, use `parseDraftPointer` and `formatDraftPointer` from the [reference](/next/standalone); `forDraft` parses on its own, so normally you don't have to.
@@ -72,9 +72,9 @@ Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither n
 If a website wants to show drafts on its preview domain only, it checks the request's host before calling `forDraft`:
 
 ```ts
-const host = new URL(request.url).host
-const pointer = host === 'preview.store.example.com' ? draftPointer(request) : null
-const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
+const host = new URL(request.url).host;
+const pointer = host === "preview.store.example.com" ? draftPointer(request) : null;
+const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 ```
 
 <Callout type="warning">**The token is the only secret.** The site ID isn't secret, and the site holds no other Deco credential. Invalid or unexpected pointers are ignored and the request falls back to published content, never to an error page.</Callout>

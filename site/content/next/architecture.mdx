@@ -73,7 +73,7 @@ You'll meet these on specific pages.
   <Term name="Upstream client">A thin, typed API client for a third-party platform, such as VTEX or Algolia, built on the framework's instrumented fetch, `createInstrumentedFetch`. The framework itself doesn't fetch data. See [Upstream API clients](/next/clients).</Term>
   <Term name="Framework binding">`@decocms/tanstack` or `@decocms/nextjs`: the optional package that adds what depends on where your site runs: upstream and page caching, and inbound-request and edge-cache telemetry. Not wired into these guides yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).</Term>
   <Term name="Platform template">A starter site per platform (VTEX, Shopify, …) that you copy and then own. It holds the converters, cart/user/wishlist hooks and cart, session and sign-in flows that v7's apps shipped. Not available yet; see the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Term>
-  <Term name="Telemetry entry">The saved entry named `Telemetry` that holds a site's telemetry settings (on or off, sample rates), with a schema the framework provides. See [Caching and telemetry](/next/operations#telemetry-settings-are-content).</Term>
+  <Term name="Telemetry entry">The saved entry named `Telemetry` that holds a site's telemetry settings (on or off, sample rates), with a schema the framework provides. Switching it off is a content edit: Studio commits the change to the site's repository through its GitHub integration and running servers pick it up with their next content check. See [Caching and telemetry](/next/operations#telemetry-settings-are-content).</Term>
 </Terms>
 
 ## Coming from v7

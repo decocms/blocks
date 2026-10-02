@@ -73,7 +73,7 @@ The settings live in a **Telemetry entry**: a well-known saved entry named `Tele
 }
 ```
 
-The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it, editors change it in Studio, and it travels with every release, so each server picks up changes with its once-a-minute check. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Deco can make the same change remotely, for example during an incident; it shows in Studio like any other edit and reaches your servers like any other release. Without the entry, the framework's defaults apply.
+The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it, and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its GitHub integration, the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same Studio commit, visible in your Git history. Without the entry, the framework's defaults apply.
 
 ### Real-user monitoring
 

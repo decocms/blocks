@@ -50,7 +50,7 @@ On [v7](/v7/loaders), saved content often calls loaders and actions that ship in
 ## Checklist for migrating existing content
 
 1. **Keep existing names.** If the content stores file-path type names, register them as they are or alias them, including the app loaders and actions you vendored.
-2. **Check inputs.** Regenerate the schema and review saved content against it: new required fields, narrowed unions, and changed defaults. A CLI command that validates every entry against the schema is on the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli).
+2. **Check inputs.** Regenerate the schema and review saved content against it: new required fields, narrowed unions, and changed defaults. A CLI command that validates every entry against the schema is part of the first release; see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli).
 3. **Migrate the content in one commit.** A script reads the JSON in `.deco/blocks`, rewrites it, and writes it back. The commit is a new revision you can revert in one step. Keep fields the script doesn't recognize instead of deleting them, and report references to missing entries (`NOT_FOUND`) instead of dropping them.
 4. **Test the integration.** Load real pages against the migrated content: routes resolve, titles and SEO tags are right, blocks that load later (if your framework streams them) appear, failing blocks show their fallback, and navigation works.
 5. **Keep a rollback pair.** Keep the previous build plus the content revision it was tested with. Rolling back content alone can't bring back code you removed.

@@ -18,7 +18,7 @@ Here's the kind of code you write every day:
 productCard({
   title: "Summer collection",
   product: catalogProduct({ slug: "summer-shirt" }),
-})
+});
 ```
 
 `ProductCard` is an ordinary React component: typed props in, JSX out. `productCard` is the function that calls it, the one your block map registers:
@@ -118,8 +118,8 @@ Here's a page saved as `SummerSale`. It uses the `SummerSEO` entry with an overr
 **Step 2. Resolve the fields.** Call `client.resolve(page.seo)` and one `client.resolve(block)` per block in `page.sections`. Each block has plain inputs, so each function runs. The calls are independent, so none waits for another, and each block can render as soon as its own result is ready.
 
 ```ts
-seo({ title: "Summer sale", description: "Light layers for long days." })
-promoBanner({ title: "Free shipping over $50", href: "/summer" })
+seo({ title: "Summer sale", description: "Light layers for long days." });
+promoBanner({ title: "Free shipping over $50", href: "/summer" });
 ```
 
 **Step 3. Use the results.** Each return value takes its block's place: SEO data for the `<head>`, a React element for the page body.

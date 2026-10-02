@@ -17,37 +17,37 @@ Each of a page's [blocks](/next/model#resolving-a-page-step-by-step) resolves on
 `PromoBanner` and `ProductHero` are the components the two blocks render. `CartButton` is a Client Component with state, there to show that interactive components keep working inside blocks the CMS renders on the server. None of them knows about the CMS.
 
 ```tsx title="src/CartButton.tsx"
-'use client'
-import { useState } from 'react'
+"use client";
+import { useState } from "react";
 
 export default function CartButton() {
-  const [count, setCount] = useState(0)
+  const [count, setCount] = useState(0);
   return (
     <button type="button" onClick={() => setCount((value) => value + 1)}>
       Add to cart ({count})
     </button>
-  )
+  );
 }
 ```
 
 ```tsx title="src/PromoBanner.tsx"
-import type { PromoBannerProps } from './model'
+import type { PromoBannerProps } from "./model";
 
 export default function PromoBanner({ title, href }: PromoBannerProps) {
   return (
     <a href={href} role="note">
       {title}
     </a>
-  )
+  );
 }
 ```
 
 ```tsx title="src/ProductHero.tsx"
-import CartButton from './CartButton'
-import type { ProductHeroProps } from './model'
+import CartButton from "./CartButton";
+import type { ProductHeroProps } from "./model";
 
 export default function ProductHero({ name, price, currency, image }: ProductHeroProps) {
-  const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(price)
+  const formatted = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(price);
   return (
     <section>
       <img src={image} alt={name} />
@@ -55,7 +55,7 @@ export default function ProductHero({ name, price, currency, image }: ProductHer
       <p>{formatted}</p>
       <CartButton />
     </section>
-  )
+  );
 }
 ```
 
@@ -64,18 +64,18 @@ export default function ProductHero({ name, price, currency, image }: ProductHer
 Both blocks return JSX. Next renders them as Server Components, and `CartButton` stays a Client Component.
 
 ```tsx title="src/blocks.tsx"
-import type { Blocks } from '@decocms/blocks'
-import ProductHero from './ProductHero'
-import PromoBanner from './PromoBanner'
-import type { ProductHeroProps, PromoBannerProps, SEO, StoredPage } from './model'
+import type { Blocks } from "@decocms/blocks";
+import ProductHero from "./ProductHero";
+import PromoBanner from "./PromoBanner";
+import type { ProductHeroProps, PromoBannerProps, SEO, StoredPage } from "./model";
 
-export type Content = { page: StoredPage }
+export type Content = { page: StoredPage };
 
 export default {
   seo: (input: SEO) => input,
-  'promo-banner': (input: PromoBannerProps) => <PromoBanner {...input} />,
-  'product-hero': (input: ProductHeroProps) => <ProductHero {...input} />,
-} satisfies Blocks
+  "promo-banner": (input: PromoBannerProps) => <PromoBanner {...input} />,
+  "product-hero": (input: ProductHeroProps) => <ProductHero {...input} />,
+} satisfies Blocks;
 ```
 
 `seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are built-in content types (see [Content that is only data](/next/schema#content-that-is-only-data)). The `Content` export overrides `page` with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), so Studio only saves pages this guide's code can read.
@@ -83,32 +83,32 @@ export default {
 `cms.ts` imports the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved entries). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
 
 ```ts title="src/cms.ts"
-import { createCMS } from '@decocms/blocks'
-import content from '../.deco/blocks.gen'
-import blocks from './blocks'
+import { createCMS } from "@decocms/blocks";
+import content from "../.deco/blocks.gen";
+import blocks from "./blocks";
 
 // Development (no site or token) reads the content module. Production reads releases from the
 // Deco API and falls back to it.
-export const cms = createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN })
+export const cms = createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN });
 ```
 
 The content options and their fallbacks are in [Configuring content](/next/content#configuring-content). Upstream caching and inbound-request telemetry come from the [framework binding](/next/architecture#key-terms), which this guide doesn't use yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
 
 ```ts title="src/client.server.ts"
-import 'server-only'
-import { cookies } from 'next/headers'
-import { DRAFT_COOKIE } from '@decocms/blocks'
-import { cms } from './cms'
+import "server-only";
+import { cookies } from "next/headers";
+import { DRAFT_COOKIE } from "@decocms/blocks";
+import { cms } from "./cms";
 
 // The client for this request: a draft when the cookie holds a valid pointer, production otherwise.
 // In development (no site or token), drafts and releases read the same content.
 export async function client() {
-  const pointer = (await cookies()).get(DRAFT_COOKIE)?.value
-  return pointer ? cms.forDraft(pointer) : cms.forRelease()
+  const pointer = (await cookies()).get(DRAFT_COOKIE)?.value;
+  return pointer ? cms.forDraft(pointer) : cms.forRelease();
 }
 ```
 
-`import 'server-only'` makes the build fail if a Client Component imports this file, which keeps the token and the CMS out of the browser.
+`import "server-only"` makes the build fail if a Client Component imports this file, which keeps the token and the CMS out of the browser.
 
 ## 3. Generate the schema and content
 
@@ -130,14 +130,14 @@ Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts`. What reloads on 
 Studio opens your site with the [draft pointer](/next/preview) in the URL. `proxy.ts` (called `middleware.ts` before Next.js 16) runs before every request and turns that pointer into a cookie, so the editor stays in preview while clicking around. `client()` reads the cookie.
 
 ```ts title="src/proxy.ts"
-import { NextResponse, type NextRequest } from 'next/server'
-import { draftCookie } from '@decocms/blocks'
+import { NextResponse, type NextRequest } from "next/server";
+import { draftCookie } from "@decocms/blocks";
 
 export function proxy(request: NextRequest) {
-  const response = NextResponse.next()
-  const cookie = draftCookie(request)          // only set on the request Studio opens; expiring when leaving preview
-  if (cookie) response.headers.append('Set-Cookie', cookie)
-  return response
+  const response = NextResponse.next();
+  const cookie = draftCookie(request);          // only set on the request Studio opens; expiring when leaving preview
+  if (cookie) response.headers.append("Set-Cookie", cookie);
+  return response;
 }
 ```
 
@@ -148,39 +148,39 @@ export function proxy(request: NextRequest) {
 `generateMetadata` and the page component both need the page. Wrap the lookup in React's `cache` so they share one client, one match, and the same block promises.
 
 ```ts title="src/open-page.server.ts"
-import 'server-only'
-import { cache, type ReactNode } from 'react'
-import { notFound, permanentRedirect, redirect } from 'next/navigation'
-import { matchRoute, type Redirect } from '@decocms/blocks'
-import { client } from './client.server'
-import type { SEO, StoredPage } from './model'
+import "server-only";
+import { cache, type ReactNode } from "react";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
+import { matchRoute, type Redirect } from "@decocms/blocks";
+import { client } from "./client.server";
+import type { SEO, StoredPage } from "./model";
 
 export const openPage = cache(async (pathname: string) => {
-  const c = await client()
-  const [pages, pagesError] = await c.list<StoredPage>('page')
-  if (pagesError) throw pagesError
-  const [redirects, redirectsError] = await c.list<Redirect>('redirect')
-  if (redirectsError) throw redirectsError
+  const c = await client();
+  const [pages, pagesError] = await c.list<StoredPage>("page");
+  if (pagesError) throw pagesError;
+  const [redirects, redirectsError] = await c.list<Redirect>("redirect");
+  if (redirectsError) throw redirectsError;
 
-  const match = matchRoute(pathname, { routes: pages, redirects })
-  if (match.kind === 'not-found') notFound()
-  if (match.kind === 'redirect') {
-    if (match.status === 301) permanentRedirect(match.location)
-    redirect(match.location)
+  const match = matchRoute(pathname, { routes: pages, redirects });
+  if (match.kind === "not-found") notFound();
+  if (match.kind === "redirect") {
+    if (match.status === 301) permanentRedirect(match.location);
+    redirect(match.location);
   }
 
-  const page = match.entry
+  const page = match.entry;
   return {
     blocks: page.sections.map((block, index) => ({
       key: `${pathname}:${index}`,
       result: c.resolve<ReactNode>(block),
     })),
     seo: c.resolve<SEO>(page.seo),
-  }
-})
+  };
+});
 
 export const pathnameFor = (segments: string[] = []) =>
-  '/' + segments.map(encodeURIComponent).join('/')
+  "/" + segments.map(encodeURIComponent).join("/");
 ```
 
 ## 6. Render the catch-all route
@@ -188,31 +188,31 @@ export const pathnameFor = (segments: string[] = []) =>
 Each block is a promise of a `Result`, `[value, error]`. `BlockSlot` awaits it inside its own Suspense boundary and shows a fallback if that one block failed.
 
 ```tsx title="src/app/[[...path]]/page.tsx"
-import { Suspense, type ReactNode } from 'react'
-import type { Metadata } from 'next'
-import type { Result } from '@decocms/blocks'
-import { openPage, pathnameFor } from '../../open-page.server'
+import { Suspense, type ReactNode } from "react";
+import type { Metadata } from "next";
+import type { Result } from "@decocms/blocks";
+import { openPage, pathnameFor } from "../../open-page.server";
 
-type Props = { params: Promise<{ path?: string[] }> }
+type Props = { params: Promise<{ path?: string[] }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const page = await openPage(pathnameFor((await params).path))
-  const [seo, error] = await page.seo
-  if (error) throw error
-  return { title: seo.title, description: seo.description }
+  const page = await openPage(pathnameFor((await params).path));
+  const [seo, error] = await page.seo;
+  if (error) throw error;
+  return { title: seo.title, description: seo.description };
 }
 
 async function BlockSlot({ result }: { result: Promise<Result<ReactNode>> }) {
-  const [node, error] = await result
+  const [node, error] = await result;
   if (error) {
-    console.error(error)
-    return <p role="status">This content is temporarily unavailable.</p>
+    console.error(error);
+    return <p role="status">This content is temporarily unavailable.</p>;
   }
-  return node
+  return node;
 }
 
 export default async function Page({ params }: Props) {
-  const page = await openPage(pathnameFor((await params).path))
+  const page = await openPage(pathnameFor((await params).path));
   return (
     <main>
       {page.blocks.map((block) => (
@@ -221,7 +221,7 @@ export default async function Page({ params }: Props) {
         </Suspense>
       ))}
     </main>
-  )
+  );
 }
 ```
 
@@ -230,23 +230,23 @@ export default async function Page({ params }: Props) {
 Add `src/post.ts` from [Your own routable types](/next/content-types#your-own-routable-types), change the `Content` export in `src/blocks.tsx` to `{ page: StoredPage; post: Post }`, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `deco content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
 
 ```ts title="src/open-page.server.ts (changes)"
-import type { Result } from '@decocms/blocks'
-import type { Post } from './post'
+import type { Result } from "@decocms/blocks";
+import type { Post } from "./post";
 
   // inside openPage, after listing pages and redirects:
-  const [posts, postsError] = await c.list<Post>('post')
-  if (postsError) throw postsError
+  const [posts, postsError] = await c.list<Post>("post");
+  if (postsError) throw postsError;
 
-  const match = matchRoute(pathname, { routes: [...pages, ...posts], redirects })
+  const match = matchRoute(pathname, { routes: [...pages, ...posts], redirects });
   // … not-found and redirect handling as before …
 
-  if (match.entry.__resolveType === 'post') {
-    const post = match.entry as Post
-    const seo: Result<SEO> = [{ title: post.name, description: '' }, null]
-    return { post, blocks: [], seo: Promise.resolve(seo) }
+  if (match.entry.__resolveType === "post") {
+    const post = match.entry as Post;
+    const seo: Result<SEO> = [{ title: post.name, description: "" }, null];
+    return { post, blocks: [], seo: Promise.resolve(seo) };
   }
-  const page = match.entry as StoredPage
-  return { post: null, blocks: …, seo: … }   // blocks and seo exactly as before
+  const page = match.entry as StoredPage;
+  return { post: null, blocks: …, seo: … };  // blocks and seo exactly as before
 ```
 
 In `Page`, render the post when `page.post` is set (for example `<article><h1>{page.post.name}</h1>…</article>`), and the page's blocks otherwise. `generateMetadata` keeps working unchanged.
@@ -254,21 +254,21 @@ In `Page`, render the post when `page.post` is set (for example `<article><h1>{p
 A blog index needs no page entry. List the `post` type; each entry carries its own `path`:
 
 ```tsx title="src/app/blog/page.tsx"
-import Link from 'next/link'
-import { client } from '../../client.server'
-import type { Post } from '../../post'
+import Link from "next/link";
+import { client } from "../../client.server";
+import type { Post } from "../../post";
 
 export default async function BlogIndex() {
-  const c = await client()
-  const [posts, error] = await c.list<Post>('post', { sort: (a, b) => b.date.localeCompare(a.date) })
-  if (error) throw error
+  const c = await client();
+  const [posts, error] = await c.list<Post>("post", { sort: (a, b) => b.date.localeCompare(a.date) });
+  if (error) throw error;
   return (
     <ul>
       {posts.map((post) => (
         <li key={post.path}><Link href={post.path}>{post.name}</Link></li>
       ))}
     </ul>
-  )
+  );
 }
 ```
 

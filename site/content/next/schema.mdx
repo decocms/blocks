@@ -14,7 +14,7 @@ npx deco schema
 
 For each block type in the map, the CLI reads the type of the function's first parameter and turns it into a form definition. Commit `.deco/schema.json` with your code, and run the command in CI so the schema never drifts from your types (see [Keep the schema compatible](#keep-the-schema-compatible)). The commands and flags are in the [CLI reference](#the-two-cli-commands) at the end of this page.
 
-The CLI also checks your content model: it fails if a saved entry in `.deco/blocks` has the name of a block type, or if an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/adoption)) collides with either. It doesn't yet check each entry's values against the schema; that command is on the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli).
+The CLI also checks your content model: it fails if a saved entry in `.deco/blocks` has the name of a block type, or if an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/adoption)) collides with either. It doesn't yet check each entry's values against the schema; that command is part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
 
 ## Annotate fields with JSDoc
 
@@ -94,7 +94,7 @@ Studio learns the shape of your content only from the schema this command writes
 
 ## Keep the schema compatible
 
-With the hosted Deco CMS, content goes live without a deploy, so the code that's already running renders it. That's the point of publishing without a deploy. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and `remoteLoader` doesn't compare schemas. They're kept compatible before anything merges, in two directions. (`deco schema --check`, which the first one relies on, is planned; see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).)
+With the hosted Deco CMS, content goes live without a deploy, so the code that's already running renders it. That's the point of publishing without a deploy. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and `remoteLoader` doesn't compare schemas. They're kept compatible before anything merges, in two directions. (`deco schema --check`, which the first one relies on, isn't built yet; it's part of the first release, see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).)
 
 - **Backward compatible: new code still renders all existing content.** A code change must not break content that's already saved. `deco schema --check <base>` enforces this. It generates the schema from your code and compares it with `<base>`, the path to an earlier `.deco/schema.json`, such as the one on `main`. It lists every breaking change and exits with a non-zero code if it finds one. It writes nothing.
 - **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio#what-studio-reads-from-the-schema)). Keep that schema in step with what's deployed, and deploy the code first, then publish content that uses it. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/standalone#errors)) until the code ships. Rolling code back is the exception: content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.
@@ -139,7 +139,7 @@ jobs:
 
 `--no-install` makes `npx` fail if `@decocms/blocks-cli` isn't installed, instead of downloading some other package named `deco`. If you use `--root`, pass it to `deco schema` and replace `.deco/schema.json` with `<dir>/.deco/schema.json`. Make the job a required check in your branch protection rules, so a failing pull request can't merge.
 
-<Callout>**Status. The compatibility step needs `deco schema --check`, which isn't built yet.** Once it ships, add a step that compares the schema with the one on the pull request's target branch (`git show "origin/$BASE_REF:.deco/schema.json" > base-schema.json`, then `deco schema --check base-schema.json`). Until then, review schema diffs against the table above by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
+<Callout>**Status. The compatibility step needs `deco schema --check`, which isn't built yet; it ships with the first release.** Once it's out, add a step that compares the schema with the one on the pull request's target branch (`git show "origin/$BASE_REF:.deco/schema.json" > base-schema.json`, then `deco schema --check base-schema.json`). Until then, review schema diffs against the table above by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
 
 Studio's saves are commits to the same repository. They only change content, never the schema, so `--check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions). When Studio saves through pull requests, this workflow checks them before merge. When it commits straight to your production branch, they're live as soon as they land, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` to run it on those commits too.
 
@@ -159,7 +159,7 @@ deco content serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>]
 - `--entry <path>` (`deco schema` only): the file that exports your block map. By default the CLI looks for `blocks.ts` or `blocks.tsx` in the project root or in `src/`.
 - `--root <dir>`: the folder that contains `.deco`, such as `apps/storefront` in a monorepo. By default, the CLI walks up from the current directory to the first folder with a `.deco`.
 - `--watch`: regenerate as files change.
-- `--check <base>` (`deco schema` only): compare the schema your code generates now with an earlier one, and fail on breaking changes. It writes nothing, and it isn't built yet (see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check)). See [Keep the schema compatible](#keep-the-schema-compatible).
+- `--check <base>` (`deco schema` only): compare the schema your code generates now with an earlier one, and fail on breaking changes. It writes nothing. It isn't built yet and ships with the first release (see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check)). See [Keep the schema compatible](#keep-the-schema-compatible).
 
 There's no separate dev command: run both before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in [The content module](/next/content#the-content-module).
 
