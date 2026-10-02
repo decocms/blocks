@@ -194,7 +194,7 @@ Every call returns a `[value, error]` tuple, so a missing block or a failing fun
 
 Run it with `npx tsx checkout.ts`. Now open `.deco/blocks/Experiments.json`, change `newCheckout` to `100`, and run it again: `newCheckout` is `true` every time. You changed what the code does without touching the code.
 
-A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Block maps](/next/block-maps)).
+A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Reading the request](/next/blocks#reading-the-request)).
 
 <Hosted to="/next/hosted" label="What the hosted Deco CMS adds">**Change the numbers without a deploy.** With the hosted Deco CMS, editors change `Experiments.json` in Studio on GitHub, and running servers pick it up within seconds.</Hosted>
 
@@ -203,7 +203,6 @@ A real implementation would hash a visitor ID from a cookie instead of rolling a
 - [Blocks](/next/blocks): blocks as function calls in JSON, how they compose and get reused, and how saved blocks live in your repository and go live.
 - [Schema](/next/schema): how your types become editor forms, and the JSDoc tags that shape them.
 - [Releases and drafts](/next/releases-and-drafts): what everyone sees, and how to preview a change before it ships.
-- [Block maps](/next/block-maps), when you need more: lazy loading and naming types.
 - [Matchers and variants](/next/matchers-and-variants): let content pick different values per visitor, date or experiment.
 - [Routes and redirects](/next/routes-and-redirects): the content types that give pages and redirects their URLs.
 - [Rendering](/next/rendering): the two ways a block becomes UI.

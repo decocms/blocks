@@ -83,7 +83,7 @@ export interface ResolvedPage<T> extends Route { seo: Seo; sections: T[] }
 }
 ```
 
-The redirect sends `/old-products/summer` to `/summer/p`. The hero uses literal product values to keep the example small. On a real store, the hero's block function fetches the product for the slug through an [upstream client](/next/upstream-clients#write-a-client), reading `match.params` from your app's request state (see [Block maps](/next/block-maps)).
+The redirect sends `/old-products/summer` to `/summer/p`. The hero uses literal product values to keep the example small. On a real store, the hero's block function fetches the product for the slug through an [upstream client](/next/upstream-clients#write-a-client), reading `match.params` from your app's request state (see [Reading the request](/next/blocks#reading-the-request)).
 
 ## Route a request
 
@@ -136,7 +136,7 @@ Mount this handler as your app's catch-all route, the one that runs when no othe
 
 Which types route is your decision, per handler: a blog lists `post`, a docs site lists `doc`. `match.params` holds the URL parameters; hand them to your code however your app shares request state. The CMS never injects them into blocks.
 
-For example, with Node's `AsyncLocalStorage`: `export const routeParams = new AsyncLocalStorage<Record<string, string>>()`. Wrap rendering in `routeParams.run(match.params, () => render(…))`, and a block reads `routeParams.getStore()?.slug`. The [Block maps](/next/block-maps) page covers request-scoped state in more detail.
+For example, with Node's `AsyncLocalStorage`: `export const routeParams = new AsyncLocalStorage<Record<string, string>>()`. Wrap rendering in `routeParams.run(match.params, () => render(…))`, and a block reads `routeParams.getStore()?.slug`.
 
 Matching is a lookup, not a scan: entries are compiled into a segment trie (a tree keyed by path segment), so a lookup costs the URL's depth, not the number of routes. The trie is cached per `routes` array object, so passing the same array again skips the build. The handler above builds a new array per request, which rebuilds the trie each time; that's one pass over the paths, fine for most sites. To skip the rebuild, reuse one array per revision, keyed by `client.revision()`. The algorithm is described [under the hood](/next/router-internals).
 

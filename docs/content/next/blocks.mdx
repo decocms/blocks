@@ -47,6 +47,10 @@ What a block can contain:
 - **Any JSON value as an argument**: strings, numbers, booleans, `null`, arrays and objects. Anything JSON can't hold, such as a function or a `Date`, can't be an argument.
 - **Other blocks**, anywhere inside an argument. That's the next section.
 
+### Reading the request
+
+A block function gets only its inputs: no request, no context object. When it needs the current request, a cookie or a route parameter, it reads it the way the rest of your app does, through your framework's request-scoped storage (`next/headers`, TanStack Start's `getRequest()`, or Node's `AsyncLocalStorage`). That keeps block functions plain functions you can call in a test.
+
 ## Composing blocks
 
 A block inside an argument is a call inside a call. Here a product card gets its product from a second function, `catalogProduct`, which fetches it from your catalog:
@@ -141,7 +145,7 @@ export default {
 } satisfies Blocks;
 ```
 
-The block map lives in `.deco/index.ts` (or `.deco/index.tsx`), next to your content, and imports your components from `../src/`. Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. For lazy loading and more, see [Block maps](/next/block-maps).
+The block map lives in `.deco/index.ts` (or `.deco/index.tsx`), next to your content, and imports your components from `../src/`. Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map.
 
 ### Built-in blocks
 

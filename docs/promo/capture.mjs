@@ -9,7 +9,7 @@ const browser = await chromium.launch();
 const context = await browser.newContext({
   viewport: { width: 540, height: 760 }, deviceScaleFactor: 2,
   isMobile: true, hasTouch: true, colorScheme: 'light',
-  recordVideo: { dir: output, size: { width: 1080, height: 1520 } },
+  recordVideo: { dir: output, size: { width: 540, height: 760 } },
 });
 const page = await context.newPage();
 const recordingStart = performance.now();

@@ -1689,7 +1689,7 @@
       "docs": [
         "tanstack-start-descriptors",
         "tanstack-start-rsc",
-        "block-maps"
+        "blocks"
       ],
       "pinned": false
     },
@@ -2308,7 +2308,7 @@
       "docs": [
         "tanstack-start-descriptors",
         "router-internals",
-        "block-maps",
+        "blocks",
         "nextjs"
       ],
       "confidence": "high",
@@ -2328,7 +2328,7 @@
       "summary": "The CMS never injects `match.params`, so every migrated site repeats the same ~8-line AsyncLocalStorage shim, and every `resolve()` must start inside it. The guides don't show it.",
       "docs": [
         "routing",
-        "block-maps",
+        "blocks",
         "design-decisions",
         "renames-and-migrations"
       ],
@@ -2476,7 +2476,6 @@
       "docs": [
         "quickstart",
         "blocks",
-        "block-maps",
         "renames-and-migrations",
         "tanstack-start-descriptors",
         "studio-compatibility",
@@ -2522,7 +2521,6 @@
       "summary": "Per-request dedupe is only implied: no cache key, and nothing on shared in-flight promises. Pages that reference 'PLP Loader' or 'PDP Loader' twice would double their Shopify calls, and a failing loader now fails its whole block.",
       "docs": [
         "blocks",
-        "block-maps",
         "routing",
         "api-reference",
         "troubleshooting",
@@ -2610,7 +2608,6 @@
       "docs": [
         "blocks",
         "rendering",
-        "block-maps",
         "api-reference"
       ],
       "confidence": "medium",
@@ -2631,7 +2628,7 @@
         "api-reference",
         "routes-and-redirects",
         "schema",
-        "block-maps",
+        "blocks",
         "routing"
       ],
       "confidence": "medium",
@@ -2651,8 +2648,7 @@
       "docs": [
         "api-reference",
         "blocks",
-        "schema",
-        "block-maps"
+        "schema"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -2789,7 +2785,7 @@
       "docs": [
         "quickstart",
         "routes-and-redirects",
-        "block-maps",
+        "blocks",
         "studio-compatibility",
         "renames-and-migrations"
       ],
@@ -2829,7 +2825,7 @@
       ],
       "summary": "This is component logic. A server-side check in a Next layout won't re-evaluate on client navigation, and `router.asPath` includes the query string, so compare pathnames.",
       "docs": [
-        "block-maps",
+        "blocks",
         "matchers-and-variants",
         "rendering"
       ],
@@ -2852,7 +2848,7 @@
       "docs": [
         "matchers-and-variants",
         "design-decisions",
-        "block-maps",
+        "blocks",
         "tanstack-start-descriptors",
         "studio-compatibility",
         "renames-and-migrations"
@@ -2874,9 +2870,8 @@
       ],
       "summary": "Registration works, but none of the 8 legacy convention flags or section loaders has a home, so each site rebuilds the ~737-line DecoPageRenderer. There's no descriptor type, and `getRequest()` gives URL-dependent loaders the wrong URL on SPA navigation.",
       "docs": [
-        "block-maps",
-        "tanstack-start-descriptors",
         "blocks",
+        "tanstack-start-descriptors",
         "rendering",
         "renames-and-migrations",
         "caching-and-observability",
@@ -2923,10 +2918,9 @@
       ],
       "summary": "Overrides collapse into plain composition, but the core components, contexts and SDK hooks they rely on must be rebuilt. There's no page-level data context, and keys like 'Footer' can collide with saved-entry names.",
       "docs": [
-        "block-maps",
+        "blocks",
         "rendering",
         "renames-and-migrations",
-        "blocks",
         "troubleshooting",
         "design-decisions"
       ],
@@ -2966,7 +2960,7 @@
       "summary": "The block-function part works, but a PDP block has no documented way to get route params, and it can't signal a 404 once a template route matches. Its view model also parses FastStore GraphQL shapes.",
       "docs": [
         "rendering",
-        "block-maps",
+        "blocks",
         "routing",
         "api-reference",
         "nextjs",
@@ -2987,7 +2981,6 @@
       ],
       "summary": "Server-side product inputs and typed card config work as documented, but apps-vtex has no tax-inclusive prices, full installment ladders or delivery badges",
       "docs": [
-        "block-maps",
         "blocks",
         "schema",
         "rendering",
@@ -3011,10 +3004,9 @@
       ],
       "summary": "A legacy Lazy wrapper's `section` input resolves fully before Lazy runs, so Lazy defers nothing (43 wrappers on the storefront). Viewport-gated second hops need a revision the client doesn't expose, and today's per-prop deferral has no counterpart.",
       "docs": [
-        "block-maps",
+        "blocks",
         "rendering",
         "tanstack-start-descriptors",
-        "blocks",
         "matchers-and-variants",
         "releases-and-deployment",
         "api-reference",
@@ -3036,7 +3028,6 @@
       ],
       "summary": "The documented request sources don't give blocks the page URL: on TanStack SPA navigation `getRequest()` returns the `/_serverFn` URL, Next's `headers()` has none, and `match.params` has no path to blocks or app packages.",
       "docs": [
-        "block-maps",
         "blocks",
         "rendering",
         "tanstack-start-descriptors",
@@ -3112,7 +3103,7 @@
       ],
       "summary": "Overriding a key is plain JS, but none of the 3 real overrides ports on the proposed API alone. There's no notion of app packages, and no rule says whose schema wins when a site overrides an app's key.",
       "docs": [
-        "block-maps",
+        "blocks",
         "renames-and-migrations",
         "schema"
       ],
@@ -3131,7 +3122,7 @@
       ],
       "summary": "No framework feature is needed, and the migration fixes a live bug: `/deco/invoke` never finds the site's user and wishlist loaders, so those calls 404 and throw. They become server functions.",
       "docs": [
-        "block-maps",
+        "blocks",
         "tanstack-start-descriptors",
         "caching-and-observability",
         "routing"
@@ -3176,7 +3167,7 @@
       "summary": "Nothing framework-level is needed; API routes belong to the framework. Each handler sets Cache-Control itself once `@cacheControl` goes.",
       "docs": [
         "routing",
-        "block-maps",
+        "blocks",
         "caching-and-observability",
         "nextjs"
       ],
@@ -3216,7 +3207,7 @@
       ],
       "summary": "On SPA navigation blocks see the RPC URL, `/*` never matches, and without loaderDeps the loader doesn't re-run. Show-more needs `/deco/invoke` and a revision, the Lax draft cookie is rejected in Studio's iframe, and FastStore's search state machine must be rebuilt.",
       "docs": [
-        "block-maps",
+        "blocks",
         "tanstack-start-descriptors",
         "nextjs",
         "router-internals",
@@ -3262,7 +3253,7 @@
       ],
       "summary": "FastStore tooling with no counterpart once @faststore/api and core are gone. Persisted-query hashes acted as an allowlist, so each replacement server function needs explicit input validation.",
       "docs": [
-        "block-maps",
+        "blocks",
         "api-reference",
         "rendering",
         "tanstack-start-descriptors"
@@ -3301,7 +3292,7 @@
       ],
       "summary": "A server endpoint plus a client hook, but apps-vtex has no persisted-query client for `/_v/public/graphql/v1`, so the site's IO client still needs porting, and it's unclear what the app should cache with.",
       "docs": [
-        "block-maps",
+        "blocks",
         "caching-and-observability",
         "matchers-and-variants",
         "routes-and-redirects",
@@ -3323,7 +3314,7 @@
       ],
       "summary": "Loaders as block functions and legacy aliases are documented, but not what apps need from the runtime: apps-* import `@decocms/blocks/sdk/*` and depend on `@decocms/tanstack`, and no guide populates `RequestContext`, so apps-vtex's region and cookies silently turn off.",
       "docs": [
-        "block-maps",
+        "blocks",
         "routing",
         "router-internals",
         "renames-and-migrations",
@@ -3349,7 +3340,7 @@
       "summary": "There's no registry left to patch. The package bug is still open and its root cause was never established, so in-body dynamic imports need checking in a production Workers build.",
       "docs": [
         "design-decisions",
-        "block-maps",
+        "blocks",
         "api-reference",
         "troubleshooting"
       ],
@@ -3370,7 +3361,7 @@
       "docs": [
         "caching-and-observability",
         "tanstack-start-descriptors",
-        "block-maps"
+        "blocks"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3388,7 +3379,7 @@
       "summary": "The hooks and their SSR prefetch stay app code.",
       "docs": [
         "caching-and-observability",
-        "block-maps",
+        "blocks",
         "rendering",
         "tanstack-start-descriptors"
       ],
@@ -3428,7 +3419,7 @@
       ],
       "summary": "There's nothing on sessions or regions beyond cache-key advice. Without a populated `RequestContext`, apps-vtex's regionalized Intelligent Search queries silently fall back to the default region.",
       "docs": [
-        "block-maps",
+        "blocks",
         "matchers-and-variants",
         "caching-and-observability",
         "routes-and-redirects"
@@ -3449,7 +3440,7 @@
       "summary": "Neither these docs nor apps-vtex have it: the Intelligent Search loaders carry no delivery-promise parameters, and the FastStore hooks and region slider it uses don't survive. It also depends on session regionalization.",
       "docs": [
         "routes-and-redirects",
-        "block-maps"
+        "blocks"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -3489,7 +3480,7 @@
       "docs": [
         "caching-and-observability",
         "matchers-and-variants",
-        "block-maps",
+        "blocks",
         "tanstack-start-descriptors",
         "renames-and-migrations"
       ],
@@ -3509,7 +3500,7 @@
       "summary": "One server function plus useQuery; the selection context moves unchanged. The cost is re-platforming the comparison sidebar to schema.org products, and it can't ship before ProductGallery's search state is rebuilt.",
       "docs": [
         "rendering",
-        "block-maps",
+        "blocks",
         "caching-and-observability",
         "schema"
       ],
@@ -3531,7 +3522,7 @@
       "docs": [
         "caching-and-observability",
         "tanstack-start-descriptors",
-        "block-maps"
+        "blocks"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3551,7 +3542,7 @@
       "docs": [
         "caching-and-observability",
         "tanstack-start-descriptors",
-        "block-maps"
+        "blocks"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3573,7 +3564,7 @@
         "rendering",
         "nextjs",
         "tanstack-start-descriptors",
-        "block-maps",
+        "blocks",
         "troubleshooting"
       ],
       "confidence": "high",
@@ -3592,7 +3583,7 @@
       "summary": "The app owns this entirely. Hook-using files without `\"use client\"` throw under Server Components, and the FastStore shell's contexts must be re-mounted.",
       "docs": [
         "how-it-works",
-        "block-maps",
+        "blocks",
         "rendering",
         "nextjs"
       ],
@@ -3620,7 +3611,7 @@
         "tanstack-start-descriptors",
         "renames-and-migrations",
         "studio-compatibility",
-        "block-maps",
+        "blocks",
         "design-decisions"
       ],
       "confidence": "high",
@@ -3642,7 +3633,6 @@
       "docs": [
         "blocks",
         "schema",
-        "block-maps",
         "api-reference",
         "renames-and-migrations",
         "design-decisions"
@@ -3710,8 +3700,7 @@
         "blocks",
         "rendering",
         "api-reference",
-        "internals",
-        "block-maps"
+        "internals"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3803,7 +3792,7 @@
         "caching-and-observability",
         "api-reference",
         "troubleshooting",
-        "block-maps"
+        "blocks"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -3820,9 +3809,9 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Headers and cookies are available, but the page URL and params, Set-Cookie from resolution and the request port apps-* use are not. [Block maps](#block-maps) says to read route params through `getRequest()`, which is wrong even on SSR.",
+      "summary": "Headers and cookies are available, but the page URL and params, Set-Cookie from resolution and the request port apps-* use are not. [Blocks](#blocks) says to read route params through `getRequest()`, which is wrong even on SSR.",
       "docs": [
-        "block-maps",
+        "blocks",
         "routing",
         "tanstack-start-descriptors",
         "nextjs",
@@ -3848,7 +3837,7 @@
         "studio-compatibility",
         "internals",
         "schema",
-        "block-maps",
+        "blocks",
         "caching-and-observability",
         "content-protocol"
       ],
@@ -3896,7 +3885,7 @@
         "schema",
         "studio-compatibility",
         "renames-and-migrations",
-        "block-maps",
+        "blocks",
         "quickstart",
         "routes-and-redirects",
         "caching-and-observability"
@@ -3978,12 +3967,11 @@
       "summary": "`createCMS` plus a block map replace registration, but nothing generates the map (27 UI blocks and 12 loaders by hand on the storefront), the revision of generated content must match the API hash (planned: <code>deco content</code> computes it the same way), and there's no lenient mode or Studio-shaped schema.",
       "docs": [
         "quickstart",
-        "block-maps",
+        "blocks",
         "api-reference",
         "tanstack-start-descriptors",
         "hosted-releases-internals",
         "schema",
-        "blocks",
         "releases-and-drafts",
         "studio-compatibility",
         "renames-and-migrations"
@@ -4008,7 +3996,6 @@
         "routes-and-redirects",
         "schema",
         "blocks",
-        "block-maps",
         "api-reference",
         "renames-and-migrations",
         "studio-compatibility"
@@ -4030,7 +4017,7 @@
       ],
       "summary": "There's no concept of an app: no config for app loaders, no autoconfig, no secret resolution, no `apps` manifest group and no encrypt endpoint, so Studio can't save secret fields.",
       "docs": [
-        "block-maps",
+        "blocks",
         "design-decisions",
         "studio-compatibility",
         "schema",
@@ -4079,7 +4066,6 @@
       "docs": [
         "blocks",
         "routes-and-redirects",
-        "block-maps",
         "tanstack-start-descriptors",
         "releases-and-deployment",
         "releases-and-drafts"
@@ -4299,7 +4285,7 @@
       "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `deco check` to validate content against the code yet",
       "docs": [
         "schema",
-        "block-maps",
+        "blocks",
         "tanstack-start-descriptors",
         "releases-and-deployment",
         "hosted-releases-internals",
@@ -4346,7 +4332,7 @@
         "nextjs",
         "how-it-works",
         "schema",
-        "block-maps",
+        "blocks",
         "api-reference"
       ],
       "confidence": "high",
@@ -4369,7 +4355,7 @@
         "api-reference",
         "matchers-and-variants",
         "routes-and-redirects",
-        "block-maps",
+        "blocks",
         "schema",
         "internals",
         "upstream-clients"
@@ -4391,7 +4377,7 @@
       "docs": [
         "nextjs",
         "rendering",
-        "block-maps"
+        "blocks"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -4471,7 +4457,7 @@
         "how-it-works",
         "api-reference",
         "renames-and-migrations",
-        "block-maps"
+        "blocks"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -4556,7 +4542,7 @@
       ],
       "summary": "`googleFonts` has no home in the next-major packages and imports `sdk/fetchTimeout`. Making fonts editable also needs the CLI to link `font: Font` to loaders by return type, a rule these docs name but never define.",
       "docs": [
-        "block-maps",
+        "blocks",
         "renames-and-migrations",
         "caching-and-observability",
         "studio-compatibility",
@@ -4602,7 +4588,7 @@
       ],
       "summary": "Locale is fixed per deployment, so the only framework need is cache keys. In the FastStore storefront, code that calls its own translation hook without `\"use client\"` throws as a Server Component until it's rewritten.",
       "docs": [
-        "block-maps",
+        "blocks",
         "matchers-and-variants",
         "caching-and-observability",
         "nextjs"
@@ -4630,7 +4616,7 @@
         "releases-and-drafts",
         "releases-and-deployment",
         "troubleshooting",
-        "block-maps",
+        "blocks",
         "tanstack-start-descriptors",
         "internals"
       ],
@@ -4651,7 +4637,7 @@
       "summary": "The storefront calls `createInstrumentedFetch(\"shopify\")` with no onComplete, so upstream metrics are dark today. The chokepoint rule is never stated, and there's no meter on Next or Node.",
       "docs": [
         "caching-and-observability",
-        "block-maps",
+        "blocks",
         "rendering",
         "internals",
         "upstream-clients"
@@ -4679,7 +4665,7 @@
         "design-decisions",
         "studio-compatibility",
         "renames-and-migrations",
-        "block-maps",
+        "blocks",
         "quickstart",
         "rendering"
       ],

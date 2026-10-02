@@ -129,7 +129,7 @@ t = np.arange(len(audio)) / SR
 envelope = np.minimum(t/.45, 1) * np.minimum((duration-t)/1.1, 1)
 audio *= envelope[:, None]
 audio = np.tanh(audio * 1.5)
-audio *= .87 / max(1, np.max(np.abs(audio)))
+audio *= min(10 ** (-18/20) / np.sqrt(np.mean(audio**2)), .79 / np.max(np.abs(audio)))
 with wave.open(str(OUT / 'soundtrack.wav'), 'wb') as wav:
     wav.setnchannels(2); wav.setsampwidth(2); wav.setframerate(SR)
     wav.writeframes((audio * 32767).astype('<i2').tobytes())
@@ -146,10 +146,10 @@ filters = [f'[0:v]fps=30,format=yuv420p,trim=duration={timeline["duration"]},set
 for i, caption in enumerate(timeline['captions']):
     end = timeline['captions'][i+1]['at'] if i+1 < len(timeline['captions']) else timeline['duration']
     filters += [f'[{4+i}:v]format=rgba,fade=t=in:st={caption["at"]:.3f}:d=0.18:alpha=1[cap{i}]',
-                f'[shot{i}][cap{i}]overlay=0:110:enable=\'between(t,{caption["at"]:.3f},{end:.3f})\'[shot{i+1}]']
+                f'[shot{i}][cap{i}]overlay=0:110:shortest=1:enable=\'between(t,{caption["at"]:.3f},{end:.3f})\'[shot{i+1}]']
 filters += [f'[2:v]fps=30,format=yuv420p,trim=duration={INTRO},setpts=PTS-STARTPTS[intro]',
             f'[3:v]fps=30,format=yuv420p,trim=duration={OUTRO},setpts=PTS-STARTPTS[outro]',
             f'[intro][shot{len(timeline["captions"])}][outro]concat=n=3:v=1:a=0[video]']
-command = [ffmpeg, '-y', *inputs, '-filter_complex', ';'.join(filters), '-map', '[video]', '-map', f'{audio_index}:a', '-c:v', 'libx264', '-preset', 'fast', '-crf', '19', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-t', str(duration), str(OUT/'deco-next-vertical.mp4')]
+command = [ffmpeg, '-y', *inputs, '-filter_complex', ';'.join(filters), '-map', '[video]', '-map', f'{audio_index}:a', '-r', '30', '-c:v', 'libx264', '-preset', 'fast', '-crf', '19', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-t', str(duration), str(OUT/'deco-next-vertical.mp4')]
 subprocess.run(command, check=True)
 print(f'Rendered {OUT / "deco-next-vertical.mp4"} ({duration:.1f}s, 1080×1920)')
