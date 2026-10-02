@@ -48,7 +48,7 @@ interface ProductCardProps {
 - **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a [matcher](/next/matchers-and-variants) (a function that returns a `boolean`) never shows up as a section.
 - **Simple types** (`string`, `number`, `boolean`, a union of literals) get a plain input only. A function that returns a `string` isn't offered for `title: string`, and matchers aren't offered for `permanent: boolean`.
 
-Two things work on top of this. Any field can be a [variant](/next/matchers-and-variants), one of several values picked per request (by date, visitor or experiment): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. And a variant's `rule` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher).
+Two things work on top of this. Any field can be a [variant](/next/matchers-and-variants), one of several values picked per request (by date, or by any rule you write): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. And a variant's `rule` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher).
 
 Never type a prop as a block. `Block` is only the shape of saved JSON (see [Composing blocks](/next/blocks#composing-blocks)).
 
