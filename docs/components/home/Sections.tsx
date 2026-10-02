@@ -98,7 +98,7 @@ export function ContentModel() {
             <div className={`${ciWin} bg-code-bg`} aria-hidden="true" data-pagefind-ignore="">
               <div className={winBarSmall}>
                 <Dots small />
-                <span className={winTitleSmall}>.deco/blocks.ts</span>
+                <span className={winTitleSmall}>.deco/index.ts</span>
               </div>
               <pre className="p-4 text-12 leading-[21px]">
                 <code>
@@ -177,7 +177,7 @@ export function ContentModel() {
               <div className="flex-none border border-hairline rounded-xl bg-surface overflow-hidden">
                 <div className="flex items-center gap-2 h-8 px-3 border-b border-hairline text-12 leading-4 text-muted-fg whitespace-nowrap overflow-hidden">
                   <Icon name="sparkle" className={aeIcon} />
-                  <span className="min-w-0 overflow-hidden text-ellipsis">Edited .deco/content/Experiments.json</span>
+                  <span className="min-w-0 overflow-hidden text-ellipsis">Edited .deco/blocks/Experiments.json</span>
                 </div>
                 <code className={`${aeLine} bg-del-bg text-del-fg`}>-  "newCheckout": 10,</code>
                 <code className={`${aeLine} bg-add-bg text-fg shadow-[inset_2px_0_0_var(--olive-ring)]`}>+  "newCheckout": 25,</code>

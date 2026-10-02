@@ -6,9 +6,9 @@ order: 8
 
 # Block maps
 
-A block map is the code half of the [registry](/next/blocks): a plain object from block type to function. The other half is the content map of saved blocks, which you pass to `createCMS` as [`content`](/next/blocks#the-deco-content-command). It lives in `.deco/blocks.ts` (or `.deco/blocks.tsx`), and the quickstart's is one. This section covers what else can go in it.
+A block map is the code half of the [registry](/next/blocks): a plain object from block type to function. The other half is the content map of saved blocks, which you pass to `createCMS` as [`content`](/next/blocks#the-deco-content-command). It lives in `.deco/index.ts` (or `.deco/index.tsx`), and the quickstart's is one. This section covers what else can go in it.
 
-```ts title=".deco/blocks.ts"
+```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
 import seo from "../src/seo";
 import productCard from "../src/product-card";
@@ -33,7 +33,7 @@ The map above imports every block at the top, so they all load with the map. Tha
 
 What's heavy is the component a block renders, and your framework already knows how to load components lazily. So do it in one place, the map, and let the block files stay plain components:
 
-```tsx title=".deco/blocks.tsx (Next.js)"
+```tsx title=".deco/index.tsx (Next.js)"
 import dynamic from "next/dynamic";
 import type { Blocks } from "@decocms/blocks";
 import seo from "../src/seo";

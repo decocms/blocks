@@ -14,7 +14,7 @@ Without the hosted Deco CMS, publishing is committing and a deploy ships it (see
 
 ## How a commit becomes a release
 
-Publishing is the same event with or without the hosted Deco CMS: your production branch (usually `main`) moves. A developer or an agent commits a file in `.deco/content` and pushes, or merges a pull request; an editor publishes a draft in [Studio](/next/how-it-works#studio), which brings its commits to that branch (see [Editing in Studio on GitHub](/next/hosted-studio)).
+Publishing is the same event with or without the hosted Deco CMS: your production branch (usually `main`) moves. A developer or an agent commits a file in `.deco/blocks` and pushes, or merges a pull request; an editor publishes a draft in [Studio](/next/how-it-works#studio), which brings its commits to that branch (see [Editing in Studio on GitHub](/next/hosted-studio)).
 
 1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its revision identifies it.
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
@@ -64,8 +64,8 @@ To see which release a server is serving, build the loader yourself and log its 
 
 ```ts title="cms.ts"
 import { createCMS, remoteLoader } from "@decocms/blocks";
-import blocks from "./.deco/blocks";
-import content from "./.deco/content.gen";
+import blocks from "./.deco";
+import content from "./.deco/blocks.gen";
 
 const loader = remoteLoader(content, { site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN });
 export const cms = createCMS({ blocks, content: loader });

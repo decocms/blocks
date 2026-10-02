@@ -338,8 +338,8 @@ export function Journey() {
             <div className={head}>
               <span className={stepNum}>03</span>
               <span className={title}>Commit it</span>
-              <span className={meta} title=".deco/content/Experiments.json">
-                <span className="rail:hidden max-xs:hidden">.deco/content/</span>Experiments.json
+              <span className={meta} title=".deco/blocks/Experiments.json">
+                <span className="rail:hidden max-xs:hidden">.deco/blocks/</span>Experiments.json
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-1.5 pt-2.5 px-3.5 text-11 leading-4 text-muted-fg">
@@ -353,7 +353,7 @@ export function Journey() {
                 Edited by an agent
               </span>
             </div>
-            <pre className={`${pre} pt-2.5 pl-3 pr-2.5`} aria-label="Diff of .deco/content/Experiments.json">
+            <pre className={`${pre} pt-2.5 pl-3 pr-2.5`} aria-label="Diff of .deco/blocks/Experiments.json">
               <code className="block" id="exp-json">
                 <span className={dl}>
                   <span className={`${gut} text-faint`}> </span>
@@ -441,14 +441,14 @@ export function Journey() {
                 </L>
                 <L>
                   {'  '}
-                  <S>"./.deco/blocks"</S>;
+                  <S>"./.deco"</S>;
                 </L>
                 <L>
                   <K>import</K> content <K>from</K>
                 </L>
                 <L>
                   {'  '}
-                  <S>"./.deco/content.gen"</S>;
+                  <S>"./.deco/blocks.gen"</S>;
                 </L>
                 <L>
                   <K>const</K> cms = <F>createCMS</F>({'{'}

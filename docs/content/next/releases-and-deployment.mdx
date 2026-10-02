@@ -7,19 +7,19 @@ order: 18
 
 # Releases and deployment
 
-Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/content` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back.
+Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back.
 
 | Step | What happens |
 |---|---|
 | Commit | A developer, an agent, or an editor in [Studio](/next/how-it-works#studio) changes a function, a saved block, or both. Review them in one pull request like any other change. |
-| Build | `prebuild` runs `deco schema && deco content`, which bundles `.deco/content` into the build as the [content module](/next/blocks#the-deco-content-command). |
+| Build | `prebuild` runs `deco schema && deco content`, which bundles `.deco/blocks` into the build as the [content module](/next/blocks#the-deco-content-command). |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 
 A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any saved block and you get a new revision. That makes a revision a safe cache key everywhere.
 
 <h2 id="publishing">Publishing is committing</h2>
 
-There's no separate publish step: once a change to `.deco/content` is on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
+There's no separate publish step: once a change to `.deco/blocks` is on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
 
 Because content and code share one history, a deploy and a content change are the same kind of event: a commit. That gives you, for free:
 

@@ -127,7 +127,7 @@ export const search = createAcmeSearch({
 
 A block function can then fetch what it renders:
 
-```tsx title=".deco/blocks.tsx (excerpt)"
+```tsx title=".deco/index.tsx (excerpt)"
 "product-shelf": async ({ title, query }: { title: string; query: string }) => {
   const products = await search.search(query, 8);
   return <ProductShelf title={title} products={products} />;

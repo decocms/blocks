@@ -13,7 +13,7 @@ This guide reuses the [data guide](/next/tanstack-start-descriptors)'s content, 
 
 ## 1. Swap the block map
 
-Replace `.deco/blocks.ts` with the [Next.js guide](/next/nextjs)'s `.deco/blocks.tsx`. It doesn't override `page`, because its blocks return JSX, which the built-in page already takes. Keep `src/cms.ts` and `src/open-page.server.ts` from the data guide as they are. `deco schema` reads `.deco/blocks.tsx` as well as `.deco/blocks.ts`, so the scripts don't change.
+Replace `.deco/index.ts` with the [Next.js guide](/next/nextjs)'s `.deco/index.tsx`. It doesn't override `page`, because its blocks return JSX, which the built-in page already takes. Keep `src/cms.ts` and `src/open-page.server.ts` from the data guide as they are. `deco schema` reads `.deco/index.tsx` as well as `.deco/index.ts`, so the scripts don't change.
 
 ## 2. Render blocks on the server
 

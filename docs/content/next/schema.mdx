@@ -12,7 +12,7 @@ This page shows how types become fields, how to pick widgets, how to declare dat
 
 ## From types to forms
 
-`deco schema` reads the default export of `.deco/blocks.ts` (or `.deco/blocks.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (see [CLI](/next/cli)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
+`deco schema` reads the default export of `.deco/index.ts` (or `.deco/index.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (see [CLI](/next/cli)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
 
 ```bash
 npx @decocms/blocks schema
@@ -109,7 +109,7 @@ becomes a form with a *Headline* text box limited to 60 characters, an *Image* p
 
 A blog post or a navigation menu has fields but no logic. Declare it with a function that returns its input unchanged:
 
-```ts title=".deco/blocks.ts"
+```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
 import type { Post } from "../src/post";
 import seo from "../src/seo";
@@ -126,7 +126,7 @@ A `post` is now a block like any other. Your app reads posts by type with `clien
 
 The schema and the runtime always include the [built-in blocks](/next/blocks#built-in-blocks): `page`, `redirect` and `telemetry`. To change a built-in's form, declare the same key in the default export. `Page` is exported from `@decocms/blocks`; extend it to add fields:
 
-```ts title=".deco/blocks.ts"
+```ts title=".deco/index.ts"
 import type { Blocks, Page } from "@decocms/blocks";
 // …the other imports from above
 
@@ -141,7 +141,7 @@ Nothing is lost: inputs resolve before the function runs, so returning `props` g
 
 ### Names must not clash
 
-`deco schema` checks your saved content: it fails if a saved block in `.deco/content` has the name of a block type, built-ins included (no saved block can be called `page`, `redirect` or `telemetry`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); `deco schema` makes it an error so you catch it before you deploy. It doesn't yet check each saved block's values against the schema; that's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
+`deco schema` checks your saved content: it fails if a saved block in `.deco/blocks` has the name of a block type, built-ins included (no saved block can be called `page`, `redirect` or `telemetry`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); `deco schema` makes it an error so you catch it before you deploy. It doesn't yet check each saved block's values against the schema; that's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
 
 ## Change types safely
 

@@ -91,7 +91,7 @@ export interface Post extends Route {
 }
 ```
 
-```ts title=".deco/blocks.ts"
+```ts title=".deco/index.ts"
 const post = (props: Post) => props;   // data only: returns what the editor saved
 export default { seo, hero, post } satisfies Blocks;
 ```

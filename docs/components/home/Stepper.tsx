@@ -24,7 +24,7 @@ const STEPS = [
 ]
 
 const FILE_TABS = [
-  { icon: 'file' as const, label: '.deco/blocks.ts' },
+  { icon: 'file' as const, label: '.deco/index.ts' },
   { icon: 'terminal' as const, label: 'Terminal' },
   { icon: 'file' as const, label: 'cms.ts' },
 ]

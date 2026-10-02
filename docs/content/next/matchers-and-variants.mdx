@@ -35,7 +35,7 @@ export function multivariate<T>({ variants }: { variants: { rule: boolean; value
 }
 ```
 
-```ts title=".deco/blocks.ts"
+```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
 import { always, never, date } from "@decocms/blocks/matchers";
 import { multivariate } from "../src/multivariate";
