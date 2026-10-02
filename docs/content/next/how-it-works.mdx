@@ -56,6 +56,26 @@ The SDK and CLI are open source and run without a Deco account. Local editing in
 
 <Hosted to="/next/hosted" label="What the hosted Deco CMS adds">**An optional hosted service** that works on the same files.</Hosted>
 
+## Small on purpose
+
+- **Content is plain JSON.** Read it, diff it, or generate it with a script. There's no database to host.
+- **Block functions are plain functions.** You can call any of them directly in a test.
+- **Data fetching is your code.** See [Upstream API clients](/next/upstream-clients).
+- **Nothing is hidden.** The formats are documented in [Blocks](/next/blocks) and [Internals](/next/internals).
+
+## Coming from v7
+
+| v7 | Next major |
+|---|---|
+| decofile | Your saved blocks, in `.deco/blocks` |
+| Section | Block function that returns JSX |
+| Loader (data) | Your code over an [upstream client](/next/upstream-clients) |
+| Admin protocol (`/live/_meta`, `/.decofile`) | [Content protocol](/next/content-protocol) |
+| `/deco/invoke` | Your server functions or route handlers |
+| `meta.gen.json` | `.deco/schema.json` (same format) |
+
+For the full move, see [Renaming and migrating](/next/renames-and-migrations).
+
 ## Key terms
 
 <Terms>
@@ -74,23 +94,3 @@ The SDK and CLI are open source and run without a Deco account. Local editing in
   <Term name="Framework binding">`@decocms/tanstack` or `@decocms/nextjs`: an optional package for what depends on where your site runs, such as upstream and page caching. Not wired into these guides yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).</Term>
   <Term name="Platform template">A starter site per commerce platform (VTEX, Shopify, …) that you copy and then own. Not available yet; see the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Term>
 </Terms>
-
-## Coming from v7
-
-| v7 | Next major |
-|---|---|
-| decofile | Your saved blocks, in `.deco/blocks` |
-| Section | Block function that returns JSX |
-| Loader (data) | Your code over an [upstream client](/next/upstream-clients) |
-| Admin protocol (`/live/_meta`, `/.decofile`) | [Content protocol](/next/content-protocol) |
-| `/deco/invoke` | Your server functions or route handlers |
-| `meta.gen.json` | `.deco/schema.json` (same format) |
-
-For the full move, see [Renaming and migrating](/next/renames-and-migrations).
-
-## Small on purpose
-
-- **Content is plain JSON.** Read it, diff it, or generate it with a script. There's no database to host.
-- **Block functions are plain functions.** You can call any of them directly in a test.
-- **Data fetching is your code.** See [Upstream API clients](/next/upstream-clients).
-- **Nothing is hidden.** The formats are documented in [Blocks](/next/blocks) and [Internals](/next/internals).
