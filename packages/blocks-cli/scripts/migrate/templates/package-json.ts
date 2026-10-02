@@ -169,6 +169,7 @@ export function generatePackageJson(ctx: MigrationContext): string {
       "@decocms/blocks-admin": `^${frameworkVersion}`,
       "@decocms/tanstack": `^${frameworkVersion}`,
       "@decocms/apps-commerce": `^${frameworkVersion}`,
+      "@decocms/apps-website": `^${frameworkVersion}`,
       ...(platformDep ? { [platformDep]: `^${frameworkVersion}` } : {}),
       "@tanstack/react-query": "5.90.21",
       "@tanstack/react-router": "1.166.7",
