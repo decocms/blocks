@@ -84,6 +84,12 @@ function resolveBuildHash() {
   return Date.now().toString(36);
 }
 
+// Virtual id for meta.gen.json on the server: the real path wrapped so the id
+// does NOT end in `.json` (Vite's `vite:json` would re-parse our JS output).
+const META_GEN_PREFIX = "\0deco-meta:";
+const META_GEN_SUFFIX = ".deco-meta.js";
+const metaGenSsrId = (file) => META_GEN_PREFIX + file + META_GEN_SUFFIX;
+
 // Bare-specifier stubs resolved by ID before Vite touches them.
 /** @type {Record<string, string>} */
 const CLIENT_STUBS = {
@@ -235,6 +241,16 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
       // SSR-only stubs — must be checked first since the client guard below
       // returns undefined for everything that hasn't matched yet on SSR.
       if (options?.ssr && SSR_STUBS[id]) return SSR_STUBS[id];
+      // meta.gen.json on the SERVER → a virtual id that does NOT end in
+      // `.json`. `load` below emits JS (`JSON.parse("...")`), and Vite's
+      // `vite:json` transform runs on every id matching `\.json$` regardless
+      // of who loaded it — it would try to JSON.parse that JS and fail the
+      // build ("Failed to parse JSON file").
+      if (options?.ssr && importer && id.endsWith("meta.gen.json")) {
+        const file = path.isAbsolute(id) ? id : path.resolve(path.dirname(importer), id);
+        if (existsSync(file)) return metaGenSsrId(file);
+        // Absent (pre-generate-schema) — let Vite report it normally.
+      }
       // Server builds keep the real modules.
       if (options?.ssr) return undefined;
       // Bare-specifier exact-match stubs (react-dom/server, node:stream, etc.).
@@ -294,12 +310,12 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
       // materializes the object graph at all.
       //
       // The client is stubbed in `resolveId` above and never reaches here.
-      if (id.endsWith("meta.gen.json") && options?.ssr) {
-        if (existsSync(id)) {
-          const raw = readFileSync(id, "utf-8");
-          return `export default JSON.parse(${JSON.stringify(raw)});`;
-        }
-        // Absent (pre-generate-schema) — let Vite report it normally.
+      if (id.startsWith(META_GEN_PREFIX) && id.endsWith(META_GEN_SUFFIX)) {
+        const file = id.slice(META_GEN_PREFIX.length, -META_GEN_SUFFIX.length);
+        // Virtual id → Vite won't watch the file on its own.
+        this.addWatchFile?.(file);
+        const raw = readFileSync(file, "utf-8");
+        return `export default JSON.parse(${JSON.stringify(raw)});`;
       }
 
       // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
@@ -588,7 +604,7 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
               console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
               // Invalidate the meta.gen.json module so SSR picks up fresh schema
               const mod =
-                server.environments?.ssr?.moduleGraph?.getModuleById(schemaOutFile);
+                server.environments?.ssr?.moduleGraph?.getModuleById(metaGenSsrId(schemaOutFile));
               if (mod) {
                 server.environments.ssr.moduleGraph.invalidateModule(mod);
               }
