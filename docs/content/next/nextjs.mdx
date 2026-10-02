@@ -8,7 +8,7 @@ order: 14
 
 In this guide, you'll render CMS pages with Server Components, stream each of a page's blocks under its own Suspense boundary, and generate metadata from the page's SEO block.
 
-Each of a page's [blocks](/next/model#resolving-a-page-step-by-step) resolves on its own, so a slow block never holds up the rest. Editors also choose page URLs in Studio, so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
+Each of a page's [blocks](/next/model) resolves on its own, so a slow block never holds up the rest. Editors also choose page URLs in Studio, so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
 
 **Prerequisites:** an App Router app (the SDK reads no files, so the Node and Edge runtimes both work), with a root layout; `npm install @decocms/blocks server-only` and the CLI from [Quickstart](/next/quickstart); and the [example project](/next/routing#the-example-used-here-and-in-the-guides): `src/model.ts` plus the entries in `.deco/blocks` at the project root.
 

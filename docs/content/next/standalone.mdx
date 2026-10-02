@@ -126,7 +126,7 @@ Loads the content once and applies the [registry rule](/next/model#the-rule) to 
 |---|---|
 | `resolve("SummerSEO")` | The result of running the entry's function: for `SummerSEO`, `seo({ title: "Sunny!", description: "Light layers for long days." })` |
 | `resolve("SummerSEO", { run: false })` | The saved entry, with references expanded and nothing run |
-| `resolve("SummerSale")` | The built-in page block's result: the page with `seo` and every block in `sections` resolved |
+| `resolve("SummerPage")` | The built-in page block's result: the page with `seo` and every block in `sections` resolved |
 | `resolve({ __resolveType: "seo", title: "Sale" })` | The result for an inline block: `seo({ title: "Sale" })` |
 | `resolve(page.sections)` | An array of results, one per block in the list |
 | `resolve({ title: "Store" })` | The same object: it contains no blocks |

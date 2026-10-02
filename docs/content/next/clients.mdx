@@ -36,7 +36,7 @@ The Salesforce client covers Salesforce Marketing Cloud Personalization (formerl
 
 Create a client once, at module scope, and call it from wherever your app fetches data: a route loader, a server function, a route handler. A block function can call one too, since it's ordinary code; it gets its inputs from content and fetches what it needs.
 
-Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [Blocks](/next/model#block-functions-should-only-read).
+Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [Blocks](/next/model#the-rule-in-detail).
 
 ```ts title="commerce.ts"
 import { createVtexClient } from "@decocms/apps-vtex";

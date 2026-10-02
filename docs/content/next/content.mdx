@@ -92,7 +92,7 @@ const [banner, error] = await client.resolve("PromoBanner");
 // the same as promoBanner({ title: "Free shipping over $50", href: "/summer" })
 ```
 
-That's all resolving means for a single entry. When entries contain other blocks or refer to each other, `resolve` expands and runs those too; [Blocks](/next/model#resolving-a-page-step-by-step) walks through a whole page.
+That's all resolving means for a single entry. When entries contain other blocks or refer to each other, `resolve` expands and runs those too; [Blocks](/next/model#resolving-a-composition) walks through a whole composition.
 
 The content module is generated, so add it to `.gitignore`, like TanStack Router's `routeTree.gen.ts`, and run `deco content` before your dev server and your build:
 

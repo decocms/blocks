@@ -39,7 +39,7 @@ Use descriptors when views must render in an ordinary browser React app. Use RSC
 
 In all three integrations, block functions run on the server, so data fetching belongs there. In data mode, a block returns a descriptor and a synchronous React view renders its props. With RSC, a block returns JSX that can include Client Components.
 
-Don't put a Client Component (a component from a `"use client"` file) in the block map directly. On the server, importing it gives you a placeholder React can render but your code can't call, and the CMS calls every block function. Wrap it instead: `cart: (input: CartProps) => <CartButton {...input} />`. Block functions should only read; see [Blocks](/next/model#block-functions-should-only-read).
+Don't put a Client Component (a component from a `"use client"` file) in the block map directly. On the server, importing it gives you a placeholder React can render but your code can't call, and the CMS calls every block function. Wrap it instead: `cart: (input: CartProps) => <CartButton {...input} />`. Block functions should only read; see [Blocks](/next/model#the-rule-in-detail).
 
 ## Errors, streaming, and cancellation
 
