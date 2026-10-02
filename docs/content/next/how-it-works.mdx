@@ -40,7 +40,7 @@ The `deco content` command turns `.deco/blocks` into a module your app imports, 
 
 ### 5. Your app renders it
 
-Your app asks the SDK (the `client` your app gets from `createCMS`) for `SummerBanner`. The SDK calls `PromoBanner` with the saved props and hands back the result, which you render like any other component. See [Rendering](/next/rendering) for the two ways that result reaches the browser.
+Your app asks the SDK (the `client` your app gets from `cms.forRelease()`, where `cms` comes from `createCMS`) for `SummerBanner`. The SDK calls `PromoBanner` with the saved props and hands back the result, which you render like any other component. See [Rendering](/next/rendering) for the two ways that result reaches the browser.
 
 ## The pieces
 
