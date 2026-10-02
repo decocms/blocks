@@ -142,8 +142,8 @@ The group names are Studio's, inherited from the Fresh and Deno framework. The C
 | `sections` (Studio's legacy name) | Block functions that return JSX or a render descriptor | Studio's "add" catalog: the blocks an editor can add to a page |
 | `matchers` | Block functions that return `boolean` | The rule picker on a variant |
 | `loaders` | Every other block function. Studio calls these loaders, after the Fresh and Deno name for data functions; they have nothing to do with where your content comes from. | Data fields that can point at a function |
-| `pages` | `Content` types that extend `Route` | The page list, "new page", the URL field |
-| `redirects` | `Redirect` | The redirects screen |
+| `pages` | The built-in `page` (with your `Content` override of its schema, if any) and `Content` types that extend `Route` | The page list, "new page", the URL field |
+| `redirects` | The built-in `redirect` | The redirects screen |
 | `content` | Every other `Content` type, including the built-in `telemetry` | Plain entries: navigation, settings, posts |
 
 ```json title=".deco/schema.json, abridged"

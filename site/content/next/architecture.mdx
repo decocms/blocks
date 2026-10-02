@@ -49,8 +49,9 @@ These terms come up on every page. Each is explained again where it's first used
 <Terms>
   <Term name="Block">A piece of JSON with a `__resolveType`, `{ "__resolveType": …, …inputs }`. The name points at a block function to call or a saved entry to expand. See [Blocks](/next/model).</Term>
   <Term name="Block function">One of your functions with a typed first parameter, registered in a block map. It can return anything: data, a boolean, a descriptor or JSX. Functions ship with each deploy. See [Quickstart](/next/quickstart).</Term>
-  <Term name="Block map">A plain object of your block functions, such as `{ experiments }`. See [Quickstart](/next/quickstart).</Term>
+  <Term name="Block map">A plain object of your block functions, such as `{ experiments }`. `createCMS` adds the built-in blocks under it. See [Quickstart](/next/quickstart).</Term>
   <Term name="Block type">A key in the block map: the name content uses to call that function.</Term>
+  <Term name="Built-in block">A block the framework adds to every block map: `page`, `redirect` and `telemetry`. Resolving one never fails with `UNKNOWN_BLOCK`; declaring the same key in your block map overrides it. See [Blocks](/next/model#the-rule).</Term>
   <Term name="Saved entry">A piece of saved JSON stored under a name: one file in `.deco/blocks`, whose file name is the entry name. It's versioned in Git; with the hosted Deco CMS it can have drafts and publishes without a deploy. See [Your content in Git](/next/content).</Term>
   <Term name="Content module">`.deco/blocks.gen.ts`, the file `deco content` generates from `.deco/blocks`. It imports each JSON file and exports a snapshot, `{ revision, blocks }`: one fixed copy of all your saved entries. See [Your content in Git](/next/content).</Term>
   <Term name="Client">The object you read content with, one per request: `cms.forRelease()` for visitors, `cms.forDraft(pointer)` for a preview. It has two methods, `list` and `resolve`. See [Quickstart](/next/quickstart).</Term>
@@ -63,7 +64,7 @@ These terms come up on every page. Each is explained again where it's first used
 You'll meet these on specific pages.
 
 <Terms>
-  <Term name="Page">A built-in content type: a saved entry with a path, SEO and an ordered list of blocks (its `sections` field) that editors add, remove and reorder. See [Routes and redirects](/next/content-types).</Term>
+  <Term name="Page">A built-in type: a saved entry with a path, SEO and an ordered list of blocks (its `sections` field) that editors add, remove and reorder. Its built-in block returns the page with those fields resolved. See [Routes and redirects](/next/content-types).</Term>
   <Term name="Content map">All saved entries, keyed by name.</Term>
   <Term name="Revision">The ID of one exact content map, released or not, usually a hash of its contents. Change any entry and you get a new revision.</Term>
   <Term name="Loader">The interface behind `createCMS`'s `content` option, an object whose `load()` returns a snapshot, `{ revision, blocks }`. `remoteLoader`, which reads releases from the hosted Deco CMS, is one. A source of content, not a data fetcher. See [API reference](/next/standalone#loaders).</Term>

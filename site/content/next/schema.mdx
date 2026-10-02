@@ -61,7 +61,7 @@ becomes a form with a *Headline* text box limited to 60 characters, an *Image* p
 
 ## Content that is only data
 
-A page, a blog post, a redirect: these have a shape but no function. They're never resolved themselves: your app reads them, by type with `client.list("post")` or by URL with `matchRoute` (see [Routing](/next/routing)), and resolves the blocks *inside* them. They still need a schema so Studio can create them, so declare them for the CLI in a type-level map next to the block map. `deco schema` always includes two built-in content types, `page: Page` and `redirect: Redirect`, so you declare only your own, like `post: Post`. It also always includes the framework's `telemetry` type, the shape of the [Telemetry entry](/next/operations#telemetry-settings-are-content). `Page`, `Redirect` and `Route` are exported from `@decocms/blocks`.
+A blog post or a navigation menu has a shape but no function. Your app reads it, by type with `client.list("post")` or by URL with `matchRoute` (see [Routing](/next/routing)), and resolves the blocks *inside* it. It still needs a schema so Studio can create it, so declare it for the CLI in a type-level map next to the block map. You declare only your own types, like `post: Post`; pages and redirects are built in (see below).
 
 ```ts title="blocks.ts"
 import type { Blocks } from "@decocms/blocks";
@@ -72,13 +72,13 @@ import hero from "./hero";
 export default { seo, hero } satisfies Blocks;          // code: a schema per function parameter
 
 export type Content = {                                  // data: a schema per type
-  post: Post;                                            // page and redirect are built in
+  post: Post;                                            // page and redirect are built-in blocks; no need to declare them
 };
 ```
 
-The CLI reads both exports. Keys of the default export get a schema from each function's parameter type; keys of `Content` get one from the type itself. The two share one namespace, and a key in both is an error. The CMS never sees `Content`: `list("page")` works because the entries exist, and resolving a page means resolving its fields, not the page.
+The CLI reads both exports. Keys of the default export get a schema from each function's parameter type; keys of `Content` get one from the type itself. The two share one namespace, and a key in both is an error, except a built-in key (below). The CMS never sees `Content`, so a type declared only there runs nothing: resolving a `post` entry by name fails with `UNKNOWN_BLOCK`.
 
-**Override or opt out.** Declaring a built-in key in `Content` replaces it. Extend the exported type to add fields, or to narrow `sections`, a page's ordered list of blocks:
+**Built-ins: override or opt out.** `page`, `redirect` and `telemetry` (the shape of the [Telemetry entry](/next/operations#telemetry-settings-are-content)) are built-in blocks: `createCMS` adds them to your block map, so resolving them always works, and `deco schema` always includes their schemas. `Page`, `Redirect` and `Route` are exported from `@decocms/blocks`. Declaring a built-in key in `Content` replaces its schema, and the built-in block still runs. Declaring it in your block map replaces what runs (see [Override the page block](/next/content-types#resolving-pages-and-redirects)); for a built-in key you can do both. Extend the exported type to add fields, or to narrow `sections`, a page's ordered list of blocks:
 
 ```ts
 import type { Page } from "@decocms/blocks";
@@ -88,7 +88,7 @@ interface StorePage extends Page { theme: "light" | "dark" }
 export type Content = { page: StorePage; post: Post };
 ```
 
-An app that isn't a website opts out with `page: never` or `redirect: never`. Either way, only the schema changes: the CMS never reads `Content`.
+An app that isn't a website opts out with `page: never` or `redirect: never`, which removes them from the schema. The CMS never reads `Content`, so the built-in blocks stay defined at runtime either way.
 
 Studio learns the shape of your content only from the schema this command writes. What it looks for, how it reads and writes your files, and how the CLI bridges Studio's existing conventions are covered in [Studio and the content protocol](/next/studio-protocol) and [under the hood](/next/studio).
 

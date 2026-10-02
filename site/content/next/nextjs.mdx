@@ -78,7 +78,7 @@ export default {
 } satisfies Blocks;
 ```
 
-`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are built-in content types (see [Content that is only data](/next/schema#content-that-is-only-data)). The `Content` export overrides `page` with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), so Studio only saves pages this guide's code can read.
+`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/model#the-rule): the framework adds them to this map, so they aren't listed here. The `Content` export overrides the page *schema* with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), so Studio only saves pages this guide's code can read.
 
 `cms.ts` imports the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved entries). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
 
@@ -143,7 +143,13 @@ export function proxy(request: NextRequest) {
 
 ## 5. Match the URL to a page
 
-`openPage` lists pages and redirects, matches the pathname, and starts resolving every block without waiting for any of them. Listing is cheap: the CMS holds the content in memory. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate.
+`openPage` lists pages and redirects and matches the pathname. Without streaming, one call would return the page ready to render, since the built-in `page` block resolves `seo` and every block in `sections`:
+
+```ts
+const [page] = await c.resolve<ResolvedPage<ReactNode>>(match.entry);   // page.seo, page.sections
+```
+
+This guide resolves each block separately instead, starting them all without waiting for any, so every block streams into its own Suspense boundary as soon as it's ready. Listing is cheap: the CMS holds the content in memory. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate.
 
 `generateMetadata` and the page component both need the page. Wrap the lookup in React's `cache` so they share one client, one match, and the same block promises.
 

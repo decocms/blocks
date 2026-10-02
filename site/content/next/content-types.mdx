@@ -7,7 +7,7 @@ order: 10
 
 # Routes, redirects, and content types
 
-A **content type** is a kind of saved entry that holds data and runs no function, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. You declare your own in `Content`; `page` and `redirect` are built in, and `deco schema` always includes them (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
+A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are built in: the framework adds a block for each to your block map, and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
 
 ```ts
 /** An entry that lives at a URL. Extend it to make a type routable. */
@@ -26,7 +26,7 @@ interface Redirect {
 }
 ```
 
-A page is a route with SEO and a list of [blocks](/next/model#resolving-a-page-step-by-step) (its `sections` field). It's not special to the router: it's the first type that extends `Route`. It's shaped like the `SummerSale` entry in [Blocks](/next/model), which carries `"__resolveType": "page"` so the CMS can list it by type, plus a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override it in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
+A page is a route with SEO and a list of [blocks](/next/model#resolving-a-page-step-by-step) (its `sections` field). It's not special to the router: it's the first type that extends `Route`. It's shaped like the `SummerSale` entry in [Blocks](/next/model), which carries `"__resolveType": "page"` so the CMS can list it by type, plus a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override its schema in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
 
 ```ts
 /** The built-in `page` content type. */
@@ -51,9 +51,8 @@ interface Page extends Route {
 ```
 
 ```ts
-// What its fields mean. page isn't a function, so the object stays data and you resolve each field separately.
+// What client.resolve("SummerPage") returns: the built-in page block resolves seo and every block in sections.
 {
-  __resolveType: "page",
   name: "Summer campaign",
   path: "/summer",
   seo: seo({ title: "Sunny!", description: "Light layers for long days." }),   // SummerSEO, expanded
@@ -98,13 +97,13 @@ export interface Post extends Route {
 
 Two entries with the same path, or two templates that can match the same URL, are rejected by the CLI and by `matchRoute` (see [Path templates and match order](/next/routing#path-templates-and-match-order)).
 
-## Pages are data; resolve their fields
+## Resolving pages and redirects
 
-A page runs no function, so you never resolve the page itself. Read it, then resolve the blocks inside it: `client.resolve(page.seo)`, and one `client.resolve(block)` per block in `page.sections`. Separate calls let each block render as soon as its own data is ready (see [Rendering](/next/rendering)). A redirect is never resolved; `matchRoute` only reads it.
+`page` is a built-in block, so `client.resolve("SummerPage")`, or `client.resolve(match.entry)` after routing, returns the page with `seo` and every block in `sections` resolved. That's the simplest way to render a page. To stream blocks independently, read the page with `{ run: false }` and resolve `page.seo` and each block in `page.sections` with separate calls, so each renders as soon as its own data is ready (see [Rendering](/next/rendering)). `redirect` is built in too: resolving a redirect entry returns its data. `matchRoute` reads redirects as listed, so routing never needs to resolve them.
 
-`client.resolve("SummerPage")` and `client.list("page", { run: true })` fail with `UNKNOWN_BLOCK`, because `page` names no function, and the CMS never sees `Content` (see [the rule](/next/model#the-rule)). To read a page, list it, or pass `{ run: false }`.
+Built-in blocks never fail with `UNKNOWN_BLOCK`: `client.resolve("SummerPage")` and `client.list("page", { run: true })` both return resolved pages. Types you declare only in `Content`, such as `post`, are different, because the CMS never sees `Content`. Resolving a `post` entry by name, or listing posts with `run: true`, fails with `UNKNOWN_BLOCK` (see [the rule](/next/model#the-rule)). Read those with `client.list("post")` or `{ run: false }`.
 
-<Callout>**Running code for a whole page.** If you want code to run for a whole page, such as validation or a layout step, add a `page` function to the block map and opt the built-in type out with `page: never` in `Content`, since a key can't be both. Then `client.resolve(page)` runs it after every block in the page has resolved.</Callout>
+<Callout>**Override the page block.** To run your own code for a whole page, such as validation or a layout step, declare `page` in your block map: `page: (input: ResolvedPage<ReactNode>) => <Layout seo={input.seo}>{input.sections}</Layout>`, where `ResolvedPage` is the page with `seo` and `sections` resolved (see [the example model](/next/routing#the-example-used-here-and-in-the-guides)). Your function replaces the built-in at runtime, because `createCMS` spreads your map over the built-ins, and it runs after every block in the page, with their results as its input. `client.resolve` then returns whatever your function returns, here JSX rather than `{ seo, sections }`, so code that reads `page.seo`, such as Next's `generateMetadata`, has to read it from the stored entry instead. For a built-in key, the block map and `Content` don't conflict: the function in the block map sets what runs, and `page` in `Content` (or the built-in `Page`) sets Studio's form. To change only the fields, override the type in `Content` and keep the built-in function.</Callout>
 
 ## Content types without a URL
 

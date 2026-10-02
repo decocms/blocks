@@ -10,9 +10,9 @@ The CMS doesn't route. It lists and resolves. Routing is three steps in your req
 
 ## The example used here and in the guides
 
-This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/content-types)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Your content in Git](/next/content)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner` and `product-hero`. Pages and redirects are built-in content types (see [Content that is only data](/next/schema#content-that-is-only-data)); the guides override `page` with `StoredPage`, below, to narrow its `sections` field, so Studio's form matches what the guide code reads.
+This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/content-types)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Your content in Git](/next/content)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner` and `product-hero`. `page` and `redirect` are [built-in blocks](/next/model#the-rule), so the block maps don't register them.
 
-In `src/model.ts`, `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)), and `StoredPage` is a page exactly as saved, before any of its blocks run.
+In `src/model.ts`, `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)), `StoredPage` is a page exactly as saved, before any of its blocks run, and `ResolvedPage<T>` is what the built-in `page` block returns, with `T` being what your blocks return.
 
 ```ts title="src/model.ts"
 import type { Block, Page } from "@decocms/blocks";
@@ -31,9 +31,12 @@ export type BlockDescriptor =
 export interface StoredPage extends Page {
   sections: Block[];
 }
+
+// What client.resolve returns for a page: seo and every block in sections resolved.
+export interface ResolvedPage<T> { name: string; path: string; seo: SEO; sections: T[] }
 ```
 
-`StoredPage` narrows the built-in `Page` type from [Routes and redirects](/next/content-types): it doesn't allow a [variant](/next/variants) around the whole `sections` list. Each guide's block map exports `export type Content = { page: StoredPage }`, so `deco schema` gives Studio the narrower form. If you keep the built-in `Page`, which does allow it, resolve the list first, `const [list] = await client.resolve(page.sections)`, which picks the variant and also runs every block in it, or store the variant's values as entry names as in [Every variant resolves](/next/variants#every-variant-resolves).
+The guides narrow `sections` with `StoredPage` (no [variant](/next/variants) around the whole list) because they resolve each block separately to stream it; each guide's block map exports `export type Content = { page: StoredPage }`, so Studio's form matches. If you resolve the whole page, the built-in `Page` is fine.
 
 ```json title=".deco/blocks/ShirtPage.json"
 {
@@ -59,9 +62,8 @@ export interface StoredPage extends Page {
 ```
 
 ```ts
-// Means (page isn't a function, so the object stays data; the blocks inside it are calls)
+// Means (page is a built-in block: resolving it returns the page with seo and sections resolved)
 {
-  __resolveType: "page",
   name: "Summer shirt",
   path: "/:slug/p",
   seo: seo({ title: "Summer shirt | Deco example", description: "Light cotton shirt for hot days." }),
@@ -90,6 +92,9 @@ With those files in place, this is the whole request handler:
 
 ```ts
 import { matchRoute, type Redirect } from "@decocms/blocks";
+import type { ReactNode } from "react";
+import type { ResolvedPage, StoredPage } from "./model";
+import type { Post } from "./post";
 // cms comes from cms.ts (see Quickstart); request is the incoming Request; render/renderPost are your own view code
 // error handling omitted: check the second tuple element in real code, and catch matchRoute's throw (see below)
 
@@ -108,9 +113,9 @@ switch (match.kind) {
   case "match":
     switch (match.entry.__resolveType) {
       case "page": {
-        const blocks = match.entry.sections.map((b) => client.resolve(b));   // start them all
-        const [seo] = await client.resolve(match.entry.seo);                   // then await
-        return render(seo, blocks);
+        const [page] = await client.resolve<ResolvedPage<ReactNode>>(match.entry);   // built-in page: seo and sections resolved
+        return render(page.seo, page.sections);
+        // To stream blocks one by one instead, resolve match.entry.seo and each block in sections separately.
       }
       case "post":
         return renderPost(match.entry);                                        // data: nothing to resolve
@@ -126,7 +131,7 @@ Mount this handler as your app's catch-all route, the one that runs when no othe
 | `"redirect"` | `location` with parameters filled in, and `status` (`301` or `302`). |
 | `"not-found"` | None |
 
-<Callout>**`matchRoute` is a helper, not a requirement.** The CMS has no idea what a URL is. If your framework already routes, or you'd rather read a page by name (`client.resolve("SummerPage", { run: false })`, then resolve its fields) or find it by a field of your own, skip it. It exists because "an editor typed a path into Studio and that page is now live" is the common case, and getting precedence and parameters right by hand is tedious.</Callout>
+<Callout>**`matchRoute` is a helper, not a requirement.** The CMS has no idea what a URL is. If your framework already routes, or you'd rather open a page by name (`client.resolve("SummerPage")` returns it ready to render) or find it by a field of your own, skip it. It exists because "an editor typed a path into Studio and that page is now live" is the common case, and getting precedence and parameters right by hand is tedious.</Callout>
 
 Which types route is your decision, per handler: a blog lists `post`, a docs site lists `doc`. `match.params` holds the URL parameters; hand them to your code however your app shares request state. The CMS never injects them into blocks.
 

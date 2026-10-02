@@ -28,7 +28,7 @@ export default {
 } satisfies Blocks;
 ```
 
-As in the Next.js guide, `Content` overrides the built-in `page` with the narrower `StoredPage`. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/schema#the-two-cli-commands)):
+As in the Next.js guide, `Content` overrides the built-in `page` schema with the narrower `StoredPage`; the built-in `page` and `redirect` blocks are added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/schema#the-two-cli-commands)):
 
 ```json title="package.json"
 {
@@ -67,7 +67,7 @@ The content module is ordinary imports, so Vite bundles it into the Worker like 
 
 ## 3. Match the URL to a page
 
-This helper is shared by both TanStack guides. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`, and `draftPointer` finds the pointer in the URL or in the cookie from step 6. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
+This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`, and `draftPointer` finds the pointer in the URL or in the cookie from step 6. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
 
 ```ts title="src/open-page.server.ts"
 import { notFound, redirect } from "@tanstack/react-router";

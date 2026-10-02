@@ -19,7 +19,7 @@ Everything on this page is exported from `@decocms/blocks`. The built-in matcher
 
 ```ts
 function createCMS(config: {
-  blocks: Blocks;
+  blocks: Blocks;               // your block functions; the CMS uses { ...builtIns, ...blocks }, so a key here overrides a built-in
   content: Snapshot | Loader;   // the content module (.deco/blocks.gen.ts), or any Loader
   site?: string;                // your site's ID in the hosted Deco CMS, usually DECO_SITE
   token?: string;               // your site token (secret), usually DECO_SITE_TOKEN; with site: remoteLoader(content, { site, token, interval }) and telemetry
@@ -120,12 +120,13 @@ formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=â€
 
 ## `client.resolve(target, options?)`
 
-Loads the content once and applies the [registry rule](/next/model#the-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. With `{ run: false }` it reads without running: entries expand, but no function runs.
+Loads the content once and applies the [registry rule](/next/model#the-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. With `{ run: false }` it reads without running: entries expand, but no function runs. Built-in blocks (`page`, `redirect`, `telemetry`) are always defined.
 
 | Call | Returns |
 |---|---|
 | `resolve("SummerSEO")` | The result of running the entry's function: for `SummerSEO`, `seo({ title: "Sunny!", description: "Light layers for long days." })` |
 | `resolve("SummerSEO", { run: false })` | The saved entry, with references expanded and nothing run |
+| `resolve("SummerSale")` | The built-in page block's result: the page with `seo` and every block in `sections` resolved |
 | `resolve({ __resolveType: "seo", title: "Sale" })` | The result for an inline block: `seo({ title: "Sale" })` |
 | `resolve(page.sections)` | An array of results, one per block in the list |
 | `resolve({ title: "Store" })` | The same object: it contains no blocks |
@@ -134,7 +135,7 @@ A string target is always an entry name. Any other value is walked as is, so you
 
 ## `client.list(type, options?)`
 
-Every saved entry whose `__resolveType` is `type` or an [alias](/next/adoption) of it (another key for the same type, used when renaming). By default nothing runs: each entry comes back as `resolve(name, { run: false })` would return it. With `run: true` each entry is resolved, so every block inside it must name a function in your block map, or it fails with `UNKNOWN_BLOCK`.
+Every saved entry whose `__resolveType` is `type` or an [alias](/next/adoption) of it (another key for the same type, used when renaming). By default nothing runs: each entry comes back as `resolve(name, { run: false })` would return it. With `run: true` each entry is resolved, so every block inside it, and the entry's own type, must be in the block map (built-ins included) or a saved entry, or it fails with `UNKNOWN_BLOCK`. `list("page", { run: true })` returns ready pages. Listing a `Content`-only type such as `post` with `run: true` fails.
 
 ```ts
 interface ListOptions<T> {
@@ -215,7 +216,8 @@ interface DraftPointer { host: string; path: string; version: string }
 
 interface Route { name: string; path: string }                    // extend it to give a type a URL
 
-// The built-in content types; override them in Content with an interface that extends them.
+// The built-in types. Their blocks are always in the registry: override the schema in Content with an
+// interface that extends them, or the runtime block by declaring the key in your block map.
 interface Page extends Route { seo: Block; sections: VariantOf<Array<VariantOf<Block>>> }
 interface Redirect { from: string; to: string; permanent: boolean }
 
@@ -244,7 +246,7 @@ Client calls never throw: `resolve` and `list` return `[value, null]` or `[null,
 | Code | When |
 |---|---|
 | `NOT_FOUND` | A string target or a reference names an entry that doesn't exist. |
-| `UNKNOWN_BLOCK` | A name is neither a saved entry nor a type in `blocks`. |
+| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map (the built-ins `page`, `redirect` and `telemetry` included) nor a saved entry. |
 | `CYCLE` | References lead back to an entry that's already being expanded. |
 | `BLOCK_FAILED` | A block function threw. The original error is in `cause`. |
 | `LOADER_FAILED` | The loader couldn't load the content. The original error is in `cause`. |
