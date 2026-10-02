@@ -31,7 +31,7 @@ For each block, the compiler reads the type of the function's first parameter. E
 | An array | A list editors can add to and reorder |
 | An object, such as `Product` or `Seo` | A group of fields, or a block (see below) |
 | An optional property (`endsOn?: string`) | An optional field |
-| `ReactNode` / `ReactNode[]` | A block picker of components: one, or a list |
+| `ReactNode` / `ReactNode[]` | A choice of components: one, or a list (see [Interchangeable blocks](#interchangeable-blocks)) |
 
 **Think in functions.** A field's type is the value your function *receives*, already resolved. Studio fills the field with a plain value of that type or, for objects and JSX, with a block whose function returns that type. The return type is awaited, so a function that returns `T` and one that returns `Promise<T>` both fit:
 
@@ -55,9 +55,9 @@ Never type a prop as a block. `Block` is only the shape of saved JSON (see [Comp
 <Callout>**Status. `deco schema` doesn't match fields to functions by return type yet.** This section describes how it will work. See the [Roadmap](/roadmap#roadmap-cli--define-the-loader-picker-rule).</Callout>
 
 A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells Studio which input to show (see [Widgets](#widgets)).
-### Block pickers
+### Interchangeable blocks
 
-A field that a block can fill gets a **block picker**. It offers two kinds of choices:
+Any block whose function returns the field's type can fill it, so editors can swap one for another without touching code. (This is polymorphism: Studio matches functions by their return type, the way TypeScript does.) For such a field, Studio offers two kinds of choices:
 
 - **A new block**: pick one of the functions that fit, and fill in its form right there.
 - **A saved block**: Studio reads the saved blocks with `blocks.list` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reusing blocks](/next/blocks#reusing-blocks)).
