@@ -38,7 +38,7 @@ export const V7_COLUMNS: FooterColumn[] = [
     links: [
       ['/v7/upgrade-from-start', 'Upgrading from 6.x'],
       ['/v7/cli', 'CLI reference'],
-      ['/next/', 'Next major'],
+      ['/next/', 'Next version'],
       ['/roadmap', 'Roadmap'],
     ],
   },

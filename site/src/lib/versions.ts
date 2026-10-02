@@ -20,7 +20,7 @@ export interface DocsVersion {
 
 export const VERSIONS: readonly DocsVersion[] = [
   { id: 'v7', label: 'v7 (current)', description: 'The current released version', home: '/' },
-  { id: 'next', label: 'Next major', description: 'The proposed API for the next major version (unreleased)', home: '/next/' },
+  { id: 'next', label: 'next', description: 'The proposed API for the next version (unreleased)', home: '/next/' },
 ]
 
 /** The version the header tabs, "Get started" and the not-found page point at outside a version. */
