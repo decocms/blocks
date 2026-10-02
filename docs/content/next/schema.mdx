@@ -147,7 +147,7 @@ Nothing is lost: inputs resolve before the function runs, so returning `props` g
 
 Content and code live in one repository but change independently: an editor's content branch and a developer's code branch can merge in either order. Nothing at runtime checks that they fit, because the CMS doesn't compare schemas. So keep them compatible before anything merges, in two directions:
 
-- **New code still renders all existing content.** A code change must not break content that's already saved. A planned `--check` flag for `deco schema`, which compares your schema with the one on `main`, will enforce this in CI (see [Run it in CI](#run-it-in-ci)).
+- **New code still renders all existing content.** A code change must not break content that's already saved. `deco schema --check` compares your schema with the one on `main` and enforces this in CI (see [Run it in CI](#run-it-in-ci)).
 - **Content only uses types its commit's code has.** Content and code ship in the same build, so each commit's content must use only block types and fields that the same commit's code defines. Studio reads the schema next to the content it edits (your working tree, with [`deco serve`](/next/cli#deco-serve)), so it only offers what that code has. A saved block written by hand or by an agent that uses a type the code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)); merge the code that adds a type before, or with, the content that uses it. Rolling code back by reverting a commit has the same catch: content that already uses the newer types or fields fails on the older code until you revert that content too. Redeploying a previous build doesn't, because it ships that build's own content. No tool checks this yet; the content validation commands on the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli) will.
 
 What counts as breaking:
@@ -166,7 +166,7 @@ What counts as breaking:
 
 ### Run it in CI
 
-Optional, but recommended. This GitHub Actions workflow runs on every pull request, regenerates the schema and fails if `.deco/schema.gen.json` changed or was never committed:
+Optional, but recommended. This GitHub Actions workflow runs on every pull request. It fails if `.deco/schema.gen.json` is missing or out of date, or if the change would break content saved on the base branch:
 
 ```yaml title=".github/workflows/schema.yml"
 name: Schema
@@ -190,10 +190,18 @@ jobs:
             echo ".deco/schema.gen.json is missing or out of date: run npx @decocms/blocks schema and commit it."
             exit 1
           fi
+      - name: No breaking changes for saved content
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          if git show "origin/$BASE_REF:.deco/schema.gen.json" > base-schema.json; then
+            npx @decocms/blocks schema --check base-schema.json
+          fi
 ```
 
-`npm ci` already installed `@decocms/blocks`, so `npx` runs the CLI at the version in your lockfile. In a monorepo, pass your app's folder, as in `npx @decocms/blocks schema --root apps/storefront`, and diff `apps/storefront/.deco/schema.gen.json` instead (also in the `git show` step below). Make the job a required check in your branch protection rules, so a failing pull request can't merge.
+`npm ci` already installed `@decocms/blocks`, so `npx` runs the CLI at the version in your lockfile. In a monorepo, pass your app's folder, as in `npx @decocms/blocks schema --root apps/storefront`, and diff `apps/storefront/.deco/schema.gen.json` instead (also in the `git show` step). Make the job a required check in your branch protection rules, so a failing pull request can't merge.
 
-<Callout>**Status. The compatibility check, `deco schema --check <base>`, isn't built yet; it ships with the first release.** It will generate the schema from your code, compare it with `<base>`, an earlier `.deco/schema.gen.json` such as the one on `main`, list every breaking change from the table above and exit with a non-zero code if it finds one, writing nothing. Once it's out, add a step that runs `git show "origin/$BASE_REF:.deco/schema.gen.json" > base-schema.json` (with your app's folder in front in a monorepo), then `deco schema --check base-schema.json`. Until then, review schema diffs against the table by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
+`deco schema --check <base>` generates the schema from your code, compares it with `<base>`, an earlier `.deco/schema.gen.json` such as the one on the base branch, lists every breaking change from the table above and exits with a non-zero code if it finds one. It writes nothing. The second step skips the check when the base branch has no schema yet, such as in your first pull request.
 
 Content-only changes, from Studio, an agent or by hand, never change the schema, so `--check` always passes them, and `deco schema` still checks the content model (saved block names, aliases and route collisions) in the same pull request.
