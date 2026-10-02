@@ -2007,13 +2007,16 @@ function pruneCommerceJsonLD(
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function plpStructuredData(plp: Record<string, any>): Record<string, unknown>[] {
+  // Positions continue across pages (page 2 of 32/page starts at 33).
+  const { currentPage, recordPerPage } = plp.pageInfo ?? {};
+  const offset = currentPage > 1 && recordPerPage > 0 ? (currentPage - 1) * recordPerPage : 0;
   // Canonical product URL first: `url` is the SKU URL (`/p?skuId=N`), which
   // canonicalises elsewhere. Items without a URL are dropped (Google requires
   // `url` on summary-page items) before numbering, so positions stay contiguous.
   const itemListElement = (plp.products as any[]) // eslint-disable-line @typescript-eslint/no-explicit-any
     .map((p) => ({ url: p.isVariantOf?.url ?? p.url, name: p.isVariantOf?.name ?? p.name }))
     .filter((item) => item.url)
-    .map((item, i) => ({ "@type": "ListItem", position: i + 1, ...item }));
+    .map((item, i) => ({ "@type": "ListItem", position: offset + i + 1, ...item }));
   const out: Record<string, unknown>[] = [
     {
       "@context": "https://schema.org",
@@ -2023,9 +2026,29 @@ function plpStructuredData(plp: Record<string, any>): Record<string, unknown>[] 
     },
   ];
   if (plp.breadcrumb?.itemListElement?.length) {
-    out.push({ ...plp.breadcrumb, "@context": "https://schema.org" });
+    // Loaders emit path-only breadcrumb items (`/a/b`) for in-app links; in
+    // structured data make them absolute, using the products' origin.
+    const origin = originOf(itemListElement[0]?.url);
+    out.push({
+      ...plp.breadcrumb,
+      "@context": "https://schema.org",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      itemListElement: plp.breadcrumb.itemListElement.map((el: any) =>
+        origin && typeof el.item === "string" && el.item.startsWith("/")
+          ? { ...el, item: new URL(el.item, origin).href }
+          : el,
+      ),
+    });
   }
   return out;
+}
+
+function originOf(url: unknown): string | undefined {
+  try {
+    return typeof url === "string" ? new URL(url).origin : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
