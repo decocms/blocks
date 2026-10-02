@@ -1,18 +1,18 @@
 ---
-title: Caching and telemetry
-nav: Caching & telemetry
+title: Caching and observability
+nav: Caching & observability
 group: Production
 order: 18
-description: The caches a request passes through, and the sampled telemetry a site sends to Deco with its site ID and token.
+description: The caches a request passes through, how upstream calls are measured, and how to add your own tracing.
 ---
 
-# Caching and telemetry
+# Caching and observability
 
 A wrong cache key is how a site shows one customer's cart to another or serves last week's prices. A request passes through several caches; the table shows who owns each one and what you're responsible for.
 
 | Layer | Lifetime | Your responsibility |
 |---|---|---|
-| Content map | Cached in the CMS: releases by revision, indefinitely; drafts by version. One cache per process, even if the package is loaded twice (see [One instance per process](/next/standalone#one-instance-per-process)). See [Your content in Git](/next/content) and [how remoteLoader stays current](/next/loader-internals). | Nothing. |
+| Content map | The snapshot, held in memory by the CMS and cached by revision. One per process, even if the package is loaded twice (see [One instance per process](/next/standalone#one-instance-per-process)). See [Your content in Git](/next/content). | Nothing. |
 | Resolved blocks | For one client. A client runs each block once and reuses the result for the rest of the request. | Make a client per request and resolve everything the response renders through it. |
 | Dynamically imported modules | Block functions you load lazily with `import()` (see [Block maps](/next/manifest)) are cached by the JavaScript runtime for the life of the process, so anything a module stores in a top-level variable is shared by every request. | Keep per-request state out of module globals. |
 | Upstream data | Responses from the APIs your code calls (a commerce platform, a search service), cached by your framework binding: the Cloudflare Cache API on Workers, Next's data cache on Next.js. See [Upstream API clients](/next/clients#caching). | Include tenant, locale, currency, or customer in the key. Never cache private data as public. |
@@ -22,62 +22,11 @@ A block type alone is never a cache key. Include every input that can change the
 
 Block functions should only read; see [Blocks](/next/model#block-functions-should-only-read).
 
-## Telemetry
+## Measuring upstream calls
 
-<Callout>**Status.** Telemetry, the Telemetry entry and its field names are proposed; see the [Roadmap](/roadmap#roadmap-platform--build-the-telemetry-collector).</Callout>
+Every [upstream client](/next/clients) sends its requests through the framework's instrumented fetch, `createInstrumentedFetch`, which times each request until its response headers arrive and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took. On its own, it sends nothing: there's no collector to configure and nothing leaves your servers. There's no hook yet for reading these measurements in your own tooling; an `instrument` hook is planned (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)). Until then, [your own tracing](#your-own-tracing) can time your block functions, including the upstream calls they make.
 
-With the hosted Deco CMS, your site sends Deco **telemetry**: sampled, aggregated measurements of its own requests and the third-party APIs it calls, so Deco can show you upstream latency and error rates for your site and spot regressions. It uses the same site ID and site token that load your content, so there's nothing else to configure:
-
-```ts title="cms.ts"
-export const cms = createCMS({
-  blocks,
-  content,
-  site: process.env.DECO_SITE,          // your site's ID in the hosted Deco CMS
-  token: process.env.DECO_SITE_TOKEN,   // your site token (secret)
-});
-```
-
-Without a site and a token, nothing is sent: in development, in tests, and on any site that doesn't use the hosted Deco CMS. (Issuing site tokens isn't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).)
-
-### What's sent
-
-| Measurement | Labels | Reported by |
-|---|---|---|
-| Upstream latency: each request to a third-party API, timed until its response headers arrive | `provider`, `operation`, `status_class` (2xx, 4xx, 5xx, error), `cached`, `retries` | The framework's instrumented fetch, which every [upstream client](/next/clients) uses |
-| Inbound requests: duration and status of the requests your site serves | route kind, `status_class` | Your framework binding |
-| Edge cache: hits and misses for rendered pages and upstream responses | cache layer, outcome | Your framework binding |
-| Error logs | error code, block type, provider | The SDK and the bindings |
-
-The bindings' caching and request metrics aren't in the framework guides yet. An app that uses only `@decocms/blocks` sends upstream latency and error telemetry from the instrumented fetch, but no binding-level cache or inbound metrics (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)).
-
-A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. Error logs are structured: they carry the error's code, message and where it happened, never upstream response bodies, tokens or cookies.
-
-### Sampling
-
-Telemetry is heavily sampled, so its cost stays flat as traffic grows:
-
-- **Metrics are aggregated** in memory, per server, and sent in batches: counts, sums and latency buckets per combination of labels, not one record per request.
-- **Error logs are sampled** at the rate the telemetry settings give, so a burst of identical errors sends a few examples, not thousands.
-- **Sending never delays a response.** Batches go out in the background (on Cloudflare Workers, after the response, inside `ctx.waitUntil`), and a collector that's down only loses that batch.
-
-### Telemetry settings are content
-
-The settings live in a **Telemetry entry**: a well-known saved entry named `Telemetry`, whose type, `telemetry`, the framework provides, so `deco schema` always includes it and Studio shows it as a form:
-
-```json title=".deco/blocks/Telemetry.json"
-{
-  "__resolveType": "telemetry",
-  "enabled": true,
-  "metrics": true,
-  "errorSampleRate": 0.05
-}
-```
-
-The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it, and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its GitHub integration, the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same Studio commit, visible in your Git history. Without the entry, the framework's defaults apply.
-
-### Real-user monitoring
-
-Real-user monitoring (RUM) measures what visitors experience in their browsers: a customer-facing alternative to Google Analytics, linked to A/B tests through variant exposure events (see [Matchers and variants](/next/variants)). It's planned as a follow-up after the first release; see the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
+<Hosted to="/next/hosted-telemetry" label="Telemetry">**Telemetry without a collector.** With a site ID and token, those measurements reach Deco, sampled and aggregated, as upstream latency and error rates for your site; a Telemetry entry switches it off remotely.</Hosted>
 
 ## Your own tracing
 

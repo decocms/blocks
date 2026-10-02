@@ -41,9 +41,11 @@ These files change in three ways, and every change ends up as a commit:
 
 - **Developers** edit them like any other file in the repository.
 - **AI agents** edit them directly, with the file tools they already use.
-- **Editors** use [Studio](/next/studio), which shows each entry as a form built from your types. Studio commits each save to a draft branch in your repository through its GitHub integration, and publishing a draft brings it to your production branch.
+- **Editors** use Studio, which shows each entry as a form built from your types. On a checkout, `deco content serve` lets Studio write the files in your working tree (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)), and you commit them like any other change.
 
 Because content is files in Git, you get what you already have for code: history, review in pull requests, branches, and rollback by reverting a commit.
+
+<Hosted to="/next/hosted-studio" label="Editing in Studio on GitHub">**Edit without a checkout.** With the hosted Deco CMS, Studio edits your GitHub repository directly: each save is a commit on a draft branch, and publishing brings it to your production branch.</Hosted>
 
 ## The content module
 
@@ -108,45 +110,16 @@ To keep content in another folder, point the CLI at it and import from there: `d
 
 ## Publishing is committing
 
-There is no separate publish step: publishing is a commit to your production branch (usually `main`). A developer or an agent commits a file in `.deco/blocks` and pushes, or merges a pull request; an editor publishes a draft in Studio, which brings its commits to that branch.
-
-On its own, the content module ships with your code, so a commit goes live with your next deploy, like any other change.
-
-## Go live without a deploy
-
-With the hosted Deco CMS, a published commit doesn't wait for a deploy. Add your site ID and site token to `createCMS` (see [Configuring content](#configuring-content)).
-
-Each commit to your production branch (usually `main`) becomes a **release**, one published version of all your content. The Deco API serves it within seconds, and each server running your app picks it up on its next check, about once a minute, in the background: a request never waits for it. The content module stays as the fallback, so a new server, or one that can't reach the Deco API, serves the content your build shipped with. [Releases and deployment](/next/releases) follows a commit step by step.
-
-The same two values turn on previews and telemetry. A **draft** is the editor's saved changes on their draft branch, not published yet. Studio opens your real site with that draft, so the editor sees exactly what visitors will see once it's published (see [Preview](/next/preview)). And your site sends its [telemetry](/next/operations#telemetry) to the Deco API.
-
-<Callout>**Status.** Issuing site tokens for this API isn't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).</Callout>
+There is no separate publish step: publishing is a commit to your production branch (usually `main`), and because the content module is part of your build, the commit goes live with your next deploy, like any other change. [Releases and deployment](/next/releases#publishing) follows a change from commit to visitors.
 
 ## Configuring content
 
-```ts title="cms.ts"
-import content from "./.deco/blocks.gen";
-
-// Your files, shipped with each deploy
-createCMS({ blocks, content });
-
-// Releases from the hosted Deco CMS, with your files as the fallback
-createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN });
-
-// Check for new releases every 2 minutes instead of every minute
-createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN, interval: 120_000 });
-```
-
-`site` is your site's ID in the hosted Deco CMS, and `token` is its site token. Read them from environment variables, by convention `DECO_SITE` and `DECO_SITE_TOKEN`. The site ID isn't a secret; the token is, so keep it out of the repository. When either is undefined, in development for example, the CMS reads `content` only and sends no telemetry, so the same line works everywhere.
-
-`interval` is how often each server checks for a new release, in milliseconds. It defaults to the `DECO_CONTENT_INTERVAL` environment variable, or 60 000 (one minute) when that's unset. The minimum is 60 000: lower values are raised to one minute, with a warning. Each check runs one interval, plus or minus up to 10 seconds, after the previous one; [Under the hood](/next/loader-internals) has the details.
-
-On Cloudflare Workers with several megabytes of content, see “Large content on Workers” under [Create the CMS](/next/tanstack-data#2-create-the-cms). `content` also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in the [API reference](/next/standalone#loaders).
+`content` is the content module, as in [the example above](#the-content-module), in almost every app. It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in the [API reference](/next/standalone#loaders).
 
 ## Snapshots and revisions
 
 The content module's default export, `{ revision, blocks }`, is a **snapshot**: one fixed copy of your content map. The CMS always works with a whole snapshot at a time, never with single files. The field is called `blocks` for compatibility with Studio's file format, but it holds saved entries: any JSON, never functions. Functions only ever come from your block map.
 
-The revision names that exact set of entries, like a version number. The CMS and your app use it to tell when content changed, to keep cached data from different versions apart, and to tell one release from the next. Any change to any entry produces a new revision, and a revision is never reused for different content. `deco content` and the Deco API compute it the same way, as a hash of the whole map, so two copies of the same content get the same revision wherever they're computed; [Releases and deployment](/next/releases) shows what that buys you.
+The revision names that exact set of entries, like a version number. The CMS and your app use it to tell when content changed, to keep cached data from different versions apart, and to tell one deploy's content from the next. Any change to any entry produces a new revision, and a revision is never reused for different content. `deco content` computes it as a hash of the whole map, so two copies of the same content get the same revision wherever they're built; [Releases and deployment](/next/releases#one-revision-per-response) shows what that buys you.
 
 To read an entry exactly as stored, with references in place, index the map: `content.blocks["PromoBanner"]`.

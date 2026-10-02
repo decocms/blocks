@@ -10,7 +10,7 @@ Everything on this page is exported from `@decocms/blocks`. The built-in matcher
 
 ## `createCMS(config)`
 
-`createCMS` returns a **CMS**: your block map plus your content. Create it once, at module scope, and ask it for a client per request: `forRelease()` for visitors, `forDraft(pointer)` for previews.
+`createCMS` returns a **CMS**: your block map plus your content. Create it once, at module scope, and ask it for a client per request: `forRelease()` for visitors, `forDraft(pointer)` for [drafts](/next/preview#clients-for-drafts).
 
 - **One revision per client.** A client loads one revision on first use and reads only that revision afterwards, so everything in one response agrees. Every later call, `list` or `resolve`, reuses that content, so a page's blocks can stream as separate calls. The next request's client sees the next revision, so don't share a client across requests.
 - **Results are memoized per client and per block-map object**: build the map at module scope. An entry referenced three times runs its function once per client. Results are kept per function of the map you passed, so a map rebuilt inside your handler starts with an empty cache.
@@ -21,15 +21,17 @@ Everything on this page is exported from `@decocms/blocks`. The built-in matcher
 function createCMS(config: {
   blocks: Blocks;               // your block functions; the CMS uses { ...builtIns, ...blocks }, so a key here overrides a built-in
   content: Snapshot | Loader;   // the content module (.deco/blocks.gen.ts), or any Loader
-  site?: string;                // your site's ID in the hosted Deco CMS, usually DECO_SITE
-  token?: string;               // your site token (secret), usually DECO_SITE_TOKEN; with site: remoteLoader(content, { site, token, interval }) and telemetry
-  interval?: number;            // ms between release checks; default DECO_CONTENT_INTERVAL or 60_000; minimum 60_000
+  interval?: number;            // ms between update() checks of a content source that has one; default DECO_CONTENT_INTERVAL or 60_000; minimum 60_000
+
+  // Hosted Deco CMS (optional), see /next/hosted
+  site?: string;                // your site's ID, usually DECO_SITE
+  token?: string;               // your site token (secret), usually DECO_SITE_TOKEN
 }): CMS;
 
 interface CMS {
   forRelease(): Client;                         // a client reading the current release
-  forDraft(pointer: string): Client;            // a client reading the draft a pointer names; an invalid pointer behaves like the release
-  update(): Promise<{ updated: boolean }>;      // check for a new release now (manual refresh); checks also run on their own
+  forDraft(pointer: string): Client;            // a client reading the draft a pointer names; an invalid pointer, or a source without drafts, behaves like the release
+  update(): Promise<{ updated: boolean }>;      // ask the content source for newer content now; never throws
 }
 
 interface Client {
@@ -38,11 +40,13 @@ interface Client {
 }
 ```
 
-`content` takes the content module or a `Loader`; `site` and `token` together add hosted releases and [telemetry](/next/operations#telemetry), and `interval` sets how often releases are checked. With either of `site` or `token` undefined, the CMS reads `content` only and sends no telemetry. See [Configuring content](/next/content#configuring-content). The [rule from Blocks](/next/model#the-rule) is how a client resolves.
+`content` takes the content module or a `Loader` (see [Configuring content](/next/content#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `site` and `token` connect the hosted Deco CMS and do nothing on their own: with either of them unset, the CMS reads `content` only and sends nothing anywhere. The [rule from Blocks](/next/model#the-rule) is how a client resolves.
+
+<Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Hosted options.** With `site` and `token` set, the CMS serves releases published without a deploy, loads drafts for `forDraft`, and sends sampled telemetry.</Hosted>
 
 ## Loaders
 
-One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: pass the content module, and add `site` and `token` for hosted releases (see [Configuring content](/next/content#configuring-content)). Here a loader is a source of content; it isn't Studio's "loaders" or a router's route loader.
+One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module (see [Configuring content](/next/content#configuring-content)). Here a loader is a source of content; it isn't Studio's "loaders" or a router's route loader.
 
 ```ts
 interface Loader {
@@ -53,25 +57,21 @@ interface Loader {
 
 | Content | Loads | Use it for |
 |---|---|---|
-| A snapshot `{ revision, blocks }` (the content module) | The content that ships with the app, generated by `deco content`. Ignores the pointer: there are no drafts in it. No `update()`. | Development, tests, and the fallback in production |
-| `remoteLoader(fallback: Snapshot \| Loader, { site, token, interval? })` | The current release from the Deco API over the fallback, or the draft a pointer names. The site ID and token identify the site; everything else comes from the Deco API. | Production |
-| Any object with `load()` | The snapshot its `load()` returns. If it can change while the process runs, give it `update()`. | Advanced cases the two above don't cover |
+| A snapshot `{ revision, blocks }` (the content module) | The content that ships with the app, generated by `deco content`. Ignores the pointer: there are no drafts in it. No `update()`. | Every site: the content your build ships. With the hosted Deco CMS, also the fallback before the first release |
+| Any object with `load()` | The snapshot its `load()` returns, or the draft a pointer names if it has drafts. If it can change while the process runs, give it `update()`. | Content kept somewhere other than the build, such as your own storage |
+| `remoteLoader(fallback: Snapshot \| Loader, { site, token, interval? })` | Hosted: releases and drafts from the Deco API, over the fallback. `createCMS` builds it for you when `site` and `token` are set. See [Publishing without a deploy](/next/hosted-publishing). | The hosted Deco CMS |
 
-`remoteLoader(content, { site, token })`: `load()` never waits on the network. It returns what's in memory, the newest release fetched or else the fallback's content, and `update()` checks for newer content in the background. See [how it stays current](/next/loader-internals). `load(pointer)` fetches the draft a pointer names and caches it by version. If the draft can't be fetched, the client serves what a normal request would get, never a mix of draft and published entries. See [Preview](/next/preview).
+A loader with `update()` is checked on its own: every `interval` (default `DECO_CONTENT_INTERVAL` or 60 000 ms, never below 60 000), at the next idle moment, so a request never waits on it. On Cloudflare Workers, which run no timers between requests, a due check runs after the response inside `ctx.waitUntil`. `cms.update()` checks at once, for a webhook or an admin "refresh now" button; it refreshes only the server that runs it, and never throws. A snapshot, like the content module, never changes, and a loader without `update()` is always current by construction.
 
-`remoteLoader` checks for a new release on its own:
+If `load(pointer)` fails, the client serves what a normal request would get, never a mix of draft and published entries.
 
-- every `interval`, which defaults to `DECO_CONTENT_INTERVAL` or 60 000 ms and is never below 60 000;
-- each check one interval, plus or minus up to 10 s, after the previous one (60 s ± 10 s by default), fetching only the revision hash;
-- when a check is due, at the next idle moment (see [Loader internals](/next/loader-internals)). On Cloudflare Workers, which run no timers between requests, it runs after the response inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent), so you never call `update()` yourself.
-
-`cms.update()` stays for a manual refresh, such as a webhook or an admin "refresh now" button; it refreshes only the server that runs it. It never throws. A loader you write that has `update()` gets the same idle schedule and `interval`. A snapshot, like the content module, never changes, and a loader without `update()` is always current by construction.
+A pointer comes from request input, so a loader that serves drafts must treat it as untrusted: allow-list the hosts it may fetch from, so a crafted pointer can't make your server fetch arbitrary URLs, and require a credential it can verify, such as a signed token, before serving unpublished content.
 
 Caching, ETags, and fallbacks live inside the CMS, which any number of clients share. The client only ever sees `{ revision, blocks }`.
 
 ## One instance per process
 
-`createCMS` and `remoteLoader` instances are process-wide singletons. Each is stored on `globalThis` under a `Symbol.for("decocms.blocks…")` key derived from its configuration (the site ID, the token and the content's identity: for the content module, the `.deco` folder it was generated from; for a loader you write, the loader object. Never the revision, so a hot reload that hands in new content keeps the same instance). So a package loaded twice, by two bundles or by a dev reload (hot module replacement, HMR), still shares one cache and one poller. Different configurations, such as several sites in one app, get different instances. Calling it again with the same key but different options keeps the first instance and logs a warning that names the conflicting options. Tests can start clean:
+`createCMS` instances (and hosted `remoteLoader` instances) are process-wide singletons. Each is stored on `globalThis` under a `Symbol.for("decocms.blocks…")` key derived from its configuration: the content's identity (for the content module, the `.deco` folder it was generated from; for a loader you write, the loader object; never the revision, so a hot reload that hands in new content keeps the same instance), and, with the hosted Deco CMS, also the site ID and token. So a package loaded twice, by two bundles or by a dev reload (hot module replacement, HMR), still shares one content cache and one schedule of `update()` checks. Different configurations, such as several sites in one app, get different instances. Calling it again with the same key but different options keeps the first instance and logs a warning that names the conflicting options. Tests can start clean:
 
 ```ts
 function resetForTests(): void;   // clears every stored instance
@@ -79,12 +79,12 @@ function resetForTests(): void;   // clears every stored instance
 
 ## Draft pointers
 
-A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. Studio makes them; `forDraft` reads them. Two helpers cover everything in between:
+A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Clients for drafts](/next/preview#clients-for-drafts)). With the hosted Deco CMS, Studio makes them ([Drafts on your site](/next/hosted-drafts)). Two helpers cover everything in between:
 
 ```ts
 interface DraftPointer {
-  host: string;      // host[:port] of the Deco API, e.g. "api.deco.example"
-  path: string;      // starts with "/"; its query holds a token signed by Studio
+  host: string;      // host[:port] of the content source that holds the draft (the Deco API, when hosted), e.g. "api.deco.example"
+  path: string;      // starts with "/"; opaque to your app (hosted drafts put a token signed by Studio in its query)
   version: string;   // opaque, immutable: the branch head or ETag
 }
 
@@ -94,7 +94,7 @@ function formatDraftPointer(pointer: DraftPointer): string;
 
 `parseDraftPointer` is strict and returns `null` on anything unexpected: a scheme, a stray `@`, an unrooted path, an odd character in the host or version. It's what `forDraft` calls, so an app only needs it to look inside a pointer, for example to show which version is being previewed, to key a cache on `version`, or to reject a pointer before storing it in a cookie. `formatDraftPointer` is the inverse, for building one from parts, as a mobile app might from a deep link.
 
-For websites, two more helpers do the handshake, so the parameter and cookie names never appear in app code:
+For websites, two more helpers carry a pointer from a URL into a cookie, so the parameter and cookie names never appear in app code. The hosted draft flow uses them; see [Keep the draft across navigation](/next/hosted-drafts#keep-the-draft-across-navigation):
 
 ```ts
 function draftPointer(request: Request | { url: string; headers: Headers }): string | null;
@@ -177,18 +177,20 @@ Redirects win over routes, exact paths win over templates, and two entries that 
 
 <Callout>**Status.** `createInstrumentedFetch` and `@decocms/blocks/fetch` are proposed; see the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Callout>
 
-From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/clients) uses: it times each request until its response headers arrive and reports it to the [telemetry](/next/operations#telemetry) of the CMS in the same process, which sends it only when that CMS has a site and token. With several CMS instances in one process, which one receives a client's measurements is still being designed.
+From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/clients) uses: it times each request until its response headers arrive and labels the measurement. On its own it sends nothing anywhere, and it has no hook yet for reading the measurements in your own tooling: an `instrument` hook is planned (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)). Until then, only the hosted Deco CMS consumes them.
 
 ```ts
 function createInstrumentedFetch(options: {
   provider: string;                                     // the provider label, e.g. "vtex", "acme-search"
   fetch?: typeof fetch;                                 // the fetch underneath; defaults to globalThis.fetch
-  retry?: { attempts: number; backoffMs?: number };     // off unless set; a retried request is reported once
+  retry?: { attempts: number; backoffMs?: number };     // off unless set; a retried request is measured once
   circuitBreaker?: { failures: number; cooldownMs: number };   // off unless set
 }): (input: string | URL | Request, init?: RequestInit & { operation?: string }) => Promise<Response>;
 ```
 
-Each request is reported with `provider`, `operation`, `status_class`, `cached` and `retries` labels. It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/clients#write-a-client).
+Each request is measured with `provider`, `operation`, `status_class`, `cached` and `retries` labels. It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/clients#write-a-client).
+
+<Hosted to="/next/hosted-telemetry">**Telemetry without a collector.** When the CMS in the same process has a site ID and token, these measurements reach Deco as sampled upstream latency and error rates.</Hosted>
 
 ## Not in the SDK
 
@@ -221,7 +223,7 @@ interface Route { name: string; path: string }                    // extend it t
 interface Page extends Route { seo: Block; sections: VariantOf<Array<VariantOf<Block>>> }
 interface Redirect { from: string; to: string; permanent: boolean }
 
-// The Telemetry entry's type (built in, always in the schema). Field names are proposed.
+// The Telemetry entry's type (built in, always in the schema; read by the hosted Deco CMS). Field names are proposed.
 interface Telemetry { enabled: boolean; metrics: boolean; errorSampleRate: number }
 
 type Match<T> =
@@ -241,7 +243,7 @@ interface CMSError {
 
 ## Errors
 
-Client calls never throw: `resolve` and `list` return `[value, null]` or `[null, error]`. The one exception in the SDK is `matchRoute`, which throws when two entries can match the same URL. That's a content bug `deco schema` also reports, so run it in CI on every commit, including Studio's (see [Keep the schema compatible](/next/schema#keep-the-schema-compatible)), and catch the throw in your handler (see [Path templates and match order](/next/routing#path-templates-and-match-order)). Check the error, not the value, because a block function can legitimately return `null`.
+Client calls never throw: `resolve` and `list` return `[value, null]` or `[null, error]`. The one exception in the SDK is `matchRoute`, which throws when two entries can match the same URL. That's a content bug `deco schema` also reports, so run it in CI on every commit, content commits included (see [Keep the schema compatible](/next/schema#keep-the-schema-compatible)), and catch the throw in your handler (see [Path templates and match order](/next/routing#path-templates-and-match-order)). Check the error, not the value, because a block function can legitimately return `null`.
 
 | Code | When |
 |---|---|

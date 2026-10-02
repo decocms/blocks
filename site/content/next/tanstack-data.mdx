@@ -43,31 +43,25 @@ Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts` (see [The content
 
 ## 2. Create the CMS
 
-`DECO_SITE` is your site's ID in the hosted Deco CMS and `DECO_SITE_TOKEN` its site token; together they load hosted content and send [telemetry](/next/operations#telemetry). On Workers, environment variables come from `env` in `cloudflare:workers`; locally, `wrangler dev` reads them from a `.dev.vars` file you keep out of Git. In production, set the site ID as a plain variable in `wrangler.jsonc` (`vars`) and the token with `npx wrangler secret put DECO_SITE_TOKEN`.
-
 ```ts title="src/cms.ts"
-import { createCMS, draftPointer } from "@decocms/blocks";
-import { env } from "cloudflare:workers";
+import { createCMS } from "@decocms/blocks";
 import content from "../.deco/blocks.gen";
 import blocks from "./blocks";
 
-// Production reads releases from the Deco API and falls back to the content module.
-export const cms = createCMS({ blocks, content, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN });
+// Serves the content module: the content of the commit this build was made from.
+export const cms = createCMS({ blocks, content });
 
-// The client for this request: the draft it points at, or the current release.
-export const client = (request: Request) => {
-  const pointer = draftPointer(request);
-  return pointer ? cms.forDraft(pointer) : cms.forRelease();
-};
+// The client for this request. Every page gets its client here, so this is the one place to change
+// if requests ever need different content.
+export const client = (_request: Request) => cms.forRelease();
 ```
 
-The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. Its revision is the same content hash the Deco API computes, so a new Worker instance whose build already holds the current release skips downloading it (see [Loader internals](/next/loader-internals)). Workers run no timers between requests, so when a release check is due, the SDK runs it after the response inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent): you don't call `cms.update()`.
+The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. `client` takes the request even though it doesn't read it yet (hence the `_` that keeps unused-parameter lint rules quiet), so the steps below don't change if it ever does (for [hosted drafts](/next/hosted-drafts#tanstack-start), for example).
 
-**Large content on Workers.** With `site` and `token`, the bundled content module stays in memory as the fallback beside the live release, so a published site holds two copies (a Worker isolate has 128 MB), and the bundle counts toward the script size limit. That only matters at several megabytes of JSON; for sites that large, a first-party `kvLoader` that keeps the fallback in Workers KV is planned (see the [Roadmap](/roadmap#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites)).
 
 ## 3. Match the URL to a page
 
-This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`, and `draftPointer` finds the pointer in the URL or in the cookie from step 6. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
+This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
 
 ```ts title="src/open-page.server.ts"
 import { notFound, redirect } from "@tanstack/react-router";
@@ -104,7 +98,7 @@ export async function openPage<T>(href: string, request: Request) {
 
 ## 4. Expose it through a server function
 
-A server function runs only on the server. During server rendering it's a plain call; in the browser, Start replaces it with a fetch to the server, so the CMS, your token and the content never ship to the client. That makes it a public HTTP endpoint, so validate its input: here, a path that starts with `/`.
+A server function runs only on the server. During server rendering it's a plain call; in the browser, Start replaces it with a fetch to the server, so the CMS and the content never ship to the client. That makes it a public HTTP endpoint, so validate its input: here, a path that starts with `/`.
 
 ```ts title="src/page.functions.ts"
 import { createServerFn } from "@tanstack/react-start";
@@ -171,25 +165,7 @@ function Page() {
 
 <Callout>**Keep block promises unawaited.** Start can send a promise inside loader data: the page goes out right away, and each promise's value streams to the browser when it resolves, where `Await` renders it. Awaiting them in `openPage` would make the page wait for its slowest block.</Callout>
 
-## 6. Keep preview across navigation
-
-Studio opens your site with the [draft pointer](/next/preview) in the URL, but only on the first page. Append the draft cookie to the document response so every link the editor clicks stays in preview. Start's request middleware runs around every request (see [Keep the draft across navigation](/next/preview#keep-the-draft-across-navigation)):
-
-```ts title="src/start.ts"
-import { createMiddleware, createStart } from "@tanstack/react-start";
-import { draftCookie } from "@decocms/blocks";
-
-const draftCookieMiddleware = createMiddleware().server(async ({ request, next }) => {
-  const result = await next();
-  const cookie = draftCookie(request);   // only set on the request Studio opens; expiring when leaving preview
-  if (cookie) result.response.headers.append("Set-Cookie", cookie);
-  return result;
-});
-
-export const startInstance = createStart(() => ({ requestMiddleware: [draftCookieMiddleware] }));
-```
-
-## 7. Configure Cloudflare Workers
+## 6. Configure Cloudflare Workers
 
 ```ts title="vite.config.ts"
 import { defineConfig } from "vite";
@@ -212,23 +188,25 @@ export default defineConfig({
 }
 ```
 
-`nodejs_compat` enables the Node APIs Start relies on, such as `AsyncLocalStorage`. `no_handle_cross_request_promise_resolution` keeps Workers' older behavior for a promise created in one request and awaited in another, which this setup relies on: the content fetch is shared by every request. See Cloudflare's [compatibility flags](https://developers.cloudflare.com/workers/configuration/compatibility-flags/).
+`nodejs_compat` enables the Node APIs Start relies on, such as `AsyncLocalStorage`. `no_handle_cross_request_promise_resolution` keeps Workers' older behavior for a promise created in one request and awaited in another, which this setup relies on: the CMS shares one content load across requests. See Cloudflare's [compatibility flags](https://developers.cloudflare.com/workers/configuration/compatibility-flags/).
 
 ## How it works
 
 - **The server function becomes an RPC stub.** Import it statically from the route, so Start can replace it with a fetch call in the client build. See [Start server functions](https://tanstack.com/start/latest/docs/framework/react/server-functions).
-- **What ships to the browser.** The view registry and its views, and the descriptors as data. The CMS, the block map and the token stay on the server.
+- **What ships to the browser.** The view registry and its views, and the descriptors as data. The CMS, the block map and the content stay on the server.
 - **Reading the request.** A block that needs headers or cookies calls `getRequest()` from `@tanstack/react-start/server`, like any other server code.
-- **Drafts need no authorization code.** The pointer carries a token signed by Studio, and the Deco API checks it (see [Who may preview](/next/preview#who-may-preview)).
+
+## Edit in Studio
+
+To edit this app's content in Studio while you develop, run `npx deco content serve` beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)).
 
 ## Deployment checklist
 
 - Run `deco schema && deco content` before each build (the `prebuild` script).
-- Pass `site` and `token` to `createCMS` so releases arrive without a deploy and upstream telemetry reaches Deco (binding-level cache and request metrics aren't wired in yet; see [What's sent](/next/operations#what-s-sent)).
-- Set `DECO_SITE` in `vars` and the token with `npx wrangler secret put DECO_SITE_TOKEN`.
-- Expect each new Worker instance (Cloudflare calls it an isolate) to serve the build's content module until its first check. Checks run after responses, about once a minute.
-- If your content is several megabytes, see “Large content on Workers” under [Create the CMS](#2-create-the-cms).
+- Each build serves the content of the commit it was built from; publishing content is a commit plus your normal deploy (see [Releases and deployment](/next/releases)).
 - Keep both compatibility flags.
 - The [Next.js guide](/next/nextjs) runs on Next's Node or Edge runtime, not on Workers.
+
+<Hosted to="/next/hosted#cloudflare-workers" label="Connect a Worker">**Publish and preview without a deploy.** A site ID and a Wrangler secret connect this Worker to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>
 
 <Small>Tested with Start 1.168.58, Router 1.170.39, React 19.2.7, Vite 7.3.6, Cloudflare Vite plugin 1.44.0, and Wrangler 4.110.0.</Small>

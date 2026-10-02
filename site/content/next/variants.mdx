@@ -128,8 +128,8 @@ const [hero] = await client.resolve(name);           // only this variant ran
 
 <Callout type="warning">**A variant is not access control.** It chooses between values that are all fine to compute and show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
 
-If you cache rendered pages, at a CDN for example, anything a matcher looks at must be part of the cache key. Otherwise the first visitor's variant is cached and served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors. See [Caching and telemetry](/next/operations).
+If you cache rendered pages, at a CDN for example, anything a matcher looks at must be part of the cache key. Otherwise the first visitor's variant is cached and served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors. See [Caching](/next/operations).
 
-Real-user monitoring (RUM), which will tie A/B tests to what visitors experience through variant exposure events (a record of which variant each visitor saw), is planned as a follow-up after the first release; see the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring). Until then, measure an experiment's outcome with your own analytics.
+Measure an experiment's outcome with your own analytics. Tying A/B tests to what visitors experience through variant exposure events is on the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
 
 Nothing so far has assumed a website. The next part adds URLs.

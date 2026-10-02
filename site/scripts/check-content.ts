@@ -3,7 +3,7 @@
  *
  *  - every content/<version>/*.mdx has valid frontmatter (build/manifest.ts throws otherwise);
  *  - each page has exactly one `# ` h1, and its text equals the frontmatter `title`;
- *  - links to other doc pages (`](/next/x#y)` or `href="/next/x#y"`) point at a page that exists,
+ *  - links to other doc pages (`](/next/x#y)`, `href="/next/x#y"` or `<Hosted to="/next/x#y">`) point at a page that exists,
  *    and the #fragment at one of its headings (Roadmap links are checked by scripts/check-roadmap.ts, and every fragment after the build,
  *    by scripts/postbuild.ts, which checks every link in the rendered HTML);
  *  - nothing that must not be published: local filesystem paths.
@@ -50,7 +50,7 @@ for (const p of pages) {
   const src = sources.get(p.file)!
   // Links inside fenced code are example code (an href in a JSX snippet), not doc links.
   const prose = src.replace(/```[\s\S]*?```/g, '')
-  const links = [...prose.matchAll(/\]\((\/[^)\s]*)\)/g), ...prose.matchAll(/href="(\/[^"]*)"/g)].map((m) => m[1])
+  const links = [...prose.matchAll(/\]\((\/[^)\s]*)\)/g), ...prose.matchAll(/href="(\/[^"]*)"/g), ...prose.matchAll(/<Hosted\b[^>]*?\bto="(\/[^"]*)"/g)].map((m) => m[1])
   for (const href of links) {
     const [route, frag] = href.split('#')
     if (!known.has(route)) {

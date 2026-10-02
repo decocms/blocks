@@ -1,0 +1,52 @@
+---
+title: Editing in Studio on GitHub
+nav: Studio on GitHub
+group: Hosted Deco CMS
+order: 25
+description: "With the hosted Deco CMS, Studio edits your GitHub repository directly, with no checkout: saves are commits on a draft branch, and publishing brings them to production."
+---
+
+# Editing in Studio on GitHub
+
+Studio edits your content through the [content protocol](/next/studio-protocol), wherever the files live. On your machine, `deco content serve` serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no checkout, no dev server and no Git.
+
+<Callout>**Status.** The content protocol and Studio's GitHub backend are proposed and not built yet; see the [Roadmap](/roadmap#roadmap-platform--build-studio-s-github-content-backend).</Callout>
+
+## What changes
+
+Studio's forms, variants, pages and redirects are the same on both backends: they need only the schema and the files. What differs is where a save goes and what happens next.
+
+| | `deco content serve` | Studio's GitHub backend |
+|---|---|---|
+| Edits | The files in your working tree | Your repository on GitHub |
+| A save | Writes the file; your app hot-reloads | One commit on the draft's branch, with all the files of that save |
+| Committing | You review the diff and commit | Each save is already a commit |
+| Drafts and publishing | Not shown: your branch is the draft, and you merge it | A draft branch per draft; publishing brings it to production |
+| Preview canvas | Your dev app | Your site, with a [`?__draft=` link](/next/hosted-drafts) |
+| Studio checks for changes | About every 2 seconds | When you return to the tab, and about every 30 seconds |
+| Needs | A checkout and a running CLI | A connected site |
+
+## Drafts are branches
+
+An editor's changes live on a **draft branch** in your repository, created on the first save. Each save is one commit on it, so the draft's history is ordinary Git history: you can review it in a pull request, diff it, or check it out. Saving is last-writer-wins in this version: if two people edit the same entry at once, the later save replaces the earlier one (see [Where edits go](/next/studio-protocol#where-edits-go)).
+
+While the draft is unpublished, Studio previews it on your real site; see [Drafts on your site](/next/hosted-drafts).
+
+## Publishing
+
+Publishing brings the draft's commits to your production branch (usually `main`). From there it's the same as any other commit: with the hosted Deco CMS it's served as a release within seconds and reaches running servers within about a minute (see [Publishing without a deploy](/next/hosted-publishing)).
+
+Because Studio reads the schema committed on the branch it edits, editors only see the block types and fields that branch's code has. Deploy code that adds a type before publishing content that uses it (see [Keep running code compatible](/next/hosted-publishing#keep-running-code-compatible)).
+
+## CI on Studio commits
+
+Studio's saves are commits to the same repository. They only change content, never the schema, so `deco schema --check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions). Saves always land on a draft branch, never on production. When publishing opens a pull request, the [schema workflow](/next/schema#keep-the-schema-compatible) checks it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` to run it on those commits too.
+
+```yaml title=".github/workflows/schema.yml (changes)"
+on:
+  pull_request:
+  push:
+    branches: [main]
+```
+
+How Studio reads and writes your files over the protocol is in [Studio and the content protocol](/next/studio-protocol), and its compatibility details in [Studio compatibility](/next/studio).

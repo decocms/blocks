@@ -17,7 +17,7 @@ Deco Blocks doesn't fetch data. Your site calls commerce platforms, search servi
 Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algolia, Resend and others. Each one is:
 
 - **Typed request functions**, one per API operation, with the platform's own request and response types (generated from its API description where it has one).
-- **Built on the instrumented fetch**, `createInstrumentedFetch`, which times each request and reports it to [telemetry](/next/operations#telemetry).
+- **Built on the instrumented fetch**, `createInstrumentedFetch`, which times each request (see [Measuring upstream calls](/next/operations#measuring-upstream-calls)).
 - **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it.
 
 Everything else lives in code your site owns:
@@ -55,15 +55,15 @@ The operation names here are illustrative; each client mirrors its platform's AP
 
 ## Caching
 
-Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/architecture#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Drafts bypass the cache. The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in telemetry. How a request opts in is still being designed; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings). Telemetry without a binding is covered in [What's sent](/next/operations#what-s-sent).
+Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/architecture#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements. How a request opts in is still being designed; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
 
-Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and telemetry](/next/operations) for the other caches a request passes through.
+Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and observability](/next/operations) for the other caches a request passes through.
 
 ## Retries and failures
 
 **Defaults per client.** The VTEX client turns on retries and a circuit breaker, which fails fast for a short time after repeated failures; other clients leave both off.
 
-How retries, latency and errors are reported is in [What's sent](/next/operations#what-s-sent).
+A retried request is measured once, with the number of retries as a label (see [Measuring upstream calls](/next/operations#measuring-upstream-calls)).
 
 ## Write a client
 
@@ -92,7 +92,7 @@ export class AcmeSearchError extends Error {
 }
 
 export function createAcmeSearch(config: AcmeSearchConfig, options: { fetch?: typeof fetch } = {}) {
-  // Every request through this fetch is timed and reported as provider "acme-search".
+  // Every request through this fetch is timed and labeled as provider "acme-search".
   const request = createInstrumentedFetch({ provider: "acme-search", fetch: options.fetch });
 
   return {
@@ -143,7 +143,7 @@ A few rules keep clients consistent:
 5. **Never put bodies, tokens or cookies in errors or logs.** Report the operation and the status.
 6. **Accept a `fetch` option** for tests: pass a fake that returns canned responses, and assert on the requests it received.
 
-`createInstrumentedFetch` reports to the telemetry of the CMS in the same process. Where no CMS has a site and token, as in tests and local development, requests are measured but nothing is sent. Its options are in the [API reference](/next/standalone#createinstrumentedfetch-options).
+`createInstrumentedFetch` measures every request and, on its own, sends nothing (see [Measuring upstream calls](/next/operations#measuring-upstream-calls)). Its options are in the [API reference](/next/standalone#createinstrumentedfetch-options).
 
 ## Moving an existing site
 

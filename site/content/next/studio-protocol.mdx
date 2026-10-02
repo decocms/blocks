@@ -8,9 +8,9 @@ description: What Deco Studio needs from your repository, how it reads and write
 
 # Studio and the content protocol
 
-Studio needs two things from your repository: the schema that `deco schema` writes, and your saved entries in `.deco/blocks`. It never runs your code. Between Studio's editor and wherever those files live sits a small protocol, the **content protocol**, so the same editor can work on your GitHub repository or on the checkout on your machine.
+Studio needs two things from your repository: the schema that `deco schema` writes, and your saved entries in `.deco/blocks`. It never runs your code. Between Studio's editor and wherever those files live sits a small protocol, the **content protocol**, so the same editor can work on the checkout on your machine or, through the hosted Deco CMS, on your GitHub repository.
 
-<Callout>**Status.** The content protocol, its package, `deco content serve` and Studio's GitHub backend are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-blockers--let-studio-talk-to-a-next-major-site).</Callout>
+<Callout>**Status.** The content protocol, its package and `deco content serve` are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-blockers--let-studio-talk-to-a-next-major-site).</Callout>
 
 ## What Studio needs
 
@@ -24,17 +24,19 @@ The `.deco` folder can be anywhere in the repository, such as `apps/storefront/.
 <Flow label="Studio and the content protocol">
   <FlowNode title="Studio">Forms built from the schema; autosaves each edit</FlowNode>
   <FlowNode title="Content protocol">Four methods over one HTTP endpoint</FlowNode>
-  <FlowNode title="Storage">Your GitHub repository, or your working tree</FlowNode>
+  <FlowNode title="Storage">Your working tree, or your GitHub repository</FlowNode>
 </Flow>
 
 Two implementations serve the protocol:
 
 | Backend | Edits | Studio checks for changes |
 |---|---|---|
-| **Studio's GitHub backend** | Your repository. Each save is one commit on the draft's branch (created on the first save), with all the files of that save. Publishing brings the draft to your production branch, which makes it a [release](/next/releases). | When you return to the tab, and about every 30 seconds |
 | **`deco content serve`**, from the Deco Blocks CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
+| **Studio's GitHub backend**, part of the hosted Deco CMS | Your repository on GitHub, with draft branches and publishing. | About every 30 seconds |
 
 There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins in this version: if two people edit the same entry at once, the later save replaces the earlier one.
+
+<Hosted to="/next/hosted-studio" label="Editing in Studio on GitHub">**Edit without a checkout.** With the hosted Deco CMS, Studio's GitHub backend commits each save to a draft branch, and publishes by bringing the draft to your production branch, so editors need no checkout, dev server or Git.</Hosted>
 
 ## Edit your local checkout
 
@@ -61,7 +63,7 @@ Forms, variants and their rules, pages, redirects and uploads need only the sche
 
 | Feature | In this version |
 |---|---|
-| Block previews: gallery thumbnails, saved-block previews, in-place renders | A card with the block's name, its `@title` and description, and the `@image` thumbnail if the schema has one. The main canvas opens the real page: your dev app with `deco content serve`, or your deployed site with a `?__draft=` link, which shows the draft when the site handles [draft pointers](/next/preview). |
+| Block previews: gallery thumbnails, saved-block previews, in-place renders | A card with the block's name, its `@title` and description, and the `@image` thumbnail if the schema has one. The main canvas opens the real page: your dev app with `deco content serve`, or, with the hosted Deco CMS, your deployed site showing the draft (see [Drafts on your site](/next/hosted-drafts)). |
 | Pickers whose options come from your code | The options declared in the schema, else a text field. `deco schema` writes static lists into the schema (string-literal unions, enums and `@options` lists), so those stay selects; see [Annotate fields with JSDoc](/next/schema#annotate-fields-with-jsdoc). |
 | Secret and password fields (`@format password`) | Read-only. Keep credentials in environment variables, never in content. |
 | Running a loader or action from Studio, and installing apps from the store | Unavailable. A platform client is added in code (see [Upstream API clients](/next/clients)). |

@@ -78,7 +78,7 @@ export type Content = {                                  // data: a schema per t
 
 The CLI reads both exports. Keys of the default export get a schema from each function's parameter type; keys of `Content` get one from the type itself. The two share one namespace, and a key in both is an error, except a built-in key (below). The CMS never sees `Content`, so a type declared only there runs nothing: resolving a `post` entry by name fails with `UNKNOWN_BLOCK`.
 
-**Built-ins: override or opt out.** `page`, `redirect` and `telemetry` (the shape of the [Telemetry entry](/next/operations#telemetry-settings-are-content)) are built-in blocks: `createCMS` adds them to your block map, so resolving them always works, and `deco schema` always includes their schemas. `Page`, `Redirect` and `Route` are exported from `@decocms/blocks`. Declaring a built-in key in `Content` replaces its schema, and the built-in block still runs. Declaring it in your block map replaces what runs (see [Override the page block](/next/content-types#resolving-pages-and-redirects)); for a built-in key you can do both. Extend the exported type to add fields, or to narrow `sections`, a page's ordered list of blocks:
+**Built-ins: override or opt out.** `page`, `redirect` and `telemetry` (the shape of the [Telemetry entry](/next/hosted-telemetry#telemetry-settings-are-content)) are built-in blocks: `createCMS` adds them to your block map, so resolving them always works, and `deco schema` always includes their schemas. `Page`, `Redirect` and `Route` are exported from `@decocms/blocks`. Declaring a built-in key in `Content` replaces its schema, and the built-in block still runs. Declaring it in your block map replaces what runs (see [Override the page block](/next/content-types#resolving-pages-and-redirects)); for a built-in key you can do both. Extend the exported type to add fields, or to narrow `sections`, a page's ordered list of blocks:
 
 ```ts
 import type { Page } from "@decocms/blocks";
@@ -94,10 +94,10 @@ Studio learns the shape of your content only from the schema this command writes
 
 ## Keep the schema compatible
 
-With the hosted Deco CMS, content goes live without a deploy, so the code that's already running renders it. That's the point of publishing without a deploy. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and `remoteLoader` doesn't compare schemas. They're kept compatible before anything merges, in two directions. (`deco schema --check`, which the first one relies on, isn't built yet; it's part of the first release, see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).)
+Content and code live in one repository but change independently: an editor's content branch and a developer's code branch can merge in either order. Nothing at runtime checks that they fit, because the CMS doesn't compare schemas. They're kept compatible before anything merges, in two directions. The first is checked in CI by `deco schema --check`, which isn't built yet; it's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check)). The second is a rule you follow when merging: no tool checks entry values against the schema until the content validation commands on the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli) ship.
 
 - **Backward compatible: new code still renders all existing content.** A code change must not break content that's already saved. `deco schema --check <base>` enforces this. It generates the schema from your code and compares it with `<base>`, the path to an earlier `.deco/schema.json`, such as the one on `main`. It lists every breaking change and exits with a non-zero code if it finds one. It writes nothing.
-- **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio#what-studio-reads-from-the-schema)). Keep that schema in step with what's deployed, and deploy the code first, then publish content that uses it. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/standalone#errors)) until the code ships. Rolling code back is the exception: content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.
+- **Content only uses types its commit's code has.** Content and code ship in the same build, so each commit's content must use only block types and fields that the same commit's code defines. Studio reads the schema next to the content it edits (your working tree, with `deco content serve`), so it only offers what that code has. An entry written by hand or by an agent that uses a type the code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/standalone#errors)); merge the code that adds a type before, or with, the content that uses it. Rolling code back by reverting a commit has the same catch: content that already uses the newer types or fields fails on the older code until you revert that content too. Redeploying a previous build doesn't, because it ships that build's own content.
 
 What `--check` treats as breaking:
 
@@ -141,14 +141,16 @@ jobs:
 
 <Callout>**Status. The compatibility step needs `deco schema --check`, which isn't built yet; it ships with the first release.** Once it's out, add a step that compares the schema with the one on the pull request's target branch (`git show "origin/$BASE_REF:.deco/schema.json" > base-schema.json`, then `deco schema --check base-schema.json`). Until then, review schema diffs against the table above by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
 
-Studio's saves are commits to the same repository. They only change content, never the schema, so `--check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions). When Studio saves through pull requests, this workflow checks them before merge. When it commits straight to your production branch, they're live as soon as they land, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` to run it on those commits too.
+Content-only changes, from Studio, an agent or by hand, never change the schema, so `--check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions) in the same pull request.
+
+<Hosted to="/next/hosted-publishing#keep-running-code-compatible" label="Keep running code compatible">**Publishing without a deploy adds a direction.** With the hosted Deco CMS, content goes live on code that's already running, so that code must also render content published after it shipped.</Hosted>
 
 <h2 id="the-two-cli-commands">CLI reference</h2>
 
 `deco schema` and `deco content` are the two commands; `deco content serve`, a subcommand of the second, serves your local files to Studio. Each does one job:
 
 - **`deco schema`** turns the types in your block map into `.deco/schema.json`. Commit this file.
-- **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`. It's generated, so gitignore it. Its `serve` subcommand lets Studio edit those files on your machine (see [below](#edit-local-content-from-studio)).
+- **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`. It's generated, so gitignore it. If `.deco/blocks` has no `Telemetry.json`, it also scaffolds one: settings only the [hosted Deco CMS](/next/hosted-telemetry) reads. Without a connected site the entry is inert, and you can delete it. Its `serve` subcommand lets Studio edit those files on your machine (see [below](#edit-local-content-from-studio)).
 
 ```bash
 deco schema [--entry <path>] [--root <dir>] [--watch] [--check <base>]
@@ -182,5 +184,3 @@ There's no separate dev command: run both before your dev server and your build.
 - `--token <t>`: a fixed token instead of a random one per run (or `DECO_CONTENT_TOKEN`).
 - `--allow-origin <origin>`: another browser origin allowed to call the server, besides Studio's (repeatable).
 - `--read-only`: serve the content without accepting writes.
-
-Studio's own backend reads and commits to your GitHub repository; you don't need this command to edit in production.

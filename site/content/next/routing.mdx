@@ -6,7 +6,7 @@ order: 12
 
 # Routing
 
-The CMS doesn't route. It lists and resolves. Routing is three steps in your request handler: list the types you want at URLs, hand them to `matchRoute`, resolve the winner. Do all three with one client, so they see the same content even if editors publish mid-request (see [One revision per response](/next/releases#one-revision-per-response)).
+The CMS doesn't route. It lists and resolves. Routing is three steps in your request handler: list the types you want at URLs, hand them to `matchRoute`, resolve the winner. Do all three with one client, so they see the same content even if it changes mid-request (see [One revision per response](/next/releases#one-revision-per-response)).
 
 ## The example used here and in the guides
 
@@ -141,7 +141,7 @@ Matching is a lookup, not a scan: entries are compiled into a segment trie (a tr
 
 ## Path templates and match order
 
-A route's `path` and a redirect's `from` accept literal segments and named parameters. A route at `/:slug/p` matches `/summer/p` with `params.slug = "summer"`. Redirects are checked before routes, so a redirect overrides a route at the same path. Within each group, exact paths win over templates. Two entries with the same path, or two templates that can match the same URL, make `matchRoute` throw. `deco schema` reports the same conflict, so run it in CI on every commit, including the content commits Studio makes. Content published without that check can still make `matchRoute` throw at request time, so catch the error and return a 500 rather than crash (removing the throw is on the [Roadmap](/roadmap#roadmap-api--add-a-splat-to-matchroute-and-stop-request-time-throws)). Serve framework endpoints, API routes and static assets from their own routes, so they never reach this catch-all.
+A route's `path` and a redirect's `from` accept literal segments and named parameters. A route at `/:slug/p` matches `/summer/p` with `params.slug = "summer"`. Redirects are checked before routes, so a redirect overrides a route at the same path. Within each group, exact paths win over templates. Two entries with the same path, or two templates that can match the same URL, make `matchRoute` throw. `deco schema` reports the same conflict, so run it in CI on every commit, content-only commits included. Content merged without that check can still make `matchRoute` throw at request time, so catch the error and return a 500 rather than crash (removing the throw is on the [Roadmap](/roadmap#roadmap-api--add-a-splat-to-matchroute-and-stop-request-time-throws)). Serve framework endpoints, API routes and static assets from their own routes, so they never reach this catch-all.
 
 ## Linking and listing
 

@@ -8,39 +8,41 @@ order: 1
 
 <Callout>**Status.** Deco Blocks is being designed in the open: the API on these pages is proposed and not released yet. The [Roadmap](/roadmap) lists what's left.</Callout>
 
-Deco Blocks lets the people who run a site change what your code does without changing the code. You write ordinary TypeScript functions. The values they're called with, such as a headline, a banner image or the share of visitors who see a new checkout, live as JSON files in your repository. Editors change those files in a visual editor, AI agents edit them directly, and your app reads them at runtime and calls your functions with them.
+Deco Blocks lets the people who run a site change what your code does without changing the code. You write ordinary TypeScript functions. The values they're called with, such as a headline, a banner image or the share of visitors who see a new checkout, live as JSON files in your repository. Editors change those files in a visual editor, AI agents edit them directly, and your app reads them at runtime and calls your functions with them. Content and code share one Git history, and both ship with your deploys.
 
-Deco Blocks has two pieces you install, and one you don't:
+Deco Blocks has two pieces you install, plus a visual editor that works on your files:
 
 | Piece | What it does | Where it runs |
 |---|---|---|
-| **SDK** `@decocms/blocks` | Reads your content (the JSON files in your repository, through a module the CLI generates, or their latest published commit from the hosted Deco CMS) and calls your functions with it. | Your app, in any JavaScript runtime: Node, Cloudflare Workers, Deno, Bun, React Native or the browser |
+| **SDK** `@decocms/blocks` | Reads your content (the JSON files in your repository, through a module the CLI generates) and calls your functions with it. | Your app, in any JavaScript runtime: Node, Cloudflare Workers, Deno, Bun, React Native or the browser |
 | **CLI** `@decocms/blocks-cli` | Provides the `deco` command. `deco schema` generates a JSON Schema from your types (and, in CI, checks a change against the previous one), and `deco content` turns your content files into a module your app imports. | Your machine or CI |
-| **Studio** | Builds a visual editor from that schema and saves edits back to your files, through the [content protocol](/next/studio-protocol). It never runs your code. | Part of the hosted Deco CMS (optional) |
+| **Studio** | Deco's visual editor. Builds forms from that schema and saves edits back to your files, through the [content protocol](/next/studio-protocol). It never runs your code. | Your browser, editing your checkout through `deco content serve` |
 
-The SDK and CLI are open source and run without a Deco account. The **hosted Deco CMS** is Deco's optional service. It adds **Deco Studio**, the visual editor, and the **Deco API**, the HTTP service that delivers published content and draft previews to your app without a redeploy, using your site ID and site token. The same two values send Deco your site's sampled [telemetry](/next/operations#telemetry).
+The SDK and CLI are open source and run without a Deco account. From the first block to production, the framework needs only your repository, your build and your deploys. Studio is a web app Deco runs; whether using it on your own checkout needs a Deco account isn't decided yet. Without Studio, content is JSON files you or an agent edit directly.
+
+<Hosted to="/next/hosted" label="What the hosted Deco CMS adds">**An optional hosted service.** Deco also runs a hosted Deco CMS on top of the same files: editing in Studio on GitHub with no checkout, publishing without a deploy, drafts on your real site, and telemetry.</Hosted>
 
 ## Authoring: from types to an editor
 
 <Flow label="Authoring flow">
   <FlowNode title="Your TypeScript">Functions with typed inputs: UI and data fetchers alike</FlowNode>
   <FlowNode title="CLI → JSON Schema">`deco schema` writes `.deco/schema.json`</FlowNode>
-  <FlowNode title="Studio">Forms for editors, built from the schema; previews open your real pages</FlowNode>
+  <FlowNode title="Studio">Forms for editors, built from the schema; previews open your app</FlowNode>
 </Flow>
 
-You write functions with typed inputs, for example a hero block that takes a title and an image. The CLI turns those types into a schema, and Studio turns the schema into forms. Editors, and AI agents, save content as JSON files in `.deco/blocks`, in your repository.
+You write functions with typed inputs, for example a hero block that takes a title and an image. The CLI turns those types into a schema, and Studio turns the schema into forms. Editors, and AI agents, save content as JSON files in `.deco/blocks`, in your repository, and those changes are commits like any other.
 
 ## Delivery: from files to your app
 
 <Flow label="Delivery flow">
-  <FlowNode title="Content">The content module built from `.deco/blocks`, or a release (a published version of your content) from the Deco API</FlowNode>
+  <FlowNode title="Content">The content module built from `.deco/blocks`, bundled into your build</FlowNode>
   <FlowNode title="SDK">`client.list` and `client.resolve` read and resolve content</FlowNode>
   <FlowNode title="Your app">Next.js, TanStack Start, or any server</FlowNode>
 </Flow>
 
 At request time, your app asks the SDK for a piece of saved content by name. The SDK reads it from your content: the content module that `deco content` generates from `.deco/blocks` (see [Your content in Git](/next/content)). If that content refers to other saved entries, the SDK expands them. Then it calls the matching function from your [block map](/next/quickstart) with the saved inputs and returns the result. How you render it is up to your framework. When you need more from the block map, such as lazy loading, see [Block maps](/next/manifest).
 
-If you use the hosted Deco CMS, you can publish content without redeploying. In production your app reads the current release from the Deco API instead of from the content module. A request never waits on that: content stays in memory and refreshes in the background (each server checks for a new release about once a minute, when it's idle), and the content your build shipped with is always there as the fallback. See [Releases and deployment](/next/releases), or [how servers pick up new releases](/next/loader-internals) for the details.
+The content module is part of your build, so content ships the way code does: you change a block's function, its saved inputs, or both, in commits, and your normal deploy takes them live. Each build serves exactly one version of your content. See [Releases and deployment](/next/releases).
 
 ## Key terms
 
@@ -52,11 +54,11 @@ These terms come up on every page. Each is explained again where it's first used
   <Term name="Block map">A plain object of your block functions, such as `{ experiments }`. `createCMS` adds the built-in blocks under it. See [Quickstart](/next/quickstart).</Term>
   <Term name="Block type">A key in the block map: the name content uses to call that function.</Term>
   <Term name="Built-in block">A block the framework adds to every block map: `page`, `redirect` and `telemetry`. Resolving one never fails with `UNKNOWN_BLOCK`; declaring the same key in your block map overrides it. See [Blocks](/next/model#the-rule).</Term>
-  <Term name="Saved entry">A piece of saved JSON stored under a name: one file in `.deco/blocks`, whose file name is the entry name. It's versioned in Git; with the hosted Deco CMS it can have drafts and publishes without a deploy. See [Your content in Git](/next/content).</Term>
+  <Term name="Saved entry">A piece of saved JSON stored under a name: one file in `.deco/blocks`, whose file name is the entry name. It's versioned in Git like your code. See [Your content in Git](/next/content).</Term>
   <Term name="Content module">`.deco/blocks.gen.ts`, the file `deco content` generates from `.deco/blocks`. It imports each JSON file and exports a snapshot, `{ revision, blocks }`: one fixed copy of all your saved entries. See [Your content in Git](/next/content).</Term>
-  <Term name="Client">The object you read content with, one per request: `cms.forRelease()` for visitors, `cms.forDraft(pointer)` for a preview. It has two methods, `list` and `resolve`. See [Quickstart](/next/quickstart).</Term>
-  <Term name="Release">A published content map. With the hosted Deco CMS, each commit to the production branch becomes one. A release never changes, and its revision identifies it. See [Releases and deployment](/next/releases).</Term>
-  <Term name="Draft">Content changed in Studio but not yet published, kept on a branch. See [Preview](/next/preview).</Term>
+  <Term name="Client">The object you read content with, one per request: `cms.forRelease()` for visitors, `cms.forDraft(pointer)` for a draft from a content source that has drafts, such as [hosted drafts](/next/hosted-drafts). It has two methods, `list` and `resolve`. See [Quickstart](/next/quickstart).</Term>
+  <Term name="Release">The content your app serves to visitors: with the content module, the content of the deployed commit. A release never changes, and its revision identifies it. See [Releases and deployment](/next/releases).</Term>
+  <Term name="Draft">Content changes not yet on your production branch, kept on a branch. See [Preview](/next/preview).</Term>
 </Terms>
 
 ### Other terms
@@ -67,14 +69,13 @@ You'll meet these on specific pages.
   <Term name="Page">A built-in type: a saved entry with a path, SEO and an ordered list of blocks (its `sections` field) that editors add, remove and reorder. Its built-in block returns the page with those fields resolved. See [Routes and redirects](/next/content-types).</Term>
   <Term name="Content map">All saved entries, keyed by name.</Term>
   <Term name="Revision">The ID of one exact content map, released or not, usually a hash of its contents. Change any entry and you get a new revision.</Term>
-  <Term name="Loader">The interface behind `createCMS`'s `content` option, an object whose `load()` returns a snapshot, `{ revision, blocks }`. `remoteLoader`, which reads releases from the hosted Deco CMS, is one. A source of content, not a data fetcher. See [API reference](/next/standalone#loaders).</Term>
+  <Term name="Loader">The interface behind `createCMS`'s `content` option, an object whose `load()` returns a snapshot, `{ revision, blocks }`. The content module is the usual one, and the hosted Deco CMS provides another ([Publishing without a deploy](/next/hosted-publishing)). A source of content, not a data fetcher. See [API reference](/next/standalone#loaders).</Term>
   <Term name="Descriptor">A plain, serializable object such as `{ component, props }` that names a view and its props for your front end to render. See [Rendering](/next/rendering).</Term>
-  <Term name="Site ID and site token">The two values that connect your app to the hosted Deco CMS, usually the `DECO_SITE` and `DECO_SITE_TOKEN` environment variables, passed to `createCMS` as `site` and `token`. They load hosted content and send telemetry. Only the token is secret. See [Configuring content](/next/content#configuring-content).</Term>
-  <Term name="Content protocol">The small HTTP protocol between Studio and the place your content lives: four JSON-RPC methods that read the schema and the saved entries and write entries. Studio's GitHub backend and `deco content serve` implement it. See [Studio and the content protocol](/next/studio-protocol).</Term>
+  <Term name="Content protocol">The small HTTP protocol between Studio and the place your content lives: four JSON-RPC methods that read the schema and the saved entries and write entries. `deco content serve` implements it for your checkout, and [Studio's GitHub backend](/next/hosted-studio) for the hosted Deco CMS. See [Studio and the content protocol](/next/studio-protocol).</Term>
   <Term name="Upstream client">A thin, typed API client for a third-party platform, such as VTEX or Algolia, built on the framework's instrumented fetch, `createInstrumentedFetch`. The framework itself doesn't fetch data. See [Upstream API clients](/next/clients).</Term>
-  <Term name="Framework binding">`@decocms/tanstack` or `@decocms/nextjs`: the optional package that adds what depends on where your site runs: upstream and page caching, and inbound-request and edge-cache telemetry. Not wired into these guides yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).</Term>
+  <Term name="Framework binding">`@decocms/tanstack` or `@decocms/nextjs`: the optional package that adds what depends on where your site runs: upstream and page caching, and inbound-request and edge-cache measurements. Not wired into these guides yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).</Term>
   <Term name="Platform template">A starter site per platform (VTEX, Shopify, …) that you copy and then own. It holds the converters, cart/user/wishlist hooks and cart, session and sign-in flows that v7's apps shipped. Not available yet; see the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Term>
-  <Term name="Telemetry entry">The saved entry named `Telemetry` that holds a site's telemetry settings (on or off, sample rates), with a schema the framework provides. Switching it off is a content edit: Studio commits the change to the site's repository through its GitHub integration and running servers pick it up with their next content check. See [Caching and telemetry](/next/operations#telemetry-settings-are-content).</Term>
+  <Term name="Telemetry entry">The saved entry named `Telemetry` that holds a site's telemetry settings (on or off, sample rates), with a schema the framework provides. The hosted Deco CMS reads it; see [Telemetry](/next/hosted-telemetry#telemetry-settings-are-content).</Term>
 </Terms>
 
 ## Coming from v7
@@ -92,8 +93,8 @@ You'll meet these on specific pages.
 
 Deco Blocks stays out of your way:
 
-- **Content is plain JSON.** Open it in any editor, grep it, diff it, or generate it with a script. There's no database or content API for you to host. The hosted Deco CMS is optional, and Deco runs it.
+- **Content is plain JSON.** Open it in any editor, grep it, diff it, or generate it with a script. There's no database or content API for you to host.
 - **Block functions are plain functions.** No framework plugin, no base classes, no magic directories. The block map is a plain object, and you can call any block function directly in a test.
-- **Data fetching is your code.** The framework doesn't fetch data. Third-party APIs are called through thin [upstream clients](/next/clients), which report latency and errors to telemetry the same way.
+- **Data fetching is your code.** The framework doesn't fetch data. Third-party APIs are called through thin [upstream clients](/next/clients), which time every request the same way.
 - **The schema is a file.** Commit it, inspect it, or generate it another way. Studio builds its forms from that JSON alone, and edits your content files without running your code.
 - **Nothing is hidden.** If the SDK doesn't do what you need, read the content yourself: the block format is documented in [Blocks](/next/model), and the files and the content map in [Your content in Git](/next/content).

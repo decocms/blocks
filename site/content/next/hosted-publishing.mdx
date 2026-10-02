@@ -1,0 +1,85 @@
+---
+title: Publishing without a deploy
+nav: Publishing
+group: Hosted Deco CMS
+order: 23
+description: With the hosted Deco CMS, each commit to your production branch is served as a release within seconds, and running servers pick it up within about a minute.
+---
+
+# Publishing without a deploy
+
+Without the hosted Deco CMS, publishing is committing and a deploy ships it (see [Releases and deployment](/next/releases#publishing)). With it, publishing is still committing, but the commit doesn't wait for a deploy: the Deco API serves it as a release, and the servers already running your app pick it up on their own.
+
+<Callout>**Status.** The release service and site tokens aren't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).</Callout>
+
+## How a commit becomes a release
+
+Publishing is the same event with or without the hosted Deco CMS: your production branch (usually `main`) moves. A developer or an agent commits a file in `.deco/blocks` and pushes, or merges a pull request; an editor publishes a draft in Studio, which brings its commits to that branch (see [Editing in Studio on GitHub](/next/hosted-studio)).
+
+1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its revision identifies it.
+2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
+3. **The server swaps the release in whole** and serves it from its next client on. Requests already in flight keep the revision they started with (see [One revision per response](/next/releases#one-revision-per-response)).
+
+So a publish reaches every visitor within about a minute, with no build. Different servers can briefly serve different releases, by design.
+
+On Cloudflare Workers, which run no timers between requests, the SDK runs a due check after the response, inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent). You don't call anything.
+
+Calling `cms.update()`, for example from a webhook or an admin "refresh now" button, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check. It never throws.
+
+How the SDK does this is [under the hood](/next/loader-internals).
+
+## Check interval
+
+```ts title="cms.ts"
+// Check for new releases every 2 minutes instead of every minute
+createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN, interval: 120_000 });
+```
+
+`interval` is the core `createCMS` option that paces every content source that can change (see [Loaders](/next/standalone#loaders)); with a connected site, that source is the Deco API, so it's how often each server checks for a new release. It defaults to the `DECO_CONTENT_INTERVAL` environment variable, or 60 000 ms (one minute), and lower values are raised to one minute, with a warning. Each check runs one interval, plus or minus up to 10 seconds, after the previous one, so servers that started together don't check together. A check fetches only the current revision hash, a few bytes, however much traffic the server serves.
+
+## Fallback
+
+Until a server has fetched its first release (a new server, or one that has never reached the Deco API), it serves the content module your build shipped with: the content this deploy was tested against, so it's always there and always compatible with the code. If the Deco API becomes unreachable later, the server keeps serving the newest release it already has. Any network or validation error leaves memory as it was; nothing reaches a request.
+
+The CMS always switches between whole revisions, never mixing entries from two of them, because a mix can break references or bring back deleted entries.
+
+## Same revision, no download
+
+`deco content` and the Deco API compute a revision the same way, as a hash of the whole content map, so two copies of the same content get the same revision wherever they're computed. When a server's check finds that the current release has the revision of the content module it was built with, which is the common case right after a deploy, it uses the bundled copy and never downloads it.
+
+## Keep running code compatible
+
+Publishing without a deploy means the code that's already running renders the new content. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and the CMS doesn't compare schemas. On top of the backward-compatibility rules every site follows ([Keep the schema compatible](/next/schema#keep-the-schema-compatible)), this adds a direction:
+
+- **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. With Studio's GitHub backend, Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio#what-studio-reads-from-the-schema)). Keep that schema in step with what's deployed, and **deploy the code first, then publish content that uses it**. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/standalone#errors)) until the code ships.
+- **Rolling code back is the exception.** Content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.
+
+## Large content on Workers
+
+With `site` and `token`, the bundled content module stays in memory as the fallback beside the live release, so a published site holds two copies (a Worker isolate has 128 MB), and the bundle counts toward the script size limit. That only matters at several megabytes of JSON; for sites that large, a first-party `kvLoader` that keeps the fallback in Workers KV is planned (see the [Roadmap](/roadmap#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites)).
+
+## Troubleshooting
+
+To see which release a server is serving, build the loader yourself and log its revision; that's the revision a new client would read right now. (A revision handle on the client is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle).)
+
+```ts title="cms.ts"
+import { createCMS, remoteLoader } from "@decocms/blocks";
+import content from "./.deco/blocks.gen";
+import blocks from "./blocks";
+
+const loader = remoteLoader(content, { site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN });
+export const cms = createCMS({ blocks, content: loader });
+
+// in a request handler or a debug route:
+console.log((await loader.load()).revision);
+```
+
+| Symptom | What to check |
+|---|---|
+| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow about a minute after publishing. Check that both `site` and `token` are set in production. |
+| `UNKNOWN_BLOCK` right after publishing | The content uses a block type the deployed code doesn't have, usually because the content went out before the code that defines the type, or the code was rolled back to a version without it. Deploy the code, or revert the content commit. See [Keep running code compatible](#keep-running-code-compatible). |
+| Warning that `interval` was raised | The minimum is 60 000 ms (one minute); lower values, from `interval` or `DECO_CONTENT_INTERVAL`, are raised to it. |
+
+## Under the hood
+
+The request path, the idle scheduling on each runtime and the swap are described step by step [under the hood](/next/loader-internals).

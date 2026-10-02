@@ -43,7 +43,8 @@ export function calloutClass(type: CalloutType = 'note') {
 const BLOCK_TAGS = new Set(['p', 'ul', 'ol', 'div', 'table', 'pre', 'figure', 'dl', 'blockquote', 'h2', 'h3', 'h4'])
 const BLOCK_COMPONENTS = new Set<unknown>([CodeBlock, Table])
 
-function hasBlock(children: ReactNode): boolean {
+/** True when MDX passed block children (paragraphs, lists, code): they render as is, not wrapped in a <p>. */
+export function hasBlock(children: ReactNode): boolean {
   return Children.toArray(children).some(
     (c) => isValidElement(c) && (typeof c.type === 'string' ? BLOCK_TAGS.has(c.type) : BLOCK_COMPONENTS.has(c.type)),
   )

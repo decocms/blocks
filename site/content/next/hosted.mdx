@@ -1,0 +1,92 @@
+---
+title: The hosted Deco CMS
+nav: Overview
+group: Hosted Deco CMS
+order: 22
+description: What the hosted Deco CMS adds on top of the open-source framework, and how to connect a site to it with a site ID and token.
+---
+
+# The hosted Deco CMS
+
+The Deco Blocks SDK and CLI are complete without a Deco account: your functions, your content files and your deploys are all you need. The hosted Deco CMS is an optional service Deco runs on top of the same files. It changes how fast content reaches visitors and where editors work, not how your code is written.
+
+<Callout>**Status.** Creating a site and issuing site tokens isn't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).</Callout>
+
+## What it adds
+
+Deco runs three services for a connected site:
+
+| Service | What it changes | Without it |
+|---|---|---|
+| **The Deco API** | Serves each commit to your production branch as a **release** within seconds, so content is live within about a minute without a deploy, and serves drafts to your real site for preview. See [Publishing without a deploy](/next/hosted-publishing) and [Drafts on your site](/next/hosted-drafts). | Content ships with your next deploy ([Releases and deployment](/next/releases#publishing)); drafts are branches you preview with your own preview deploys ([Preview](/next/preview)). |
+| **Studio's GitHub backend** | Editors use Studio on your GitHub repository, with no checkout: each save is a commit on a draft branch, and publishing brings it to production. See [Editing in Studio on GitHub](/next/hosted-studio). | Studio on your checkout through `deco content serve`, and you commit the changes ([Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)). |
+| **Telemetry** | Sampled upstream latency and error rates for your site, collected by Deco, switched on and off from a content entry. See [Telemetry](/next/hosted-telemetry). | The instrumented fetch measures requests but sends nothing, and has no hook to read them yet ([planned](/roadmap#roadmap-api--add-observability-seams)); trace your own block functions ([your own tracing](/next/operations#your-own-tracing)). |
+
+## What stays the same
+
+- **Your repository is the source of truth.** Content is still the JSON files in `.deco/blocks`. Every edit, from Studio or anywhere else, is a commit you can review, diff and revert.
+- **Your code doesn't change.** Block functions, the block map, `resolve`, `list` and routing work the same way. The same `createCMS` call takes two more options, `site` and `token`.
+- **The content module stays.** Your build still bundles `.deco/blocks.gen.ts`. It's what a server serves before it has fetched its first release, and what it keeps serving if the Deco API is unreachable.
+
+## Connect your site
+
+A site is connected by two values: its **site ID** in the hosted Deco CMS and its **site token**. Read them from environment variables, by convention `DECO_SITE` and `DECO_SITE_TOKEN`, and pass them to `createCMS` next to your content:
+
+```ts title="cms.ts"
+import { createCMS } from "@decocms/blocks";
+import content from "./.deco/blocks.gen";
+import blocks from "./blocks";
+
+export const cms = createCMS({
+  blocks,
+  content,
+  site: process.env.DECO_SITE,          // your site's ID in the hosted Deco CMS
+  token: process.env.DECO_SITE_TOKEN,   // your site token (secret)
+});
+```
+
+The site ID isn't a secret; the token is, so keep it out of the repository. When either value is undefined, in development or in tests for example, the CMS reads `content` only and sends nothing, exactly like `createCMS({ blocks, content })`. So the same line works everywhere, and a site keeps working if you disconnect it.
+
+Releases and telemetry follow from these two values with nothing else to configure. Drafts need a few lines of wiring in your app; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app). How often servers check for a release is the core `interval` option; see [Check interval](/next/hosted-publishing#check-interval).
+
+### Next.js
+
+Set `DECO_SITE` and `DECO_SITE_TOKEN` in your host's environment (and in `.env.local`, which you keep out of Git, to try it locally). Create the CMS in a module that starts with `import "server-only"`, or import it only from one that does, as the [Next.js guide](/next/nextjs) does: the build then fails if a Client Component imports it, which keeps the token out of the browser.
+
+### Cloudflare Workers
+
+On Workers, environment variables come from `env` in `cloudflare:workers`:
+
+```ts title="src/cms.ts"
+import { createCMS } from "@decocms/blocks";
+import { env } from "cloudflare:workers";
+import content from "../.deco/blocks.gen";
+import blocks from "./blocks";
+
+export const cms = createCMS({ blocks, content, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN });
+```
+
+Locally, `wrangler dev` reads them from a `.dev.vars` file you keep out of Git. In production, set the site ID as a plain variable in `wrangler.jsonc` (`vars`) and the token as a secret:
+
+```bash
+npx wrangler secret put DECO_SITE_TOKEN
+```
+
+Release checks on Workers run after the response, inside `ctx.waitUntil`, on their own; see [How a commit becomes a release](/next/hosted-publishing#how-a-commit-becomes-a-release). Sites with several megabytes of content should read [Large content on Workers](/next/hosted-publishing#large-content-on-workers).
+
+## Terms
+
+<Terms>
+  <Term name="Site ID and site token">The two values that connect your app to the hosted Deco CMS, usually the `DECO_SITE` and `DECO_SITE_TOKEN` environment variables, passed to `createCMS` as `site` and `token`. They load releases and drafts and send telemetry. Only the token is secret.</Term>
+  <Term name="Deco API">The HTTP service that serves your site's releases and drafts, and receives its telemetry.</Term>
+  <Term name="Release">With the hosted Deco CMS, the content of one commit to your production branch, served by the Deco API. A release never changes, and its revision, the same hash `deco content` computes, identifies it. See [Publishing without a deploy](/next/hosted-publishing).</Term>
+  <Term name="Draft pointer">The string Studio puts in a `?__draft=` link: where a draft lives on the Deco API, with a token Studio signed, and which version. `cms.forDraft(pointer)` reads it. See [Drafts on your site](/next/hosted-drafts).</Term>
+  <Term name="Draft branch">The branch Studio's GitHub backend commits an editor's saves to, created on the first save. Publishing brings it to your production branch. See [Editing in Studio on GitHub](/next/hosted-studio).</Term>
+</Terms>
+
+## On these pages
+
+- [Publishing without a deploy](/next/hosted-publishing): how a commit becomes a release, how servers pick it up, the fallback, and keeping running code compatible with new content.
+- [Drafts on your site](/next/hosted-drafts): the `?__draft=` link, wiring drafts into your app, and who may preview.
+- [Editing in Studio on GitHub](/next/hosted-studio): draft branches, publishing, and CI on Studio's commits.
+- [Telemetry](/next/hosted-telemetry): what's sent, sampling, and switching it off from content.

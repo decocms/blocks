@@ -94,6 +94,29 @@ A second paragraph.
 `type`: `note` (default, info icon; was `.callout`), `warning` (amber; was `.callout.warning`),
 `preview` (lime dot; was `.intro-note`). Inline content on one line becomes one paragraph.
 
+### `<Hosted>`
+
+```mdx
+<Hosted to="/next/hosted-publishing">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a release within seconds, and running servers pick it up within about a minute, with no rebuild.</Hosted>
+
+<Hosted to="/next/hosted#connect-your-site" label="Connect your site">…</Hosted>
+```
+
+A notice on a framework page saying what the hosted Deco CMS changes there, with a link to the
+hosted page that explains it. Renders an `<aside aria-label="Hosted Deco CMS: <label>">` (so several on a page stay distinguishable): a lime box with a
+forest left rule (lime in dark mode), a "Hosted Deco CMS" eyebrow with a dot, the text, and the
+link (`label`, default "How the hosted Deco CMS does it", then →). `to` is required: a
+root-relative docs path, optionally with `#hash`; it goes through `MdxLink`, and `bun run check`
+validates it like any link. Inline content on the tag's line becomes one paragraph.
+
+Rules for writers:
+
+- The framework page stays complete without it: put it **after** the core instructions, never
+  instead of them.
+- One or two sentences of factual benefit (what changes, how fast), no "upgrade" language.
+- At most one per section and two per page; never on the hosted pages themselves.
+- `to` points at a hosted page (`/next/hosted`, `/next/hosted-*`).
+
 ### Tables
 
 GFM tables render inside a scrolling, bordered wrapper (the `table` override). Inline code in a

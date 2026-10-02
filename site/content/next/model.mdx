@@ -63,7 +63,7 @@ productCard({
 })
 ```
 
-Now an editor can change the title or the slug in Studio, and an agent can even point `product` at a different function, and the composition changes without a deploy. The functions are whatever your [block map](/next/manifest) registers, and each one's input type is what `deco schema` turns into the editor form. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.
+Now an editor can change the title or the slug in Studio, and an agent can even point `product` at a different function, and the composition changes without a code change. The functions are whatever your [block map](/next/manifest) registers, and each one's input type is what `deco schema` turns into the editor form. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.
 
 ## Name a composition, reuse it
 
@@ -136,13 +136,13 @@ To step through a deeper example, see [How resolution works](/next/walkthrough).
 
 ## The rule
 
-Every `__resolveType` names one of two things: a block function to call (code), either one from your block map or one of the framework's built-in blocks (`page`, `redirect`, `telemetry`), or a saved entry in your content to expand (JSON). All share one namespace, one registry. They differ in how they change: functions ship with a deploy, while saved content is versioned (each version has a revision), and, with the hosted Deco CMS, can have drafts and be published without a deploy.
+Every `__resolveType` names one of two things: a block function to call (code), either one from your block map or one of the framework's built-in blocks (`page`, `redirect`, `telemetry`), or a saved entry in your content to expand (JSON). All share one namespace, one registry. They differ in who changes them: functions are code, written by developers, while saved entries are content, edited by editors and agents as files in the same repository. Each version of the content has a revision.
 
 ```ts
 const registry = { ...savedEntries, ...builtIns, ...blocks };   // name → saved JSON | function; your blocks override built-ins
 ```
 
-Saved entries are your content, the files in `.deco/blocks`, which you pass to `createCMS` as [`content`](/next/content#the-content-module). Functions come from the block map you give `createCMS`, which spreads the built-in blocks under your map, so `page`, `redirect` and `telemetry` are always defined. Declaring one of those keys in your map replaces the built-in. The CMS applies one rule to every object with a `__resolveType`:
+Saved entries are your content, the files in `.deco/blocks`, which you pass to `createCMS` as [`content`](/next/content#the-content-module). Functions come from the block map you give `createCMS`, which spreads the built-in blocks under your map, so `page`, `redirect` and `telemetry` are always defined. Declaring one of those keys in your map replaces the built-in. `telemetry` holds settings only the hosted Deco CMS reads; without it, a Telemetry entry is inert. The CMS applies one rule to every object with a `__resolveType`:
 
 1. **Look up the name.**
 2. **Data:** replace the object with `{ ...entry, ...inputs }`, so your inputs override the entry's, and apply the rule to the result again.

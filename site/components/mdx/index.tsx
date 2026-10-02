@@ -7,6 +7,7 @@
 import type { ComponentType } from 'react'
 import type { MDXComponents } from 'mdx/types'
 import { Callout } from './Callout'
+import { Hosted } from './Hosted'
 import { CodeBlock } from './CodeBlock'
 import { Table } from './Table'
 import { H1, H2, H3 } from './Heading'
@@ -18,7 +19,7 @@ import { Kbd } from './Kbd'
 import { Small, Eyebrow } from './Small'
 import { TocInline } from './TocInline'
 
-export { Callout, CodeBlock, Table, H1, H2, H3, MdxLink, Flow, FlowNode, Terms, Term, Steps, Step, Kbd, Small, Eyebrow, TocInline }
+export { Callout, Hosted, CodeBlock, Table, H1, H2, H3, MdxLink, Flow, FlowNode, Terms, Term, Steps, Step, Kbd, Small, Eyebrow, TocInline }
 
 const widgetModules = import.meta.glob<Record<string, unknown>>('/components/widgets/index.tsx', { eager: true })
 const widgets: Record<string, ComponentType<never>> = {}
@@ -35,6 +36,7 @@ export const mdxComponents: MDXComponents = {
   h3: H3,
   // components
   Callout,
+  Hosted,
   Flow,
   FlowNode,
   Terms,

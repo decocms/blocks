@@ -799,7 +799,9 @@
         "bundler-config",
         "edge-html-cache-profiles"
       ],
-      "docs": [],
+      "docs": [
+        "hosted-publishing"
+      ],
       "pinned": false
     },
     {
@@ -814,9 +816,7 @@
         "content-storage-and-delivery"
       ],
       "docs": [
-        "tanstack-data",
-        "content",
-        "releases"
+        "hosted-publishing"
       ],
       "pinned": false
     },
@@ -1022,7 +1022,8 @@
         "upstream-fetch-instrumentation"
       ],
       "docs": [
-        "operations"
+        "operations",
+        "hosted-telemetry"
       ],
       "pinned": false
     },
@@ -1037,9 +1038,9 @@
         "env-vars-and-secrets"
       ],
       "docs": [
-        "operations",
         "standalone",
-        "content"
+        "schema",
+        "hosted-telemetry"
       ]
     },
     {
@@ -1372,7 +1373,8 @@
       ],
       "docs": [
         "studio-protocol",
-        "studio"
+        "studio",
+        "hosted-studio"
       ]
     },
     {
@@ -1460,7 +1462,11 @@
         "hosting-and-deploy-config",
         "fast-deploy-kv"
       ],
-      "docs": [],
+      "docs": [
+        "hosted",
+        "hosted-publishing",
+        "hosted-drafts"
+      ],
       "pinned": false
     },
     {
@@ -1476,7 +1482,9 @@
         "theming-and-styling",
         "global-layout-sections"
       ],
-      "docs": [],
+      "docs": [
+        "hosted-drafts"
+      ],
       "pinned": false
     },
     {
@@ -1552,7 +1560,7 @@
         "analytics-trackers"
       ],
       "docs": [
-        "operations"
+        "hosted-telemetry"
       ]
     },
     {
@@ -1714,7 +1722,7 @@
       "id": "roadmap-docs--write-an-operations-page",
       "group": "docs",
       "title": "Finish the operations page",
-      "plan": "<p><a href=\"#operations\">Caching and telemetry</a> now covers telemetry. Still to add: (1) the DECO_SITE and DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without them; (2) a per-host table of how the SDK schedules its once-a-minute check on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
+      "plan": "<p><a href=\"#hosted-telemetry\">Telemetry</a> now covers what's sent and sampling, and <a href=\"#hosted\">The hosted Deco CMS</a> covers connecting a site. Still to add: (1) the DECO_SITE and DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without them; (2) a per-host table of how the SDK schedules its once-a-minute check on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
       "features": [
         "env-vars-and-secrets",
         "hosting-and-deploy-config",
@@ -1725,7 +1733,9 @@
         "shopify-autoconfig-workaround"
       ],
       "docs": [
-        "operations"
+        "operations",
+        "hosted",
+        "hosted-telemetry"
       ],
       "pinned": false
     },
@@ -1774,8 +1784,8 @@
         "ecommerce-analytics-events"
       ],
       "docs": [
-        "operations",
-        "variants"
+        "variants",
+        "hosted-telemetry"
       ]
     },
     {
