@@ -49,7 +49,7 @@ The CMS always switches between whole revisions, never mixing entries from two o
 
 ## Keep running code compatible
 
-Publishing without a deploy means the code that's already running renders the new content. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and the CMS doesn't compare schemas. On top of the backward-compatibility rules every site follows ([Change types safely](/next/schema#change-types-safely)), this adds a direction:
+Publishing without a deploy means the code that's already running renders the new content. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and the CMS doesn't compare schemas. On top of the backward-compatibility rules every site follows ([Backward compatibility](/next/schema#backward-compatibility)), this adds a direction:
 
 - **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. With Studio's GitHub backend, Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio-compatibility#what-studio-reads-from-the-schema)). Keep that schema in step with what's deployed, and **deploy the code first, then publish content that uses it**. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
 - **Rolling code back is the exception.** Content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.

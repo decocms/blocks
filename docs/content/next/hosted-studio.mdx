@@ -50,7 +50,7 @@ Because Studio reads the schema committed on the branch it edits, editors only s
 
 ## CI on Studio commits
 
-Studio's saves are commits to the same repository. They only change content, never the schema, so `deco schema --check` always passes them, and `deco schema` still checks the content model (saved block names, aliases and route collisions). Saves always land on a draft branch, never on production. When publishing opens a pull request, the [schema workflow](/next/schema#run-it-in-ci) checks it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` to run it on those commits too.
+Studio's saves are commits to the same repository. They only change content, never the schema, so `deco schema --check` always passes them, and `deco schema` still checks the content model (saved block names, aliases and route collisions). Saves always land on a draft branch, never on production. When publishing opens a pull request, the [schema workflow](/next/schema#backward-compatibility) checks it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` to run it on those commits too.
 
 ```yaml title=".github/workflows/schema.yml (changes)"
 on:
