@@ -15,9 +15,9 @@ Editors choose page URLs in [Studio](/next/how-it-works#studio), so your app can
 
 ## 1. Return descriptors from blocks
 
-```ts title="src/blocks.ts"
+```ts title=".deco/blocks.ts"
 import type { Blocks, Seo } from "@decocms/blocks";
-import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, ResolvedPage } from "./model";
+import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, ResolvedPage } from "../src/model";
 
 export default {
   page: (input: ResolvedPage<BlockDescriptor>) => input,
@@ -27,7 +27,7 @@ export default {
 } satisfies Blocks;
 ```
 
-These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. The `page` key overrides the built-in page with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in `redirect` block is added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
+These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. The `page` key overrides the built-in page with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in `redirect` block is added for you. Generate the schema from the map file (`deco schema` reads `.deco/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/content`, before the dev server and the build (see [CLI reference](/next/cli)):
 
 ```json title="package.json"
 {
@@ -38,14 +38,14 @@ These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-
 }
 ```
 
-Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts` (see [The `deco content` command](/next/blocks#the-deco-content-command)).
+Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either (see [The `deco content` command](/next/blocks#the-deco-content-command)).
 
 ## 2. Create the CMS
 
 ```ts title="src/cms.ts"
 import { createCMS } from "@decocms/blocks";
+import blocks from "../.deco/blocks";
 import content from "../.deco/blocks.gen";
-import blocks from "./blocks";
 
 // Serves the content module: the content of the commit this build was made from.
 export const cms = createCMS({ blocks, content });
@@ -200,7 +200,7 @@ export default defineConfig({
 
 ## Edit in Studio
 
-To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/content-protocol#edit-on-your-machine)).
+To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/content` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/content-protocol#edit-on-your-machine)).
 
 ## Deployment checklist
 

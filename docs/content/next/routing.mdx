@@ -10,7 +10,7 @@ The CMS doesn't route. It lists and resolves. Routing is three steps in your req
 
 ## The example used here and in the guides
 
-This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/routes-and-redirects)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner`, `product-hero` and `post: (props: Post) => props` (see [Your own routable types](/next/routes-and-redirects#your-own-routable-types)). `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), so the block maps don't register them.
+This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/routes-and-redirects)), and two content entries, stored as files in `.deco/content`, which `deco content` turns into the content module (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`.deco/blocks.tsx` or `.deco/blocks.ts`) registers `seo`, `promo-banner`, `product-hero` and `post: (props: Post) => props` (see [Your own routable types](/next/routes-and-redirects#your-own-routable-types)). `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), so the block maps don't register them.
 
 In `src/model.ts`, `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)), `StoredPage` is a page exactly as saved, before any of its blocks run, and `ResolvedPage<T>` is what the built-in `page` block returns, with `T` being what your blocks return.
 
@@ -37,7 +37,7 @@ export interface ResolvedPage<T> extends Route { seo: Seo; sections: T[] }
 
 `Seo` is the built-in page's SEO type, exported from `@decocms/blocks`. `Block` is the type of a block as stored, `{ "__resolveType": "…", …inputs }`. `StoredPage` needs it because `client.list` returns pages before anything runs, which lets the optional [streaming step](/next/nextjs#7-stream-each-block-optional) resolve each block separately. Its `sections` is usually a list, but an editor can wrap the whole list in a [variant](/next/matchers-and-variants), which makes it one block. Block inputs never use `Block` ([they're resolved values](/next/schema#from-types-to-forms)): the JSX guides keep the built-in `Page`, and the [descriptor guide](/next/tanstack-start-descriptors) overrides it with `ResolvedPage<BlockDescriptor>`.
 
-```json title=".deco/blocks/ShirtPage.json"
+```json title=".deco/content/ShirtPage.json"
 {
   "__resolveType": "page",
   "name": "Summer shirt",
@@ -74,7 +74,7 @@ export interface ResolvedPage<T> extends Route { seo: Seo; sections: T[] }
 // Each guide's block map decides what these return: JSX in Next.js and TanStack RSC, a descriptor in data mode
 ```
 
-```json title=".deco/blocks/LegacyProduct.json"
+```json title=".deco/content/LegacyProduct.json"
 {
   "__resolveType": "redirect",
   "from": "/old-products/:slug",

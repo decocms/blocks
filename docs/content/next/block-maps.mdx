@@ -6,13 +6,13 @@ order: 8
 
 # Block maps
 
-A block map is the code half of the [registry](/next/blocks): a plain object from block type to function. The other half is the content map of saved blocks, which you pass to `createCMS` as [`content`](/next/blocks#the-deco-content-command). The quickstart's `blocks.ts` is one. This section covers what else can go in it.
+A block map is the code half of the [registry](/next/blocks): a plain object from block type to function. The other half is the content map of saved blocks, which you pass to `createCMS` as [`content`](/next/blocks#the-deco-content-command). It lives in `.deco/blocks.ts` (or `.deco/blocks.tsx`), and the quickstart's is one. This section covers what else can go in it.
 
-```ts title="blocks.ts"
+```ts title=".deco/blocks.ts"
 import type { Blocks } from "@decocms/blocks";
-import seo from "./seo";
-import productCard from "./product-card";
-import hero from "./hero";
+import seo from "../src/seo";
+import productCard from "../src/product-card";
+import hero from "../src/hero";
 
 export default {
   seo,
@@ -33,16 +33,16 @@ The map above imports every block at the top, so they all load with the map. Tha
 
 What's heavy is the component a block renders, and your framework already knows how to load components lazily. So do it in one place, the map, and let the block files stay plain components:
 
-```tsx title="blocks.tsx (Next.js)"
+```tsx title=".deco/blocks.tsx (Next.js)"
 import dynamic from "next/dynamic";
 import type { Blocks } from "@decocms/blocks";
-import seo from "./seo";
-import type { ProductCardProps } from "./components/ProductCard";
-import type { HeroProps } from "./components/Hero";
+import seo from "../src/seo";
+import type { ProductCardProps } from "../src/components/ProductCard";
+import type { HeroProps } from "../src/components/Hero";
 
 // Each component is split into its own chunk and fetched on first render.
-const ProductCard = dynamic(() => import("./components/ProductCard"));
-const Hero        = dynamic(() => import("./components/Hero"));
+const ProductCard = dynamic(() => import("../src/components/ProductCard"));
+const Hero        = dynamic(() => import("../src/components/Hero"));
 
 export default {
   seo,                                                                    // eager: tiny, used everywhere
@@ -57,7 +57,7 @@ For a block that's heavy for a non-UI reason, say a data function that pulls in 
 
 ```ts
 "catalog-product": async (input: ProductQuery) => {
-  const { fetchProduct } = await import("./commerce");   // loaded on first call; the JS module system caches it after that
+  const { fetchProduct } = await import("../src/commerce");   // loaded on first call; the JS module system caches it after that
   return fetchProduct(input);
 },
 ```

@@ -19,6 +19,7 @@ Studio's forms, variants, pages and redirects are the same on both backends: the
 | | `deco serve` | Studio's GitHub backend |
 |---|---|---|
 | Edits | The files in your working tree | Your repository on GitHub |
+| Where `.deco/` is | The folder you pass with `--root`, or the nearest one with a `.deco/`; `deco serve` tells Studio | Studio's "app root" setting, such as `apps/storefront` in a monorepo |
 | A save | Writes the file; your app hot-reloads | One commit on the draft's branch, with all the files of that save |
 | Committing | You review the diff and commit | Each save is already a commit |
 | Drafts and publishing | Not shown: your branch is the draft, and you merge it | A draft branch per draft; publishing brings it to production |

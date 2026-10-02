@@ -67,11 +67,11 @@ The package also provides the `deco` command, the CLI used below. Run it with `n
 
 ## 1. Make the function configurable
 
-Any function with a typed first parameter can become a block function. Register it in a block map, a plain object of functions. Each key is a block type, the name content uses to call that function; here it's `experiments`. The CLI reads this file, and your app hands it to `createCMS`.
+Any function with a typed first parameter can become a block function. Register it in a block map, a plain object of functions. Each key is a block type, the name content uses to call that function; here it's `experiments`. Everything Deco lives in one folder, `.deco/`, in your app root (the folder with your app's `package.json`), so create it and put the map in `.deco/blocks.ts`. The CLI reads this file, and your app hands it to `createCMS`.
 
-```ts title="blocks.ts"
+```ts title=".deco/blocks.ts"
 import type { Blocks } from "@decocms/blocks";
-import experiments from "./experiments";
+import experiments from "../experiments";
 
 export default { experiments } satisfies Blocks;
 ```
@@ -86,7 +86,7 @@ The CLI reads the map and turns the `Experiments` type into a JSON Schema. The J
 npx @decocms/blocks schema
 ```
 
-It finds the block map in `blocks.ts` or `blocks.tsx`, in the folder you run the command from or in its `src/` (or the file you pass as its argument; see [CLI](/next/cli)), and writes `.deco/schema.json`. Commit the file. [Studio](/next/how-it-works#studio) builds its form from it, showing each experiment as a number field clamped to 0–100.
+It reads the block map in `.deco/blocks.ts` and writes `.deco/schema.gen.json`. Commit the file, and don't edit it: the `.gen.` in its name marks a generated file. [Studio](/next/how-it-works#studio) builds its form from it, showing each experiment as a number field clamped to 0–100.
 
 ## 3. Add content
 
@@ -95,9 +95,9 @@ There are two ways to create content:
 - **By hand.** Write the JSON file yourself, or ask an AI agent to "ramp the new checkout to 25%" and let it edit the file.
 - **In Studio, on your machine.** Run [`npx @decocms/blocks serve`](/next/cli#deco-serve), open the link it prints, pick the `experiments` block type and fill in the form. Each save writes the file to your working tree; you commit it like any other change (see [Edit on your machine](/next/content-protocol#edit-on-your-machine)).
 
-Both routes produce the same file in `.deco/blocks`, which is where the CLI looks for content (Studio reads and writes this folder):
+Both routes produce the same file in `.deco/content`, which is where the CLI looks for content (Studio reads and writes this folder). If you write it by hand, create the `.deco/content/` folder first, then save the file:
 
-```json title=".deco/blocks/Experiments.json"
+```json title=".deco/content/Experiments.json"
 {
   "__resolveType": "experiments",
   "newCheckout": 10,
@@ -123,11 +123,41 @@ The CLI turns your content files into a module your app imports, the **content m
 npx @decocms/blocks content
 ```
 
-It writes `.deco/blocks.gen.ts`. It's generated, so add it to `.gitignore`. To run it automatically, add both commands to `package.json` ([when to rerun](/next/blocks#the-deco-content-command)):
+It writes `.deco/blocks.gen.ts`. Despite its name, it's built from `content/`, not from `blocks.ts`: it's your saved blocks as a module. It's generated, so don't edit it, and add this one line to `.gitignore`:
 
-```json
-"predev": "deco schema && deco content",
-"prebuild": "deco schema && deco content"
+```text title=".gitignore"
+.deco/blocks.gen.ts
+```
+
+Ignore only this file, not `.deco/`: the rest of the folder is your code and content.
+
+Your app root now looks like this:
+
+```text
+package.json
+experiments.ts
+checkout.ts
+cms.ts                 you'll write this in step 5
+.deco/
+├── blocks.ts          your block map
+├── content/
+│   ├── Experiments.json
+│   └── Telemetry.json     scaffolded by deco content, safe to delete
+├── schema.gen.json    generated, committed
+└── blocks.gen.ts      generated, gitignored
+```
+
+`deco content` scaffolds `Telemetry.json` when it's missing. Only the [hosted Deco CMS](/next/hosted-telemetry) reads it, so here it does nothing.
+
+To run both commands automatically, add them to the `scripts` in `package.json` ([when to rerun](/next/blocks#the-deco-content-command)):
+
+```json title="package.json"
+{
+  "scripts": {
+    "predev": "deco schema && deco content",
+    "prebuild": "deco schema && deco content"
+  }
+}
 ```
 
 ## 5. Read the content from your code
@@ -136,8 +166,8 @@ Create the CMS once, at module scope, with your block map and the content module
 
 ```ts title="cms.ts"
 import { createCMS } from "@decocms/blocks";
+import blocks from "./.deco/blocks";
 import content from "./.deco/blocks.gen";
-import blocks from "./blocks";
 
 export const cms = createCMS({ blocks, content });
 ```
@@ -160,7 +190,7 @@ console.log(flags);
 
 Every call returns a `[value, error]` tuple, so a missing block or a failing function never throws. The error names what went wrong, for example `NOT_FOUND`. [Troubleshooting](/next/troubleshooting) lists every code.
 
-Run it with `npx tsx checkout.ts`. Now open `.deco/blocks/Experiments.json`, change `newCheckout` to `100`, and run it again: `newCheckout` is `true` every time. You changed what the code does without touching the code.
+Run it with `npx tsx checkout.ts`. Now open `.deco/content/Experiments.json`, change `newCheckout` to `100`, and run it again: `newCheckout` is `true` every time. You changed what the code does without touching the code.
 
 A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Block maps](/next/block-maps)).
 

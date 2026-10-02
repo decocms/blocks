@@ -12,13 +12,13 @@ This page shows how types become fields, how to pick widgets, how to declare dat
 
 ## From types to forms
 
-`deco schema` reads the default export of `blocks.ts` (or `blocks.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.json` (see [CLI](/next/cli)). Each key's form comes from its function's first parameter. Nothing else in the file is read.
+`deco schema` reads the default export of `.deco/blocks.ts` (or `.deco/blocks.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (see [CLI](/next/cli)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
 
 ```bash
 npx @decocms/blocks schema
 ```
 
-If your block map is somewhere else, pass its path as the argument, such as `deco schema src/cms.ts` ([where it looks by default](/next/cli#deco-schema-and-deco-content)). Commit `.deco/schema.json` with your code.
+It finds `.deco/` by walking up from the current folder, or takes `--root` ([how it finds the folder](/next/cli#finding-the-deco-folder)). Commit `.deco/schema.gen.json` with your code.
 
 For each block, the compiler reads the type of the function's first parameter. Each property becomes a field:
 
@@ -109,11 +109,11 @@ becomes a form with a *Headline* text box limited to 60 characters, an *Image* p
 
 A blog post or a navigation menu has fields but no logic. Declare it with a function that returns its input unchanged:
 
-```ts title="blocks.ts"
+```ts title=".deco/blocks.ts"
 import type { Blocks } from "@decocms/blocks";
-import type { Post } from "./post";
-import seo from "./seo";
-import hero from "./hero";
+import type { Post } from "../src/post";
+import seo from "../src/seo";
+import hero from "../src/hero";
 
 const post = (props: Post) => props;                     // data only: returns what the editor saved
 
@@ -126,7 +126,7 @@ A `post` is now a block like any other. Your app reads posts by type with `clien
 
 The schema and the runtime always include the [built-in blocks](/next/blocks#built-in-blocks): `page`, `redirect` and `telemetry`. To change a built-in's form, declare the same key in the default export. `Page` is exported from `@decocms/blocks`; extend it to add fields:
 
-```ts title="blocks.ts"
+```ts title=".deco/blocks.ts"
 import type { Blocks, Page } from "@decocms/blocks";
 // …the other imports from above
 
@@ -141,7 +141,7 @@ Nothing is lost: inputs resolve before the function runs, so returning `props` g
 
 ### Names must not clash
 
-`deco schema` checks your saved content: it fails if a saved block in `.deco/blocks` has the name of a block type, built-ins included (no saved block can be called `page`, `redirect` or `telemetry`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); `deco schema` makes it an error so you catch it before you deploy. It doesn't yet check each saved block's values against the schema; that's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
+`deco schema` checks your saved content: it fails if a saved block in `.deco/content` has the name of a block type, built-ins included (no saved block can be called `page`, `redirect` or `telemetry`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); `deco schema` makes it an error so you catch it before you deploy. It doesn't yet check each saved block's values against the schema; that's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
 
 ## Change types safely
 
@@ -166,7 +166,7 @@ What counts as breaking:
 
 ### Run it in CI
 
-Optional, but recommended. This GitHub Actions workflow runs on every pull request, regenerates the schema and fails if `.deco/schema.json` changed or was never committed:
+Optional, but recommended. This GitHub Actions workflow runs on every pull request, regenerates the schema and fails if `.deco/schema.gen.json` changed or was never committed:
 
 ```yaml title=".github/workflows/schema.yml"
 name: Schema
@@ -185,15 +185,15 @@ jobs:
       - name: The committed schema matches the code
         run: |
           npx @decocms/blocks schema
-          if [ -n "$(git status --porcelain -- .deco/schema.json)" ]; then
-            git diff -- .deco/schema.json
-            echo ".deco/schema.json is missing or out of date: run npx @decocms/blocks schema and commit it."
+          if [ -n "$(git status --porcelain -- .deco/schema.gen.json)" ]; then
+            git diff -- .deco/schema.gen.json
+            echo ".deco/schema.gen.json is missing or out of date: run npx @decocms/blocks schema and commit it."
             exit 1
           fi
 ```
 
-`npm ci` already installed `@decocms/blocks`, so `npx` runs the CLI at the version in your lockfile. If you pass an input path or `--out` to `deco schema`, pass the same arguments to `npx @decocms/blocks schema` here, and diff your `--out` file instead of `.deco/schema.json` (also in the `git show` step below). Make the job a required check in your branch protection rules, so a failing pull request can't merge.
+`npm ci` already installed `@decocms/blocks`, so `npx` runs the CLI at the version in your lockfile. In a monorepo, pass your app's folder, as in `npx @decocms/blocks schema --root apps/storefront`, and diff `apps/storefront/.deco/schema.gen.json` instead (also in the `git show` step below). Make the job a required check in your branch protection rules, so a failing pull request can't merge.
 
-<Callout>**Status. The compatibility check, `deco schema --check <base>`, isn't built yet; it ships with the first release.** It will generate the schema from your code, compare it with `<base>`, an earlier `.deco/schema.json` such as the one on `main`, list every breaking change from the table above and exit with a non-zero code if it finds one, writing nothing. Once it's out, add a step that runs `git show "origin/$BASE_REF:.deco/schema.json" > base-schema.json` (or your `--out` path), then `deco schema --check base-schema.json`. Until then, review schema diffs against the table by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
+<Callout>**Status. The compatibility check, `deco schema --check <base>`, isn't built yet; it ships with the first release.** It will generate the schema from your code, compare it with `<base>`, an earlier `.deco/schema.gen.json` such as the one on `main`, list every breaking change from the table above and exit with a non-zero code if it finds one, writing nothing. Once it's out, add a step that runs `git show "origin/$BASE_REF:.deco/schema.gen.json" > base-schema.json` (with your app's folder in front in a monorepo), then `deco schema --check base-schema.json`. Until then, review schema diffs against the table by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
 
 Content-only changes, from Studio, an agent or by hand, never change the schema, so `--check` always passes them, and `deco schema` still checks the content model (saved block names, aliases and route collisions) in the same pull request.

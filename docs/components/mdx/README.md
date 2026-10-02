@@ -136,7 +136,7 @@ still gets the wrapper.
 ```mdx
 <Flow label="Authoring flow">
   <FlowNode title="Your TypeScript">Functions with typed inputs: UI and data fetchers alike</FlowNode>
-  <FlowNode title="CLI → JSON Schema">`deco schema` writes `.deco/schema.json`</FlowNode>
+  <FlowNode title="CLI → JSON Schema">`deco schema` writes `.deco/schema.gen.json`</FlowNode>
   <FlowNode title="Studio">Forms and previews for editors, built from the schema</FlowNode>
 </Flow>
 ```

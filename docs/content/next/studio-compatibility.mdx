@@ -8,7 +8,7 @@ order: 5
 
 # Deco Studio compatibility
 
-[Studio](/next/how-it-works#studio) reads and writes a next-major site through the [content protocol](/next/content-protocol), which needs only the committed schema and the files in `.deco/blocks`. This page is the protocol's detail, what Studio reads from the schema, and the endpoints older sites still serve.
+[Studio](/next/how-it-works#studio) reads and writes a next-major site through the [content protocol](/next/content-protocol), which needs only the committed schema and the files in `.deco/content`. This page is the protocol's detail, what Studio reads from the schema, and the endpoints older sites still serve.
 
 <Callout>**Status.** The protocol is proposed (draft, version 1.0) and not built yet. Names and limits may change; see the [Roadmap](/roadmap#roadmap-api--publish-the-content-protocol-and-its-package).</Callout>
 
@@ -32,7 +32,7 @@ function describe(): {
   server: { name: string; version: string };     // e.g. "deco-cli", "studio-github"
   kind: "working-tree" | "git";                  // Studio hides publish and draft UI for a working tree
   readOnly: boolean;
-  layout: { root: string; blocksDir: string; schemaPath: string };   // relative to the repository root
+  root: string;                                  // the app root: the folder that contains .deco/, relative to the repository root
   schemaFormat: "deco-meta@1";
   refs: null | { default: string; autoCreate: boolean };            // branches; null on the local server
   pollIntervalMs: number;                        // local: 2000; git: 30000, plus on window focus
@@ -60,7 +60,7 @@ function blocksApply(params: {
 }): { revision: string; versions: Record<string, string | null> };
 ```
 
-Versions and revisions are opaque strings defined by each storage (a git blob hash on GitHub and on disk), compared only for equality and never across servers. `schema.get` reads `<root>/.deco/schema.json`, falling back to `<root>/.deco/meta.gen.json`, and parses it before serving, so a file caught mid-write is never served torn. With branches, a read of a branch that doesn't exist yet returns the default branch's content (reported in `resolvedRef`), and the first write creates the branch.
+Versions and revisions are opaque strings defined by each storage (a git blob hash on GitHub and on disk), compared only for equality and never across servers. Everything else is fixed inside the root: `blocks.list` and `blocks.apply` read and write `<root>/.deco/content`, and `schema.get` reads `<root>/.deco/schema.gen.json`, falling back to `<root>/.deco/meta.gen.json`, and parses it before serving, so a file caught mid-write is never served torn. With branches, a read of a branch that doesn't exist yet returns the default branch's content (reported in `resolvedRef`), and the first write creates the branch.
 
 `blocks.apply` is the only write:
 
@@ -105,7 +105,7 @@ Plus the standard JSON-RPC codes (-32700, -32600, -32601, -32602, -32603). The d
 
 Studio, `deco serve` and `deco content` import one rule from the protocol package, so an entry Studio edits is the entry your app renders:
 
-- **Name to file:** `encodeURIComponent(name) + ".json"`, directly in `.deco/blocks` (no subfolders). A page named `pages-Home%20Page-6f1e` is stored as `pages-Home%2520Page-6f1e.json`; `collections/blog/posts/abc` as `collections%2Fblog%2Fposts%2Fabc.json`.
+- **Name to file:** `encodeURIComponent(name) + ".json"`, directly in `.deco/content` (no subfolders). A page named `pages-Home%20Page-6f1e` is stored as `pages-Home%2520Page-6f1e.json`; `collections/blog/posts/abc` as `collections%2Fblog%2Fposts%2Fabc.json`.
 - **File to name:** decode the file name, without `.json`, exactly once. If decoding fails, the raw name is the entry name.
 - **Two spellings of one name** (files that decode to the same name after repeated decoding): one wins, the file whose entry has a `path`, then the one that took more decoding, then the lowest file name. The others are reported as diagnostics. A write overwrites the winning spelling and deletes the others in the same commit.
 - **Names Studio can't save:** empty names; names containing `\`, `..` or NUL; names whose encoded form is over 250 bytes, so the file fits a 255-byte file-name limit; a new name that differs from another entry's only in letter case; Windows device names such as `CON`; `__proto__`; and names ending in a source extension such as `.ts` or `.tsx`, which would shadow a module (those can still be deleted).
@@ -149,7 +149,7 @@ The group names are Studio's, inherited from the Fresh and Deno framework. The C
 | `redirects` | The built-in `redirect` | The redirects screen |
 | `content` | Every other data-only block (a function that returns its input), including the built-in `telemetry` | Plain entries: navigation menus, settings, email templates |
 
-```json title=".deco/schema.json, abridged"
+```json title=".deco/schema.gen.json, abridged"
 {
   "manifest": {
     "blocks": {
@@ -217,4 +217,4 @@ Sites on Fresh and Deno are edited the legacy way: Studio reads from the running
 | `/deco/invoke` | Running a loader or action: dynamic pickers and the Run button |
 | `/live/invoke` | Encrypting secret fields through the site's encrypt action |
 
-Next-major sites serve none of them, and the SDK has no invoke endpoint. Studio picks the protocol for a project that has a committed `.deco/schema.json` or `.deco/meta.gen.json` under its folder, and the legacy path otherwise; a project setting in Studio overrides the choice. v7 sites commit `meta.gen.json`, so they qualify for either.
+Next-major sites serve none of them, and the SDK has no invoke endpoint. Studio picks the protocol for a project that has a committed schema in its app root (`<root>/.deco/schema.gen.json` or `<root>/.deco/meta.gen.json`), and the legacy path otherwise; a project setting in Studio overrides the choice. v7 sites commit `meta.gen.json`, so they qualify for either.

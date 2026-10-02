@@ -24,7 +24,7 @@ Deco runs three services for a connected site:
 
 ## What stays the same
 
-- **Your repository is the source of truth.** Content is still the JSON files in `.deco/blocks`, and every edit is still a commit.
+- **Your repository is the source of truth.** Content is still the JSON files in `.deco/content`, and every edit is still a commit.
 - **Your code doesn't change.** Block functions, the block map, `resolve`, `list` and routing work the same way. The same `createCMS` call takes two more options, `site` and `token`.
 - **The content module stays.** Your build still bundles `.deco/blocks.gen.ts`. It's what a server serves before it has fetched its first release, and what it keeps serving if the Deco API is unreachable.
 
@@ -34,8 +34,8 @@ A site is connected by two values: its **site ID** in the hosted Deco CMS and it
 
 ```ts title="cms.ts"
 import { createCMS } from "@decocms/blocks";
+import blocks from "./.deco/blocks";
 import content from "./.deco/blocks.gen";
-import blocks from "./blocks";
 
 export const cms = createCMS({
   blocks,
@@ -60,8 +60,8 @@ On Workers, environment variables come from `env` in `cloudflare:workers`:
 ```ts title="src/cms.ts"
 import { createCMS } from "@decocms/blocks";
 import { env } from "cloudflare:workers";
+import blocks from "../.deco/blocks";
 import content from "../.deco/blocks.gen";
-import blocks from "./blocks";
 
 export const cms = createCMS({ blocks, content, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN });
 ```

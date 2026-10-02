@@ -14,10 +14,10 @@ description: What Deco Studio needs from your repository, how it reads and write
 
 ## What Studio needs
 
-- **The schema**, `.deco/schema.json`, generated from your types (see [Schema](/next/schema)). Studio only reads it: no editor action changes it. To change a form, change the type and run `npx @decocms/blocks schema` again.
-- **The saved blocks**, one JSON file per block in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). This is all Studio writes.
+- **The schema**, `.deco/schema.gen.json`, generated from your types (see [Schema](/next/schema)). Studio only reads it: no editor action changes it. To change a form, change the type and run `npx @decocms/blocks schema` again.
+- **The saved blocks**, one JSON file per block in `.deco/content` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). This is all Studio writes.
 
-The `.deco` folder can be anywhere in the repository, such as `apps/storefront/.deco` in a monorepo. Studio needs no deployed site, and your app serves nothing for it: no endpoints, no handlers. A project with only a schema and a content folder can be edited before its first deploy.
+The `.deco` folder lives in your app root, which can be anywhere in the repository, such as `apps/storefront` in a monorepo. Studio's "app root" setting points at that folder, on your machine and on GitHub. Studio needs no deployed site, and your app serves nothing for it: no endpoints, no handlers. A project with only a schema and a content folder can be edited before its first deploy.
 
 ## Where edits go
 
@@ -41,11 +41,11 @@ There's no event stream. Studio polls with one batched request, and when nothing
 ## Edit on your machine
 
 1. Start your app's dev server.
-2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco` folder (or takes `--root`) and prints its address, a bearer token and a connect link:
+2. Run `npx @decocms/blocks serve`. It walks up to the nearest folder with a `.deco/` (or takes `--root`) and prints its address, a bearer token and a connect link:
 
    ```text
    Deco server          http://127.0.0.1:4545/rpc
-   Root                 apps/storefront/.deco   (schema.json, 214 blocks)
+   Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
    Assets               apps/storefront/.deco/assets   (PUT /assets/<name>)
    App preview          http://localhost:5173
    Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
@@ -54,7 +54,7 @@ There's no event stream. Studio polls with one batched request, and when nothing
 3. Open the link and pick the site in Studio to edit. Editing on your machine is planned to need no Deco account: without one, the link opens a play workspace in Studio, which isn't built yet (see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)).
 4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access, formerly Private Network Access). Allow it.
 
-Each save writes `.deco/blocks`. Editing an existing file hot-reloads through your framework. The server also regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. The canvas opens your dev app (`--app-url`). Nothing is committed: review the diff and commit it like any other change.
+Each save writes `.deco/content`. Editing an existing file hot-reloads through your framework. The server also regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. The canvas opens your dev app (`--app-url`). Nothing is committed: review the diff and commit it like any other change.
 
 The server listens on 127.0.0.1 unless you pass `--host`, answers only requests that carry its token, and accepts browser requests only from Studio's origins. What it serves (your content, your schema and upload URLs) and its options are in the [`deco serve` reference](/next/cli#deco-serve).
 
@@ -98,7 +98,7 @@ The content protocol is JSON-RPC 2.0 (a small standard for calling named methods
 
 | Method | Does |
 |---|---|
-| `describe` | What this endpoint is: whether it writes git commits or a working tree, where the `.deco` folder is, its limits, and how often to poll |
+| `describe` | What this endpoint is: whether it writes git commits or a working tree, its app root (the folder that contains `.deco/`), its limits, and how often to poll |
 | `schema.get` | Reads the schema. There's no method that writes it. |
 | `blocks.list` | Reads every saved block at once, with a revision for the whole set |
 | `blocks.apply` | The only write: sets and deletes saved blocks together, all or nothing, optionally only if a block is still at a given version |

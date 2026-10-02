@@ -53,7 +53,7 @@ Telemetry is heavily sampled, so its cost stays flat as traffic grows:
 
 The settings live in a **Telemetry entry**: a well-known saved block named `Telemetry`, whose type, `telemetry`, the framework provides as a [built-in block](/next/blocks#built-in-blocks), so `deco schema` always includes it and [Studio](/next/how-it-works#studio) shows it as a form:
 
-```json title=".deco/blocks/Telemetry.json"
+```json title=".deco/content/Telemetry.json"
 {
   "__resolveType": "telemetry",
   "enabled": true,
@@ -62,7 +62,7 @@ The settings live in a **Telemetry entry**: a well-known saved block named `Tele
 }
 ```
 
-The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it in every repository (without a connected site it's inert, and you can delete it), and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its [GitHub backend](/next/hosted-studio), the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same commit, visible in your Git history. Without the entry, a connected site uses the values the scaffold writes, shown above: telemetry and metrics on, and 5% of error logs sent (proposed, like the field names).
+The entry is an ordinary file in `.deco/content`: `deco content` scaffolds it in every repository (without a connected site it's inert, and you can delete it), and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its [GitHub backend](/next/hosted-studio), the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same commit, visible in your Git history. Without the entry, a connected site uses the values the scaffold writes, shown above: telemetry and metrics on, and 5% of error logs sent (proposed, like the field names).
 
 ## Real-user monitoring
 

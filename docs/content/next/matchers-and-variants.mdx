@@ -29,17 +29,17 @@ Everything else that could gate content, a device, a cookie, a country, a shoppe
 
 ## The multivariate is three lines you own
 
-```ts title="multivariate.ts"
+```ts title="src/multivariate.ts"
 export function multivariate<T>({ variants }: { variants: { rule: boolean; value: T }[] }) {
   return variants.find((v) => v.rule)?.value;   // first match wins, so put the always() variant last, as the fallback
 }
 ```
 
-```ts title="blocks.ts"
+```ts title=".deco/blocks.ts"
 import type { Blocks } from "@decocms/blocks";
 import { always, never, date } from "@decocms/blocks/matchers";
-import { multivariate } from "./multivariate";
-import hero from "./hero";
+import { multivariate } from "../src/multivariate";
+import hero from "../src/hero";
 
 export default { always, never, date, multivariate, hero } satisfies Blocks;
 ```

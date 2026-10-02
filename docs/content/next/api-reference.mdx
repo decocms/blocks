@@ -205,11 +205,11 @@ v7's `/deco/invoke` endpoint (which runs loaders and actions over HTTP for Studi
 ## Types
 
 ```ts
-// A block as stored: the JSON in .deco/blocks, and what client.list and { run: false } return.
+// A block as stored: the JSON in .deco/content, and what client.list and { run: false } return.
 // Props never use it: a field's type is the value the function receives (see Schema).
 type Block = { __resolveType: string; [input: string]: unknown };
 
-// A block map: what blocks.ts exports and the CLI reads.
+// A block map: what .deco/blocks.ts exports and the CLI reads.
 type BlockFunction = (inputs: any) => unknown | Promise<unknown>;
 type Blocks = Record<string, BlockFunction>;
 

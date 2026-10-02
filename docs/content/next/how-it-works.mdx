@@ -28,11 +28,11 @@ The banner is an ordinary component, `PromoBanner`, whose props are typed: a `ti
 
 ### 2. The types become a form
 
-The `deco schema` command reads those prop types and writes a schema file, `.deco/schema.json`. Studio builds a form from that file, so `title` becomes a text box without anyone designing a form. See [Schema](/next/schema).
+The `deco schema` command reads those prop types and writes a schema file, `.deco/schema.gen.json`. Studio builds a form from that file, so `title` becomes a text box without anyone designing a form. See [Schema](/next/schema).
 
 ### 3. Someone changes the content
 
-The banner's text lives in a saved block: a JSON file in your repository, `.deco/blocks/SummerBanner.json`, that calls `promo-banner` with a `title` of "Free shipping over $75". Edit the file via a [text](/next/blocks#blocks-in-your-repository) or [Studio](#studio) editor. Either way, the change is a commit like any other.
+The banner's text lives in a saved block: a JSON file in your repository, `.deco/content/SummerBanner.json`, that calls `promo-banner` with a `title` of "Free shipping over $75". Edit the file via a [text](/next/blocks#blocks-in-your-repository) or [Studio](#studio) editor. Either way, the change is a commit like any other.
 
 ### 4. The change ships
 
@@ -59,7 +59,7 @@ The SDK and CLI are open source and run without a Deco account.
 
 ### Studio
 
-Studio is Deco's content editor: the web app where marketing and the rest of the business change your site without touching code. It shows a form for each block, built from your types, and saves every change back to the JSON files in `.deco/blocks`. You can test it on your own machine via [`npx @decocms/blocks serve`](/next/cli#deco-serve): run it in your project and open the link it prints. Studio then edits the JSON files in your project folder. (Doing this without a Deco account is planned; see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing).) Deco also hosts Studio, with a few add-ons on top of the same files:
+Studio is Deco's content editor: the web app where marketing and the rest of the business change your site without touching code. It shows a form for each block, built from your types, and saves every change back to the JSON files in `.deco/content`. You can test it on your own machine via [`npx @decocms/blocks serve`](/next/cli#deco-serve): run it in your project and open the link it prints. Studio then edits the JSON files in your project folder. (Doing this without a Deco account is planned; see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing).) Deco also hosts Studio, with a few add-ons on top of the same files:
 
 - **Publishing without a deploy:** a published change reaches visitors without a new build.
 - **Editing on GitHub:** editors change your GitHub repository straight from the browser, with nothing to install; each save is a commit.
@@ -80,12 +80,12 @@ Studio is Deco's content editor: the web app where marketing and the rest of the
 
 | v7 | Next major |
 |---|---|
-| decofile | Your saved blocks, in `.deco/blocks` |
+| decofile | Your saved blocks, in `.deco/content` |
 | Section | Block function that returns JSX |
 | Loader (data) | Your code over an [upstream client](/next/upstream-clients) |
 | Admin protocol (`/live/_meta`, `/.decofile`) | [Content protocol](/next/content-protocol) |
 | `/deco/invoke` | Your server functions or route handlers |
-| `meta.gen.json` | `.deco/schema.json` (same format) |
+| `meta.gen.json` | `.deco/schema.gen.json` (same format) |
 
 For the full move, see [Renaming and migrating](/next/renames-and-migrations).
 
@@ -96,8 +96,8 @@ For the full move, see [Renaming and migrating](/next/renames-and-migrations).
   <Term name="Block function">One of your functions with a typed first parameter, such as `PromoBanner`. See [Blocks](/next/blocks#functions-as-blocks).</Term>
   <Term name="Block type">A name in the block map, such as `"promo-banner"`, that a block's `__resolveType` uses to call a function. See [The block map](/next/blocks#the-block-map).</Term>
   <Term name="Block map">An object from names to your block functions, such as `{ "promo-banner": PromoBanner }`, that you pass to `createCMS`. See [The block map](/next/blocks#the-block-map).</Term>
-  <Term name="Saved block">A block stored under a name, as one JSON file in `.deco/blocks`, such as `SummerBanner.json`. See [Blocks in your repository](/next/blocks#blocks-in-your-repository).</Term>
-  <Term name="Schema">`.deco/schema.json`, the file `deco schema` generates from your types. See [Schema](/next/schema).</Term>
+  <Term name="Saved block">A block stored under a name, as one JSON file in `.deco/content`, such as `SummerBanner.json`. See [Blocks in your repository](/next/blocks#blocks-in-your-repository).</Term>
+  <Term name="Schema">`.deco/schema.gen.json`, the file `deco schema` generates from your types. See [Schema](/next/schema).</Term>
   <Term name="Studio">See [Studio](#studio).</Term>
   <Term name="Resolve">What `client.resolve` does: read a saved block and call its function with the saved inputs. See [How resolution works](/next/how-resolution-works).</Term>
 </Terms>

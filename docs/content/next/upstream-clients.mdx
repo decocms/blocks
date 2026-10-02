@@ -38,7 +38,7 @@ Create a client once, at module scope, and call it from wherever your app fetche
 
 Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
-```ts title="commerce.ts"
+```ts title="src/commerce.ts"
 import { createVtexClient } from "@decocms/apps-vtex";
 
 export const vtex = createVtexClient({
@@ -116,7 +116,7 @@ export function createAcmeSearch(config: AcmeSearchConfig, options: { fetch?: ty
 
 Then create it with your settings, once, and use it like any other client:
 
-```ts title="search.ts"
+```ts title="src/search.ts"
 import { createAcmeSearch } from "./acme-search";
 
 export const search = createAcmeSearch({
@@ -127,7 +127,7 @@ export const search = createAcmeSearch({
 
 A block function can then fetch what it renders:
 
-```tsx title="blocks.tsx (excerpt)"
+```tsx title=".deco/blocks.tsx (excerpt)"
 "product-shelf": async ({ title, query }: { title: string; query: string }) => {
   const products = await search.search(query, 8);
   return <ProductShelf title={title} products={products} />;

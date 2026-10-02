@@ -31,7 +31,7 @@ export const LANG_LABELS: Record<string, string> = {
 }
 
 // "cms.ts" is a path; "A plain request handler" describes the block; "blocks.tsx (Next.js)" and
-// ".deco/schema.json, abridged" are a path with a note.
+// ".deco/schema.gen.json, abridged" are a path with a note.
 const PATH = /^([^\s,]*\/[^\s,]*|[^\s,]+\.[a-z]\w*)(?=$|[\s,])/i
 
 type PreProps = ComponentProps<'pre'> & {

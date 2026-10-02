@@ -131,7 +131,7 @@
       "id": "roadmap-blockers--let-studio-talk-to-a-next-major-site",
       "title": "Let Studio talk to a next-major site",
       "today": "Studio reads the schema and content from the running site (<code>/live/_meta</code>, <code>/.decofile</code>) and calls it for previews, <code>/deco/invoke</code> and the secrets encrypt action. A next-major site serves none of these.",
-      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco serve</code> on a developer's machine. Features that need the site's code degrade in this version (see <a href=\"#content-protocol\">Studio and the content protocol</a>).",
+      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/content</code>: Studio's GitHub backend in production, <code>deco serve</code> on a developer's machine. Features that need the site's code degrade in this version (see <a href=\"#content-protocol\">Studio and the content protocol</a>).",
       "features": [
         "admin-protocol-endpoints",
         "invoke-and-actions",
@@ -151,8 +151,8 @@
     {
       "id": "roadmap-blockers--make-the-cli-write-a-schema-studio-can-read",
       "title": "Make the CLI write a schema Studio can read",
-      "today": "The CLI writes <code>.deco/schema.json</code> with top-level <code>definitions</code>; Studio reads <code>.deco/meta.gen.json</code> in LiveMeta shape (btoa keys, <code>schema.root</code>). There are no <code>apps</code> or <code>actions</code> groups, no per-type variant definitions, and the widget vocabulary is undocumented, so 22 image pickers would become text inputs and HTML fields plain strings.",
-      "plan": "Emit Studio's exact format as <code>.deco/schema.json</code>, one multivariate definition per field type a variant can fill, write static option lists into the schema, publish the JSDoc/@format table, and keep widget-alias detection and return-type loader unions.",
+      "today": "The CLI writes <code>.deco/schema.gen.json</code> with top-level <code>definitions</code>; Studio reads <code>.deco/meta.gen.json</code> in LiveMeta shape (btoa keys, <code>schema.root</code>). There are no <code>apps</code> or <code>actions</code> groups, no per-type variant definitions, and the widget vocabulary is undocumented, so 22 image pickers would become text inputs and HTML fields plain strings.",
+      "plan": "Emit Studio's exact format as <code>.deco/schema.gen.json</code>, one multivariate definition per field type a variant can fill, write static option lists into the schema, publish the JSDoc/@format table, and keep widget-alias detection and return-type loader unions.",
       "features": [
         "studio-schema-generation",
         "codegen-pipeline",
@@ -312,7 +312,7 @@
     {
       "id": "roadmap-studio-new--give-studio-a-schema-it-can-read-so-the-editor-loads",
       "title": "Give Studio a schema it can read, so the editor loads",
-      "today": "Studio reads <code>.deco/meta.gen.json</code> or <code>/live/_meta</code> in LiveMeta shape, so a next-major site shows 'live meta unavailable'. On protocol projects it reads the committed <code>.deco/schema.json</code>, which must be in that shape.",
+      "today": "Studio reads <code>.deco/meta.gen.json</code> or <code>/live/_meta</code> in LiveMeta shape, so a next-major site shows 'live meta unavailable'. On protocol projects it reads the committed <code>.deco/schema.gen.json</code>, which must be in that shape.",
       "features": [
         "studio-schema-generation",
         "ci-and-release-workflows",
@@ -1030,7 +1030,7 @@
       "id": "roadmap-api--add-the-telemetry-block-sampling-and-aggregation",
       "group": "api",
       "title": "Add the Telemetry block, sampling and aggregation",
-      "plan": "<p><code>createCMS({ blocks, content, site, token })</code>: the site ID and site token (usually <code>DECO_SITE</code> and <code>DECO_SITE_TOKEN</code>) load hosted content and send telemetry; without both, nothing is sent. Telemetry settings (on or off, sample rates) live in a well-known saved entry, <code>Telemetry</code>, whose schema the framework provides: a committed <code>.deco/blocks/Telemetry.json</code> that <code>deco content</code> scaffolds. Editors change it in Studio, which commits it through its GitHub integration like any content edit; it travels with every release and running servers pick it up with their next content check; without it, the framework's defaults apply. Error logs are sampled; metrics are aggregated in memory before they're sent.</p>",
+      "plan": "<p><code>createCMS({ blocks, content, site, token })</code>: the site ID and site token (usually <code>DECO_SITE</code> and <code>DECO_SITE_TOKEN</code>) load hosted content and send telemetry; without both, nothing is sent. Telemetry settings (on or off, sample rates) live in a well-known saved entry, <code>Telemetry</code>, whose schema the framework provides: a committed <code>.deco/content/Telemetry.json</code> that <code>deco content</code> scaffolds. Editors change it in Studio, which commits it through its GitHub integration like any content edit; it travels with every release and running servers pick it up with their next content check; without it, the framework's defaults apply. Error logs are sampled; metrics are aggregated in memory before they're sent.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",
@@ -1093,7 +1093,7 @@
       "id": "roadmap-cli--write-a-studio-compatible-schema-file",
       "group": "cli",
       "title": "Write a Studio-compatible schema file",
-      "plan": "<p>Write <code>.deco/schema.json</code> in Studio's format (<code>deco-meta@1</code>, byte-compatible with today's <code>meta.gen.json</code>, which the protocol still reads as a fallback): <code>manifest.blocks</code>, <code>schema.definitions</code> keyed by padded, path-independent btoa, and <code>schema.root</code> unions. Add <code>apps</code> and <code>actions</code> groups. For every field a variant can fill (a field of type T), emit a monomorphized multivariate definition per T (value typed as T) under Studio's legacy per-kind keys (<code>website/flags/multivariate/section.ts</code>, <code>…/image.ts</code>, …), so the field variant UI renders the right input.</p>",
+      "plan": "<p>Write <code>.deco/schema.gen.json</code> in Studio's format (<code>deco-meta@1</code>, byte-compatible with today's <code>meta.gen.json</code>, which the protocol still reads as a fallback): <code>manifest.blocks</code>, <code>schema.definitions</code> keyed by padded, path-independent btoa, and <code>schema.root</code> unions. Add <code>apps</code> and <code>actions</code> groups. For every field a variant can fill (a field of type T), emit a monomorphized multivariate definition per T (value typed as T) under Studio's legacy per-kind keys (<code>website/flags/multivariate/section.ts</code>, <code>…/image.ts</code>, …), so the field variant UI renders the right input.</p>",
       "features": [
         "studio-schema-generation",
         "codegen-pipeline",
@@ -1172,7 +1172,7 @@
       "id": "roadmap-cli--add-deco-schema-check-a-compatibility-check",
       "group": "cli",
       "title": "Add <code>deco schema --check</code>, a compatibility check",
-      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime. Ships with the first release.</p>",
+      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.gen.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime. Ships with the first release.</p>",
       "features": [
         "content-schema-drift",
         "ci-and-release-workflows",
@@ -1243,7 +1243,7 @@
       "id": "roadmap-cli--build-a-faststore-importer",
       "group": "cli",
       "title": "Build a FastStore importer",
-      "plan": "<p><code>deco import faststore</code>: VTEX Headless CMS content becomes <code>.deco/blocks</code> with <code>$componentKey</code> rewritten to path-shaped keys, content types become page entries, and JSONC becomes TS scaffolds.</p>",
+      "plan": "<p><code>deco import faststore</code>: VTEX Headless CMS content becomes <code>.deco/content</code> with <code>$componentKey</code> rewritten to path-shaped keys, content types become page entries, and JSONC becomes TS scaffolds.</p>",
       "features": [
         "faststore-cli-overlay",
         "block-type-discriminator",
@@ -1330,7 +1330,7 @@
       "id": "roadmap-cli--ship-deco-serve-a-local-server-for-studio",
       "group": "cli",
       "title": "Ship <code>deco serve</code>, a local server for Studio",
-      "plan": "<p>A command of the <code>deco</code> CLI in <code>@decocms/blocks</code>, <code>deco serve</code>, that serves the content protocol on <code>localhost:&lt;port&gt;</code> for the developer's working tree, so Studio can edit the files on the developer's machine: the saved content in <code>.deco/blocks</code>, the schema in <code>.deco/schema.json</code> (read-only) and the upload URLs for assets. It listens on the loopback address by default, prints a bearer token and a connect link at start, allows only Studio's origins (CORS) and answers Chrome's local-network permission preflight. Writes land in <code>.deco/blocks</code> and the app hot-reloads; the server regenerates the content module when a write adds or removes a file. It never commits. <code>deco schema --watch</code> and <code>deco content --watch</code> stay as they are.</p>",
+      "plan": "<p>A command of the <code>deco</code> CLI in <code>@decocms/blocks</code>, <code>deco serve</code>, that serves the content protocol on <code>localhost:&lt;port&gt;</code> for the developer's working tree (the app root from <code>--root</code>, or the nearest folder with a <code>.deco/</code>, which it reports to Studio in <code>describe</code>), so Studio can edit the files on the developer's machine: the saved content in <code>.deco/content</code>, the schema in <code>.deco/schema.gen.json</code> (read-only) and the upload URLs for assets. It listens on the loopback address by default, prints a bearer token and a connect link at start, allows only Studio's origins (CORS) and answers Chrome's local-network permission preflight. Writes land in <code>.deco/content</code> and the app hot-reloads; the server regenerates the content module when a write adds or removes a file. It never commits. <code>deco schema --watch</code> and <code>deco content --watch</code> stay as they are.</p>",
       "features": [
         "dev-studio-content-loop",
         "bundler-config",
@@ -1363,7 +1363,7 @@
       "id": "roadmap-cli--ship-the-deco-command",
       "group": "cli",
       "title": "Ship the <code>deco</code> command",
-      "plan": "<p>These docs run <code>npx @decocms/blocks schema</code>, but <code>@decocms/blocks</code> doesn't declare a <code>deco</code> bin yet. Ship the CLI inside <code>@decocms/blocks</code>, so <a href=\"#quickstart\">Quickstart</a> installs one package and the CLI always matches the runtime version. Declare <code>deco</code> as the package's single bin, so <code>npx @decocms/blocks &lt;command&gt;</code> runs it with nothing installed and <code>package.json</code> scripts call <code>deco &lt;command&gt;</code>; the bin is a small JavaScript file that loads the TypeScript sources, so it runs under plain Node as well as Bun. Export the commands from the <code>@decocms/blocks/cli</code> subpath, make <code>typescript</code> a required peer dependency (so npm and Bun install it) that the CLI loads only when a command runs, and keep the runtime from ever importing the <code>cli</code> subpath, so app bundles never include the CLI. It has three commands, <code>deco schema [input] [--out &lt;file&gt;] [--watch] [--check &lt;base&gt;]</code>, <code>deco content [input] [--out &lt;file&gt;] [--watch]</code> and <code>deco serve [--root &lt;dir&gt;] [--port &lt;n&gt;] [--host &lt;addr&gt;] [--app-url &lt;url&gt;] [--token &lt;t&gt;] [--allow-origin &lt;origin&gt;]… [--assets &lt;dir&gt;] [--read-only]</code>. The positional <code>input</code> is what a command reads and <code>--out</code> is where it writes, and both have defaults: <code>deco schema</code> reads <code>blocks.ts</code> or <code>blocks.tsx</code> in the folder you run the command from, then in its <code>src/</code>, and writes <code>.deco/schema.json</code>; <code>deco content</code> reads <code>.deco/blocks</code> and writes <code>.deco/blocks.gen.ts</code>, and never reads the block map. The flags of each command are in the <a href=\"/next/cli#deco-schema-and-deco-content\">CLI reference</a>.</p>",
+      "plan": "<p>These docs run <code>npx @decocms/blocks schema</code>, but <code>@decocms/blocks</code> doesn't declare a <code>deco</code> bin yet. Ship the CLI inside <code>@decocms/blocks</code>, so <a href=\"#quickstart\">Quickstart</a> installs one package and the CLI always matches the runtime version. Declare <code>deco</code> as the package's single bin, so <code>npx @decocms/blocks &lt;command&gt;</code> runs it with nothing installed and <code>package.json</code> scripts call <code>deco &lt;command&gt;</code>; the bin is a small JavaScript file that loads the TypeScript sources, so it runs under plain Node as well as Bun. Export the commands from the <code>@decocms/blocks/cli</code> subpath, make <code>typescript</code> a required peer dependency (so npm and Bun install it) that the CLI loads only when a command runs, and keep the runtime from ever importing the <code>cli</code> subpath, so app bundles never include the CLI. It has three commands, <code>deco schema [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code>, <code>deco content [--root &lt;dir&gt;] [--watch]</code> and <code>deco serve [--root &lt;dir&gt;] [--port &lt;n&gt;] [--host &lt;addr&gt;] [--app-url &lt;url&gt;] [--token &lt;t&gt;] [--allow-origin &lt;origin&gt;]… [--assets &lt;dir&gt;] [--read-only]</code>. Every command works on one folder, <code>.deco/</code>, in the app root (the folder with the app's <code>package.json</code>). <code>--root</code> is the folder that contains it; by default, every command walks up from the current folder to the first folder with a <code>.deco/</code>. There are no input or output paths: <code>deco schema</code> reads <code>.deco/blocks.ts</code> (or <code>.deco/blocks.tsx</code>) and writes <code>.deco/schema.gen.json</code>; <code>deco content</code> reads <code>.deco/content</code> and writes <code>.deco/blocks.gen.ts</code>, and never reads the block map. The <code>.gen.</code> infix marks the two generated files. The flags of each command are in the <a href=\"/next/cli#deco-schema-and-deco-content\">CLI reference</a>.</p>",
       "features": [
         "codegen-pipeline",
         "studio-schema-generation",
@@ -1381,7 +1381,7 @@
       "id": "roadmap-platform--build-studio-s-github-content-backend",
       "group": "studio",
       "title": "Build Studio's GitHub content backend",
-      "plan": "<p>A <code>ContentStorage</code> inside Studio's API that reads and writes <code>.deco/blocks</code> through the GitHub API, for a <code>.deco</code> folder anywhere in the repository (a monorepo subfolder included). Every write is a commit, and all files of one <code>blocks.apply</code> go in one tree and one commit, with file contents inlined in the tree request. Clients poll on window focus and about every 30 seconds with one batched conditional request. Publishing, the draft pointer and <code>?__draft=</code> links stay Studio routes outside the protocol. Drop the requirement for a deployed preview URL, so a project with no deployment can still be edited.</p>",
+      "plan": "<p>A <code>ContentStorage</code> inside Studio's API that reads and writes <code>.deco/content</code> through the GitHub API, in the folder the project's \"app root\" setting names (a monorepo subfolder included). Every write is a commit, and all files of one <code>blocks.apply</code> go in one tree and one commit, with file contents inlined in the tree request. Clients poll on window focus and about every 30 seconds with one batched conditional request. Publishing, the draft pointer and <code>?__draft=</code> links stay Studio routes outside the protocol. Drop the requirement for a deployed preview URL, so a project with no deployment can still be edited.</p>",
       "features": [
         "admin-protocol-endpoints",
         "content-storage-and-delivery",
@@ -1399,7 +1399,7 @@
       "id": "roadmap-platform--move-studio-s-editor-onto-the-protocol-client",
       "group": "studio",
       "title": "Move Studio's editor onto the protocol client",
-      "plan": "<p>Projects with a committed <code>.deco/schema.json</code> or <code>.deco/meta.gen.json</code> under their folder use the protocol client, so v7 projects that commit <code>meta.gen.json</code> qualify, and a project setting picks the path. Fresh and Deno sites, whose schema exists only at runtime, stay on the legacy path. Features that need the site's code degrade: block previews become name cards or open the real page (the local dev app, or the deployed site with a <code>?__draft=</code> link), dynamic pickers fall back to the schema's options, else free text, secret and password fields are read-only, and Run and installing apps from the store are hidden. Autosave stays last-writer-wins. Add the connect flow for a local <code>deco serve</code> endpoint, with a one-line explainer before Chrome's local-network prompt.</p>",
+      "plan": "<p>Projects with a committed <code>.deco/schema.gen.json</code> or <code>.deco/meta.gen.json</code> under their folder use the protocol client, so v7 projects that commit <code>meta.gen.json</code> qualify, and a project setting picks the path. Fresh and Deno sites, whose schema exists only at runtime, stay on the legacy path. Features that need the site's code degrade: block previews become name cards or open the real page (the local dev app, or the deployed site with a <code>?__draft=</code> link), dynamic pickers fall back to the schema's options, else free text, secret and password fields are read-only, and Run and installing apps from the store are hidden. Autosave stays last-writer-wins. Add the connect flow for a local <code>deco serve</code> endpoint, with a one-line explainer before Chrome's local-network prompt.</p>",
       "features": [
         "section-catalog",
         "global-layout-sections",
@@ -1601,7 +1601,7 @@
       "id": "roadmap-platform--build-the-telemetry-collector",
       "group": "studio",
       "title": "Build the telemetry collector",
-      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token. Switching a site's telemetry off needs no special channel: Studio commits the change to the site's <code>.deco/blocks/Telemetry.json</code> through its GitHub integration, like any content edit, and running servers pick it up with their next content check.</p>",
+      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token. Switching a site's telemetry off needs no special channel: Studio commits the change to the site's <code>.deco/content/Telemetry.json</code> through its GitHub integration, like any content edit, and running servers pick it up with their next content check.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",
@@ -1615,7 +1615,7 @@
       "id": "roadmap-platform--update-the-injected-agent-rules",
       "group": "studio",
       "title": "Update the injected agent rules",
-      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. Two files are generated and never edited by hand: <code>.deco/schema.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within seconds, not on save, and with DECO_SITE and DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
+      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/content/&lt;encodeURIComponent(key)&gt;.json</code>. <code>.deco/blocks.ts</code> and <code>.deco/content</code> are the site's; two files are generated and never edited by hand: <code>.deco/schema.gen.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within seconds, not on save, and with DECO_SITE and DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
       "features": [
         "ai-agent-instructions"
       ],
@@ -2121,7 +2121,7 @@
           "id": "roadmap-faststore--bring-the-content-in-from-vtex-headless-cms",
           "kind": "blocker",
           "title": "Bring the content in from VTEX Headless CMS",
-          "text": "The content lives in VTEX Headless CMS. There's no Headless CMS-to-<code>.deco/blocks</code> importer, the JSONC schemas must become TS types, and per-page-type whitelists of allowed blocks and singletons have no TS or Studio expression.",
+          "text": "The content lives in VTEX Headless CMS. There's no Headless CMS-to-<code>.deco/content</code> importer, the JSONC schemas must become TS types, and per-page-type whitelists of allowed blocks and singletons have no TS or Studio expression.",
           "features": [
             "faststore-cli-overlay",
             "content-storage-and-delivery",
@@ -2449,7 +2449,7 @@
       "sites": [
         "faststore"
       ],
-      "summary": "The entries live in VTEX Headless CMS, so converting them to `.deco/blocks` comes first. There's no multi-segment catch-all, so category trees need one entry per depth, and [Routing](#routing) and [Router internals](#router-internals) disagree on when two templates are ambiguous.",
+      "summary": "The entries live in VTEX Headless CMS, so converting them to `.deco/content` comes first. There's no multi-segment catch-all, so category trees need one entry per depth, and [Routing](#routing) and [Router internals](#router-internals) disagree on when two templates are ambiguous.",
       "docs": [
         "routing",
         "router-internals",
