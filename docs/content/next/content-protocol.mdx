@@ -31,7 +31,7 @@ Two implementations serve the protocol:
 
 | Backend | Edits | Studio checks for changes |
 |---|---|---|
-| **[`deco serve`](/next/cli#deco-serve)**, from the Deco Blocks CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
+| **[`deco serve`](/next/cli#deco-serve)**, from the Deco CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
 | **Studio's GitHub backend**, part of the hosted Deco CMS | Your repository on GitHub, with draft branches and publishing. | About every 30 seconds |
 
 There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins in this version: if two people edit the same entry at once, the later save replaces the earlier one.
