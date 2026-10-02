@@ -76,7 +76,7 @@ console.log((await loader.load()).revision);
 
 | Symptom | What to check |
 |---|---|
-| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow up to a minute after publishing. Check that both `site` and `token` are set in production. |
+| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow a few seconds after publishing. Check that both `site` and `token` are set in production. |
 | `UNKNOWN_BLOCK` right after publishing | The content uses a block type the deployed code doesn't have, usually because the content went out before the code that defines the type, or the code was rolled back to a version without it. Deploy the code, or revert the content commit. See [Keep running code compatible](#keep-running-code-compatible). |
 | Warning that `interval` was raised | The minimum is 60 000 ms (one minute); lower values, from `interval` or `DECO_CONTENT_INTERVAL`, are raised to it. |
 
