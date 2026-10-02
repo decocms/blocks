@@ -2023,9 +2023,29 @@ function plpStructuredData(plp: Record<string, any>): Record<string, unknown>[] 
     },
   ];
   if (plp.breadcrumb?.itemListElement?.length) {
-    out.push({ ...plp.breadcrumb, "@context": "https://schema.org" });
+    // Loaders emit path-only breadcrumb items (`/a/b`) for in-app links; in
+    // structured data make them absolute, using the products' origin.
+    const origin = originOf(itemListElement[0]?.url) ?? originOf(plp.seo?.canonical);
+    out.push({
+      ...plp.breadcrumb,
+      "@context": "https://schema.org",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      itemListElement: plp.breadcrumb.itemListElement.map((el: any) =>
+        origin && typeof el.item === "string" && /^\/(?!\/)/.test(el.item)
+          ? { ...el, item: new URL(el.item, origin).href }
+          : el,
+      ),
+    });
   }
   return out;
+}
+
+function originOf(url: unknown): string | undefined {
+  try {
+    return typeof url === "string" ? new URL(url).origin : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	getImageCdnDomain,
 	getImageQuality,
 	getOptimizedMediaUrl,
 	getSrcSet,
 	type ImageQuality,
+	registerImageCdnDomain,
 	registerImageQuality,
 } from "./Image";
 
@@ -103,6 +105,22 @@ describe("getOptimizedMediaUrl", () => {
 			fit: "cover",
 		});
 		expect(result).toMatch(/&src=site\/a\.png$/);
+	});
+
+	it("keeps decoims.com absolute on Azion CDNs, which may 404 the relative path", () => {
+		const prev = getImageCdnDomain();
+		registerImageCdnDomain("deco-assets.edgedeco.com");
+		try {
+			const result = getOptimizedMediaUrl({
+				originalSrc: "https://decoims.com/site/a.png",
+				width: 100,
+				fit: "cover",
+			});
+			expect(result).toContain("https://deco-assets.edgedeco.com/image?");
+			expect(result).toContain("&src=https://decoims.com/site/a.png");
+		} finally {
+			registerImageCdnDomain(prev);
+		}
 	});
 
 	it("only strips a leading Deco host", () => {

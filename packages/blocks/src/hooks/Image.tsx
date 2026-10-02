@@ -5,11 +5,15 @@ import { forwardRef } from "react";
 // Known asset prefixes that get stripped to produce a relative src path
 // -------------------------------------------------------------------------
 
-// decocache, S3, and decoims.com — the legacy default image CDN (pre-#495).
-// Decofiles are full of decoims URLs; passing one as `src=` to a Deco CDN makes
-// it fetch itself → 508 Loop Detected. Anchored: only a leading host is stripped.
+// Anchored: only a leading host is stripped.
 const DECO_ASSET_PREFIX_RE =
-	/^https:\/\/(?:assets\.decocache\.com|deco-sites-assets\.s3\.sa-east-1\.amazonaws\.com|decoims\.com)\//;
+	/^https:\/\/(?:assets\.decocache\.com|deco-sites-assets\.s3\.sa-east-1\.amazonaws\.com)\//;
+// decoims.com — the legacy default image CDN (pre-#495). Decofiles are full of
+// these URLs; passing one as `src=` to a Cloudflare Deco CDN makes it fetch
+// itself → 508 Loop Detected. Azion CDNs (edgedeco/decoazn) fetch it fine but
+// may 404 on the relative path, so only strip it for the Cloudflare ones.
+const DECOIMS_PREFIX_RE = /^https:\/\/decoims\.com\//;
+const CLOUDFLARE_CDNS = new Set(["assets.decocms.com", "decoims.com"]);
 
 // -------------------------------------------------------------------------
 // Configurable CDN domain
@@ -173,6 +177,7 @@ export function getOptimizedMediaUrl(opts: OptimizationOptions): string {
 	}
 
 	let imageSource = originalSrc.replace(DECO_ASSET_PREFIX_RE, "").split("?")[0];
+	if (CLOUDFLARE_CDNS.has(imageCdnDomain)) imageSource = imageSource.replace(DECOIMS_PREFIX_RE, "");
 
 	// Already on the image CDN — strip the host so we don't proxy through ourselves.
 	const cdnPrefix = `https://${imageCdnDomain}/`;

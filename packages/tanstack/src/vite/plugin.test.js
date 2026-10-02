@@ -175,6 +175,51 @@ describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-pars
     }
   });
 
+  it("wraps aliased imports after the rest of the pipeline resolves them", async () => {
+    const p = getPlugin();
+    const file = path.join(dir, ".deco", "meta.gen.json");
+    const seen = [];
+    const ctx = {
+      resolve: async (spec, imp, opts) => {
+        seen.push([spec, opts.skipSelf]);
+        return { id: file };
+      },
+    };
+    const id = await p.resolveId.call(
+      ctx,
+      "~/.deco/meta.gen.json",
+      path.join(dir, "src", "setup.ts"),
+      {
+        ssr: true,
+      },
+    );
+    expect(id.endsWith(".json")).toBe(false);
+    expect(seen).toEqual([["~/.deco/meta.gen.json", true]]);
+    expect(p.load.call({}, id, { ssr: true })).toContain("JSON.parse(");
+  });
+
+  it("leaves an aliased import alone when it doesn't resolve to an existing file", async () => {
+    const p = getPlugin();
+    const ctx = { resolve: async () => null };
+    const id = await p.resolveId.call(ctx, "~/missing/meta.gen.json", path.join(dir, "x.ts"), {
+      ssr: true,
+    });
+    expect(id).toBeUndefined();
+  });
+
+  it("falls through when a resolver in the chain throws for the alias", async () => {
+    const p = getPlugin();
+    const ctx = {
+      resolve: async () => {
+        throw new Error("exports map error");
+      },
+    };
+    const id = await p.resolveId.call(ctx, "~/x/meta.gen.json", path.join(dir, "x.ts"), {
+      ssr: true,
+    });
+    expect(id).toBeUndefined();
+  });
+
   it("falls through to Vite when meta.gen.json does not exist yet", () => {
     const p = getPlugin();
     const importer = path.join(dir, "src", "setup.ts");

@@ -247,9 +247,25 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
       // of who loaded it — it would try to JSON.parse that JS and fail the
       // build ("Failed to parse JSON file").
       if (options?.ssr && importer && id.endsWith("meta.gen.json")) {
-        const file = path.isAbsolute(id) ? id : path.resolve(path.dirname(importer), id);
-        if (existsSync(file)) return metaGenSsrId(file);
-        // Absent (pre-generate-schema) — let Vite report it normally.
+        if (id.startsWith(".") || path.isAbsolute(id)) {
+          const file = path.resolve(path.dirname(importer), id);
+          if (existsSync(file)) return metaGenSsrId(file);
+          // Absent (pre-generate-schema) — let Vite report it normally.
+          return undefined;
+        }
+        // Alias / bare specifier (`~/.deco/meta.gen.json`, tsconfig paths…):
+        // let the rest of the pipeline resolve it, then wrap — otherwise it
+        // falls through to vite:json and loses the JSON.parse optimization.
+        if (typeof this?.resolve === "function") {
+          return this.resolve(id, importer, { ...options, skipSelf: true }).then(
+            (r) =>
+              r && !r.external && r.id.endsWith("meta.gen.json") && existsSync(r.id)
+                ? metaGenSsrId(r.id)
+                : undefined,
+            // A resolver in the chain threw — let Vite's normal resolution report it.
+            () => undefined,
+          );
+        }
       }
       // Server builds keep the real modules.
       if (options?.ssr) return undefined;
