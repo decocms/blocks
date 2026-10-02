@@ -320,6 +320,8 @@ type PageIndexEntry = {
   path: string;
   /** `path` has no URLPattern syntax, so it only matches its own spelling. */
   literal: boolean;
+  /** Compiled on first use; `null` when the pattern is malformed. */
+  matcher?: CompiledPattern | null;
 };
 
 /**
@@ -332,9 +334,12 @@ type PageIndexEntry = {
  * per page on each call made that walk the hottest frame of an uncached render
  * on a 1.2k-page decofile. Keyed by the blocks object: `setBlocks()` and every
  * draft/override composition produce a new one, so a published change can
- * never be served from a stale index.
+ * never be served from a stale index. Kept on `globalThis`, like the blocks
+ * themselves, so every module instance drops the same entry on `setBlocks()`.
+ * The compiled matchers live on the entries and go away with them.
  */
-const pageIndexCache = new WeakMap<Record<string, unknown>, PageIndexEntry[]>();
+const pageIndexCache: WeakMap<Record<string, unknown>, PageIndexEntry[]> =
+  G.__deco.pageIndexCache ?? (G.__deco.pageIndexCache = new WeakMap());
 
 function buildPageIndex(blocks: Record<string, unknown>): PageIndexEntry[] {
   const pages: Array<PageIndexEntry & { key2: [number, number, number] }> = [];
@@ -409,25 +414,51 @@ type CompiledPattern = {
   exec(input: { pathname: string }): MatchPatternResult | null;
 };
 
-/**
- * Compiled URLPattern per pattern string (`null`: malformed). Compiling is the
- * expensive half of a match; the patterns are the decofile's page paths, so
- * the cache is bounded by the paths the CMS has ever published to this
- * process.
- */
-const compiledPatterns = new Map<string, CompiledPattern | null>();
-
 function compilePattern(pattern: string): CompiledPattern | null {
-  let compiled = compiledPatterns.get(pattern);
-  if (compiled === undefined) {
-    try {
-      compiled = new URLPattern({ pathname: pattern });
-    } catch {
-      compiled = null;
-    }
-    compiledPatterns.set(pattern, compiled);
+  try {
+    return new URLPattern({ pathname: pattern });
+  } catch {
+    return null;
   }
+}
+
+/**
+ * Compiled patterns for direct `matchPath()` callers, bounded: unlike the page
+ * index, its patterns can come from anywhere. Oldest entry evicted first.
+ */
+const MATCH_PATH_CACHE_MAX = 256;
+const matchPathCache = new Map<string, CompiledPattern | null>();
+
+function cachedPattern(pattern: string): CompiledPattern | null {
+  const hit = matchPathCache.get(pattern);
+  if (hit !== undefined) return hit;
+  const compiled = compilePattern(pattern);
+  if (matchPathCache.size >= MATCH_PATH_CACHE_MAX) {
+    matchPathCache.delete(matchPathCache.keys().next().value as string);
+  }
+  matchPathCache.set(pattern, compiled);
   return compiled;
+}
+
+function execPattern(
+  compiled: CompiledPattern | null,
+  urlPath: string,
+): Record<string, string> | null {
+  if (!compiled) return null;
+  let result: MatchPatternResult | null;
+  try {
+    result = compiled.exec({ pathname: urlPath });
+  } catch {
+    return null;
+  }
+  if (!result) return null;
+
+  const groups = result.pathname.groups as Record<string, string | undefined>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(groups)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -482,22 +513,7 @@ export function matchPath(
   urlPath: string,
 ): Record<string, string> | null {
   assertURLPattern();
-  const compiled = compilePattern(pattern);
-  if (!compiled) return null;
-  let result: MatchPatternResult | null;
-  try {
-    result = compiled.exec({ pathname: urlPath });
-  } catch {
-    return null;
-  }
-  if (!result) return null;
-
-  const groups = result.pathname.groups as Record<string, string | undefined>;
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(groups)) {
-    if (v !== undefined) out[k] = v;
-  }
-  return out;
+  return execPattern(cachedPattern(pattern), urlPath);
 }
 
 /**
@@ -532,12 +548,14 @@ export function findPageByPath(
   assertURLPattern();
   const plainTarget = isPlainPath(targetPath);
 
-  for (const { key, page, path, literal } of getPageIndex()) {
+  for (const entry of getPageIndex()) {
+    const { key, page, path, literal } = entry;
     if (literal && plainTarget) {
       if (path === targetPath) return { page, params: {}, blockKey: key };
       continue;
     }
-    const params = matchPath(path, targetPath);
+    if (entry.matcher === undefined) entry.matcher = compilePattern(path);
+    const params = execPattern(entry.matcher, targetPath);
     if (params !== null) return { page, params, blockKey: key };
   }
 

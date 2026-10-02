@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setDraftOverrideGetter } from "./draftSource";
 import {
   findPageByPath,
@@ -287,6 +287,27 @@ describe("findPageByPath page index cache", () => {
     });
     expect(findPageByPath("/(unclosed")).toBeNull();
     expect(findPageByPath("/ok")?.blockKey).toBe("pages-ok");
+  });
+
+  it("invalidates the index for every module instance sharing the blocks", async () => {
+    const blocks: Record<string, unknown> = {
+      "pages-a": { name: "A", path: "/a", sections: [] },
+    };
+    setBlocks(blocks);
+    vi.resetModules();
+    const other = await import("./loader");
+    expect(other.findPageByPath("/a")?.blockKey).toBe("pages-a");
+
+    blocks["pages-b"] = { name: "B", path: "/b", sections: [] };
+    setBlocks(blocks);
+    expect(other.findPageByPath("/b")?.blockKey).toBe("pages-b");
+  });
+
+  it("keeps matchPath correct past its compiled-pattern cache bound", () => {
+    for (let i = 0; i < 600; i++) {
+      expect(matchPath(`/p${i}/:slug`, `/p${i}/x`)).toEqual({ slug: "x" });
+    }
+    expect(matchPath("/p0/:slug", "/p0/y")).toEqual({ slug: "y" });
   });
 
   it("returns a fresh array from getAllPages()", () => {
