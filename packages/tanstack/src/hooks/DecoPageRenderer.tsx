@@ -247,6 +247,34 @@ interface DeferredSectionWrapperProps {
   }) => Promise<ResolvedSection | null>;
 }
 
+/**
+ * Whether an observation should trigger the deferred load.
+ *
+ * `IntersectionObserver` only fires on ENTERING. A section the reader is
+ * already past when the observer attaches gets exactly one callback, with
+ * `isIntersecting: false`, and never fires again while the reader keeps
+ * scrolling down — so it stays a skeleton for the rest of the visit. That is
+ * reachable on every load that does not start at the top: browser scroll
+ * restoration on reload, back/forward, an `#anchor`, or a programmatic
+ * `scrollTo`.
+ *
+ * `bottom < 0` means the element sits entirely above the viewport. It cannot
+ * collide with the thundering herd the frame gate in the observer effect
+ * guards against: that herd is sections BELOW a stale scroll offset, and by
+ * the time the observer attaches the router has reset scroll to the top,
+ * where nothing is above the viewport.
+ *
+ * Exported for tests — jsdom has no layout and never fires a real
+ * `IntersectionObserver`, so the interesting case cannot be produced by
+ * rendering the component.
+ */
+export function shouldLoadOnObservation(entry: {
+  isIntersecting: boolean;
+  boundingClientRect: { bottom: number };
+}): boolean {
+  return entry.isIntersecting || entry.boundingClientRect.bottom < 0;
+}
+
 function DeferredSectionWrapper({
   deferred,
   pagePath,
@@ -346,7 +374,8 @@ function DeferredSectionWrapper({
       if (triggered.current) return;
       observer = new IntersectionObserver(
         ([entry]) => {
-          if (entry?.isIntersecting && !triggered.current) {
+          if (!entry || triggered.current) return;
+          if (shouldLoadOnObservation(entry)) {
             observer?.disconnect();
             load();
           }
