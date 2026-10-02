@@ -6,7 +6,7 @@ order: 8
 
 # Block maps
 
-A block map is the code half of the [registry](/next/blocks): a plain object from block type to function. The other half is the content map of saved entries, which you pass to `createCMS` as [`content`](/next/blocks#the-deco-content-command). The quickstart's `blocks.ts` is one. This section covers what else can go in it.
+A block map is the code half of the [registry](/next/blocks): a plain object from block type to function. The other half is the content map of saved blocks, which you pass to `createCMS` as [`content`](/next/blocks#the-deco-content-command). The quickstart's `blocks.ts` is one. This section covers what else can go in it.
 
 ```ts title="blocks.ts"
 import type { Blocks } from "@decocms/blocks";
@@ -21,7 +21,7 @@ export default {
 } satisfies Blocks;
 ```
 
-Each key is a block type. Each value is a function `(inputs) => value`, where `inputs` is the block without its `__resolveType`: saved entries already expanded and merged, and nested calls already run, so the function receives values, never a pending call. Use `satisfies Blocks` rather than a type annotation: it checks the shape while keeping the concrete keys and function types, which is what the schema is generated from.
+Each key is a block type. Each value is a function `(inputs) => value`, where `inputs` is the block without its `__resolveType`: saved blocks already expanded and merged, and nested calls already run, so the function receives values, never a pending call. Use `satisfies Blocks` rather than a type annotation: it checks the shape while keeping the concrete keys and function types, which is what the schema is generated from.
 
 Keep the map a plain object at module level. The [CLI](/next/schema) reads the file without running it, so build it once and give it to `createCMS`. Only functions go in the map. `createCMS` adds the framework's [built-in blocks](/next/blocks#built-in-blocks) under it, so you don't register those. Types that are pure data, such as posts, have nothing to run; they're declared for the CLI instead, see [content that is only data](/next/schema).
 
@@ -66,4 +66,4 @@ Keep import paths literal in both cases. A bundler can split `import("./componen
 
 ## Choose type names that last
 
-A block type's name is what content stores in `__resolveType` to call it, so pick it like a database column, not like a file path: short (`seo`, `hero`) or namespaced when a site has many (`commerce/product`). Moving a file only means updating an import; the name doesn't change. Renaming a type means migrating every block that uses it, or adding an alias, a second name for the same block type (see [Renaming and migrating](/next/renames-and-migrations)). Type names share one namespace with saved entry names (see [Blocks](/next/blocks)), and `deco schema` fails on a clash (at runtime, the function wins). A simple convention avoids clashes: lowercase or kebab-case for block types (`seo`, `product-card`), capitalized names for entries (`SummerSEO`).
+A block type's name is what content stores in `__resolveType` to call it, so pick it like a database column, not like a file path: short (`seo`, `hero`) or namespaced when a site has many (`commerce/product`). Moving a file only means updating an import; the name doesn't change. Renaming a type means migrating every block that uses it, or adding an alias, a second name for the same block type (see [Renaming and migrating](/next/renames-and-migrations)). Type names share one namespace with saved block names (see [Blocks](/next/blocks)), and `deco schema` fails on a clash (at runtime, the function wins). A simple convention avoids clashes: lowercase or kebab-case for block types (`seo`, `product-card`), capitalized names for entries (`SummerSEO`).

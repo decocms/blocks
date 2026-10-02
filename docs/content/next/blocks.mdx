@@ -6,13 +6,11 @@ order: 3
 
 # Blocks
 
-Most of what changes on a website isn't the code. It's the values the code is given: a headline, a banner image, the share of visitors who see the new checkout. Deco is built on that idea: developers write the functions, and the people who run the site decide what goes into them.
+A block is a function call written as JSON: it names one of your functions and lists the inputs to call it with. When your app resolves a block, Deco calls the function with those inputs and hands you back the result. Blocks are what editors and agents change instead of your code; [How it works](/next/how-it-works) has the big picture.
 
-Blocks are how they make those decisions. A block is a small piece of JSON that names one of your functions and lists the inputs to call it with. Editors change the inputs in Studio, and agents edit the file directly. When your app resolves the block, Deco calls the function with whatever is saved and gives you back the result. This page shows what a block looks like, how blocks fit inside each other, and exactly how they turn into values.
+This page covers what a block looks like, how blocks nest and get reused, the block map that decides which functions they can call, and how saved blocks live in your repository.
 
 ## Functions as blocks
-
-A block is a function call written as JSON. `__resolveType` names the function, and the other properties are its arguments.
 
 Here's the free-shipping bar at the top of a store, an ordinary React component:
 
@@ -27,7 +25,7 @@ export function PromoBanner({ title, href }: PromoBannerProps) {
 }
 ```
 
-And here's a block that calls it. `"promo-banner"` is the name your site gives `PromoBanner`; [Reusing blocks](#reusing-blocks) shows where names come from.
+And here's a block that calls it. `"promo-banner"` is the name your site gives `PromoBanner`; [The block map](#the-block-map) shows where names come from.
 
 ```jsonc
 // Stored as JSON
@@ -41,7 +39,7 @@ And here's a block that calls it. `"promo-banner"` is the name your site gives `
 PromoBanner({ title: "Free shipping over $50", href: "/summer" });
 ```
 
-The function is code, and only developers change it. The call is plain JSON, so anyone can change it: editors through a form in Studio, and AI agents by editing the JSON directly. Changing the headline or the link touches no code. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings.
+The function is code; the call is data. Changing the headline or the link touches no code, and the same works for anything your site needs: UI, product data, SEO, navigation, campaign settings.
 
 What a block can contain:
 
@@ -72,7 +70,7 @@ Resolving a block evaluates it from the inside out, like the TypeScript you'd wr
 
 So type the prop as what the function receives, `product: Product`, not as a block. [Schema](/next/schema#from-types-to-forms) shows how Studio then offers the functions that return a `Product`, such as `catalogProduct`.
 
-To resolve a block from your code, pass it to `client.resolve`. `cms` is created once with `createCMS` (see [The `deco content` command](#the-deco-content-command)). `cms.forRelease()` gives you a client that reads your published content; create one per request so a response sees one consistent version:
+To resolve a block from your code, pass it to `client.resolve`. Get a client with `cms.forRelease()` (`cms` is set up in [The `deco content` command](#the-deco-content-command)), one per request ([why](/next/releases-and-deployment#one-revision-per-response)):
 
 ```tsx
 import { cms } from "./cms";
@@ -92,7 +90,7 @@ const [card, error] = await client.resolve({
 
 ## Reusing blocks
 
-In code, you'd give a call you use often a name. A **saved block** is a block with a name (the rest of the docs also call it a saved entry). Here's the card from the previous section, saved as `SummerCard`:
+In code, you'd give a call you use often a name. A **saved block** is a block with a name. Here's the card from the previous section, saved as `SummerCard`:
 
 ```jsonc
 // Saved as SummerCard
@@ -128,7 +126,7 @@ Overrides are shallow. The merge is `{ ...saved, ...arguments }`, so an override
 
 ### The block map
 
-So far, names like `"product-card"` simply worked. They come from your **block map**: the object you pass to `createCMS` that decides which functions blocks can call. Each key is a name, each value a function:
+So far, names like `"product-card"` simply worked. They come from your **block map**: the object you pass to `createCMS` that decides which functions blocks can call. Each key is a **block type**, the name a block's `__resolveType` uses; each value is a function:
 
 ```ts title="blocks.ts"
 import type { Blocks } from "@decocms/blocks";
@@ -170,15 +168,11 @@ Saved blocks are files in your repository: one JSON file per saved block in `.de
 └── SummerCard.json
 ```
 
-Developers edit them like any other file, AI agents edit them with the file tools they already use, and editors edit them in Studio, which shows each one as a form (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)). Because they're files in Git, you get what you already have for code: history, review in pull requests, branches, and rollback by reverting a commit.
-
-Publishing is committing and pushing. There's no separate publish step: push the change to your production branch (usually `main`), and your next deploy serves it, like any other change (see [Releases and deployment](/next/releases-and-deployment#publishing)).
-
-<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Go live without a deploy.** With the hosted Deco CMS, a published commit goes live in about a minute, without a rebuild or deploy.</Hosted>
+Edit them as files, with an AI agent, or in Studio (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)). Because they're files in Git, every edit is a commit you can review and revert, and publishing is pushing to your production branch: your next deploy serves it (see [Releases and deployment](/next/releases-and-deployment#publishing)).
 
 ### The `deco content` command
 
-The `deco` CLI, which comes with `@decocms/blocks`, turns `.deco/blocks` into a module your app imports, so the SDK never touches the filesystem and runs anywhere: Node, Cloudflare Workers, Deno, Bun or a browser. Run it once with `npx`; in `package.json` scripts it's just `deco content`.
+The `deco` CLI, which comes with `@decocms/blocks`, turns `.deco/blocks` into a module your app imports, so the SDK never touches the filesystem and runs anywhere: Node, Cloudflare Workers, Deno, Bun or a browser.
 
 ```bash
 npx @decocms/blocks content
@@ -203,15 +197,6 @@ import blocks from "./blocks";
 export const cms = createCMS({ blocks, content });
 ```
 
-The generated file belongs in `.gitignore`, like TanStack Router's `routeTree.gen.ts`. Run `deco content` before your dev server and your build:
-
-```json title="package.json"
-{
-  "scripts": {
-    "predev": "deco content",
-    "prebuild": "deco content"
-  }
-}
-```
+The generated file belongs in `.gitignore`, like TanStack Router's `routeTree.gen.ts`. Run it before your dev server and your build, after `deco schema` (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)).
 
 Editing a file reloads through your framework's hot module replacement (HMR), with no rerun. Adding or removing a file needs the command again: rerun `npx @decocms/blocks content`, or leave `npx @decocms/blocks content --watch` running beside your dev server. Every option is in the [CLI reference](/next/cli).

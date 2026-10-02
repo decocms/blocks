@@ -6,19 +6,19 @@ order: 5
 
 # Schema
 
-You already use TypeScript to describe what each of your functions accepts: a headline is text, a sale ends on a date, a banner takes an image, a product description is rich text, a price is a number. The schema is that same description, written in a form Deco Studio can read, and it's how you configure Studio. You don't write a second config for the editor.
+When an editor opens a block in Studio, they see a form: a text box for the headline, an image picker, a calendar for the end date, a rich-text editor for the description. You never build that form. It comes from the types of your function's inputs, through the schema, and it only accepts values your function can take.
 
-Studio builds each block's form from the schema: a calendar for a date, an image picker for an image, a rich-text editor for rich text. Studio's forms only offer values your functions accept, so what editors publish fits your code. This page shows how your types become forms, how to fine-tune a field, how to describe content that has no function, and how to change your types without breaking content that's already saved.
+This page shows how types become fields, how to refine a field with JSDoc, how to describe content that has no function, and how to change types without breaking saved content.
 
 ## From types to forms
 
-`@decocms/blocks` includes a command-line tool, the `deco` command. Run it with `npx @decocms/blocks <command>`, or as `deco <command>` in `package.json` scripts (see [CLI](/next/cli)). Its compiler, `deco schema`, reads the TypeScript types of your [block map](/next/quickstart), the object that lists your block functions, and writes `.deco/schema.json`:
+`deco schema` reads the TypeScript types of your [block map](/next/blocks#the-block-map) and writes `.deco/schema.json` (see [CLI](/next/cli)):
 
 ```bash
 npx @decocms/blocks schema
 ```
 
-Commit `.deco/schema.json` with your code. Studio only reads it and never edits it (see [Studio and the content protocol](/next/content-protocol)).
+Pass `--entry` if the CLI can't find your block map ([where it looks](/next/cli)). Commit `.deco/schema.json` with your code.
 
 For each block, the compiler reads the type of the function's first parameter. Each property becomes a field:
 
@@ -29,7 +29,7 @@ For each block, the compiler reads the type of the function's first parameter. E
 | `boolean` | A toggle |
 | A union of string literals (`"sm" \| "md" \| "lg"`), or an `enum` | A select |
 | An array | A list editors can add to and reorder |
-| An object, such as `Product` or `Seo` | A plain value (a group of fields), or a block whose function returns it (`T` or `Promise<T>`) |
+| An object, such as `Product` or `Seo` | A group of fields, or a block (see below) |
 | An optional property (`endsOn?: string`) | An optional field |
 | `ReactNode` / `ReactNode[]` | A block picker of components: one, or a list |
 
@@ -55,9 +55,6 @@ Never type a prop as a block. `Block` is only the shape of saved JSON (see [Comp
 <Callout>**Status. `deco schema` doesn't match fields to functions by return type yet.** This section describes how it will work. See the [Roadmap](/roadmap#roadmap-cli--define-the-loader-picker-rule).</Callout>
 
 A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells Studio which input to show (see the next section).
-
-It looks for the block map in `blocks.ts` or `blocks.tsx`, in the project root or in `src/`; if yours lives somewhere else, pass its path with `--entry`, for example `deco schema --entry app/cms/blocks.ts`.
-
 ### Block pickers
 
 A field that a block can fill gets a **block picker**. It offers two kinds of choices:
@@ -106,7 +103,7 @@ export interface PromoBannerProps {
 
 becomes a form with a *Headline* text box limited to 60 characters, an *Image* picker, a *Link* field and an optional *Ends on* date picker.
 
-**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so Studio shows a select without asking your site for the options. Studio never runs your code, so a picker whose options would come from a function falls back to a text field in this version.
+**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so Studio shows a select without asking your site for the options. A picker whose options come from a function falls back to a text field in this version (see [Features that need your site's code](/next/content-protocol#features-that-need-your-site-s-code)).
 
 ## Content without a function
 
@@ -125,7 +122,7 @@ export type Content = {                                  // data: a schema per t
 };
 ```
 
-`deco schema` reads both exports. Keys of the default export get a schema from each function's parameter type; keys of `Content` get one from the type itself. The CMS never sees `Content`, so a type declared only there runs nothing: resolving a `post` entry by name fails with `UNKNOWN_BLOCK`.
+`deco schema` reads both exports. Keys of the default export get a schema from each function's parameter type; keys of `Content` get one from the type itself. The CMS never sees `Content`, so a type declared only there runs nothing: resolving a saved `post` block by name fails with `UNKNOWN_BLOCK`.
 
 **Built-ins: override or opt out.** The schema always includes the [built-in blocks](/next/blocks#built-in-blocks), `page`, `redirect` and `telemetry`. `Page`, `Seo`, `Redirect` and `Route` are exported from `@decocms/blocks`. Declaring a built-in key in `Content` replaces its form. Extend the exported type to add fields:
 
@@ -139,16 +136,14 @@ export type Content = { page: StorePage; post: Post };
 
 An app that isn't a website opts out with `page: never` or `redirect: never`, which removes them from the schema. The CMS never reads `Content`, so the built-in blocks stay defined at runtime either way.
 
-**Names must not clash.** Block types and `Content` types share one list of names, so a key can't be in both, except a built-in key. `deco schema` also checks your saved content: it fails if an entry in `.deco/blocks` has the name of a block type, or if an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)) matches either. It doesn't yet check each entry's values against the schema; that's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
-
-Studio learns the shape of your content only from this schema. What it looks for, how it reads and writes your files, and how the CLI bridges Studio's existing conventions are covered in [Studio and the content protocol](/next/content-protocol) and [under the hood](/next/studio-compatibility).
+**Names must not clash.** Block types and `Content` types share one list of names, so a key can't be in both, except a built-in key. `deco schema` also checks your saved content: it fails if a saved block in `.deco/blocks` has the name of a block type, or if an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)) matches either. It doesn't yet check each saved block's values against the schema; that's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
 
 ## Change types safely
 
 Content and code live in one repository but change independently: an editor's content branch and a developer's code branch can merge in either order. Nothing at runtime checks that they fit, because the CMS doesn't compare schemas. So keep them compatible before anything merges, in two directions:
 
 - **New code still renders all existing content.** A code change must not break content that's already saved. A planned `--check` flag for `deco schema`, which compares your schema with the one on `main`, will enforce this in CI (see [Run it in CI](#run-it-in-ci)).
-- **Content only uses types its commit's code has.** Content and code ship in the same build, so each commit's content must use only block types and fields that the same commit's code defines. Studio reads the schema next to the content it edits (your working tree, with [`deco serve`](/next/cli#deco-serve)), so it only offers what that code has. An entry written by hand or by an agent that uses a type the code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)); merge the code that adds a type before, or with, the content that uses it. Rolling code back by reverting a commit has the same catch: content that already uses the newer types or fields fails on the older code until you revert that content too. Redeploying a previous build doesn't, because it ships that build's own content. No tool checks this yet; the content validation commands on the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli) will.
+- **Content only uses types its commit's code has.** Content and code ship in the same build, so each commit's content must use only block types and fields that the same commit's code defines. Studio reads the schema next to the content it edits (your working tree, with [`deco serve`](/next/cli#deco-serve)), so it only offers what that code has. A saved block written by hand or by an agent that uses a type the code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)); merge the code that adds a type before, or with, the content that uses it. Rolling code back by reverting a commit has the same catch: content that already uses the newer types or fields fails on the older code until you revert that content too. Redeploying a previous build doesn't, because it ships that build's own content. No tool checks this yet; the content validation commands on the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli) will.
 
 What counts as breaking:
 
@@ -196,4 +191,4 @@ jobs:
 
 <Callout>**Status. The compatibility check, `deco schema --check <base>`, isn't built yet; it ships with the first release.** It will generate the schema from your code, compare it with `<base>`, an earlier `.deco/schema.json` such as the one on `main`, list every breaking change from the table above and exit with a non-zero code if it finds one, writing nothing. Once it's out, add a step that runs `git show "origin/$BASE_REF:.deco/schema.json" > base-schema.json`, then `deco schema --check base-schema.json`. Until then, review schema diffs against the table by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
 
-Content-only changes, from Studio, an agent or by hand, never change the schema, so `--check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions) in the same pull request.
+Content-only changes, from Studio, an agent or by hand, never change the schema, so `--check` always passes them, and `deco schema` still checks the content model (saved block names, aliases and route collisions) in the same pull request.

@@ -7,7 +7,7 @@ order: 10
 
 # Routes, redirects, and content types
 
-A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content without a function](/next/schema#content-without-a-function)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
+A **content type** is a kind of saved block, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content without a function](/next/schema#content-without-a-function)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
 
 ```ts
 /** An entry that lives at a URL. Extend it to make a type routable. */
@@ -18,7 +18,7 @@ interface Route {
   path: string;        // "/summer", or a template like "/:slug/p"
 }
 
-/** A saved entry of the built-in `redirect` content type. */
+/** A saved block of the built-in `redirect` content type. */
 interface Redirect {
   from: string;        // literal or template
   to: string;
@@ -69,7 +69,7 @@ Each field is typed as what the page receives, already resolved: a `Seo` object 
 }
 ```
 
-Two SDK functions turn these entries into URLs. `client.list("page")` returns every saved entry whose `__resolveType` is `page`. `matchRoute(url, { routes, redirects })` picks the entry that matches a URL. [Routing](/next/routing) puts them together.
+Two SDK functions turn these entries into URLs. `client.list("page")` returns every saved block whose `__resolveType` is `page`. `matchRoute(url, { routes, redirects })` picks the entry that matches a URL. [Routing](/next/routing) puts them together.
 
 **The router's rule is one line: an entry with a string `path` matches at that path.** `Route` is what makes that intentional. The CLI checks that any type declaring `path` extends `Route`, so a stray `path` field on an unrelated block is a schema error rather than a surprise URL. Editors see `name` and `path` as ordinary fields on every routable thing, in Studio, which is how a marketing team gets `/summer-sale` live without a developer. Keep `path` and `from` plain strings, not blocks, so the router can match without running code.
 

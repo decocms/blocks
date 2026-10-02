@@ -24,7 +24,7 @@ Deco runs three services for a connected site:
 
 ## What stays the same
 
-- **Your repository is the source of truth.** Content is still the JSON files in `.deco/blocks`. Every edit, from Studio or anywhere else, is a commit you can review, diff and revert.
+- **Your repository is the source of truth.** Content is still the JSON files in `.deco/blocks`, and every edit is still a commit.
 - **Your code doesn't change.** Block functions, the block map, `resolve`, `list` and routing work the same way. The same `createCMS` call takes two more options, `site` and `token`.
 - **The content module stays.** Your build still bundles `.deco/blocks.gen.ts`. It's what a server serves before it has fetched its first release, and what it keeps serving if the Deco API is unreachable.
 

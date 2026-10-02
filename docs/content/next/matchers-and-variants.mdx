@@ -98,7 +98,7 @@ Add them to the map and Studio's rule picker shows them next to `date`. The CLI 
 
 Inputs resolve before a function runs, so every variant's `value` resolves before `multivariate` picks one. For a title that's free. For two product queries it isn't, and a failure in a variant you didn't pick still fails the whole thing.
 
-The lazy form is to make the values *entry names* instead of inline blocks. A string isn't a block, so nothing runs; the multivariate returns a name, and your app resolves it:
+The lazy form is to make the values *saved block names* instead of inline blocks. A string isn't a block, so nothing runs; the multivariate returns a name, and your app resolves it:
 
 ```json
 {
@@ -117,10 +117,10 @@ multivariate({
     { rule: date({ start: "2026-11-20", end: "2026-11-30" }), value: "BlackFridayHero" },
     { rule: always(), value: "DefaultHero" },
   ],
-});   // the values are entry names, not calls: only the rules and multivariate run
+});   // the values are saved block names, not calls: only the rules and multivariate run
 
 // block is the JSON above, e.g. from a page's sections list;
-// client.resolve accepts an entry name or an inline block
+// client.resolve accepts a saved block's name or an inline block
 const [name, err] = await client.resolve(block);     // "BlackFridayHero"
 if (err) throw err;
 const [hero] = await client.resolve(name);           // only this variant ran

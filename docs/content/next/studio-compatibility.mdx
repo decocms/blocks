@@ -48,7 +48,7 @@ function schemaGet(params?: { ref?: string; ifNoneMatch?: string }):
 function blocksList(params?: { ref?: string; ifNoneMatch?: string }):
   | { notModified: true; revision: string; resolvedRef: string | null }
   | { notModified: false; revision: string; resolvedRef: string | null;
-      blocks: Record<string, object>;            // every saved entry, by name
+      blocks: Record<string, object>;            // every saved block, by name
       versions: Record<string, string>;          // one opaque version per entry
       diagnostics: Diagnostic[] };               // files skipped or shadowed
 
@@ -171,11 +171,11 @@ The group names are Studio's, inherited from the Fresh and Deno framework. The C
 
 Three conventions follow from this:
 
-- A key is a **block type if it's in the manifest and a saved entry if it isn't**, so short names like `hero` are fine, as long as no saved entry uses the same name (see [Blocks](/next/blocks)).
+- A key is a **block type if it's in the manifest and a saved block if it isn't**, so short names like `hero` are fine, as long as no saved block uses the same name (see [Blocks](/next/blocks)).
 - A variant is `{ "variants": [{ "rule": …, "value": … }, …] }`. The first variant whose rule is true wins, so the default, with the `always` rule, goes last.
 - A redirect is a flat `{ from, to, permanent }` entry.
 
-Saved entries aren't in the schema: Studio builds its pickers of saved blocks from the map `blocks.list` returns. Schema strings, such as titles and `@image` templates, are untrusted input to Studio, which escapes them.
+Saved blocks aren't in the schema: Studio builds its pickers of saved blocks from the map `blocks.list` returns. Schema strings, such as titles and `@image` templates, are untrusted input to Studio, which escapes them.
 
 ## Well-known types and the alias table
 
@@ -202,7 +202,7 @@ Two gaps remain. Redirects created in Studio are saved in the old nested shape, 
 { "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": true }
 ```
 
-`matchRoute` accepts both. And Studio decides whether a key is a block type or a saved entry by checking for a file extension; that check must become a manifest lookup before a site can drop the aliases. Both are Studio work, tracked in the [Roadmap](/roadmap#roadmap-studio-legacy), not something sites do.
+`matchRoute` accepts both. And Studio decides whether a key is a block type or a saved block by checking for a file extension; that check must become a manifest lookup before a site can drop the aliases. Both are Studio work, tracked in the [Roadmap](/roadmap#roadmap-studio-legacy), not something sites do.
 
 ## Legacy endpoints
 
@@ -211,7 +211,7 @@ Sites on Fresh and Deno are edited the legacy way: Studio reads from the running
 | Endpoint | Legacy use |
 |---|---|
 | `GET /live/_meta` | The schema and manifest |
-| `GET /.decofile` | The saved entries |
+| `GET /.decofile` | The saved blocks |
 | `/live/previews` | Block previews: gallery thumbnails, saved blocks, in-place renders |
 | `/deco/invoke` | Running a loader or action: dynamic pickers and the Run button |
 | `/live/invoke` | Encrypting secret fields through the site's encrypt action |

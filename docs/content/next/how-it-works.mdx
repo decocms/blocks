@@ -8,7 +8,9 @@ order: 1
 
 <Callout>**Status.** The next version of Deco is being designed in the open: the API on these pages is proposed and not released yet. The [Roadmap](/roadmap) lists what's left.</Callout>
 
-Suppose marketing wants the summer banner to say "Free shipping over $50" instead of "Free shipping over $75". In most apps, that's a ticket for a developer. With Deco, the banner is a function a developer wrote once, and the text it shows is content anyone on the team can change. This page follows that one change from the first line of code to a visitor's screen, and points you to the page that explains each step.
+Most of what changes on a website isn't the code. It's the values the code is given: a headline, a banner image, the share of visitors who see the new checkout. Deco keeps the two apart. Developers write ordinary functions, and the values live as JSON files in your Git repository. Editors change them in Studio, Deco's visual editor; AI agents edit the files directly; and every change ships with your next deploy.
+
+This page follows one such change, marketing switching the summer banner from "Free shipping over $75" to "Free shipping over $50", from the first line of code to a visitor's screen, and points you to the page that explains each step.
 
 ## The life of a change
 
@@ -26,11 +28,11 @@ The banner is an ordinary component, `PromoBanner`, whose props are typed: a `ti
 
 ### 2. The types become a form
 
-The `deco schema` command reads those prop types and writes a schema file, `.deco/schema.json`. Studio, Deco's visual editor, builds a form from that file, so `title` becomes a text box without anyone designing a form. See [Schema](/next/schema).
+The `deco schema` command reads those prop types and writes a schema file, `.deco/schema.json`. Studio builds a form from that file, so `title` becomes a text box without anyone designing a form. See [Schema](/next/schema).
 
 ### 3. Someone changes the content
 
-The banner's text lives in a saved block: a JSON file in your repository, `.deco/blocks/SummerBanner.json`, that calls `promo-banner` with a `title` of "Free shipping over $75". An editor changes it in Studio, an AI agent edits it, or a developer opens it, and each change is a commit like any other. See [Blocks in your repository](/next/blocks#blocks-in-your-repository).
+The banner's text lives in a saved block: a JSON file in your repository, `.deco/blocks/SummerBanner.json`, that calls `promo-banner` with a `title` of "Free shipping over $75". Changing it is a commit like any other. See [Blocks in your repository](/next/blocks#blocks-in-your-repository).
 
 ### 4. The change ships
 
@@ -81,8 +83,9 @@ For the full move, see [Renaming and migrating](/next/renames-and-migrations).
 <Terms>
   <Term name="Block">A piece of JSON that names a function to call, plus the inputs to call it with. See [Blocks](/next/blocks).</Term>
   <Term name="Block function">One of your functions with a typed first parameter, such as `PromoBanner`. See [Blocks](/next/blocks#functions-as-blocks).</Term>
+  <Term name="Block type">A name in the block map, such as `"promo-banner"`, that a block's `__resolveType` uses to call a function. See [The block map](/next/blocks#the-block-map).</Term>
   <Term name="Block map">An object from names to your block functions, such as `{ "promo-banner": PromoBanner }`, that you pass to `createCMS`. See [The block map](/next/blocks#the-block-map).</Term>
-  <Term name="Saved block">A block stored under a name, as one JSON file in `.deco/blocks`, such as `SummerBanner.json`. Also called a saved entry. See [Blocks in your repository](/next/blocks#blocks-in-your-repository).</Term>
+  <Term name="Saved block">A block stored under a name, as one JSON file in `.deco/blocks`, such as `SummerBanner.json`. See [Blocks in your repository](/next/blocks#blocks-in-your-repository).</Term>
   <Term name="Schema">`.deco/schema.json`, the file `deco schema` generates from your types. See [Schema](/next/schema).</Term>
   <Term name="Studio">Deco's visual editor. See [Studio and the content protocol](/next/content-protocol).</Term>
   <Term name="Resolve">What `client.resolve` does: read a saved block and call its function with the saved inputs. See [How resolution works](/next/how-resolution-works).</Term>

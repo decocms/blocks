@@ -10,17 +10,17 @@ order: 1
 
 The [developer docs](/next/how-it-works) describe how to use Deco. This part describes how it works inside. It's for contributors, for anyone connecting a new framework or content store, and for the curious:
 
-- [How resolution works](/next/how-resolution-works): one saved entry, expanded and run step by step.
+- [How resolution works](/next/how-resolution-works): one saved block, expanded and run step by step.
 - [How hosted releases stay current](/next/hosted-releases-internals): with the [hosted Deco CMS](/next/hosted-publishing), new releases arrive without a request ever waiting on the network.
 - [How `matchRoute` matches](/next/router-internals): the data structure that maps a URL to an entry.
 - [Studio compatibility](/next/studio-compatibility): the content protocol Studio reads and writes content through, what it reads from the schema, and the legacy endpoints older sites serve.
 - [Design decisions](/next/design-decisions): the choices behind all of the above, and why they won.
-- [Snapshots and revisions](#snapshots-and-revisions): how the content module holds your saved entries, and how a revision names one version of them.
+- [Snapshots and revisions](#snapshots-and-revisions): how the content module holds your saved blocks, and how a revision names one version of them.
 - [How the CLI ships](#how-the-cli-ships): why the `deco` command lives inside `@decocms/blocks`, and why it never ends up in your app's bundle.
 
 ## Snapshots and revisions
 
-The content module's default export, `{ revision, blocks }`, is a **snapshot**: one fixed copy of your content map, the saved blocks by name. The CMS always works with a whole snapshot at a time, never with single files. The field is called `blocks` for compatibility with Studio's file format, but it holds saved entries: any JSON, never functions. Functions only ever come from your block map.
+The content module's default export, `{ revision, blocks }`, is a **snapshot**: one fixed copy of your content map, the saved blocks by name. The CMS always works with a whole snapshot at a time, never with single files. The field is called `blocks` for compatibility with Studio's file format, but it holds saved blocks: any JSON, never functions. Functions only ever come from your block map.
 
 The revision names that exact set of entries, like a version number. The CMS and your app use it to tell when content changed, to keep cached data from different versions apart, and to tell one deploy's content from the next. Any change to any entry produces a new revision, and a revision is never reused for different content. `deco content` computes it as a hash of the whole map, so two copies of the same content get the same revision wherever they're built; [Releases and deployment](/next/releases-and-deployment#one-revision-per-response) shows what that buys you.
 

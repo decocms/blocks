@@ -7,7 +7,7 @@ order: 21
 
 # Renaming and migrating
 
-Saved content refers to your code by name: every block stores a type name in `__resolveType`, references store entry names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content. Renaming a type or removing an input affects every block that uses it, and renaming a saved entry breaks every reference to it (`NOT_FOUND`).
+Saved content refers to your code by name: every block stores a type name in `__resolveType`, references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content. Renaming a type or removing an input affects every block that uses it, and renaming a saved block breaks every reference to it (`NOT_FOUND`).
 
 This page covers renaming safely, and bringing in content from a site built on Deco's earlier framework, where type names were file paths such as `site/sections/Product.tsx`. Moving source files is free; only names matter.
 
@@ -41,7 +41,7 @@ export default {
 } satisfies Blocks;
 ```
 
-`deco schema` rejects an alias that collides with an entry name.
+`deco schema` rejects an alias that collides with a saved block's name.
 
 ## Loaders and actions from the apps
 

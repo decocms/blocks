@@ -50,9 +50,9 @@ experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
 // e.g. { newCheckout: false, stickyHeader: true, freeShippingBanner: false }
 ```
 
-The split is hardcoded at the call site. Ramping the new checkout from 10% to 25% means a developer editing code. In this guide you'll move those numbers into content: a JSON file that you, an AI agent, or an editor in Deco Studio can change, while the function stays exactly as it is. It runs in plain Node, with no framework.
+The split is hardcoded at the call site, so ramping the new checkout from 10% to 25% means a code change. In this guide you'll move those numbers into a JSON file and leave the function exactly as it is (why: [How it works](/next/how-it-works)). Everything here runs in plain Node, with no framework.
 
-This function doesn't render anything; it returns flags. A block function can just as well return JSX, and [Blocks](/next/blocks) shows how.
+This function doesn't render anything; it returns flags. A block function can just as well return JSX; see [Rendering](/next/rendering).
 
 **Prerequisites:**
 
@@ -80,13 +80,13 @@ export default { experiments } satisfies Blocks;
 
 ## 2. Give editors a form
 
-The CLI reads the map and turns the `Experiments` type into a JSON Schema. The JSDoc tags shape the form: `@title` becomes the field's label, and `@minimum`/`@maximum` its allowed range. [Schema generation](/next/schema) lists every tag.
+The CLI reads the map and turns the `Experiments` type into a JSON Schema. The JSDoc tags shape the form: `@title` becomes the field's label, and `@minimum`/`@maximum` its allowed range. [Schema](/next/schema) lists every tag.
 
 ```bash
 npx @decocms/blocks schema
 ```
 
-It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in `src/` (`--entry` points it at any other file; see [Schema generation](/next/schema)), and writes `.deco/schema.json`. Commit the file. Studio builds its form from this file alone, showing each experiment as a number field clamped to 0–100; it never runs your code (see [Studio and the content protocol](/next/content-protocol)). The same schema describes the content you or an agent write by hand.
+It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in `src/` (or the file `--entry` names; see [CLI](/next/cli)), and writes `.deco/schema.json`. Commit the file. Studio builds its form from it, showing each experiment as a number field clamped to 0–100.
 
 ## 3. Add content
 
@@ -111,19 +111,19 @@ Both routes produce the same file in `.deco/blocks`, which is where the CLI look
 experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
 ```
 
-The file is a saved entry: one named piece of content that code, or other content, can refer to. Its file name without `.json` is its name (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). `__resolveType` is a reserved key (the underscores keep it from clashing with your fields) that names the function to call by its block type. The other keys are that function's inputs.
+The file is a [saved block](/next/blocks#reusing-blocks), a block stored under a name: its file name without `.json`. `__resolveType` is a reserved key that names the function to call by its block type. The other keys are that function's inputs.
 
-Two names are in play, on purpose: `experiments` is the block type and names a function, and `Experiments` is the entry name and names this one piece of saved content. You could save several entries that call `experiments`, such as `HolidayExperiments`. Names are case-sensitive, so they don't clash.
+Two names are in play, on purpose: `experiments` is the block type and names a function, and `Experiments` is the saved block's name and names this one piece of saved content. You could save several blocks that call `experiments`, such as `HolidayExperiments`. Names are case-sensitive, so they don't clash.
 
 ## 4. Generate the content module
 
-The SDK never reads files itself, so it runs the same way in any JavaScript runtime. Instead, the CLI turns your content files into a module your app imports, the **content module**:
+The CLI turns your content files into a module your app imports, the **content module** ([why](/next/blocks#the-deco-content-command)):
 
 ```bash
 npx @decocms/blocks content
 ```
 
-It writes `.deco/blocks.gen.ts`, which imports each JSON file in `.deco/blocks` separately and exports a **snapshot**, `{ revision, blocks }`: one fixed copy of all your saved entries, plus its revision, an ID the CLI computes from their contents. The file is generated, so add it to `.gitignore`, as you would TanStack Router's `routeTree.gen.ts`. For this guide, running `npx @decocms/blocks content` once is enough. Rerun it when you add or remove a file in `.deco/blocks`; editing an existing file needs no rerun. In an app with dev and build scripts, add the two commands to `package.json` so they run first (see [The `deco content` command](/next/blocks#the-deco-content-command)):
+It writes `.deco/blocks.gen.ts`. It's generated, so add it to `.gitignore`. To run it automatically, add both commands to `package.json` ([when to rerun](/next/blocks#the-deco-content-command)):
 
 ```json
 "predev": "deco schema && deco content",
@@ -142,9 +142,9 @@ import blocks from "./blocks";
 export const cms = createCMS({ blocks, content });
 ```
 
-Then ask it for a client, the object you read content with. `forRelease()` returns a client over the content your app serves to visitors, the release: here, what's in the content module. Its sibling `forDraft()` reads a draft from a content source that has drafts; the content module has none, so you won't need it here. Make one client per request: a client reads one consistent version of the content for its whole life.
+Then ask it for a client, the object you read content with. `forRelease()` returns a client over the content your app serves to visitors, the release: here, what's in the content module. Its sibling `forDraft()` reads a draft from a content source that has drafts; the content module has none, so you won't need it here. Make one client per request: a client reads one consistent version of the content for its whole life ([why](/next/releases-and-deployment#one-revision-per-response)).
 
-Fetch the entry by name. The client runs `experiments` on the saved inputs, so you get the same value as calling `experiments()` yourself. An entry name is a string, so TypeScript can't infer the result type from it; pass the type you expect, and it's checked at compile time, not at runtime:
+Fetch the saved block by name. The client runs `experiments` on the saved inputs, so you get the same value as calling `experiments()` yourself. A name is a string, so TypeScript can't infer the result type from it; pass the type you expect, and it's checked at compile time, not at runtime:
 
 ```ts title="checkout.ts"
 import { cms } from "./cms";
@@ -158,18 +158,18 @@ console.log(flags);
 // (newCheckout is true about 10% of the time)
 ```
 
-Every call returns a `[value, error]` tuple, so a missing entry or a failing function never throws. The error names what went wrong, for example `NOT_FOUND`. [Troubleshooting](/next/troubleshooting) lists every code.
+Every call returns a `[value, error]` tuple, so a missing block or a failing function never throws. The error names what went wrong, for example `NOT_FOUND`. [Troubleshooting](/next/troubleshooting) lists every code.
 
-Run it with `npx tsx checkout.ts`. Now open `.deco/blocks/Experiments.json`, change `newCheckout` to `100`, and run it again (no need to rerun `deco content`: only adding or removing a file needs that): `newCheckout` is `true` every time. You changed what the code does without touching the code.
+Run it with `npx tsx checkout.ts`. Now open `.deco/blocks/Experiments.json`, change `newCheckout` to `100`, and run it again: `newCheckout` is `true` every time. You changed what the code does without touching the code.
 
-The function didn't change, but its inputs now live in a file that editors change through a form and agents change directly, and every change ends up as a commit. A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Block maps](/next/block-maps)).
+A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Block maps](/next/block-maps)).
 
-<Hosted to="/next/hosted" label="What the hosted Deco CMS adds">**Change the numbers without a deploy.** With the hosted Deco CMS, editors change the same `Experiments.json` in Studio on GitHub, with no checkout, and running servers pick up the published change within about a minute, with no rebuild.</Hosted>
+<Hosted to="/next/hosted" label="What the hosted Deco CMS adds">**Change the numbers without a deploy.** With the hosted Deco CMS, editors change `Experiments.json` in Studio on GitHub, and running servers pick it up in about a minute.</Hosted>
 
 ## Next steps
 
 - [Blocks](/next/blocks): blocks as function calls in JSON, how they compose and get reused, and how saved blocks live in your repository and go live.
-- [Schema generation](/next/schema): how your types become editor forms, and the JSDoc tags that shape them.
+- [Schema](/next/schema): how your types become editor forms, and the JSDoc tags that shape them.
 - [Preview](/next/preview): see a content change in your real pages before it ships.
 - [Block maps](/next/block-maps), when you need more: lazy loading and naming types.
 - [Matchers and variants](/next/matchers-and-variants): let content pick different values per visitor, date or experiment.

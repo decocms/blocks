@@ -11,23 +11,21 @@ Your block functions and your content ship together. Both live in your repositor
 
 | Step | What happens |
 |---|---|
-| Commit | A developer, an agent, or an editor in Studio changes a function, an entry, or both. Review them in one pull request like any other change. |
-| Build | `prebuild` runs `deco schema && deco content`. `deco content` turns `.deco/blocks` into the content module, `.deco/blocks.gen.ts`, which the app imports and the bundler includes like any other module. |
+| Commit | A developer, an agent, or an editor in Studio changes a function, a saved block, or both. Review them in one pull request like any other change. |
+| Build | `prebuild` runs `deco schema && deco content`, which bundles `.deco/blocks` into the build as the [content module](/next/blocks#the-deco-content-command). |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 
-A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any entry and you get a new revision. That makes a revision a safe cache key everywhere.
+A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any saved block and you get a new revision. That makes a revision a safe cache key everywhere.
 
 <h2 id="publishing">Publishing is committing</h2>
 
-There's no separate publish step. A developer or an agent edits the entry files in `.deco/blocks` and pushes; an editor saves in Studio, which writes the files in your checkout (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)), and the change is committed like any other. Once it's on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
+There's no separate publish step: once a change to `.deco/blocks` is on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
 
 Because content and code share one history, a deploy and a content change are the same kind of event: a commit. That gives you, for free:
 
 - **Review.** A content change is a diff in a pull request, next to the code it needs.
 - **Branches.** A content change can wait on a branch, with its own preview deploy, until it's ready (see [Preview](/next/preview)).
-- **Rollback.** Redeploy the previous build: its content and code roll back together, so they always fit. Reverting a single code commit doesn't revert content committed after it, so check that content first (see [Change types safely](/next/schema#change-types-safely)).
-
-A commit's content must only use block types and fields its code has; the rules, and a CI workflow that checks code changes against saved content before they merge, are in [Change types safely](/next/schema#change-types-safely).
+- **Rollback.** Redeploy the previous build: its content and code roll back together, so they always fit. Reverting a single code commit doesn't revert content committed after it, so check that content first; the rules and a CI check are in [Change types safely](/next/schema#change-types-safely).
 
 <Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a release within seconds, and running servers pick it up within about a minute, with no rebuild.</Hosted>
 
