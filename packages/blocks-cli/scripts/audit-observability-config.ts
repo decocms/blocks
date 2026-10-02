@@ -4,7 +4,7 @@
  *
  * Read-only auditor for a site's `wrangler.jsonc`. Detects drift away
  * from the canonical Cloudflare-native observability block documented
- * in `docs/observability.md`. CI-friendly: exits 0 on a clean audit, 1
+ * in `notes/observability.md`. CI-friendly: exits 0 on a clean audit, 1
  * on findings.
  *
  * This is the **detect** half of D3 ("audit is the safety net"). The
@@ -19,7 +19,7 @@
  *   observability_disabled               error   `observability.enabled: false`. Master switch off.
  *   traces_disabled                      warn    `observability.traces.enabled: false`. No traces in dashboard.
  *   logs_disabled                        warn    `observability.logs.enabled: false`. No logs in dashboard.
- *   head_sampling_rate_elevated          error   `traces.head_sampling_rate > 0.01`. Fleet-scale cost risk; see docs/observability.md.
+ *   head_sampling_rate_elevated          error   `traces.head_sampling_rate > 0.01`. Fleet-scale cost risk; see notes/observability.md.
  *   logs_head_sampling_rate_low          warn    `logs.head_sampling_rate < 1`. Sampling info/warn logs loses signal cheaply; errors go via the direct-POST channel.
  *   persist_disabled_no_destination      error   `persist: false` with no destination configured. Data captured then discarded.
  *
@@ -213,7 +213,7 @@ export function auditObservabilityBlock(
       severity: "error",
       message:
         `traces.head_sampling_rate is ${tracesRate} (> 0.01). At fleet scale this is a cost trap; ` +
-        `see docs/observability.md → Sampling. If this is intentional and time-bounded (incident, ` +
+        `see notes/observability.md → Sampling. If this is intentional and time-bounded (incident, ` +
         `release window), leave a comment in wrangler.jsonc explaining why, then revert.`,
       fix: "npx -p @decocms/start deco-cf-observability --write --traces-rate 0.01",
     });
@@ -375,7 +375,7 @@ export function auditFleetBindings(wrangler: WranglerLike): Finding[] {
         message:
           `wrangler.jsonc \`vars.${name}\` is not set. ${channel} is a no-op; ` +
           `data captured in this channel never lands in ClickHouse. ` +
-          `See docs/observability.md for the canonical endpoints.`,
+          `See notes/observability.md for the canonical endpoints.`,
         fix: "npx -p @decocms/start deco-cf-observability --write",
       });
     }

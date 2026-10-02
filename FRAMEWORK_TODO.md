@@ -22,7 +22,7 @@ Issues and feature gaps discovered during real site migration work. Trimmed duri
 
 ### `useScript(fn)` hydration mismatch warning — still present
 - `useScript` calls `fn.toString()`, which produces different output in SSR vs. client builds (minification, variable renaming). The `[useScript] Using fn.toString() for "..."` warning still fires in real dev sessions (confirmed live in production storefront dev logs during the Next.js/split-package migration work).
-- **Ideal**: ship `inlineScript(str)` accepting a plain string constant, or make `useScript` stable across builds. See also `docs/next-steps-tanstack-native.md`'s proposal #2, which covers the same gap in more detail — don't build both independently.
+- **Ideal**: ship `inlineScript(str)` accepting a plain string constant, or make `useScript` stable across builds. See also `notes/next-steps-tanstack-native.md`'s proposal #2, which covers the same gap in more detail — don't build both independently.
 
 ### Route files are still boilerplate
 - `__root.tsx`, `index.tsx`, `$.tsx`, `deco/meta.ts`, `deco/invoke.$.ts`, `deco/render.ts` are scaffolded identically per site by the migration script.
@@ -74,7 +74,7 @@ Issues and feature gaps discovered during real site migration work. Trimmed duri
 
 ## Fast Deploy (KV-first content) — cross-repo follow-ups
 
-Framework + CI scripts for fast-deploy landed in this repo (see [`docs/fast-deploy.md`](./docs/fast-deploy.md)). Remaining work lives in **other** repos:
+Framework + CI scripts for fast-deploy landed in this repo (see [`notes/fast-deploy.md`](./notes/fast-deploy.md)). Remaining work lives in **other** repos:
 
 - **admin.deco.cx (Studio)**: publish a delta envelope to `/.decofile` + call `/_cache/purge`; gate on a per-site `fast_deploy_enabled` capability; dispatch the deco-sync-bot commit off the critical path.
 - **Site CI**: provision a KV namespace + `DECO_KV` binding; add a `sync-content-to-kv.yml` workflow; gate `deploy.yml` to code-only changes.

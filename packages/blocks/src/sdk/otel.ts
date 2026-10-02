@@ -27,7 +27,7 @@
  *
  * Required `wrangler.jsonc` block (run `scripts/migrate-to-cf-observability.ts`
  * to inject this automatically). Sampling defaults follow the fleet-scale cost
- * model documented in `docs/observability.md`:
+ * model documented in `notes/observability.md`:
  * ```jsonc
  * "observability": {
  *   "enabled": true,
@@ -934,7 +934,7 @@ export function bootObservability(opts: OtelOptions, env: Record<string, unknown
   // The two emitters are NOT redundant — AE keeps per-request per-path
   // dimensions; OTLP carries the same metric names at coarser cardinality
   // and survives outside the CF dashboard. Cost model in
-  // `docs/observability.md` accounts for both.
+  // `notes/observability.md` accounts for both.
   const aeBindingName = opts.analyticsEngineBindingName ?? "DECO_METRICS";
   const aeEnabled = opts.analyticsEngineEnabled !== false && Boolean(env[aeBindingName]);
   const aeAdapter = aeEnabled

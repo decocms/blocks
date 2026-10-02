@@ -21,15 +21,15 @@ description: LEGACY. Discover optimal autoscaling parameters for a Deno/Fresh De
 > stack that plays the role this skill's methodology (find the CPU/
 > concurrency inflection point, pick a scaling target) was built for — the
 > closest current concern, per-request CPU/memory limit exhaustion, is a
-> capacity/correctness problem handled via `docs/observability.md`'s
+> capacity/correctness problem handled via `notes/observability.md`'s
 > tail-worker error-capture path (`exceededCpu`/`exceededMemory` outcomes),
 > not a scaling-parameter tuning problem.
 >
 > If you're looking at a current `@decocms/tanstack` or `@decocms/nextjs`
 > site and traffic/latency/cost seems off, this skill's `kubectl`/Prometheus
 > commands will simply fail (no cluster, no namespace, no Knative CRDs) —
-> that is expected. Use `docs/observability.md` and
-> `docs/tail-worker-recipe.md` instead. Only use this skill if you are
+> that is expected. Use `notes/observability.md` and
+> `notes/tail-worker-recipe.md` instead. Only use this skill if you are
 > specifically debugging one of the remaining Deno/Kubernetes-hosted Deco
 > sites outside this package split.
 

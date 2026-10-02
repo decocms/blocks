@@ -154,7 +154,7 @@ createAdminSetup({ meta: () => Promise.resolve({}), css: "" });
 setupTanstackFastDeploy();
 ```
 
-Add `decoVitePlugin()` to Vite and mount `cmsRouteConfig()` in the catch-all route. See the working [`tanstack-smoke`](./examples/tanstack-smoke) application and the [fast deploy guide](./docs/fast-deploy.md) for production wiring.
+Add `decoVitePlugin()` to Vite and mount `cmsRouteConfig()` in the catch-all route. See the working [`tanstack-smoke`](./examples/tanstack-smoke) application and the [fast deploy guide](./notes/fast-deploy.md) for production wiring.
 
 ### Next.js App Router
 
@@ -250,14 +250,14 @@ New contributors are always welcome—start with an [open issue](https://github.
 
 | Topic | Guide |
 | --- | --- |
-| Fast deploy and KV-backed content | [`docs/fast-deploy.md`](./docs/fast-deploy.md) |
-| Observability | [`docs/observability.md`](./docs/observability.md) |
-| Troubleshooting | [`docs/troubleshooting.md`](./docs/troubleshooting.md) |
-| Operations runbooks | [`docs/runbooks`](./docs/runbooks) |
-| Deco filesystem contract | [`docs/deco-fs-contract.md`](./docs/deco-fs-contract.md) |
-| Hydration and SSR migration | [`docs/hydration-and-ssr-migration.md`](./docs/hydration-and-ssr-migration.md) |
-| Known gaps | [`docs/known-gaps.md`](./docs/known-gaps.md) |
-| Storefront implementation skills | [`docs/skills`](./docs/skills) |
+| Fast deploy and KV-backed content | [`notes/fast-deploy.md`](./notes/fast-deploy.md) |
+| Observability | [`notes/observability.md`](./notes/observability.md) |
+| Troubleshooting | [`notes/troubleshooting.md`](./notes/troubleshooting.md) |
+| Operations runbooks | [`notes/runbooks`](./notes/runbooks) |
+| Deco filesystem contract | [`notes/deco-fs-contract.md`](./notes/deco-fs-contract.md) |
+| Hydration and SSR migration | [`notes/hydration-and-ssr-migration.md`](./notes/hydration-and-ssr-migration.md) |
+| Known gaps | [`notes/known-gaps.md`](./notes/known-gaps.md) |
+| Storefront implementation skills | [`notes/skills`](./notes/skills) |
 
 ## License
 

@@ -22,7 +22,7 @@ From `GAP_ANALYSIS.md` (v1), items not covered by V2's later pass and not indepe
 | Gap | Notes |
 |---|---|
 | Early Hints (103) | No resource-preloading hints today. |
-| Full OTel SDK auto-instrumentation | Current observability is a pluggable-tracer-adapter model (see `docs/observability.md`), not full OTel auto-instrumentation. |
+| Full OTel SDK auto-instrumentation | Current observability is a pluggable-tracer-adapter model (see `notes/observability.md`), not full OTel auto-instrumentation. |
 | OTel metrics (histograms) | No cache hit/miss or latency histograms today. |
 | `ReleaseResolver` (lazy/deferred resolution, `runOnce`) | Not ported. |
 | Resolve-chain tracing (which block called which) | Not ported. |

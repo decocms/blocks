@@ -3,7 +3,7 @@
  *
  * Errors are too important to leave to head sampling. When CF Destinations'
  * `logs.head_sampling_rate` drops below 1.0 (the cost model in
- * `docs/observability.md` lowers it to `0.01` once this channel lands),
+ * `notes/observability.md` lowers it to `0.01` once this channel lands),
  * a 1%-sampled log pipe would lose 99 of every 100 errors emitted by
  * `logger.error(...)`. Sites lose the one signal they care about most.
  *

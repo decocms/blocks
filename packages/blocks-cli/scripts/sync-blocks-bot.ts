@@ -11,7 +11,7 @@
  * live site (`GET <origin>/.decofile`, public and unauthenticated) on a daily
  * cron, materialises one file per block, and opens a PR. No cross-repo token,
  * no write permission handed to anyone, and the content passes a build gate
- * before reaching `main`. See `docs/sync-blocks-bot.md`.
+ * before reaching `main`. See `notes/sync-blocks-bot.md`.
  *
  * Three filters decide what may be overwritten:
  *   1. `--deny <globs>`      — deny by block key (default: the `Site` block).

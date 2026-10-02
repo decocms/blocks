@@ -4,7 +4,7 @@
 > (a production VTEX site) has completed a 7-day soak with no false negatives
 > in tail capture and no infrastructure cost shock from the tail-handler
 > invocations. See [D-8 in `MIGRATION_TOOLING_PLAN.md`](../MIGRATION_TOOLING_PLAN.md)
-> for the decision record and [`docs/observability.md`](./observability.md)
+> for the decision record and [`notes/observability.md`](./observability.md)
 > for the architecture.
 
 This is the mechanical recipe for opting any deco storefront worker into
@@ -66,7 +66,7 @@ Inside the existing `observability.logs` block:
 "observability": {
   "logs": {
     // ...other settings...
-    "head_sampling_rate": 0.01,   // was 1 — see docs/observability.md
+    "head_sampling_rate": 0.01,   // was 1 — see notes/observability.md
   }
 }
 ```
@@ -97,7 +97,7 @@ feat(observability): adopt deco-otel-tail + drop logs sampling to 1%
   errors are covered by the direct-POST + tail channels.
 
 Implements Strategy B (D-8) for this site. See
-decocms/blocks/docs/observability.md, "Error capture — three-channel
+decocms/blocks/notes/observability.md, "Error capture — three-channel
 model" for the coverage matrix.
 ```
 

@@ -21,7 +21,7 @@
  * Inert until the operator sets the repo variable `SYNC_BLOCKS_ORIGIN` (same
  * one-knob pattern as parity.yml's `PARITY_PROD_URL`) — the job skips cleanly.
  *
- * Docs: docs/sync-blocks-bot.md
+ * Docs: notes/sync-blocks-bot.md
  *
  * @param bunVersion  Pinned bun version, in lockstep with package.json.
  * @param cliVersion  Optional `@decocms/blocks-cli` version to run the pull
@@ -55,7 +55,7 @@ export function generateSyncBlocksBotYml(bunVersion: string, cliVersion?: string
 # Para revisão humana em vez de merge automático, mude \`AUTO_MERGE\` para "false".
 #
 # Depois de ligar isto, APAGUE o workflow de push no repo legado e REVOGUE o
-# token cross-repo — o pull não fecha aquela porta sozinho. Ver docs/sync-blocks-bot.md.
+# token cross-repo — o pull não fecha aquela porta sozinho. Ver notes/sync-blocks-bot.md.
 
 on:
   schedule:

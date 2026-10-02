@@ -17,7 +17,7 @@ TanStack Start requires Node >= 22.12, see `engines` in `package.json`). Don't r
 
 | Command | What it does |
 |---|---|
-| `bun install` | Install (in `site/`). |
+| `bun install` | Install (in `docs/`). |
 | `bun run dev` | Dev server with HMR on http://localhost:3000 (server-rendered, like production). |
 | `bun run build` | `vite build` (client + server bundles, then prerender of every page into `dist/client/`), then `scripts/postbuild.ts`: `404.html`, link check, Pagefind index. |
 | `bun run preview` | Serves `dist/client/` the way GitHub Pages does (http://localhost:4173): `/x` → `x.html`, `/x/` → `x/index.html`, a directory without its slash redirects (301). |
@@ -39,7 +39,7 @@ not the styles or scripts, since asset URLs are root-relative; use `bun run prev
 ## Layout
 
 ```
-site/
+docs/
 ├── content/                  MDX pages, one folder per docs version
 │   ├── v7/*.mdx              the current release (/v7/…); index.mdx is /v7/
 │   └── next/*.mdx            the next major (served at /next/<file name>; /next/ is its home)

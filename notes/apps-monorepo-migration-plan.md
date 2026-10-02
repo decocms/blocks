@@ -8,7 +8,7 @@
 
 **Tech Stack:** Same as the rest of the monorepo — Bun workspaces, TypeScript, Vitest, plain `.ts`/`.tsx` source exports (no bundling), the existing `v7` semantic-release/OIDC pipeline (already fully dynamic via `packages/*` globs — verified in Task 1, no root config changes needed).
 
-**Source design doc:** `docs/apps-monorepo-migration-design.md` (this plan implements it — read it first for the *why* behind each decision below).
+**Source design doc:** `notes/apps-monorepo-migration-design.md` (this plan implements it — read it first for the *why* behind each decision below).
 
 ## Global Constraints
 
@@ -113,7 +113,7 @@ Compare against `/tmp/apps-start-migrate/registry.ts`'s doc comment (references 
 #!/usr/bin/env node
 // scripts/migrate-apps-import.mjs
 // Rewrites @decocms/start/* imports to the correct new package per the
-// proven mapping in docs/apps-monorepo-migration-plan.md's Global
+// proven mapping in notes/apps-monorepo-migration-plan.md's Global
 // Constraints. Usage: node scripts/migrate-apps-import.mjs <dir>
 import { readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
@@ -1284,7 +1284,7 @@ Add a notice at the very top of `README.md` (above the existing first heading):
 > on those instead. The `@decocms/apps` package on npm keeps working for
 > existing consumers — it is not unpublished or deprecated on npm, only this
 > repo's active development has stopped. See
-> https://github.com/decocms/blocks/blob/v7/docs/apps-monorepo-migration-design.md
+> https://github.com/decocms/blocks/blob/v7/notes/apps-monorepo-migration-design.md
 > for the full rationale.
 
 ```

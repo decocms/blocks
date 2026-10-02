@@ -74,7 +74,7 @@ process slowly accumulating garbage.
 
 1. **`exceededMemory` / `exceededCpu` outcomes**, captured 100% by the tail
    worker (`deco-otel-tail`) and landing in ClickHouse `otel_logs` with
-   `Attributes['_source'] = 'tail-worker'`. See `docs/observability.md`,
+   `Attributes['_source'] = 'tail-worker'`. See `notes/observability.md`,
    "Error capture — three-channel model".
 
    ```sql
@@ -91,7 +91,7 @@ process slowly accumulating garbage.
    ```
 
    Requires the site to have adopted the tail worker per
-   `docs/tail-worker-recipe.md` (check `tail_consumers` in the site's
+   `notes/tail-worker-recipe.md` (check `tail_consumers` in the site's
    `wrangler.jsonc` first). If it hasn't, this query returns nothing —
    either onboard the recipe or fall back to the Cloudflare dashboard's
    own per-Worker Metrics panel, which shows exceeded-limit invocation

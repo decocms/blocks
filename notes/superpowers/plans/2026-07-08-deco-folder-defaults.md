@@ -16,7 +16,7 @@
 - Explicit flags always win, no warning when a flag is passed.
 - Existing tests must stay green; add coverage for the flipped default + the warning where the script already has a test harness (generate-sections.test.ts / generate-schema tests); don't build new harnesses for scripts without one (generate-blocks has generate-blocks.test.ts — check what it covers).
 - `.deco/` may not exist in a fresh site — every flipped script must `mkdirSync(dirname(outFile), { recursive: true })` (some already do; verify each).
-- Do NOT edit `docs/superpowers/plans/2026-07-08-nextjs-glue-tier.md` (historical record).
+- Do NOT edit `notes/superpowers/plans/2026-07-08-nextjs-glue-tier.md` (historical record).
 - Monorepo gates per task: `bun run --filter='./packages/blocks-cli' test` + `typecheck`.
 - Site gates: tanstack sites' known pre-existing typecheck baselines (~32/41/42 errors) must not grow; dev-boot smoke: `/` 200 + `/live/_meta` 200; the Next.js site: tsc clean, deco jest suites, `/.decofile` + `/live/_meta` 200.
 - No `git clean`; never delete untracked files beyond explicit moves.
@@ -43,7 +43,7 @@
 
 ### Task 2: deco-start skills + remaining docs
 
-**Files:** every hit of `grep -rln "src/server/cms\|src/server/admin" .agents docs --include="*.md"` EXCEPT the two historical plan files under docs/superpowers/plans/. Known: `.agents/skills/deco-to-tanstack-migration/references/{search.md,platform-hooks-factories.md,platform-hooks/README.md,server-functions/README.md}`, `.agents/skills/deco-migrate-script/SKILL.md`.
+**Files:** every hit of `grep -rln "src/server/cms\|src/server/admin" .agents docs --include="*.md"` EXCEPT the two historical plan files under notes/superpowers/plans/. Known: `.agents/skills/deco-to-tanstack-migration/references/{search.md,platform-hooks-factories.md,platform-hooks/README.md,server-functions/README.md}`, `.agents/skills/deco-migrate-script/SKILL.md`.
 
 **Steps:**
 - [ ] For each file: update artifact paths to `.deco/…` where they refer to generate-blocks/loaders/sections/schema outputs; `src/server/invoke.gen.ts` references stay (unchanged default) — read surrounding context, don't blind-replace.

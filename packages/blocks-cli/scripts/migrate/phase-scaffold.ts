@@ -298,7 +298,7 @@ export function generateWranglerConfig(ctx: MigrationContext): string {
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   // Tail worker. The ONLY channel that can see exceededMemory / exceededCpu:
   // Cloudflare kills the isolate before any in-worker code could report them.
-  // Without this a memory incident is invisible — see docs/runbooks/.
+  // Without this a memory incident is invisible — see notes/runbooks/.
   "tail_consumers": [{ "service": "deco-otel-tail" }],
   "kv_namespaces": [
     // Fast Deploy content store. Holds decofile:<deployment-id> + the revision

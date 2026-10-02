@@ -12,9 +12,9 @@ conventions for pages and components, are in [`ARCHITECTURE.md`](./ARCHITECTURE.
 
 ## Build and preview
 
-`site/` is a standalone Bun package (its own `package.json` and `bun.lock`, not a workspace of
+`docs/` is a standalone Bun package (its own `package.json` and `bun.lock`, not a workspace of
 the monorepo). It needs Bun 1.3.5 and Node 22.12 or newer: Bun installs and runs the scripts,
-and `vite build` runs under Node. From `site/`:
+and `vite build` runs under Node. From `docs/`:
 
 ```sh
 bun install
@@ -32,8 +32,8 @@ bun run preview   # serve dist/client/ the way GitHub Pages does, on http://loca
   root-relative.
 
 CI (`.github/workflows/pages.yml`) checks and builds the site on every pull request that touches
-`site/` and uploads `dist/client/` as the `docs-site` workflow artifact (built for `/`; serve it
-with any static server that maps `/x` to `x.html`). Pushes to `main` that touch `site/`, and
+`docs/` and uploads `dist/client/` as the `docs-site` workflow artifact (built for `/`; serve it
+with any static server that maps `/x` to `x.html`). Pushes to `main` that touch `docs/`, and
 manual runs of the workflow on `main`, build it for `/blocks/` and deploy it to GitHub Pages once
 Pages is enabled with "GitHub Actions" as its source (Settings › Pages); until then the deploy job
 fails and nothing else depends on it.
