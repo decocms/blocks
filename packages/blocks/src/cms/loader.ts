@@ -86,6 +86,8 @@ function computeRevision(blocks: Record<string, unknown>): string {
  * Notifies all onChange listeners and updates the revision.
  */
 export function setBlocks(blocks: Record<string, unknown>) {
+  // A caller may hand back the same object after mutating it in place.
+  pageIndexCache.delete(blocks);
   blockData = blocks;
   revision = computeRevision(blocks);
 
@@ -312,13 +314,35 @@ function isPageBlock(key: string, block: unknown): boolean {
   );
 }
 
-export function getAllPages(): Array<{ key: string; page: DecoPage }> {
-  const blocks = loadBlocks();
-  const pages: Array<{
-    key: string;
-    page: DecoPage;
-    key2: [number, number, number];
-  }> = [];
+type PageIndexEntry = {
+  key: string;
+  page: DecoPage;
+  path: string;
+  /** `path` has no URLPattern syntax, so it only matches its own spelling. */
+  literal: boolean;
+  /** Compiled on first use; `null` when the pattern is malformed. */
+  matcher?: CompiledPattern | null;
+};
+
+/**
+ * Page list per blocks object, ranked by path specificity.
+ *
+ * `findPageByPath` runs on every CMS resolve — twice per request on a site
+ * that retries a lowercase path, and once more per template it resolves — and
+ * a request that ends on no CMS page (a catalog PLP/PDP, a search, a 404) walks
+ * the whole list. Rebuilding and sorting the list and compiling a URLPattern
+ * per page on each call made that walk the hottest frame of an uncached render
+ * on a 1.2k-page decofile. Keyed by the blocks object: `setBlocks()` and every
+ * draft/override composition produce a new one, so a published change can
+ * never be served from a stale index. Kept on `globalThis`, like the blocks
+ * themselves, so every module instance drops the same entry on `setBlocks()`.
+ * The compiled matchers live on the entries and go away with them.
+ */
+const pageIndexCache: WeakMap<Record<string, unknown>, PageIndexEntry[]> =
+  G.__deco.pageIndexCache ?? (G.__deco.pageIndexCache = new WeakMap());
+
+function buildPageIndex(blocks: Record<string, unknown>): PageIndexEntry[] {
+  const pages: Array<PageIndexEntry & { key2: [number, number, number] }> = [];
 
   for (const [key, block] of Object.entries(blocks)) {
     if (!isPageBlock(key, block)) continue;
@@ -326,7 +350,13 @@ export function getAllPages(): Array<{ key: string; page: DecoPage }> {
     if (!page.sections) continue;
     if (!page.path) continue;
 
-    pages.push({ key, page, key2: pathSpecificityKey(page.path) });
+    pages.push({
+      key,
+      page,
+      path: page.path,
+      literal: isPlainPath(page.path),
+      key2: pathSpecificityKey(page.path),
+    });
   }
 
   return pages
@@ -336,7 +366,21 @@ export function getAllPages(): Array<{ key: string; page: DecoPage }> {
       }
       return 0;
     })
-    .map(({ key, page }) => ({ key, page }));
+    .map(({ key, page, path, literal }) => ({ key, page, path, literal }));
+}
+
+function getPageIndex(): PageIndexEntry[] {
+  const blocks = loadBlocks();
+  let index = pageIndexCache.get(blocks);
+  if (!index) {
+    index = buildPageIndex(blocks);
+    pageIndexCache.set(blocks, index);
+  }
+  return index;
+}
+
+export function getAllPages(): Array<{ key: string; page: DecoPage }> {
+  return getPageIndex().map(({ key, page }) => ({ key, page }));
 }
 
 // Module-scoped (NOT `declare global`) ambient declaration for the
@@ -366,6 +410,84 @@ declare const URLPattern: {
   };
 };
 
+type CompiledPattern = {
+  exec(input: { pathname: string }): MatchPatternResult | null;
+};
+
+function compilePattern(pattern: string): CompiledPattern | null {
+  try {
+    return new URLPattern({ pathname: pattern });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compiled patterns for direct `matchPath()` callers, bounded: unlike the page
+ * index, its patterns can come from anywhere. Oldest entry evicted first.
+ */
+const MATCH_PATH_CACHE_MAX = 256;
+const matchPathCache = new Map<string, CompiledPattern | null>();
+
+function cachedPattern(pattern: string): CompiledPattern | null {
+  const hit = matchPathCache.get(pattern);
+  if (hit !== undefined) return hit;
+  const compiled = compilePattern(pattern);
+  if (matchPathCache.size >= MATCH_PATH_CACHE_MAX) {
+    matchPathCache.delete(matchPathCache.keys().next().value as string);
+  }
+  matchPathCache.set(pattern, compiled);
+  return compiled;
+}
+
+function execPattern(
+  compiled: CompiledPattern | null,
+  urlPath: string,
+): Record<string, string> | null {
+  if (!compiled) return null;
+  let result: MatchPatternResult | null;
+  try {
+    result = compiled.exec({ pathname: urlPath });
+  } catch {
+    return null;
+  }
+  if (!result) return null;
+
+  const groups = result.pathname.groups as Record<string, string | undefined>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(groups)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Characters that are literal both in URLPattern syntax and in URL path
+ * canonicalization. A pattern made only of them matches exactly its own
+ * spelling, and an input made only of them is already canonical — so for that
+ * pair a string comparison gives the same answer as `URLPattern.exec`. Anything
+ * else (`:param`, groups, `*`, `%`-escapes, non-ASCII, dot segments) takes the
+ * URLPattern path.
+ */
+const PLAIN_PATH = /^[A-Za-z0-9\-._~/]*$/;
+const DOT_SEGMENT = /(^|\/)\.{1,2}(\/|$)/;
+
+function isPlainPath(path: string): boolean {
+  return PLAIN_PATH.test(path) && !DOT_SEGMENT.test(path);
+}
+
+function assertURLPattern() {
+  if (typeof URLPattern === "undefined") {
+    throw new Error(
+      "@decocms/blocks: this runtime has no URLPattern Web API, so CMS page " +
+        "paths cannot be matched. URLPattern is native in browsers, " +
+        "Cloudflare workerd, Deno, and Node.js >= 24 — you are most likely " +
+        "running Node <= 22. Upgrade the runtime to Node 24+ (see this " +
+        'package\'s "engines" field).',
+    );
+  }
+}
+
 /**
  * Match a CMS page path pattern against a URL path.
  *
@@ -390,29 +512,8 @@ export function matchPath(
   pattern: string,
   urlPath: string,
 ): Record<string, string> | null {
-  if (typeof URLPattern === "undefined") {
-    throw new Error(
-      "@decocms/blocks: this runtime has no URLPattern Web API, so CMS page " +
-        "paths cannot be matched. URLPattern is native in browsers, " +
-        "Cloudflare workerd, Deno, and Node.js >= 24 — you are most likely " +
-        "running Node <= 22. Upgrade the runtime to Node 24+ (see this " +
-        'package\'s "engines" field).',
-    );
-  }
-  let result: MatchPatternResult | null;
-  try {
-    result = new URLPattern({ pathname: pattern }).exec({ pathname: urlPath });
-  } catch {
-    return null;
-  }
-  if (!result) return null;
-
-  const groups = result.pathname.groups as Record<string, string | undefined>;
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(groups)) {
-    if (v !== undefined) out[k] = v;
-  }
-  return out;
+  assertURLPattern();
+  return execPattern(cachedPattern(pattern), urlPath);
 }
 
 /**
@@ -443,11 +544,18 @@ export function getSiteSeo(): {
 export function findPageByPath(
   targetPath: string,
 ): { page: DecoPage; params: Record<string, string>; blockKey: string } | null {
-  const allPages = getAllPages();
+  // Same loud failure as matchPath, even when every page is literal.
+  assertURLPattern();
+  const plainTarget = isPlainPath(targetPath);
 
-  for (const { key, page } of allPages) {
-    if (!page.path) continue;
-    const params = matchPath(page.path, targetPath);
+  for (const entry of getPageIndex()) {
+    const { key, page, path, literal } = entry;
+    if (literal && plainTarget) {
+      if (path === targetPath) return { page, params: {}, blockKey: key };
+      continue;
+    }
+    if (entry.matcher === undefined) entry.matcher = compilePattern(path);
+    const params = execPattern(entry.matcher, targetPath);
     if (params !== null) return { page, params, blockKey: key };
   }
 
