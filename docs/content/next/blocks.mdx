@@ -130,7 +130,7 @@ Overrides are shallow. The merge is `{ ...saved, ...arguments }`, so an override
 
 ### The block map
 
-So far, names like `"product-card"` simply worked. They come from your **block map**: the object you pass to [`createCMS`](/next/api-reference#createcmsconfig) that decides which functions blocks can call. Each key is a **block type**, the name a block's `__resolveType` uses; each value is a function:
+So far, names like `"product-card"` simply worked. They come from your **block map**: the object you pass to [`createCMS`](/next/api-reference#createcms-config) that decides which functions blocks can call. Each key is a **block type**, the name a block's `__resolveType` uses; each value is a function:
 
 ```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
