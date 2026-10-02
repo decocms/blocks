@@ -20,7 +20,7 @@ export const iconButton = (onBand = false, display = 'inline-grid') =>
   cx(iconButtonBase, display, onBand ? 'text-white/86 hover:bg-white/10 hover:text-white' : 'text-muted-fg hover:bg-muted hover:text-fg')
 
 /**
- * The four site tabs: in the header (from 768px; 860px on the landing) and in the drawer below that.
+ * The site tabs (Roadmap only on the next major): in the header (from 768px; 860px on the landing) and in the drawer below that.
  * The drawer's nav keeps the `drawer-tabs` class: Menu.tsx focuses its first link.
  */
 export function SiteTabs({ where, label }: { where: 'header' | 'drawer'; label: string }) {
@@ -33,7 +33,8 @@ export function SiteTabs({ where, label }: { where: 'header' | 'drawer'; label: 
     { id: 'home', label: 'Home', to: homeFor(version) },
     { id: 'docs', label: 'Docs', to: docs },
     { id: 'internals', label: 'Under the hood', to: internals },
-    { id: 'roadmap', label: 'Roadmap', to: '/roadmap/' },
+    // The Roadmap is about the next major, so its tab only shows while that version is selected.
+    ...(version === 'next' ? [{ id: 'roadmap' as const, label: 'Roadmap', to: '/roadmap/' }] : []),
   ]
   const navClass =
     where === 'drawer'
