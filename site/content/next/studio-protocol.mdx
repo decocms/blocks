@@ -3,14 +3,14 @@ title: Studio and the content protocol
 nav: Studio & content protocol
 group: Core concepts
 order: 6
-description: What Deco Studio needs from your repository, how it reads and writes your content through the content protocol, and how to edit a local checkout with deco content serve.
+description: What Deco Studio needs from your repository, how it reads and writes your content through the content protocol, and how to edit a local checkout with deco serve.
 ---
 
 # Studio and the content protocol
 
 Studio needs two things from your repository: the schema that `deco schema` writes, and your saved entries in `.deco/blocks`. It never runs your code. Between Studio's editor and wherever those files live sits a small protocol, the **content protocol**, so the same editor can work on the checkout on your machine or, through the hosted Deco CMS, on your GitHub repository.
 
-<Callout>**Status.** The content protocol, its package and `deco content serve` are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-blockers--let-studio-talk-to-a-next-major-site).</Callout>
+<Callout>**Status.** The content protocol, its package and `deco serve` are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-blockers--let-studio-talk-to-a-next-major-site).</Callout>
 
 ## What Studio needs
 
@@ -31,7 +31,7 @@ Two implementations serve the protocol:
 
 | Backend | Edits | Studio checks for changes |
 |---|---|---|
-| **`deco content serve`**, from the Deco Blocks CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
+| **[`deco serve`](/next/schema#edit-local-content-from-studio)**, from the Deco Blocks CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
 | **Studio's GitHub backend**, part of the hosted Deco CMS | Your repository on GitHub, with draft branches and publishing. | About every 30 seconds |
 
 There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins in this version: if two people edit the same entry at once, the later save replaces the earlier one.
@@ -41,29 +41,50 @@ There's no event stream. Studio polls with one batched request, and when nothing
 ## Edit your local checkout
 
 1. Start your app's dev server.
-2. Run `npx deco content serve`. It finds the nearest `.deco` folder (or takes `--root`) and prints its address, a bearer token and a connect link:
+2. Run `npx deco serve`. It finds the nearest `.deco` folder (or takes `--root`) and prints its address, a bearer token and a connect link:
 
    ```text
-   Deco content server  http://127.0.0.1:4545/rpc
+   Deco server          http://127.0.0.1:4545/rpc
    Root                 apps/storefront/.deco   (schema.json, 214 blocks)
+   Assets               apps/storefront/.deco/assets   (PUT /assets/<name>)
    App preview          http://localhost:5173
    Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
    ```
 
-3. Open the link and pick the site in Studio to edit.
+3. Open the link and pick the site in Studio to edit. Editing your checkout is planned to need no Deco account: without one, the link opens a play workspace in Studio, which isn't built yet (see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)).
 4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access, formerly Private Network Access). Allow it.
 
 Each save writes `.deco/blocks`. Editing an existing file hot-reloads through your framework. The server also regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. The canvas opens your dev app (`--app-url`). Nothing is committed: review the diff and commit it like any other change.
 
-The server listens on 127.0.0.1 unless you pass `--host`, answers only requests that carry its token, and accepts browser requests only from Studio's origins. Its options are in [Schema generation](/next/schema#edit-local-content-from-studio).
+The server listens on 127.0.0.1 unless you pass `--host`, answers only requests that carry its token, and accepts browser requests only from Studio's origins. What it serves (your content, your schema and upload URLs) and its options are in the [CLI reference](/next/schema#edit-local-content-from-studio).
+
+### Images and other uploads
+
+When an editor uploads an image or another file in Studio, `deco serve` writes it into your repository, in `.deco/assets/`, and the field stores the file's path, such as `/assets/summer-banner.jpg`. Like your entries, uploads are ordinary files: you review them and commit them with the rest of your content.
+
+<Callout>**Status.** Uploads with `deco serve` are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-cli--store-uploads-in-the-repository-with-deco-serve).</Callout>
+
+The field always stores `/assets/<name>`, whatever folder the files are written to, so your app has to serve that folder at `/assets/`. Nothing serves `.deco/assets` by default: a field pointing there shows a broken image until your app serves the folder. The simplest way is to write uploads into the folder your app already serves. Vite, TanStack Start and Next.js all serve `public/` at the site root, so with
+
+```bash
+npx deco serve --assets public/assets
+```
+
+uploads land in `public/assets/` and are served at `/assets/`, in development and in production, with no other configuration: the build copies `public/` into its output. The folder is relative to the folder that contains `.deco` (see `--root` in the [CLI reference](/next/schema#edit-local-content-from-studio)), so in a monorepo it's your app's own `public/`. If you keep the default `.deco/assets`, you have to serve it at `/assets/` yourself and make sure it ships with your build, which it doesn't on its own.
+
+With Vite, `public/assets/` ends up in the same `dist/assets/` folder as the build's hashed JavaScript and CSS. That's safe: the server never reuses a file name, so an upload's address always means the same file, and hosts that cache `/assets/*` for a long time serve it correctly.
+
+Uploads make your repository bigger: every clone carries every image, and a replaced image stays in the history. Keep uploads small, for example by resizing and compressing images before you upload them, and link large media such as video from wherever you host it instead of uploading it.
+
+<Hosted to="/next/hosted-studio#uploads" label="Uploads in hosted storage">**Uploads without growing your repository.** With the hosted Deco CMS, Studio stores uploads in Deco's asset storage and saves their CDN address in the field, so images are served from a CDN and never enter your repository.</Hosted>
 
 ## Features that need your site's code
 
-Forms, variants and their rules, pages, redirects and uploads need only the schema and the files, so they work the same as on the legacy path. A few features ran your site's code; without it they degrade:
+Forms, variants and their rules, pages and redirects need only the schema and the files, so they work the same as on the legacy path. Uploads work too: they're stored in your repository with `deco serve` (see [Images and other uploads](#images-and-other-uploads)) and in Deco's asset storage with the hosted Deco CMS. A few features ran your site's code; without it they degrade:
 
 | Feature | In this version |
 |---|---|
-| Block previews: gallery thumbnails, saved-block previews, in-place renders | A card with the block's name, its `@title` and description, and the `@image` thumbnail if the schema has one. The main canvas opens the real page: your dev app with `deco content serve`, or, with the hosted Deco CMS, your deployed site showing the draft (see [Drafts on your site](/next/hosted-drafts)). |
+| Block previews: gallery thumbnails, saved-block previews, in-place renders | A card with the block's name, its `@title` and description, and the `@image` thumbnail if the schema has one. The main canvas opens the real page: your dev app with `deco serve`, or, with the hosted Deco CMS, your deployed site showing the draft (see [Drafts on your site](/next/hosted-drafts)). |
 | Pickers whose options come from your code | The options declared in the schema, else a text field. `deco schema` writes static lists into the schema (string-literal unions, enums and `@options` lists), so those stay selects; see [Annotate fields with JSDoc](/next/schema#annotate-fields-with-jsdoc). |
 | Secret and password fields (`@format password`) | Read-only. Keep credentials in environment variables, never in content. |
 | Running a loader or action from Studio, and installing apps from the store | Unavailable. A platform client is added in code (see [Upstream API clients](/next/clients)). |

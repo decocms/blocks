@@ -177,7 +177,7 @@ Redirects win over routes, exact paths win over templates, and two entries that 
 
 <Callout>**Status.** `createInstrumentedFetch` and `@decocms/blocks/fetch` are proposed; see the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Callout>
 
-From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/clients) uses: it times each request until its response headers arrive and labels the measurement. On its own it sends nothing anywhere, and it has no hook yet for reading the measurements in your own tooling: an `instrument` hook is planned (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)). Until then, only the hosted Deco CMS consumes them.
+From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/clients) uses: it times each request until its response headers arrive and labels the measurement. On its own it sends nothing anywhere: only the hosted Deco CMS consumes the measurements. For your own observability, instrument your code with OpenTelemetry as usual (see [Your own tracing](/next/operations#your-own-tracing)).
 
 ```ts
 function createInstrumentedFetch(options: {
@@ -223,7 +223,7 @@ interface Route { name: string; path: string }                    // extend it t
 interface Page extends Route { seo: Block; sections: VariantOf<Array<VariantOf<Block>>> }
 interface Redirect { from: string; to: string; permanent: boolean }
 
-// The Telemetry entry's type (built in, always in the schema; read by the hosted Deco CMS). Field names are proposed.
+// The Telemetry entry's type (built in, always in the schema; read by the hosted Deco CMS, inert without it). Field names are proposed.
 interface Telemetry { enabled: boolean; metrics: boolean; errorSampleRate: number }
 
 type Match<T> =

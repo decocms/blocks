@@ -7,7 +7,7 @@ description: With a site ID and token, your site sends Deco sampled, aggregated 
 
 # Telemetry
 
-Without the hosted Deco CMS, the instrumented fetch your [upstream clients](/next/clients) use measures every request but sends nothing, and a hook to read those measurements in your own tooling is still [planned](/roadmap#roadmap-api--add-observability-seams); meanwhile you can trace your own block functions ([your own tracing](/next/operations#your-own-tracing)). With a connected site, those measurements reach Deco with no collector to run.
+Telemetry is a hosted feature. The framework doesn't send telemetry on its own: without the hosted Deco CMS, the instrumented fetch your [upstream clients](/next/clients) use measures every request but sends nothing, and the [Telemetry entry](#telemetry-settings-are-content) is inert. Teams that want their own observability instrument their own code with OpenTelemetry as usual (see [Your own tracing](/next/operations#your-own-tracing)). With a connected site, those measurements reach Deco with no collector to run.
 
 <Callout>**Status.** Telemetry, the Telemetry entry and its field names are proposed; see the [Roadmap](/roadmap#roadmap-platform--build-the-telemetry-collector).</Callout>
 
@@ -35,7 +35,7 @@ Without a site and a token, nothing is sent: in development, in tests, and on an
 | Edge cache: hits and misses for rendered pages and upstream responses | cache layer, outcome | Your framework binding |
 | Error logs | error code, block type, provider | The SDK and the bindings |
 
-The bindings' caching and request metrics aren't in the framework guides yet. An app that uses only `@decocms/blocks` sends upstream latency and error telemetry from the instrumented fetch, but no binding-level cache or inbound metrics (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)).
+The bindings' caching and request metrics aren't in the framework guides yet. An app that uses only `@decocms/blocks` sends upstream latency and error telemetry from the instrumented fetch, but no binding-level cache or inbound metrics yet (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)).
 
 A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. Error logs are structured: they carry the error's code, message and where it happened, never upstream response bodies, tokens or cookies.
 

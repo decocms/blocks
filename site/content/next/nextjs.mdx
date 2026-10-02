@@ -109,7 +109,7 @@ export async function client() {
 
 ## 3. Generate the schema and content
 
-Two CLI commands generate the files the app and Studio need (see [CLI reference](/next/schema#the-two-cli-commands)): `deco schema` writes `.deco/schema.json`, a form for each block type in Studio, from the block map it finds in `src/blocks.tsx`, and `deco content` writes the content module `cms.ts` imports. Run both before the dev server and the build:
+Two CLI commands generate the files the app and Studio need (see [CLI reference](/next/schema#the-cli-commands)): `deco schema` writes `.deco/schema.json`, a form for each block type in Studio, from the block map it finds in `src/blocks.tsx`, and `deco content` writes the content module `cms.ts` imports. Run both before the dev server and the build:
 
 ```json title="package.json"
 {
@@ -270,10 +270,10 @@ These files use the default App Router configuration. [Cache Components](https:/
 
 ## Edit in Studio
 
-To edit this app's content in Studio while you develop, run `deco content serve` beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
+To edit this app's content in Studio while you develop, run [`deco serve`](/next/schema#edit-local-content-from-studio) beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
 
 ```bash
-npx deco content serve --app-url http://localhost:3000
+npx deco serve --app-url http://localhost:3000
 ```
 
 Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)).

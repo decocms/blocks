@@ -94,7 +94,7 @@ It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in
 There are two ways to create content:
 
 - **By hand.** Write the JSON file yourself, or ask an AI agent to "ramp the new checkout to 25%" and let it edit the file.
-- **In Studio, on your checkout.** Run `npx deco content serve`, open the link it prints, pick the `experiments` block type and fill in the form. Each save writes the file to your working tree; you commit it like any other change (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)).
+- **In Studio, on your checkout.** Run `npx deco serve` ([CLI reference](/next/schema#edit-local-content-from-studio)), open the link it prints, pick the `experiments` block type and fill in the form. Each save writes the file to your working tree; you commit it like any other change (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)).
 
 Both routes produce the same file in `.deco/blocks`, which is where the CLI looks for content (its `--root` flag points it at another `.deco` folder):
 

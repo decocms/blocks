@@ -19,8 +19,8 @@ Deco runs three services for a connected site:
 | Service | What it changes | Without it |
 |---|---|---|
 | **The Deco API** | Serves each commit to your production branch as a **release** within seconds, so content is live within about a minute without a deploy, and serves drafts to your real site for preview. See [Publishing without a deploy](/next/hosted-publishing) and [Drafts on your site](/next/hosted-drafts). | Content ships with your next deploy ([Releases and deployment](/next/releases#publishing)); drafts are branches you preview with your own preview deploys ([Preview](/next/preview)). |
-| **Studio's GitHub backend** | Editors use Studio on your GitHub repository, with no checkout: each save is a commit on a draft branch, and publishing brings it to production. See [Editing in Studio on GitHub](/next/hosted-studio). | Studio on your checkout through `deco content serve`, and you commit the changes ([Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)). |
-| **Telemetry** | Sampled upstream latency and error rates for your site, collected by Deco, switched on and off from a content entry. See [Telemetry](/next/hosted-telemetry). | The instrumented fetch measures requests but sends nothing, and has no hook to read them yet ([planned](/roadmap#roadmap-api--add-observability-seams)); trace your own block functions ([your own tracing](/next/operations#your-own-tracing)). |
+| **Studio's GitHub backend** | Editors use Studio on your GitHub repository, with no checkout: each save is a commit on a draft branch, and publishing brings it to production. Uploads go to Deco's asset storage and are served from a CDN. See [Editing in Studio on GitHub](/next/hosted-studio). | Studio on your checkout through [`deco serve`](/next/schema#edit-local-content-from-studio), and you commit the changes ([Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)); uploads are files in `.deco/assets/` or the folder you pass with `--assets` ([Images and other uploads](/next/studio-protocol#images-and-other-uploads)). |
+| **Telemetry** | Sampled upstream latency and error rates for your site, collected by Deco, switched on and off from a content entry. See [Telemetry](/next/hosted-telemetry). | Nothing is sent: the framework doesn't send telemetry on its own, and the Telemetry entry is inert. For your own observability, instrument your code with OpenTelemetry as usual ([Your own tracing](/next/operations#your-own-tracing)). |
 
 ## What stays the same
 
@@ -88,5 +88,5 @@ Release checks on Workers run after the response, inside `ctx.waitUntil`, on the
 
 - [Publishing without a deploy](/next/hosted-publishing): how a commit becomes a release, how servers pick it up, the fallback, and keeping running code compatible with new content.
 - [Drafts on your site](/next/hosted-drafts): the `?__draft=` link, wiring drafts into your app, and who may preview.
-- [Editing in Studio on GitHub](/next/hosted-studio): draft branches, publishing, and CI on Studio's commits.
+- [Editing in Studio on GitHub](/next/hosted-studio): draft branches, uploads in hosted storage, publishing, and CI on Studio's commits.
 - [Telemetry](/next/hosted-telemetry): what's sent, sampling, and switching it off from content.

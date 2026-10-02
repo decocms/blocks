@@ -24,7 +24,7 @@ Block functions should only read; see [Blocks](/next/model#block-functions-shoul
 
 ## Measuring upstream calls
 
-Every [upstream client](/next/clients) sends its requests through the framework's instrumented fetch, `createInstrumentedFetch`, which times each request until its response headers arrive and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took. On its own, it sends nothing: there's no collector to configure and nothing leaves your servers. There's no hook yet for reading these measurements in your own tooling; an `instrument` hook is planned (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)). Until then, [your own tracing](#your-own-tracing) can time your block functions, including the upstream calls they make.
+Every [upstream client](/next/clients) sends its requests through the framework's instrumented fetch, `createInstrumentedFetch`, which times each request until its response headers arrive and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took. On its own, it sends nothing: these measurements are only for the hosted Deco CMS, so without it there's no collector to configure and nothing leaves your servers. For your own observability, instrument your code with OpenTelemetry as usual; [Your own tracing](#your-own-tracing) shows how to time your block functions, including the upstream calls they make.
 
 <Hosted to="/next/hosted-telemetry" label="Telemetry">**Telemetry without a collector.** With a site ID and token, those measurements reach Deco, sampled and aggregated, as upstream latency and error rates for your site; a Telemetry entry switches it off remotely.</Hosted>
 

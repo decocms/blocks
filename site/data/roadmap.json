@@ -131,7 +131,7 @@
       "id": "roadmap-blockers--let-studio-talk-to-a-next-major-site",
       "title": "Let Studio talk to a next-major site",
       "today": "Studio reads the schema and content from the running site (<code>/live/_meta</code>, <code>/.decofile</code>) and calls it for previews, <code>/deco/invoke</code> and the secrets encrypt action. A next-major site serves none of these.",
-      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco content serve</code> for a local checkout. Features that need the site's code degrade in this version (see <a href=\"#studio-protocol\">Studio and the content protocol</a>).",
+      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco serve</code> for a local checkout. Features that need the site's code degrade in this version (see <a href=\"#studio-protocol\">Studio and the content protocol</a>).",
       "features": [
         "admin-protocol-endpoints",
         "invoke-and-actions",
@@ -144,7 +144,7 @@
         "roadmap-api--publish-the-content-protocol-and-its-package",
         "roadmap-platform--build-studio-s-github-content-backend",
         "roadmap-platform--move-studio-s-editor-onto-the-protocol-client",
-        "roadmap-cli--ship-deco-content-serve-a-local-content-server",
+        "roadmap-cli--ship-deco-serve-a-local-server-for-studio",
         "roadmap-docs--correct-studio-compatibility"
       ]
     },
@@ -465,7 +465,7 @@
         "bundler-config"
       ],
       "delivered_by": [
-        "roadmap-cli--ship-deco-content-serve-a-local-content-server",
+        "roadmap-cli--ship-deco-serve-a-local-server-for-studio",
         "roadmap-api--add-remoteloader-options"
       ]
     },
@@ -642,7 +642,7 @@
       "id": "roadmap-api--publish-the-content-protocol-and-its-package",
       "group": "api",
       "title": "Publish the content protocol and its package",
-      "plan": "<p>Write down the protocol between Studio and stored content: JSON-RPC 2.0 over one HTTP endpoint (<code>POST /rpc</code>, batches allowed) with four methods, <code>describe</code>, <code>schema.get</code>, <code>blocks.list</code> and <code>blocks.apply</code>, plus its errors, limits and conditional reads for polling. Ship it as <code>@decocms/blocks-protocol</code> (proposed name): the types and method definitions, a client, a server core over a <code>ContentStorage</code> interface, a filesystem storage and a black-box conformance suite any implementation runs over HTTP. Its key module holds the one filename rule (decode exactly once) that Studio, <code>deco content serve</code> and <code>deco content</code> all import. See <a href=\"#studio\">Studio compatibility</a>.</p>",
+      "plan": "<p>Write down the protocol between Studio and stored content: JSON-RPC 2.0 over one HTTP endpoint (<code>POST /rpc</code>, batches allowed) with four methods, <code>describe</code>, <code>schema.get</code>, <code>blocks.list</code> and <code>blocks.apply</code>, plus its errors, limits and conditional reads for polling. Ship it as <code>@decocms/blocks-protocol</code> (proposed name): the types and method definitions, a client, a server core over a <code>ContentStorage</code> interface, a filesystem storage and a black-box conformance suite any implementation runs over HTTP. Its key module holds the one filename rule (decode exactly once) that Studio, <code>deco serve</code> and <code>deco content</code> all import. See <a href=\"#studio\">Studio compatibility</a>.</p>",
       "features": [
         "admin-protocol-endpoints",
         "dev-studio-content-loop",
@@ -1016,13 +1016,12 @@
       "id": "roadmap-api--add-observability-seams",
       "group": "api",
       "title": "Report inbound requests and edge cache hits from the bindings",
-      "plan": "<p>Both bindings report inbound request metrics and edge cache hits into the telemetry pipeline, outside <code>createDecoWorkerEntry</code> on TanStack and with a meter bootstrap on Node and Next.js. Apps that run their own tracing get an <code>instrument</code> hook on <code>createCMS</code>.</p>",
+      "plan": "<p>Both bindings report inbound request metrics and edge cache hits into the hosted Deco CMS's telemetry pipeline, outside <code>createDecoWorkerEntry</code> on TanStack and with a meter bootstrap on Node and Next.js. Telemetry is hosted-only: without a site ID and token nothing is sent, and the framework adds no export hook of its own; apps that want their own observability instrument their code with OpenTelemetry as usual.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation"
       ],
       "docs": [
-        "operations",
         "hosted-telemetry"
       ],
       "pinned": false
@@ -1296,7 +1295,7 @@
       "id": "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle",
       "group": "cli",
       "title": "Specify the filename rule and ship a content bundle",
-      "plan": "<p>Use the protocol package's one filename rule: a file name is decoded exactly once, and Studio, <code>deco content serve</code> and <code>deco content</code> import the same module, with a collision report. <code>deco content</code> writes <code>.deco/blocks.gen.ts</code>, one import per JSON file, exporting the snapshot <code>{ revision, blocks }</code> with the revision computed the same way the Deco API computes it, and <code>computeRevision</code> is exported.</p>",
+      "plan": "<p>Use the protocol package's one filename rule: a file name is decoded exactly once, and Studio, <code>deco serve</code> and <code>deco content</code> import the same module, with a collision report. <code>deco content</code> writes <code>.deco/blocks.gen.ts</code>, one import per JSON file, exporting the snapshot <code>{ revision, blocks }</code> with the revision computed the same way the Deco API computes it, and <code>computeRevision</code> is exported.</p>",
       "features": [
         "block-type-discriminator",
         "content-storage-and-delivery",
@@ -1328,10 +1327,10 @@
       "pinned": false
     },
     {
-      "id": "roadmap-cli--ship-deco-content-serve-a-local-content-server",
+      "id": "roadmap-cli--ship-deco-serve-a-local-server-for-studio",
       "group": "cli",
-      "title": "Ship <code>deco content serve</code>, a local content server",
-      "plan": "<p>A command in <code>@decocms/blocks-cli</code> that serves the content protocol on <code>localhost:&lt;port&gt;</code> for the developer's working tree, so Studio can edit a local checkout. It listens only on the loopback address, prints a bearer token and a connect link at start, allows only Studio's origins (CORS) and answers Chrome's local-network permission preflight. Writes land in <code>.deco/blocks</code> and the app hot-reloads; the server regenerates the content module when a write adds or removes a file. It never commits. <code>deco schema --watch</code> and <code>deco content --watch</code> stay as they are.</p>",
+      "title": "Ship <code>deco serve</code>, a local server for Studio",
+      "plan": "<p>A command in <code>@decocms/blocks-cli</code>, <code>deco serve</code>, that serves the content protocol on <code>localhost:&lt;port&gt;</code> for the developer's working tree, so Studio can edit a local checkout: the saved content in <code>.deco/blocks</code>, the schema in <code>.deco/schema.json</code> (read-only) and the upload URLs for assets. It listens on the loopback address by default, prints a bearer token and a connect link at start, allows only Studio's origins (CORS) and answers Chrome's local-network permission preflight. Writes land in <code>.deco/blocks</code> and the app hot-reloads; the server regenerates the content module when a write adds or removes a file. It never commits. <code>deco schema --watch</code> and <code>deco content --watch</code> stay as they are.</p>",
       "features": [
         "dev-studio-content-loop",
         "bundler-config",
@@ -1344,10 +1343,28 @@
       ]
     },
     {
+      "id": "roadmap-cli--store-uploads-in-the-repository-with-deco-serve",
+      "group": "cli",
+      "title": "Store uploads in the repository with <code>deco serve</code>",
+      "plan": "<p>Without the hosted Deco CMS, files uploaded in Studio are written into the repository: <code>deco serve</code> accepts them at <code>PUT /assets/&lt;name&gt;</code> beside <code>/rpc</code>, with the same token, origin and <code>Host</code> checks, writes them to <code>.deco/assets/</code> (or the folder <code>--assets &lt;dir&gt;</code> names, such as <code>public/assets</code>), never overwrites an existing file, and answers with the path Studio stores in the field, always <code>/assets/&lt;name&gt;</code>, such as <code>/assets/summer-banner.jpg</code>. The folder is relative to the folder that contains <code>.deco</code>. <code>describe</code> reports the folder and the largest file accepted in its <code>assets</code> field, which is <code>null</code> with <code>--read-only</code>, and uploads are then refused. The site serves the folder as static files at <code>/assets/</code>; <code>public/assets</code> needs no setup.</p>",
+      "features": [
+        "dev-studio-content-loop",
+        "editor-widgets-and-image-fields",
+        "image-optimization"
+      ],
+      "docs": [
+        "studio-protocol",
+        "studio",
+        "schema",
+        "content"
+      ],
+      "pinned": false
+    },
+    {
       "id": "roadmap-cli--ship-the-deco-command",
       "group": "cli",
       "title": "Ship the <code>deco</code> command",
-      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its two commands, <code>deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code> and <code>deco content [--root &lt;dir&gt;] [--watch]</code>, and <code>deco content serve</code>. By default <code>deco schema</code> looks for the block map at <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>; <code>--entry</code> overrides it. Add the other <code>deco</code> subcommands on this page to it.</p>",
+      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its three commands, <code>deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code>, <code>deco content [--root &lt;dir&gt;] [--watch]</code> and <code>deco serve [--root &lt;dir&gt;] [--port &lt;n&gt;] [--host &lt;addr&gt;] [--app-url &lt;url&gt;] [--token &lt;t&gt;] [--allow-origin &lt;origin&gt;]… [--assets &lt;dir&gt;] [--read-only]</code>. By default <code>deco schema</code> looks for the block map at <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>; <code>--entry</code> overrides it. The flags of each command are in the <a href=\"#schema\">schema page</a>.</p>",
       "features": [
         "codegen-pipeline",
         "studio-schema-generation",
@@ -1381,7 +1398,7 @@
       "id": "roadmap-platform--move-studio-s-editor-onto-the-protocol-client",
       "group": "studio",
       "title": "Move Studio's editor onto the protocol client",
-      "plan": "<p>Projects with a committed <code>.deco/schema.json</code> or <code>.deco/meta.gen.json</code> under their folder use the protocol client, so v7 projects that commit <code>meta.gen.json</code> qualify, and a project setting picks the path. Fresh and Deno sites, whose schema exists only at runtime, stay on the legacy path. Features that need the site's code degrade: block previews become name cards or open the real page (the local dev app, or the deployed site with a <code>?__draft=</code> link), dynamic pickers fall back to the schema's options, else free text, secret and password fields are read-only, and Run and installing apps from the store are hidden. Autosave stays last-writer-wins. Add the connect flow for a local <code>deco content serve</code> endpoint, with a one-line explainer before Chrome's local-network prompt.</p>",
+      "plan": "<p>Projects with a committed <code>.deco/schema.json</code> or <code>.deco/meta.gen.json</code> under their folder use the protocol client, so v7 projects that commit <code>meta.gen.json</code> qualify, and a project setting picks the path. Fresh and Deno sites, whose schema exists only at runtime, stay on the legacy path. Features that need the site's code degrade: block previews become name cards or open the real page (the local dev app, or the deployed site with a <code>?__draft=</code> link), dynamic pickers fall back to the schema's options, else free text, secret and password fields are read-only, and Run and installing apps from the store are hidden. Autosave stays last-writer-wins. Add the connect flow for a local <code>deco serve</code> endpoint, with a one-line explainer before Chrome's local-network prompt.</p>",
       "features": [
         "section-catalog",
         "global-layout-sections",
@@ -1397,6 +1414,36 @@
         "studio-protocol",
         "studio"
       ]
+    },
+    {
+      "id": "roadmap-platform--add-a-play-workspace-for-local-editing",
+      "group": "studio",
+      "title": "Add a play workspace for local editing",
+      "plan": "<p>Let anyone edit a local checkout in Studio without a Deco account: a connect link from <code>deco serve</code> opens a play workspace in Studio that talks only to that local server, with no site, team or sign-in. Hosted features (Studio's GitHub backend, releases, drafts on your site, hosted asset storage and telemetry) stay with a connected site.</p>",
+      "features": [
+        "dev-studio-content-loop"
+      ],
+      "docs": [
+        "architecture",
+        "studio-protocol"
+      ],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-platform--store-uploads-in-deco-s-asset-storage",
+      "group": "studio",
+      "title": "Store uploads in Deco's asset storage",
+      "plan": "<p>With the hosted Deco CMS, Studio's GitHub backend sends uploads to Deco's asset storage (backed by Amazon S3) instead of the repository, and saves each file's CDN address in the field, so images are served from a CDN and the repository doesn't grow. A field can hold either a CDN address or a path to a file in the repository, so sites that started with local uploads keep working.</p>",
+      "features": [
+        "editor-widgets-and-image-fields",
+        "image-optimization"
+      ],
+      "docs": [
+        "hosted-studio",
+        "hosted",
+        "studio-protocol"
+      ],
+      "pinned": false
     },
     {
       "id": "roadmap-platform--fix-the-add-section-gate",
@@ -1805,7 +1852,7 @@
       "id": "roadmap-later--serve-the-content-protocol-from-the-dev-server",
       "group": "later",
       "title": "Serve the content protocol from the dev server",
-      "plan": "<p>Let <code>@decocms/tanstack/vite</code> mount the content protocol's handler in the app's own dev server, so editing a local checkout from Studio needs one process instead of two. <code>deco content serve</code> stays for other setups.</p>",
+      "plan": "<p>Let <code>@decocms/tanstack/vite</code> mount the content protocol's handler in the app's own dev server, so editing a local checkout from Studio needs one process instead of two. <code>deco serve</code> stays for other setups.</p>",
       "features": [
         "dev-studio-content-loop",
         "bundler-config"
@@ -4573,7 +4620,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "The tracing obligation is stated, but the app gets no seam to meet it: request telemetry is locked in `createDecoWorkerEntry`, `remoteLoader` fails silently, and spans around JSX blocks miss the upstream fetches.",
+      "summary": "Sites trace with their own OpenTelemetry setup; inbound-request and edge-cache metrics go only to the hosted telemetry pipeline. Still open: `remoteLoader` fails silently, and spans around JSX blocks miss the upstream fetches.",
       "docs": [
         "operations",
         "standalone",

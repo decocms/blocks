@@ -8,7 +8,7 @@ description: "With the hosted Deco CMS, Studio edits your GitHub repository dire
 
 # Editing in Studio on GitHub
 
-Studio edits your content through the [content protocol](/next/studio-protocol), wherever the files live. On your machine, `deco content serve` serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no checkout, no dev server and no Git.
+Studio edits your content through the [content protocol](/next/studio-protocol), wherever the files live. On your machine, [`deco serve`](/next/schema#edit-local-content-from-studio) serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no checkout, no dev server and no Git.
 
 <Callout>**Status.** The content protocol and Studio's GitHub backend are proposed and not built yet; see the [Roadmap](/roadmap#roadmap-platform--build-studio-s-github-content-backend).</Callout>
 
@@ -16,15 +16,24 @@ Studio edits your content through the [content protocol](/next/studio-protocol),
 
 Studio's forms, variants, pages and redirects are the same on both backends: they need only the schema and the files. What differs is where a save goes and what happens next.
 
-| | `deco content serve` | Studio's GitHub backend |
+| | `deco serve` | Studio's GitHub backend |
 |---|---|---|
 | Edits | The files in your working tree | Your repository on GitHub |
 | A save | Writes the file; your app hot-reloads | One commit on the draft's branch, with all the files of that save |
 | Committing | You review the diff and commit | Each save is already a commit |
 | Drafts and publishing | Not shown: your branch is the draft, and you merge it | A draft branch per draft; publishing brings it to production |
+| Uploads | Files in `.deco/assets/` (or the folder you pass with `--assets`) in your working tree, which you commit | Deco's asset storage, served from a CDN |
 | Preview canvas | Your dev app | Your site, with a [`?__draft=` link](/next/hosted-drafts) |
 | Studio checks for changes | About every 2 seconds | When you return to the tab, and about every 30 seconds |
 | Needs | A checkout and a running CLI | A connected site |
+
+## Uploads
+
+With the hosted Deco CMS, images and other files editors upload in Studio go to Deco's asset storage, not your repository. Studio saves each file's CDN address in the field, such as `https://assets.decocms.com/…/summer-banner.jpg`, so images are served from a CDN close to your visitors, your app serves nothing for them, and your repository doesn't grow with every image. Without the hosted Deco CMS, uploads are files in your repository (see [Images and other uploads](/next/studio-protocol#images-and-other-uploads)).
+
+<Callout>**Status.** Hosted asset storage for next-major sites is proposed; see the [Roadmap](/roadmap#roadmap-platform--store-uploads-in-deco-s-asset-storage).</Callout>
+
+Uploads already in your repository keep working: a field holds either kind of address, and your app keeps serving the files it has.
 
 ## Drafts are branches
 
