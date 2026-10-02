@@ -2,10 +2,10 @@
  * "Three steps, no ticket" (#home-how): a vertical tablist (arrows/Home/End move and select) that
  * switches the setup window's panes; the window's file tabs select too.
  */
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Icon } from '~/components/ui/Icon'
 import { BrandSymbol } from '~/components/ui/Brand'
-import { d } from './Hero'
+import { container, d, Dim, Dots, H2, Kicker, Lede, lsec, reveal, section, symbol, winBar, winPaper, winTitle } from './ui'
 import { STEP1_HTML, STEP3_HTML } from './tokens'
 
 const STEPS = [
@@ -35,12 +35,34 @@ const FORM_ROWS: [string, number][] = [
   ['Free shipping banner', 0],
 ]
 
-/** The pane's code, as the old page rendered it (Prism markup; see tokens.tsx). */
+/** The pane's code, as the old page rendered it (frozen Prism markup; see tokens.tsx). */
 function Code({ html }: { html: string }) {
   return (
-    <pre data-lang="TypeScript" data-label="TypeScript" className="language-typescript" tabIndex={0}>
+    <pre
+      data-lang="TypeScript"
+      data-label="TypeScript"
+      className="language-typescript flex-1 m-0 py-[22px] px-6 overflow-auto text-13 leading-5.5 bg-code-bg focus-visible:outline-offset-[-2px] max-sm:p-4 max-sm:text-12 max-sm:leading-5"
+      tabIndex={0}
+    >
       <code className="language-typescript" dangerouslySetInnerHTML={{ __html: html }} />
     </pre>
+  )
+}
+
+const fileTab =
+  'inline-flex items-center gap-1.5 h-[30px] px-[13px] border rounded-full font-mono text-12 leading-4 font-normal whitespace-nowrap cursor-pointer transition-[color,background-color,border-color] max-xs:px-[11px]'
+const fileTabOff = `${fileTab} border-border text-muted-fg hover:text-fg hover:border-olive-ring`
+const fileTabOn = `${fileTab} pill-on`
+const paneOff =
+  'col-start-1 row-start-1 min-w-0 flex flex-col invisible opacity-0 translate-y-1.5 [transition:opacity_.3s_ease,translate_.4s_var(--ease-out-quart),visibility_0s_linear_.3s]'
+const paneOn = 'col-start-1 row-start-1 min-w-0 flex flex-col visible opacity-100 [transition:opacity_.45s_ease,translate_.6s_var(--ease-out-expo)]'
+
+function Result({ children }: { children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-2.5 mt-auto py-3.5 px-5 border-t border-hairline bg-tint text-14 leading-5 text-tint-fg flex-none max-sm:py-3 max-sm:px-4 max-sm:text-13.5 [&_code]:text-[.86em] [&_code]:bg-result-code-bg">
+      <Icon name="check" strokeWidth={2.5} className="size-5 p-1 rounded-full bg-result-icon-bg text-result-icon-fg flex-none" />
+      {children}
+    </p>
   )
 }
 
@@ -66,26 +88,32 @@ export function Stepper() {
     }
   }
   const pane = (n: number) => ({
-    className: `sw-pane${step === n ? ' is-on' : ''}`,
+    className: step === n ? paneOn : paneOff,
     id: `step-pane-${n}`,
     role: 'tabpanel',
     'aria-labelledby': `step-tab-${n}`,
   })
 
   return (
-    <div className="lsec" id="home-how">
-      <div className="container section">
-        <p className="kicker reveal">Three steps, no ticket</p>
-        <div className="stepper">
-          <div className="stepper-copy">
-            <h2 className="reveal" style={d('60ms')}>
-              Your function stays. <span className="dim">Its inputs move into a file.</span>
-            </h2>
-            <p className="section-lede reveal" style={d('120ms')}>
+    <div className={lsec} id="home-how">
+      <div className={`${container} ${section}`}>
+        <Kicker className={reveal}>Three steps, no ticket</Kicker>
+        <div className="grid grid-cols-[minmax(0,.85fr)_minmax(0,1.15fr)] gap-14 items-start mt-11 max-lg:grid-cols-1 max-lg:gap-10">
+          <div className="sticky top-[calc(var(--header-h)+48px)] max-lg:static">
+            <H2 className={`max-w-[15ch] max-lg:max-w-none ${reveal}`} style={d('60ms')}>
+              Your function stays. <Dim>Its inputs move into a file.</Dim>
+            </H2>
+            <Lede className={reveal} style={d('120ms')}>
               No rewrite and no new runtime. Name the function in a block map, generate a form from its types, and connect your app to your
               content with one call.
-            </p>
-            <div className="steps reveal" style={d('160ms')} role="tablist" aria-label="Three steps" aria-orientation="vertical">
+            </Lede>
+            <div
+              className={`flex flex-col mt-8 border-b border-hairline ${reveal}`}
+              style={d('160ms')}
+              role="tablist"
+              aria-label="Three steps"
+              aria-orientation="vertical"
+            >
               {STEPS.map((s, i) => {
                 const n = i + 1
                 const on = step === n
@@ -95,7 +123,7 @@ export function Stepper() {
                     ref={(el) => {
                       tabs.current[i] = el
                     }}
-                    className="step"
+                    className="group relative grid grid-cols-[16px_minmax(0,1fr)] gap-x-5 w-full py-4 border-t border-hairline rounded-none bg-transparent text-inherit text-left transition-colors duration-300 before:absolute before:left-0 before:-top-px before:h-0.5 before:w-0 before:bg-nav-bar before:transition-[width] before:duration-600 before:ease-out-expo aria-selected:before:w-full"
                     type="button"
                     role="tab"
                     id={`step-tab-${n}`}
@@ -106,13 +134,18 @@ export function Stepper() {
                     onClick={() => select(n)}
                     onKeyDown={onKey(i)}
                   >
-                    <span className="num" aria-hidden="true">
+                    <span
+                      className="pt-px text-13 leading-5.5 tabular-nums text-num-faint transition-colors duration-300 group-hover:text-fg group-aria-selected:text-step-on"
+                      aria-hidden="true"
+                    >
                       {`0${n}`}
                     </span>
-                    <span className="step-body">
-                      <span className="step-title">{s.title}</span>
-                      <span className="step-text">
-                        <span>{s.text}</span>
+                    <span>
+                      <span className="block text-15 leading-5.5 font-normal tracking-ui text-fg transition-colors duration-300 group-aria-selected:font-medium">
+                        {s.title}
+                      </span>
+                      <span className="grid grid-rows-[0fr] mt-0 text-14 leading-[1.55] text-muted-fg opacity-0 [transition:grid-template-rows_.5s_var(--ease-out-quart),margin-top_.5s_var(--ease-out-quart),opacity_.4s_ease] group-aria-selected:grid-rows-[1fr] group-aria-selected:mt-1.5 group-aria-selected:opacity-100">
+                        <span className="min-h-0 overflow-hidden">{s.text}</span>
                       </span>
                     </span>
                   </button>
@@ -120,68 +153,75 @@ export function Stepper() {
               })}
             </div>
           </div>
-          <div className="sw win reveal" style={d('140ms')} data-pagefind-ignore="">
-            <div className="win-bar">
-              <span className="win-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-              <span className="win-title">Deco Blocks · my-store — setup</span>
+          <div className={`${winPaper} flex flex-col min-w-0 min-h-[468px] rounded-none max-sm:min-h-0 ${reveal}`} style={d('140ms')} data-pagefind-ignore="">
+            <div className={winBar}>
+              <Dots hidden />
+              <span className={`${winTitle} max-sm:left-16 max-sm:right-3 max-sm:text-right`}>Deco Blocks · my-store — setup</span>
             </div>
-            <div className="sw-tabs" aria-hidden="true">
+            <div
+              className="flex flex-wrap gap-1.5 py-2.5 px-4 border-b border-hairline flex-none max-sm:px-3 max-xs:flex-nowrap max-xs:overflow-x-auto max-xs:scrollbar-none"
+              aria-hidden="true"
+            >
               {FILE_TABS.map((t, i) => (
-                <span className={`sw-tab${step === i + 1 ? ' is-on' : ''}`} data-step={i + 1} key={t.label} onClick={() => select(i + 1)}>
-                  <Icon name={t.icon} />
+                <span className={step === i + 1 ? fileTabOn : fileTabOff} data-step={i + 1} key={t.label} onClick={() => select(i + 1)}>
+                  <Icon name={t.icon} className="size-[13px] max-xs:hidden" />
                   {t.label}
                 </span>
               ))}
             </div>
-            <div className="sw-panes">
+            <div className="flex-1 grid">
               <div {...pane(1)}>
                 <Code html={STEP1_HTML} />
-                <p className="sw-result">
-                  <Icon name="check" />
+                <Result>
                   <span>
                     The key <code>experiments</code> is now a block type content can refer to.
                   </span>
-                </p>
+                </Result>
               </div>
               <div {...pane(2)}>
-                <div className="sw-term">
-                  <span className="sw-prompt" aria-hidden="true">
+                <div className="flex gap-3 mt-[22px] mx-6 py-[13px] px-[18px] rounded-full bg-term-bg font-mono text-13 leading-5 font-normal text-[#EAF3D6] overflow-x-auto whitespace-nowrap scrollbar-none max-sm:mt-4 max-sm:mx-4 max-sm:text-12 max-sm:rounded-xl">
+                  <span className="text-brand font-medium" aria-hidden="true">
                     $
                   </span>
                   <span>npx deco schema &amp;&amp; npx deco content</span>
                 </div>
-                <div className="sw-form" role="group" aria-label="The form Studio builds from the schema">
-                  <div className="swf-head">
+                <div
+                  className="flex-none mt-4 mx-6 mb-[22px] border border-st-border rounded-xl bg-st-bg text-st-fg overflow-hidden max-sm:mt-3 max-sm:mx-4 max-sm:mb-4"
+                  role="group"
+                  aria-label="The form Studio builds from the schema"
+                >
+                  <div className={`flex items-center gap-2 h-10 px-3.5 border-b border-st-border bg-bg-subtle text-13 font-medium ${symbol}`}>
                     <BrandSymbol />
                     <span>Experiments</span>
-                    <span className="swf-type">experiments</span>
+                    <span className="ml-auto px-2 py-0.5 border border-st-border rounded-full bg-st-bg font-mono text-11 leading-4 font-normal text-st-muted">
+                      experiments
+                    </span>
                   </div>
-                  {FORM_ROWS.map(([label, n]) => (
-                    <div className="swf-row" key={label}>
+                  {FORM_ROWS.map(([label, n], i) => (
+                    <div
+                      className={`grid grid-cols-[minmax(0,1fr)_72px_48px] items-center gap-3 h-[46px] px-3.5 text-13 max-sm:grid-cols-[minmax(0,1fr)_56px] ${i ? 'border-t border-st-border' : ''}`}
+                      key={label}
+                    >
                       <span>{label}</span>
-                      <span className="swf-num">{n}</span>
-                      <span className="swf-range">0–100</span>
+                      <span className="h-7 flex items-center justify-end px-3 border border-st-border rounded-full bg-st-field font-mono text-12 leading-4 font-medium tabular-nums">
+                        {n}
+                      </span>
+                      <span className="font-mono text-11 leading-4 font-normal text-st-muted text-right max-sm:hidden">0–100</span>
                     </div>
                   ))}
                 </div>
-                <p className="sw-result">
-                  <Icon name="check" />
+                <Result>
                   <span>Studio shows each experiment as a number field clamped to 0–100.</span>
-                </p>
+                </Result>
               </div>
               <div {...pane(3)}>
                 <Code html={STEP3_HTML} />
-                <p className="sw-result">
-                  <Icon name="check" />
+                <Result>
                   <span>
                     With the hosted Deco CMS (the token above), a commit is live everywhere in seconds, no deploy. Without it, content ships
                     with each deploy.
                   </span>
-                </p>
+                </Result>
               </div>
             </div>
           </div>

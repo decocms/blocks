@@ -6,6 +6,7 @@
  *   copyText(text)              clipboard with a textarea fallback; resolves to success
  *   openSearch()                asks the search dialog to open (dispatches SEARCH_OPEN_EVENT)
  *   closeMenu()                 closes the mobile drawer if open
+ *   cx(a, cond && b)            joins utility class names, skipping falsy ones
  *
  * They're DOM events, so the shell (src/layout/*) and feature folders (components/search, …)
  * don't import each other.
@@ -50,3 +51,6 @@ export async function copyText(text: string): Promise<boolean> {
 
 export const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Joins class names, skipping falsy entries: cx('a', on && 'b', undefined). */
+export const cx = (...classes: (string | false | null | undefined)[]) => classes.filter(Boolean).join(' ')

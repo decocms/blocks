@@ -3,9 +3,10 @@
  * stack strip, "Every change is a commit", stability, publishing, the three-step stepper,
  * "Small on purpose", final CTA and the site footer. Copy is approved as is: keep it verbatim.
  *
- * Styles are the old landing classes in src/styles/legacy.css. Entrance motion: `.enter` animates
- * on load (CSS); `.reveal` fades up once on first scroll-in (useReveal), shown at once with
- * prefers-reduced-motion, without IntersectionObserver, and before printing.
+ * Styled with Tailwind utilities on the components (shared pieces in ui.tsx; the range sliders'
+ * pseudo-elements in src/styles/components/home.css). Entrance motion: `enter` animates on load;
+ * `reveal` fades up once on first scroll-in (useReveal), shown at once with prefers-reduced-motion,
+ * without IntersectionObserver, and before printing.
  */
 import cobogoDefs from '~/assets/cobogo-defs.svg?raw'
 import { LandingShell } from '~/src/layout/DocsShell'
@@ -24,8 +25,11 @@ export default function Home() {
   return (
     <LandingShell nav={sidebarFor(DEFAULT_VERSION, 'docs')} footer={<SiteFooter />}>
       {/* The cobogó <pattern>s (#cb-lg, #cb-sm) that the hero and stability bands fill with. */}
-      <span style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: COBOGO_DEFS }} />
-      <section id="home" className="landing" aria-labelledby="home-title" data-pagefind-body="" ref={ref}>
+      <span
+        className="contents [&>svg]:absolute [&>svg]:size-0 [&>svg]:overflow-hidden [&>svg]:pointer-events-none"
+        dangerouslySetInnerHTML={{ __html: COBOGO_DEFS }}
+      />
+      <section id="home" aria-labelledby="home-title" data-pagefind-body="" ref={ref}>
         <Hero />
         <StackStrip />
         <ContentModel />

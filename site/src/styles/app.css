@@ -1,68 +1,26 @@
-/* The stylesheet entry (imported by src/routes/__root.tsx).
-   Tailwind v4 without its preflight: the ported legacy styles assume browser defaults. Layers, in
-   increasing precedence: theme < legacy (the old site's CSS) < components < utilities. */
-@layer theme, base, legacy, components, utilities;
+/* The stylesheet entry (imported by src/routes/__root.tsx). Styling lives as Tailwind utilities on
+   the components; these files hold only what utilities can't express.
+   Layers, in increasing precedence: theme < base < prose < components < utilities.
+   - theme.css:  the Tailwind theme (@theme), the dark/js/no-js/nav-open variants, shared @utility rules
+   - tokens.css: the raw colour tokens as light-dark(), print values (layer base)
+   - preflight + base.css: element defaults (layer base)
+   - prose.css: the article's look for bare MDX output (h1–h3, p, lists, links, table cells) (layer
+     prose: above base, below every class, so any utility or component rule beats it)
+   - components/docs.css: named classes for markup repeated many times per page (code panels, nav
+     and outline links, heading permalinks, search rows, Roadmap chips and rows), written with
+     @apply so they stay utilities in all but name and keep the prerendered HTML small
+   - components/home.css: what utilities can't say on Home (vendor slider parts, the timeline's
+     pseudo-element connectors) */
+@layer theme, base, prose, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
+@import "./theme.css";
 @import "./tokens.css" layer(base);
-@import "./legacy.css" layer(legacy);
-@import "./prose.css" layer(legacy);
+@import "./base.css" layer(base);
+@import "./prose.css" layer(prose);
+@import "./components/docs.css" layer(components);
+@import "./components/home.css" layer(components);
 
 @source "../../components";
 @source "../../content";
-/* Legacy class names that are also Tailwind utilities: `.container` (legacy max-width
-   var(--container)) would get Tailwind's breakpoint max-widths, and `.text-link` (the --color-link
-   token's text utility) would override `.band .text-link`; the utilities layer wins over legacy. */
-@source not inline("{container,text-link}");
-
-/* Dark mode follows the same rule as the tokens: an explicit data-theme wins, otherwise the OS. */
-@custom-variant dark {
-  &:where([data-theme="dark"], [data-theme="dark"] *) { @slot; }
-  @media (prefers-color-scheme: dark) {
-    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) { @slot; }
-  }
-}
-
-/* The site's tokens as Tailwind theme values: bg-bg, text-fg, text-muted-fg, border-border,
-   bg-forest, text-lime, font-sans, font-mono, … Each resolves to the CSS variable, so it follows
-   the theme toggle. */
-@theme inline {
-  --font-sans: "Switzer", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --color-lime: var(--lime);
-  --color-lime-2: var(--lime-2);
-  --color-forest: var(--forest);
-  --color-olive: var(--olive);
-  --color-olive-ink: var(--olive-ink);
-  --color-brand: var(--brand);
-  --color-brand-ink: var(--brand-ink);
-  --color-bg: var(--bg);
-  --color-bg-subtle: var(--bg-subtle);
-  --color-bg-warm: var(--bg-warm);
-  --color-surface: var(--surface);
-  --color-muted: var(--muted);
-  --color-hover: var(--hover);
-  --color-fg: var(--fg);
-  --color-fg-body: var(--fg-body);
-  --color-muted-fg: var(--muted-fg);
-  --color-faint: var(--faint);
-  --color-quiet: var(--quiet);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-hairline: var(--hairline);
-  --color-eyebrow: var(--eyebrow);
-  --color-link: var(--link);
-  --color-tint: var(--tint);
-  --color-tint-fg: var(--tint-fg);
-  --color-code-bg: var(--code-bg);
-  --color-code-fg: var(--code-fg);
-  --color-band-fg: var(--band-fg);
-  --color-band-muted: var(--band-muted);
-  --radius-panel: var(--radius);
-  --shadow-deco-sm: var(--shadow-sm);
-  --shadow-deco-md: var(--shadow-md);
-  --shadow-deco-lg: var(--shadow-lg);
-  --shadow-deco-win: var(--shadow-win);
-  --ease-deco: var(--ease);
-  --ease-deco-slow: var(--ease-slow);
-}

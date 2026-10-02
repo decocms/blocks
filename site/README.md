@@ -72,7 +72,7 @@ in doubt, describe the problem in terms of the framework, not of a particular pr
 `data/roadmap.json` holds the Roadmap's content; `components/roadmap/` holds its structure and
 the framing sentences around the data (`model.ts` checks and derives, `SectionViews.tsx` renders,
 `RoadmapPage.tsx` puts a section in the docs shell, `sections.ts` maps sections and ids to URLs,
-`roadmap.css` styles it). Run `bun scripts/check-roadmap.ts` (part of `bun run check` and
+styled with Tailwind utilities on the components). Run `bun scripts/check-roadmap.ts` (part of `bun run check` and
 `bun run build`) after an edit: it fails with a message naming the item when an id, link or count
 doesn't hold together.
 

@@ -96,7 +96,7 @@ A second paragraph.
 
 ### Tables
 
-GFM tables render inside the scrolling `.table-wrap` (the `table` override). Inline code in a
+GFM tables render inside a scrolling, bordered wrapper (the `table` override). Inline code in a
 cell that contains spaces may wrap on phones; single identifiers don't.
 
 ```mdx
@@ -179,6 +179,23 @@ surrounding prose in the page; the widget renders only the explorer box. Use it 
 - `TocInline`: inserted after the h1/lede by `build/rehype-docs.ts`.
 - `H1`/`H2`/`H3`, `MdxLink`, `CodeBlock`, `Table`: the element overrides behind headings, links,
   fenced code and tables.
+
+## Styling
+
+- What these components render carries Tailwind utilities in the TSX (theme: `src/styles/theme.css`).
+  The code panel's parts and the heading permalink repeat many times per page, so they use named
+  classes written with `@apply` in `src/styles/components/docs.css` (`code-head`, `code-pre`,
+  `copy-button`, `heading-anchor`, …).
+- What MDX writes as bare HTML (h1–h3, the lede, p, lists, links, strong/em, table cells) can't carry
+  classes, so it's styled by the prose layer, `src/styles/prose.css`: rules scoped to
+  `.doc-section`, in their own cascade layer below every class, so any utility wins over them.
+- `not-prose` on an element opts it and its contents out of the prose layer (widgets, Roadmap
+  blocks, the inline outline).
+- Shared pieces for markup outside MDX: `<Eyebrow>` / `EYEBROW`, `<Small>` / `SMALL`,
+  `<Callout>` / `calloutClass(type)`, `<HeadingAnchor>`.
+- Hook classes kept for scripts: `heading-anchor`, `toc-inline`, `code-head`, `code-lang`,
+  `copy-button` (the search index skips them), and `fade-l` / `fade-r` / `fade-b` on a scrolling
+  `<pre>` (toggled by CodeBlock).
 
 ## Adding a component
 

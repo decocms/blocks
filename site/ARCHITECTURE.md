@@ -62,7 +62,7 @@ site/
 │   │       └── $slug.tsx     /next/quickstart … a doc page
 │   ├── layout/               Header, Sidebar, DocsShell (+ LandingShell), Rail, DocPage, NotFound, …
 │   ├── lib/                  content (manifest + page loading), nav models, chrome, theme, ui, versions
-│   └── styles/               app.css (entry) → tokens.css, legacy.css, prose.css
+│   └── styles/               app.css (entry) → theme.css, tokens.css, base.css, prose.css, components/
 ├── build/                    build-time code (Node): manifest, rehype plugin, Shiki theme, slugify
 ├── scripts/                  check-content, check-roadmap, postbuild, preview, site-files (the URL → file lookup)
 ├── assets/                   brand SVGs, cobogó pattern (imported with ?raw)
@@ -128,34 +128,69 @@ The root layout needs to know, before rendering, whether the page is the full-bl
 (Home: floating header over the dark hero band, no sidebar on desktop) or the three-column
 **docs** layout, and which header tab is current. A route declares this as
 `staticData: { chrome: { layout, tab, version? } }`, or returns `{ chrome }` from its loader when
-it depends on the URL (doc pages do). `__root.tsx` reads the deepest match and sets
-`<body data-layout data-page>`, which the CSS keys off, exactly as the old single page did.
+it depends on the URL (doc pages do). `useChrome()` (`src/lib/chrome.ts`) reads the deepest
+match; the header, sidebar and search read it and style themselves with utilities.
 
 - `DocsShell` (`src/layout/DocsShell.tsx`): sidebar · main (breadcrumb, page tools, the article,
   pager, footer) · rail. Props: `nav`, `crumbs`, `pager`, `rail`, `children`. Models in
   `src/lib/nav.ts` (`NavGroup`, `Crumb`, `PagerLink`, `RailItem`).
 - `LandingShell`: sidebar as mobile drawer only, `main`, then an optional `footer`.
-- The rail's scroll-spy, the inline outline, the mobile drawer (modal, focus-trapped, closes on
+- The rail's scroll-spy, the mobile drawer (modal, focus-trapped, closes on
   navigation/Escape/resize), copy link, print, back to top, theme toggle and toast are all in
-  `src/layout/`.
+  `src/layout/`; the inline outline (below 1200px) is `components/mdx/TocInline.tsx`.
 
 ## Styles
 
-`src/styles/app.css` is the entry: Tailwind v4 **without preflight** (the ported CSS expects
-browser defaults), in layers `theme < base < legacy < components < utilities`.
+Styling is Tailwind v4 utilities on the components. `src/styles/app.css` is the entry: Tailwind
+with its preflight, in layers `theme < base < prose < components < utilities`. The few CSS files
+hold only what utilities can't express, plus named classes for markup repeated many times per
+page (see `components/docs.css` below).
 
-- `tokens.css`: the design tokens (`--forest`, `--lime`, warm neutrals, `--syn-*` syntax colours,
-  …) for light, dark (`prefers-color-scheme`, overridden by `data-theme`) and print.
-- `legacy.css`: the old `style.css`, verbatim apart from the tokens and the rules that switched
-  hash-routed pages. It is the source of the look (header, sidebar, rail, prose, code panels,
-  tables, callouts, flows, landing, search dialog, responsive, print).
-- `prose.css`: doc pages put the title in an h1 and sections in h2/h3, where the old page had
-  h2/h3/h4; this maps those levels to the old styles (`article.doc-section.doc-page`), plus the
-  version select.
+- `theme.css`: the Tailwind theme. Colours are `@theme inline` aliases of the tokens
+  (`bg-surface` compiles to `background-color: var(--surface)`), and Tailwind's default palette is
+  removed, so only the site's colours exist. Fonts (`font-sans`, `font-mono`), type sizes named by
+  their px value (`text-13`, `text-12.5`, fluid `text-display`/`text-hero`/`text-section`),
+  tracking (`tracking-ui`, `tracking-label`, …), radii (`rounded-box` 14px, `rounded-dialog`),
+  shadows (`shadow-sm/md/lg/win/float/lift`), easings (`ease-out-quart`, `ease-out-expo`; bare
+  `transition-*` defaults to .25s ease), the site's breakpoints (`2xs` 360, `xs` 480, `sm` 560,
+  `home-sm` 640, `md` 768, `hdr-sm` 860, `nav` 900, `hdr` 980, `home` 1000, `lg` 1024, `home-lg`
+  1100, `home-xl` 1140, `rail` 1200, `xl` 1280, `wide` 1600; a width used once stays arbitrary,
+  `max-[430px]:`), containers (`max-w-article`, `max-w-landing`, `max-w-shell`, …; `@min-rm:` and
+  `@min-rm-sm:` for the Roadmap's container queries), `h-header`/`top-header`/`scroll-mt-header`, animations
+  (`animate-enter`, `animate-pop`, …). Variants: `dark:` (data-theme, else the OS), `js:`/`no-js:`,
+  `nav-open:` (mobile drawer open). Shared utilities: `pill-on`, `eyebrow-label`,
+  `scrollbar-thin`, `scrollbar-none`.
+- `tokens.css`: the raw colour tokens (`--forest`, `--lime`, warm neutrals, `--syn-*` syntax
+  colours, `--gx-*` Roadmap statuses, …), each written once as `light-dark(<light>, <dark>)`. The
+  theme is the root's `color-scheme`: `light dark` by default (follows the OS), `light`/`dark`
+  under `data-theme`, `light` in print (plus a few print-only values).
+- `base.css`: element defaults on top of preflight (body, selection, focus ring, inline code,
+  `pre`, `kbd`, the 16px `.icon`, reduced motion, print page setup).
+- `prose.css` (layer `prose`): the article look for what MDX writes as bare HTML inside
+  `<article class="doc-section">` (h1–h3, the lede, p, lists with "–" markers and numbered hairline
+  rows, links, strong/em, table cells), which can't carry classes. Rules are scoped under
+  `.doc-section` / `.doc-page`, wrap their element selectors in `:where()` and skip `.not-prose`
+  subtrees, so `not-prose` opts a block out (widgets, Roadmap blocks, the MDX components' own
+  markup). What lets any class override them is the layer, not specificity: `prose` sits below
+  `components` and `utilities`.
+- `components/docs.css` (layer `components`): named classes, written with `@apply`, for markup
+  that repeats tens to hundreds of times per page, where inline class strings made the
+  prerendered HTML much heavier: the code panel (`code-head`, `code-lang`, `copy-button`,
+  `code-pre` with its scroll-fade masks), `heading-anchor`, sidebar `nav-link`, the outline's
+  `toc-link` (rail and inline), the search rows (`search-hit*`), and the Roadmap's
+  `feature-chip`, `feature-row`, `status-dot`, `gx-vp` pill and `todo-heading`. A variant (the
+  current link, a size, a state) stays a utility on the element and always wins.
+  `scripts/postbuild.ts` fails the build if any page's HTML goes over 48KB gzipped.
+- `components/home.css` (layer `components`): the Studio mock's range-slider vendor
+  pseudo-elements (`.home-range`), which need one rule per vendor selector, and the publishing
+  timeline's dashed connectors (`.tl-linked`, pseudo-elements that flip direction below 1000px).
 
-The tokens are also Tailwind theme values (`bg-bg`, `text-fg`, `text-muted-fg`, `border-hairline`,
-`bg-forest`, `text-lime`, `font-mono`, `shadow-deco-win`, …), and the `dark:` variant follows the
-same rule as the tokens. New code can use utilities or the existing classes.
+The docs shell (`#shell`, `DocsShell.tsx`) is full width: the sidebar is pinned to the left edge,
+the rail to the right, and the middle column takes the rest. Inside it every child of `main`
+(breadcrumb row, article, pager, footer) shares one centred reading column, `max-w-article`
+(720px), widening to `max-w-article-wide` (800px) from 1600px; code, tables and callouts keep the
+text's edges. Above 1920px the shell and the docs header row cap at `max-w-shell` and centre, and
+the sidebar's background runs to the window edge. The landing keeps its own 1200px container.
 
 Theme: an inline script (`ScriptOnce` in `<head>`) applies `?theme=dark|light` or the saved choice
 (`localStorage['deco-blocks-docs-theme']`) as `data-theme` before first paint. No attribute
@@ -181,9 +216,10 @@ The routes pick these up with `import.meta.glob`, so each folder can be built in
 
 - **Home**: `components/home/index.tsx` default export renders the whole page, inside
   `<LandingShell nav={sidebarFor(DEFAULT_VERSION, 'docs')} footer={<SiteFooter/>}>…</LandingShell>`
-  (the drawer shows the Docs navigation). Its classes are in `legacy.css`; the cobogó defs are
-  `assets/cobogo-defs.svg` (imported `?raw`), brand marks in `components/ui/Brand.tsx`, icons in
-  `components/ui/Icon.tsx`.
+  (the drawer shows the Docs navigation). Styled with utilities (shared pieces in
+  `components/home/ui.tsx`); the
+  cobogó defs are `assets/cobogo-defs.svg` (imported `?raw`), brand marks in
+  `components/ui/Brand.tsx`, icons in `components/ui/Icon.tsx`.
 - **Roadmap**: one page per section of the old Roadmap (it showed one section at a time):
   `/roadmap/` is the overview, `/roadmap/blockers`, `/roadmap/api`, … the rest
   (`components/roadmap/sections.ts` maps sections and ids to URLs; the routes are
@@ -193,8 +229,8 @@ The routes pick these up with `import.meta.glob`, so each folder can be built in
   feature filter and deep links to filtered-out rows. Route `head()`s import only `sections.ts`
   (pure TS, which also holds the section labels for document titles): anything that imports the
   data from a `head()` lands in the entry chunk every page loads, and `scripts/postbuild.ts` fails
-  the build if Roadmap data shows up there. Its stylesheet (`roadmap.css`, in the
-  `legacy` layer) is linked from the routes' `head`. The route's chrome is
+  the build if Roadmap data shows up there. It's styled with utilities in `SectionViews.tsx`
+  (statuses map to the `--gx-*` tokens there); it has no stylesheet of its own. The route's chrome is
   `{ layout: 'docs', tab: 'roadmap' }`. Links from content may use `/roadmap#<id>`: `MdxLink`
   resolves it to the page holding the id.
 - **Widgets**: capitalized named exports of `components/widgets/index.tsx` become MDX components

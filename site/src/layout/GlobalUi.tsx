@@ -10,7 +10,8 @@ const searchModules = import.meta.glob<{ default: ComponentType }>('/components/
 const SearchDialog = Object.values(searchModules)[0]?.default
 
 /**
- * Toast, screen-reader live region, global keyboard shortcuts (⌘K / Ctrl+K / "/"), the search
+ * Toast (its entrance keyframe animates `transform` from translate(-50%, 10px), hence the plain
+ * `transform` instead of a translate utility), screen-reader live region, global keyboard shortcuts (⌘K / Ctrl+K / "/"), the search
  * dialog, and route-change focus: after a client-side navigation to another page, focus moves to
  * the new page's h1 (as the old page did when switching sections) and its title is announced, so
  * keyboard and screen-reader users land on the new content instead of the link they left.
@@ -88,7 +89,12 @@ export function GlobalUi() {
   return (
     <>
       {SearchDialog && <SearchDialog />}
-      <div className="toast" id="toast" aria-hidden="true" hidden={!message}>
+      <div
+        className="fixed bottom-6 left-1/2 z-120 inline-flex h-11 animate-toast-in items-center gap-2 rounded-full bg-forest px-5 text-14 font-medium text-lime shadow-float [transform:translateX(-50%)] print:hidden"
+        id="toast"
+        aria-hidden="true"
+        hidden={!message}
+      >
         {message}
       </div>
       <p className="sr-only" id="live" role="status" aria-live="polite">

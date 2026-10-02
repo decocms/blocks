@@ -10,6 +10,7 @@ import { BrandSymbol } from '~/components/ui/Brand'
 import { MdxLink } from '~/components/mdx/MdxLink'
 import { prefersReducedMotion, toast } from '~/src/lib/ui'
 import { Ck, Cm, F, K, L, N, P, S, T } from './tokens'
+import { Dots, enter, mono, symbol, textLink, textLinkIcon, win, winBarDark, winTitle } from './ui'
 
 type Key = 'newCheckout' | 'stickyHeader' | 'freeShippingBanner'
 type Values = Record<Key, number>
@@ -39,10 +40,33 @@ function commitMessage(saved: Values, values: Values) {
 }
 
 const Arrow = () => (
-  <span className="jp-arrow" aria-hidden="true">
-    <Icon name="chevron-right" />
+  <span
+    className="absolute z-2 top-1/2 -right-[18px] size-[26px] -mt-[13px] grid place-items-center rounded-full bg-win-panel border border-border text-eyebrow shadow-sm max-rail:hidden"
+    aria-hidden="true"
+  >
+    <Icon name="chevron-right" className="size-3.5" />
   </span>
 )
+
+/* The four panes. `jp` is the hook the phone carousel queries. */
+const pane = 'jp relative min-w-0 flex flex-col border border-hairline rounded-xl bg-win-panel max-md:snap-start'
+const head = 'flex items-center gap-2 h-[42px] px-3.5 border-b border-hairline'
+const stepNum = 'text-12 leading-4 tabular-nums text-eyebrow'
+const title = 'text-13.5 leading-5 font-medium text-fg tracking-ui whitespace-nowrap'
+const meta = 'ml-auto min-w-0 font-mono text-11 leading-4 font-normal text-muted-fg overflow-hidden text-ellipsis whitespace-nowrap'
+/* The panes sit on the mock's light surface, so a scrolling pane's focus ring is the olive ring,
+   not the lime one the Hero gives its other descendants. */
+const pre = 'flex-1 m-0 pb-3.5 overflow-x-auto text-10.5 leading-[18px] text-code-fg scrollbar-none focus-visible:outline-ring'
+/** A numbered pane: no left padding, the line numbers' hairline drawn as a scrolling background. */
+const preLn = `${pre} pt-3 pl-0 pr-2 [counter-reset:ln] [background:linear-gradient(to_right,transparent_21px,var(--hairline)_21px,var(--hairline)_22px,transparent_22px)_local]`
+const foot = 'flex items-center gap-2 min-h-[42px] px-3.5 py-2.5 border-t border-hairline text-11.5 leading-4 text-muted-fg'
+const footText = 'min-w-0 overflow-hidden text-ellipsis whitespace-nowrap'
+const footMono = `${mono} text-10.5 whitespace-nowrap overflow-hidden text-ellipsis`
+const footIcon = 'size-3.5 text-eyebrow'
+/* Diff lines of the JSON pane. */
+const dl = 'block -mx-3.5 pl-2 pr-3.5 whitespace-pre'
+const gut = 'inline-block w-3 select-none'
+const source = 'inline-flex items-center gap-1.5 h-6 pl-2 pr-2.5 border border-border rounded-full bg-surface text-fg whitespace-nowrap'
 
 const STEPS = ['Type', 'Edit', 'Commit', 'Resolve']
 
@@ -127,34 +151,39 @@ export function Journey() {
     }
   }, [showPanel])
 
-  const prop = (k: Key, v: number, comma: string) => (
+  const prop = (k: Key, v: number, comma: string, del?: boolean) => (
     <>
       {'  '}
-      <P>"{k}"</P>: <N>{v}</N>
+      <P>"{k}"</P>: <N className={del ? 'line-through decoration-[color-mix(in_oklab,var(--del-fg)_60%,transparent)]' : undefined}>{v}</N>
       {comma}
     </>
   )
 
   return (
     <>
-      <div className="hero-window win enter" data-pagefind-ignore="" style={{ '--d': '420ms' } as CSSProperties}>
-        <div className="win-bar">
-          <span className="win-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span className="win-title">Deco Blocks · my-store — Experiments</span>
+      <div
+        className={`${win} mt-16 rounded-2xl bg-win-bg border-[rgba(255,255,255,.12)] shadow-[0_0_0_1px_rgba(255,255,255,.06),0_50px_120px_-40px_rgba(0,0,0,.6)] max-sm:mt-11 max-sm:rounded-box ${enter}`}
+        data-pagefind-ignore=""
+        style={{ '--d': '420ms' } as CSSProperties}
+      >
+        <div className={winBarDark}>
+          <Dots hidden />
+          <span className={`${winTitle} max-sm:left-16 max-sm:right-4 max-sm:text-right`}>Deco Blocks · my-store — Experiments</span>
         </div>
-        <div className="journey" role="group" aria-label="From a TypeScript type to a resolved value" ref={journeyRef}>
-          <div className="jp jp-type">
-            <div className="jp-head">
-              <span className="jp-step">01</span>
-              <span className="jp-title">Type it</span>
-              <span className="jp-meta">experiments.ts</span>
+        <div
+          className="relative grid grid-cols-4 gap-2.5 p-2.5 max-rail:grid-cols-2 max-md:grid-cols-none max-md:grid-flow-col max-md:auto-cols-[86%] max-md:overflow-x-auto max-md:snap-x max-md:snap-mandatory max-md:scroll-px-2.5 max-md:overscroll-x-contain max-md:scrollbar-none"
+          role="group"
+          aria-label="From a TypeScript type to a resolved value"
+          ref={journeyRef}
+        >
+          <div className={pane}>
+            <div className={head}>
+              <span className={stepNum}>01</span>
+              <span className={title}>Type it</span>
+              <span className={meta}>experiments.ts</span>
             </div>
-            <pre className="jp-pre has-ln">
-              <code>
+            <pre className={preLn}>
+              <code className="block">
                 <L>
                   <K>export</K> <K>interface</K> <T>Experiments</T> {'{'}
                 </L>
@@ -197,40 +226,49 @@ export function Journey() {
                 <L>{'}'}</L>
               </code>
             </pre>
-            <div className="jp-foot">
-              <span className="mono">npx deco schema</span>
-              <span className="jp-foot-sep" aria-hidden="true">
+            <div className={foot}>
+              <span className={footMono}>npx deco schema</span>
+              <span className={`${footText} text-eyebrow`} aria-hidden="true">
                 →
               </span>
-              <span className="mono">.deco/schema.json</span>
+              <span className={footMono}>.deco/schema.json</span>
             </div>
             <Arrow />
           </div>
 
-          <div className="jp jp-form">
-            <div className="jp-head">
-              <span className="jp-step">02</span>
-              <span className="jp-title">Edit it</span>
-              <span className="jp-meta">Deco Studio</span>
+          <div className={pane}>
+            <div className={head}>
+              <span className={stepNum}>02</span>
+              <span className={title}>Edit it</span>
+              <span className={meta}>Deco Studio</span>
             </div>
-            <div className="studio">
-              <div className="studio-bar">
-                <span className="studio-block">
+            <div className="flex-1 flex flex-col bg-st-bg text-st-fg rounded-b-[11px]">
+              <div className="flex items-center justify-between gap-2 h-[42px] px-3.5 border-b border-st-border">
+                <span className={`inline-flex items-center gap-2 text-13 leading-5 font-medium ${symbol}`}>
                   <BrandSymbol />
                   Experiments
                 </span>
-                <span className="studio-type">experiments</span>
+                <span className="font-mono text-11 leading-4 font-normal text-st-muted px-2 py-0.5 rounded-full bg-st-field border border-st-border">
+                  experiments
+                </span>
               </div>
-              {KEYS.map((k) => (
-                <div className="studio-field" key={k}>
-                  <div className="studio-row">
-                    <label htmlFor={`exp-${k}`}>{FIELDS[k]}</label>
-                    <output id={`out-${k}`} htmlFor={`exp-${k}`}>
+              {KEYS.map((k, i) => (
+                <div className={i ? 'mt-2 pt-3 px-3.5 pb-0.5 border-t border-st-border' : 'pt-2.5 px-3.5 pb-0.5'} key={k}>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-12 leading-4 text-st-muted" htmlFor={`exp-${k}`}>
+                      {FIELDS[k]}
+                    </label>
+                    <output
+                      className="min-w-[38px] h-[22px] inline-grid place-items-center px-2 rounded-full bg-tint font-mono text-11 leading-4 font-medium tabular-nums text-tint-fg"
+                      id={`out-${k}`}
+                      htmlFor={`exp-${k}`}
+                    >
                       {values[k]}
                     </output>
                   </div>
                   <input
                     type="range"
+                    className="home-range block w-full h-5 mt-1.5 bg-transparent cursor-pointer focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 focus-visible:rounded-sm"
                     id={`exp-${k}`}
                     min={0}
                     max={100}
@@ -244,9 +282,15 @@ export function Journey() {
                   />
                 </div>
               ))}
-              <div className="studio-actions">
-                <span className="studio-hint">0–100, from the JSDoc tags</span>
-                <button type="button" className="studio-save" id="studio-save" disabled={!changed} onClick={save}>
+              <div className="mt-auto flex items-center justify-between gap-2 px-3.5 py-2.5 border-t border-st-border">
+                <span className="text-11 leading-4 text-st-muted">0–100, from the JSDoc tags</span>
+                <button
+                  type="button"
+                  className="h-[30px] min-w-16 px-4 border-0 rounded-full bg-brand text-brand-ink text-12.5 font-medium transition-[background-color,color,scale] focus-visible:outline-ring enabled:hover:bg-brand-hover enabled:active:scale-[.96] disabled:bg-st-field disabled:text-st-muted disabled:shadow-[inset_0_0_0_1px_var(--st-border)] disabled:cursor-default"
+                  id="studio-save"
+                  disabled={!changed}
+                  onClick={save}
+                >
                   {changed ? 'Save' : 'Saved'}
                 </button>
               </div>
@@ -254,33 +298,33 @@ export function Journey() {
             <Arrow />
           </div>
 
-          <div className="jp jp-json">
-            <div className="jp-head">
-              <span className="jp-step">03</span>
-              <span className="jp-title">Commit it</span>
-              <span className="jp-meta" title=".deco/blocks/Experiments.json">
-                <span className="jm-dir">.deco/blocks/</span>Experiments.json
+          <div className={pane}>
+            <div className={head}>
+              <span className={stepNum}>03</span>
+              <span className={title}>Commit it</span>
+              <span className={meta} title=".deco/blocks/Experiments.json">
+                <span className="rail:hidden max-xs:hidden">.deco/blocks/</span>Experiments.json
               </span>
             </div>
-            <div className="jp-src">
-              <span className="src src-studio">
-                <i aria-hidden="true" />
+            <div className="flex flex-wrap items-center gap-1.5 pt-2.5 px-3.5 text-11 leading-4 text-muted-fg">
+              <span className={source}>
+                <i className="size-1.5 rounded-full bg-purple" aria-hidden="true" />
                 Saved in Studio
               </span>
-              <span className="src-or">or</span>
-              <span className="src src-agent">
-                <i aria-hidden="true" />
+              <span>or</span>
+              <span className={source}>
+                <i className="size-1.5 rounded-full bg-yellow" aria-hidden="true" />
                 Edited by an agent
               </span>
             </div>
-            <pre className="jp-pre jp-diff" aria-label="Diff of .deco/blocks/Experiments.json">
-              <code id="exp-json">
-                <span className="dl">
-                  <span className="gut"> </span>
+            <pre className={`${pre} pt-2.5 pl-3 pr-2.5`} aria-label="Diff of .deco/blocks/Experiments.json">
+              <code className="block" id="exp-json">
+                <span className={dl}>
+                  <span className={`${gut} text-faint`}> </span>
                   {'{'}
                 </span>
-                <span className="dl">
-                  <span className="gut"> </span>
+                <span className={dl}>
+                  <span className={`${gut} text-faint`}> </span>
                   {'  '}
                   <P>"__resolveType"</P>: <S>"experiments"</S>,
                 </span>
@@ -288,52 +332,66 @@ export function Journey() {
                   const comma = i < KEYS.length - 1 ? ',' : ''
                   if (values[k] === saved[k])
                     return (
-                      <span className="dl" key={k}>
-                        <span className="gut"> </span>
+                      <span className={dl} key={k}>
+                        <span className={`${gut} text-faint`}> </span>
                         {prop(k, values[k], comma)}
                       </span>
                     )
                   return (
                     <Fragment key={k}>
-                      <span className="dl del">
-                        <span className="gut">-</span>
-                        {prop(k, saved[k], comma)}
+                      <span className={`${dl} bg-del-bg`}>
+                        <span className={`${gut} text-del-fg`}>-</span>
+                        {prop(k, saved[k], comma, true)}
                       </span>
                       {/* Keyed by value so each change remounts the line and the flash replays. */}
-                      <span className={`dl add${k === flashKey ? ' flash' : ''}`} key={`${k}-${values[k]}`}>
-                        <span className="gut">+</span>
+                      <span
+                        className={`${dl} bg-add-bg shadow-[inset_2px_0_0_var(--olive-ring)]${k === flashKey ? ' animate-flash' : ''}`}
+                        key={`${k}-${values[k]}`}
+                      >
+                        <span className={`${gut} text-eyebrow`}>+</span>
                         {prop(k, values[k], comma)}
                       </span>
                     </Fragment>
                   )
                 })}
-                <span className="dl">
-                  <span className="gut"> </span>
+                <span className={dl}>
+                  <span className={`${gut} text-faint`}> </span>
                   {'}'}
                 </span>
               </code>
             </pre>
-            <div className="jp-foot jp-commit" id="exp-foot" data-state={state} aria-live="polite" ref={footRef}>
-              <span className="jc-dot" aria-hidden="true" />
-              <Icon name="check" />
-              <span className="jc-status" id="exp-status">
+            {/* The commit status: data-state (dirty | committed | clean) switches its children; save()
+                toggles `.just` here (the className stays constant, so React never drops it). */}
+            <div className={`group ${foot} [&.just]:animate-commit-in`} id="exp-foot" data-state={state} aria-live="polite" ref={footRef}>
+              <span
+                className={`${footText} size-[7px] rounded-full bg-yellow shadow-[0_0_0_3px_rgba(255,193,22,.2)] flex-none group-data-[state=committed]:hidden group-data-[state=clean]:bg-faint group-data-[state=clean]:shadow-none`}
+                aria-hidden="true"
+              />
+              <Icon name="check" className={`${footIcon} hidden group-data-[state=committed]:block`} />
+              <span
+                className={`${footText} flex-none text-fg font-medium group-data-[state=committed]:absolute group-data-[state=committed]:size-px group-data-[state=committed]:[clip-path:inset(50%)]`}
+                id="exp-status"
+              >
                 {status}
               </span>
-              <span className="mono jc-msg" id="exp-commit">
+              <span
+                className={`${footMono} hidden group-data-[state=committed]:block group-data-[state=committed]:min-w-0 group-data-[state=committed]:text-11 group-data-[state=committed]:text-fg`}
+                id="exp-commit"
+              >
                 {commitLine}
               </span>
             </div>
             <Arrow />
           </div>
 
-          <div className="jp jp-call">
-            <div className="jp-head">
-              <span className="jp-step">04</span>
-              <span className="jp-title">Resolve it</span>
-              <span className="jp-meta">checkout.ts</span>
+          <div className={pane}>
+            <div className={head}>
+              <span className={stepNum}>04</span>
+              <span className={title}>Resolve it</span>
+              <span className={meta}>checkout.ts</span>
             </div>
-            <pre className="jp-pre has-ln">
-              <code>
+            <pre className={preLn}>
+              <code className="block">
                 <L>
                   <K>import</K> {'{ createCMS } '}
                   <K>from</K>
@@ -383,29 +441,42 @@ export function Journey() {
                 </L>
               </code>
             </pre>
-            <div className="jp-foot">
-              <Icon name="check" />
-              <span>Same result as the direct call, same type</span>
+            <div className={foot}>
+              <Icon name="check" className={footIcon} />
+              <span className={footText}>Same result as the direct call, same type</span>
             </div>
           </div>
         </div>
       </div>
-      <div className="journey-nav enter" data-pagefind-ignore="" style={{ '--d': '480ms' } as CSSProperties} role="group" aria-label="Steps in the product window">
+      <div
+        className={`hidden max-md:flex justify-center flex-wrap gap-1.5 mt-4 ${enter}`}
+        data-pagefind-ignore=""
+        style={{ '--d': '480ms' } as CSSProperties}
+        role="group"
+        aria-label="Steps in the product window"
+      >
         {STEPS.map((label, i) => (
-          <button type="button" data-jp={i} aria-current={i === step ? 'step' : undefined} key={label} onClick={() => showPanel(i)}>
-            <span aria-hidden="true">{`0${i + 1}`}</span>
+          <button
+            type="button"
+            className="group h-[30px] inline-flex items-center gap-1.5 px-3 border border-[rgba(255,255,255,.22)] rounded-full bg-transparent text-[rgba(255,255,255,.78)] text-13 leading-4 transition-[background-color,color,border-color] duration-300 aria-[current=step]:bg-[rgba(255,255,255,.2)] aria-[current=step]:border-transparent aria-[current=step]:text-white"
+            data-jp={i}
+            aria-current={i === step ? 'step' : undefined}
+            key={label}
+            onClick={() => showPanel(i)}
+          >
+            <span className="tabular-nums text-[rgba(255,255,255,.5)] group-aria-[current=step]:text-lime" aria-hidden="true">{`0${i + 1}`}</span>
             {label}
           </button>
         ))}
       </div>
-      <div className="journey-caption enter" style={{ '--d': '520ms' } as CSSProperties}>
-        <p>
+      <div className={`flex items-baseline justify-between gap-6 mt-7 max-md:block max-md:mt-5 ${enter}`} style={{ '--d': '520ms' } as CSSProperties}>
+        <p className="m-0 max-w-[78ch] text-14 leading-5.5 text-band-muted">
           The Quickstart, end to end. Studio saves it, or an agent edits it: either way it's a commit, and the function never changes.{' '}
-          <span className="try">Drag a slider, then Save.</span>
+          <span className="text-white font-medium">Drag a slider, then Save.</span>
         </p>
-        <MdxLink className="text-link" href="/next/quickstart">
+        <MdxLink className={`${textLink} text-brand max-md:mt-3.5`} href="/next/quickstart">
           Follow the quickstart
-          <Icon name="arrow-right" />
+          <Icon name="arrow-right" className={textLinkIcon} />
         </MdxLink>
       </div>
     </>

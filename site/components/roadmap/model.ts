@@ -108,7 +108,7 @@ export interface RoadmapData {
 /** Work-item groups -> their sections. */
 export const GROUP_SEC = { api: 'roadmap-api', cli: 'roadmap-cli', studio: 'roadmap-platform', docs: 'roadmap-docs' } as const
 export type WorkGroup = keyof typeof GROUP_SEC
-/** Status id -> the one-letter hook the styles colour by (data-v="…" in roadmap.css). */
+/** Status id -> its one-letter code (data-v="…"; SectionViews.tsx maps it to the --gx-* colours). */
 export const VC: Record<string, string> = { 'to-build': 'g', 'to-finish': 'p', 'site-code': 'a', done: 'c', 'goes-away': 'n' }
 /** Statuses that count as open work (the "Open work" effort tally). */
 export const OPEN = new Set(['to-build', 'to-finish', 'site-code'])
@@ -149,7 +149,7 @@ export function slug(text: string): string {
   )
 }
 
-/** `<code>` of at most 24 characters gets `class="is-short"` (white-space: nowrap in legacy.css). */
+/** `<code>` of at most 24 characters gets `class="is-short"` (white-space: nowrap, src/styles/base.css). */
 export const shortCode = (html: string) =>
   html.replace(/<code>([\s\S]*?)<\/code>/g, (m, inner: string) => (plain(inner).trim().length <= 24 ? `<code class="is-short">${inner}</code>` : m))
 

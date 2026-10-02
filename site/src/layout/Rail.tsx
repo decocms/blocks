@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type MouseEvent } from 'react'
 import { Icon } from '~/components/ui/Icon'
 import type { RailItem } from '~/src/lib/nav'
-import { prefersReducedMotion } from '~/src/lib/ui'
+import { cx, prefersReducedMotion } from '~/src/lib/ui'
 import { PageActions } from './PageTools'
 
 /** The current page's outline, shared by the right rail and the inline outline (TocInline). */
@@ -83,25 +83,46 @@ export function Rail({ items }: { items: RailItem[] }) {
   }, [current, items])
 
   return (
-    <aside className="rail" id="rail" aria-label="On this page">
-      <nav className="rail-nav" id="rail-nav" ref={nav} aria-labelledby="rail-title" hidden={items.length < 2}>
-        <p className="rail-title" id="rail-title">
-          <Icon name="list" />
+    <aside
+      className="sticky top-header flex max-h-[calc(100vh-var(--header-h))] flex-col self-start overflow-y-auto pt-11 pr-6 pb-8 pl-2 scrollbar-none max-rail:hidden print:hidden"
+      id="rail"
+      aria-label="On this page"
+    >
+      <nav
+        className="-ml-2 min-h-0 overflow-y-auto overscroll-contain pl-2 scrollbar-thin"
+        id="rail-nav"
+        ref={nav}
+        aria-labelledby="rail-title"
+        hidden={items.length < 2}
+      >
+        <p className="sticky top-0 z-1 m-0 flex items-center gap-2 bg-bg pb-3.5 leading-4 eyebrow-label" id="rail-title">
+          <Icon name="list" className="size-3.5" />
           On this page
         </p>
-        <div className="rail-track">
+        <div className="relative border-l border-hairline">
           <span
-            className={`rail-indicator${indicator ? ' on' : ''}`}
+            className={cx(
+              'absolute top-0 -left-0.5 h-0 w-[3px] rounded-[3px] bg-brand shadow-[0_0_0_1px_var(--indicator-ring)]',
+              '[transition:transform_.45s_var(--ease-out-quart),height_.45s_var(--ease-out-quart),opacity_.3s]',
+              indicator ? 'opacity-100' : 'opacity-0',
+            )}
             id="rail-indicator"
             aria-hidden="true"
             style={indicator ? { transform: `translateY(${indicator.top}px)`, height: indicator.height } : undefined}
           />
-          <ul id="rail-list" ref={list}>
+          <ul className="m-0 list-none p-0" id="rail-list" ref={list}>
             {items.map((item, i) => (
-              <li key={item.id ?? '_top'} className={item.depth === 3 ? 'is-sub' : undefined}>
+              <li key={item.id ?? '_top'}>
                 <a
                   href={hrefOf(item)}
-                  className={i === current ? 'active' : undefined}
+                  className={cx(
+                    // toc-link (src/styles/components/docs.css): the look shared with <TocInline/>.
+                    'toc-link py-1.5 pr-0 text-13 leading-[19px]',
+                    item.depth === 3 ? 'pl-[30px]' : 'pl-4',
+                    'has-[>.gx-n]:pl-[38px]',
+                    // `active` is a hook too (Menu.tsx looks for the current link).
+                    i === current ? 'active font-medium text-nav-active-fg' : 'text-muted-fg hover:text-fg',
+                  )}
                   aria-current={i === current ? 'location' : undefined}
                   onClick={(e) => onRailClick(item, e)}
                   dangerouslySetInnerHTML={{ __html: item.html }}
@@ -111,38 +132,10 @@ export function Rail({ items }: { items: RailItem[] }) {
           </ul>
         </div>
       </nav>
-      <div className="rail-foot">
+      <div className={cx('grid flex-none gap-0.5', items.length >= 2 && 'mt-6 border-t border-hairline pt-4')}>
         <PageActions />
       </div>
     </aside>
   )
 }
 
-/** The collapsible outline under the title and lede, shown below 1200px instead of the rail. */
-export function TocInlineView({ items }: { items: RailItem[] }) {
-  const ref = useRef<HTMLDetailsElement>(null)
-  if (items.length < 2) return null
-  return (
-    <details className="toc-inline" id="toc-inline" ref={ref}>
-      <summary>
-        <Icon name="list" />
-        <span>On this page</span>
-        <Icon name="chevron-down" />
-      </summary>
-      <ul id="toc-inline-list">
-        {items.map((item) => (
-          <li key={item.id ?? '_top'} className={item.depth === 1 ? 'is-top' : item.depth === 3 ? 'is-sub' : undefined}>
-            <a
-              href={hrefOf(item)}
-              onClick={(e) => {
-                if (ref.current) ref.current.open = false
-                onRailClick(item, e)
-              }}
-              dangerouslySetInnerHTML={{ __html: item.html }}
-            />
-          </li>
-        ))}
-      </ul>
-    </details>
-  )
-}

@@ -1,24 +1,40 @@
 /**
- * Hand-tokenised code for the landing's mockups (the old landing.html markup, as JSX). The
- * journey panes use the `tk-*` classes, the contract card the `sy-*` classes (legacy.css styles
- * both); the stepper's two code panes keep the Prism token markup the old page produced at runtime
- * (legacy.css `pre .token.*`), frozen here so nothing highlights in the browser.
+ * Hand-tokenised code for the landing's mockups (the old landing.html markup, as JSX), coloured
+ * with the syntax tokens (text-syn-*). The journey panes use the components below; the stepper's
+ * two code panes are HTML strings (the Prism markup the old page produced at runtime, frozen here
+ * with utility classes so nothing highlights in the browser).
  */
 import type { ReactNode } from 'react'
 
-type C = { children: ReactNode }
-export const K = ({ children }: C) => <span className="tk-k">{children}</span>
-export const T = ({ children }: C) => <span className="tk-t">{children}</span>
-export const P = ({ children }: C) => <span className="tk-p">{children}</span>
-export const S = ({ children }: C) => <span className="tk-s">{children}</span>
-export const N = ({ children }: C) => <span className="tk-n">{children}</span>
-export const F = ({ children }: C) => <span className="tk-f">{children}</span>
-export const Cm = ({ children }: C) => <span className="tk-c">{children}</span>
-export const Ck = ({ children }: C) => <span className="tk-ck">{children}</span>
-/** One numbered line of a `.has-ln` pane. */
-export const L = ({ children }: C) => <span className="l">{children}</span>
+type C = { children: ReactNode; className?: string }
+const span = (cls: string) =>
+  function Token({ children, className }: C) {
+    return <span className={className ? `${cls} ${className}` : cls}>{children}</span>
+  }
+export const K = span('text-syn-keyword')
+export const T = span('text-syn-type')
+export const P = span('text-syn-property')
+export const S = span('text-syn-string')
+export const N = span('text-syn-number')
+export const F = span('text-syn-function')
+export const Cm = span('text-syn-comment italic')
+/** A JSDoc tag inside a comment. */
+export const Ck = span('text-fg not-italic font-semibold')
+/** One numbered line of a numbered pane (the number is a CSS counter the pane resets). */
+export const L = span(
+  'block whitespace-pre [counter-increment:ln] overflow-hidden text-ellipsis before:content-[counter(ln)] before:inline-block before:w-4 before:mr-3 before:text-right before:text-quiet before:tabular-nums before:select-none',
+)
 
-const tok = (cls: string, text: string) => `<span class="token ${cls}">${text}</span>`
+const TOKEN = {
+  keyword: 'text-syn-keyword',
+  punctuation: 'text-syn-punctuation',
+  operator: 'text-syn-operator',
+  string: 'text-syn-string',
+  comment: 'text-syn-comment italic',
+  function: 'text-syn-function',
+  constant: 'text-syn-type',
+}
+const tok = (kind: keyof typeof TOKEN, text: string) => `<span class="${TOKEN[kind]}">${text}</span>`
 const kw = (t: string) => tok('keyword', t)
 const pu = (t: string) => tok('punctuation', t)
 const op = (t: string) => tok('operator', t)

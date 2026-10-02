@@ -4,7 +4,6 @@ import { preconnect } from 'react-dom'
 import { HeadContent, Outlet, ScriptOnce, Scripts, createRootRoute } from '@tanstack/react-router'
 import appCss from '~/src/styles/app.css?url'
 import { THEME_INIT_SCRIPT } from '~/src/lib/theme'
-import { useChrome } from '~/src/lib/chrome'
 import { Header } from '~/src/layout/Header'
 import { MenuProvider, useMenu } from '~/src/layout/Menu'
 import { GlobalUi } from '~/src/layout/GlobalUi'
@@ -60,12 +59,11 @@ function RootDocument({ children }: { children: ReactNode }) {
 }
 
 function Body({ children }: { children: ReactNode }) {
-  const chrome = useChrome()
   const menu = useMenu()
   return (
-    <body data-layout={chrome.layout} data-page={chrome.tab}>
+    <body>
       <a
-        className="skip"
+        className="fixed -top-16 left-4 z-100 inline-flex h-10 items-center rounded-full bg-brand px-4.5 text-14 font-medium text-brand-ink no-underline transition-[top] duration-200 ease-out-quart focus:top-3 print:hidden"
         href="#main"
         onClick={(e) => {
           e.preventDefault()
@@ -76,7 +74,13 @@ function Body({ children }: { children: ReactNode }) {
         Skip to content
       </a>
       <Header />
-      <div className="mobile-overlay" id="mobile-overlay" aria-hidden="true" onClick={() => menu.close(true)} />
+      {/* The scrim behind the open drawer (below 900px). */}
+      <div
+        className="max-nav:pointer-events-none max-nav:fixed max-nav:inset-0 max-nav:z-65 max-nav:bg-[rgba(14,26,16,.34)] max-nav:opacity-0 max-nav:transition-opacity max-nav:duration-300 nav-open:max-nav:pointer-events-auto nav-open:max-nav:opacity-100 print:hidden"
+        id="mobile-overlay"
+        aria-hidden="true"
+        onClick={() => menu.close(true)}
+      />
       {children}
       <GlobalUi />
       <Scripts />

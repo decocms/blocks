@@ -68,7 +68,7 @@ check(!out.includes('{{') && !out.includes('}}'), 'an unexpanded {{placeholder}}
 // No "gap" wording as a label: headings, eyebrows, nav names, detail labels, pills, buttons, tags.
 const labels = [
   ...[...out.matchAll(/<(h[123])\b[^>]*>(.*?)<\/\1>/g)].map((m) => m[2]),
-  ...[...out.matchAll(/<(dt|button|b class="gx-vp"|span class="gx-kind"|i class="gx-tg"|p class="eyebrow")[^>]*>(.*?)<\//g)].map((m) => m[2]),
+  ...[...out.matchAll(/<(dt|button|b class="gx-vp[^"]*"|span class="gx-kind[^"]*"|i class="gx-tg[^"]*"|p class="eyebrow[^"]*")[^>]*>(.*?)<\//g)].map((m) => m[2]),
   ...SECTION_IDS.map((id) => rm.SEC[id].nav),
 ]
 const badLab = labels.filter((x) => /\bgaps?\b/i.test(plain(x)))
@@ -93,14 +93,14 @@ for (const [sec, html] of pages) {
 // items are delivered by work items; site steps lean on the same work), so each section shows only its own count.
 const nNotes = rm.nNotes
 const nTodo = rm.TOP.length + rm.STUDIO_NEW.length + rm.STUDIO_LEGACY.length + rm.CHANGES.length + rm.nSteps - nNotes
-const TODO = '<li><span class="rm-sr" data-pagefind-ignore="">To do</span><h2 id="'
-const todos = [...out.matchAll(/<li><span class="rm-sr"[^>]*>To do<\/span><h2 id="([^"]+)"/g)].map((m) => m[1])
-check(todos.length === nTodo && out.split(TODO).length - 1 === nTodo, `to-dos: ${todos.length} rendered, ${nTodo} in the data`)
-check(out.split('<li class="rm-note"><span class="rm-sr" data-pagefind-ignore="">Note</span><h2').length - 1 === nNotes, 'notes')
+// A to-do is an <li> whose first child is the screen-reader "To do" and whose second is its heading.
+const todos = [...out.matchAll(/<li class="(?!rm-note)[^"]*"><span class="sr-only" data-pagefind-ignore="">To do<\/span><h2 id="([^"]+)"/g)].map((m) => m[1])
+check(todos.length === nTodo && out.split('>To do</span><h2 ').length - 1 === nTodo, `to-dos: ${todos.length} rendered, ${nTodo} in the data`)
+check([...out.matchAll(/<li class="rm-note [^"]*"><span class="sr-only" data-pagefind-ignore="">Note<\/span><h2 /g)].length === nNotes, 'notes')
 // No row reads as work that was done and undone, and no grand total appears.
 check(!new RegExp(`\\b(?:${nTodo}|${nTodo + nNotes})\\b`).test(text), `the page shows a to-do total (${nTodo})`)
 check(!/\bWas “/.test(text), "a 'Was “...”' tag")
-check(out.split('<dl class="gx-wf">').length - 1 === rm.TOP.length + rm.STUDIO_NEW.length + rm.STUDIO_LEGACY.length + rm.CHANGES.length, 'detail lists')
+check(out.split('<dl class="gx-wf ').length - 1 === rm.TOP.length + rm.STUDIO_NEW.length + rm.STUDIO_LEGACY.length + rm.CHANGES.length, 'detail lists')
 const rows = [...out.matchAll(/<li id="roadmap-f-([^"]+)"/g)].map((m) => m[1])
 check(rows.length === rm.FIDS.length && new Set(rows).size === rm.FIDS.length && rm.FIDS.every((f) => rows.includes(f)), 'feature rows')
 const rowV: Record<string, number> = {}
@@ -109,13 +109,13 @@ const wantV = Object.fromEntries(Object.entries(rm.TOTALS).filter(([, n]) => n).
 check(JSON.stringify(Object.entries(rowV).sort()) === JSON.stringify(Object.entries(wantV).sort()), `row statuses: ${JSON.stringify(rowV)}`)
 
 // Chips: every list has at least one chip, and each names a feature row.
-const chipLists = [...out.matchAll(/<div class="gx-chips"[^>]*>(.*?)<\/div>/g)].map((m) => m[1])
-check(chipLists.length === out.split('class="gx-chips"').length - 1 && chipLists.every((c) => c.includes('<a ')), 'empty chip lists')
+const chipLists = [...out.matchAll(/<div class="gx-chips [^"]*"[^>]*>(.*?)<\/div>/g)].map((m) => m[1])
+check(chipLists.length === out.split('class="gx-chips ').length - 1 && chipLists.every((c) => c.includes('<a ')), 'empty chip lists')
 const chipTargets = chipLists.flatMap((c) => [...c.matchAll(/href="\/roadmap\/features#roadmap-f-([^"]+)"/g)].map((m) => m[1]))
 check(chipTargets.length && chipTargets.every((t) => t in rm.FEATS), 'chip targets')
 
 const nTags: Record<string, number> = {}
-for (const m of out.matchAll(/<i class="gx-tg"[^>]*>([A-Z][a-z]+)/g)) nTags[m[1]] = (nTags[m[1]] ?? 0) + 1
+for (const m of out.matchAll(/<i class="gx-tg [^"]*"[^>]*>([A-Z][a-z]+)/g)) nTags[m[1]] = (nTags[m[1]] ?? 0) + 1
 const F = Object.values(rm.FEATS)
 check(
   (nTags.Medium ?? 0) === F.filter((f) => f.confidence !== 'high').length &&
@@ -126,7 +126,7 @@ check(
 )
 const countsBySec: Record<string, string> = {}
 for (const [sec, html] of pages) {
-  const m = /^<article[^>]*><p class="eyebrow">[^<]*<span class="rm-count"[^>]*>([^<]+)<\/span>/.exec(html)
+  const m = /^<article[^>]*><p class="eyebrow [^"]*">[^<]*<span class="rm-count [^"]*"[^>]*>([^<]+)<\/span>/.exec(html)
   if (m) countsBySec[sec] = m[1]
 }
 check(JSON.stringify(Object.keys(countsBySec)) === JSON.stringify(SECTION_IDS.slice(1)), 'every section but the overview shows its own count')

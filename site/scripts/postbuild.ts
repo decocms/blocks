@@ -8,7 +8,8 @@
  *     its #fragment, if any, an id on that page. All failures are listed; the build fails on any.
  *     DOCS_LINKS=warn reports them without failing (handy while pages are still being ported).
  *  2. Size budget: the JS every page loads (the chunks all pages reference) stays under a gzip
- *     budget, and carries none of the Roadmap's data (which belongs in the Roadmap's route chunk).
+ *     budget, and carries none of the Roadmap's data (which belongs in the Roadmap's route chunk);
+ *     no page's prerendered HTML goes over its own gzip budget (utility classes live in it).
  *  3. Search index: Pagefind indexes the prerendered HTML (only elements marked
  *     data-pagefind-body, i.e. doc articles and whatever else opts in) and writes
  *     dist/client/pagefind/. Result URLs are the real routes (/next/quickstart, not
@@ -80,6 +81,9 @@ if (uniq.length) {
 // ---------------------------------------------------------------- 2. size budget
 {
   const BUDGET_GZIP = 160 * 1024
+  // The heaviest page (/roadmap/features) is ~40KB gzipped; repeated markup that needs a long
+  // class string belongs in a named class (src/styles/components/docs.css), not inline.
+  const HTML_BUDGET_GZIP = 48 * 1024
   // Strings only the Roadmap's data and views contain.
   const ROADMAP_MARKERS = ['No feature matches both filters', 'Studio builds its forms']
   const scriptsOf = (html: string) =>
@@ -98,22 +102,28 @@ if (uniq.length) {
   }
   if (!shared.length) problems.push('found no script every page loads (did the HTML change shape?)')
   if (gz > BUDGET_GZIP) problems.push(`the JS every page loads is ${(gz / 1024).toFixed(0)}KB gzipped, over the ${BUDGET_GZIP / 1024}KB budget`)
+  let heaviest = { file: '', gz: 0 }
+  for (const [file, html] of htmlByFile) {
+    const size = gzipSync(html).length
+    if (size > heaviest.gz) heaviest = { file: path.relative(OUT_DIR, file), gz: size }
+    if (size > HTML_BUDGET_GZIP)
+      problems.push(`${path.relative(OUT_DIR, file)} is ${(size / 1024).toFixed(0)}KB gzipped, over the ${HTML_BUDGET_GZIP / 1024}KB page budget`)
+  }
   if (problems.length) {
     console.error(`\nsize: ${problems.join('\n  ')}\n`)
     process.exit(1)
   }
-  console.log(`size: ok (${shared.length} shared scripts, ${(gz / 1024).toFixed(0)}KB gzipped)`)
+  console.log(
+    `size: ok (${shared.length} shared scripts, ${(gz / 1024).toFixed(0)}KB gzipped; heaviest page ${heaviest.file}, ${(heaviest.gz / 1024).toFixed(0)}KB gzipped)`,
+  )
 }
 
 // ---------------------------------------------------------------- 3. search index
 // Index what the reader sees in the content, not the chrome around it: code-panel headers and copy
 // buttons, heading permalinks, the inline "On this page" outline (it repeats the headings), and
-// the Roadmap's metadata/chips/counts (the old app.js search left out the same things).
-const EXCLUDE = [
-  '.toc-inline', '.code-head', '.copy-button', '.code-lang', '.heading-anchor',
-  '.gx-meta', '.gx-kind', '.gx-chips', '.gx-fx-m', '.gx-fx-d', '.gx-fx-c', '.gx-catc', '.gx-filter',
-  '.gx-bar', '.gx-bar-h', '.gx-bar-l', '.gx-tl-s', '.gx-meta-k', '.gx-wf dt', '.rm-sr', '.rm-count',
-]
+// the Roadmap's metadata/chips/counts (the old app.js search left out the same things). The Roadmap
+// marks those with data-pagefind-ignore in its markup (components/roadmap/SectionViews.tsx).
+const EXCLUDE = ['.toc-inline', '.code-head', '.copy-button', '.code-lang', '.heading-anchor']
 const { index, errors } = await pagefind.createIndex({ forceLanguage: 'en', excludeSelectors: EXCLUDE })
 if (!index) throw new Error(`pagefind: ${errors.join(', ')}`)
 let indexed = 0

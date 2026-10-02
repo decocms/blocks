@@ -22,10 +22,10 @@ function HomeRoute() {
   if (Home) return <Home />
   return (
     <LandingShell nav={sidebarFor(DEFAULT_VERSION, 'docs')}>
-      <section className="hero band" style={{ minHeight: '60vh' }}>
-        <div className="container">
-          <h1 style={{ color: '#fff', fontWeight: 400 }}>Deco Blocks</h1>
-          <p style={{ color: 'rgba(255,255,255,.7)' }}>The home page is being ported (components/home/).</p>
+      <section className="min-h-[60vh] bg-forest pt-40 pb-20 text-band-fg">
+        <div className="mx-auto w-full max-w-landing px-10 max-sm:px-4">
+          <h1 className="text-hero leading-[1.05] font-normal tracking-display">Deco Blocks</h1>
+          <p className="text-band-muted">The home page is being ported (components/home/).</p>
         </div>
       </section>
     </LandingShell>

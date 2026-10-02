@@ -1,19 +1,26 @@
 /* ==========================================================================
-   Deco Blocks docs + landing, in the decocms.com visual language:
-   Switzer (light display, tight tracking), forest + lime, warm paper and
-   hairlines, pill buttons, olive uppercase eyebrows, cobogó texture,
-   browser-window mocks, gentle entrance motion.
+   Design tokens: the raw CSS variables behind every colour on the site.
+
+   Each colour is written once as light-dark(<light>, <dark>), so the theme is just the root's
+   color-scheme:
+     no data-theme        follows the OS (color-scheme: light dark)
+     data-theme="light"   light
+     data-theme="dark"    dark
+     print                light, plus a few print-only values (below)
+   The `dark:` variant (src/styles/theme.css) follows the same rule, for the few things that are not
+   colours.
+
+   Tailwind sees these through `@theme inline` in theme.css (bg-bg, text-muted-fg, border-hairline,
+   …), so utilities resolve to var(--token) and follow the theme. Fonts, easings, shadows, radii,
+   breakpoints, containers and animations live in theme.css (`@theme static`): var(--font-mono),
+   var(--shadow-win), var(--ease-out-quart) work in any CSS too.
    ========================================================================== */
 :root {
-  --font-sans: "Switzer", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --ease: cubic-bezier(.25, 1, .5, 1);
-  --ease-slow: cubic-bezier(.16, 1, .3, 1);
+  color-scheme: light dark;
 
-  /* decocms.com brand */
+  /* decocms.com brand (the same in both themes) */
   --lime: #D0EC1A;
   --lime-2: #DCEF63;
-  --lime-3: #C3DD1F;
   --forest: #07401A;
   --olive: #5E7500;
   --olive-ink: #455600;
@@ -21,280 +28,146 @@
   --brand: #D0EC1A;
   --brand-hover: #DCEF63;
   --brand-ink: #07401A;
-  --band-fg: #FFFFFF;
-  --band-muted: rgba(255, 255, 255, .76);
-  --band-subtle: rgba(255, 255, 255, .62);
-  --band-line: rgba(255, 255, 255, .14);
-  --band-fill: rgba(255, 255, 255, .07);
   --purple: #A595FF;
   --yellow: #FFC116;
 
+  /* On the forest bands (hero, production panel, footer): always light-on-dark */
+  --band-fg: #FFFFFF;
+  --band-muted: rgba(255, 255, 255, .76);
+  --band-line: rgba(255, 255, 255, .14);
+  --hdr-pill: rgba(24, 21, 19, .8);              /* the landing's scrolled header pill */
+
   /* Paper, ink, hairlines */
-  --bg: #FFFFFF;
-  --bg-subtle: #FAFAF9;
-  --bg-warm: #F9F6F2;
-  --surface: #FFFFFF;
-  --muted: #F4F2EF;
-  --hover: #EFEAE2;
-  --fg: #282524;
-  --fg-body: #3B3633;
-  --muted-fg: #6E6863;
-  --faint: #8C8680;
-  --quiet: #78726E;
-  --num-faint: #78726E;               /* the site's faint index, lifted to 4.7:1 so it reads as text */
-  --ol-num: #6E6863;                 /* docs step numbers: readable (5.3:1), still quieter than body */
-  --who-fg: #455600;                 /* speaker tag in the agent chat mock */
-  --mark-bg: rgba(208, 236, 26, .6); /* search-result match highlight */
-  --mark-fg: #282524;
-  --hdr-pill: rgba(24, 21, 19, .8);  /* the landing's scrolled header pill */
-  --step-on: #07401A;
-  --stack-fg: rgba(40, 37, 36, .64);
-  --footer-bg: #FAF9F7;
-  --border: rgba(40, 37, 36, .10);
-  --border-strong: rgba(40, 37, 36, .18);
-  --hairline: rgba(40, 37, 36, .09);
-  --eyebrow: #5E7500;
-  --link: #07401A;
-  --link-line: #8CAA25;
-  --accent-text: #5E7500;
-  --nav-active-bg: #EFF6CC;
-  --nav-active-fg: #07401A;
-  --nav-bar: #07401A;
-  --pill-on-bg: #07401A;
+  --bg: light-dark(#FFFFFF, #1A1714);
+  --bg-subtle: light-dark(#FAFAF9, #1E1A17);
+  --bg-warm: light-dark(#F9F6F2, #201C19);
+  --surface: light-dark(#FFFFFF, #221E1B);
+  --muted: light-dark(#F4F2EF, #2A2522);
+  --hover: light-dark(#EFEAE2, #322C28);
+  --fg: light-dark(#282524, #F4F2EE);
+  --fg-body: light-dark(#3B3633, #DCD7D0);
+  --muted-fg: light-dark(#6E6863, #B9B4AB);
+  --faint: light-dark(#8C8680, #9A948A);
+  --quiet: light-dark(#78726E, #9A948A);
+  --num-faint: light-dark(#78726E, #9A948A);     /* the site's faint index, lifted to 4.7:1 so it reads as text */
+  --ol-num: light-dark(#6E6863, #9A948A);        /* docs step numbers: readable (5.3:1), still quieter than body */
+  --border: light-dark(rgba(40, 37, 36, .10), rgba(255, 255, 255, .08));
+  --border-strong: light-dark(rgba(40, 37, 36, .18), rgba(255, 255, 255, .16));
+  --hairline: light-dark(rgba(40, 37, 36, .09), rgba(255, 255, 255, .07));
+
+  /* Accents */
+  --eyebrow: light-dark(#5E7500, #BCD43C);
+  --link: light-dark(#07401A, #D0EC1A);
+  --link-line: light-dark(#8CAA25, rgba(208, 236, 26, .42));
+  --ring: light-dark(#5E7500, #D0EC1A);
+  --tint: light-dark(#EFF6CC, rgba(208, 236, 26, .1));
+  --tint-fg: light-dark(#07401A, #E4F58A);
+  --mark-bg: light-dark(rgba(208, 236, 26, .6), #D0EC1A);   /* search-result match highlight */
+  --mark-fg: light-dark(#282524, #07401A);
+
+  /* Navigation: current item, pressed pills, the rail indicator */
+  --nav-active-bg: light-dark(#EFF6CC, #16361D);
+  --nav-active-fg: light-dark(#07401A, #D0EC1A);
+  --nav-bar: light-dark(#07401A, #D0EC1A);
+  --pill-on-bg: light-dark(#07401A, #0B4A20);
   --pill-on-fg: #D0EC1A;
-  --pill-on-ring: transparent;
-  --ring: #5E7500;
-  --indicator-ring: rgba(7, 64, 26, .35);
-  --tint: #EFF6CC;
-  --tint-fg: #07401A;
+  --pill-on-ring: light-dark(transparent, rgba(208, 236, 26, .28));
+  --indicator-ring: light-dark(rgba(7, 64, 26, .35), transparent);
 
-  --code-bg: #FAFAF9;
-  --code-inline: #F2F0ED;
-  --code-head: #F5F3F0;
-  --code-border: rgba(40, 37, 36, .09);
-  --code-fg: #2E2A27;
-  --code-sel: rgba(208, 236, 26, .5);
+  /* Code */
+  --code-bg: light-dark(#FAFAF9, #211D1A);
+  --code-inline: light-dark(#F2F0ED, #2E2926);
+  --code-head: light-dark(#F5F3F0, #26221F);
+  --code-border: light-dark(rgba(40, 37, 36, .09), rgba(255, 255, 255, .07));
+  --code-fg: light-dark(#2E2A27, #E8E3DC);
+  --code-sel: light-dark(rgba(208, 236, 26, .5), rgba(208, 236, 26, .28));
 
-  --note-bg: #FAFAF9;
-  --warn-bg: #FFF8E6;
-  --warn-border: #F1DC9E;
-  --warn-icon: #8F6600;
-  --preview-bg: #EFF6CC;
-  --preview-border: rgba(140, 170, 37, .38);
-  --del-bg: rgba(214, 64, 40, .08);
-  --del-fg: #A3341F;
-  --add-bg: #EFF6CC;
-  --th-bg: #FAFAF9;
+  /* Callouts, tables, diffs */
+  --note-bg: light-dark(#FAFAF9, #211D1A);
+  --warn-bg: light-dark(#FFF8E6, #2A2314);
+  --warn-border: light-dark(#F1DC9E, #54451D);
+  --warn-icon: light-dark(#8F6600, #F2C14E);
+  --preview-bg: light-dark(#EFF6CC, #212914);
+  --preview-border: light-dark(rgba(140, 170, 37, .38), rgba(208, 236, 26, .22));
+  --preview-dot: light-dark(#07401A, #D0EC1A);                            /* <Callout type="preview">'s dot … */
+  --preview-dot-ring: light-dark(#D0EC1A, rgba(208, 236, 26, .2));       /* … and its 4px ring */
+  --th-bg: light-dark(#FAFAF9, #211D1A);
+  --del-bg: light-dark(rgba(214, 64, 40, .08), rgba(255, 110, 90, .12));
+  --del-fg: light-dark(#A3341F, #FFA08C);
+  --add-bg: light-dark(#EFF6CC, rgba(208, 236, 26, .12));
 
-  --st-bg: #FFFFFF;
-  --st-fg: #282524;
-  --st-muted: #6E6863;
-  --st-border: rgba(40, 37, 36, .09);
-  --st-field: #FAFAF9;
-  --st-track: #E7E5E4;
-  --st-fill: #07401A;
+  /* Home: product mocks (Studio form, browser windows, chat), stack strip, footer */
+  --st-bg: light-dark(#FFFFFF, #26221F);
+  --st-fg: light-dark(#282524, #F4F2EE);
+  --st-muted: light-dark(#6E6863, #B9B4AB);
+  --st-border: light-dark(rgba(40, 37, 36, .09), rgba(255, 255, 255, .08));
+  --st-field: light-dark(#FAFAF9, #211D1A);
+  --st-track: light-dark(#E7E5E4, #453E38);
+  --st-fill: light-dark(#07401A, #D0EC1A);
+  --win-bg: light-dark(#F9F6F2, #211D1A);
+  --win-panel: light-dark(#FFFFFF, #26221F);
+  --win-bar: light-dark(#FAFAF9, #24201D);
+  --win-dot: light-dark(#E7E5E4, #47413B);
+  --who-fg: light-dark(#455600, #BCD43C);        /* speaker tag in the agent chat mock */
+  --step-on: light-dark(#07401A, #D0EC1A);
+  --stack-fg: light-dark(rgba(40, 37, 36, .64), rgba(244, 242, 238, .64));
+  --stack-hover: light-dark(color-mix(in oklab, #EFF6CC 55%, #FFFFFF), rgba(208, 236, 26, .06));
+  --term-bg: light-dark(#0C3A1A, #0C2E16);        /* the stepper's terminal line */
+  --result-code-bg: light-dark(rgba(255, 255, 255, .6), rgba(0, 0, 0, .25));
+  --result-icon-bg: light-dark(#07401A, #D0EC1A);
+  --result-icon-fg: light-dark(#D0EC1A, #07401A);
+  --pub-live-bg: light-dark(#07401A, #D0EC1A);
+  --pub-live-fg: light-dark(#D0EC1A, #07401A);
+  --tag-yours-bg: light-dark(#07401A, #0B4A20);
+  --footer-bg: light-dark(#FAF9F7, #1A1714);
+  --footer-panel: light-dark(#07401A, #0A3A18);
 
-  --win-bg: #F9F6F2;
-  --win-panel: #FFFFFF;
-  --win-bar: #FAFAF9;
-  --win-dot: #E7E5E4;
+  /* Roadmap statuses (data-v): g to build · p to finish · a site code · c done · n goes away.
+     Each has a marker colour, a pill background and a pill text colour. */
+  --gx-g: light-dark(#D9432F, #F07A64); --gx-g-bg: light-dark(#FDECE8, rgba(240, 122, 100, .15)); --gx-g-fg: light-dark(#9E2B18, #FFAB98);
+  --gx-p: light-dark(#E0A106, #E9B949); --gx-p-bg: light-dark(#FDF3D6, rgba(242, 193, 78, .14)); --gx-p-fg: light-dark(#7A5200, #F5CD6E);
+  --gx-a: light-dark(#2F7BD4, #6FA8E8); --gx-a-bg: light-dark(#E7F0FB, rgba(111, 168, 232, .15)); --gx-a-fg: light-dark(#1D5796, #A9CBF2);
+  --gx-c: light-dark(#8CAA25, #C3DD1F); --gx-c-bg: light-dark(#EFF6CC, rgba(208, 236, 26, .12)); --gx-c-fg: light-dark(#07401A, #D9F05A);
+  --gx-n: light-dark(#8B7BF0, #A595FF); --gx-n-bg: light-dark(#EFECFE, rgba(165, 149, 255, .16)); --gx-n-fg: light-dark(#4A3AA7, #C8BEFF);
+  --gx-now-bg: light-dark(#9E2B18, #FFAB98); --gx-now-fg: light-dark(#FFFFFF, #2A120C);
+  --gx-track: light-dark(#EFEDEA, rgba(255, 255, 255, .07));
 
-  --shadow-sm: 0 1px 2px rgba(40, 37, 36, .05);
-  --shadow-md: 0 1px 2px rgba(40, 37, 36, .04), 0 12px 32px -16px rgba(40, 37, 36, .2);
-  --shadow-win: 0 50px 110px -36px rgba(14, 26, 16, .35);
-  --shadow-lg: 0 0 0 1px rgba(40, 37, 36, .06), 0 24px 64px -16px rgba(40, 37, 36, .32);
+  /* Syntax (Shiki writes color: var(--syn-*) inline; build/shiki-theme.ts) */
+  --syn-comment: light-dark(#78726E, #958E86);
+  --syn-keyword: light-dark(#5A4AC7, #A595FF);
+  --syn-string: light-dark(#5E7500, #C9E45A);
+  --syn-type: light-dark(#31699F, #8FB8E8);
+  --syn-function: light-dark(#31699F, #8FB8E8);
+  --syn-number: light-dark(#9A5B00, #F2C14E);
+  --syn-property: light-dark(#282524, #E8E3DC);
+  --syn-punctuation: light-dark(#78726E, #9C958D);
+  --syn-operator: light-dark(#78726E, #B8B1A9);
+  --syn-tag: light-dark(#A3341F, #FF9A85);
 
-  /* The site's tri-colour numerals (olive, purple, blue) on warm ink */
-  --syn-comment: #78726E;
-  --syn-keyword: #5A4AC7;
-  --syn-string: #5E7500;
-  --syn-type: #31699F;
-  --syn-function: #31699F;
-  --syn-number: #9A5B00;
-  --syn-property: #282524;
-  --syn-punctuation: #78726E;
-  --syn-operator: #78726E;
-  --syn-tag: #A3341F;
+  /* Icons drawn as CSS masks (breadcrumb separator, callout icons) */
+  --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  --ico-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4M12 8h.01'/%3E%3C/svg%3E");
+  --ico-warn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3'/%3E%3Cpath d='M12 9v4M12 17h.01'/%3E%3C/svg%3E");
 
-  --wm-light: inline-block;
-  --wm-dark: none;
-  --icon-sun: none;
-  --icon-moon: block;
-
+  /* Layout. --header-h is the sticky header's height (58px below 900px); utilities: h-header,
+     top-header, scroll-mt-header (theme.css). */
   --header-h: 64px;
-  --hdr-max: 1440px;
-  --radius: 12px;
-  color-scheme: light;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+@media (max-width: 899px) {
+  :root { --header-h: 58px; }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #1A1714;
-    --bg-subtle: #1E1A17;
-    --bg-warm: #201C19;
-    --surface: #221E1B;
-    --muted: #2A2522;
-    --hover: #322C28;
-    --fg: #F4F2EE;
-    --fg-body: #DCD7D0;
-    --muted-fg: #B9B4AB;
-    --faint: #9A948A;
-    --quiet: #9A948A;
-    --num-faint: #9A948A;
-    --ol-num: #9A948A;
-    --who-fg: #BCD43C;
-    --mark-bg: #D0EC1A;
-    --mark-fg: #07401A;
-    --step-on: #D0EC1A;
-    --stack-fg: rgba(244, 242, 238, .64);
-    --footer-bg: #1A1714;
-    --border: rgba(255, 255, 255, .08);
-    --border-strong: rgba(255, 255, 255, .16);
-    --hairline: rgba(255, 255, 255, .07);
-    --eyebrow: #BCD43C;
-    --link: #D0EC1A;
-    --link-line: rgba(208, 236, 26, .42);
-    --accent-text: #D0EC1A;
-    --nav-active-bg: #16361D;
-    --nav-active-fg: #D0EC1A;
-    --nav-bar: #D0EC1A;
-    --pill-on-bg: #0B4A20;
-    --pill-on-fg: #D0EC1A;
-    --pill-on-ring: rgba(208, 236, 26, .28);
-    --ring: #D0EC1A;
-    --indicator-ring: transparent;
-    --tint: rgba(208, 236, 26, .1);
-    --tint-fg: #E4F58A;
-    --code-bg: #211D1A;
-    --code-head: #26221F;
-    --code-border: rgba(255, 255, 255, .07);
-    --code-inline: #2E2926;
-    --code-fg: #E8E3DC;
-    --code-sel: rgba(208, 236, 26, .28);
-    --note-bg: #211D1A;
-    --warn-bg: #2A2314;
-    --warn-border: #54451D;
-    --warn-icon: #F2C14E;
-    --preview-bg: #212914;
-    --preview-border: rgba(208, 236, 26, .22);
-    --del-bg: rgba(255, 110, 90, .12);
-    --del-fg: #FFA08C;
-    --add-bg: rgba(208, 236, 26, .12);
-    --th-bg: #211D1A;
-    --st-bg: #26221F;
-    --st-fg: #F4F2EE;
-    --st-muted: #B9B4AB;
-    --st-border: rgba(255, 255, 255, .08);
-    --st-field: #211D1A;
-    --st-track: #453E38;
-    --st-fill: #D0EC1A;
-    --win-bg: #211D1A;
-    --win-panel: #26221F;
-    --win-bar: #24201D;
-    --win-dot: #47413B;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
-    --shadow-md: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 32px -16px rgba(0, 0, 0, .6);
-    --shadow-win: 0 50px 110px -36px rgba(0, 0, 0, .75);
-    --shadow-lg: 0 0 0 1px rgba(255, 255, 255, .06), 0 24px 64px -16px rgba(0, 0, 0, .7);
-    --syn-comment: #958E86;
-    --syn-keyword: #A595FF;
-    --syn-string: #C9E45A;
-    --syn-type: #8FB8E8;
-    --syn-function: #8FB8E8;
-    --syn-number: #F2C14E;
-    --syn-property: #E8E3DC;
-    --syn-punctuation: #9C958D;
-    --syn-operator: #B8B1A9;
-    --syn-tag: #FF9A85;
-    --wm-light: none;
-    --wm-dark: inline-block;
-    --icon-sun: block;
-    --icon-moon: none;
-    color-scheme: dark;
+/* Print is always light, with slightly stronger neutrals and a print syntax palette. */
+@media print {
+  :root, :root[data-theme] {
+    color-scheme: light;
+    --header-h: 64px;
+    --bg: #fff; --bg-subtle: #f6f5f3; --surface: #fff; --muted: #f1f0ee; --fg: #1c1917; --fg-body: #292524; --muted-fg: #57534e;
+    --border: #e2e0dc; --border-strong: #d6d3d1; --hairline: #e7e5e4; --code-bg: #f8f7f5; --code-head: #f1f0ee; --code-fg: #292524;
+    --syn-comment: #57534e; --syn-keyword: #6b21a8; --syn-string: #3f6212; --syn-type: #0e7490; --syn-function: #1d4ed8;
+    --syn-number: #9a3412; --syn-property: #1e3a8a; --syn-punctuation: #57534e; --syn-operator: #44403c; --syn-tag: #b91c1c;
   }
 }
-:root[data-theme="dark"] {
-  --bg: #1A1714;
-  --bg-subtle: #1E1A17;
-  --bg-warm: #201C19;
-  --surface: #221E1B;
-  --muted: #2A2522;
-  --hover: #322C28;
-  --fg: #F4F2EE;
-  --fg-body: #DCD7D0;
-  --muted-fg: #B9B4AB;
-  --faint: #9A948A;
-  --quiet: #9A948A;
-  --num-faint: #9A948A;
-  --ol-num: #9A948A;
-  --who-fg: #BCD43C;
-  --mark-bg: #D0EC1A;
-  --mark-fg: #07401A;
-  --step-on: #D0EC1A;
-  --stack-fg: rgba(244, 242, 238, .64);
-  --footer-bg: #1A1714;
-  --border: rgba(255, 255, 255, .08);
-  --border-strong: rgba(255, 255, 255, .16);
-  --hairline: rgba(255, 255, 255, .07);
-  --eyebrow: #BCD43C;
-  --link: #D0EC1A;
-  --link-line: rgba(208, 236, 26, .42);
-  --accent-text: #D0EC1A;
-  --nav-active-bg: #16361D;
-  --nav-active-fg: #D0EC1A;
-  --nav-bar: #D0EC1A;
-  --pill-on-bg: #0B4A20;
-  --pill-on-fg: #D0EC1A;
-  --pill-on-ring: rgba(208, 236, 26, .28);
-  --ring: #D0EC1A;
-  --indicator-ring: transparent;
-  --tint: rgba(208, 236, 26, .1);
-  --tint-fg: #E4F58A;
-  --code-bg: #211D1A;
-  --code-head: #26221F;
-  --code-border: rgba(255, 255, 255, .07);
-  --code-inline: #2E2926;
-  --code-fg: #E8E3DC;
-  --code-sel: rgba(208, 236, 26, .28);
-  --note-bg: #211D1A;
-  --warn-bg: #2A2314;
-  --warn-border: #54451D;
-  --warn-icon: #F2C14E;
-  --preview-bg: #212914;
-  --preview-border: rgba(208, 236, 26, .22);
-  --del-bg: rgba(255, 110, 90, .12);
-  --del-fg: #FFA08C;
-  --add-bg: rgba(208, 236, 26, .12);
-  --th-bg: #211D1A;
-  --st-bg: #26221F;
-  --st-fg: #F4F2EE;
-  --st-muted: #B9B4AB;
-  --st-border: rgba(255, 255, 255, .08);
-  --st-field: #211D1A;
-  --st-track: #453E38;
-  --st-fill: #D0EC1A;
-  --win-bg: #211D1A;
-  --win-panel: #26221F;
-  --win-bar: #24201D;
-  --win-dot: #47413B;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
-  --shadow-md: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 32px -16px rgba(0, 0, 0, .6);
-  --shadow-win: 0 50px 110px -36px rgba(0, 0, 0, .75);
-  --shadow-lg: 0 0 0 1px rgba(255, 255, 255, .06), 0 24px 64px -16px rgba(0, 0, 0, .7);
-  --syn-comment: #958E86;
-  --syn-keyword: #A595FF;
-  --syn-string: #C9E45A;
-  --syn-type: #8FB8E8;
-  --syn-function: #8FB8E8;
-  --syn-number: #F2C14E;
-  --syn-property: #E8E3DC;
-  --syn-punctuation: #9C958D;
-  --syn-operator: #B8B1A9;
-  --syn-tag: #FF9A85;
-  --wm-light: none;
-  --wm-dark: inline-block;
-  --icon-sun: block;
-  --icon-moon: none;
-  color-scheme: dark;
-}
-

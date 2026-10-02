@@ -1,25 +1,34 @@
 import { MdxLink } from '~/components/mdx/MdxLink'
 import { WordmarkLime } from '~/components/ui/Brand'
-import { d } from './Hero'
+import { btnOutline, btnPrimary, container, cta, d, Dim, H2, reveal } from './ui'
+
+const noteLink = 'text-inherit underline decoration-1 underline-offset-2 rounded-[2px] transition-colors hover:text-fg'
 
 export function FinalCta() {
   return (
-    <div className="final" role="group" aria-labelledby="final-title">
-      <div className="container final-inner">
-        <h2 id="final-title" className="reveal">
-          Start with one function. <span className="dim">Ship it from Git.</span>
-        </h2>
-        <div className="cta reveal" style={d('120ms')}>
-          <MdxLink className="btn btn-primary" href="/next/quickstart">
+    <div className="py-28 bg-bg text-center max-sm:py-20" role="group" aria-labelledby="final-title">
+      <div className={`${container} flex flex-col items-center`}>
+        <H2 id="final-title" className={`max-w-[620px] mx-auto ${reveal}`}>
+          Start with one function. <Dim>Ship it from Git.</Dim>
+        </H2>
+        <div className={`${cta} justify-center ${reveal}`} style={d('120ms')}>
+          <MdxLink className={btnPrimary} href="/next/quickstart">
             Read the quickstart →
           </MdxLink>
-          <MdxLink className="btn btn-white" href="/next/architecture">
+          <MdxLink className={btnOutline} href="/next/architecture">
             How it works
           </MdxLink>
         </div>
-        <p className="final-note reveal" style={d('120ms')}>
-          The quickstart runs in plain Node, no framework. Or read the <MdxLink href="/next/standalone">API reference</MdxLink> ·{' '}
-          <MdxLink href="/next/internals">Under the hood</MdxLink>.
+        <p className={`mt-4 mx-auto max-w-[560px] text-13 leading-5 text-quiet ${reveal}`} style={d('120ms')}>
+          The quickstart runs in plain Node, no framework. Or read the{' '}
+          <MdxLink className={noteLink} href="/next/standalone">
+            API reference
+          </MdxLink>{' '}
+          ·{' '}
+          <MdxLink className={noteLink} href="/next/internals">
+            Under the hood
+          </MdxLink>
+          .
         </p>
       </div>
     </div>
@@ -69,18 +78,22 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
   },
 ]
 
-/** The landing's site footer (legacy.css hides .site-footer outside the landing layout). */
+/** The landing's site footer. `site-footer` is the hook Menu.tsx uses to make it inert under the open drawer. */
 export function SiteFooter() {
   return (
-    <footer className="site-footer">
-      <div className="footer-panel">
-        <div className="container">
-          <div className="footer-grid">
+    <footer className="site-footer p-2 bg-footer-bg max-sm:p-1.5 [&_:where(:focus-visible)]:outline-lime">
+      <div className="relative overflow-hidden pt-32 rounded-2xl bg-footer-panel text-[#E7E5E4] max-sm:pt-16">
+        <div className={container}>
+          <div className="grid grid-cols-4 gap-10 max-md:grid-cols-2 max-md:gap-x-6 max-md:gap-y-9">
             {COLUMNS.map((col) => (
-              <nav className="footer-col" aria-label={col.title} key={col.title}>
-                <p>{col.title}</p>
+              <nav aria-label={col.title} key={col.title}>
+                <p className="mb-2 text-18 leading-[1.625] font-medium text-lime">{col.title}</p>
                 {col.links.map(([href, label]) => (
-                  <MdxLink href={href} key={href}>
+                  <MdxLink
+                    className="block w-fit py-2 text-16 leading-6 text-[#E7E5E4] no-underline rounded-[3px] transition-colors duration-300 hover:text-[rgba(208,236,26,.85)]"
+                    href={href}
+                    key={href}
+                  >
                     {label}
                   </MdxLink>
                 ))}
@@ -88,7 +101,7 @@ export function SiteFooter() {
             ))}
           </div>
         </div>
-        <div className="footer-mark" aria-hidden="true">
+        <div className="max-w-[1296px] mt-14 mx-auto px-10 aspect-[1296/250] overflow-hidden max-sm:px-4 max-sm:mt-10 [&_.wm]:w-full [&_.wm]:h-auto" aria-hidden="true">
           <WordmarkLime />
         </div>
       </div>

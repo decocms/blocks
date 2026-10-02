@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { ManifestPage } from '~/build/manifest'
-import { mdxComponents } from '~/components/mdx'
+import { Eyebrow, mdxComponents } from '~/components/mdx'
 import { getLoadedPage } from '~/src/lib/content'
 import { breadcrumbFor, pagerFor, railFor, sidebarFor } from '~/src/lib/nav'
 import { DocsShell } from './DocsShell'
@@ -21,7 +21,7 @@ export function DocPage({ page, indexable = true }: { page: ManifestPage; indexa
   return (
     <DocsShell nav={sidebarFor(page.version, page.kind, page)} crumbs={breadcrumbFor(page)} pager={pagerFor(page)} rail={railFor(mod.headings)}>
       <article className="doc-section doc-page" data-pagefind-body={indexable ? '' : undefined} data-version={page.version} key={page.file}>
-        <p className="eyebrow">{page.eyebrow}</p>
+        <Eyebrow>{page.eyebrow}</Eyebrow>
         <Content components={mdxComponents} />
       </article>
     </DocsShell>

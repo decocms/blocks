@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { versionEntry } from '~/src/lib/content'
 import { DEFAULT_VERSION } from '~/src/lib/versions'
 import { sidebarFor } from '~/src/lib/nav'
+import { Eyebrow } from '~/components/mdx'
 import { DocsShell } from './DocsShell'
 
 /** The 404 page (also prerendered to /404.html, which GitHub Pages serves for unknown paths). */
@@ -14,7 +15,7 @@ export function NotFound() {
   return (
     <DocsShell nav={sidebarFor(DEFAULT_VERSION, 'docs')} crumbs={[{ label: 'Page not found' }]} rail={[]}>
       <article className="doc-section doc-page" data-pagefind-ignore="all">
-        <p className="eyebrow">404</p>
+        <Eyebrow>404</Eyebrow>
         <h1 tabIndex={-1}>Page not found</h1>
         <p>There's no page at this address. It may have moved when the docs were split into versions.</p>
         <ul>

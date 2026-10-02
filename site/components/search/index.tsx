@@ -14,7 +14,8 @@
  *   (aria-activedescendant), Enter opens it; Tab also reaches the links themselves (and ↑/↓ from
  *   a link return to the input).
  *
- * Markup and classes are the old site's (#search-dialog, .search-head, .search-results, .sr-*).
+ * Styled with Tailwind utilities; the ids (#search-dialog, #search-input, #search-results,
+ * #search-opt-N, #search-status) are the old site's and stay.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useRouter } from '@tanstack/react-router'
@@ -26,6 +27,12 @@ import { closeMenu, SEARCH_OPEN_EVENT } from '~/src/lib/ui'
 import { excerptParts, loadPagefind, decodeEntities, tidyExcerpt, type Pagefind, type PagefindData, type PagefindSubResult } from './pagefind'
 
 const BASE = import.meta.env.BASE_URL
+
+/* Styles shared by more than one element below. */
+const MARK = 'rounded-[3px] bg-mark-bg px-px text-mark-fg'
+const LABEL = 'mx-3 mt-2.5 mb-1.5 text-13 leading-4 tracking-ui text-eyebrow uppercase'
+const EMPTY = 'px-3 py-7 text-center text-14 text-muted-fg'
+const KBD = 'mr-0.5 inline-grid h-5.5 min-w-5.5 place-items-center rounded-full bg-surface px-1.5 inset-ring inset-ring-border'
 const MAX_ROWS = 20
 /** Pages whose data is fetched per query (each is one small request). */
 const MAX_PAGES = 24
@@ -122,7 +129,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function Highlight({ text, words }: { text: string; words: string[] }) {
   if (!words.length) return <>{text}</>
   const re = new RegExp(`(${words.map(escapeRe).join('|')})`, 'gi')
-  return <>{text.split(re).map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part))}</>
+  return <>{text.split(re).map((part, i) => (i % 2 ? <mark key={i} className={MARK}>{part}</mark> : part))}</>
 }
 
 type Status = { kind: 'idle' } | { kind: 'loading' } | { kind: 'results'; rows: Row[]; label: string } | { kind: 'empty' } | { kind: 'unavailable' }
@@ -257,6 +264,7 @@ export default function SearchDialog() {
         id="search-dialog"
         aria-label="Search documentation"
         ref={dialogRef}
+        className="m-auto mt-[12vh] hidden max-h-[min(580px,calc(100vh-96px))] w-[min(660px,calc(100%-32px))] flex-col overflow-hidden rounded-dialog border border-border bg-surface p-0 text-fg shadow-lg open:not-print:flex open:animate-pop backdrop:bg-backdrop backdrop:backdrop-blur-[3px] max-md:mt-4 max-md:max-h-[calc(100vh-32px)]"
         onKeyDown={onKeyDown}
         onClick={(event) => {
           // A click on the backdrop (outside the dialog box) closes it.
@@ -265,11 +273,12 @@ export default function SearchDialog() {
           if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) close()
         }}
       >
-        <div className="search-head">
-          <Icon name="search" />
+        <div className="flex h-15 flex-none items-center gap-3 border-b border-hairline pr-3.5 pl-5 transition-shadow has-[input:focus-visible]:shadow-[inset_0_-2px_0_var(--ring)]">
+          <Icon name="search" className="size-4.5 text-eyebrow" />
           <input
             ref={inputRef}
             id="search-input"
+            className="h-10 min-w-0 flex-1 border-0 bg-transparent px-0.5 py-px text-17 text-fg outline-none placeholder:text-muted-fg [&::-webkit-search-cancel-button]:hidden"
             type="search"
             placeholder="Search concepts, APIs, frameworks…"
             aria-label="Search docs"
@@ -286,33 +295,33 @@ export default function SearchDialog() {
               void run(e.target.value)
             }}
           />
-          <button className="search-close" id="search-close" type="button" aria-label="Esc: close search" onClick={close}>
+          <button className="h-6.5 rounded-full border-0 bg-muted px-2.5 font-mono text-11 leading-4 font-medium text-muted-fg" id="search-close" type="button" aria-label="Esc: close search" onClick={close}>
             Esc
           </button>
         </div>
-        <div className="search-results" id="search-results" role="listbox" aria-label="Search results" ref={resultsRef}>
+        <div className="flex-1 overflow-y-auto overscroll-contain p-2" id="search-results" role="listbox" aria-label="Search results" ref={resultsRef}>
           {!words.length && rows.length > 0 && (
-            <p className="search-label" aria-hidden="true">
+            <p className={LABEL} aria-hidden="true">
               Suggested
             </p>
           )}
           {words.length > 0 && status.kind === 'results' && (
-            <p className="search-label" aria-hidden="true">
+            <p className={LABEL} aria-hidden="true">
               {status.label}
             </p>
           )}
           {words.length > 0 && status.kind === 'loading' && (
-            <p className="search-empty" aria-hidden="true">
+            <p className={EMPTY} aria-hidden="true">
               Loading the search index…
             </p>
           )}
           {words.length > 0 && status.kind === 'empty' && (
-            <p className="search-empty" aria-hidden="true">
+            <p className={EMPTY} aria-hidden="true">
               No matching sections. Try “schema”, “rollback”, or “TanStack”.
             </p>
           )}
           {words.length > 0 && status.kind === 'unavailable' && (
-            <p className="search-empty">
+            <p className={EMPTY}>
               Search works on the built site. Run <code>bun run build</code>, then <code>bun run preview</code>.
             </p>
           )}
@@ -324,7 +333,7 @@ export default function SearchDialog() {
                 id={`search-opt-${i}`}
                 role="option"
                 aria-selected={on}
-                className={on ? 'is-active' : undefined}
+                className="search-hit group" // search-hit*: src/styles/components/docs.css
                 href={toHref(row.to, row.hash)}
                 onMouseMove={() => !on && setActive(i)}
                 onClick={(event) => {
@@ -333,22 +342,22 @@ export default function SearchDialog() {
                   void go(row)
                 }}
               >
-                <span className="sr-icon">
-                  <Icon name={row.kind === 'heading' ? 'hash' : 'file'} />
+                <span className="search-hit-icon">
+                  <Icon name={row.kind === 'heading' ? 'hash' : 'file'} className="size-3.5" />
                 </span>
-                <span className="sr-body">
-                  <span className="sr-path">{row.path}</span>
-                  <span className="sr-title">
+                <span className="grid min-w-0 flex-1 gap-0.5">
+                  <span className="search-hit-path">{row.path}</span>
+                  <span className="search-hit-title">
                     <Highlight text={row.title} words={words} />
                   </span>
                   {words.length > 0 && row.excerpt && (
-                    <span className="sr-snip">
-                      {excerptParts(row.excerpt).map((p, j) => (p.mark ? <mark key={j}>{p.text}</mark> : p.text))}
+                    <span className="line-clamp-2 text-13 leading-5 text-muted-fg">
+                      {excerptParts(row.excerpt).map((p, j) => (p.mark ? <mark key={j} className={MARK}>{p.text}</mark> : p.text))}
                     </span>
                   )}
                 </span>
-                <span className="sr-enter">
-                  <Icon name="corner" />
+                <span className="search-hit-go">
+                  <Icon name="corner" className="size-3.25" />
                 </span>
               </a>
             )
@@ -357,15 +366,15 @@ export default function SearchDialog() {
         <p className="sr-only" id="search-status" role="status">
           {statusText}
         </p>
-        <div className="search-hint">
+        <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline bg-bg-subtle px-5 py-[11px] text-12 leading-4 text-muted-fg">
           <span>
-            <kbd>↑</kbd>
-            <kbd>↓</kbd> to move
+            <kbd className={KBD}>↑</kbd>
+            <kbd className={KBD}>↓</kbd> to move
           </span>
           <span>
-            <kbd>↵</kbd> to open
+            <kbd className={KBD}>↵</kbd> to open
           </span>
-          <span className="sh-note">Searches all documentation, including code examples.</span>
+          <span className="ml-auto max-md:hidden">Searches all documentation, including code examples.</span>
         </div>
       </dialog>
     </>

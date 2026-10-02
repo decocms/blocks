@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
 import { Icon } from '~/components/ui/Icon'
-import { announce, copyText, toast } from '~/src/lib/ui'
+import { announce, copyText, cx, toast } from '~/src/lib/ui'
 
 /**
  * A highlighted code block: the panel with its header (file name or language), language badge and
@@ -42,7 +42,7 @@ type PreProps = ComponentProps<'pre'> & {
   'data-diagram'?: boolean | string
 }
 
-export function CopyButton({ target, withLabel }: { target: RefObject<HTMLElement | null>; withLabel?: boolean }) {
+export function CopyButton({ target, withLabel, className }: { target: RefObject<HTMLElement | null>; withLabel?: boolean; className?: string }) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -52,7 +52,13 @@ export function CopyButton({ target, withLabel }: { target: RefObject<HTMLElemen
   return (
     <button
       type="button"
-      className={`copy-button${withLabel ? ' has-label' : ''}${copied ? ' copied' : ''}`}
+      // `copy-button`: styles in src/styles/components/docs.css (also a hook: the search index skips it).
+      className={cx(
+        className,
+        'copy-button',
+        withLabel ? 'pr-3 pl-2.5 max-xs:px-2' : 'px-2',
+        copied ? 'border-transparent bg-tint text-tint-fg' : 'border-transparent bg-transparent text-muted-fg hover:border-code-border hover:bg-surface hover:text-fg',
+      )}
       aria-label={copied ? 'Copied' : 'Copy code example'}
       onClick={async () => {
         const ok = await copyText((target.current?.textContent ?? '').replace(/\s+$/, ''))
@@ -61,9 +67,9 @@ export function CopyButton({ target, withLabel }: { target: RefObject<HTMLElemen
         announce('Copied to clipboard')
       }}
     >
-      <Icon name="copy" />
-      <Icon name="check" />
-      {withLabel && <span className="copy-label">{copied ? 'Copied' : 'Copy'}</span>}
+      <Icon name="copy" className={cx('size-3.5', copied && 'hidden')} />
+      <Icon name="check" className={cx('size-3.5', !copied && 'hidden')} />
+      {withLabel && <span className="max-xs:hidden">{copied ? 'Copied' : 'Copy'}</span>}
     </button>
   )
 }
@@ -118,6 +124,19 @@ function useScrollHints(ref: RefObject<HTMLPreElement | null>) {
   }, [ref])
 }
 
+/**
+ * The panel: bordered box; inside a <figure> (titled blocks) the figure carries the margin. No
+ * radius here: cx() only joins strings, so each use picks one (rounded-box or rounded-full) rather
+ * than overriding a shared one.
+ */
+const PANEL = 'relative overflow-hidden border border-code-border bg-code-bg print:break-inside-avoid-page print:shadow-none'
+
+/** The scrolling <pre>: `code-pre` (src/styles/components/docs.css) carries its scroll-fade masks. */
+const PRE = 'code-pre'
+
+/** The one-line "$ command" pill: the prompt is a ::before on the code, outside the selection. */
+const PRE_CMD = "min-w-0 flex-1 px-5.5 py-[13px] [scrollbar-width:none] [&_code]:before:mr-3 [&_code]:before:font-medium [&_code]:before:text-eyebrow [&_code]:before:select-none [&_code]:before:content-['$']"
+
 export function CodeBlock(props: PreProps) {
   const {
     'data-lang': lang = 'text',
@@ -134,44 +153,63 @@ export function CodeBlock(props: PreProps) {
   const label = isUrl ? 'URL' : (LANG_LABELS[lang] ?? lang)
   const ariaLabel = title || (label === 'URL' ? 'URL' : `${label} code`)
   const pre = (
-    <pre {...rest} ref={ref} className={[className, title ? 'has-file' : ''].filter(Boolean).join(' ') || undefined} data-lang={label} data-label={title || label} aria-label={ariaLabel} data-region-label={ariaLabel}>
+    <pre
+      {...rest}
+      ref={ref}
+      className={cx(
+        className,
+        PRE,
+        cmd ? PRE_CMD : 'px-5.5 py-4.5 max-sm:px-4 max-sm:py-3.5',
+        diagram ? 'leading-[1.3]' : 'max-sm:leading-[21px] print:leading-[1.5]',
+      )}
+      data-lang={label}
+      data-label={title || label}
+      aria-label={ariaLabel}
+      data-region-label={ariaLabel}
+    >
       {children}
     </pre>
   )
-  const panelClass = `code-panel${diagram ? ' is-diagram' : ''}`
+  // `code-lang` and `code-head`: styles in src/styles/components/docs.css (also hooks: the search index skips them).
+  const badge = (
+    <span className={cx('code-lang', cmd && 'mr-1')} aria-hidden="true">
+      {label}
+    </span>
+  )
   if (cmd) {
     return (
-      <div className={`${panelClass} is-oneline is-cmd`}>
+      <div className={cx(PANEL, 'my-7 flex items-center rounded-full')}>
         {pre}
-        <span className="code-lang" aria-hidden="true">
-          {label}
-        </span>
-        <CopyButton target={ref} />
+        {badge}
+        <CopyButton target={ref} className="mr-[7px]" />
       </div>
     )
   }
   const path = title ? PATH.exec(title) : null
-  const kind = !title ? 'is-lang' : path ? '' : 'is-desc'
+  const kind = !title ? 'lang' : path ? 'path' : 'desc'
   let name: ReactNode = title || label
   if (title && path && path[0].length < title.length)
     name = (
       <>
         {path[0]}
-        <span className="cf-note">{title.slice(path[0].length)}</span>
+        <span className="font-sans text-13 tracking-ui text-muted-fg">{title.slice(path[0].length)}</span>
       </>
     )
   const panel = (
-    <div className={panelClass}>
-      <div className={`code-head${kind ? ` ${kind}` : ''}`}>
-        <Icon name={kind ? (label === 'Shell' ? 'terminal' : 'code') : 'file'} />
-        <span className="code-file" aria-hidden="true">
+    <div className={cx(PANEL, 'rounded-box', title ? 'my-0' : 'my-7')}>
+      <div className="code-head">
+        <Icon name={kind !== 'path' ? (label === 'Shell' ? 'terminal' : 'code') : 'file'} className="size-3.5 text-eyebrow" />
+        <span
+          className={cx(
+            'min-w-0 flex-1 truncate',
+            kind === 'lang' ? 'font-sans eyebrow-label' : 'text-fg',
+            kind === 'desc' && 'font-sans text-13.5 tracking-ui',
+          )}
+          aria-hidden="true"
+        >
           {name}
         </span>
-        {title && (
-          <span className="code-lang" aria-hidden="true">
-            {label}
-          </span>
-        )}
+        {title && badge}
         <CopyButton target={ref} withLabel />
       </div>
       {pre}
@@ -179,8 +217,8 @@ export function CodeBlock(props: PreProps) {
   )
   if (!title) return panel
   return (
-    <figure className="code-example">
-      <figcaption>{title}</figcaption>
+    <figure className="my-7 min-w-0">
+      <figcaption className="sr-only">{title}</figcaption>
       {panel}
     </figure>
   )
