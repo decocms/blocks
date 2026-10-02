@@ -207,6 +207,19 @@ describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-pars
     expect(id).toBeUndefined();
   });
 
+  it("falls through when a resolver in the chain throws for the alias", async () => {
+    const p = getPlugin();
+    const ctx = {
+      resolve: async () => {
+        throw new Error("exports map error");
+      },
+    };
+    const id = await p.resolveId.call(ctx, "~/x/meta.gen.json", path.join(dir, "x.ts"), {
+      ssr: true,
+    });
+    expect(id).toBeUndefined();
+  });
+
   it("falls through to Vite when meta.gen.json does not exist yet", () => {
     const p = getPlugin();
     const importer = path.join(dir, "src", "setup.ts");

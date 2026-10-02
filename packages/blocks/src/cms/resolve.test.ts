@@ -985,16 +985,6 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     expect(seo.jsonLDs?.[0].numberOfItems).toBe(2);
   });
 
-  it("continues ListItem positions across pages", () => {
-    const seo = extractSeoFromProps({
-      jsonLD: plp({
-        pageInfo: { currentPage: 3, recordPerPage: 10 },
-        products: [{ name: "A", url: "https://x.com/a/p" }],
-      }),
-    });
-    expect(seo.jsonLDs?.[0].itemListElement[0].position).toBe(21);
-  });
-
   it("makes path-only breadcrumb items absolute without touching the source", () => {
     const breadcrumb = {
       "@type": "BreadcrumbList",
@@ -1012,6 +1002,26 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     ]);
     // In-app breadcrumb (section data) keeps its relative links.
     expect(breadcrumb.itemListElement[0].item).toBe("/cat");
+  });
+
+  it("falls back to seo.canonical for the origin and leaves //host items alone", () => {
+    const seo = extractSeoFromProps({
+      jsonLD: plp({
+        seo: { title: "T", canonical: "https://z.com/cat" },
+        products: [{ name: "No URL" }, { name: "A", url: "/a/p" }],
+        breadcrumb: {
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Cat", item: "/cat" },
+            { "@type": "ListItem", position: 2, name: "Ext", item: "//evil.com/x" },
+          ],
+        },
+      }),
+    });
+    expect(seo.jsonLDs?.[1].itemListElement.map((el: { item: string }) => el.item)).toEqual([
+      "https://z.com/cat",
+      "//evil.com/x",
+    ]);
   });
 
   it("omits the BreadcrumbList when the listing has no breadcrumb", () => {

@@ -257,10 +257,13 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
         // let the rest of the pipeline resolve it, then wrap — otherwise it
         // falls through to vite:json and loses the JSON.parse optimization.
         if (typeof this?.resolve === "function") {
-          return this.resolve(id, importer, { ...options, skipSelf: true }).then((r) =>
-            r && !r.external && r.id.endsWith("meta.gen.json") && existsSync(r.id)
-              ? metaGenSsrId(r.id)
-              : undefined,
+          return this.resolve(id, importer, { ...options, skipSelf: true }).then(
+            (r) =>
+              r && !r.external && r.id.endsWith("meta.gen.json") && existsSync(r.id)
+                ? metaGenSsrId(r.id)
+                : undefined,
+            // A resolver in the chain threw — let Vite's normal resolution report it.
+            () => undefined,
           );
         }
       }
