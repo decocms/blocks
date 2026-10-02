@@ -179,7 +179,16 @@ export const withCategoryPath = (
     segments = segments.slice(0, segments.length - size);
   } else if (knownSlugs) {
     const before = segments.length;
-    while (segments.length && knownSlugs.has(segments[segments.length - 1])) {
+    // Bounded by the chain length: the request can carry at most as many
+    // category segments as the canonical chain has. Without the bound, a
+    // category whose slug collides with the route prefix — `/blog/blog/a-post`
+    // for a category slugged "blog" — strips the prefix too and canonicalizes
+    // to a path the site never serves.
+    while (
+      segments.length &&
+      before - segments.length < chain.length &&
+      knownSlugs.has(segments[segments.length - 1])
+    ) {
       segments = segments.slice(0, -1);
     }
     if (segments.length === before) {
@@ -189,8 +198,13 @@ export const withCategoryPath = (
     return null;
   }
 
-  const pathname =
-    "/" + [...segments, ...chain.map((c) => c.slug), ...(trailing ? [trailing] : [])].join("/");
+  // Slugs are authored by hand, so a stray "/", "?" or "#" would otherwise stop
+  // being one path segment and start being a new segment, a query or a
+  // fragment. Encoded, a malformed slug yields a 404 instead of a canonical
+  // pointing at a different page.
+  const pathname = `/${[...segments, ...chain.map((c) => c.slug), ...(trailing ? [trailing] : [])]
+    .map(encodeURIComponent)
+    .join("/")}`;
 
   return new URL(pathname, parsed.origin).href;
 };

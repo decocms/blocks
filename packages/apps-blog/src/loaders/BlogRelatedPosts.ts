@@ -55,12 +55,6 @@ export default async function BlogRelatedPostsLoader(
   const pageSort = sortBy ?? (url.searchParams.get("sortBy") as SortBy) ?? "date_desc";
   const term = query ?? url.searchParams.get("q") ?? undefined;
 
-  // A section feeds this `post.categories?.map((c) => c.slug)`, so a post with
-  // no categories arrives here as an empty array. `filterPostsByCategory` reads
-  // that as "no category filter" and would answer the whole blog as related
-  // posts; there is nothing to relate on, so the widget renders nothing.
-  if (Array.isArray(slug) && slug.length === 0) return null;
-
   const posts = getRecordsByPath<BlogPost>(COLLECTION_PATH, ACCESSOR);
 
   const handledPosts = await handlePosts(posts, pageSort, slug, undefined, term, excludePostSlug);

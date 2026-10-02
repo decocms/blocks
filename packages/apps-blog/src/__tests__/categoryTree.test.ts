@@ -177,6 +177,30 @@ describe("withCategoryPath", () => {
     ).toEqual(null);
   });
 
+  it("keeps the route prefix when a category slug collides with it", () => {
+    // Category slugged "blog" on a /blog route. An unbounded strip of trailing
+    // known slugs would eat the prefix too and canonicalize to /blog/my-post,
+    // a path the site never serves.
+    const chain = [cat("blog")];
+
+    expect(
+      withCategoryPath("https://x.com/blog/blog/my-post", chain, {
+        knownSlugs: new Set(["blog"]),
+        trailing: "my-post",
+      }),
+    ).toEqual("https://x.com/blog/blog/my-post");
+  });
+
+  it("encodes each slug as one path segment", () => {
+    // Slugs are hand-authored; a stray "?" would otherwise turn the rest of the
+    // canonical into a query string pointing at a different page.
+    const chain = [cat("a?b"), cat("c/d", "a?b")];
+
+    expect(withCategoryPath("https://x.com/blog/leaf", chain, { requested: ["leaf"] })).toEqual(
+      "https://x.com/blog/a%3Fb/c%2Fd",
+    );
+  });
+
   it("rewrites nothing with an empty chain", () => {
     expect(withCategoryPath("https://x.com/blog/leaf?page=2", [], { requested: ["leaf"] })).toEqual(
       null,

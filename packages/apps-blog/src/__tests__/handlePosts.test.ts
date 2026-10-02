@@ -139,8 +139,10 @@ describe("filterPostsByCategory", () => {
     ]);
     expect(filterPostsByCategory(tree, "child").map((p) => p.slug)).toEqual(["post-child"]);
     // No slug at all means no category filter, same as before.
-    expect(filterPostsByCategory(tree, [])).toHaveLength(3);
     expect(filterPostsByCategory(tree)).toHaveLength(3);
+    // An empty list is an explicit empty set of categories, which nothing
+    // belongs to — diverges from upstream, which answers every post here.
+    expect(filterPostsByCategory(tree, [])).toEqual([]);
   });
 });
 

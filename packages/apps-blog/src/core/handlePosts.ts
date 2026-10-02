@@ -82,9 +82,15 @@ export const sortPosts = async (blogPosts: BlogPost[], sortBy: SortBy): Promise<
  * @param posts Posts to be handled
  * @param slug Category slug, or a list of slugs a post may belong to any of.
  *   A list is how a parent category pulls in its descendants' posts.
+ *
+ * An omitted slug means "no category filter" and keeps every post. An *empty
+ * list* is the opposite — an explicit, empty set of categories to match, which
+ * nothing belongs to. Upstream conflates the two and answers every post to
+ * both, which turns a related-posts widget for a post with no categories into
+ * a second listing of the whole blog.
  */
 export const filterPostsByCategory = (posts: BlogPost[], slug?: string | string[]): BlogPost[] => {
-  if (!slug || (Array.isArray(slug) && slug.length === 0)) {
+  if (slug === undefined || slug === "") {
     return posts;
   }
   const slugs = new Set(Array.isArray(slug) ? slug : [slug]);
@@ -101,16 +107,9 @@ export const filterPostsByTerm = (posts: BlogPost[], term: string): BlogPost[] =
     [content, excerpt, title].some((field) => field?.toLowerCase().includes(term.toLowerCase())),
   );
 
-/**
- * Filter posts whose categories overlap with the given slug array.
- *
- * An empty array means "this post has no categories to relate on", which is the
- * opposite of what `filterPostsByCategory` reads it as (no filter, every post),
- * so it is answered here rather than delegated. Diverges from upstream, where
- * this is an unguarded alias.
- */
+/** Filter posts whose categories overlap with the given slug array. */
 export const filterRelatedPosts = (posts: BlogPost[], slugs: string[]): BlogPost[] =>
-  slugs.length > 0 ? filterPostsByCategory(posts, slugs) : [];
+  filterPostsByCategory(posts, slugs);
 
 /** Slice posts for pagination. */
 export const slicePosts = (
