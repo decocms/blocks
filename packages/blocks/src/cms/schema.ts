@@ -882,7 +882,11 @@ function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
         type: "object",
         title: "Structured Data",
         properties: {
-          removeVideos: { type: "boolean", title: "Remove videos" },
+          removeVideos: {
+            type: "boolean",
+            title: "Remove videos (deprecated)",
+            description: "No effect: listing structured data is an ItemList, which carries no videos.",
+          },
           ignoreStructuredData: {
             type: "boolean",
             title: "Ignore Structured Data",
