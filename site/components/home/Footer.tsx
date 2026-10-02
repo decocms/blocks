@@ -49,7 +49,7 @@ export const NEXT_COLUMNS: FooterColumn[] = [
       ['/next/architecture', 'How it works'],
       ['/next/quickstart', 'Quickstart'],
       ['/next/model', 'Blocks'],
-      ['/next/content', 'Content & loaders'],
+      ['/next/content', 'Content'],
       ['/next/preview', 'Preview'],
       ['/next/standalone', 'API reference'],
     ],

@@ -496,9 +496,9 @@ const HOOD_LINKS: { href: string; title: string; text: string; read: string }[] 
   },
   {
     href: '/next/content',
-    title: 'Swap any piece',
-    text: 'Where content comes from is one option you can change: files in your repository, the hosted Deco CMS, or your own storage, such as a key-value store or a database. Nothing else in your site changes.',
-    read: 'Read: Content & loaders',
+    title: 'Publish by committing',
+    text: 'Every change is a commit in your repository, with its history and a one-step revert. Add the hosted Deco CMS and a published commit reaches visitors in seconds, with no redeploy.',
+    read: 'Read: Your content in Git',
   },
   {
     href: '/next/decisions',
