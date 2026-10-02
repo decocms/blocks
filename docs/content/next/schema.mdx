@@ -8,7 +8,7 @@ order: 5
 
 When an editor opens a block in [Studio](/next/how-it-works#studio), they see a form: a text box for the headline, an image picker, a calendar for the end date, a rich-text editor for the description. You never build that form. It comes from the types of your function's inputs, through the schema, and it only accepts values your function can take.
 
-This page shows how types become fields, how to pick richer widgets with JSDoc, how to describe content that has no function, and how to change types without breaking saved content.
+This page shows how types become fields, how to pick widgets, how to describe content that has no function, and how to change types without breaking saved content.
 
 ## From types to forms
 
@@ -54,7 +54,7 @@ Never type a prop as a block. `Block` is only the shape of saved JSON (see [Comp
 
 <Callout>**Status. `deco schema` doesn't match fields to functions by return type yet.** This section describes how it will work. See the [Roadmap](/roadmap#roadmap-cli--define-the-loader-picker-rule).</Callout>
 
-A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells Studio which input to show (see [Choose widgets with JSDoc](#choose-widgets-with-jsdoc)).
+A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells Studio which input to show (see [Widgets](#widgets)).
 ### Block pickers
 
 A field that a block can fill gets a **block picker**. It offers two kinds of choices:
@@ -62,7 +62,7 @@ A field that a block can fill gets a **block picker**. It offers two kinds of ch
 - **A new block**: pick one of the functions that fit, and fill in its form right there.
 - **A saved block**: Studio reads the saved blocks with `blocks.list` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reusing blocks](/next/blocks#reusing-blocks)).
 
-## Choose widgets with JSDoc
+## Widgets
 
 Each type gets a default widget, such as a text box for a `string`. JSDoc tags on a field change the label, add help text and limits, or swap in a richer widget: a date picker, an image uploader, a color picker or a rich-text editor.
 
