@@ -207,6 +207,12 @@ Do the same with `decoRenderRouteConfig()` and `decoInvokeRouteConfig()`.
 
 **Fix.** Nothing to do by default: the Worker entry sets `User-Agent: Deco/<version> (+https://deco.cx)` on outgoing `fetch` calls that don't set one. To send your own, pass `outboundUserAgent: "<value>"`; `false` leaves `fetch` untouched.
 
+### A production build crashes on load with "undefined is not a function"
+
+**Cause.** A custom `manualChunks` rule put `@decocms/blocks`, `@decocms/blocks-admin`, `@decocms/tanstack` or an `@decocms/apps-*` package in a chunk of its own. These packages import each other in a cycle, so separate chunks load in an order that breaks.
+
+**Fix.** Remove the rule for `@decocms/*` packages and let the plugin's own splitting stand. See [The Vite plugin](/v7/tanstack#the-vite-plugin).
+
 ## Next.js
 
 ### `route.ts` crashes with "createContext is not a function" or "Class extends value undefined"
@@ -236,6 +242,14 @@ meta: () => import("deco/meta.gen.json").then((m) => m.default),
 **Cause.** The preview was rendered with plain `renderToString`, which can't run Next's client references.
 
 **Fix.** Mount `createDecoPreviewPage` at `app/deco/preview/[[...path]]/page.tsx`; the catch-all route redirects preview requests there. Don't remove `"use client"` from the section to make the preview render.
+
+## Apps
+
+### VTEX checkout or session calls return 503 with an empty body for some shoppers
+
+**Cause.** VTEX's gateway rejects requests whose cookies contain non-ASCII characters, for example when a third-party tag writes an accented category name into a cookie.
+
+**Fix.** Make the call through `vtexFetchWithCookies`, which drops those cookies and logs `[vtex.cookie.dropped]` once per cookie. Passing the raw `Cookie` header to `vtexFetch` doesn't filter it. See [VTEX](/v7/vtex#rules-for-actions).
 
 ## Related
 

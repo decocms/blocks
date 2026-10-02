@@ -88,6 +88,60 @@ A rule can also be a reference to a saved matcher block by name, such as `{ "__r
 
 On TanStack Start the decision is sticky: it's stored in the `deco_segment` cookie, so a visitor keeps seeing the same variant on every page and visit. If an editor changes `traffic`, each visitor is re-rolled once. The edge cache keeps a separate entry per cohort, so cached pages stay consistent with the cookie.
 
+<Callout>
+
+**Give each test its own saved matcher.** The sticky decision is stored under the matcher's name. A saved matcher block (say, `HeroTest`) gets its own entry, but every inline `random.ts` rule shares the name `website/matchers/random.ts`, so two unrelated inline 50% tests put each visitor in the same group for both. A saved matcher also gives the same answer everywhere you reuse it.
+
+</Callout>
+
+## Vary a whole page
+
+A page's `sections` can itself be a variant whose values are complete section lists, for example a different layout for mobile visitors:
+
+```json title=".deco/blocks/pages-home.json (excerpt)"
+"sections": {
+  "__resolveType": "website/flags/multivariate.ts",
+  "variants": [
+    {
+      "rule": { "__resolveType": "website/matchers/device.ts", "mobile": true },
+      "value": [{ "__resolveType": "Header" }, { "__resolveType": "site/sections/MobileHero.tsx" }]
+    },
+    {
+      "rule": { "__resolveType": "website/matchers/always.ts" },
+      "value": [{ "__resolveType": "Header" }, { "__resolveType": "site/sections/Hero.tsx" }]
+    }
+  ]
+}
+```
+
+Variants nest: a variant's value can be another variant block.
+
+## Schedule a campaign
+
+`website/matchers/date.ts` matches between two instants. Here's a Black Friday hero that replaces the regular one only during the event:
+
+```json title="A hero scheduled for Black Friday"
+{
+  "__resolveType": "website/flags/multivariate.ts",
+  "variants": [
+    {
+      "rule": {
+        "__resolveType": "website/matchers/date.ts",
+        "start": "2026-11-27T00:00:00-03:00",
+        "end": "2026-11-30T23:59:59-03:00"
+      },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "Black Friday: up to 50% off" }
+    },
+    {
+      "rule": { "__resolveType": "website/matchers/always.ts" },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "New season arrivals" }
+    }
+  ]
+}
+```
+
+Write the dates with an explicit time-zone offset, so the campaign starts at midnight in your store's time zone, not the server's. The match is strictly between `start` and `end`. Cached pages switch when their edge-cache entry expires, so the change can lag `start` and `end` by up to the page's cache lifetime; see [Caching](/v7/caching).
+
 ## Write a custom matcher
 
 A matcher is a function from the rule's settings and the request context to a boolean. Register it with `registerMatcher` from `@decocms/blocks/cms`, by passing a registration function in `customMatchers`:

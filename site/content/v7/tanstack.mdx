@@ -411,9 +411,13 @@ What the plugin does:
 - **Stamps a build hash.** It defines `__DECO_BUILD_HASH__` from the CI commit or `git rev-parse`, which the Worker uses to version its cache when `BUILD_HASH` isn't set.
 - **Regenerates in development.** It watches `.deco/blocks/*.json` and applies edits live, regenerates `.deco/meta.gen.json` when files under `src/` change, and runs [`generate`](/v7/generate) for sections, loaders and invoke on start and on changes. If `blocks.gen.json` or `meta.gen.json` is missing on a fresh clone, it generates them before the first request.
 - **Provides a default start entry.** If you have no `src/start.ts`, it uses one that wires `decoServerFnFetch` (next section).
-- **Splits vendor chunks** for React, the router and React Query in production builds.
+- **Splits vendor chunks** for React, the router and React Query in production builds. It deliberately leaves `@decocms/*` packages unsplit: they import each other in a cycle, and splitting them gives a chunk load order that crashes at runtime. If you customize `build.rollupOptions.output.manualChunks`, don't give these packages their own chunks.
 
 `decoVitePlugin({ fastDeploy })` takes one option. `fastDeploy: "auto"` (the default) removes the bundled decofile from the server bundle only when the build sets `DECO_SEEDED_DEPLOY`. `true` forces that, and `false` never does it. Without the bundled copy there is no fallback if Fast Deploy can't read KV, so leave it on `"auto"` unless your pipeline seeds KV before every deploy. See [Deploying and Fast Deploy](/v7/releases).
+
+### React Compiler
+
+This isn't done by the plugin: the migrator's `vite.config.ts` also turns on the [React Compiler](https://react.dev/learn/react-compiler) with `react({ babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] } })` and `babel-plugin-react-compiler` as a dev dependency. It's optional for new sites.
 
 ## Server function fetch
 

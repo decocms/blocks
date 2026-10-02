@@ -78,6 +78,10 @@ Before a loader runs, the runtime prepares its props:
 
 If a loader throws, the error goes to your `onResolveError` handler (see `createSiteSetup`) and the prop becomes `null`. On TanStack Start the page is also marked *degraded*: it's still rendered, but it's served with an `X-Deco-Degraded` header so the edge cache doesn't store the broken version. A section loader that throws degrades the page the same way, and the section renders with its unenriched props. If some data is decorative and the page is fine without it, register its key (the loader key, or the section key for a section loader) with `registerNonCriticalSections`, and its failures no longer degrade the page.
 
+### Reuse a saved loader
+
+A loader call saved as its own named block, such as `Category listing`, can be referenced from several places on a page, for example the product grid and the SEO block. Within one page render it runs once, and every reference gets the same result. That applies only to references with identical JSON (no differing overrides). It doesn't apply to inline loader calls (an identical inline call runs again unless the loader is [cached](#cache-a-loader)), or to deferred sections, which run the loader again when they load.
+
 ## Section loaders
 
 A section loader belongs to a section rather than to content: it runs for every instance of that section, after resolution and before render. Write it as a `loader` export in the section file. It receives the resolved props and the request, and returns the props the component renders:
@@ -168,7 +172,7 @@ curl -s -X POST http://localhost:5173/deco/invoke/site/loaders/storeHours.ts -H 
 | Form | Request | Response |
 |---|---|---|
 | Single call | `POST /deco/invoke/<key>` with the props as the body (JSON, form data or URL-encoded) | The result as JSON |
-| Batch | `POST /deco/invoke` with `{ "<key>": props, … }` | `{ "<key>": result \| { "error": … }, … }` |
+| Batch | `POST /deco/invoke` with `{ "<name>": { "__resolveType": "<key>", …props }, … }`, or `{ "<key>": props, … }` | `{ "<name>": result \| { "error": … }, … }` |
 | Field selection | `?select=name,offers` | Only those fields of the result (applied to each item of an array) |
 
 An unknown key answers 404, a handler that throws answers 500. On TanStack Start, headers a handler sets on `RequestContext.responseHeaders`, such as `Set-Cookie`, are copied onto the invoke response; see [Request context](/v7/request-context).
@@ -182,6 +186,19 @@ const hours = await invoke.site.loaders.storeHours({ storeId: "42" });
 ```
 
 With TanStack Query, `invokeQueryOptions(key, props)` from the same module returns ready-made query options.
+
+To make several calls in one request, use `batchInvoke` from the same module. Each entry names its loader in `__resolveType`, and each result comes back under the entry's name:
+
+```ts
+import { batchInvoke } from "@decocms/blocks/sdk/invoke";
+
+const { hours, brands } = await batchInvoke("/deco/invoke", {
+  hours: { __resolveType: "site/loaders/storeHours.ts", storeId: "42" },
+  brands: { __resolveType: "site/loaders/featuredBrands.ts" },
+});
+```
+
+An entry without `__resolveType` uses its name as the loader key. `batchInvoke` throws when the response isn't OK; a single call that fails comes back as `{ "error": … }` under its name, without failing the others.
 
 On TanStack Start sites with `@decocms/apps-vtex` installed, `generate` also writes `src/server/invoke.gen.ts`: typed TanStack server functions for the app's actions (adding to cart, updating the session), which client hooks such as the VTEX cart use. See [VTEX](/v7/vtex).
 
@@ -205,6 +222,12 @@ export const cachedStoreHours = createCachedLoader("site/loaders/storeHours.ts",
 | `keyFn` | `(props) => string` | `JSON.stringify` | What makes two calls the same entry. |
 
 Passing a profile name (`"static"`, `"product"`, `"listing"`, `"search"`) uses that profile's loader timings. The cache is in memory per instance, capped in size, and turned off in development; [Caching](/v7/caching) covers profiles and shared storage. Apps already cache their own catalog loaders.
+
+<Callout type="warning">
+
+**Don't cache visitor-specific loaders by props alone.** The cache key is the loader's name plus `keyFn(props)`. A loader that reads the visitor from the request (cookies, a session) instead of from its props shares one entry with every visitor, so one shopper's wishlist is served to the next. Leave those loaders uncached, or put the visitor's id in the props or in `keyFn`.
+
+</Callout>
 
 ## Next steps
 

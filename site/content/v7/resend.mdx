@@ -21,7 +21,7 @@ Editors configure the app in a `deco-resend` block:
 |---|---|
 | `apiKey` | Your Resend API key: plain text or an encrypted secret. Falls back to the `RESEND_API_KEY` environment variable. |
 | `emailFrom.name` | The sender's display name. Defaults to `Contact`. |
-| `emailFrom.domain` | The sender's **full address**, such as `hello@store.example.com`, despite the field's name. It's placed inside the angle brackets of `Name <address>`. Defaults to `onboarding@resend.dev`, Resend's test sender. |
+| `emailFrom.domain` | The sender's **full address**, such as `hello@store.example.com`, despite the field's name. It's placed inside the angle brackets of `Name <address>`. Defaults to `onboarding@resend.dev`, Resend's test sender. The address must be on a domain you've [verified in Resend](https://resend.com/docs/dashboard/domains/introduction). |
 | `emailTo` | Default recipients, as a list of addresses. |
 | `subject` | Default subject. |
 
@@ -86,7 +86,9 @@ export default async function contact(props: Props) {
 }
 ```
 
-On success `data` is `{ id }` and `error` is `null`. On failure `data` is `null` and `error` is Resend's `{ message, name }`, where `name` is one of Resend's error codes, such as `validation_error`, `invalid_from_address`, `rate_limit_exceeded` or `missing_api_key` (the full list is `RESEND_ERROR_CODES_BY_KEY` in `@decocms/apps-resend/types`). Network failures and timeouts, after 10 seconds, still throw. Calling `sendEmail` before the app is configured throws `Resend not configured`.
+On success `data` is `{ id }` and `error` is `null`. On failure `data` is `null` and `error` is Resend's `{ message, name }`, where `name` is one of Resend's error codes, such as `validation_error`, `invalid_from_address`, `rate_limit_exceeded` or `missing_api_key` (the full list is `RESEND_ERROR_CODES_BY_KEY` in `@decocms/apps-resend/types`). Resend limits how fast you can send; see its [rate limits](https://resend.com/docs/api-reference/rate-limit). Network failures and timeouts, after 10 seconds, still throw. Calling `sendEmail` before the app is configured throws `Resend not configured`.
+
+To build HTML emails as React components, render them on the server with [React Email](https://react.email) and pass the result as `html`.
 
 ## Calling it from a form
 

@@ -31,6 +31,13 @@ npx wrangler deploy --var BUILD_HASH:$(git rev-parse --short HEAD)
 
 `BUILD_HASH` identifies the build. The Worker adds it to every edge cache key, so each deploy reads and writes its own cache entries, and HTML cached by an older deploy, which points at older JavaScript chunks, is never served after a new one goes live. You can rename the variable with the `cacheVersionEnv` option. When it's missing, the Worker uses a hash the Vite plugin injects at build time (the commit sha on Cloudflare Workers Builds, otherwise the local git sha).
 
+Cloudflare's docs cover the rest of a Worker's setup:
+
+- [secrets](https://developers.cloudflare.com/workers/configuration/secrets/) (`wrangler secret put`)
+- [staging and production environments](https://developers.cloudflare.com/workers/wrangler/environments/)
+- [custom domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
+- [platform limits](https://developers.cloudflare.com/workers/platform/limits/), such as subrequests per request and memory
+
 ## Fast Deploy
 
 [Fast Deploy](/v7/glossary#fast-deploy) decouples content from code on `@decocms/tanstack`. Content is stored in a Cloudflare KV namespace, and every isolate reads it from there, so a publish reaches all of them within seconds and survives new isolates. Only code changes need `wrangler deploy`.

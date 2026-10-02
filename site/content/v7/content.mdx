@@ -83,6 +83,8 @@ Three kinds of value appear in that page:
 
 The loader receives every field of this object except `__resolveType` as its first argument. This VTEX loader takes its query under `props`; a loader you write, like `storeHours` in [Loaders and actions](/v7/loaders), reads its fields directly.
 
+In Studio, a block saved under its own name is what editors see as a *saved* section (not to be confused with the Site block's global sections): change it once and every page that uses it changes, which is why the header and footer are usually saved. A section configured directly on a page is local to that page.
+
 Resolution follows these names recursively, so a referenced block can itself contain references and loader calls. A `__resolveType` that names a loader or action that isn't registered resolves to `null` with a warning in the log; `onDanglingReference` in `createSiteSetup` changes that behaviour. Any other name that matches no block is treated as a section key, so a misspelled block name shows up as a section with no registered component, which the renderer skips with a warning.
 
 ## Secrets in content
@@ -109,7 +111,32 @@ Redirects are blocks too. A block whose `__resolveType` is `website/loaders/redi
 }
 ```
 
-`permanent` answers with 301, anything else with 302. A `from` that ends in `*` matches every path with that prefix. Redirects kept in a CSV file under `public/` and referenced by a `website/loaders/redirectsFromCsv.ts` block are read by `generate` and turned into ordinary redirect blocks, so the site never reads the file at runtime. The TanStack Worker applies redirects before rendering; see [Pages and routing](/v7/routing#redirects).
+`permanent` answers with 301, anything else with 302. A `from` that ends in `*` matches every path with that prefix, and a `*` in `to` is replaced with the rest of the path, so `/old/*` to `/new/*` sends `/old/shoes` to `/new/shoes`. There are no other patterns. The TanStack Worker applies redirects before rendering; see [Pages and routing](/v7/routing#redirects).
+
+<Callout>
+
+**Temporary or permanent?** Use temporary (302) while a redirect might still change. Browsers cache a 301 and keep following it even after you delete the rule.
+
+</Callout>
+
+### Redirects from a CSV file
+
+Redirects kept in a CSV file under `public/` and referenced by a `website/loaders/redirectsFromCsv.ts` block (its `from` field holds the file's path) are read by `generate` and turned into ordinary redirect blocks, so the site never reads the file at runtime. Write one rule per line, `from,to[,type]`:
+
+```text title="public/redirects.csv"
+from,to,type
+# spring sale ended
+/spring-sale,/summer-sale,permanent
+/old/*,/new/*
+```
+
+- A `from,to` header row is optional and skipped.
+- Lines starting with `#` and blank lines are ignored.
+- Values are split on commas, with no quoting, so a URL can't contain a comma.
+- `permanent` or `301` gives a 301; anything else, or nothing, gives a 302.
+- The path can be written `public/redirects.csv`, `static/redirects.csv` or `redirects.csv`; all resolve under `public/`.
+- A missing file is a warning during `generate`, not an error.
+- For the same exact `from`, a redirect block wins over a CSV row.
 
 ## How content reaches the runtime
 

@@ -47,7 +47,7 @@ await autoconfigApps(loadBlocks(), APP_REGISTRY);
 |---|---|
 | `account` | Required. Your VTEX account name. |
 | `publicUrl` | The public domain registered in VTEX's License Manager, such as `secure.mystore.com.br`. Product URLs normally use the host of the current request; this is the fallback when there's no request. |
-| `appKey`, `appToken` | API credentials, as plain text or an encrypted secret. Fall back to the `VTEX_APP_KEY` and `VTEX_APP_TOKEN` environment variables. Sent only when both are set. |
+| `appKey`, `appToken` | API credentials, as plain text or an encrypted secret. Fall back to the `VTEX_APP_KEY` and `VTEX_APP_TOKEN` environment variables. Sent only when both are set. Create them in VTEX as described in [API authentication using API keys](https://developers.vtex.com/docs/guides/api-authentication-using-api-keys). |
 | `salesChannel` | Deprecated. The default sales channel, `"1"` when empty. |
 | `locale` (or `defaultLocale`), `country`, `domain` | Locale for Intelligent Search, the ISO alpha-3 country for simulations (`BRA` by default), and the VTEX domain suffix (`com.br` by default). |
 
@@ -204,6 +204,8 @@ On TanStack, when the app is installed through autoconfig, the Worker entry runs
 
 On outgoing calls the app forwards the visitor's `vtex_segment` cookie, so regional sellers and price tables apply, and adds the segment's region to Intelligent Search queries. [Caching](/v7/caching) covers the edge cache.
 
+The visitor's sales channel is decided in this order: the `VTEXSC` cookie (VTEX's sales-channel cookie), then an `?sc=` query parameter, then the `vtex_segment` cookie, then the default `"1"`. The legacy `useCart` hook also appends `sc` from the `VTEXSC` cookie to its browser calls; Cart v2 calls go through the server, which reads the cookie directly.
+
 ## Cart
 
 There are two cart APIs. Use **Cart v2** for new code; the legacy hooks stay for sites migrated from the earlier framework. They keep separate state, so don't show a v1 badge next to a v2 drawer.
@@ -246,6 +248,8 @@ How it behaves:
 - **Optimistic updates.** `add` bumps the badge immediately, reconciles with the server's answer, and rolls back if the call fails.
 - **Small payloads.** Adding to the cart returns `summary+items` computed from `SECTIONS_MINIMAL`. `useCart({ include: { full: true } })` loads the drawer's full `Minicart`. Pass `projection` and `sections` to `useAddToCart` to change what comes back (see [Cart v2](/v7/apps-commerce#cart-v2-sections-and-projection)).
 - `useShipping` simulates shipping for a postal code; results are cached for five minutes per isolate. To share them across isolates, provide your own store with `setSimulationCache` from `@decocms/apps-vtex/utils/simulationCache`.
+
+Using an AI coding agent? The [`vtex-cart-v2` Agent Skill](https://github.com/decocms/blocks/tree/main/.agents/skills/vtex-cart-v2), a folder of instructions an agent loads, teaches it to wire Cart v2. Install it with the [`skills` CLI](https://www.npmjs.com/package/skills): `npx skills add decocms/blocks --skill vtex-cart-v2`.
 
 `createCartQuery({ invoke })`, from `@decocms/apps-vtex/hooks/cartQuery`, offers the same operations as TanStack Query hooks, for sites that already manage data that way.
 
@@ -316,6 +320,8 @@ The user and wishlist functions aren't generated; add them to your `invoke.ts` t
 
 `useCart`, `useUser`, `useWishlist` and `useAutocomplete` (each at `@decocms/apps-vtex/hooks/<name>`) are TanStack Query hooks. They need `@tanstack/react-query` and a `QueryClientProvider` above them, which the router setup in the [quickstart](/v7/quickstart) provides. `useCart` and `useUser` call VTEX's `/api/checkout/...` and `/api/sessions` from the browser, so the checkout proxy above must be mounted.
 
+`useAutocomplete({ debounceMs, count, fetchSuggestions })` (defaults 250 ms and 4 products) returns `{ setSearch, query, suggestions, loading }`. Its default fetcher calls `/api/vtex/suggestions`, which nothing in the framework serves, so pass `fetchSuggestions`: a function of `(query, count)` that returns a `Suggestion`, for example a call through [invoke](/v7/loaders#call-loaders-and-actions-over-http) to the `vtex/loaders/intelligentSearch/suggestions.ts` loader.
+
 ## Account pages
 
 `vtexAccountLoaders`, from `@decocms/apps-vtex/utils/accountLoaders`, returns [section loaders](/v7/loaders) for "My account" sections: `personalData`, `orders`, `cards`, `addresses`, `authentication` and `loggedIn`. Each reads the visitor's VTEX cookies from the request:
@@ -332,6 +338,22 @@ registerSectionLoaders({
 ```
 
 `personalData` accepts `extraProfileFields` and a `mapProfile` function to shape the result.
+
+## Sign-in
+
+VTEX ID actions are in `@decocms/apps-vtex/actions/auth`:
+
+- `startAuthentication`
+- `classicSignIn` (email and password; starts authentication itself when you don't pass a token)
+- `accessKeySignIn` (a code sent by email)
+- `recoveryPassword` and `resetPassword`
+- `refreshToken`
+- `sendEmailVerification`
+- `logout()`, which makes no request and returns the names of the cookies to clear
+
+They send VTEX the shopper's cookies and put VTEX's `Set-Cookie` headers on `RequestContext.responseHeaders`, but they aren't in `invoke.gen.ts`. Wrap the ones you need in your own server functions and forward the cookies with `forwardResponseCookies`, the same way as the cart server functions in [What `invoke` must provide](#what-invoke-must-provide) (see [Cookie passthrough](/v7/tanstack#cookie-passthrough)).
+
+`useUser` reads `/api/sessions` from the browser, because the sign-in cookie is HttpOnly, and caches the answer for 30 seconds under the query key `["vtex", "user"]`. After a sign-in, call its `refetch()` or invalidate that key. Many stores instead send shoppers to VTEX's own `/login`, which the checkout proxy serves unless `/login` is excluded. Sites made with `deco-migrate` exclude `/login` and `/logout` from the proxy, so check your `proxyHandler`.
 
 ## Rules for actions
 

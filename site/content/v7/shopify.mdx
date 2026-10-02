@@ -86,6 +86,8 @@ registerCommerceLoaders({
 });
 ```
 
+The app has no response cache of its own. Wrap frequently called read loaders, such as shelves and listing pages, with `createCachedLoader(name, loader, profile)` from `@decocms/blocks/sdk/cachedLoader`, and register the wrapper under a key of your own the same way. See [Cache a loader](/v7/loaders#cache-a-loader).
+
 The package root also exports the loaders as functions: `productDetailsPageLoader`, `productListingPageLoader`, `productListLoader`, `relatedProductsLoader`, `shopLoader` and `userLoader`, and each is reachable at `@decocms/apps-shopify/loaders/<Name>`.
 
 ## Cart and customers

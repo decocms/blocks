@@ -128,6 +128,10 @@ The route's loader calls a server function that resolves the page, runs section 
 
 `cmsHomeRouteConfig` takes `defaultTitle`, `defaultDescription`, `siteName` (defaults to `defaultTitle`), the pending options, `errorComponent` and `resolveGlobals`.
 
+### Your own routes
+
+The CMS catch-all doesn't stop you from adding ordinary TanStack routes. A file such as `src/routes/store-locator.tsx` or `src/routes/api/feed.ts` takes precedence over `/$`, because TanStack Router [matches the most specific route first](https://tanstack.com/router/latest/docs/routing/route-matching); every other URL still reaches the CMS. Paths under `/api/` get the `none` [cache profile](/v7/caching#how-a-url-gets-its-profile), so they're never cached at the edge. On a VTEX site, the checkout proxy claims `/checkout`, `/account`, `/api/` and other paths before routing, so pick paths it doesn't claim or exclude yours from it (see [VTEX](/v7/vtex#wiring-the-worker)). Avoid the paths of the admin protocol (`/live/_meta`, `/.decofile` and `/deco/*`), which the Worker entry and the [admin routes](/v7/tanstack#admin-routes) serve.
+
 ## In Next.js
 
 `createDecoPage({ siteName })` from `@decocms/nextjs` returns a page component and `generateMetadata` for `app/[[...slug]]/page.tsx`. It builds the path from the slug segments, resolves the page, renders it, and calls Next's `notFound()` when nothing matches. See the [Next.js quickstart](/v7/quickstart-nextjs#10-render-cms-pages).

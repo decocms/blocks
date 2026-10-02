@@ -87,6 +87,19 @@ Crawlers, and any request with `?__deco_ssr=1`, still get the full structured da
 
 </Callout>
 
+### robots.txt
+
+v7 doesn't manage `robots.txt` from content. Serve it as a static file from `public/` (a migrated Fresh site's `static/robots.txt` moves there for you):
+
+```text title="public/robots.txt"
+User-agent: *
+Disallow: /checkout
+Disallow: /account
+Sitemap: https://www.example.com/sitemap.xml
+```
+
+Each AI crawler has its own `User-agent`, so you can decide which ones to allow. For example, `User-agent: GPTBot` followed by `Disallow: /` keeps OpenAI's crawler out. For the sitemap itself, see [Sitemaps](/v7/routing#sitemaps).
+
 ## Canonical URLs
 
 A canonical URL tells search engines which address is the real one when the same page is reachable through several: with sorting or tracking parameters, or with and without a trailing slash. Set it in the SEO block, or let commerce SEO derive it as described above. Without either, the page has no canonical tag. Write it as an absolute URL on your production domain.

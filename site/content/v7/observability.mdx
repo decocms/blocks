@@ -180,6 +180,8 @@ export default async function wishlist(props: { userId: string }) {
 
 When `DECO_OTEL_LOGS_ENDPOINT` is set, `console.*` calls also go through the logger, so third-party code that logs to the console is captured.
 
+Without an OTLP logs endpoint, `logger` and `console` output goes to Cloudflare Workers Logs when `observability` is enabled in `wrangler.jsonc` (see [Configure Wrangler](#configure-wrangler)). During an incident you can stream a deployed Worker's logs live with `npx wrangler tail` (see [Real-time logs](https://developers.cloudflare.com/workers/observability/logs/real-time-logs/)).
+
 ## Tracing your own code
 
 `withTracing(name, fn, attributes?)` runs an async function inside a span:

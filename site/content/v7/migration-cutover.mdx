@@ -1,0 +1,150 @@
+---
+title: Going live after a migration
+nav: "Fresh: going live"
+group: Upgrading
+order: 42.5
+description: Check a migrated storefront against the live Fresh site and move traffic to it gradually.
+---
+
+# Going live after a migration
+
+`deco-migrate` gets a Fresh storefront building on TanStack Start, but a site that builds isn't yet one you can send shoppers to. This page covers what to check before you merge, how to compare the new site with the live one, and how to shift traffic to it gradually, with a way back.
+
+<Terms>
+  <Term name="Original site">The Fresh/Deno storefront that serves shoppers today.</Term>
+  <Term name="Candidate">The migrated site, usually a pull request preview.</Term>
+  <Term name="Bucket">The group a visitor is assigned to during a traffic split: `worker` (the new site) or `fallback` (the original).</Term>
+</Terms>
+
+## Before you merge
+
+<Steps>
+<Step>
+
+**Work through the report.** Every item under *Manual Review Required* and *Always Check* in `MIGRATION_REPORT.md` needs a decision, and the hooks, loader mappings and other items in [What you finish by hand](/v7/migrate-from-fresh#what-you-finish-by-hand) must be done. Review the CSP, the proxy and `buildSegment` in `src/worker-entry.ts`. Then run `bun run generate`.
+
+</Step>
+<Step>
+
+**Run the audit until it's clean.**
+
+```bash
+npx -p @decocms/blocks-cli deco-post-cleanup
+```
+
+</Step>
+<Step>
+
+**Check that Studio can edit the site.** With the dev server running, `curl -s http://localhost:5173/live/_meta` returns JSON, and an edit in Studio re-renders the preview. See [Deco Studio and the admin protocol](/v7/studio).
+
+</Step>
+<Step>
+
+**Check `wrangler.jsonc`.** `compatibility_flags` must include `nodejs_compat` and `no_handle_cross_request_promise_resolution`. See [wrangler.jsonc](/v7/tanstack#wrangler-jsonc).
+
+</Step>
+<Step>
+
+**Walk the main journeys by hand, on the production build** (`bun run preview`):
+
+- home → category → product → add to cart → checkout
+- search → result → product
+- sign in → account → sign out
+- all of the above on a phone-sized screen
+- a page fetched with a crawler user agent, to confirm its HTML has the full content (see [Eager requests](/v7/rendering#eager-requests))
+
+</Step>
+<Step>
+
+**Set secrets and dry-run the deploy.** Set each credential with `npx wrangler secret put <NAME>`, then run `npx wrangler deploy --dry-run`.
+
+</Step>
+</Steps>
+
+## Compare with the live site
+
+[`@decocms/parity`](https://www.npmjs.com/package/@decocms/parity) is a command-line tool that loads the same pages and flows on two sites and reports where they differ: UI, SEO tags, console errors, Web Vitals and cache headers. You point `--prod` at the original site, which it treats as the source of truth, and `--cand` at the migrated one. It's in alpha, so expect its options to change.
+
+```bash
+npx @decocms/parity run --prod https://www.example.com --cand https://my-store-pr-12.example.workers.dev --preset smoke
+```
+
+- **Presets.** `smoke` checks the home page on a mobile viewport in about 30 seconds. `full` runs the purchase journey on mobile and desktop plus visual and Web Vitals checks on several pages, for releases. `ci` is a smaller version of `full`, tuned for pipelines.
+- **The purchase journey only.** `npx @decocms/parity journey --prod … --cand … --junit parity-results.xml --github` checks just the journey from home to checkout, step by step, writes a JUnit report and annotates the GitHub Actions run. It's the cheapest check to run on every pull request.
+- **AI ranking is optional.** With `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` set, or a signed-in local `claude` CLI, it uses a model to rank the issues it finds and to compare screenshots. Without one it still runs the checks and sorts issues by severity.
+
+Reports are written to `parity-output/`, so add it to `.gitignore`. Run `npx @decocms/parity --help` for the other commands.
+
+<Callout>
+
+**Fix the candidate, never the original.** The original is what shoppers see today, and parity measures the migration against it.
+
+</Callout>
+
+### The CI workflows the migrator writes
+
+`deco-migrate` also writes GitHub Actions workflows under `.github/workflows/`: `ci.yml`, `lockfile-check.yml`, `main-push-guard.yml`, `playwright.yml`, `perf.yml`, `react-doctor.yml`, `parity.yml` and `sync-blocks-bot.yml`. Two of them matter for going live:
+
+| Workflow | What you need to know |
+|---|---|
+| `parity.yml` | Runs parity's purchase journey on every pull request against the Cloudflare Workers Builds preview. It's advisory: it reports on the pull request and never blocks it. Remove its `continue-on-error: true` line to make it a gate. It does nothing until you set the repository variable `PARITY_PROD_URL` to the original site's URL. The `ANTHROPIC_API_KEY` secret is optional. |
+| `sync-blocks-bot.yml` | Once a day, pulls the content that editors still publish on the original site into `.deco/blocks/` and opens a pull request. It does nothing until you set the repository variable `SYNC_BLOCKS_ORIGIN`. See [Keeping `.deco/blocks` in sync with production](/v7/releases#keeping-deco-blocks-in-sync-with-production). |
+
+## Shift traffic gradually
+
+During a migration you can serve the new site to a share of visitors and keep sending everyone else to the original. `withABTesting` from `@decocms/blocks/sdk/abTesting` wraps the Worker that `createDecoWorkerEntry` returns. Requests in the `worker` bucket go to your new site. Requests in the `fallback` bucket are proxied to the original, with the original's hostname rewritten to yours in `Location` and `Set-Cookie` headers and in text responses.
+
+```ts title="src/worker-entry.ts (excerpt)"
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { withABTesting } from "@decocms/blocks/sdk/abTesting";
+
+const decoWorker = createDecoWorkerEntry(serverEntry, {
+  // …your options
+});
+
+export default withABTesting(decoWorker, {
+  shouldBypassAB: (_request, url) => url.pathname.startsWith("/checkout"),
+});
+```
+
+If your entry wraps the Worker in something else as well, such as `instrumentWorker` for [observability](/v7/observability), keep that as the outermost layer and pass it the result of `withABTesting`.
+
+The split is configured in a KV store, not in code, so you can change it without a deploy. Bind a [Workers KV](https://developers.cloudflare.com/kv/) namespace as `SITES_KV` and store one entry per hostname, under the hostname as its key:
+
+```json title="KV key: www.example.com"
+{ "fallbackOrigin": "old.example.com", "abTest": { "ratio": 0.1 } }
+```
+
+- **`ratio`** runs from 0 to 1 and is the share of visitors sent to the new site. Without `abTest`, the ratio is 0 and everyone goes to the original.
+- **`fallbackOrigin`** is the original site's hostname, not a URL: no `https://` and no path.
+- Entries written by other tools may also contain `workerName`; `withABTesting` ignores it.
+
+How visitors are assigned:
+
+- A visitor's bucket comes from a hash of their IP address and is kept in the `_deco_bucket` cookie for a year, so they see the same site on every visit.
+- The cookie records the ratio it was assigned under. Change `ratio` and every visitor is assigned again on their next request.
+- For testing, `?_deco_bucket=worker` or `?_deco_bucket=fallback` forces a bucket.
+- Responses that went through the split carry an `x-deco-bucket` header naming the bucket that served them.
+- When the new Worker throws, the request is served from the original instead.
+- With no `SITES_KV` binding, or no entry for the hostname, every request goes straight to the new site. So do requests for which `shouldBypassAB` returns `true`.
+
+| Option | Default | What it does |
+|---|---|---|
+| `kvBinding` | `"SITES_KV"` | The name of the KV binding to read. |
+| `cookieName` | `"_deco_bucket"` | The cookie, and query parameter, that hold the bucket. |
+| `cookieMaxAge` | `31536000` (one year) | The cookie's lifetime, in seconds. |
+| `circuitBreaker` | `true` | Serve a request from the original when the new Worker throws. |
+| `shouldBypassAB(request, url)` | none | Return `true` to always serve a request from the new site, for example commerce paths that must not be proxied. |
+| `preHandler(request, url)` | none | Return a `Response` (for example a redirect) to answer before the split, or `null` to continue. |
+
+<Callout>
+
+**A migrated VTEX site already has the wrapper.** For VTEX, the migrator wraps your Worker entry with `withABTesting`, sets `shouldBypassAB` to the checkout proxy's paths (except `/login` and `/logout`), and leaves `SITES_KV` out of `wrangler.jsonc` on purpose, so the split does nothing until you add the binding and an entry for your hostname. On other platforms, add the wrapper yourself as shown above.
+
+</Callout>
+
+## Next steps
+
+- [Migrating from Fresh and Deno](/v7/migrate-from-fresh): the migration itself.
+- [Deploying and Fast Deploy](/v7/releases): deploy the Worker and publish content without a redeploy.
+- [Troubleshooting](/v7/troubleshooting)

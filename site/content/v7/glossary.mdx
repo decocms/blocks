@@ -29,6 +29,10 @@ The framework package that connects the runtime to an app framework: `@decocms/t
 
 A named, typed piece of JSON content in the [decofile](#decofile) that the runtime can resolve: a [section](#section), a [page](#page-block), a [loader](#loader) call, a [matcher](#matcher), an [app](#app) configuration. A block's type is given by its [`__resolveType`](#resolvetype). See [Blocks and sections](/v7/model).
 
+## Bucket
+
+During a migration traffic split, the site that serves a visitor: `worker` (the new site) or `fallback` (the original). See [Going live after a migration](/v7/migration-cutover#shift-traffic-gradually).
+
 ## Cache profile
 
 A named caching policy, one of `static`, `product`, `listing`, `search`, `cart`, `private` and `none`, applied consistently at the edge, browser, loader and client layers. The framework picks one from the URL unless you choose. See [Caching](/v7/caching).
@@ -61,6 +65,14 @@ The identifier of one deployed version of your code, normally its git commit sha
 
 Rendering unpublished Studio content on the real site through a `?__draft=` link. It works only on allowed hosts, is never cached, and is marked `noindex`. `?__draft=off` leaves it. See [Previews and draft preview](/v7/preview).
 
+## Edge cache
+
+The cache in front of your pages on TanStack Start: the [Worker entry](#worker-entry) stores whole rendered responses in Cloudflare's cache, per cache key, so repeat requests skip rendering. See [Caching](/v7/caching).
+
+## ETag
+
+A version tag sent with a response. `/live/_meta` sends a hash of the [schema](#schema-meta) and answers `304` when Studio's `If-None-Match` still matches, so Studio skips downloading an unchanged schema. `/.decofile` sends the content [revision](#revision). See [Deco Studio and the admin protocol](/v7/studio).
+
 ## Fast Deploy
 
 An opt-in feature of `@decocms/tanstack` that serves content from Cloudflare KV, so a Studio publish reaches every Worker isolate within seconds without a redeploy. It needs `DECO_FAST_DEPLOY=1`, a `DECO_KV` binding and `setupTanstackFastDeploy()`. See [Deploying and Fast Deploy](/v7/releases).
@@ -69,13 +81,25 @@ An opt-in feature of `@decocms/tanstack` that serves content from Cloudflare KV,
 
 Calling a [loader](#loader) or [action](#action) by key over HTTP, at `POST /deco/invoke/<key>`, or from code through the `invoke` proxy in `@decocms/blocks/sdk/invoke`. See [Loaders and actions](/v7/loaders).
 
+## Island
+
+In Fresh, components hydrated one by one on an otherwise static page. v7 has no islands: it renders the page on the server and hydrates it with React. See [Migrating from Fresh and Deno](/v7/migrate-from-fresh).
+
 ## Layout section
 
 A [section](#section), such as a header or footer, whose resolved output is cached for a few minutes and shared across pages, keyed by device. Register layout sections with `registerLayoutSections` or `export const layout = true`. A section whose output depends on cookies, location or query parameters shouldn't be one. See [Section conventions](/v7/sections).
 
+## Live controls
+
+`LiveControls`, the small script `DecoRootLayout` renders so Studio and a previewed page can talk to each other. See [Deco Studio and the admin protocol](/v7/studio#live-controls).
+
 ## Loader
 
 A server function that fetches data. A loader is either called from content (a [commerce loader](#commerce-loader)) or attached to a section (a [section loader](#section-loader)), and site loaders can also be [invoked](#invoke) by key. See [Loaders and actions](/v7/loaders).
+
+## createCachedLoader
+
+The loader cache: `createCachedLoader`, which shares a [loader](#loader)'s results across requests in memory, keyed by its props. See [Loaders and actions](/v7/loaders#cache-a-loader).
 
 ## Matcher
 
@@ -113,6 +137,26 @@ A server function that runs after [resolution](#resolution) and before rendering
 
 The part of a visitor's identity that changes what a page looks like (device, logged in or not, sales channel, region), returned by the Worker entry's `buildSegment` and added to the edge cache key. See [Caching](/v7/caching).
 
+## Stale-while-revalidate (SWR)
+
+Serving a cached result that has expired while a fresh one loads in the background, so visitors don't wait for the refresh. See [Caching](/v7/caching).
+
+## Studio tunnel
+
+A development-only connection that lets [Deco Studio](#deco-studio) reach your local dev server. The [Vite plugin](#vite-plugin) starts it when `DECO_SITE_NAME` and `DECO_ENV_NAME` are both set. See [Configuration reference](/v7/configuration#development).
+
 ## Variant (multivariate flag)
 
 A block holding several alternatives, each guarded by a [matcher](#matcher). The first alternative whose matcher matches is used; if none does, the block is dropped. Used for A/B tests, scheduled content and personalization. See [Matchers and variants](/v7/variants).
+
+## Vite plugin
+
+`decoVitePlugin()` from `@decocms/tanstack/vite`, which keeps server code out of the browser bundle and regenerates files in development. See [TanStack Start on Cloudflare Workers](/v7/tanstack#the-vite-plugin).
+
+## Widget
+
+A type from `@decocms/blocks/types/widgets`, such as `ImageWidget`, that tells the schema generator which Studio input to show for a prop. See [Schema generation](/v7/schema).
+
+## Worker entry
+
+`src/worker-entry.ts`, the file that calls `createDecoWorkerEntry`. It's the outermost handler of every request on TanStack Start: it serves the [admin protocol](#admin-protocol), the [edge cache](#edge-cache) and redirects. See [TanStack Start on Cloudflare Workers](/v7/tanstack#the-worker-entry).

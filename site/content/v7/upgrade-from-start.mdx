@@ -21,6 +21,8 @@ Each step leaves the repository in a state you can review and type-check on its 
 3. **Generated files.** Move generated artifacts into `.deco/`.
 4. **Bump and verify.** Pin versions, regenerate, run the checks.
 
+Using an AI coding agent? The repository ships an [Agent Skill](https://github.com/decocms/blocks/tree/main/.agents/skills/decocms-v6-to-v7-upgrade) for this upgrade, a folder of instructions an agent loads. Install it with the [`skills` CLI](https://www.npmjs.com/package/skills): `npx skills add decocms/blocks --skill decocms-v6-to-v7-upgrade`.
+
 Before you start, record the current type-check output (`tsc --noEmit`) on the unchanged branch. Many sites have pre-existing errors; the goal is **no new errors**, not zero.
 
 ## 1. Swap the dependencies
