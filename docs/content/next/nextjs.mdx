@@ -10,7 +10,7 @@ In this guide, you'll render CMS pages with Server Components and generate metad
 
 Editors choose page URLs in Studio, so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
 
-**Prerequisites:** an App Router app (the SDK reads no files, so the Node and Edge runtimes both work), with a root layout; `npm install @decocms/blocks server-only` and the CLI from [Quickstart](/next/quickstart); and the [example project](/next/routing#the-example-used-here-and-in-the-guides): `src/model.ts` plus the entries in `.deco/blocks` at the project root.
+**Prerequisites:** an App Router app (the SDK reads no files, so the Node and Edge runtimes both work), with a root layout; `npm install @decocms/blocks server-only` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); and the [example project](/next/routing#the-example-used-here-and-in-the-guides): `src/model.ts` plus the entries in `.deco/blocks` at the project root.
 
 ## 1. Add the components
 
@@ -120,7 +120,7 @@ Two CLI commands generate the files the app and Studio need (see [CLI reference]
 }
 ```
 
-Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts`. What reloads on its own is in [The `deco content` command](/next/blocks#the-deco-content-command); while you work, you can leave `deco content --watch` running beside `next dev`.
+Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts`. What reloads on its own is in [The `deco content` command](/next/blocks#the-deco-content-command); while you work, you can leave `npx @decocms/blocks content --watch` running beside `next dev`.
 
 ## 4. Match the URL to a page
 
@@ -191,7 +191,7 @@ If any block fails, `resolve` returns an error, `openPage` throws it, and Next s
 
 ## 6. List another content type
 
-Add `src/post.ts` from [Your own routable types](/next/routes-and-redirects#your-own-routable-types), change the `Content` export in `src/blocks.tsx` to `{ page: StoredPage; post: Post }`, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `deco content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
+Add `src/post.ts` from [Your own routable types](/next/routes-and-redirects#your-own-routable-types), change the `Content` export in `src/blocks.tsx` to `{ page: StoredPage; post: Post }`, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `npx @decocms/blocks content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
 
 ```ts title="src/open-page.server.ts (changes)"
 import type { Post } from "./post";
@@ -341,7 +341,7 @@ These files use the default App Router configuration. [Cache Components](https:/
 To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
 
 ```bash
-npx deco serve --app-url http://localhost:3000
+npx @decocms/blocks serve --app-url http://localhost:3000
 ```
 
 Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).

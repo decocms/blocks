@@ -12,10 +12,10 @@ Studio builds each block's form from the schema: a calendar for a date, an image
 
 ## From types to forms
 
-Deco ships a command-line tool, the `deco` command, in the `@decocms/blocks-cli` package. Install it as a development dependency (`npm install -D @decocms/blocks-cli`) and run it with `npx deco`; every command is in the [CLI reference](/next/cli). Its compiler, `deco schema`, reads the TypeScript types of your [block map](/next/quickstart), the object that lists your block functions, and writes `.deco/schema.json`:
+`@decocms/blocks` includes a command-line tool, the `deco` command. Run it with `npx @decocms/blocks <command>`, or as `deco <command>` in `package.json` scripts (see [CLI](/next/cli)). Its compiler, `deco schema`, reads the TypeScript types of your [block map](/next/quickstart), the object that lists your block functions, and writes `.deco/schema.json`:
 
 ```bash
-npx deco schema
+npx @decocms/blocks schema
 ```
 
 Commit `.deco/schema.json` with your code. Studio only reads it and never edits it (see [Studio and the content protocol](/next/content-protocol)).
@@ -155,15 +155,15 @@ jobs:
       - run: npm ci
       - name: The committed schema matches the code
         run: |
-          npx --no-install deco schema
+          npx @decocms/blocks schema
           if [ -n "$(git status --porcelain -- .deco/schema.json)" ]; then
             git diff -- .deco/schema.json
-            echo ".deco/schema.json is missing or out of date: run deco schema and commit it."
+            echo ".deco/schema.json is missing or out of date: run npx @decocms/blocks schema and commit it."
             exit 1
           fi
 ```
 
-`--no-install` makes `npx` fail if `@decocms/blocks-cli` isn't installed, instead of downloading some other package named `deco`. If you use `--root`, pass it to `deco schema` and replace `.deco/schema.json` with `<dir>/.deco/schema.json`. Make the job a required check in your branch protection rules, so a failing pull request can't merge.
+`npm ci` already installed `@decocms/blocks`, so `npx` runs the CLI at the version in your lockfile. If you use `--root`, pass it to the schema command too and replace `.deco/schema.json` with `<dir>/.deco/schema.json`. Make the job a required check in your branch protection rules, so a failing pull request can't merge.
 
 <Callout>**Status. The compatibility check, `deco schema --check <base>`, isn't built yet; it ships with the first release.** It will generate the schema from your code, compare it with `<base>`, an earlier `.deco/schema.json` such as the one on `main`, list every breaking change from the table above and exit with a non-zero code if it finds one, writing nothing. Once it's out, add a step that runs `git show "origin/$BASE_REF:.deco/schema.json" > base-schema.json`, then `deco schema --check base-schema.json`. Until then, review schema diffs against the table by hand. See the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check).</Callout>
 

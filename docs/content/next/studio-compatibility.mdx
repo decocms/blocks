@@ -119,7 +119,7 @@ Uploads aren't one of the four methods. Studio sends each file to `PUT /assets/<
 
 ### The package
 
-The protocol ships as one package, proposed as `@decocms/blocks-protocol`, with `zod` as its only runtime dependency and no other Deco package. The CLI depends on it; the SDK doesn't.
+The protocol ships as one package, proposed as `@decocms/blocks-protocol`, with `zod` as its only runtime dependency and no other Deco package. `@decocms/blocks` depends on it for its CLI (the `cli` subpath); the SDK's runtime never imports it.
 
 ```text
 @decocms/blocks-protocol             method types, errors, client, keys    (browser-safe)

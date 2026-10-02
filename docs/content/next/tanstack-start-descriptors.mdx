@@ -11,7 +11,7 @@ There are two ways to render with TanStack Start: this guide, which works with a
 
 Editors choose page URLs in Studio, so your app can't know its routes ahead of time. One catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's [blocks](/next/blocks).
 
-**Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler`, plus the CLI from [Quickstart](/next/quickstart); the [example project](/next/routing#the-example-used-here-and-in-the-guides); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the content module.
+**Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); the [example project](/next/routing#the-example-used-here-and-in-the-guides); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the content module.
 
 ## 1. Return descriptors from blocks
 
@@ -198,7 +198,7 @@ export default defineConfig({
 
 ## Edit in Studio
 
-To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx deco serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
+To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
 
 ## Deployment checklist
 

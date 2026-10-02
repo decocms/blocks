@@ -1330,7 +1330,7 @@
       "id": "roadmap-cli--ship-deco-serve-a-local-server-for-studio",
       "group": "cli",
       "title": "Ship <code>deco serve</code>, a local server for Studio",
-      "plan": "<p>A command in <code>@decocms/blocks-cli</code>, <code>deco serve</code>, that serves the content protocol on <code>localhost:&lt;port&gt;</code> for the developer's working tree, so Studio can edit a local checkout: the saved content in <code>.deco/blocks</code>, the schema in <code>.deco/schema.json</code> (read-only) and the upload URLs for assets. It listens on the loopback address by default, prints a bearer token and a connect link at start, allows only Studio's origins (CORS) and answers Chrome's local-network permission preflight. Writes land in <code>.deco/blocks</code> and the app hot-reloads; the server regenerates the content module when a write adds or removes a file. It never commits. <code>deco schema --watch</code> and <code>deco content --watch</code> stay as they are.</p>",
+      "plan": "<p>A command of the <code>deco</code> CLI in <code>@decocms/blocks</code>, <code>deco serve</code>, that serves the content protocol on <code>localhost:&lt;port&gt;</code> for the developer's working tree, so Studio can edit a local checkout: the saved content in <code>.deco/blocks</code>, the schema in <code>.deco/schema.json</code> (read-only) and the upload URLs for assets. It listens on the loopback address by default, prints a bearer token and a connect link at start, allows only Studio's origins (CORS) and answers Chrome's local-network permission preflight. Writes land in <code>.deco/blocks</code> and the app hot-reloads; the server regenerates the content module when a write adds or removes a file. It never commits. <code>deco schema --watch</code> and <code>deco content --watch</code> stay as they are.</p>",
       "features": [
         "dev-studio-content-loop",
         "bundler-config",
@@ -1363,7 +1363,7 @@
       "id": "roadmap-cli--ship-the-deco-command",
       "group": "cli",
       "title": "Ship the <code>deco</code> command",
-      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its three commands, <code>deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code>, <code>deco content [--root &lt;dir&gt;] [--watch]</code> and <code>deco serve [--root &lt;dir&gt;] [--port &lt;n&gt;] [--host &lt;addr&gt;] [--app-url &lt;url&gt;] [--token &lt;t&gt;] [--allow-origin &lt;origin&gt;]… [--assets &lt;dir&gt;] [--read-only]</code>. By default <code>deco schema</code> looks for the block map at <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>; <code>--entry</code> overrides it. The flags of each command are in the <a href=\"#schema\">schema page</a>.</p>",
+      "plan": "<p>These docs run <code>npx @decocms/blocks schema</code>, but <code>@decocms/blocks</code> doesn't declare a <code>deco</code> bin yet. Ship the CLI inside <code>@decocms/blocks</code>, so <a href=\"#quickstart\">Quickstart</a> installs one package and the CLI always matches the runtime version. Declare <code>deco</code> as the package's single bin, so <code>npx @decocms/blocks &lt;command&gt;</code> runs it with nothing installed and <code>package.json</code> scripts call <code>deco &lt;command&gt;</code>; the bin is a small JavaScript file that loads the TypeScript sources, so it runs under plain Node as well as Bun. Export the commands from the <code>@decocms/blocks/cli</code> subpath, make <code>typescript</code> a required peer dependency (so npm and Bun install it) that the CLI loads only when a command runs, and keep the runtime from ever importing the <code>cli</code> subpath, so app bundles never include the CLI. It has three commands, <code>deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code>, <code>deco content [--root &lt;dir&gt;] [--watch]</code> and <code>deco serve [--root &lt;dir&gt;] [--port &lt;n&gt;] [--host &lt;addr&gt;] [--app-url &lt;url&gt;] [--token &lt;t&gt;] [--allow-origin &lt;origin&gt;]… [--assets &lt;dir&gt;] [--read-only]</code>. By default <code>deco schema</code> looks for the block map at <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>; <code>--entry</code> overrides it. The flags of each command are in the <a href=\"#schema\">schema page</a>.</p>",
       "features": [
         "codegen-pipeline",
         "studio-schema-generation",
@@ -1371,7 +1371,9 @@
       ],
       "docs": [
         "quickstart",
-        "schema"
+        "schema",
+        "cli",
+        "internals"
       ],
       "pinned": false
     },

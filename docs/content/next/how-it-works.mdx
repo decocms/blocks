@@ -10,12 +10,12 @@ order: 1
 
 Deco Blocks lets the people who run a site change what your code does without changing the code. You write ordinary TypeScript functions. The values they're called with, such as a headline, a banner image or the share of visitors who see a new checkout, live as JSON files in your repository. Editors change those files in a visual editor, AI agents edit them directly, and your app reads them at runtime and calls your functions with them. Content and code share one Git history, and both ship with your deploys.
 
-Deco Blocks has two pieces you install, plus a visual editor that works on your files:
+Deco Blocks has one package you install, `@decocms/blocks`, which holds the SDK and the CLI, plus a visual editor that works on your files:
 
 | Piece | What it does | Where it runs |
 |---|---|---|
 | **SDK** `@decocms/blocks` | Reads your content (the JSON files in your repository, through a module the CLI generates) and calls your functions with it. | Your app, in any JavaScript runtime: Node, Cloudflare Workers, Deno, Bun, React Native or the browser |
-| **CLI** `@decocms/blocks-cli` | Provides the `deco` command. `deco schema` generates a JSON Schema from your types (and, in CI, checks a change against the previous one), and `deco content` turns your content files into a module your app imports. | Your machine or CI |
+| **CLI** `deco` (in `@decocms/blocks`) | The `deco` command. `deco schema` generates a JSON Schema from your types (and, in CI, checks a change against the previous one), and `deco content` turns your content files into a module your app imports. | Your machine or CI |
 | **Studio** | Deco's visual editor. Builds forms from that schema and saves edits back to your files, through the [content protocol](/next/content-protocol). It never runs your code. | Your browser, editing your checkout through [`deco serve`](/next/cli#deco-serve) |
 
 The SDK and CLI are open source and run without a Deco account. From the first block to production, the framework needs only your repository, your build and your deploys. Studio is a web app Deco runs; editing your own checkout in it is planned to need no Deco account, through a play workspace in Studio (not built yet; see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)). Without Studio, content is JSON files you or an agent edit directly. The framework itself sends no telemetry: telemetry is part of the hosted Deco CMS.

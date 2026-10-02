@@ -61,10 +61,9 @@ This function doesn't render anything; it returns flags. A block function can ju
 
 ```bash
 npm install @decocms/blocks
-npm install -D @decocms/blocks-cli
 ```
 
-The second package provides the `deco` command.
+The package also provides the `deco` command, the CLI used below. Run it with `npx @decocms/blocks <command>`; inside `package.json` scripts it's just `deco <command>` (see [CLI](/next/cli)).
 
 ## 1. Make the function configurable
 
@@ -84,7 +83,7 @@ export default { experiments } satisfies Blocks;
 The CLI reads the map and turns the `Experiments` type into a JSON Schema. The JSDoc tags shape the form: `@title` becomes the field's label, and `@minimum`/`@maximum` its allowed range. [Schema generation](/next/schema) lists every tag.
 
 ```bash
-npx deco schema
+npx @decocms/blocks schema
 ```
 
 It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in `src/` (`--entry` points it at any other file; see [Schema generation](/next/schema)), and writes `.deco/schema.json`. Commit the file. Studio builds its form from this file alone, showing each experiment as a number field clamped to 0–100; it never runs your code (see [Studio and the content protocol](/next/content-protocol)). The same schema describes the content you or an agent write by hand.
@@ -94,7 +93,7 @@ It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in
 There are two ways to create content:
 
 - **By hand.** Write the JSON file yourself, or ask an AI agent to "ramp the new checkout to 25%" and let it edit the file.
-- **In Studio, on your checkout.** Run [`npx deco serve`](/next/cli#deco-serve), open the link it prints, pick the `experiments` block type and fill in the form. Each save writes the file to your working tree; you commit it like any other change (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
+- **In Studio, on your checkout.** Run [`npx @decocms/blocks serve`](/next/cli#deco-serve), open the link it prints, pick the `experiments` block type and fill in the form. Each save writes the file to your working tree; you commit it like any other change (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
 
 Both routes produce the same file in `.deco/blocks`, which is where the CLI looks for content (its `--root` flag points it at another `.deco` folder):
 
@@ -121,10 +120,10 @@ Two names are in play, on purpose: `experiments` is the block type and names a f
 The SDK never reads files itself, so it runs the same way in any JavaScript runtime. Instead, the CLI turns your content files into a module your app imports, the **content module**:
 
 ```bash
-npx deco content
+npx @decocms/blocks content
 ```
 
-It writes `.deco/blocks.gen.ts`, which imports each JSON file in `.deco/blocks` separately and exports a **snapshot**, `{ revision, blocks }`: one fixed copy of all your saved entries, plus its revision, an ID the CLI computes from their contents. The file is generated, so add it to `.gitignore`, as you would TanStack Router's `routeTree.gen.ts`. For this guide, running `npx deco content` once is enough. Rerun it when you add or remove a file in `.deco/blocks`; editing an existing file needs no rerun. In an app with dev and build scripts, add the two commands to `package.json` so they run first (see [The `deco content` command](/next/blocks#the-deco-content-command)):
+It writes `.deco/blocks.gen.ts`, which imports each JSON file in `.deco/blocks` separately and exports a **snapshot**, `{ revision, blocks }`: one fixed copy of all your saved entries, plus its revision, an ID the CLI computes from their contents. The file is generated, so add it to `.gitignore`, as you would TanStack Router's `routeTree.gen.ts`. For this guide, running `npx @decocms/blocks content` once is enough. Rerun it when you add or remove a file in `.deco/blocks`; editing an existing file needs no rerun. In an app with dev and build scripts, add the two commands to `package.json` so they run first (see [The `deco content` command](/next/blocks#the-deco-content-command)):
 
 ```json
 "predev": "deco schema && deco content",

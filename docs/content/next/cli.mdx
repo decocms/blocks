@@ -6,12 +6,13 @@ order: 14
 
 # CLI
 
-The Deco Blocks CLI is the `deco` command. It turns your TypeScript types into the schema Studio builds its forms from, turns your saved content into a module your app imports, and serves your checkout to Studio while you develop. It comes in the `@decocms/blocks-cli` package; install it as a development dependency and run it with `npx`:
+The Deco Blocks CLI is the `deco` command. It turns your TypeScript types into the schema Studio builds its forms from, turns your saved content into a module your app imports, and serves your checkout to Studio while you develop. It ships inside `@decocms/blocks`, so there's nothing extra to install, and the CLI always matches your runtime version. Run it once with `npx` (`bunx @decocms/blocks schema` works the same):
 
 ```bash
-npm install -D @decocms/blocks-cli
-npx deco schema
+npx @decocms/blocks schema
 ```
+
+Once `@decocms/blocks` is installed, your `package.json` scripts call it by its short name, `deco` (for example `deco schema`). To call it from your own code, import it from `@decocms/blocks/cli`.
 
 It has three commands, and each does one job:
 

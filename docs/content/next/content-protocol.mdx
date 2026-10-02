@@ -14,7 +14,7 @@ Studio needs two things from your repository: the schema that `deco schema` writ
 
 ## What Studio needs
 
-- **The schema**, `.deco/schema.json`, generated from your types (see [Schema generation](/next/schema)). Studio only reads it: no editor action changes it. To change a form, change the type and run `deco schema` again.
+- **The schema**, `.deco/schema.json`, generated from your types (see [Schema generation](/next/schema)). Studio only reads it: no editor action changes it. To change a form, change the type and run `npx @decocms/blocks schema` again.
 - **The saved entries**, one JSON file per entry in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). This is all Studio writes.
 
 The `.deco` folder can be anywhere in the repository, such as `apps/storefront/.deco` in a monorepo. Studio needs no deployed site, and your app serves nothing for it: no endpoints, no handlers. A project with only a schema and a content folder can be edited before its first deploy.
@@ -41,7 +41,7 @@ There's no event stream. Studio polls with one batched request, and when nothing
 ## Edit your local checkout
 
 1. Start your app's dev server.
-2. Run `npx deco serve`. It finds the nearest `.deco` folder (or takes `--root`) and prints its address, a bearer token and a connect link:
+2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco` folder (or takes `--root`) and prints its address, a bearer token and a connect link:
 
    ```text
    Deco server          http://127.0.0.1:4545/rpc
@@ -67,7 +67,7 @@ When an editor uploads an image or another file in Studio, `deco serve` writes i
 The field always stores `/assets/<name>`, whatever folder the files are written to, so your app has to serve that folder at `/assets/`. Nothing serves `.deco/assets` by default: a field pointing there shows a broken image until your app serves the folder. The simplest way is to write uploads into the folder your app already serves. Vite, TanStack Start and Next.js all serve `public/` at the site root, so with
 
 ```bash
-npx deco serve --assets public/assets
+npx @decocms/blocks serve --assets public/assets
 ```
 
 uploads land in `public/assets/` and are served at `/assets/`, in development and in production, with no other configuration: the build copies `public/` into its output. The folder is relative to the folder that contains `.deco` (see `--root` in the [`deco serve` options](/next/cli#deco-serve)), so in a monorepo it's your app's own `public/`. If you keep the default `.deco/assets`, you have to serve it at `/assets/` yourself and make sure it ships with your build, which it doesn't on its own.

@@ -176,10 +176,10 @@ Publishing is committing and pushing. There's no separate publish step: push the
 
 ### The `deco content` command
 
-The CLI turns `.deco/blocks` into a module your app imports, so the SDK never touches the filesystem and runs anywhere: Node, Cloudflare Workers, Deno, Bun or a browser.
+The `deco` CLI, which comes with `@decocms/blocks`, turns `.deco/blocks` into a module your app imports, so the SDK never touches the filesystem and runs anywhere: Node, Cloudflare Workers, Deno, Bun or a browser. Run it once with `npx`; in `package.json` scripts it's just `deco content`.
 
 ```bash
-npx deco content
+npx @decocms/blocks content
 ```
 
 It writes `.deco/blocks.gen.ts`: one JSON import per file, exported together, so your bundler packs your content into the build like any other module:
@@ -212,4 +212,4 @@ The generated file belongs in `.gitignore`, like TanStack Router's `routeTree.ge
 }
 ```
 
-Editing a file reloads through your framework's hot module replacement (HMR), with no rerun. Adding or removing a file needs `deco content` again, or leave `deco content --watch` running beside your dev server. Every option is in the [CLI reference](/next/cli).
+Editing a file reloads through your framework's hot module replacement (HMR), with no rerun. Adding or removing a file needs the command again: rerun `npx @decocms/blocks content`, or leave `npx @decocms/blocks content --watch` running beside your dev server. Every option is in the [CLI reference](/next/cli).
