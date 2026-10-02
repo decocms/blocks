@@ -40,13 +40,13 @@ interface Client {
 }
 ```
 
-`content` takes the content module or a `Loader` (see [Configuring content](#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `site` and `token` connect the hosted Deco CMS and do nothing on their own: with either of them unset, the CMS reads `content` only and sends nothing anywhere. The [rule from Blocks](/next/model#the-lookup-rule) is how a client resolves.
+`content` takes the content module or a `Loader` (see [Configuring content](#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `site` and `token` connect the hosted Deco CMS and do nothing on their own: with either of them unset, the CMS reads `content` only and sends nothing anywhere. The [rule from Blocks](/next/blocks#the-lookup-rule) is how a client resolves.
 
 <Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Hosted options.** With `site` and `token` set, the CMS serves releases published without a deploy, loads drafts for `forDraft`, and sends sampled telemetry.</Hosted>
 
 ### Configuring content
 
-`content` is the content module, `.deco/blocks.gen.ts`, in almost every app (see [The `deco content` command](/next/model#the-deco-content-command)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
+`content` is the content module, `.deco/blocks.gen.ts`, in almost every app (see [The `deco content` command](/next/blocks#the-deco-content-command)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
 
 ## Loaders
 
@@ -124,7 +124,7 @@ formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=â€
 
 ## `client.resolve(target, options?)`
 
-Loads the content once and applies the [registry rule](/next/model#the-lookup-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/model#built-in-blocks) are always defined.
+Loads the content once and applies the [registry rule](/next/blocks#the-lookup-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/blocks#built-in-blocks) are always defined.
 
 | Call | Returns |
 |---|---|
@@ -141,7 +141,7 @@ A string target is always an entry name. Any other value is walked as is, so you
 
 ## `client.list(type, options?)`
 
-Every saved entry whose `__resolveType` is `type` or an [alias](/next/adoption) of it (another key for the same type, used when renaming). By default nothing runs: each entry comes back as `resolve(name, { run: false })` would return it. With `run: true` each entry is resolved, so every block inside it, and the entry's own type, must be in the block map (built-ins included) or a saved entry, or it fails with `UNKNOWN_BLOCK`. `list("page", { run: true })` returns ready pages. Listing a `Content`-only type such as `post` with `run: true` fails.
+Every saved entry whose `__resolveType` is `type` or an [alias](/next/renames-and-migrations) of it (another key for the same type, used when renaming). By default nothing runs: each entry comes back as `resolve(name, { run: false })` would return it. With `run: true` each entry is resolved, so every block inside it, and the entry's own type, must be in the block map (built-ins included) or a saved entry, or it fails with `UNKNOWN_BLOCK`. `list("page", { run: true })` returns ready pages. Listing a `Content`-only type such as `post` with `run: true` fails.
 
 ```ts
 interface ListOptions<T> {
@@ -183,7 +183,7 @@ Redirects win over routes, exact paths win over templates, and two entries that 
 
 <Callout>**Status.** `createInstrumentedFetch` and `@decocms/blocks/fetch` are proposed; see the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Callout>
 
-From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/clients) uses: it times each request until its response headers arrive and labels the measurement. On its own it sends nothing anywhere: only the hosted Deco CMS consumes the measurements. For your own observability, instrument your code with OpenTelemetry as usual (see [Your own tracing](/next/operations#your-own-tracing)).
+From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/upstream-clients) uses: it times each request until its response headers arrive and labels the measurement. On its own it sends nothing anywhere: only the hosted Deco CMS consumes the measurements. For your own observability, instrument your code with OpenTelemetry as usual (see [Your own tracing](/next/caching-and-observability#your-own-tracing)).
 
 ```ts
 function createInstrumentedFetch(options: {
@@ -194,13 +194,13 @@ function createInstrumentedFetch(options: {
 }): (input: string | URL | Request, init?: RequestInit & { operation?: string }) => Promise<Response>;
 ```
 
-Each request is measured with `provider`, `operation`, `status_class`, `cached` and `retries` labels. It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/clients#write-a-client).
+Each request is measured with `provider`, `operation`, `status_class`, `cached` and `retries` labels. It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/upstream-clients#write-a-client).
 
 <Hosted to="/next/hosted-telemetry">**Telemetry without a collector.** When the CMS in the same process has a site ID and token, these measurements reach Deco as sampled upstream latency and error rates.</Hosted>
 
 ## Not in the SDK
 
-v7's `/deco/invoke` endpoint (which runs loaders and actions over HTTP for Studio and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) aren't part of the next major. Call [upstream clients](/next/clients) from your framework's server functions or route handlers. Upstream caching belongs to the [framework binding](/next/architecture#key-terms), which isn't wired into these guides yet (see [Caching](/next/clients#caching)).
+v7's `/deco/invoke` endpoint (which runs loaders and actions over HTTP for Studio and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) aren't part of the next major. Call [upstream clients](/next/upstream-clients) from your framework's server functions or route handlers. Upstream caching belongs to the [framework binding](/next/how-it-works#key-terms), which isn't wired into these guides yet (see [Caching](/next/upstream-clients#caching)).
 
 ## Types
 
@@ -254,8 +254,8 @@ Client calls never throw: `resolve` and `list` return `[value, null]` or `[null,
 | Code | When |
 |---|---|
 | `NOT_FOUND` | A string target names no saved entry. |
-| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map nor a saved entry. [Built-in blocks](/next/model#built-in-blocks) never cause it. |
-| `CYCLE` | References lead back to an entry that's already being expanded (see [The rule in full](/next/walkthrough#the-rule-in-full)). |
+| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map nor a saved entry. [Built-in blocks](/next/blocks#built-in-blocks) never cause it. |
+| `CYCLE` | References lead back to an entry that's already being expanded (see [The rule in full](/next/how-resolution-works#the-rule-in-full)). |
 | `BLOCK_FAILED` | A block function threw. The original error is in `cause`. |
 | `LOADER_FAILED` | The loader couldn't load the content. The original error is in `cause`. |
 

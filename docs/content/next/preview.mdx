@@ -10,9 +10,9 @@ Previewing a content change means rendering the same code against different cont
 
 ## Preview locally
 
-Your dev app already renders your working tree. Each file in `.deco/blocks` is an ordinary import of the content module, so editing one reloads through your framework's hot module replacement (HMR), and the running CMS gets the new content (see [The `deco content` command](/next/model#the-deco-content-command)). Change a file, by hand, with an agent or in Studio, and the page in your browser shows it.
+Your dev app already renders your working tree. Each file in `.deco/blocks` is an ordinary import of the content module, so editing one reloads through your framework's hot module replacement (HMR), and the running CMS gets the new content (see [The `deco content` command](/next/blocks#the-deco-content-command)). Change a file, by hand, with an agent or in Studio, and the page in your browser shows it.
 
-To edit through Studio's forms instead of JSON, run [`deco serve`](/next/schema#edit-local-content-from-studio) beside your dev server. Studio writes the files in your working tree, and its canvas opens your dev app with `--app-url`, so each save shows up on the real page (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)).
+To edit through Studio's forms instead of JSON, run [`deco serve`](/next/schema#edit-local-content-from-studio) beside your dev server. Studio writes the files in your working tree, and its canvas opens your dev app with `--app-url`, so each save shows up on the real page (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
 
 ```bash
 npm run dev                                                  # your app, on http://localhost:3000
@@ -35,10 +35,10 @@ git push -u origin summer-sale
 # open a pull request; the preview deploy renders /summer with the branch's content
 ```
 
-Merging the pull request publishes the draft: the next production deploy ships it (see [Releases and deployment](/next/releases#publishing)). A content-only branch and a branch that also changes a block function preview the same way, which is how you check a new field and the content that uses it together.
+Merging the pull request publishes the draft: the next production deploy ships it (see [Releases and deployment](/next/releases-and-deployment#publishing)). A content-only branch and a branch that also changes a block function preview the same way, which is how you check a new field and the content that uses it together.
 
 <Hosted to="/next/hosted-drafts">**Drafts on your real site.** With the hosted Deco CMS, Studio opens your real site with a `?__draft=` link and the draft renders in place, with no preview deploy.</Hosted>
 
 ## Clients for drafts
 
-Previewing a branch needs no code: you never call `cms.forDraft(pointer)` for it. `forDraft` hands a draft pointer to a [loader's](/next/standalone#loaders) `load(pointer)`; a loader you write can serve drafts that way, and the content module ignores the pointer and serves its release (see [Draft pointers](/next/standalone#draft-pointers) and, for the hosted flow, [Drafts on your site](/next/hosted-drafts)).
+Previewing a branch needs no code: you never call `cms.forDraft(pointer)` for it. `forDraft` hands a draft pointer to a [loader's](/next/api-reference#loaders) `load(pointer)`; a loader you write can serve drafts that way, and the content module ignores the pointer and serves its release (see [Draft pointers](/next/api-reference#draft-pointers) and, for the hosted flow, [Drafts on your site](/next/hosted-drafts)).

@@ -9,7 +9,7 @@ order: 16
 
 <Callout type="warning">**Experimental.** TanStack Start's RSC support is experimental and needs the extra Vite plugin configured in step 4.</Callout>
 
-This guide reuses the [data guide](/next/tanstack-data)'s content, CMS and `openPage`, but the blocks return JSX instead of descriptors. The server renders them as React Server Components and streams the result in React's wire format (Flight). Because the browser receives rendered output, it needs no view registry, and view code used only on the server never ships.
+This guide reuses the [data guide](/next/tanstack-start-descriptors)'s content, CMS and `openPage`, but the blocks return JSX instead of descriptors. The server renders them as React Server Components and streams the result in React's wire format (Flight). Because the browser receives rendered output, it needs no view registry, and view code used only on the server never ships.
 
 ## 1. Swap the block map
 

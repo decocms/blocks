@@ -125,7 +125,7 @@ Conventions:
   the "How this list was made" numbers) is computed from the items.
 - Links in HTML fields keep the old single page's form, `href="#id"`, and are rewritten when the
   page renders: `#roadmap-…` to the Roadmap page holding that id, anything else to the next
-  major's docs (`#studio` → `/next/studio`, `#releases--publishing` → `/next/releases#publishing`).
+  major's docs (`#studio-compatibility` → `/next/studio-compatibility`, `#releases-and-deployment--publishing` → `/next/releases-and-deployment#publishing`).
   Docs ids (`docs` lists, summary links) are page file names in `content/next/`; the check fails on
   one without a page (`DOCS_LINKS=warn` only warns), and the post-build link check on a missing
   `#fragment`.

@@ -8,26 +8,26 @@ order: 1
 
 # How Deco Blocks works inside
 
-The [developer docs](/next/architecture) describe how to use Deco Blocks. This part describes how it works inside. It's for contributors, for anyone connecting a new framework or content store, and for the curious:
+The [developer docs](/next/how-it-works) describe how to use Deco Blocks. This part describes how it works inside. It's for contributors, for anyone connecting a new framework or content store, and for the curious:
 
-- [How resolution works](/next/walkthrough): one saved entry, expanded and run step by step.
-- [How hosted releases stay current](/next/loader-internals): with the [hosted Deco CMS](/next/hosted-publishing), new releases arrive without a request ever waiting on the network.
+- [How resolution works](/next/how-resolution-works): one saved entry, expanded and run step by step.
+- [How hosted releases stay current](/next/hosted-releases-internals): with the [hosted Deco CMS](/next/hosted-publishing), new releases arrive without a request ever waiting on the network.
 - [How `matchRoute` matches](/next/router-internals): the data structure that maps a URL to an entry.
-- [Studio compatibility](/next/studio): the content protocol Studio reads and writes content through, what it reads from the schema, and the legacy endpoints older sites serve.
-- [Design decisions](/next/decisions): the choices behind all of the above, and why they won.
+- [Studio compatibility](/next/studio-compatibility): the content protocol Studio reads and writes content through, what it reads from the schema, and the legacy endpoints older sites serve.
+- [Design decisions](/next/design-decisions): the choices behind all of the above, and why they won.
 - [Snapshots and revisions](#snapshots-and-revisions): how the content module holds your saved entries, and how a revision names one version of them.
 
 ## Snapshots and revisions
 
 The content module's default export, `{ revision, blocks }`, is a **snapshot**: one fixed copy of your content map, the saved blocks by name. The CMS always works with a whole snapshot at a time, never with single files. The field is called `blocks` for compatibility with Studio's file format, but it holds saved entries: any JSON, never functions. Functions only ever come from your block map.
 
-The revision names that exact set of entries, like a version number. The CMS and your app use it to tell when content changed, to keep cached data from different versions apart, and to tell one deploy's content from the next. Any change to any entry produces a new revision, and a revision is never reused for different content. `deco content` computes it as a hash of the whole map, so two copies of the same content get the same revision wherever they're built; [Releases and deployment](/next/releases#one-revision-per-response) shows what that buys you.
+The revision names that exact set of entries, like a version number. The CMS and your app use it to tell when content changed, to keep cached data from different versions apart, and to tell one deploy's content from the next. Any change to any entry produces a new revision, and a revision is never reused for different content. `deco content` computes it as a hash of the whole map, so two copies of the same content get the same revision wherever they're built; [Releases and deployment](/next/releases-and-deployment#one-revision-per-response) shows what that buys you.
 
 To read an entry exactly as stored, with references in place, index the map: `content.blocks["PromoBanner"]`.
 
 ## Contributing
 
-The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Five core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/clients) for commerce and other services, built on top of them. A sixth core package, `@decocms/blocks-protocol` for the [content protocol](/next/studio#the-content-protocol), is proposed; it depends on no other Deco package, and the CLI depends on it. The core packages depend on each other in one direction only:
+The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Five core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. A sixth core package, `@decocms/blocks-protocol` for the [content protocol](/next/studio-compatibility#the-content-protocol), is proposed; it depends on no other Deco package, and the CLI depends on it. The core packages depend on each other in one direction only:
 
 ```text
 packages/
@@ -44,7 +44,7 @@ packages/
                                            depends on: @decocms/blocks, @decocms/blocks-admin
 ```
 
-The framework used to be a single bundled package, and bundling one package into another can create two copies of a module that must exist once, such as the block registry; two registries in one process disagree in ways that are hard to find. So packages import each other's TypeScript source, never a bundled build. The SDK also guards against this at runtime: `createCMS` and `remoteLoader` keep their instances on `globalThis`, so a second copy reuses the first (see [One instance per process](/next/standalone#one-instance-per-process)). `blocks` never imports from the others, and the two framework bindings never import from each other; if a feature needs both sides, split it into two functions rather than import in reverse.
+The framework used to be a single bundled package, and bundling one package into another can create two copies of a module that must exist once, such as the block registry; two registries in one process disagree in ways that are hard to find. So packages import each other's TypeScript source, never a bundled build. The SDK also guards against this at runtime: `createCMS` and `remoteLoader` keep their instances on `globalThis`, so a second copy reuses the first (see [One instance per process](/next/api-reference#one-instance-per-process)). `blocks` never imports from the others, and the two framework bindings never import from each other; if a feature needs both sides, split it into two functions rather than import in reverse.
 
 Apps following these docs need `@decocms/blocks` at runtime, plus `@decocms/blocks-cli` as a dev dependency. The two framework bindings serve v7 sites on Studio's legacy endpoints. In the next major they keep only what depends on the platform (caching upstream responses and rendered pages, inbound and edge telemetry), and Studio reaches next-major apps through the content protocol instead of through them.
 

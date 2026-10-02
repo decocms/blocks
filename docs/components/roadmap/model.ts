@@ -11,8 +11,8 @@
  * HTML fields of the data (titles, Today/Plan text, the overview copy) may contain `<code>`, links
  * and `{{item:ID}}`. Links are written as the old single page's `#id` and rewritten here to real
  * URLs (see sections.ts): `#roadmap-…` to the Roadmap page holding that id, anything else to the
- * docs page of the next major (`#studio` -> /next/studio, `#releases--publishing` ->
- * /next/releases#publishing).
+ * docs page of the next major (`#studio-compatibility` -> /next/studio-compatibility, `#releases-and-deployment--publishing` ->
+ * /next/releases-and-deployment#publishing).
  */
 import { docsHref, roadmapHref, SECTION_IDS, type SectionId } from './sections'
 
@@ -161,7 +161,7 @@ export interface DocPageInfo {
 
 export interface RoadmapOptions {
   /**
-   * The next major's docs pages by old section id (= file name): `studio` -> its label. Built from
+   * The next major's docs pages by old section id (= file name): `studio-compatibility` -> its label. Built from
    * the content manifest (docLabelsFromManifest). Ids missing here are reported in docProblems.
    */
   docs: Map<string, DocPageInfo>

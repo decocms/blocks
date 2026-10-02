@@ -16,8 +16,8 @@ The CMS doesn't care which you pick; it returns whatever your block function ret
 | Integration | Block returns | Streaming | Ships to the browser |
 |---|---|---|---|
 | [Next.js App Router](/next/nextjs) | JSX | Server Component Suspense boundaries | Client Components |
-| [TanStack Start, data](/next/tanstack-data) | Serializable descriptors | Deferred promises with `Await` | The view registry and its components |
-| [TanStack Start, RSC](/next/tanstack-rsc) | JSX | RSC stream (Flight) | Client references and the RSC runtime |
+| [TanStack Start, data](/next/tanstack-start-descriptors) | Serializable descriptors | Deferred promises with `Await` | The view registry and its components |
+| [TanStack Start, RSC](/next/tanstack-start-rsc) | JSX | RSC stream (Flight) | Client references and the RSC runtime |
 
 The same block in both modes:
 
@@ -39,7 +39,7 @@ Use descriptors when views must render in an ordinary browser React app. Use RSC
 
 In all three integrations, block functions run on the server, so data fetching belongs there. In data mode, a block returns a descriptor and a synchronous React view renders its props. With RSC, a block returns JSX that can include Client Components.
 
-Don't put a Client Component (a component from a `"use client"` file) in the block map directly. On the server, importing it gives you a placeholder React can render but your code can't call, and the CMS calls every block function. Wrap it instead: `cart: (input: CartProps) => <CartButton {...input} />`. Block functions should only read; see [The rule in full](/next/walkthrough#the-rule-in-full).
+Don't put a Client Component (a component from a `"use client"` file) in the block map directly. On the server, importing it gives you a placeholder React can render but your code can't call, and the CMS calls every block function. Wrap it instead: `cart: (input: CartProps) => <CartButton {...input} />`. Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
 ## Errors, streaming, and cancellation
 

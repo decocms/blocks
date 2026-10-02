@@ -13,7 +13,7 @@ This page covers renaming safely, and bringing in content from a site built on D
 
 ## Rename a type with an alias
 
-An alias is another key pointing at the same thing: the same function in the block map, or the same type in [`Content`](/next/schema). Content that stores the old name keeps working, and routing is unaffected because `matchRoute` looks at each entry's `path` field (see [Routes and redirects](/next/content-types)), not its type name. Here, [`Page`](/next/content-types) is the built-in page type from `@decocms/blocks`; you declare only the legacy name, since `page` itself is built in:
+An alias is another key pointing at the same thing: the same function in the block map, or the same type in [`Content`](/next/schema). Content that stores the old name keeps working, and routing is unaffected because `matchRoute` looks at each entry's `path` field (see [Routes and redirects](/next/routes-and-redirects)), not its type name. Here, [`Page`](/next/routes-and-redirects) is the built-in page type from `@decocms/blocks`; you declare only the legacy name, since `page` itself is built in:
 
 ```ts title="blocks.ts"
 import type { Blocks, Page } from "@decocms/blocks";
@@ -45,7 +45,7 @@ export default {
 
 ## Loaders and actions from the apps
 
-On [v7](/v7/loaders), saved content often calls loaders and actions that ship in Deco's [apps](/v7/apps), such as a VTEX product loader. In the next major the apps are thin [upstream clients](/next/clients) and ship no loaders, so the migration copies (vendors) the ones your site actually uses into your own code, rewritten over the clients, and registers each under its old type name as an alias. Content keeps resolving, and the copied code is yours to change from then on.
+On [v7](/v7/loaders), saved content often calls loaders and actions that ship in Deco's [apps](/v7/apps), such as a VTEX product loader. In the next major the apps are thin [upstream clients](/next/upstream-clients) and ship no loaders, so the migration copies (vendors) the ones your site actually uses into your own code, rewritten over the clients, and registers each under its old type name as an alias. Content keeps resolving, and the copied code is yours to change from then on.
 
 ## Checklist for migrating existing content
 

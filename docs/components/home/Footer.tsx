@@ -15,13 +15,13 @@ export function FinalCta() {
           <MdxLink className={btnPrimary} href="/next/quickstart">
             Read the quickstart →
           </MdxLink>
-          <MdxLink className={btnOutline} href="/next/architecture">
+          <MdxLink className={btnOutline} href="/next/how-it-works">
             How it works
           </MdxLink>
         </div>
         <p className={`mt-4 mx-auto max-w-[560px] text-13 leading-5 text-quiet ${reveal}`} style={d('120ms')}>
           The quickstart runs in plain Node, no framework. Or read the{' '}
-          <MdxLink className={noteLink} href="/next/standalone">
+          <MdxLink className={noteLink} href="/next/api-reference">
             API reference
           </MdxLink>
           , or{' '}
@@ -46,20 +46,20 @@ export const NEXT_COLUMNS: FooterColumn[] = [
   {
     title: 'Docs',
     links: [
-      ['/next/architecture', 'How it works'],
+      ['/next/how-it-works', 'How it works'],
       ['/next/quickstart', 'Quickstart'],
-      ['/next/model', 'Blocks'],
+      ['/next/blocks', 'Blocks'],
       ['/next/preview', 'Preview'],
-      ['/next/standalone', 'API reference'],
+      ['/next/api-reference', 'API reference'],
     ],
   },
   {
     title: 'Guides',
     links: [
       ['/next/nextjs', 'Next.js App Router'],
-      ['/next/tanstack-data', 'TanStack Start'],
+      ['/next/tanstack-start-descriptors', 'TanStack Start'],
       ['/next/routing', 'Routing'],
-      ['/next/releases', 'Releases & deployment'],
+      ['/next/releases-and-deployment', 'Releases & deployment'],
       ['/next/troubleshooting', 'Troubleshooting'],
     ],
   },
@@ -67,10 +67,10 @@ export const NEXT_COLUMNS: FooterColumn[] = [
     title: 'Under the hood',
     links: [
       ['/next/internals', 'Overview'],
-      ['/next/walkthrough', 'How resolution works'],
-      ['/next/loader-internals', 'Loader internals'],
+      ['/next/how-resolution-works', 'How resolution works'],
+      ['/next/hosted-releases-internals', 'Loader internals'],
       ['/next/router-internals', 'Router internals'],
-      ['/next/decisions', 'Design decisions'],
+      ['/next/design-decisions', 'Design decisions'],
     ],
   },
   {
@@ -78,7 +78,7 @@ export const NEXT_COLUMNS: FooterColumn[] = [
     links: [
       ['https://github.com/decocms/blocks', 'GitHub'],
       ['/next/internals#contributing', 'Contributing'],
-      ['/next/adoption', 'Renames & migrations'],
+      ['/next/renames-and-migrations', 'Renames & migrations'],
       ['/roadmap', 'Roadmap'],
     ],
   },

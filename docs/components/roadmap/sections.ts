@@ -128,8 +128,8 @@ export function roadmapHref(id: string): string | undefined {
 export const DOCS_VERSION = 'next'
 
 /**
- * An old docs id -> its page in the next major: "studio" -> "/next/studio",
- * "releases--publishing" -> "/next/releases#publishing" (the old ids were "<section>--<slug>").
+ * An old docs id -> its page in the next major: "studio-compatibility" -> "/next/studio-compatibility",
+ * "releases-and-deployment--publishing" -> "/next/releases-and-deployment#publishing" (the old ids were "<section>--<slug>").
  */
 export function docsHref(id: string): string {
   const i = id.indexOf('--')

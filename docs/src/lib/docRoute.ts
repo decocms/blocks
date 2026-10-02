@@ -11,7 +11,7 @@ export async function loadDocRoute(version: string, slug: string) {
   if (!page) throw notFound()
   await loadPage(page)
   const chrome: Chrome = { layout: 'docs', tab: page.kind, version, slug: page.slug }
-  // The page's own URL: /next/ shows /next/architecture, and /next/quickstart.html is /next/quickstart.
+  // The page's own URL: /next/ shows /next/how-it-works, and /next/quickstart.html is /next/quickstart.
   const canonical = `${import.meta.env.BASE_URL}${page.path.replace(/^\//, '')}`
   return { file: page.file, version, slug: page.slug, chrome, title: documentTitle(page), description: page.description, canonical }
 }

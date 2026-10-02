@@ -12,19 +12,19 @@ A wrong cache key is how a site shows one customer's cart to another or serves l
 
 | Layer | Lifetime | Your responsibility |
 |---|---|---|
-| Content map | The snapshot, held in memory by the CMS and cached by revision. One per process, even if the package is loaded twice (see [One instance per process](/next/standalone#one-instance-per-process)). See [Blocks in your repository](/next/model#blocks-in-your-repository). | Nothing. |
+| Content map | The snapshot, held in memory by the CMS and cached by revision. One per process, even if the package is loaded twice (see [One instance per process](/next/api-reference#one-instance-per-process)). See [Blocks in your repository](/next/blocks#blocks-in-your-repository). | Nothing. |
 | Resolved blocks | For one client. A client runs each block once and reuses the result for the rest of the request. | Make a client per request and resolve everything the response renders through it. |
-| Dynamically imported modules | Block functions you load lazily with `import()` (see [Block maps](/next/manifest)) are cached by the JavaScript runtime for the life of the process, so anything a module stores in a top-level variable is shared by every request. | Keep per-request state out of module globals. |
-| Upstream data | Responses from the APIs your code calls (a commerce platform, a search service), cached by your framework binding: the Cloudflare Cache API on Workers, Next's data cache on Next.js. See [Upstream API clients](/next/clients#caching). | Include tenant, locale, currency, or customer in the key. Never cache private data as public. |
+| Dynamically imported modules | Block functions you load lazily with `import()` (see [Block maps](/next/block-maps)) are cached by the JavaScript runtime for the life of the process, so anything a module stores in a top-level variable is shared by every request. | Keep per-request state out of module globals. |
+| Upstream data | Responses from the APIs your code calls (a commerce platform, a search service), cached by your framework binding: the Cloudflare Cache API on Workers, Next's data cache on Next.js. See [Upstream API clients](/next/upstream-clients#caching). | Include tenant, locale, currency, or customer in the key. Never cache private data as public. |
 | Cross-request results | Anything you cache across requests yourself (rendered HTML at a CDN, a resolved page in KV). Your policy. | Key by revision, app version (new code can render the same content differently), inputs, and relevant request context. Define TTL and invalidation. |
 
 A block type alone is never a cache key. Include every input that can change the result. A cache hit doesn't bypass authorization.
 
-Block functions should only read; see [The rule in full](/next/walkthrough#the-rule-in-full).
+Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
 ## Measuring upstream calls
 
-Every [upstream client](/next/clients) sends its requests through the framework's instrumented fetch, `createInstrumentedFetch`, which times each request until its response headers arrive and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took. On its own, it sends nothing: these measurements are only for the hosted Deco CMS, so without it there's no collector to configure and nothing leaves your servers. For your own observability, instrument your code with OpenTelemetry as usual; [Your own tracing](#your-own-tracing) shows how to time your block functions, including the upstream calls they make.
+Every [upstream client](/next/upstream-clients) sends its requests through the framework's instrumented fetch, `createInstrumentedFetch`, which times each request until its response headers arrive and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took. On its own, it sends nothing: these measurements are only for the hosted Deco CMS, so without it there's no collector to configure and nothing leaves your servers. For your own observability, instrument your code with OpenTelemetry as usual; [Your own tracing](#your-own-tracing) shows how to time your block functions, including the upstream calls they make.
 
 <Hosted to="/next/hosted-telemetry" label="Telemetry">**Telemetry without a collector.** With a site ID and token, those measurements reach Deco, sampled and aggregated, as upstream latency and error rates for your site; a Telemetry entry switches it off remotely.</Hosted>
 

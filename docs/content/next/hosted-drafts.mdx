@@ -98,7 +98,7 @@ Nothing else in the guide changes: every page already gets its client from `clie
 
 ### TanStack Start
 
-In the [TanStack Start guide](/next/tanstack-data), `client(request)` in `src/cms.ts` reads the pointer from the URL or the cookie:
+In the [TanStack Start guide](/next/tanstack-start-descriptors), `client(request)` in `src/cms.ts` reads the pointer from the URL or the cookie:
 
 ```ts title="src/cms.ts (changes)"
 import { createCMS, draftPointer } from "@decocms/blocks";
@@ -136,7 +136,7 @@ const pointer = new URL(url).searchParams.get("__draft");
 setClient(pointer ? cms.forDraft(pointer) : cms.forRelease());
 ```
 
-A script passes it as an argument. To look inside a pointer, or build one from parts, use `parseDraftPointer` and `formatDraftPointer` from the [API reference](/next/standalone#draft-pointers); `forDraft` parses on its own, so normally you don't have to.
+A script passes it as an argument. To look inside a pointer, or build one from parts, use `parseDraftPointer` and `formatDraftPointer` from the [API reference](/next/api-reference#draft-pointers); `forDraft` parses on its own, so normally you don't have to.
 
 ## Who may preview
 
@@ -156,4 +156,4 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 ## Studio's canvas
 
-Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its [site ID and token](/next/hosted#connect-your-site) and the wiring above. With [`deco serve`](/next/studio-protocol#edit-your-local-checkout), the canvas opens your dev app instead, which already renders your working tree.
+Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its [site ID and token](/next/hosted#connect-your-site) and the wiring above. With [`deco serve`](/next/content-protocol#edit-your-local-checkout), the canvas opens your dev app instead, which already renders your working tree.

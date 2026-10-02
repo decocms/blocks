@@ -17,14 +17,14 @@ Deco Blocks doesn't fetch data. Your site calls commerce platforms, search servi
 Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algolia, Resend and others. Each one is:
 
 - **Typed request functions**, one per API operation, with the platform's own request and response types (generated from its API description where it has one).
-- **Built on the instrumented fetch**, `createInstrumentedFetch`, which times each request (see [Measuring upstream calls](/next/operations#measuring-upstream-calls)).
+- **Built on the instrumented fetch**, `createInstrumentedFetch`, which times each request (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)).
 - **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it.
 
 Everything else lives in code your site owns:
 
 | Not in a client | Where it lives |
 |---|---|
-| Converters from a platform's types to shared commerce types | [Platform templates](/next/architecture#key-terms), the starter sites you copy and then own, and your code |
+| Converters from a platform's types to shared commerce types | [Platform templates](/next/how-it-works#key-terms), the starter sites you copy and then own, and your code |
 | React hooks for the cart, the user and the wishlist | Platform templates |
 | Cart, session and sign-in flows | Platform templates, as your framework's server functions or route handlers |
 | Website features: SEO helpers, sitemaps, redirect logic, analytics scripts | Platform templates and your code. The framework itself ships only the `always`, `never` and `date` matchers. |
@@ -36,7 +36,7 @@ The Salesforce client covers Salesforce Marketing Cloud Personalization (formerl
 
 Create a client once, at module scope, and call it from wherever your app fetches data: a route loader, a server function, a route handler. A block function can call one too, since it's ordinary code; it gets its inputs from content and fetches what it needs.
 
-Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [The rule in full](/next/walkthrough#the-rule-in-full).
+Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
 ```ts title="commerce.ts"
 import { createVtexClient } from "@decocms/apps-vtex";
@@ -55,15 +55,15 @@ The operation names here are illustrative; each client mirrors its platform's AP
 
 ## Caching
 
-Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/architecture#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements. How a request opts in is still being designed; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
+Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/how-it-works#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements. How a request opts in is still being designed; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
 
-Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and observability](/next/operations) for the other caches a request passes through.
+Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and observability](/next/caching-and-observability) for the other caches a request passes through.
 
 ## Retries and failures
 
 **Defaults per client.** The VTEX client turns on retries and a circuit breaker, which fails fast for a short time after repeated failures; other clients leave both off.
 
-A retried request is measured once, with the number of retries as a label (see [Measuring upstream calls](/next/operations#measuring-upstream-calls)).
+A retried request is measured once, with the number of retries as a label (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)).
 
 ## Write a client
 
@@ -143,8 +143,8 @@ A few rules keep clients consistent:
 5. **Never put bodies, tokens or cookies in errors or logs.** Report the operation and the status.
 6. **Accept a `fetch` option** for tests: pass a fake that returns canned responses, and assert on the requests it received.
 
-`createInstrumentedFetch` measures every request and, on its own, sends nothing (see [Measuring upstream calls](/next/operations#measuring-upstream-calls)). Its options are in the [API reference](/next/standalone#createinstrumentedfetch-options).
+`createInstrumentedFetch` measures every request and, on its own, sends nothing (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)). Its options are in the [API reference](/next/api-reference#createinstrumentedfetch-options).
 
 ## Moving an existing site
 
-Sites on [v7](/v7/loaders) call loaders and actions that live in the [apps](/v7/apps). The migration copies (vendors) the ones a site actually uses into the site's own code, rewritten over the clients, and keeps their old type names as [aliases](/next/adoption#rename-a-type-with-an-alias), so saved content that refers to them still resolves. After that, the code is yours to change. See the [Roadmap](/roadmap#roadmap-cli--vendor-the-loaders-and-actions-a-site-uses-during-migration).
+Sites on [v7](/v7/loaders) call loaders and actions that live in the [apps](/v7/apps). The migration copies (vendors) the ones a site actually uses into the site's own code, rewritten over the clients, and keeps their old type names as [aliases](/next/renames-and-migrations#rename-a-type-with-an-alias), so saved content that refers to them still resolves. After that, the code is yours to change. See the [Roadmap](/roadmap#roadmap-cli--vendor-the-loaders-and-actions-a-site-uses-during-migration).

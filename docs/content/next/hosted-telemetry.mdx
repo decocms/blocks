@@ -7,7 +7,7 @@ description: With a site ID and token, your site sends Deco sampled, aggregated 
 
 # Telemetry
 
-Telemetry is a hosted feature. The framework doesn't send telemetry on its own: without the hosted Deco CMS, the instrumented fetch your [upstream clients](/next/clients) use measures every request but sends nothing, and the [Telemetry entry](#telemetry-settings-are-content) is inert. Teams that want their own observability instrument their own code with OpenTelemetry as usual (see [Your own tracing](/next/operations#your-own-tracing)). With a connected site, those measurements reach Deco with no collector to run.
+Telemetry is a hosted feature. The framework doesn't send telemetry on its own: without the hosted Deco CMS, the instrumented fetch your [upstream clients](/next/upstream-clients) use measures every request but sends nothing, and the [Telemetry entry](#telemetry-settings-are-content) is inert. Teams that want their own observability instrument their own code with OpenTelemetry as usual (see [Your own tracing](/next/caching-and-observability#your-own-tracing)). With a connected site, those measurements reach Deco with no collector to run.
 
 <Callout>**Status.** Telemetry, the Telemetry entry and its field names are proposed; see the [Roadmap](/roadmap#roadmap-platform--build-the-telemetry-collector).</Callout>
 
@@ -30,7 +30,7 @@ Without a site and a token, nothing is sent: in development, in tests, and on an
 
 | Measurement | Labels | Reported by |
 |---|---|---|
-| Upstream latency: each request to a third-party API, timed until its response headers arrive | `provider`, `operation`, `status_class` (2xx, 4xx, 5xx, error), `cached`, `retries` | The framework's instrumented fetch, `createInstrumentedFetch`, which every [upstream client](/next/clients) uses |
+| Upstream latency: each request to a third-party API, timed until its response headers arrive | `provider`, `operation`, `status_class` (2xx, 4xx, 5xx, error), `cached`, `retries` | The framework's instrumented fetch, `createInstrumentedFetch`, which every [upstream client](/next/upstream-clients) uses |
 | Inbound requests: duration and status of the requests your site serves | route kind, `status_class` | Your framework binding |
 | Edge cache: hits and misses for rendered pages and upstream responses | cache layer, outcome | Your framework binding |
 | Error logs | error code, block type, provider | The SDK and the bindings |
@@ -39,7 +39,7 @@ The bindings' caching and request metrics aren't in the framework guides yet. An
 
 A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. Error logs are structured: they carry the error's code, message and where it happened, never upstream response bodies, tokens or cookies.
 
-The instrumented fetch reports to the CMS in the same process; how that works with several instances is [under the hood](/next/loader-internals#telemetry-with-several-instances).
+The instrumented fetch reports to the CMS in the same process; how that works with several instances is [under the hood](/next/hosted-releases-internals#telemetry-with-several-instances).
 
 ## Sampling
 
@@ -51,7 +51,7 @@ Telemetry is heavily sampled, so its cost stays flat as traffic grows:
 
 ## Telemetry settings are content
 
-The settings live in a **Telemetry entry**: a well-known saved entry named `Telemetry`, whose type, `telemetry`, the framework provides as a [built-in block](/next/model#built-in-blocks), so `deco schema` always includes it and Studio shows it as a form:
+The settings live in a **Telemetry entry**: a well-known saved entry named `Telemetry`, whose type, `telemetry`, the framework provides as a [built-in block](/next/blocks#built-in-blocks), so `deco schema` always includes it and Studio shows it as a form:
 
 ```json title=".deco/blocks/Telemetry.json"
 {
@@ -66,11 +66,11 @@ The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it in 
 
 ## Real-user monitoring
 
-Real-user monitoring (RUM) measures what visitors experience in their browsers: a customer-facing alternative to Google Analytics, linked to A/B tests through variant exposure events (see [Matchers and variants](/next/variants)). It's planned as a follow-up after the first release; see the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
+Real-user monitoring (RUM) measures what visitors experience in their browsers: a customer-facing alternative to Google Analytics, linked to A/B tests through variant exposure events (see [Matchers and variants](/next/matchers-and-variants)). It's planned as a follow-up after the first release; see the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
 
 ## Troubleshooting
 
 | Symptom | What to check |
 |---|---|
 | No telemetry reaches Deco | Telemetry needs both `site` and `token` on `createCMS`, and an enabled [Telemetry entry](#telemetry-settings-are-content). Error logs are sampled and metrics are sent in batches, so expect a delay and only a share of errors. |
-| Upstream calls missing | Only requests made through `createInstrumentedFetch` are measured; check that your client uses it (see [Upstream API clients](/next/clients)). |
+| Upstream calls missing | Only requests made through `createInstrumentedFetch` are measured; check that your client uses it (see [Upstream API clients](/next/upstream-clients)). |

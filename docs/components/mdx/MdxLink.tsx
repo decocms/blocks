@@ -4,7 +4,7 @@ import { roadmapTarget, ROADMAP_ROOT } from '~/components/roadmap/sections'
 
 /**
  * Links in content. Write site links as root-relative paths without the base path:
- *   [Quickstart](/next/quickstart)   [Publishing](/next/releases#publishing)   [Roadmap](/roadmap#roadmap-api)
+ *   [Quickstart](/next/quickstart)   [Publishing](/next/releases-and-deployment#publishing)   [Roadmap](/roadmap#roadmap-api)
  * They become router links (client-side navigation, base path added). `#id` stays an in-page link;
  * anything else (https://…) is a plain external link.
  *

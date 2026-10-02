@@ -86,7 +86,7 @@ const [card, error] = await client.resolve({
 
 `resolve` never throws: it returns `[value, null]`, or `[null, error]` if something failed. It accepts any JSON value, not only a block: blocks anywhere inside are resolved, and everything else comes back as it is. Pass an array of blocks and you get an array of results.
 
-<Callout>**Reading without running.** `client.resolve(target, { run: false })` returns the JSON that would be called, with nothing run. It's most useful with saved blocks ([next section](#reusing-blocks)), which it writes in place, and handy for previews, tooling and debugging. See [`client.resolve`](/next/standalone#client-resolve-target-options).</Callout>
+<Callout>**Reading without running.** `client.resolve(target, { run: false })` returns the JSON that would be called, with nothing run. It's most useful with saved blocks ([next section](#reusing-blocks)), which it writes in place, and handy for previews, tooling and debugging. See [`client.resolve`](/next/api-reference#client-resolve-target-options).</Callout>
 
 ## Reusing blocks
 
@@ -141,13 +141,13 @@ export default {
 } satisfies Blocks;
 ```
 
-Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. For lazy loading and more, see [Block maps](/next/manifest).
+Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. For lazy loading and more, see [Block maps](/next/block-maps).
 
 ### Built-in blocks
 
 Every website needs pages and redirects, so the framework adds these functions to your block map for you:
 
-- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. [Routes and redirects](/next/content-types) shows how to find the page for a URL.
+- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. [Routes and redirects](/next/routes-and-redirects) shows how to find the page for a URL.
 - **`redirect`** takes `from`, `to` and `permanent` (`true` for a 301, `false` for a 302), and returns them as saved. [Routing](/next/routing) turns redirects into responses.
 - **`telemetry`** holds settings read by the [hosted Deco CMS](/next/hosted-telemetry); it does nothing otherwise.
 
@@ -155,7 +155,7 @@ Every website needs pages and redirects, so the framework adds these functions t
 
 ### The lookup rule
 
-Every `__resolveType` is looked up in one registry, `{ ...savedBlocks, ...builtIns, ...blocks }`, where later keys win. A function is called with its arguments, after they're resolved. A saved block is replaced by its contents, merged with your overrides, and that result is looked up the same way. Any other name fails with `UNKNOWN_BLOCK`. Give saved blocks and functions different names; if they clash, the function wins and you'll get a warning. What happens when a block fails, or when saved blocks refer to each other in a loop, is in [The rule in full](/next/walkthrough#the-rule-in-full).
+Every `__resolveType` is looked up in one registry, `{ ...savedBlocks, ...builtIns, ...blocks }`, where later keys win. A function is called with its arguments, after they're resolved. A saved block is replaced by its contents, merged with your overrides, and that result is looked up the same way. Any other name fails with `UNKNOWN_BLOCK`. Give saved blocks and functions different names; if they clash, the function wins and you'll get a warning. What happens when a block fails, or when saved blocks refer to each other in a loop, is in [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
 ## Blocks in your repository
 
@@ -168,9 +168,9 @@ Saved blocks are files in your repository: one JSON file per saved block in `.de
 └── SummerCard.json
 ```
 
-Developers edit them like any other file, AI agents edit them with the file tools they already use, and editors edit them in Studio, which shows each one as a form (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)). Because they're files in Git, you get what you already have for code: history, review in pull requests, branches, and rollback by reverting a commit.
+Developers edit them like any other file, AI agents edit them with the file tools they already use, and editors edit them in Studio, which shows each one as a form (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)). Because they're files in Git, you get what you already have for code: history, review in pull requests, branches, and rollback by reverting a commit.
 
-Publishing is committing and pushing. There's no separate publish step: push the change to your production branch (usually `main`), and your next deploy serves it, like any other change (see [Releases and deployment](/next/releases#publishing)).
+Publishing is committing and pushing. There's no separate publish step: push the change to your production branch (usually `main`), and your next deploy serves it, like any other change (see [Releases and deployment](/next/releases-and-deployment#publishing)).
 
 <Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Go live without a deploy.** With the hosted Deco CMS, a published commit goes live in about a minute, without a rebuild or deploy.</Hosted>
 

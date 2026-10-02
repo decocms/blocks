@@ -8,7 +8,7 @@ description: With the hosted Deco CMS, each commit to your production branch is 
 
 # Publishing without a deploy
 
-Without the hosted Deco CMS, publishing is committing and a deploy ships it (see [Releases and deployment](/next/releases#publishing)). With it, publishing is still committing, but the commit doesn't wait for a deploy: the Deco API serves it as a release, and the servers already running your app pick it up on their own.
+Without the hosted Deco CMS, publishing is committing and a deploy ships it (see [Releases and deployment](/next/releases-and-deployment#publishing)). With it, publishing is still committing, but the commit doesn't wait for a deploy: the Deco API serves it as a release, and the servers already running your app pick it up on their own.
 
 <Callout>**Status.** The release service and site tokens aren't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).</Callout>
 
@@ -18,7 +18,7 @@ Publishing is the same event with or without the hosted Deco CMS: your productio
 
 1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its revision identifies it.
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
-3. **The server swaps the release in whole** and serves it from its next client on. Requests already in flight keep the revision they started with (see [One revision per response](/next/releases#one-revision-per-response)).
+3. **The server swaps the release in whole** and serves it from its next client on. Requests already in flight keep the revision they started with (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)).
 
 So a publish reaches every visitor within about a minute, with no build. Different servers can briefly serve different releases, by design.
 
@@ -26,7 +26,7 @@ On Cloudflare Workers, which run no timers between requests, the SDK runs a due 
 
 Calling `cms.update()`, for example from a webhook or an admin "refresh now" button, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check. It never throws.
 
-How the SDK does this is [under the hood](/next/loader-internals).
+How the SDK does this is [under the hood](/next/hosted-releases-internals).
 
 ## Check interval
 
@@ -35,7 +35,7 @@ How the SDK does this is [under the hood](/next/loader-internals).
 createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN, interval: 120_000 });
 ```
 
-`interval` is the core `createCMS` option that paces every content source that can change (see [Loaders](/next/standalone#loaders)); with a connected site, that source is the Deco API, so it's how often each server checks for a new release. It defaults to the `DECO_CONTENT_INTERVAL` environment variable, or 60 000 ms (one minute), and lower values are raised to one minute, with a warning. Each check runs one interval, plus or minus up to 10 seconds, after the previous one, so servers that started together don't check together. A check fetches only the current revision hash, a few bytes, however much traffic the server serves.
+`interval` is the core `createCMS` option that paces every content source that can change (see [Loaders](/next/api-reference#loaders)); with a connected site, that source is the Deco API, so it's how often each server checks for a new release. It defaults to the `DECO_CONTENT_INTERVAL` environment variable, or 60 000 ms (one minute), and lower values are raised to one minute, with a warning. Each check runs one interval, plus or minus up to 10 seconds, after the previous one, so servers that started together don't check together. A check fetches only the current revision hash, a few bytes, however much traffic the server serves.
 
 ## Fallback
 
@@ -51,7 +51,7 @@ The CMS always switches between whole revisions, never mixing entries from two o
 
 Publishing without a deploy means the code that's already running renders the new content. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and the CMS doesn't compare schemas. On top of the backward-compatibility rules every site follows ([Keep the schema compatible](/next/schema#keep-the-schema-compatible)), this adds a direction:
 
-- **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. With Studio's GitHub backend, Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio#what-studio-reads-from-the-schema)). Keep that schema in step with what's deployed, and **deploy the code first, then publish content that uses it**. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/standalone#errors)) until the code ships.
+- **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. With Studio's GitHub backend, Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio-compatibility#what-studio-reads-from-the-schema)). Keep that schema in step with what's deployed, and **deploy the code first, then publish content that uses it**. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
 - **Rolling code back is the exception.** Content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.
 
 ## Large content on Workers
@@ -82,4 +82,4 @@ console.log((await loader.load()).revision);
 
 ## Under the hood
 
-The request path, the idle scheduling on each runtime and the swap are described step by step [under the hood](/next/loader-internals).
+The request path, the idle scheduling on each runtime and the swap are described step by step [under the hood](/next/hosted-releases-internals).

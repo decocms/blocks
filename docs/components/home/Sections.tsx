@@ -303,7 +303,7 @@ export function Stability() {
                 visitors see is always a version you shipped or published.
               </Point>
             </ul>
-            <MdxLink className={`${devLink} text-lime col-[1] row-[2] max-nav:row-auto max-nav:-mt-1 ${reveal}`} href="/next/releases">
+            <MdxLink className={`${devLink} text-lime col-[1] row-[2] max-nav:row-auto max-nav:-mt-1 ${reveal}`} href="/next/releases-and-deployment">
               <span className="font-normal text-band-muted">For developers:</span> how content{' '}
               <span className="whitespace-nowrap">
                 loads
@@ -458,7 +458,7 @@ export function Publishing() {
             Every publish is saved in your repository's history, with who changed what and when, so going back is one step.
           </PubPoint>
         </ul>
-        <MdxLink className={`${devLink} text-link ${reveal}`} href="/next/releases">
+        <MdxLink className={`${devLink} text-link ${reveal}`} href="/next/releases-and-deployment">
           <span className="font-normal text-muted-fg">For developers:</span> publishing and{' '}
           <span className="whitespace-nowrap">
             releases
@@ -483,25 +483,25 @@ export const c = (n: number) => ({ '--c': n }) as CSSProperties
 
 const HOOD_LINKS: { href: string; title: string; text: string; read: string }[] = [
   {
-    href: '/next/model',
+    href: '/next/blocks',
     title: 'Nothing to export',
     text: 'Content is plain, documented files you already hold: open them in any editor, search them, or generate them with a script.',
     read: 'Read: How a page is built from content',
   },
   {
-    href: '/next/walkthrough',
+    href: '/next/how-resolution-works',
     title: 'Small enough to read',
     text: 'Content is plain files and features are ordinary code, so any developer or AI agent can follow how a page is made, with the tools they already use.',
     read: 'Read: How resolution works',
   },
   {
-    href: '/next/model#blocks-in-your-repository',
+    href: '/next/blocks#blocks-in-your-repository',
     title: 'Publish by committing',
     text: 'Every change is a commit in your repository, with its history and a one-step revert. Add the hosted Deco CMS and a published commit reaches visitors in seconds, with no redeploy.',
     read: 'Read: Blocks in your repository',
   },
   {
-    href: '/next/decisions',
+    href: '/next/design-decisions',
     title: 'Openly documented',
     text: 'How each part works, and why it was built that way, is written down in these docs, and the source is public on GitHub.',
     read: 'Read: Design decisions',

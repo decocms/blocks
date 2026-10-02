@@ -6,11 +6,11 @@ order: 12
 
 # Routing
 
-The CMS doesn't route. It lists and resolves. Routing is three steps in your request handler: list the types you want at URLs, hand them to `matchRoute`, resolve the winner. Do all three with one client, so they see the same content even if it changes mid-request (see [One revision per response](/next/releases#one-revision-per-response)).
+The CMS doesn't route. It lists and resolves. Routing is three steps in your request handler: list the types you want at URLs, hand them to `matchRoute`, resolve the winner. Do all three with one client, so they see the same content even if it changes mid-request (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)).
 
 ## The example used here and in the guides
 
-This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/content-types)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Blocks in your repository](/next/model#blocks-in-your-repository)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner` and `product-hero`. `page` and `redirect` are [built-in blocks](/next/model#built-in-blocks), so the block maps don't register them.
+This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/routes-and-redirects)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner` and `product-hero`. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), so the block maps don't register them.
 
 In `src/model.ts`, `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)), `StoredPage` is a page exactly as saved, before any of its blocks run, and `ResolvedPage<T>` is what the built-in `page` block returns, with `T` being what your blocks return.
 
@@ -36,7 +36,7 @@ export interface StoredPage extends Page {
 export interface ResolvedPage<T> { name: string; path: string; seo: SEO; sections: T[] }
 ```
 
-The guides narrow `sections` with `StoredPage` (no [variant](/next/variants) around the whole list) so the optional [streaming step](/next/nextjs#7-stream-each-block-optional) can resolve each block separately; each guide's block map exports `export type Content = { page: StoredPage }`, so Studio's form matches. If you only resolve the whole page, the built-in `Page` is fine.
+The guides narrow `sections` with `StoredPage` (no [variant](/next/matchers-and-variants) around the whole list) so the optional [streaming step](/next/nextjs#7-stream-each-block-optional) can resolve each block separately; each guide's block map exports `export type Content = { page: StoredPage }`, so Studio's form matches. If you only resolve the whole page, the built-in `Page` is fine.
 
 ```json title=".deco/blocks/ShirtPage.json"
 {
@@ -84,7 +84,7 @@ The guides narrow `sections` with `StoredPage` (no [variant](/next/variants) aro
 }
 ```
 
-The redirect sends `/old-products/summer` to `/summer/p`. The hero uses literal product values to keep the example small. On a real store, the hero's block function fetches the product for the slug through an [upstream client](/next/clients#write-a-client), reading `match.params` from your app's request state (see [Block maps](/next/manifest)).
+The redirect sends `/old-products/summer` to `/summer/p`. The hero uses literal product values to keep the example small. On a real store, the hero's block function fetches the product for the slug through an [upstream client](/next/upstream-clients#write-a-client), reading `match.params` from your app's request state (see [Block maps](/next/block-maps)).
 
 ## Route a request
 
@@ -135,7 +135,7 @@ Mount this handler as your app's catch-all route, the one that runs when no othe
 
 Which types route is your decision, per handler: a blog lists `post`, a docs site lists `doc`. `match.params` holds the URL parameters; hand them to your code however your app shares request state. The CMS never injects them into blocks.
 
-For example, with Node's `AsyncLocalStorage`: `export const routeParams = new AsyncLocalStorage<Record<string, string>>()`. Wrap rendering in `routeParams.run(match.params, () => render(…))`, and a block reads `routeParams.getStore()?.slug`. The [Block maps](/next/manifest) page covers request-scoped state in more detail.
+For example, with Node's `AsyncLocalStorage`: `export const routeParams = new AsyncLocalStorage<Record<string, string>>()`. Wrap rendering in `routeParams.run(match.params, () => render(…))`, and a block reads `routeParams.getStore()?.slug`. The [Block maps](/next/block-maps) page covers request-scoped state in more detail.
 
 Matching is a lookup, not a scan: entries are compiled into a segment trie (a tree keyed by path segment), so a lookup costs the URL's depth, not the number of routes. The trie is cached per `routes` array object, so passing the same array again skips the build. The handler above builds a new array per request, which rebuilds the trie each time; that's one pass over the paths, fine for most sites. Reusing one array per revision needs the client to expose its revision, which is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle). The algorithm is described [under the hood](/next/router-internals).
 

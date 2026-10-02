@@ -7,7 +7,7 @@ order: 17
 
 # Releases and deployment
 
-Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Blocks in your repository](/next/model#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back.
+Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back.
 
 | Step | What happens |
 |---|---|
@@ -19,7 +19,7 @@ A **revision** identifies one exact content map: `deco content` computes it as a
 
 <h2 id="publishing">Publishing is committing</h2>
 
-There's no separate publish step. A developer or an agent edits the entry files in `.deco/blocks` and pushes; an editor saves in Studio, which writes the files in your checkout (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)), and the change is committed like any other. Once it's on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
+There's no separate publish step. A developer or an agent edits the entry files in `.deco/blocks` and pushes; an editor saves in Studio, which writes the files in your checkout (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)), and the change is committed like any other. Once it's on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
 
 Because content and code share one history, a deploy and a content change are the same kind of event: a commit. That gives you, for free:
 
@@ -33,7 +33,7 @@ A commit's content must only use block types and fields its code has; the rules,
 
 ## One revision per response
 
-Content can change while a server is running: in development, when you edit a file, or with a `content` loader that updates (see [Loaders](/next/standalone#loaders)). Two reads a few milliseconds apart could then see different revisions; a header from one and a footer from the other make an inconsistent page. A client prevents that: its first call picks a revision, and every later `list` and `resolve` on it, including concurrent ones, uses the same one. So make one client per request.
+Content can change while a server is running: in development, when you edit a file, or with a `content` loader that updates (see [Loaders](/next/api-reference#loaders)). Two reads a few milliseconds apart could then see different revisions; a header from one and a footer from the other make an inconsistent page. A client prevents that: its first call picks a revision, and every later `list` and `resolve` on it, including concurrent ones, uses the same one. So make one client per request.
 
 Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response. (A way to read and pin the served revision is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle).)
 
@@ -41,4 +41,4 @@ A revision only selects content; it isn't a secret and unlocks nothing. Drafts a
 
 ## Deploying on Workers
 
-Workers need nothing special. The content module is bundled into the Worker like any other import, and the CMS keeps it in memory for the life of the isolate. The [deployment checklist](/next/tanstack-data#deployment-checklist) in the TanStack Start guide lists every step.
+Workers need nothing special. The content module is bundled into the Worker like any other import, and the CMS keeps it in memory for the life of the isolate. The [deployment checklist](/next/tanstack-start-descriptors#deployment-checklist) in the TanStack Start guide lists every step.

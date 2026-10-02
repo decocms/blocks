@@ -92,7 +92,7 @@ export async function device({ device }: { device: "mobile" | "desktop" }) {
 export const loyaltyTier = ({ tier }: { tier: "silver" | "gold" }) => session.current().loyaltyTier === tier;
 ```
 
-Add them to the map and Studio's rule picker shows them next to `date`. The CLI lists every block function that returns a boolean as a matcher, which is how Studio knows to offer it in the rule picker (see [what Studio reads](/next/studio#what-studio-reads-from-the-schema)). Combinators are matchers too: `and`, `or`, and `not` are one-liners over booleans, if you want them.
+Add them to the map and Studio's rule picker shows them next to `date`. The CLI lists every block function that returns a boolean as a matcher, which is how Studio knows to offer it in the rule picker (see [what Studio reads](/next/studio-compatibility#what-studio-reads-from-the-schema)). Combinators are matchers too: `and`, `or`, and `not` are one-liners over booleans, if you want them.
 
 ## Every variant resolves
 
@@ -128,7 +128,7 @@ const [hero] = await client.resolve(name);           // only this variant ran
 
 <Callout type="warning">**A variant is not access control.** It chooses between values that are all fine to compute and show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
 
-If you cache rendered pages, at a CDN for example, anything a matcher looks at must be part of the cache key. Otherwise the first visitor's variant is cached and served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors. See [Caching](/next/operations).
+If you cache rendered pages, at a CDN for example, anything a matcher looks at must be part of the cache key. Otherwise the first visitor's variant is cached and served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors. See [Caching](/next/caching-and-observability).
 
 Measure an experiment's outcome with your own analytics. Tying A/B tests to what visitors experience through variant exposure events is on the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
 

@@ -7,9 +7,9 @@ order: 15
 
 # TanStack Start with data descriptors
 
-There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: "product-hero", props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It has nothing to do with the `content` you give `createCMS`.) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
+There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-start-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: "product-hero", props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It has nothing to do with the `content` you give `createCMS`.) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
 
-Editors choose page URLs in Studio, so your app can't know its routes ahead of time. One catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's [blocks](/next/model).
+Editors choose page URLs in Studio, so your app can't know its routes ahead of time. One catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's [blocks](/next/blocks).
 
 **Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler`, plus the CLI from [Quickstart](/next/quickstart); the [example project](/next/routing#the-example-used-here-and-in-the-guides); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the content module.
 
@@ -39,7 +39,7 @@ As in the Next.js guide, `Content` overrides the built-in `page` schema with the
 }
 ```
 
-Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts` (see [The `deco content` command](/next/model#the-deco-content-command)).
+Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts` (see [The `deco content` command](/next/blocks#the-deco-content-command)).
 
 ## 2. Create the CMS
 
@@ -61,7 +61,7 @@ The content module is ordinary imports, so Vite bundles it into the Worker like 
 
 ## 3. Match the URL to a page
 
-This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
+This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
 
 ```ts title="src/open-page.server.ts"
 import { notFound, redirect } from "@tanstack/react-router";
@@ -198,12 +198,12 @@ export default defineConfig({
 
 ## Edit in Studio
 
-To edit this app's content in Studio while you develop, run [`deco serve`](/next/schema#edit-local-content-from-studio) (`npx deco serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/studio-protocol#edit-your-local-checkout)).
+To edit this app's content in Studio while you develop, run [`deco serve`](/next/schema#edit-local-content-from-studio) (`npx deco serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
 
 ## Deployment checklist
 
 - Run `deco schema && deco content` before each build (the `prebuild` script).
-- Each build serves the content of the commit it was built from; publishing content is a commit plus your normal deploy (see [Releases and deployment](/next/releases)).
+- Each build serves the content of the commit it was built from; publishing content is a commit plus your normal deploy (see [Releases and deployment](/next/releases-and-deployment)).
 - Keep both compatibility flags.
 - The [Next.js guide](/next/nextjs) runs on Next's Node or Edge runtime, not on Workers.
 

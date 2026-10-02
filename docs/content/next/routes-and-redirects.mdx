@@ -7,7 +7,7 @@ order: 10
 
 # Routes, redirects, and content types
 
-A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/model#built-in-blocks), and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
+A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
 
 ```ts
 /** An entry that lives at a URL. Extend it to make a type routable. */
@@ -26,7 +26,7 @@ interface Redirect {
 }
 ```
 
-A page is a route with SEO and a list of [blocks](/next/model) (its `sections` field). It's not special to the router: it's the first type that extends `Route`. A saved page carries `"__resolveType": "page"` so the CMS can list it by type, plus a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override its schema in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
+A page is a route with SEO and a list of [blocks](/next/blocks) (its `sections` field). It's not special to the router: it's the first type that extends `Route`. A saved page carries `"__resolveType": "page"` so the CMS can list it by type, plus a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override its schema in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
 
 ```ts
 /** The built-in `page` content type. */
@@ -36,7 +36,7 @@ interface Page extends Route {
 }
 ```
 
-`Block` is a block as stored: JSON whose `__resolveType` names a function or a saved entry. `VariantOf<T>` accepts a `T` or a [multivariate](/next/variants) block that picks one. Both fields are deliberately loose, because the package can't know your block types. To narrow them, override `page`: for example `interface StorePage extends Page { seo: MySeoBlock; sections: Block[] }`, then `export type Content = { page: StorePage }`.
+`Block` is a block as stored: JSON whose `__resolveType` names a function or a saved entry. `VariantOf<T>` accepts a `T` or a [multivariate](/next/matchers-and-variants) block that picks one. Both fields are deliberately loose, because the package can't know your block types. To narrow them, override `page`: for example `interface StorePage extends Page { seo: MySeoBlock; sections: Block[] }`, then `export type Content = { page: StorePage }`.
 
 ```json title="Saved as SummerPage"
 {
@@ -99,7 +99,7 @@ Two entries with the same path, or two templates that can match the same URL, ar
 
 ## Resolving pages and redirects
 
-`page` and `redirect` are [built-in blocks](/next/model#built-in-blocks): `client.resolve("SummerPage")`, or `client.resolve(match.entry)` after routing, returns the page with `seo` and every block in `sections` resolved. That's the simplest way to render a page; to send each block as soon as it's ready instead, see [Stream each block](/next/nextjs#7-stream-each-block-optional). `matchRoute` reads redirects as listed, so routing never needs to resolve them.
+`page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks): `client.resolve("SummerPage")`, or `client.resolve(match.entry)` after routing, returns the page with `seo` and every block in `sections` resolved. That's the simplest way to render a page; to send each block as soon as it's ready instead, see [Stream each block](/next/nextjs#7-stream-each-block-optional). `matchRoute` reads redirects as listed, so routing never needs to resolve them.
 
 Types you declare only in `Content`, such as `post`, run no function, because the CMS never sees `Content`: resolving a `post` entry by name, or listing posts with `run: true`, fails with `UNKNOWN_BLOCK`. Read them with `client.list("post")`.
 

@@ -8,7 +8,7 @@ order: 5
 
 # Deco Studio compatibility
 
-Studio reads and writes a next-major site through the [content protocol](/next/studio-protocol), which needs only the committed schema and the files in `.deco/blocks`. This page is the protocol's detail, what Studio reads from the schema, and the endpoints older sites still serve.
+Studio reads and writes a next-major site through the [content protocol](/next/content-protocol), which needs only the committed schema and the files in `.deco/blocks`. This page is the protocol's detail, what Studio reads from the schema, and the endpoints older sites still serve.
 
 <Callout>**Status.** The protocol is proposed (draft, version 1.0) and not built yet. Names and limits may change; see the [Roadmap](/roadmap#roadmap-api--publish-the-content-protocol-and-its-package).</Callout>
 
@@ -171,7 +171,7 @@ The group names are Studio's, inherited from the Fresh and Deno framework. The C
 
 Three conventions follow from this:
 
-- A key is a **block type if it's in the manifest and a saved entry if it isn't**, so short names like `hero` are fine, as long as no saved entry uses the same name (see [Blocks](/next/model)).
+- A key is a **block type if it's in the manifest and a saved entry if it isn't**, so short names like `hero` are fine, as long as no saved entry uses the same name (see [Blocks](/next/blocks)).
 - A variant is `{ "variants": [{ "rule": …, "value": … }, …] }`. The first variant whose rule is true wins, so the default, with the `always` rule, goes last.
 - A redirect is a flat `{ from, to, permanent }` entry.
 
@@ -191,7 +191,7 @@ The Fresh and Deno framework, and v7, name every block type by the path of the f
 
 Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so Studio's screens find your types under the names they expect. Content Studio saves under an old name resolves through the runtime alias table the CLI emits, which `createCMS` will accept (planned; see the [Roadmap](/roadmap#roadmap-cli--emit-a-runtime-alias-table)). Until then, aliases for `Content` types such as `page` and `redirect` work in Studio's screens but not in `list()`.
 
-Two gaps remain. Redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/content-types):
+Two gaps remain. Redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/routes-and-redirects):
 
 ```json
 // Saved by Studio's legacy redirect screen

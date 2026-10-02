@@ -38,7 +38,7 @@ The first paragraph after the h1 is the lede (larger, muted).
 
 ```mdx
 [Quickstart](/next/quickstart)               another page (client-side navigation)
-[Publishing](/next/releases#publishing)      a heading on another page
+[Publishing](/next/releases-and-deployment#publishing)      a heading on another page
 [Roadmap](/roadmap#roadmap-api)              the Roadmap (version-less)
 [Key terms](#key-terms)                      a heading on this page
 [GitHub](https://github.com/decocms/blocks)  external
@@ -46,7 +46,7 @@ The first paragraph after the h1 is the lede (larger, muted).
 
 Root-relative, **without** the base path (`/blocks/` on GitHub Pages is added for you). Old
 single-page anchors map like this: `#quickstart` → `/next/quickstart`,
-`#releases--publishing` → `/next/releases#publishing` (drop the
+`#releases-and-deployment--publishing` → `/next/releases-and-deployment#publishing` (drop the
 `<section id>--` prefix), `#roadmap-…` → `/roadmap#roadmap-…`. `bun run check` and the build
 fail on links to pages or headings that don't exist.
 
@@ -183,7 +183,7 @@ Every capitalized export of `components/widgets/index.tsx` is added to this map,
 ### `<Walkthrough />`
 
 ```mdx
-Step through `client.resolve("SummerCard")` to watch [the lookup rule](/next/model#the-lookup-rule) at work, …
+Step through `client.resolve("SummerCard")` to watch [the lookup rule](/next/blocks#the-lookup-rule) at work, …
 
 <Walkthrough />
 ```
