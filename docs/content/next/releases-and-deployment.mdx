@@ -7,7 +7,7 @@ order: 18
 
 # Releases and deployment
 
-Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back.
+Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back. What a release and a draft are is in [Releases and drafts](/next/releases-and-drafts).
 
 | Step | What happens |
 |---|---|
@@ -24,10 +24,10 @@ There's no separate publish step: once a change to `.deco/blocks` is on your pro
 Because content and code share one history, a deploy and a content change are the same kind of event: a commit. That gives you, for free:
 
 - **Review.** A content change is a diff in a pull request, next to the code it needs.
-- **Branches.** A content change can wait on a branch, with its own preview deploy, until it's ready (see [Preview](/next/preview)).
+- **Branches.** A content change can wait on a branch, with its own preview deployment, until it's ready (see [Releases and drafts](/next/releases-and-drafts#on-a-branch)).
 - **Rollback.** Redeploy the previous build: its content and code roll back together, so they always fit. Reverting a single code commit doesn't revert content committed after it, so check that content first; the rules and a CI check are in [Backward compatibility](/next/schema#backward-compatibility).
 
-<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a release and reaches running servers within seconds, with no rebuild.</Hosted>
+<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a [release](/next/releases-and-drafts#releases) and reaches running servers within seconds, with no rebuild.</Hosted>
 
 ## One revision per response
 
@@ -35,7 +35,7 @@ Content can change while a server is running: in development, when you edit a fi
 
 Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response, or send `client.revision()` with the page and read follow-up requests with `cms.forRevision(revision)` (see [`createCMS`](/next/api-reference#createcms-config)).
 
-A revision only selects content; it isn't a secret and unlocks nothing. Drafts are branches; protect their preview deploys with your host's access controls.
+A revision only selects content; it isn't a secret and unlocks nothing.
 
 ## Deploying on Workers
 

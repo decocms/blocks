@@ -93,7 +93,7 @@ It reads the block map in `.deco/index.ts` and writes `.deco/schema.gen.json`. C
 There are two ways to create content:
 
 - **By hand.** Write the JSON file yourself, or ask an AI agent to "ramp the new checkout to 25%" and let it edit the file.
-- **In Studio, on your machine.** Run [`npx @decocms/blocks serve`](/next/cli#deco-serve), open the link it prints, pick the `experiments` block type and fill in the form. Each save writes the file to your working tree; you commit it like any other change (see [Edit on your machine](/next/content-protocol#edit-on-your-machine)).
+- **In Studio, on your machine.** Run [`npx @decocms/blocks serve`](/next/cli#deco-serve), open the link it prints, pick the `experiments` block type and fill in the form. Each save writes the file to your working tree; you commit it like any other change (see [Edit on your machine](/next/cli#edit-on-your-machine)).
 
 Both routes produce the same file in `.deco/blocks`, which is where the CLI looks for content (Studio reads and writes this folder). If you write it by hand, create the `.deco/blocks/` folder first, then save the file:
 
@@ -202,7 +202,7 @@ A real implementation would hash a visitor ID from a cookie instead of rolling a
 
 - [Blocks](/next/blocks): blocks as function calls in JSON, how they compose and get reused, and how saved blocks live in your repository and go live.
 - [Schema](/next/schema): how your types become editor forms, and the JSDoc tags that shape them.
-- [Preview](/next/preview): see a content change in your real pages before it ships.
+- [Releases and drafts](/next/releases-and-drafts): what everyone sees, and how to preview a change before it ships.
 - [Block maps](/next/block-maps), when you need more: lazy loading and naming types.
 - [Matchers and variants](/next/matchers-and-variants): let content pick different values per visitor, date or experiment.
 - [Routes and redirects](/next/routes-and-redirects): the content types that give pages and redirects their URLs.

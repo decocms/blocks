@@ -10,7 +10,7 @@ Everything on this page is exported from `@decocms/blocks`. The ready-made match
 
 ## `createCMS(config)`
 
-`createCMS` returns a **CMS**: your block map plus your content. Create it once, at module scope, and ask it for a client per request: `forRelease()` for visitors, `forDraft(pointer)` for [drafts](/next/preview#clients-for-drafts).
+`createCMS` returns a **CMS**: your block map plus your content. Create it once, at module scope, and ask it for a client per request: `forRelease()` for visitors, `forDraft(pointer)` for [drafts](/next/releases-and-drafts#drafts).
 
 - **One revision per client.** A client loads one revision on first use and reads only that revision afterwards, so everything in one response agrees. Every later call, `list` or `resolve`, reuses that content, so a page's blocks can stream as separate calls. The next request's client sees the next revision, so don't share a client across requests. `client.revision()` tells you which revision a client reads, and `cms.forRevision(revision)` returns a client pinned to it.
 - **Results are memoized per client and per block-map object**: build the map at module scope. An entry referenced three times runs its function once per client. Results are kept per function of the map you passed, so a map rebuilt inside your handler starts with an empty cache.
@@ -86,7 +86,7 @@ function resetForTests(): void;   // clears every stored instance
 
 ## Draft pointers
 
-A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Clients for drafts](/next/preview#clients-for-drafts)). With the hosted Deco CMS, Studio makes them ([Drafts on your site](/next/hosted-drafts)). Two helpers cover everything in between:
+A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Releases and drafts](/next/releases-and-drafts#drafts)). With the hosted Deco CMS, Studio makes them ([Drafts on your site](/next/hosted-drafts)). Two helpers cover everything in between:
 
 ```ts
 interface DraftPointer {

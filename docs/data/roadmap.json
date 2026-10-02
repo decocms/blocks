@@ -131,7 +131,7 @@
       "id": "roadmap-blockers--let-studio-talk-to-a-next-major-site",
       "title": "Let Studio talk to a next-major site",
       "today": "Studio reads the schema and content from the running site (<code>/live/_meta</code>, <code>/.decofile</code>) and calls it for previews, <code>/deco/invoke</code> and the secrets encrypt action. A next-major site serves none of these.",
-      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco serve</code> on a developer's machine. Features that need the site's code degrade in this version (see <a href=\"#content-protocol\">Studio and the content protocol</a>).",
+      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco serve</code> on a developer's machine. Features that need the site's code degrade in this version (see <a href=\"#how-it-works--studio\">Studio</a>).",
       "features": [
         "admin-protocol-endpoints",
         "invoke-and-actions",
@@ -935,7 +935,7 @@
       "id": "roadmap-api--ship-decocms-blocks-secrets",
       "group": "api",
       "title": "Ship <code>@decocms/blocks/secrets</code>",
-      "plan": "<p><code>@decocms/blocks/secrets</code>: a <code>secret</code> block aliased as <code>website/loaders/secret.ts</code> that decrypts existing encrypted values with DECO_CRYPTO_KEY, so content saved by today's Studio keeps working. New credentials go in environment variables. Studio shows secret and <code>@format password</code> fields read-only in this version, so there's no encrypt action to serve. Amend 'the token is the only secret' in <a href=\"#preview\">Preview</a>.</p>",
+      "plan": "<p><code>@decocms/blocks/secrets</code>: a <code>secret</code> block aliased as <code>website/loaders/secret.ts</code> that decrypts existing encrypted values with DECO_CRYPTO_KEY, so content saved by today's Studio keeps working. New credentials go in environment variables. Studio shows secret and <code>@format password</code> fields read-only in this version, so there's no encrypt action to serve. Amend 'the token is the only secret' in <a href=\"#hosted-drafts--who-may-preview\">Drafts on your site</a>.</p>",
       "features": [
         "app-installation-and-store-config",
         "invoke-and-actions",
@@ -1139,7 +1139,7 @@
       ],
       "docs": [
         "schema",
-        "content-protocol"
+        "how-it-works"
       ]
     },
     {
@@ -1340,7 +1340,7 @@
       ],
       "docs": [
         "schema",
-        "content-protocol"
+        "cli"
       ]
     },
     {
@@ -1354,7 +1354,7 @@
         "image-optimization"
       ],
       "docs": [
-        "content-protocol",
+        "cli",
         "studio-compatibility",
         "schema"
       ],
@@ -1427,7 +1427,7 @@
       ],
       "docs": [
         "how-it-works",
-        "content-protocol"
+        "cli"
       ],
       "pinned": false
     },
@@ -1457,7 +1457,7 @@
         "per-page-section-whitelists"
       ],
       "docs": [
-        "content-protocol"
+        "how-it-works"
       ]
     },
     {
@@ -1627,7 +1627,7 @@
       "id": "roadmap-docs--resolve-contradictions-in-these-docs",
       "group": "docs",
       "title": "Resolve contradictions in these docs",
-      "plan": "<p>Make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden block's <code>undefined</code> render nothing, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
+      "plan": "<p>Make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden block's <code>undefined</code> render nothing, and fix the credential sentence in <a href=\"#hosted-drafts--who-may-preview\">Drafts on your site</a>.</p>",
       "features": [
         "cms-page-routing",
         "codegen-pipeline",
@@ -1649,7 +1649,7 @@
         "studio-compatibility",
         "blocks",
         "troubleshooting",
-        "preview"
+        "releases-and-drafts"
       ],
       "pinned": true
     },
@@ -2392,7 +2392,7 @@
       "docs": [
         "tanstack-start-descriptors",
         "nextjs",
-        "preview",
+        "releases-and-drafts",
         "renames-and-migrations"
       ],
       "confidence": "high",
@@ -3780,7 +3780,7 @@
         "nextjs",
         "tanstack-start-descriptors",
         "rendering",
-        "preview",
+        "releases-and-drafts",
         "routing"
       ],
       "confidence": "high",
@@ -3869,7 +3869,7 @@
       ],
       "summary": "Draft rendering maps directly, but the TanStack guides never append the draft cookie, the SameSite=Lax cookie is rejected in Studio's iframe, and there's no no-store rule for drafts. Recovering `data-manifest-key` takes more than a wrapper.",
       "docs": [
-        "preview",
+        "releases-and-drafts",
         "api-reference",
         "nextjs",
         "tanstack-start-descriptors",
@@ -3955,7 +3955,7 @@
       "docs": [
         "api-reference",
         "tanstack-start-descriptors",
-        "preview",
+        "releases-and-drafts",
         "schema",
         "hosted-releases-internals",
         "quickstart",
@@ -3984,7 +3984,7 @@
         "hosted-releases-internals",
         "schema",
         "blocks",
-        "preview",
+        "releases-and-drafts",
         "studio-compatibility",
         "renames-and-migrations"
       ],
@@ -4034,7 +4034,7 @@
         "design-decisions",
         "studio-compatibility",
         "schema",
-        "preview",
+        "releases-and-drafts",
         "api-reference",
         "tanstack-start-descriptors"
       ],
@@ -4058,7 +4058,7 @@
         "api-reference",
         "tanstack-start-descriptors",
         "nextjs",
-        "preview",
+        "releases-and-drafts",
         "releases-and-deployment",
         "caching-and-observability"
       ],
@@ -4082,7 +4082,7 @@
         "block-maps",
         "tanstack-start-descriptors",
         "releases-and-deployment",
-        "preview"
+        "releases-and-drafts"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -4123,7 +4123,7 @@
       "docs": [
         "tanstack-start-descriptors",
         "api-reference",
-        "preview",
+        "releases-and-drafts",
         "nextjs",
         "caching-and-observability",
         "studio-compatibility",
@@ -4431,7 +4431,7 @@
       "summary": "Dead Deno and Fresh files, with nothing to port.",
       "docs": [
         "tanstack-start-descriptors",
-        "preview",
+        "releases-and-drafts",
         "api-reference",
         "caching-and-observability"
       ],
@@ -4509,7 +4509,7 @@
       "summary": "Undocumented: whether `deco schema` follows block types into a workspace or npm package, and how the Deco API and Studio address a site that lives in a package inside a larger repository.",
       "docs": [
         "schema",
-        "preview",
+        "releases-and-drafts",
         "nextjs",
         "api-reference",
         "releases-and-deployment"
@@ -4627,7 +4627,7 @@
         "caching-and-observability",
         "api-reference",
         "hosted-releases-internals",
-        "preview",
+        "releases-and-drafts",
         "releases-and-deployment",
         "troubleshooting",
         "block-maps",

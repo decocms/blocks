@@ -28,7 +28,7 @@ Studio's forms, variants, pages and redirects are the same on both backends: the
 
 ## Uploads
 
-With the hosted Deco CMS, images and other files editors upload in Studio go to Deco's asset storage, not your repository. Studio saves each file's CDN address in the field, such as `https://assets.decocms.com/…/summer-banner.jpg`, so images are served from a CDN close to your visitors, your app serves nothing for them, and your repository doesn't grow with every image. Without the hosted Deco CMS, uploads are files in your repository (see [Images and other uploads](/next/content-protocol#images-and-other-uploads)).
+With the hosted Deco CMS, images and other files editors upload in Studio go to Deco's asset storage, not your repository. Studio saves each file's CDN address in the field, such as `https://assets.decocms.com/…/summer-banner.jpg`, so images are served from a CDN close to your visitors, your app serves nothing for them, and your repository doesn't grow with every image. Without the hosted Deco CMS, uploads are files in your repository (see [Images and other uploads](/next/cli#images-and-other-uploads)).
 
 Uploads already in your repository keep working: a field holds either kind of address, and your app keeps serving the files it has.
 
@@ -55,4 +55,4 @@ on:
     branches: [main]
 ```
 
-How Studio reads and writes your files over the protocol is in [Studio and the content protocol](/next/content-protocol), and its compatibility details in [Studio compatibility](/next/studio-compatibility).
+How Studio reads and writes your files over the protocol is in [Content protocol](/next/content-protocol), and its compatibility details in [Studio compatibility](/next/studio-compatibility).

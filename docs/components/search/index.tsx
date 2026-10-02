@@ -39,7 +39,7 @@ const MAX_PAGES = 24
 /** Headings shown per page, best matches first. */
 const MAX_SUBS = 3
 /** Suggested pages by slug; each version shows the ones it has (next and v7 name some pages differently). */
-const SUGGESTIONS = ['quickstart', 'blocks', 'model', 'routing', 'preview', 'api-reference', 'nextjs', 'how-resolution-works', 'walkthrough', 'troubleshooting']
+const SUGGESTIONS = ['quickstart', 'blocks', 'model', 'routing', 'preview', 'releases-and-drafts', 'api-reference', 'nextjs', 'how-resolution-works', 'walkthrough', 'troubleshooting']
 
 type Area = 'docs' | 'roadmap' | 'home'
 

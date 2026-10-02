@@ -1,25 +1,25 @@
 ---
-title: Studio and the content protocol
-nav: Content protocol
-group: Core concepts
-order: 6
-description: What Deco Studio needs from your repository, how it reads and writes your content through the content protocol, and how to edit the files on your machine with deco serve.
+title: Content protocol
+group: Under the hood
+kind: internals
+order: 5
+description: How Studio reads and writes saved blocks without running your code. Four JSON-RPC methods over one endpoint, served by deco serve and by Studio's GitHub backend.
 ---
 
-# Studio and the content protocol
+# Content protocol
 
-[Studio](/next/how-it-works#studio) edits your content without running your code. It reads and writes your files through a small protocol, the **content protocol**, so Studio works on the files on your machine or, through the hosted Deco CMS, on your GitHub repository.
+[Studio](/next/how-it-works#studio) never runs your site's code. It reads and writes content through a small protocol, the **content protocol**, so any storage that implements it can back Studio. This page is for contributors and for anyone writing another backend.
 
-## What Studio needs
+## What it reads and writes
 
-- **The schema**, `.deco/schema.gen.json`, generated from your types (see [Schema](/next/schema)). Studio only reads it: no editor action changes it. To change a form, change the type and run `npx @decocms/blocks schema` again.
-- **The saved blocks**, one JSON file per block in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). This is all Studio writes.
+- **The schema**, `<root>/.deco/schema.gen.json`. It's read-only: no method writes it.
+- **The saved blocks**, one JSON file per block in `<root>/.deco/blocks`. This is the only thing it writes.
 
-The `.deco` folder lives in your app root, which can be anywhere in the repository, such as `apps/storefront` in a monorepo. Studio's "app root" setting points at that folder, on your machine and on GitHub. Studio needs no deployed site, and your app serves nothing for it: no endpoints, no handlers. A project with only a schema and a content folder can be edited before its first deploy.
+The root is the app root, the folder that contains `.deco/`, such as `apps/storefront` in a monorepo. `describe` reports it.
 
 ## Where edits go
 
-<Flow label="Studio and the content protocol">
+<Flow label="The content protocol">
   <FlowNode title="Studio">Forms built from the schema; autosaves each edit</FlowNode>
   <FlowNode title="Content protocol">Four methods over one HTTP endpoint</FlowNode>
   <FlowNode title="Storage">Your working tree, or your GitHub repository</FlowNode>
@@ -36,67 +36,134 @@ There's no event stream. Studio polls with one batched request, and when nothing
 
 <Hosted to="/next/hosted-studio" label="Editing in Studio on GitHub">**Edit without a local copy.** With the hosted Deco CMS, Studio's GitHub backend commits each save to a draft branch, and publishes by bringing the draft to your production branch, so editors need no copy of the code, dev server or Git.</Hosted>
 
-## Edit on your machine
+## In brief
 
-1. Start your app's dev server.
-2. Run `npx @decocms/blocks serve`. It walks up to the nearest folder with a `.deco/` (or takes `--root`) and prints its address, a bearer token and a connect link:
-
-   ```text
-   Deco server          http://127.0.0.1:4545/rpc
-   Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
-   Assets               apps/storefront/.deco/assets   (PUT /assets/<name>)
-   App preview          http://localhost:5173
-   Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
-   ```
-
-3. Open the link and pick the site in Studio to edit. Editing on your machine needs no Deco account: without one, the link opens a play workspace in Studio.
-4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access, formerly Private Network Access). Allow it.
-
-Each save writes `.deco/blocks`. Editing an existing file hot-reloads through your framework. The server also regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. The canvas opens your dev app (`--app-url`). Nothing is committed: review the diff and commit it like any other change.
-
-The server listens on 127.0.0.1 unless you pass `--host`, answers only requests that carry its token, and accepts browser requests only from Studio's origins. What it serves (your content, your schema and upload URLs) and its options are in the [`deco serve` reference](/next/cli#deco-serve).
-
-### Images and other uploads
-
-When an editor uploads an image or another file in Studio, `deco serve` writes it into your repository, in `.deco/assets/`, and the field stores the file's path, such as `/assets/summer-banner.jpg`. Like your entries, uploads are ordinary files: you review them and commit them with the rest of your content.
-
-The field always stores `/assets/<name>`, whatever folder the files are written to, so your app has to serve that folder at `/assets/`. Nothing serves `.deco/assets` by default: a field pointing there shows a broken image until your app serves the folder. The simplest way is to write uploads into the folder your app already serves. Vite, TanStack Start and Next.js all serve `public/` at the site root, so with
-
-```bash
-npx @decocms/blocks serve --assets public/assets
-```
-
-uploads land in `public/assets/` and are served at `/assets/`, in development and in production, with no other configuration: the build copies `public/` into its output. The folder is relative to the folder that contains `.deco` (see `--root` in the [`deco serve` options](/next/cli#deco-serve)), so in a monorepo it's your app's own `public/`. If you keep the default `.deco/assets`, you have to serve it at `/assets/` yourself and make sure it ships with your build, which it doesn't on its own.
-
-With Vite, `public/assets/` ends up in the same `dist/assets/` folder as the build's hashed JavaScript and CSS. That's safe: the server never reuses a file name, so an upload's address always means the same file, and hosts that cache `/assets/*` for a long time serve it correctly.
-
-Uploads make your repository bigger: every clone carries every image, and a replaced image stays in the history. Keep uploads small, for example by resizing and compressing images before you upload them, and link large media such as video from wherever you host it instead of uploading it.
-
-<Hosted to="/next/hosted-studio#uploads" label="Uploads in hosted storage">**Uploads without growing your repository.** With the hosted Deco CMS, Studio stores uploads in Deco's asset storage and saves their CDN address in the field, so images are served from a CDN and never enter your repository.</Hosted>
-
-## Features that need your site's code
-
-Forms, variants and their rules, pages and redirects need only the schema and the files, so they work the same as on the legacy path. Uploads work too: they're stored in your repository with `deco serve` (see [Images and other uploads](#images-and-other-uploads)) and in Deco's asset storage with the hosted Deco CMS. A few features ran your site's code; without it they degrade:
-
-| Feature | Without your site's code |
-|---|---|
-| Block previews: gallery thumbnails, saved-block previews, in-place renders | A card with the block's name, its `@title` and description, and the `@image` thumbnail if the schema has one. The main canvas opens the real page: your dev app with `deco serve`, or, with the hosted Deco CMS, your deployed site showing the draft (see [Drafts on your site](/next/hosted-drafts)). |
-| Pickers whose options come from your code | The options declared in the schema, else a text field. `deco schema` writes static lists into the schema (string-literal unions, enums and `@options` lists), so those stay selects; see [Widgets](/next/schema#widgets). |
-| Secret and password fields (`@format password`) | Read-only. Keep credentials in environment variables, never in content. |
-| Running a loader or action from Studio, and installing apps from the store | Unavailable. A platform client is added in code (see [Upstream API clients](/next/upstream-clients)). |
-| Studio screens that find a type by name: pages, variants, hiding a block | Keep working with short type names, through the alias table the CLI writes into the schema (see [Studio compatibility](/next/studio-compatibility#well-known-types-and-the-alias-table)). Redirects are still saved in the legacy shape; see [Studio compatibility](/next/studio-compatibility#well-known-types-and-the-alias-table). |
-
-Sites on Fresh and Deno keep Studio's legacy path, where Studio reads from the running site. v7 sites commit `.deco/meta.gen.json`, so they can use either path: the protocol edits without the site running, and the legacy path keeps runtime previews and running loaders. A project setting in Studio picks one (see [Legacy endpoints](/next/studio-compatibility#legacy-endpoints)).
-
-## The protocol in brief
-
-The content protocol is JSON-RPC 2.0 (a small standard for calling named methods with JSON) over one HTTP endpoint, `POST /rpc`, and a request can batch several calls. It has four methods:
+The content protocol is JSON-RPC 2.0 (a small standard for calling named methods with JSON) over one HTTP endpoint, and a request can batch several calls. It has four methods:
 
 | Method | Does |
 |---|---|
-| `describe` | What this endpoint is: whether it writes git commits or a working tree, its app root (the folder that contains `.deco/`), its limits, and how often to poll |
-| `schema.get` | Reads the schema. There's no method that writes it. |
+| `describe` | What this endpoint is: whether it writes git commits or a working tree, its app root, its limits, and how often to poll |
+| `schema.get` | Reads the schema |
 | `blocks.list` | Reads every saved block at once, with a revision for the whole set |
 | `blocks.apply` | The only write: sets and deletes saved blocks together, all or nothing, optionally only if a block is still at a given version |
 
-Both reads take the version they already have and answer "not modified" when it's current, which is what makes polling cheap. Studio and the CLI share one implementation, `@decocms/blocks-protocol`: the method types, a client, a server core over a storage interface, and a filesystem storage. The methods, errors, limits and file-name rule are [under the hood](/next/studio-compatibility#the-content-protocol).
+Both reads take the version they already have and answer "not modified" when it's current, which is what makes polling cheap.
+
+## The wire format
+
+One HTTP endpoint takes JSON-RPC 2.0 requests: `POST <endpoint>` with `Content-Type: application/json` and a body that's one request object or a batch array. The local server's path is `/rpc`; Studio mounts its own per project.
+
+- `params` is always an object. A method without parameters accepts `{}` or no `params`.
+- Every request has an `id`. A request without one is rejected rather than run silently, because a dropped write is worse than an error.
+- Unknown parameters are rejected, so a guard the server doesn't understand never turns into an unguarded write.
+- Errors come back in the JSON-RPC `error` object with HTTP 200, except a missing or invalid bearer token (401) and a body over the size limit (413), which apply to the whole batch.
+- A batch runs in order and returns results in order, up to 10 calls. It isn't atomic: atomicity exists only inside one `blocks.apply`.
+- Responses are gzip-compressed when the request accepts it; schemas are often over a megabyte.
+
+### The four methods
+
+```ts
+function describe(): {
+  protocol: "deco-content";
+  version: { major: 1; minor: number };          // minors only add; a client refuses an unknown major
+  server: { name: string; version: string };     // e.g. "deco-cli", "studio-github"
+  kind: "working-tree" | "git";                  // Studio hides publish and draft UI for a working tree
+  readOnly: boolean;
+  root: string;                                  // the app root: the folder that contains .deco/, relative to the repository root
+  schemaFormat: "deco-meta@1";
+  refs: null | { default: string; autoCreate: boolean };            // branches; null on the local server
+  pollIntervalMs: number;                        // local: 2000; git: 30000, plus on window focus
+  limits: { maxOpsPerApply: number; maxBlockBytes: number; maxRequestBytes: number };
+  preview: null | { origin: string };            // where "open the real page" points
+  assets: null | { dir: string; urlPrefix: "/assets/"; maxBytes: number };   // dir relative to the repository root; null when read-only or uploads go to hosted storage
+};
+
+function schemaGet(params?: { ref?: string; ifNoneMatch?: string }):
+  | { notModified: true; version: string }
+  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta };
+
+function blocksList(params?: { ref?: string; ifNoneMatch?: string }):
+  | { notModified: true; revision: string; resolvedRef: string | null }
+  | { notModified: false; revision: string; resolvedRef: string | null;
+      blocks: Record<string, object>;            // every saved block, by name
+      versions: Record<string, string>;          // one opaque version per entry
+      diagnostics: Diagnostic[] };               // files skipped or shadowed
+
+function blocksApply(params: {
+  ref?: string;
+  set?: Record<string, object>;                  // whole-entry replace (create or update)
+  delete?: string[];                             // a missing name counts as deleted
+  ifMatch?: Record<string, string | null>;       // a version the entry must have; null = must not exist
+}): { revision: string; versions: Record<string, string | null> };
+```
+
+Versions and revisions are opaque strings defined by each storage (a git blob hash on GitHub and on disk), compared only for equality and never across servers. Everything else is fixed inside the root: `blocks.list` and `blocks.apply` read and write `<root>/.deco/blocks`, and `schema.get` reads `<root>/.deco/schema.gen.json`, falling back to `<root>/.deco/meta.gen.json`, and parses it before serving, so a file caught mid-write is never served torn. With branches, a read of a branch that doesn't exist yet returns the default branch's content (reported in `resolvedRef`), and the first write creates the branch.
+
+`blocks.apply` is the only write:
+
+1. **All or nothing.** Every name in `set` and `delete` lands together (one commit on git) or none does.
+2. **Durable when it returns.** It resolves only after the commit or the file renames landed, which is what Studio's autosave indicator relies on.
+3. **`set` wins** when a name is in both `set` and `delete`.
+4. **Validated first.** Names, value shapes, sizes and the secret guard are checked before anything is written, and every violation is reported at once.
+5. **Preconditions are optional.** A failed `ifMatch` writes nothing and returns a conflict with each entry's expected and actual version. Without `ifMatch`, the last writer wins, as with Studio's autosave.
+
+Renaming, duplicating and moving entries are recipes over one `blocks.apply` (a `set` plus a `delete`, with `ifMatch: { [newName]: null }` for create-only), not methods of their own. Publishing, discarding a draft and the draft pointer stay Studio routes outside the protocol.
+
+### Polling instead of events
+
+There's no event stream. A client polls with one batched request that carries the versions it has; when nothing changed, both answers are a few bytes:
+
+```json title="A poll when nothing changed"
+→ [{"jsonrpc":"2.0","id":4,"method":"schema.get","params":{"ifNoneMatch":"9f2c…"}},
+   {"jsonrpc":"2.0","id":5,"method":"blocks.list","params":{"ifNoneMatch":"4be1…"}}]
+← [{"jsonrpc":"2.0","id":4,"result":{"notModified":true,"version":"9f2c…"}},
+   {"jsonrpc":"2.0","id":5,"result":{"notModified":true,"revision":"4be1…","resolvedRef":null}}]
+```
+
+After its own write, a client adopts the returned revision, so its next poll is "not modified" unless someone else wrote. When the map did change, the client replaces its copy except for entries it's still saving.
+
+### Errors and limits
+
+| Code | Name | When |
+|---|---|---|
+| -32001 | NotFound | No schema, no `.deco` folder at all (Studio's "not a Deco site"), or a branch that can't be created |
+| -32002 | Conflict | An `ifMatch` precondition failed |
+| -32003 | InvalidBlock | A name or value breaks the rules below, or a secret entry holds a plain-text value |
+| -32005 | ReadOnly | A write to a read-only endpoint |
+| -32006 | Unsupported | A feature the endpoint doesn't offer, such as branches on the local server |
+| -32007 | LimitExceeded | Too many operations, batch entries or bytes |
+| -32008 | Unavailable | The storage failed or is rate-limited, or retries ran out; carries `retryAfterMs` when known |
+| -32010 | Unauthorized | Missing or invalid bearer token (HTTP 401) |
+| -32011 | Forbidden | Authenticated, but not allowed for this project |
+
+Plus the standard JSON-RPC codes (-32700, -32600, -32601, -32602, -32603). The defaults: at most 500 names per `blocks.apply`, 1 MiB per entry and 8 MiB per request; a storage can lower them, and `describe` reports the values in effect.
+
+### File names
+
+Studio, `deco serve` and `deco content` import one rule from the protocol package, so an entry Studio edits is the entry your app renders:
+
+- **Name to file:** `encodeURIComponent(name) + ".json"`, directly in `.deco/blocks` (no subfolders). A page named `pages-Home%20Page-6f1e` is stored as `pages-Home%2520Page-6f1e.json`; `collections/blog/posts/abc` as `collections%2Fblog%2Fposts%2Fabc.json`.
+- **File to name:** decode the file name, without `.json`, exactly once. If decoding fails, the raw name is the entry name.
+- **Two spellings of one name** (files that decode to the same name after repeated decoding): one wins, the file whose entry has a `path`, then the one that took more decoding, then the lowest file name. The others are reported as diagnostics. A write overwrites the winning spelling and deletes the others in the same commit.
+- **Names Studio can't save:** empty names; names containing `\`, `..` or NUL; names whose encoded form is over 250 bytes, so the file fits a 255-byte file-name limit; a new name that differs from another entry's only in letter case; Windows device names such as `CON`; `__proto__`; and names ending in a source extension such as `.ts` or `.tsx`, which would shadow a module (those can still be deleted).
+- **File content:** `JSON.stringify(entry, null, 2)` plus a newline, UTF-8.
+
+### The local server
+
+[`deco serve`](/next/cli#deco-serve) binds 127.0.0.1 unless you pass `--host`, and checks a random token on every request (or one you pass with `--token` or `DECO_SERVE_TOKEN`). The token travels in the connect link's URL fragment, so it never reaches logs or `Referer` headers. Browser requests are accepted only from Studio's origins, plus any `--allow-origin`. The server answers Chrome's local-network preflight, rejects any `Host` header other than its own loopback address (against DNS rebinding) and any `Content-Type` other than JSON (against cross-site form posts; uploads are the one exception, below). Studio stores the endpoint and token per project and asks you to reconnect when the server restarts with a new token.
+
+Uploads aren't one of the four methods. Studio sends each file to `PUT /assets/<name>` on the same server, with the same token, origin and `Host` checks; on that path the server accepts the file's own image, video, font or PDF content type instead of JSON. It writes the file to the asset folder (`.deco/assets`, or `--assets`), never overwrites an existing file (a taken name gets a short suffix), and answers with the path Studio stores in the field. `describe` reports where uploads go and the largest file it accepts in its `assets` field; with `--read-only`, `assets` is `null` and uploads are refused. Studio's GitHub backend stores uploads in Deco's asset storage instead, so they never become commits.
+
+### The package
+
+The protocol ships as one package, `@decocms/blocks-protocol`, with `zod` as its only runtime dependency and no other Deco package. `@decocms/blocks` depends on it for its CLI (the `cli` subpath); the SDK's runtime never imports it.
+
+```text
+@decocms/blocks-protocol             method types, errors, client, keys    (browser-safe)
+@decocms/blocks-protocol/keys        the file-name rule above
+@decocms/blocks-protocol/server      createContentHandler(storage): (Request) => Response
+@decocms/blocks-protocol/storage/fs  the filesystem storage (Node only)
+@decocms/blocks-protocol/conformance a black-box test suite over HTTP
+```
+
+A storage implements a small interface: a snapshot of names and versions, reading file bodies, reading the schema, and one atomic commit attempt. The core owns everything else: the JSON-RPC layer, validation, the file-name rule, the secret guard, limits and retries. Studio's GitHub backend is one storage; the CLI's filesystem storage is another. The conformance suite runs against any endpoint, which is how both are kept to the same contract.

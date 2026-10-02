@@ -1,0 +1,69 @@
+---
+title: Releases and drafts
+nav: Releases & drafts
+group: Core concepts
+order: 6
+description: A release is the content everyone sees. A draft is another version your content loader fetches. Preview is your app rendering a draft.
+---
+
+# Releases and drafts
+
+Your app always renders one version of your content. Usually that's the release. When someone wants to check a change before it goes live, it's a draft. The code stays the same; only the content differs.
+
+## Releases
+
+A **release** is the content everyone sees right now. In the open-source setup, it's the content module in your build: the `.deco/blocks` files of the commit you deployed (see [The `deco content` command](/next/blocks#the-deco-content-command)). A new release goes out with your next deploy (see [Releases and deployment](/next/releases-and-deployment)).
+
+`cms.forRelease()` gives you a client that reads it.
+
+<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Releases without a deploy.** With the hosted Deco CMS, the release is your latest publish, and it reaches running servers within seconds, with no new build.</Hosted>
+
+## Drafts
+
+A **draft** is another version of your content, not live yet. Your content [loader](/next/api-reference#loaders) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Drafts on your site](/next/hosted-drafts)).
+
+The loader is what you pass to `createCMS` as `content`:
+
+```ts
+const cms = createCMS({ blocks, content: myLoader });   // myLoader.load(pointer) returns the draft
+```
+
+A **draft pointer** is a short string that says which draft to load; it travels in `?__draft=` links (see [Draft pointers](/next/api-reference#draft-pointers)). `cms.forDraft(pointer)` passes it to that same loader's `load(pointer)`. The client you get back works exactly like the release client, so your rendering code doesn't change.
+
+The open-source setup passes the content module, which has no drafts: it ignores the pointer, so `forDraft` acts like `forRelease`. You get real drafts with the hosted Deco CMS or with a loader you write. A loader you write must treat the pointer as untrusted input (see [Loaders](/next/api-reference#loaders)).
+
+## Preview
+
+Preview is your real app rendering a draft instead of the release. It isn't a separate feature. In your route or page handler, where `cms` is the object from `createCMS` (see [Rendering](/next/rendering)), read the pointer from the request and pick the client:
+
+```ts
+import { draftPointer } from "@decocms/blocks";
+
+const pointer = draftPointer(request);   // from ?__draft= or the draft cookie; null otherwise
+const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+```
+
+Everything after these two lines is the code that serves visitors. It's safe to add even when your content has no drafts: you get the release.
+
+<Hosted to="/next/hosted-drafts" label="Drafts on your site">**Drafts on your real site.** With the hosted Deco CMS, Studio opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by Studio reach unpublished drafts.</Hosted>
+
+## Checking changes without a draft loader
+
+Without a loader that serves drafts, you check a change by running a different build: your dev server, or your host's preview deployment of a branch. Neither needs a pointer; each build simply has its own release.
+
+### On your machine
+
+Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in Studio through [`deco serve`](/next/cli#edit-on-your-machine). Nothing is committed: review the diff and commit it when the page looks right.
+
+### On a branch
+
+A content change is a change to files, so it can wait on a branch. Open a pull request: reviewers read the diff of `.deco/blocks`, and CI runs `npx @decocms/blocks schema && npx @decocms/blocks check` (see [Backward compatibility](/next/schema#backward-compatibility)). Your host's preview deployment builds the branch with its own content module, so its URL shows that branch's content:
+
+```bash
+git switch -c summer-sale
+# edit .deco/blocks/SummerSale.json, by hand or with deco serve
+git add .deco/blocks && git commit -m "Summer sale page"
+git push -u origin summer-sale   # your host's preview deployment renders /summer with the branch's content
+```
+
+A branch that also changes a block function is checked the same way, so you can try a new field and the content that uses it together. Merging publishes the change (see [Publishing is committing](/next/releases-and-deployment#publishing)). Your host's preview deployment is public unless you protect it with your host's access controls.

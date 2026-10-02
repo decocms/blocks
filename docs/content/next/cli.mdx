@@ -130,7 +130,7 @@ Run it on every pull request as a required check; the workflow is in [Backward c
 deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--token <t>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]
 ```
 
-`deco serve` is the local server Studio uses to edit the files on your machine, over the [content protocol](/next/content-protocol): it reads and writes `.deco/blocks`, reads `.deco/schema.gen.json`, and accepts uploads into `.deco/assets/` (or `--assets`). It tells Studio which root it serves through the content protocol's `describe`. See [Edit on your machine](/next/content-protocol#edit-on-your-machine) for the flow. It takes:
+`deco serve` is the local server Studio uses to edit the files on your machine, over the [content protocol](/next/content-protocol): it reads and writes `.deco/blocks`, reads `.deco/schema.gen.json`, and accepts uploads into `.deco/assets/` (or `--assets`). It tells Studio which root it serves through the content protocol's `describe`. See [Edit on your machine](#edit-on-your-machine) for the flow. It takes:
 
 - `--root <dir>`: the folder that contains `.deco/`, such as `apps/storefront` in a monorepo. By default, it walks up from the current folder to the first folder with a `.deco/`, like every command.
 - `--port <n>`: the port to listen on (default 4545).
@@ -138,5 +138,43 @@ deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--toke
 - `--app-url <url>`: your dev app, which Studio's canvas opens. By default, the port from your Vite config, else `http://localhost:5173`.
 - `--token <t>`: a fixed token instead of a random one per run (or `DECO_SERVE_TOKEN`).
 - `--allow-origin <origin>`: another browser origin allowed to call the server, besides Studio's (repeatable).
-- `--assets <dir>`: the folder Studio's uploads are written to, relative to the folder that contains `.deco` (default `.deco/assets`). The field always stores `/assets/<name>`, whatever this folder is, so point it at a folder your app serves at `/assets/`, such as `public/assets`; see [Images and other uploads](/next/content-protocol#images-and-other-uploads).
+- `--assets <dir>`: the folder Studio's uploads are written to, relative to the folder that contains `.deco` (default `.deco/assets`). The field always stores `/assets/<name>`, whatever this folder is, so point it at a folder your app serves at `/assets/`, such as `public/assets`; see [Images and other uploads](#images-and-other-uploads).
 - `--read-only`: serve the content without accepting writes or uploads.
+
+### Edit on your machine
+
+1. Start your app's dev server.
+2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco/` (or takes `--root`) and prints a connect link:
+
+   ```text
+   Deco server          http://127.0.0.1:4545/rpc
+   Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
+   Assets               apps/storefront/.deco/assets   (PUT /assets/<name>)
+   App preview          http://localhost:5173
+   Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
+   ```
+
+3. Open the link. You don't need a Deco account.
+4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access). Allow it.
+
+Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)).
+
+What works differently without your site's code, such as block previews and pickers, is in [Studio](/next/how-it-works#studio).
+
+### Images and other uploads
+
+When an editor uploads an image or another file in Studio, `deco serve` writes it into your repository, in `.deco/assets/`, and the field stores the file's path, such as `/assets/summer-banner.jpg`. Uploads are ordinary files: you review them and commit them with the rest of your content.
+
+The field always stores `/assets/<name>`, whatever folder the files are written to, so your app has to serve that folder at `/assets/`. Nothing serves `.deco/assets` by default. The simplest way is to write uploads into the folder your app already serves. Vite, TanStack Start and Next.js all serve `public/` at the site root, so with
+
+```bash
+npx @decocms/blocks serve --assets public/assets
+```
+
+uploads land in `public/assets/` and are served at `/assets/`, in development and in production, with no other configuration. The folder is relative to the folder that contains `.deco`, so in a monorepo it's your app's own `public/`. If you keep the default `.deco/assets`, you have to serve it at `/assets/` yourself and ship it with your build.
+
+With Vite, `public/assets/` ends up in the same `dist/assets/` folder as the build's hashed JavaScript and CSS. That's safe: the server never reuses a file name, so hosts that cache `/assets/*` for a long time serve it correctly.
+
+Uploads make your repository bigger: every clone carries every image, and a replaced image stays in the history. Resize and compress images before you upload them, and link large media such as video from wherever you host it.
+
+<Hosted to="/next/hosted-studio#uploads" label="Uploads in hosted storage">**Uploads without growing your repository.** With the hosted Deco CMS, Studio stores uploads in Deco's asset storage and saves their CDN address in the field, so images are served from a CDN and never enter your repository.</Hosted>
