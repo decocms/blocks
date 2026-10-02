@@ -46,13 +46,14 @@ Your app asks the SDK (the `client` your app gets from `cms.forRelease()`, where
 
 ## The pieces
 
-Everything above runs on one package, `@decocms/blocks`, plus a visual editor:
+Each step above has one owner. Deco provides one package, `@decocms/blocks`, and an editor; shipping is your own hosting's job:
 
-| Piece | Where it shows up | Reference |
+| Piece | Step | Reference |
 |---|---|---|
-| **SDK** (`@decocms/blocks`) | Step 5 | [API reference](/next/api-reference) |
-| **CLI** (`deco`, in `@decocms/blocks`) | Steps 2 and 4 | [CLI](/next/cli) |
-| **Studio** | Steps 2 and 3 | [Studio and the content protocol](/next/content-protocol) |
+| **CLI** (`deco`, in `@decocms/blocks`) | 2. The types become a form | [CLI](/next/cli) |
+| **Studio** | 3. Someone changes the content | [Studio](#studio) |
+| **Your hosting** (Vercel, Cloudflare, Netlify or your own servers) | 4. The change ships | [Releases and deployment](/next/releases-and-deployment) |
+| **SDK** (`@decocms/blocks`) | 5. Your app renders it | [API reference](/next/api-reference) |
 
 The SDK and CLI are open source and run without a Deco account.
 
