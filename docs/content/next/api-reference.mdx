@@ -6,7 +6,7 @@ order: 13
 
 # API reference
 
-Everything on this page is exported from `@decocms/blocks`. The ready-made [matchers](/next/matchers-and-variants#matchers) (`always`, `never`, `date`) are in `@decocms/blocks/matchers`, and the instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is) is in `@decocms/blocks/fetch`.
+Everything on this page is exported from `@decocms/blocks`. The [built-in blocks](/next/blocks#built-in-blocks), such as the [matchers](/next/matchers-and-variants) and `multivariate`, need no import. The instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is) is in `@decocms/blocks/fetch`.
 
 ## `createCMS(config)`
 
@@ -235,6 +235,7 @@ interface Route { name: string; path: string }                    // extend it t
 interface Seo { title: string; description: string }
 interface Page extends Route { seo: Seo; sections: ReactNode[] }   // resolved types (see Schema)
 interface Redirect { from: string; to: string; permanent: boolean }
+interface Variant<T> { rule: boolean; value: T }   // built-in multivariate takes { variants: Variant<T>[] } and returns T | undefined
 
 // The Telemetry entry's type (built in, always in the schema; read by the hosted Deco CMS, inert without it).
 interface Telemetry { enabled: boolean; metrics: boolean; errorSampleRate: number }

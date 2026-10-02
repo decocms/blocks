@@ -45,10 +45,10 @@ interface ProductCardProps {
 `deco schema` reads each block function's return type to know which functions fit which fields:
 
 - **Objects** (`product: Product`, `seo: Seo`) take a plain value, or a block whose function returns that type, such as `catalogProduct` or `seo`.
-- **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a [matcher](/next/matchers-and-variants#matchers) (a function that returns a `boolean`) never shows up as a section.
+- **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a [matcher](/next/matchers-and-variants) (a function that returns a `boolean`) never shows up as a section.
 - **Simple types** (`string`, `number`, `boolean`, a union of literals) get a plain input only. A function that returns a `string` isn't offered for `title: string`, and matchers aren't offered for `permanent: boolean`.
 
-Two things work on top of this. Any field can be a [variant](/next/matchers-and-variants#variants), one of several values picked per visitor: `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. And a variant's `rule` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher).
+Two things work on top of this. Any field can be a [variant](/next/matchers-and-variants), one of several values picked per request (by date, visitor or experiment): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. And a variant's `rule` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher).
 
 Never type a prop as a block. `Block` is only the shape of saved JSON (see [Composing blocks](/next/blocks#composing-blocks)).
 
@@ -115,14 +115,14 @@ import hero from "../src/hero";
 
 const post = (props: Post) => props;                     // data only: returns what the editor saved
 
-export default { seo, hero, post } satisfies Blocks;     // page and redirect are built-in blocks; no need to declare them
+export default { seo, hero, post } satisfies Blocks;     // page, redirect and the other built-in blocks need no entry
 ```
 
 A `post` is now a block like any other. Your app reads posts by type with [`client.list("post")`](/next/api-reference#client-list-type-options) or by URL with [`matchRoute`](/next/api-reference#matchroute-url-items) (see [Routing](/next/routing)), and [`client.resolve`](/next/api-reference#client-resolve-target-options) works on a saved post too. Blocks inside a post still resolve, because a block's inputs resolve before its function runs. And like any block, it can fill a field of its return type: a block with a `featured: Post` field lets editors pick a saved post (see [Interchangeable blocks](#interchangeable-blocks)).
 
 ### Override a built-in
 
-The schema and the runtime always include the [built-in blocks](/next/blocks#built-in-blocks): `page`, `redirect` and `telemetry`. To change a built-in's form, declare the same key in the default export. [`Page`](/next/api-reference#types) is exported from `@decocms/blocks`; extend it to add fields:
+The schema and the runtime always include the [built-in blocks](/next/blocks#built-in-blocks): `page`, `redirect`, `telemetry`, `always`, `never`, `date` and `multivariate`. To change a built-in's form, declare the same key in the default export. [`Page`](/next/api-reference#types) is exported from `@decocms/blocks`; extend it to add fields:
 
 ```ts title=".deco/index.ts"
 import type { Blocks, Page } from "@decocms/blocks";
@@ -139,7 +139,7 @@ Nothing is lost: inputs resolve before the function runs, so returning `props` g
 
 ### Names must not clash
 
-A saved block in `.deco/blocks` can't have the name of a block type, built-ins included (no saved block can be called `page`, `redirect` or `telemetry`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); [`deco check`](/next/cli#deco-check) makes it an error so you catch it before you deploy.
+A saved block in `.deco/blocks` can't have the name of a block type, built-ins included (no saved block can be called `page`, `redirect`, `telemetry`, `always`, `never`, `date` or `multivariate`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); [`deco check`](/next/cli#deco-check) makes it an error so you catch it before you deploy.
 
 ## Backward compatibility
 

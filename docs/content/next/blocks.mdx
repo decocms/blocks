@@ -149,11 +149,23 @@ The block map lives in `.deco/index.ts` (or `.deco/index.tsx`), next to your con
 
 ### Built-in blocks
 
-Every website needs pages and redirects, so the framework adds these functions to your block map for you:
+The framework adds seven functions to your block map for you. They're always in the schema and the registry, and you don't import or list them:
+
+**Pages and redirects**
 
 - **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. Its [type](/next/api-reference#types) is `interface Page extends Route { seo: Seo; sections: ReactNode[] }`. [Routes and redirects](/next/routes-and-redirects) shows how to find the page for a URL.
 - **`redirect`** takes `from`, `to` and `permanent` (`true` for a 301, `false` for a 302), and returns them as saved. [Routing](/next/routing) turns redirects into responses.
+
+**Telemetry**
+
 - **`telemetry`** holds settings read by the [hosted Deco CMS](/next/hosted-telemetry); it does nothing otherwise.
+
+**Matchers and variants** (see [Matchers and variants](/next/matchers-and-variants))
+
+- **`always`** returns `true`, so its variant is the fallback.
+- **`never`** returns `false`, so its variant is never picked (that is how Studio hides a block).
+- **`date`** takes `start` and `end`, and returns `true` from `start` until `end`.
+- **`multivariate`** takes `variants` and returns the value of the first one whose rule is `true`.
 
 **Changing a built-in.** Declare `page` in your block map to replace it, for example to wrap every page in your layout. To only change the fields editors see, see [Override a built-in](/next/schema#override-a-built-in).
 

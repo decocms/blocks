@@ -3,63 +3,38 @@ title: Matchers and variants
 nav: Matchers & variants
 group: Core concepts
 order: 7
-description: A matcher is a function that returns true or false. A variant is one option, a rule plus a value, and multivariate picks the first variant whose rule is true, per visitor, date or experiment.
+description: Schedule a campaign days ahead and it goes live on time, with no publish or deploy at the switch. A matcher is a rule that returns true or false; multivariate picks the first variant whose rule is true.
 ---
 
 # Matchers and variants
 
-A store's content often depends on a condition: a summer sale banner that shows only between two dates, a different hero for visitors on mobile, a new checkout for 25% of shoppers. You don't need a feature for each. A **matcher** is a block function that returns `true` or `false`. A **variant** is one option: a `rule`, which takes a matcher, and a `value`. The `multivariate` block picks the value of the first variant whose rule is `true`. You write matchers in code; editors pick and fill both in [Studio](/next/how-it-works#studio), like any other [block](/next/blocks).
+Black Friday starts at midnight. Someone used to stay up to publish the banner, hope the deploy went through, and do it again on Monday to take it down. With Deco, you schedule it instead: the banner and the date it switches on are saved together, reviewed, merged and deployed days ahead. At midnight nothing is published or deployed. Every server simply starts rendering the new banner, because the rule says so.
 
-This page shows the matchers that ship, the function that picks a variant, how to write your own matcher, and what to check before you rely on variants in production.
+The rule is a **matcher**: a [block](/next/blocks) function that returns `true` or `false`. A **variant** is a rule plus a value, and the `multivariate` block picks the value of the first variant whose rule is `true`. You write them in code; editors pick and fill them in [Studio](/next/how-it-works#studio).
 
-## Matchers
+This page shows how to schedule a campaign, why it goes live on time, how to check it before it starts, how the same rule targets audiences and experiments, and what to check before you rely on it in production.
 
-A matcher is a function that returns a `boolean`. It's a block like any other. Three ship with Deco, because they depend only on the clock:
+## Schedule a campaign
+
+Three matchers are [built-in blocks](/next/blocks#built-in-blocks), because they depend only on the clock. Like every built-in, they need no import:
 
 ```ts
-import { always, never, date } from "@decocms/blocks/matchers";
-
 // always()                               => true
 // never()                                => false
-// date({ start?: string; end?: string }) => boolean, true when now is between start and end
+// date({ start?: string; end?: string }) => boolean, true from start until end
 ```
 
-Here's the summer sale as a `date` block (`__resolveType` names the block function to run; see [Functions as blocks](/next/blocks#functions-as-blocks)):
+`start` and `end` are ISO 8601 strings. Write them with the offset your store's time zone has on that date, like `"2026-11-27T00:00:00-05:00"` for New York in November, so the campaign starts at midnight on your clock. Daylight saving time changes the offset (New York is `-04:00` in summer), so check it for each date. A date without a time, like `"2026-11-27"`, means midnight UTC. `end` itself doesn't match, so a campaign that ends at midnight uses that midnight as its `end`.
 
-```jsonc
-// Stored as JSON
-{ "__resolveType": "date", "start": "2026-06-21T00:00:00-04:00", "end": "2026-07-31T23:59:59-04:00" }
+`multivariate` is built in too. It picks the value of the first variant whose rule is `true`:
 
-// Means
-date({ start: "2026-06-21T00:00:00-04:00", end: "2026-07-31T23:59:59-04:00" });   // true during the sale
+```ts
+// multivariate({ variants }) => variants.find((v) => v.rule)?.value
 ```
 
-`start` and `end` are ISO 8601 strings. A date without a time, like `"2026-07-31"`, means midnight UTC, so add a time and offset to end on your own clock.
+To change how it picks, declare your own `multivariate` in your [block map](/next/blocks#the-block-map); it replaces the built-in.
 
-A device, a cookie, a country or a loyalty tier depends on your app, so those matchers are yours to write (see [Write your own matcher](#write-your-own-matcher)).
-
-## Variants
-
-`multivariate` (named after multivariate testing) is three lines in your own code, so you can change how it picks:
-
-```ts title="src/multivariate.ts"
-export function multivariate<T>({ variants }: { variants: { rule: boolean; value: T }[] }) {
-  return variants.find((v) => v.rule)?.value;
-}
-```
-
-Add it to your [block map](/next/blocks#the-block-map) with the matchers:
-
-```ts title=".deco/index.ts"
-import type { Blocks } from "@decocms/blocks";
-import { always, never, date } from "@decocms/blocks/matchers";
-import { multivariate } from "../src/multivariate";
-import { PromoBanner } from "../src/promo-banner";
-
-export default { always, never, date, multivariate, "promo-banner": PromoBanner } satisfies Blocks;
-```
-
-Now the promo banner's title can change for the sale:
+Now the promo banner's title can switch for Black Friday weekend and switch back after Cyber Monday (`__resolveType` names the block function to run; see [Functions as blocks](/next/blocks#functions-as-blocks)):
 
 ```jsonc
 // Stored as JSON
@@ -68,34 +43,46 @@ Now the promo banner's title can change for the sale:
   "title": {
     "__resolveType": "multivariate",
     "variants": [
-      { "rule": { "__resolveType": "date", "start": "2026-06-21T00:00:00-04:00", "end": "2026-07-31T23:59:59-04:00" }, "value": "Summer sale: 30% off" },
+      { "rule": { "__resolveType": "date", "start": "2026-11-27T00:00:00-05:00", "end": "2026-12-01T00:00:00-05:00" }, "value": "Black Friday: 40% off everything" },
       { "rule": { "__resolveType": "always" }, "value": "Free shipping over $50" }
     ]
   },
-  "href": "/summer"
+  "href": "/deals"
 }
 
 // Means
 PromoBanner({
   title: multivariate({
     variants: [
-      { rule: date({ start: "2026-06-21T00:00:00-04:00", end: "2026-07-31T23:59:59-04:00" }), value: "Summer sale: 30% off" },
+      { rule: date({ start: "2026-11-27T00:00:00-05:00", end: "2026-12-01T00:00:00-05:00" }), value: "Black Friday: 40% off everything" },
       { rule: always(), value: "Free shipping over $50" },
     ],
   }),
-  href: "/summer",
+  href: "/deals",
 });
 ```
 
-Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so every rule runs first, and an `async` rule is awaited; `multivariate` sees only booleans. `PromoBanner` gets a plain string and never knows a variant was involved.
+Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so `multivariate` sees only booleans, and `PromoBanner` gets a plain string. It never knows a variant was involved. `end` takes the campaign down too, so there's nothing to do on Monday.
 
-The first match wins, so keep the `always()` variant last, as the fallback. If no rule matches, `multivariate` returns `undefined`, and so the component gets `undefined` instead of a title.
+In Studio, each variant is a tab. An editor schedules the same campaign there: add a variant, pick `date` as its rule, fill in `start` and `end`, type the campaign title as its value, and keep the `always` tab last.
 
-Any field can be a variant: one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`. In Studio, each variant is a tab, and its rule is picked from the matchers in your map.
+## Why it goes live on time
 
-## Write your own matcher
+Both titles are already in the [release](/next/releases-and-drafts#releases), the content everyone sees, since the deploy that followed your merge. So the switch isn't an event: at 00:00 there's no publish, no deploy and nothing that can fail. The one exception is a cached page, which can outlive the switch; see [Caching](#caching).
 
-Any block function that returns a `boolean` is a matcher. It reads the current request the way the rest of your app does (see [Reading the request](/next/blocks#reading-the-request)). These examples use Next.js's `next/headers`; on TanStack Start, read the request with `getRequest()` from `@tanstack/react-start/server`.
+Each time a page is rendered, the server evaluates the rule against its own clock. The same time gives the same answer on every server, and hosting providers keep server clocks synced over NTP (the standard network clock sync) to within a fraction of a second, so they all switch together. The page before midnight and the page after are the same content; only the answer to "is it Black Friday yet?" changed.
+
+## Check it before it starts
+
+A scheduled campaign is a change to content files, so it's checked like any other change, days before it goes live:
+
+- **Review it in a pull request.** Reviewers read the dates and the campaign value in the diff of `.deco/blocks`, and [`deco check`](/next/cli#deco-check) makes sure every block fits your code (see [On a branch](/next/releases-and-drafts#on-a-branch)).
+- **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight.
+- **Keep `always()` last.** The first match wins, so the `always()` variant is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends.
+
+## The same rule for audiences and experiments
+
+A date is one rule. A device, a cookie, a country or a loyalty tier depends on your app, so those matchers are yours to write: any block function that returns a `boolean` is a matcher. It reads the current request the way the rest of your app does (see [Reading the request](/next/blocks#reading-the-request)). These examples use Next.js's `next/headers`; on TanStack Start, read the request with `getRequest()` from `@tanstack/react-start/server`.
 
 A visitor's device:
 
@@ -108,7 +95,7 @@ export async function device({ is }: { is: "mobile" | "desktop" }) {
 }
 ```
 
-A share of shoppers, for an A/B test. Each visitor needs a bucket from 0 to 99 that stays the same on every visit, so they keep seeing the same variant. A cookie holds it:
+A share of shoppers, for an A/B test. Each visitor needs a bucket from 0 to 99 that stays the same on every visit, so the rule gives the same answer for the same visitor. A cookie holds it:
 
 ```ts title="src/matchers.ts"
 import { cookies } from "next/headers";
@@ -136,43 +123,17 @@ export function proxy(request: NextRequest) {
 
 Unlike `experiments` in the [Quickstart](/next/quickstart), which rolls the dice on every call, this keeps each shopper in the same variant.
 
-Add both to your block map, then run `npx @decocms/blocks schema` again (see [Give editors a form](/next/quickstart#2-give-editors-a-form)). Studio's rule picker now lists them next to `date`, because Deco treats every block function that returns a `boolean` as a matcher (see [what Studio reads](/next/studio-compatibility#what-studio-reads-from-the-schema)):
+Add both to your block map and run `npx @decocms/blocks schema` (see [Give editors a form](/next/quickstart#2-give-editors-a-form)). Studio's rule picker now lists them next to the built-in `date`, because Deco treats every block function that returns a `boolean` as a matcher (see [what Studio reads](/next/studio-compatibility#what-studio-reads-from-the-schema)):
 
 ```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
-import { always, never, date } from "@decocms/blocks/matchers";
 import { device, inExperiment } from "../src/matchers";
-import { multivariate } from "../src/multivariate";
 import { PromoBanner } from "../src/promo-banner";
 
-export default {
-  always, never, date, device, inExperiment, multivariate,
-  "promo-banner": PromoBanner,
-} satisfies Blocks;
+export default { device, inExperiment, "promo-banner": PromoBanner } satisfies Blocks;   // always, never, date and multivariate are built in
 ```
 
-Now a page's hero can differ on mobile. `MobileHero` and `DesktopHero` are [saved blocks](/next/blocks#reusing-blocks):
-
-```jsonc
-// Stored as JSON, one entry in a page's sections
-{
-  "__resolveType": "multivariate",
-  "variants": [
-    { "rule": { "__resolveType": "device", "is": "mobile" }, "value": { "__resolveType": "MobileHero" } },
-    { "rule": { "__resolveType": "always" }, "value": { "__resolveType": "DesktopHero" } }
-  ]
-}
-
-// Means
-multivariate({
-  variants: [
-    { rule: await device({ is: "mobile" }), value: MobileHero },
-    { rule: always(), value: DesktopHero },
-  ],
-});
-```
-
-And the cart's checkout link can send 25% of shoppers to the new checkout:
+Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`. Here the cart's checkout link sends 25% of shoppers to the new checkout:
 
 ```jsonc
 // Stored as JSON, the checkoutUrl field of a cart block
@@ -193,15 +154,27 @@ multivariate({
 });
 ```
 
-Matchers aren't tied to a website: a mobile app can read the shopper's loyalty tier from its own state. `and`, `or` and `not` are one-line matchers, if you want them.
+`and`, `or` and `not` are one-line matchers, if you want them.
+
+<Hosted to="/next/hosted-telemetry#real-user-monitoring" label="Real-user monitoring">**Measure your experiments.** With the hosted Deco CMS, real-user monitoring links each visit to the variant it saw.</Hosted>
 
 ## Before you go live
 
+### Caching
+
+A rule only runs when a page is rendered. If you cache rendered pages, at a CDN for example, a cached page skips it:
+
+- **Around a switch,** the campaign can go live up to one cache lifetime late: a page cached at 23:55 for an hour keeps showing the old banner until 00:55, and with a 5-minute cache the new one shows by 00:05 at the latest. Keep cache lifetimes shorter than the delay you can accept, or bypass the cache for pages with a date variant.
+- **Static pages** ran their rules once, when they were built. A page rendered at build time (Next.js static rendering or ISR) never switches. Render pages with a date variant on each request: in Next.js, call `await connection()` from `next/server` in the page, or set `export const dynamic = "force-dynamic";`.
+- **For audiences,** anything a matcher reads must be part of the cache key: the device, the `bucket` cookie. Otherwise the first visitor's variant is served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors.
+
+See [Caching](/next/caching-and-observability).
+
 ### Every variant resolves
 
-Every variant's `value` resolves before `multivariate` picks one. For a title that's free. For two heroes that each fetch products, it costs both fetches, and a failure in a variant that wasn't picked still fails the whole block. Studio hides a block by wrapping it in a variant whose only rule is `never()`, so a hidden block still runs, and its result is `undefined`.
+Every rule runs, and an `async` rule is awaited. Every variant's `value` resolves too, before `multivariate` picks one. For a scheduled title or banner text that's free. For two heroes that each fetch products, it costs both fetches, and a failure in a variant that wasn't picked still fails the whole block. This includes a block hidden in Studio (a variant whose only rule is `never()`): it still runs, and its result is `undefined`.
 
-To run only the picked one, make the values the names of saved blocks, as plain strings. A string isn't a block, so nothing runs; `multivariate` returns a name, and you resolve it with [`client.resolve`](/next/api-reference#client-resolve-target-options):
+To run only the picked one, make the values the names of [saved blocks](/next/blocks#reusing-blocks), as plain strings, like `MobileHero` and `DesktopHero` here. A string isn't a block, so nothing runs; `multivariate` returns a name, and you resolve it with [`client.resolve`](/next/api-reference#client-resolve-target-options):
 
 ```jsonc
 // Stored as JSON, saved as HeroPick
@@ -229,9 +202,3 @@ const [hero] = await client.resolve(name);                      // only this var
 ```
 
 <Callout type="warning">**A variant is not access control.** It chooses between values that are all fine to compute and show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
-
-### Caching
-
-If you cache rendered pages, at a CDN for example, anything a matcher reads must be part of the cache key: the device, the `bucket` cookie. Otherwise the first visitor's variant is served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors. See [Caching](/next/caching-and-observability).
-
-<Hosted to="/next/hosted-telemetry#real-user-monitoring" label="Real-user monitoring">**Measure your experiments.** With the hosted Deco CMS, real-user monitoring links each visit to the variant it saw.</Hosted>

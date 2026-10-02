@@ -410,7 +410,7 @@
     {
       "id": "roadmap-studio-new--keep-variant-tabs-and-the-device-toggle-working",
       "title": "Keep variant tabs and the device toggle working",
-      "today": "<code>x-deco-matchers-override</code> and <code>?deviceHint</code> have no reader in an app-owned multivariate.",
+      "today": "<code>x-deco-matchers-override</code> and <code>?deviceHint</code> have no reader in the built-in multivariate.",
       "features": [
         "device-detection-and-targeting",
         "matchers-and-variants"
@@ -739,7 +739,7 @@
       "id": "roadmap-api--turn-the-apps-into-thin-instrumented-clients",
       "group": "api",
       "title": "Turn the apps into thin, instrumented clients",
-      "plan": "<p>The framework doesn't fetch data. Each companion app (VTEX, Shopify, Wake, Magento, Algolia, Resend, …) becomes a thin API client for its platform: typed request functions over the framework's instrumented fetch, keeping the platform's API and generated types. Latency is measured to the response headers, retries count as one data point with a <code>retries</code> attribute, and error logs are structured and never contain upstream bodies, tokens or cookies. The VTEX client keeps retry and circuit breaking on by default. Converters to commerce types, the cart, user and wishlist hooks, cart, session and auth flows, and website features beyond the three built-in matchers (SEO helpers, sitemaps, redirect logic, analytics scripts) move to platform templates and site code. <a href=\"#upstream-clients\">Upstream API clients</a> has the recipe for writing a client.</p>",
+      "plan": "<p>The framework doesn't fetch data. Each companion app (VTEX, Shopify, Wake, Magento, Algolia, Resend, …) becomes a thin API client for its platform: typed request functions over the framework's instrumented fetch, keeping the platform's API and generated types. Latency is measured to the response headers, retries count as one data point with a <code>retries</code> attribute, and error logs are structured and never contain upstream bodies, tokens or cookies. The VTEX client keeps retry and circuit breaking on by default. Converters to commerce types, the cart, user and wishlist hooks, cart, session and auth flows, and website features beyond the built-in matchers and multivariate (SEO helpers, sitemaps, redirect logic, analytics scripts) move to platform templates and site code. <a href=\"#upstream-clients\">Upstream API clients</a> has the recipe for writing a client.</p>",
       "features": [
         "framework-import-surface",
         "upstream-fetch-instrumentation",
@@ -2844,7 +2844,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Detection is app code, but device as a cache-key dimension, hydration of request-derived values and Studio's device and variant preview are unaddressed. Studio's variant tabs can't force a variant through an app-owned multivariate.",
+      "summary": "Detection is app code, but device as a cache-key dimension, hydration of request-derived values and Studio's device and variant preview are unaddressed. Studio's variant tabs can't force a variant through the built-in multivariate.",
       "docs": [
         "matchers-and-variants",
         "design-decisions",
