@@ -78,12 +78,12 @@ export default {
 
 `seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), so they aren't listed here. Both blocks return JSX, so they [fit the built-in page's](/next/schema#from-types-to-forms) `sections: ReactNode[]`.
 
-`cms.ts` imports the [content module](/next/blocks#the-deco-content-command), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved blocks). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
+`cms.ts` imports the [content module](/next/blocks#the-deco-content-command), `.deco/content.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved blocks). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
 
 ```ts title="src/cms.ts"
 import { createCMS } from "@decocms/blocks";
 import blocks from "../.deco/blocks";
-import content from "../.deco/blocks.gen";
+import content from "../.deco/content.gen";
 
 // Serves the content module: the content of the commit this build was made from.
 export const cms = createCMS({ blocks, content });
@@ -118,7 +118,7 @@ Two CLI commands generate the files the app and Studio need (see [CLI reference]
 }
 ```
 
-Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either. What reloads on its own is in [The `deco content` command](/next/blocks#the-deco-content-command); while you work, you can leave `npx @decocms/blocks content --watch` running beside `next dev`.
+Commit `.deco/schema.gen.json` and gitignore `.deco/content.gen.ts`; don't edit either. What reloads on its own is in [The `deco content` command](/next/blocks#the-deco-content-command); while you work, you can leave `npx @decocms/blocks content --watch` running beside `next dev`.
 
 ## 4. Match the URL to a page
 

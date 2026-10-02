@@ -65,7 +65,7 @@ To see which release a server is serving, build the loader yourself and log its 
 ```ts title="cms.ts"
 import { createCMS, remoteLoader } from "@decocms/blocks";
 import blocks from "./.deco/blocks";
-import content from "./.deco/blocks.gen";
+import content from "./.deco/content.gen";
 
 const loader = remoteLoader(content, { site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN });
 export const cms = createCMS({ blocks, content: loader });

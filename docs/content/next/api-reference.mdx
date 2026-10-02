@@ -20,7 +20,7 @@ Everything on this page is exported from `@decocms/blocks`. The ready-made match
 ```ts
 function createCMS(config: {
   blocks: Blocks;               // your block functions; the CMS uses { ...builtIns, ...blocks }, so a key here overrides a built-in
-  content: Snapshot | Loader;   // the content module (.deco/blocks.gen.ts), or any Loader
+  content: Snapshot | Loader;   // the content module (.deco/content.gen.ts), or any Loader
   interval?: number;            // ms between update() checks of a content source that has one; default DECO_CONTENT_INTERVAL or 60_000; minimum 60_000
 
   // Hosted Deco CMS (optional), see /next/hosted
@@ -46,7 +46,7 @@ interface Client {
 
 ### Configuring content
 
-`content` is the content module, `.deco/blocks.gen.ts`, in almost every app (see [The `deco content` command](/next/blocks#the-deco-content-command)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
+`content` is the content module, `.deco/content.gen.ts`, in almost every app (see [The `deco content` command](/next/blocks#the-deco-content-command)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
 
 ## Loaders
 

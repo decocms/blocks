@@ -448,7 +448,7 @@ export function Journey() {
                 </L>
                 <L>
                   {'  '}
-                  <S>"./.deco/blocks.gen"</S>;
+                  <S>"./.deco/content.gen"</S>;
                 </L>
                 <L>
                   <K>const</K> cms = <F>createCMS</F>({'{'}

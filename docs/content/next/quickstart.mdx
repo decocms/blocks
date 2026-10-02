@@ -123,10 +123,10 @@ The CLI turns your content files into a module your app imports, the **content m
 npx @decocms/blocks content
 ```
 
-It writes `.deco/blocks.gen.ts`. Despite its name, it's built from `content/`, not from `blocks.ts`: it's your saved blocks as a module. It's generated, so don't edit it, and add this one line to `.gitignore`:
+It writes `.deco/content.gen.ts`: it's your saved blocks as a module. It's generated, so don't edit it, and add this one line to `.gitignore`:
 
 ```text title=".gitignore"
-.deco/blocks.gen.ts
+.deco/content.gen.ts
 ```
 
 Ignore only this file, not `.deco/`: the rest of the folder is your code and content.
@@ -144,7 +144,7 @@ cms.ts                 you'll write this in step 5
 │   ├── Experiments.json
 │   └── Telemetry.json     scaffolded by deco content, safe to delete
 ├── schema.gen.json    generated, committed
-└── blocks.gen.ts      generated, gitignored
+└── content.gen.ts     generated, gitignored
 ```
 
 `deco content` scaffolds `Telemetry.json` when it's missing. Only the [hosted Deco CMS](/next/hosted-telemetry) reads it, so here it does nothing.
@@ -167,7 +167,7 @@ Create the CMS once, at module scope, with your block map and the content module
 ```ts title="cms.ts"
 import { createCMS } from "@decocms/blocks";
 import blocks from "./.deco/blocks";
-import content from "./.deco/blocks.gen";
+import content from "./.deco/content.gen";
 
 export const cms = createCMS({ blocks, content });
 ```
