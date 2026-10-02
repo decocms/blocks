@@ -226,7 +226,7 @@
     {
       "id": "roadmap-blockers--add-a-revision-handle-an-edge-cache-kit-and-an-isr-recipe",
       "title": "Add a revision handle, an edge cache kit and an ISR recipe",
-      "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached. The planned check for a new release runs once a minute, at an idle moment (inside <code>ctx.waitUntil</code> on Workers), so a publish is live everywhere within about a minute; a cold isolate serves the content module it was deployed with until its first check.",
+      "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached. The planned check for a new release runs once a minute, at an idle moment (inside <code>ctx.waitUntil</code> on Workers), so a publish is live everywhere within seconds; a cold isolate serves the content module it was deployed with until its first check.",
       "plan": "Add a revision handle, a way to read and pin the revision a client serves (<code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code>), and <code>markDegraded()</code>. Add an edge cache kit, <code>withEdgeCache()</code> in <code>@decocms/tanstack</code>, for caching rendered pages at the edge, and an ISR (Incremental Static Regeneration: re-rendering cached pages in the background) recipe for Next.js.",
       "features": [
         "edge-html-cache-profiles",
@@ -472,7 +472,7 @@
     {
       "id": "roadmap-studio-new--speed-up-publishes-and-make-failures-visible",
       "title": "Speed up publishes and make failures visible",
-      "today": "The planned once-a-minute check makes a publish live within about a minute, but nothing tells the editor when it is live. A failed <code>forDraft</code> silently shows published content.",
+      "today": "The planned once-a-minute check makes a publish live within seconds, but nothing tells the editor when it is live. A failed <code>forDraft</code> silently shows published content.",
       "features": [
         "fast-deploy-kv",
         "otel-observability"
@@ -1615,7 +1615,7 @@
       "id": "roadmap-platform--update-the-injected-agent-rules",
       "group": "studio",
       "title": "Update the injected agent rules",
-      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. Two files are generated and never edited by hand: <code>.deco/schema.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within about a minute, not on save, and with DECO_SITE and DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
+      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. Two files are generated and never edited by hand: <code>.deco/schema.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within seconds, not on save, and with DECO_SITE and DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
       "features": [
         "ai-agent-instructions"
       ],
@@ -3770,7 +3770,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, and there's no revision to key by. The planned once-a-minute check makes content consistent within about a minute.",
+      "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, and there's no revision to key by. The planned once-a-minute check makes content consistent within seconds.",
       "docs": [
         "caching-and-observability",
         "releases-and-deployment",

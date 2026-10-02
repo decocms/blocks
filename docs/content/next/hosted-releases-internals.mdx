@@ -40,7 +40,7 @@ The rule that matters: **a production request never waits for the network.** `lo
 4. **Fetch and swap.** Otherwise it fetches that revision, checks that the content hashes to it, and swaps it in whole. Whether that content fits this build was settled before it merged, not here (see [Change types safely](/next/schema#change-types-safely)). Requests in flight keep the revision they started with.
 5. **Fail quietly.** Any network or validation error leaves memory as it was, so a server that loses the API keeps serving the newest release it has. Nothing reaches a request.
 
-So different servers can briefly serve different releases, by design. A published change reaches each server on its next check, within about a minute (or at once on the one server where you call `cms.update()`), and each server sends one tiny request per interval, however much traffic it serves. (This is called eventual consistency.)
+So different servers can briefly serve different releases, by design. A published change reaches each server on its next check, within seconds (or at once on the one server where you call `cms.update()`), and each server sends one tiny request per interval, however much traffic it serves. (This is called eventual consistency.)
 
 Drafts are the opposite: a preview must show exactly the version Studio asked for, so `load(pointer)` fetches that version and waits for it, cached by version afterwards. If the draft can't be fetched, the client serves what a normal request would get: the newest release in memory, or the build's content if none has been fetched yet. It never mixes draft and published entries.
 

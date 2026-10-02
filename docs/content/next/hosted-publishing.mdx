@@ -3,7 +3,7 @@ title: Publishing without a deploy
 nav: Publishing
 group: Hosted Deco CMS
 order: 24
-description: With the hosted Deco CMS, each commit to your production branch is served as a release within seconds, and running servers pick it up within about a minute.
+description: With the hosted Deco CMS, each commit to your production branch is served as a release and reaches running servers within seconds.
 ---
 
 # Publishing without a deploy
@@ -20,7 +20,7 @@ Publishing is the same event with or without the hosted Deco CMS: your productio
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
 3. **The server swaps the release in whole** and serves it from its next client on. Requests already in flight keep the revision they started with (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)).
 
-So a publish reaches every visitor within about a minute, with no build. Different servers can briefly serve different releases, by design.
+So a publish reaches every visitor within seconds, with no build. Different servers can briefly serve different releases, by design.
 
 On Cloudflare Workers, which run no timers between requests, the SDK runs a due check after the response, inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent). You don't call anything.
 
@@ -76,7 +76,7 @@ console.log((await loader.load()).revision);
 
 | Symptom | What to check |
 |---|---|
-| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow about a minute after publishing. Check that both `site` and `token` are set in production. |
+| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow up to a minute after publishing. Check that both `site` and `token` are set in production. |
 | `UNKNOWN_BLOCK` right after publishing | The content uses a block type the deployed code doesn't have, usually because the content went out before the code that defines the type, or the code was rolled back to a version without it. Deploy the code, or revert the content commit. See [Keep running code compatible](#keep-running-code-compatible). |
 | Warning that `interval` was raised | The minimum is 60 000 ms (one minute); lower values, from `interval` or `DECO_CONTENT_INTERVAL`, are raised to it. |
 

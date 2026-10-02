@@ -27,7 +27,7 @@ Because content and code share one history, a deploy and a content change are th
 - **Branches.** A content change can wait on a branch, with its own preview deploy, until it's ready (see [Preview](/next/preview)).
 - **Rollback.** Redeploy the previous build: its content and code roll back together, so they always fit. Reverting a single code commit doesn't revert content committed after it, so check that content first; the rules and a CI check are in [Change types safely](/next/schema#change-types-safely).
 
-<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a release within seconds, and running servers pick it up within about a minute, with no rebuild.</Hosted>
+<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a release and reaches running servers within seconds, with no rebuild.</Hosted>
 
 ## One revision per response
 

@@ -97,7 +97,7 @@ A second paragraph.
 ### `<Hosted>`
 
 ```mdx
-<Hosted to="/next/hosted-publishing">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a release within seconds, and running servers pick it up within about a minute, with no rebuild.</Hosted>
+<Hosted to="/next/hosted-publishing">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a release and reaches running servers within seconds, with no rebuild.</Hosted>
 
 <Hosted to="/next/hosted#connect-your-site" label="Connect your site">…</Hosted>
 ```

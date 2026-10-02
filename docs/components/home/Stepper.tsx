@@ -271,7 +271,7 @@ export function Stepper() {
           <Code html={STEP3_HTML} />
           <Result>
             <span>
-              With the hosted Deco CMS (the site and token above), a commit is published in seconds and live everywhere within about a minute, no deploy. Without it, content ships
+              With the hosted Deco CMS (the site and token above), a commit is live everywhere within seconds, no deploy. Without it, content ships
               with each deploy.
             </span>
           </Result>
