@@ -130,6 +130,6 @@ const [hero] = await client.resolve(name);           // only this variant ran
 
 If you cache rendered pages, at a CDN for example, anything a matcher looks at must be part of the cache key. Otherwise the first visitor's variant is cached and served to everyone: a page that varies by device would show the cached desktop hero to mobile visitors. See [Caching](/next/caching-and-observability).
 
-Measure an experiment's outcome with your own analytics. Tying A/B tests to what visitors experience through variant exposure events is on the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
+Measure an experiment's outcome with [real-user monitoring](/next/hosted-telemetry#real-user-monitoring), which links each visit to the variant it saw.
 
 Nothing so far has assumed a website. The next part adds URLs.

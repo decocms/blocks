@@ -33,7 +33,7 @@ These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-
 {
   "scripts": {
     "predev": "deco schema && deco content",
-    "prebuild": "deco schema && deco content"
+    "prebuild": "deco schema && deco content && deco check"
   }
 }
 ```
@@ -55,7 +55,7 @@ export const cms = createCMS({ blocks, content });
 export const client = (_request: Request) => cms.forRelease();
 ```
 
-The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. `client` takes the request even though it doesn't read it yet (hence the `_` that keeps unused-parameter lint rules quiet), so the steps below don't change if it ever does (for [hosted drafts](/next/hosted-drafts#tanstack-start), for example).
+The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. `client` takes the request even though this guide doesn't read it (hence the `_` that keeps unused-parameter lint rules quiet); [hosted drafts](/next/hosted-drafts#tanstack-start) read it, and the steps below stay the same.
 
 
 ## 3. Match the URL to a page
@@ -204,7 +204,7 @@ To edit this app's content in Studio while you develop, run [`deco serve`](/next
 
 ## Deployment checklist
 
-- Run `deco schema && deco content` before each build (the `prebuild` script).
+- Run `deco schema && deco content && deco check` before each build (the `prebuild` script).
 - Each build serves the content of the commit it was built from; publishing content is a commit plus your normal deploy (see [Releases and deployment](/next/releases-and-deployment)).
 - Keep both compatibility flags.
 - The [Next.js guide](/next/nextjs) runs on Next's Node or Edge runtime, not on Workers.

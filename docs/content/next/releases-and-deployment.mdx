@@ -12,7 +12,7 @@ Your block functions and your content ship together. Both live in your repositor
 | Step | What happens |
 |---|---|
 | Commit | A developer, an agent, or an editor in [Studio](/next/how-it-works#studio) changes a function, a saved block, or both. Review them in one pull request like any other change. |
-| Build | `prebuild` runs `deco schema && deco content`, which bundles `.deco/blocks` into the build as the [content module](/next/blocks#the-deco-content-command). |
+| Build | `prebuild` runs `deco schema && deco content && deco check`: it bundles `.deco/blocks` into the build as the [content module](/next/blocks#the-deco-content-command), and fails the build if saved content doesn't fit the code. |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 
 A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any saved block and you get a new revision. That makes a revision a safe cache key everywhere.
@@ -33,7 +33,7 @@ Because content and code share one history, a deploy and a content change are th
 
 Content can change while a server is running: in development, when you edit a file, or with a `content` loader that updates (see [Loaders](/next/api-reference#loaders)). Two reads a few milliseconds apart could then see different revisions; a header from one and a footer from the other make an inconsistent page. A client prevents that: its first call picks a revision, and every later `list` and `resolve` on it, including concurrent ones, uses the same one. So make one client per request.
 
-Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response. (A way to read and pin the served revision is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle).)
+Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response, or send `client.revision()` with the page and read follow-up requests with `cms.forRevision(revision)` (see [`createCMS`](/next/api-reference#createcms-config)).
 
 A revision only selects content; it isn't a secret and unlocks nothing. Drafts are branches; protect their preview deploys with your host's access controls.
 

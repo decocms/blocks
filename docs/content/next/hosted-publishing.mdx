@@ -10,8 +10,6 @@ description: With the hosted Deco CMS, each commit to your production branch is 
 
 Without the hosted Deco CMS, publishing is committing and a deploy ships it (see [Releases and deployment](/next/releases-and-deployment#publishing)). With it, publishing is still committing, but the commit doesn't wait for a deploy: the Deco API serves it as a release, and the servers already running your app pick it up on their own.
 
-<Callout>**Status.** The release service and site tokens aren't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).</Callout>
-
 ## How a commit becomes a release
 
 Publishing is the same event with or without the hosted Deco CMS: your production branch (usually `main`) moves. A developer or an agent commits a file in `.deco/blocks` and pushes, or merges a pull request; an editor publishes a draft in [Studio](/next/how-it-works#studio), which brings its commits to that branch (see [Editing in Studio on GitHub](/next/hosted-studio)).
@@ -56,11 +54,11 @@ Publishing without a deploy means the code that's already running renders the ne
 
 ## Large content on Workers
 
-With `site` and `token`, the bundled content module stays in memory as the fallback beside the live release, so a published site holds two copies (a Worker isolate has 128 MB), and the bundle counts toward the script size limit. That only matters at several megabytes of JSON; for sites that large, a first-party `kvLoader` that keeps the fallback in Workers KV is planned (see the [Roadmap](/roadmap#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites)).
+With `site` and `token`, the bundled content module stays in memory as the fallback beside the live release, so a published site holds two copies (a Worker isolate has 128 MB), and the bundle counts toward the script size limit. That only matters at several megabytes of JSON; for sites that large, pass the first-party [`kvLoader`](/next/api-reference#loaders) as `content` instead, which keeps the fallback in Workers KV. Your deploy must write the content to that key before the new Worker takes traffic (for example with `wrangler kv key put`); if the key is missing, a new isolate's first reads fail until its first release check.
 
 ## Troubleshooting
 
-To see which release a server is serving, build the loader yourself and log its revision; that's the revision a new client would read right now. (A revision handle on the client is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle).)
+To see which release a server is serving, log `await client.revision()` from a fresh client (see [`createCMS`](/next/api-reference#createcms-config)).
 
 ```ts title="cms.ts"
 import { createCMS, remoteLoader } from "@decocms/blocks";

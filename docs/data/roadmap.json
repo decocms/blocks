@@ -920,7 +920,7 @@
       "id": "roadmap-api--add-a-splat-to-matchroute-and-stop-request-time-throws",
       "group": "api",
       "title": "Add a splat to <code>matchRoute</code> and stop request-time throws",
-      "plan": "<p>A trailing <code>/*</code> or <code>/:rest*</code> at lowest precedence (also for <code>Redirect.from</code>, with substitution), a deterministic tie-break that returns a Result, and case-insensitive matching as an option.</p>",
+      "plan": "<p>A trailing <code>/*</code> or <code>/:rest*</code> at lowest precedence (also for <code>Redirect.from</code>, with substitution), a deterministic tie-break (the entry earlier in the array wins, so <code>matchRoute</code> never throws), and case-insensitive matching as an option.</p>",
       "features": [
         "cms-page-routing",
         "redirects",
@@ -1022,6 +1022,21 @@
         "upstream-fetch-instrumentation"
       ],
       "docs": [
+        "hosted-telemetry"
+      ],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--route-telemetry-with-several-cms-instances",
+      "group": "api",
+      "title": "Route telemetry with several CMS instances in one process",
+      "plan": "<p>With several CMS instances in one process (several sites in one app, for example), each instrumented-fetch measurement goes to the CMS whose client is handling the current request, so every site reports only its own upstream traffic.</p>",
+      "features": [
+        "otel-observability",
+        "upstream-fetch-instrumentation"
+      ],
+      "docs": [
+        "hosted-releases-internals",
         "hosted-telemetry"
       ],
       "pinned": false
@@ -1152,7 +1167,7 @@
       "id": "roadmap-cli--add-validation-commands-to-the-cli",
       "group": "cli",
       "title": "Add <code>deco check</code>, which validates saved content against the code",
-      "plan": "<p><code>deco check [--root &lt;dir&gt;]</code> generates the schema from <code>.deco/index.ts</code> in memory (it writes nothing), validates every saved block in <code>.deco/blocks</code> against it, lists the problems per file and exits 1 if there is any. Saved content is valid when every block's props match its block type's schema (required fields, allowed values, limits); every <code>__resolveType</code> names a block type (built-ins and aliases included) or an existing saved block; a reference in a typed field points to a block that returns that type; no saved block is named like a block type, built-in or alias; no two entries match the same URL; and the committed <code>.deco/schema.gen.json</code> is up to date. It catches both directions, code that breaks saved content and content that uses types or fields the code lacks, and runs on content-only changes too, the same locally and in CI. The docs ship a CI example: one step, <code>npx @decocms/blocks check</code>, plus “Require branches to be up to date before merging” (or a merge queue), so two changes that pass alone can't merge into a broken pair. The Deco API and <code>remoteLoader</code> don't validate content at runtime. Ships with the first release.</p><p>Implementation: validate with a JSON Schema validator (such as Ajv) against the generated schema, not by type-checking generated TypeScript with <code>tsc</code>: it takes milliseconds, its errors name the file and field, and it enforces JSDoc constraints and exactly what Studio allows. Dispatch on <code>__resolveType</code> instead of reporting every <code>anyOf</code> branch, check references against the return type of the function behind them, and rewrite validator errors into short plain lines.</p>",
+      "plan": "<p><code>deco check [--root &lt;dir&gt;]</code> reads <code>.deco/schema.gen.json</code> and <code>.deco/blocks</code> as they are (it writes nothing, generates no schema, not even in memory, loads no TypeScript and doesn't check whether <code>schema.gen.json</code> is stale; run <code>deco schema</code> first), validates every saved block against that schema, lists the problems per file and exits 1 if there is any. Saved content is valid when every block's props match its block type's schema (required fields, allowed values, limits); every <code>__resolveType</code> names a block type (built-ins and aliases included) or an existing saved block; a reference in a typed field points to a block that returns that type; no saved block is named like a block type, built-in or alias; and no two entries match the same URL. It catches both directions, code that breaks saved content and content that uses types or fields the code lacks, and runs on content-only changes too, the same locally and in CI. It also runs in <code>prebuild</code> (<code>deco schema &amp;&amp; deco content &amp;&amp; deco check</code>; <code>predev</code> skips it), so a broken mix of code and content fails the build and never deploys. The docs ship a CI example: <code>npx @decocms/blocks schema &amp;&amp; npx @decocms/blocks check</code>, then <code>git diff --exit-code -- .deco/schema.gen.json</code> so a stale committed schema (the file Studio reads) fails, plus an optional “Require branches to be up to date before merging” (or a merge queue), to catch two changes that pass alone but break together at pull-request time instead of at build time. The Deco API and <code>remoteLoader</code> don't validate content at runtime. Ships with the first release.</p><p>Implementation: validate with a JSON Schema validator (such as Ajv) against <code>.deco/schema.gen.json</code> as it is on disk, not by type-checking generated TypeScript with <code>tsc</code>: it takes milliseconds, its errors name the file and field, and it enforces JSDoc constraints and exactly what Studio allows. Dispatch on <code>__resolveType</code> instead of reporting every <code>anyOf</code> branch, check references against the return type of the function behind them, and rewrite validator errors into short plain lines.</p>",
       "features": [
         "orphan-and-dangling-blocks",
         "content-schema-drift",
@@ -1297,7 +1312,7 @@
       "id": "roadmap-cli--emit-a-runtime-alias-table",
       "group": "cli",
       "title": "Emit a runtime alias table",
-      "plan": "<p>The CLI emits an alias table, a list of second names for types. <code>createCMS</code> accepts it, so <code>list()</code> and <code>resolve()</code> work through aliases. The schema carries it too, mapping the short names (<code>page</code>, <code>redirect</code>, <code>always</code>, <code>never</code>, <code>multivariate</code>, <code>secret</code>) to the well-known types Studio's special screens look for, so those screens keep working for renamed types.</p>",
+      "plan": "<p>The CLI emits an alias table, a list of second names for types. <code>deco content</code> writes it into the content module (the snapshot's <code>aliases</code> field) and <code>createCMS</code> reads it from there, so <code>list()</code> and <code>resolve()</code> work through aliases. The schema carries it too, mapping the short names (<code>page</code>, <code>redirect</code>, <code>always</code>, <code>never</code>, <code>multivariate</code>, <code>secret</code>) to the well-known types Studio's special screens look for, so those screens keep working for renamed types.</p>",
       "features": [
         "cms-page-routing",
         "codegen-pipeline",

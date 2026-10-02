@@ -149,18 +149,18 @@ cms.ts                 you'll write this in step 5
 
 `deco content` scaffolds `Telemetry.json` when it's missing. Only the [hosted Deco CMS](/next/hosted-telemetry) reads it, so here it does nothing.
 
-To run both commands automatically, add them to the `scripts` in `package.json` ([when to rerun](/next/blocks#the-deco-content-command)):
+To run them automatically, add them to the `scripts` in `package.json` ([when to rerun](/next/blocks#the-deco-content-command)). The build also runs [`deco check`](/next/cli#deco-check), so content that doesn't fit your code fails the build instead of deploying:
 
 ```json title="package.json"
 {
   "scripts": {
     "predev": "deco schema && deco content",
-    "prebuild": "deco schema && deco content"
+    "prebuild": "deco schema && deco content && deco check"
   }
 }
 ```
 
-To make sure your saved blocks fit your code, run `npx @decocms/blocks check` (see [`deco check`](/next/cli#deco-check)).
+To make sure your saved blocks fit your code, run `npx @decocms/blocks schema && npx @decocms/blocks check` (see [`deco check`](/next/cli#deco-check)).
 
 ## 5. Read the content from your code
 

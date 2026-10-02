@@ -10,8 +10,6 @@ order: 5
 
 [Studio](/next/how-it-works#studio) reads and writes a next-major site through the [content protocol](/next/content-protocol), which needs only the committed schema and the files in `.deco/blocks`. This page is the protocol's detail, what Studio reads from the schema, and the endpoints older sites still serve.
 
-<Callout>**Status.** The protocol is proposed (draft, version 1.0) and not built yet. Names and limits may change; see the [Roadmap](/roadmap#roadmap-api--publish-the-content-protocol-and-its-package).</Callout>
-
 ## The content protocol
 
 One HTTP endpoint takes JSON-RPC 2.0 requests: `POST <endpoint>` with `Content-Type: application/json` and a body that's one request object or a batch array. The local server's path is `/rpc`; Studio mounts its own per project.
@@ -68,7 +66,7 @@ Versions and revisions are opaque strings defined by each storage (a git blob ha
 2. **Durable when it returns.** It resolves only after the commit or the file renames landed, which is what Studio's autosave indicator relies on.
 3. **`set` wins** when a name is in both `set` and `delete`.
 4. **Validated first.** Names, value shapes, sizes and the secret guard are checked before anything is written, and every violation is reported at once.
-5. **Preconditions are optional.** A failed `ifMatch` writes nothing and returns a conflict with each entry's expected and actual version. Without `ifMatch`, the last writer wins, as Studio's autosave does in this version.
+5. **Preconditions are optional.** A failed `ifMatch` writes nothing and returns a conflict with each entry's expected and actual version. Without `ifMatch`, the last writer wins, as with Studio's autosave.
 
 Renaming, duplicating and moving entries are recipes over one `blocks.apply` (a `set` plus a `delete`, with `ifMatch: { [newName]: null }` for create-only), not methods of their own. Publishing, discarding a draft and the draft pointer stay Studio routes outside the protocol.
 
@@ -119,7 +117,7 @@ Uploads aren't one of the four methods. Studio sends each file to `PUT /assets/<
 
 ### The package
 
-The protocol ships as one package, proposed as `@decocms/blocks-protocol`, with `zod` as its only runtime dependency and no other Deco package. `@decocms/blocks` depends on it for its CLI (the `cli` subpath); the SDK's runtime never imports it.
+The protocol ships as one package, `@decocms/blocks-protocol`, with `zod` as its only runtime dependency and no other Deco package. `@decocms/blocks` depends on it for its CLI (the `cli` subpath); the SDK's runtime never imports it.
 
 ```text
 @decocms/blocks-protocol             method types, errors, client, keys    (browser-safe)
@@ -190,9 +188,9 @@ The Fresh and Deno framework, and v7, name every block type by the path of the f
 | Redirect | `website/loaders/redirect.ts` |
 | Secret | `website/loaders/secret.ts` |
 
-Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so Studio's screens find your types under the names they expect. Content Studio saves under an old name resolves through the runtime alias table the CLI emits, which `createCMS` will accept (planned; see the [Roadmap](/roadmap#roadmap-cli--emit-a-runtime-alias-table)).
+Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so Studio's screens find your types under the names they expect. Content Studio saves under an old name resolves too: `deco content` writes the alias table into the content module, and `createCMS` reads it from there.
 
-Two gaps remain. Redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/routes-and-redirects):
+One difference remains: redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/routes-and-redirects):
 
 ```json
 // Saved by Studio's legacy redirect screen
@@ -203,7 +201,7 @@ Two gaps remain. Redirects created in Studio are saved in the old nested shape, 
 { "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": true }
 ```
 
-`matchRoute` accepts both. And Studio decides whether a key is a block type or a saved block by checking for a file extension; that check must become a manifest lookup before a site can drop the aliases. Both are Studio work, tracked in the [Roadmap](/roadmap#roadmap-studio-legacy), not something sites do.
+`matchRoute` accepts both. Studio decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
 
 ## Legacy endpoints
 

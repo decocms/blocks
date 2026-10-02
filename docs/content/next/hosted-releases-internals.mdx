@@ -52,4 +52,4 @@ A loader you write that has `update()` is checked the same way: the CMS calls it
 
 ## Telemetry with several instances
 
-The instrumented fetch reports its measurements to the CMS in the same process, which sends them when it has a site ID and token (see [Telemetry](/next/hosted-telemetry)). With several CMS instances in one process, which one receives a client's measurements is still being designed.
+The instrumented fetch reports its measurements to the CMS in the same process, which sends them when it has a site ID and token (see [Telemetry](/next/hosted-telemetry)). With several CMS instances in one process, each measurement goes to the CMS whose client is handling the current request.

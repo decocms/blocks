@@ -10,8 +10,6 @@ description: "With the hosted Deco CMS, Studio edits your GitHub repository dire
 
 [Studio](/next/how-it-works#studio) edits your content through the [content protocol](/next/content-protocol), wherever the files live. On your machine, [`deco serve`](/next/cli#deco-serve) serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no copy of the code, no dev server and no Git.
 
-<Callout>**Status.** The content protocol and Studio's GitHub backend are proposed and not built yet; see the [Roadmap](/roadmap#roadmap-platform--build-studio-s-github-content-backend).</Callout>
-
 ## What changes
 
 Studio's forms, variants, pages and redirects are the same on both backends: they need only the schema and the files. What differs is where a save goes and what happens next.
@@ -32,13 +30,11 @@ Studio's forms, variants, pages and redirects are the same on both backends: the
 
 With the hosted Deco CMS, images and other files editors upload in Studio go to Deco's asset storage, not your repository. Studio saves each file's CDN address in the field, such as `https://assets.decocms.com/…/summer-banner.jpg`, so images are served from a CDN close to your visitors, your app serves nothing for them, and your repository doesn't grow with every image. Without the hosted Deco CMS, uploads are files in your repository (see [Images and other uploads](/next/content-protocol#images-and-other-uploads)).
 
-<Callout>**Status.** Hosted asset storage for next-major sites is proposed; see the [Roadmap](/roadmap#roadmap-platform--store-uploads-in-deco-s-asset-storage).</Callout>
-
 Uploads already in your repository keep working: a field holds either kind of address, and your app keeps serving the files it has.
 
 ## Drafts are branches
 
-An editor's changes live on a **draft branch** in your repository, created on the first save. Each save is one commit on it, so the draft's history is ordinary Git history: you can review it in a pull request, diff it, or check it out. Saving is last-writer-wins in this version: if two people edit the same entry at once, the later save replaces the earlier one (see [Where edits go](/next/content-protocol#where-edits-go)).
+An editor's changes live on a **draft branch** in your repository, created on the first save. Each save is one commit on it, so the draft's history is ordinary Git history: you can review it in a pull request, diff it, or check it out. Saving is last-writer-wins: if two people edit the same entry at once, the later save replaces the earlier one (see [Where edits go](/next/content-protocol#where-edits-go)).
 
 While the draft is unpublished, Studio previews it on your real site; see [Drafts on your site](/next/hosted-drafts).
 

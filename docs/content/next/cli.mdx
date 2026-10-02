@@ -41,18 +41,18 @@ It has four commands, and each does one job:
 
 - **`deco schema`** turns the types in `.deco/index.ts` into `.deco/schema.gen.json`. Commit this file. See [Schema](/next/schema).
 - **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/blocks#the-deco-content-command), `.deco/blocks.gen.ts`. It's generated, so gitignore it. If `.deco/blocks` has no `Telemetry.json`, it also scaffolds one: settings only the [hosted Deco CMS](/next/hosted-telemetry) reads. Without a connected site the entry is inert, and you can delete it.
-- **`deco check`** makes sure your saved blocks fit your code, and fails if one doesn't. It writes nothing. Run it in CI (see [below](#deco-check)).
+- **`deco check`** makes sure your saved blocks fit your code, and fails if one doesn't. It writes nothing. Run it in CI and before your build (see [below](#deco-check)).
 - **`deco serve`** is the local server [Studio](/next/how-it-works#studio) uses to edit the files on your machine (see [below](#deco-serve)).
 
 ## Run it before dev and build
 
-There's no separate dev command: run `deco schema` and `deco content` before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in [The `deco content` command](/next/blocks#the-deco-content-command).
+There's no separate dev command: run `deco schema` and `deco content` before your dev server and your build. The build also runs `deco check`, so content that doesn't fit the code fails the deploy instead of shipping; dev skips it, so a content error doesn't stop your dev server. Why the content module is gitignored, and what reloads without a rerun, is in [The `deco content` command](/next/blocks#the-deco-content-command).
 
 ```json title="package.json"
 {
   "scripts": {
     "predev": "deco schema && deco content",
-    "prebuild": "deco schema && deco content"
+    "prebuild": "deco schema && deco content && deco check"
   }
 }
 ```
@@ -101,14 +101,15 @@ The options:
 deco check [--root <dir>]
 ```
 
-`deco check` makes sure your saved blocks fit your code. It generates the schema from `.deco/index.ts` in memory, writes nothing, and validates every saved block in `.deco/blocks` against it:
+`deco check` makes sure your saved blocks fit your code. It reads `.deco/schema.gen.json` and `.deco/blocks` as they are, writes nothing, and validates every saved block against that schema:
 
 - Each saved block's props match its block type's schema: required fields are present, and values respect enums and limits.
 - Every `__resolveType` names a block type (built-ins and aliases included) or a saved block that exists.
 - A reference in a typed field points to a block that returns that type.
 - No saved block has the name of a block type, a built-in or an alias (see [Names must not clash](/next/schema#names-must-not-clash)).
 - No two entries can match the same URL (see [Path templates and match order](/next/routing#path-templates-and-match-order)).
-- The committed `.deco/schema.gen.json` is up to date with your code.
+
+It doesn't generate the schema or load your TypeScript. Run `deco schema` first, so the schema matches your code: `deco schema && deco check`.
 
 Because it checks the content itself, it catches both directions: a code change that breaks saved content, and content that uses a block type or field your code doesn't have. It runs on content-only changes too (from you, an AI agent or Studio), and works the same on your machine as in CI.
 
@@ -121,7 +122,7 @@ When everything fits, it exits with 0. Otherwise it lists the problems per file 
   unknown block type "promo-banner"
 ```
 
-Run it on every pull request as a required check; the workflow is in [Backward compatibility](/next/schema#backward-compatibility).
+Run it on every pull request as a required check; the workflow is in [Backward compatibility](/next/schema#backward-compatibility). It also runs in `prebuild` (see [Run it before dev and build](#run-it-before-dev-and-build)), so a build with broken content fails instead of deploying.
 
 ## `deco serve`
 

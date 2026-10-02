@@ -36,9 +36,9 @@ The `deco` command ships inside `@decocms/blocks` rather than in a package of it
 
 ## How `deco check` works
 
-[`deco check`](/next/cli#deco-check) validates your saved blocks with a JSON Schema validator, against the same schema `deco schema` writes. It doesn't type-check generated TypeScript with `tsc`, for three reasons:
+[`deco check`](/next/cli#deco-check) validates your saved blocks with a JSON Schema validator, against `.deco/schema.gen.json` as it is on disk, the file `deco schema` writes. It doesn't generate a schema of its own, so run `deco schema` first. It doesn't type-check generated TypeScript with `tsc`, for three reasons:
 
-- **Speed.** Validating thousands of JSON files takes milliseconds. `tsc` would have to load your whole app first.
+- **Speed.** Validating thousands of JSON files takes milliseconds, and no TypeScript is loaded at all. `tsc` would have to load your whole app first.
 - **Messages that point at the data.** Each error names the file and the field, such as `.deco/blocks/HomePage.json › sections[2].title`, not a line in a generated file.
 - **One contract.** The schema also carries what types can't express, such as `@maxLength` or `@format date`, and it's what Studio enforces. What passes `deco check` is exactly what Studio allows.
 
@@ -52,20 +52,22 @@ The check is only as accurate as the schema, so `deco schema`'s translation of t
 
 ## Contributing
 
-The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Four core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. A fifth core package, `@decocms/blocks-protocol` for the [content protocol](/next/studio-compatibility#the-content-protocol), is proposed; it depends on no other Deco package, and the `cli` subpath of `@decocms/blocks` would use it (the runtime never imports it). The core packages depend on each other in one direction only:
+The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Five core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. One of the five, `@decocms/blocks-protocol`, holds the [content protocol](/next/studio-compatibility#the-content-protocol); it depends on no other Deco package, and the `cli` subpath of `@decocms/blocks` uses it (the runtime never imports it). The core packages depend on each other in one direction only:
 
 ```text
 packages/
-├── blocks/        @decocms/blocks         the SDK: loaders, client, resolution, router,
-│                                          plus the deco CLI (the cli subpath).
-│                                          The runtime depends on no other @decocms package;
-│                                          the cli subpath will use @decocms/blocks-protocol.
-├── blocks-admin/  @decocms/blocks-admin   the legacy HTTP endpoints Studio calls on 7.x sites.
-│                                          depends on: @decocms/blocks
-├── tanstack/      @decocms/tanstack       the framework binding for TanStack Start on Cloudflare Workers.
-│                                          depends on: @decocms/blocks, @decocms/blocks-admin
-└── nextjs/        @decocms/nextjs         the framework binding for the Next.js App Router.
-                                           depends on: @decocms/blocks, @decocms/blocks-admin
+├── blocks/          @decocms/blocks           the SDK: loaders, client, resolution, router,
+│                                              plus the deco CLI (the cli subpath).
+│                                              The runtime depends on no other @decocms package;
+│                                              the cli subpath depends on: @decocms/blocks-protocol
+├── blocks-protocol/ @decocms/blocks-protocol  the content protocol Studio and deco serve speak.
+│                                              depends on no other @decocms package
+├── blocks-admin/    @decocms/blocks-admin     the legacy HTTP endpoints Studio calls on 7.x sites.
+│                                              depends on: @decocms/blocks
+├── tanstack/        @decocms/tanstack         the framework binding for TanStack Start on Cloudflare Workers.
+│                                              depends on: @decocms/blocks, @decocms/blocks-admin
+└── nextjs/          @decocms/nextjs           the framework binding for the Next.js App Router.
+                                               depends on: @decocms/blocks, @decocms/blocks-admin
 ```
 
 The framework used to be a single bundled package, and bundling one package into another can create two copies of a module that must exist once, such as the block registry; two registries in one process disagree in ways that are hard to find. So packages import each other's TypeScript source, never a bundled build. The SDK also guards against this at runtime: `createCMS` and `remoteLoader` keep their instances on `globalThis`, so a second copy reuses the first (see [One instance per process](/next/api-reference#one-instance-per-process)). `blocks` never imports from the others, and the two framework bindings never import from each other; if a feature needs both sides, split it into two functions rather than import in reverse.

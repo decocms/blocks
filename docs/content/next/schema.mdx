@@ -52,8 +52,6 @@ Two things work on top of this. Any field can be a [variant](/next/matchers-and-
 
 Never type a prop as a block. `Block` is only the shape of saved JSON (see [Composing blocks](/next/blocks#composing-blocks)).
 
-<Callout>**Status. `deco schema` doesn't match fields to functions by return type yet.** This section describes how it will work. See the [Roadmap](/roadmap#roadmap-cli--define-the-loader-picker-rule).</Callout>
-
 A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells Studio which input to show (see [Widgets](#widgets)).
 ### Interchangeable blocks
 
@@ -73,7 +71,7 @@ Each type gets a default widget, such as a text box for a `string`. JSDoc tags o
 | `@default` | The value a new block starts with, parsed as JSON when it can be | `@default 10` |
 | `@minimum` / `@maximum` | The allowed range of a number | `@maximum 100` |
 | `@minLength` / `@maxLength` | The allowed length of a string | `@maxLength 60` |
-| `@format` | A specialized input for a string, such as `date`, `date-time`, `rich-text`, `textarea`, `color` or `image-uri`. `password` marks a credential, which Studio shows read-only in this version: keep credentials in environment variables. | `@format rich-text` |
+| `@format` | A specialized input for a string, such as `date`, `date-time`, `rich-text`, `textarea`, `color` or `image-uri`. `password` marks a credential, which Studio shows read-only, because it never runs your code; keep credentials in environment variables. | `@format rich-text` |
 | `@options` | A select over a `string` field, from a list of allowed values, without narrowing the TypeScript type | `@options ["sm", "md", "lg"]` |
 | `@ignore` | Leaves the field out of the form | `@ignore` |
 
@@ -103,7 +101,7 @@ export interface PromoBannerProps {
 
 becomes a form with a *Headline* text box limited to 60 characters, an *Image* picker, a *Link* field and an optional *Ends on* date picker.
 
-**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so Studio shows a select without asking your site for the options. A picker whose options come from a function falls back to a text field in this version (see [Features that need your site's code](/next/content-protocol#features-that-need-your-site-s-code)).
+**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so Studio shows a select without asking your site for the options. A picker whose options come from a function shows a text field, since Studio never runs your code (see [Features that need your site's code](/next/content-protocol#features-that-need-your-site-s-code)).
 
 ## Data-only blocks
 
@@ -163,12 +161,15 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx @decocms/blocks check
+      - run: npx @decocms/blocks schema && npx @decocms/blocks check
+      - run: git diff --exit-code -- .deco/schema.gen.json
 ```
 
-Turn on "Require branches to be up to date before merging" in your branch protection (or use a merge queue), so the check runs on the code and content that will actually ship together.
+The second step fails if the committed `schema.gen.json` is out of date, which matters because Studio reads the committed file.
 
-In a monorepo, run `npx @decocms/blocks check --root apps/storefront`.
+In a monorepo, pass `--root` to both commands (`npx @decocms/blocks schema --root apps/storefront && npx @decocms/blocks check --root apps/storefront`) and diff `apps/storefront/.deco/schema.gen.json`.
+
+The build runs `deco check` too (in `prebuild`), so a broken mix of code and content fails the build and never deploys: the live site keeps serving the previous deploy. Optionally, turn on "Require branches to be up to date before merging" in your branch protection (or use a merge queue) to catch it at pull-request time instead of at build time: two pull requests can each pass on their own and break together.
 
 To rename a block type, keep the old name as an alias (see [Renaming and migrating](/next/renames-and-migrations#rename-a-type-with-an-alias)). To rename a field, add the new one, move the content over, then remove the old one.
 

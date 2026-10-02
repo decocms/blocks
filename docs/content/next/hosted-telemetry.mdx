@@ -9,8 +9,6 @@ description: With a site ID and token, your site sends Deco sampled, aggregated 
 
 Telemetry is a hosted feature. The framework doesn't send telemetry on its own: without the hosted Deco CMS, the instrumented fetch your [upstream clients](/next/upstream-clients) use measures every request but sends nothing, and the [Telemetry entry](#telemetry-settings-are-content) is inert. Teams that want their own observability instrument their own code with OpenTelemetry as usual (see [Your own tracing](/next/caching-and-observability#your-own-tracing)). With a connected site, those measurements reach Deco with no collector to run.
 
-<Callout>**Status.** Telemetry, the Telemetry entry and its field names are proposed; see the [Roadmap](/roadmap#roadmap-platform--build-the-telemetry-collector).</Callout>
-
 ## What it is
 
 **Telemetry** is sampled, aggregated measurements of your site's own requests and the third-party APIs it calls, so Deco can show you upstream latency and error rates for your site and spot regressions. It uses the same site ID and site token that load your releases, so there's nothing else to configure:
@@ -35,7 +33,7 @@ Without a site and a token, nothing is sent: in development, in tests, and on an
 | Edge cache: hits and misses for rendered pages and upstream responses | cache layer, outcome | Your framework binding |
 | Error logs | error code, block type, provider | The SDK and the bindings |
 
-The bindings' caching and request metrics aren't in the framework guides yet. An app that uses only `@decocms/blocks` sends upstream latency and error telemetry from the instrumented fetch, but no binding-level cache or inbound metrics yet (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)).
+An app that uses only `@decocms/blocks` sends upstream latency and error telemetry from the instrumented fetch. The framework binding adds cache and inbound request metrics.
 
 A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. Error logs are structured: they carry the error's code, message and where it happened, never upstream response bodies, tokens or cookies.
 
@@ -62,11 +60,11 @@ The settings live in a **Telemetry entry**: a well-known saved block named `Tele
 }
 ```
 
-The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it in every repository (without a connected site it's inert, and you can delete it), and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its [GitHub backend](/next/hosted-studio), the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same commit, visible in your Git history. Without the entry, a connected site uses the values the scaffold writes, shown above: telemetry and metrics on, and 5% of error logs sent (proposed, like the field names).
+The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it in every repository (without a connected site it's inert, and you can delete it), and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its [GitHub backend](/next/hosted-studio), the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same commit, visible in your Git history. Without the entry, a connected site uses the values the scaffold writes, shown above: telemetry and metrics on, and 5% of error logs sent.
 
 ## Real-user monitoring
 
-Real-user monitoring (RUM) measures what visitors experience in their browsers: a customer-facing alternative to Google Analytics, linked to A/B tests through variant exposure events (see [Matchers and variants](/next/matchers-and-variants)). It's planned as a follow-up after the first release; see the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
+Real-user monitoring (RUM) measures what visitors experience in their browsers: a customer-facing alternative to Google Analytics, linked to A/B tests through variant exposure events (see [Matchers and variants](/next/matchers-and-variants)).
 
 ## Troubleshooting
 

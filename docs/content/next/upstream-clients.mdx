@@ -10,8 +10,6 @@ description: Deco doesn't fetch data. Sites call commerce, search and email plat
 
 Deco doesn't fetch data. Your site calls commerce platforms, search services and email providers itself, through **upstream clients**: thin, typed API clients that send every request through the framework's instrumented fetch, so every call to a third-party API is measured the same way.
 
-<Callout>**Status.** The client model and `createInstrumentedFetch` are proposed and not released yet. See the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Callout>
-
 ## What a client is
 
 Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algolia, Resend and others. Each one is:
@@ -55,7 +53,7 @@ The operation names here are illustrative; each client mirrors its platform's AP
 
 ## Caching
 
-Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/how-it-works#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements. How a request opts in is still being designed; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
+Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/how-it-works#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements.
 
 Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and observability](/next/caching-and-observability) for the other caches a request passes through.
 
@@ -147,4 +145,4 @@ A few rules keep clients consistent:
 
 ## Moving an existing site
 
-Sites on [v7](/v7/loaders) call loaders and actions that live in the [apps](/v7/apps). The migration copies (vendors) the ones a site actually uses into the site's own code, rewritten over the clients, and keeps their old type names as [aliases](/next/renames-and-migrations#rename-a-type-with-an-alias), so saved content that refers to them still resolves. After that, the code is yours to change. See the [Roadmap](/roadmap#roadmap-cli--vendor-the-loaders-and-actions-a-site-uses-during-migration).
+Sites on [v7](/v7/loaders) call loaders and actions that live in the [apps](/v7/apps). The migration copies (vendors) the ones a site actually uses into the site's own code, rewritten over the clients, and keeps their old type names as [aliases](/next/renames-and-migrations#rename-a-type-with-an-alias), so saved content that refers to them still resolves. After that, the code is yours to change.

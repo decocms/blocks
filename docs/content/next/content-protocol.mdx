@@ -10,8 +10,6 @@ description: What Deco Studio needs from your repository, how it reads and write
 
 [Studio](/next/how-it-works#studio) edits your content without running your code. It reads and writes your files through a small protocol, the **content protocol**, so Studio works on the files on your machine or, through the hosted Deco CMS, on your GitHub repository.
 
-<Callout>**Status.** The content protocol, its package and `deco serve` are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-blockers--let-studio-talk-to-a-next-major-site).</Callout>
-
 ## What Studio needs
 
 - **The schema**, `.deco/schema.gen.json`, generated from your types (see [Schema](/next/schema)). Studio only reads it: no editor action changes it. To change a form, change the type and run `npx @decocms/blocks schema` again.
@@ -34,7 +32,7 @@ Two implementations serve the protocol:
 | **[`deco serve`](/next/cli#deco-serve)**, from the Deco CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
 | **Studio's GitHub backend**, part of the hosted Deco CMS | Your repository on GitHub, with draft branches and publishing. | About every 30 seconds |
 
-There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins in this version: if two people edit the same saved block at once, the later save replaces the earlier one.
+There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins: if two people edit the same saved block at once, the later save replaces the earlier one.
 
 <Hosted to="/next/hosted-studio" label="Editing in Studio on GitHub">**Edit without a local copy.** With the hosted Deco CMS, Studio's GitHub backend commits each save to a draft branch, and publishes by bringing the draft to your production branch, so editors need no copy of the code, dev server or Git.</Hosted>
 
@@ -51,7 +49,7 @@ There's no event stream. Studio polls with one batched request, and when nothing
    Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
    ```
 
-3. Open the link and pick the site in Studio to edit. Editing on your machine is planned to need no Deco account: without one, the link opens a play workspace in Studio, which isn't built yet (see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)).
+3. Open the link and pick the site in Studio to edit. Editing on your machine needs no Deco account: without one, the link opens a play workspace in Studio.
 4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access, formerly Private Network Access). Allow it.
 
 Each save writes `.deco/blocks`. Editing an existing file hot-reloads through your framework. The server also regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. The canvas opens your dev app (`--app-url`). Nothing is committed: review the diff and commit it like any other change.
@@ -61,8 +59,6 @@ The server listens on 127.0.0.1 unless you pass `--host`, answers only requests 
 ### Images and other uploads
 
 When an editor uploads an image or another file in Studio, `deco serve` writes it into your repository, in `.deco/assets/`, and the field stores the file's path, such as `/assets/summer-banner.jpg`. Like your entries, uploads are ordinary files: you review them and commit them with the rest of your content.
-
-<Callout>**Status.** Uploads with `deco serve` are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-cli--store-uploads-in-the-repository-with-deco-serve).</Callout>
 
 The field always stores `/assets/<name>`, whatever folder the files are written to, so your app has to serve that folder at `/assets/`. Nothing serves `.deco/assets` by default: a field pointing there shows a broken image until your app serves the folder. The simplest way is to write uploads into the folder your app already serves. Vite, TanStack Start and Next.js all serve `public/` at the site root, so with
 
@@ -82,7 +78,7 @@ Uploads make your repository bigger: every clone carries every image, and a repl
 
 Forms, variants and their rules, pages and redirects need only the schema and the files, so they work the same as on the legacy path. Uploads work too: they're stored in your repository with `deco serve` (see [Images and other uploads](#images-and-other-uploads)) and in Deco's asset storage with the hosted Deco CMS. A few features ran your site's code; without it they degrade:
 
-| Feature | In this version |
+| Feature | Without your site's code |
 |---|---|
 | Block previews: gallery thumbnails, saved-block previews, in-place renders | A card with the block's name, its `@title` and description, and the `@image` thumbnail if the schema has one. The main canvas opens the real page: your dev app with `deco serve`, or, with the hosted Deco CMS, your deployed site showing the draft (see [Drafts on your site](/next/hosted-drafts)). |
 | Pickers whose options come from your code | The options declared in the schema, else a text field. `deco schema` writes static lists into the schema (string-literal unions, enums and `@options` lists), so those stay selects; see [Widgets](/next/schema#widgets). |
@@ -103,4 +99,4 @@ The content protocol is JSON-RPC 2.0 (a small standard for calling named methods
 | `blocks.list` | Reads every saved block at once, with a revision for the whole set |
 | `blocks.apply` | The only write: sets and deletes saved blocks together, all or nothing, optionally only if a block is still at a given version |
 
-Both reads take the version they already have and answer "not modified" when it's current, which is what makes polling cheap. Studio and the CLI share one implementation, proposed as `@decocms/blocks-protocol`: the method types, a client, a server core over a storage interface, and a filesystem storage. The methods, errors, limits and file-name rule are [under the hood](/next/studio-compatibility#the-content-protocol).
+Both reads take the version they already have and answer "not modified" when it's current, which is what makes polling cheap. Studio and the CLI share one implementation, `@decocms/blocks-protocol`: the method types, a client, a server core over a storage interface, and a filesystem storage. The methods, errors, limits and file-name rule are [under the hood](/next/studio-compatibility#the-content-protocol).

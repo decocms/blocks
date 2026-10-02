@@ -89,7 +89,7 @@ import content from "../.deco/blocks.gen";
 export const cms = createCMS({ blocks, content });
 ```
 
-The content options are in [Configuring content](/next/api-reference#configuring-content). Upstream caching comes from the [framework binding](/next/how-it-works#key-terms), which this guide doesn't use yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
+The content options are in [Configuring content](/next/api-reference#configuring-content). Upstream caching comes from the [framework binding](/next/how-it-works#key-terms), which this guide doesn't use (see [Caching](/next/upstream-clients#caching)).
 
 ```ts title="src/client.server.ts"
 import "server-only";
@@ -113,7 +113,7 @@ Two CLI commands generate the files the app and Studio need (see [CLI reference]
 {
   "scripts": {
     "predev": "deco schema && deco content",
-    "prebuild": "deco schema && deco content"
+    "prebuild": "deco schema && deco content && deco check"
   }
 }
 ```
