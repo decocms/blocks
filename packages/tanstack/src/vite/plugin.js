@@ -84,8 +84,11 @@ function resolveBuildHash() {
   return Date.now().toString(36);
 }
 
-// Virtual id for meta.gen.json on the server — must NOT end in `.json`.
-const META_GEN_SSR_ID = "\0deco:meta-gen-ssr";
+// Virtual id for meta.gen.json on the server: the real path wrapped so the id
+// does NOT end in `.json` (Vite's `vite:json` would re-parse our JS output).
+const META_GEN_PREFIX = "\0deco-meta:";
+const META_GEN_SUFFIX = ".deco-meta.js";
+const metaGenSsrId = (file) => META_GEN_PREFIX + file + META_GEN_SUFFIX;
 
 // Bare-specifier stubs resolved by ID before Vite touches them.
 /** @type {Record<string, string>} */
@@ -228,8 +231,6 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
   // the `.json` sibling that the stub bypasses — stubbing there blanks the
   // local site.
   let isBuild = false;
-  // Real path behind META_GEN_SSR_ID, captured in `resolveId`.
-  let metaGenPath;
 
   /** @type {import("vite").Plugin} */
   const plugin = {
@@ -247,10 +248,7 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
       // build ("Failed to parse JSON file").
       if (options?.ssr && importer && id.endsWith("meta.gen.json")) {
         const file = path.isAbsolute(id) ? id : path.resolve(path.dirname(importer), id);
-        if (existsSync(file)) {
-          metaGenPath = file;
-          return META_GEN_SSR_ID;
-        }
+        if (existsSync(file)) return metaGenSsrId(file);
         // Absent (pre-generate-schema) — let Vite report it normally.
       }
       // Server builds keep the real modules.
@@ -312,10 +310,11 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
       // materializes the object graph at all.
       //
       // The client is stubbed in `resolveId` above and never reaches here.
-      if (id === META_GEN_SSR_ID && metaGenPath) {
+      if (id.startsWith(META_GEN_PREFIX) && id.endsWith(META_GEN_SUFFIX)) {
+        const file = id.slice(META_GEN_PREFIX.length, -META_GEN_SUFFIX.length);
         // Virtual id → Vite won't watch the file on its own.
-        this.addWatchFile?.(metaGenPath);
-        const raw = readFileSync(metaGenPath, "utf-8");
+        this.addWatchFile?.(file);
+        const raw = readFileSync(file, "utf-8");
         return `export default JSON.parse(${JSON.stringify(raw)});`;
       }
 
@@ -605,7 +604,7 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
               console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
               // Invalidate the meta.gen.json module so SSR picks up fresh schema
               const mod =
-                server.environments?.ssr?.moduleGraph?.getModuleById(schemaOutFile);
+                server.environments?.ssr?.moduleGraph?.getModuleById(metaGenSsrId(schemaOutFile));
               if (mod) {
                 server.environments.ssr.moduleGraph.invalidateModule(mod);
               }

@@ -127,9 +127,8 @@ describe("decoVitePlugin __DECO_BUILD_HASH__ injection", () => {
 });
 
 describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-parse)", () => {
-  // Vite's json plugin transforms every id matching this regex — even when
-  // another plugin already loaded it as JS.
-  const viteJsonIdRE = /\.json(?:$|\?)(?!commonjs-(?:proxy|external))/;
+  // Vite's json plugin transforms every `.json` id — even when another plugin
+  // already loaded it as JS — so the virtual id must not end in `.json`.
   let dir;
 
   beforeEach(() => {
@@ -148,12 +147,40 @@ describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-pars
     const importer = path.join(dir, "src", "setup.ts");
     const id = p.resolveId.call({}, "../.deco/meta.gen.json", importer, { ssr: true });
     expect(id).toBeTypeOf("string");
-    expect(viteJsonIdRE.test(id)).toBe(false);
+    expect(id.endsWith(".json")).toBe(false);
 
     const watched = [];
     const code = p.load.call({ addWatchFile: (f) => watched.push(f) }, id, { ssr: true });
     expect(code).toBe(`export default JSON.parse(${JSON.stringify('{"major":1,"schema":{}}')});`);
     expect(watched).toEqual([path.join(dir, ".deco", "meta.gen.json")]);
+  });
+
+  it("gives each meta.gen.json its own module id (no shared state)", () => {
+    const p = getPlugin();
+    const other = mkdtempSync(path.join(tmpdir(), "deco-meta-other-"));
+    try {
+      writeFileSync(path.join(other, "meta.gen.json"), '{"major":2}');
+      const a = p.resolveId.call({}, "../.deco/meta.gen.json", path.join(dir, "src", "setup.ts"), {
+        ssr: true,
+      });
+      const b = p.resolveId.call({}, path.join(other, "meta.gen.json"), path.join(dir, "x.ts"), {
+        ssr: true,
+      });
+      expect(a).not.toBe(b);
+      // Loading in reverse order still returns each file's own content.
+      expect(p.load.call({}, b, { ssr: true })).toContain('\\"major\\":2');
+      expect(p.load.call({}, a, { ssr: true })).toContain('\\"major\\":1');
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it("falls through to Vite when meta.gen.json does not exist yet", () => {
+    const p = getPlugin();
+    const importer = path.join(dir, "src", "setup.ts");
+    expect(
+      p.resolveId.call({}, "../missing/meta.gen.json", importer, { ssr: true }),
+    ).toBeUndefined();
   });
 
   it("still stubs meta.gen.json on the client", () => {
