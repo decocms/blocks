@@ -61,7 +61,7 @@ The SDK and CLI are open source and run without a Deco account.
 
 Studio is Deco's content editor: the web app where marketing and the rest of the business change your site without touching code. It shows a form for each block, built from your types, and saves every change back to the JSON files in `.deco/blocks`.
 
-You can try Studio on your app running on your machine, with or without a Deco account. Run [`npx @decocms/blocks serve`](/next/cli#edit-on-your-machine) in your project beside your dev server and open the link it prints. Without an account, Studio opens straight on your files; if you're signed in, the same link opens them inside your Deco account. Either way, Studio edits the JSON files in your project folder, its canvas shows your dev app, and you commit the changes like any other.
+You can test Studio on your app running on your machine, with or without a Deco account: run [`npx @decocms/blocks serve`](/next/cli#edit-on-your-machine) beside your dev server and open the link it prints. Studio edits the JSON files in your project folder, and you commit the changes like any other.
 
 Studio never runs your code: it needs only `.deco/blocks` and the schema, which your `predev` script writes (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)). A few things depend on your code, so they work differently:
 

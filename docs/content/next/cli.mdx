@@ -154,7 +154,7 @@ deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--toke
    Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
    ```
 
-3. Open the link. You don't need a Deco account.
+3. Open the link, with or without a Deco account.
 4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access). Allow it.
 
 Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)).
