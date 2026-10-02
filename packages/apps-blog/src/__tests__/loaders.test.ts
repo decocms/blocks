@@ -100,6 +100,22 @@ describe("BlogRelatedPostsLoader", () => {
     mockGetRecords.mockReturnValue([]);
     expect(await BlogRelatedPostsLoader({})).toBeNull();
   });
+
+  // A post with no categories arrives here as `slug: []`. Answering the whole
+  // blog would turn "related posts" into a second listing of everything.
+  it("returns null for an empty category list, not every post", async () => {
+    expect(await BlogRelatedPostsLoader({ slug: [] })).toBeNull();
+  });
+
+  it("still relates on a non-empty category list", async () => {
+    mockGetRecords.mockReturnValue([
+      makePost({ slug: "in", categories: [{ name: "News", slug: "news" }] }),
+      makePost({ slug: "out", categories: [{ name: "Tech", slug: "tech" }] }),
+    ]);
+
+    const result = await BlogRelatedPostsLoader({ slug: ["news"] });
+    expect(result?.map((p) => p.slug)).toEqual(["in"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -184,6 +200,34 @@ describe("GetCategories", () => {
   it("returns null when no categories", () => {
     mockGetRecords.mockReturnValue([]);
     expect(GetCategories({})).toBeNull();
+  });
+
+  describe("parentSlug", () => {
+    const nested: Category[] = [
+      { name: "Root", slug: "root" },
+      { name: "Zeta", slug: "zeta", parentSlug: "root" },
+      { name: "Alpha", slug: "alpha", parentSlug: "root" },
+      { name: "Deep", slug: "deep", parentSlug: "alpha" },
+    ];
+
+    beforeEach(() => {
+      mockGetRecords.mockReturnValue([...nested]);
+    });
+
+    it("returns only direct children, not the whole subtree", () => {
+      const result = GetCategories({ parentSlug: "root" });
+      expect(result!.map((c) => c.slug)).toEqual(["Alpha", "Zeta"].map((n) => n.toLowerCase()));
+    });
+
+    it("slices the scoped children by count", () => {
+      expect(GetCategories({ parentSlug: "root", count: 1 })!.map((c) => c.slug)).toEqual([
+        "alpha",
+      ]);
+    });
+
+    it("returns an empty list for a category with no children", () => {
+      expect(GetCategories({ parentSlug: "deep" })).toEqual([]);
+    });
   });
 });
 

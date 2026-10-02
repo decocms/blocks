@@ -1,17 +1,38 @@
 export type Props = {
   url: string;
+  /** @description Optional mobile-optimized image. Served below 768px. */
+  mobileUrl?: string;
   alt?: string;
   caption?: string;
   size?: "full" | "normal";
+  /** @description Loads eagerly with high fetch priority. Use for above-the-fold images. */
+  highPriority?: boolean;
 };
 
-export default function BlockImage({ url, alt, caption, size }: Props) {
+export default function BlockImage({
+  url,
+  mobileUrl,
+  alt,
+  caption,
+  size,
+  highPriority = false,
+}: Props) {
   const wrapperClass = size === "full" ? "my-8 -mx-[var(--gutter)]" : "my-8";
 
   return (
     <figure className={wrapperClass}>
       <div className="overflow-hidden bg-alt">
-        <img src={url} alt={alt ?? ""} loading="lazy" className="w-full h-auto block" />
+        <picture>
+          {mobileUrl && <source media="(max-width: 767px)" srcSet={mobileUrl} />}
+          <img
+            src={url}
+            alt={alt ?? ""}
+            {...(highPriority
+              ? { loading: "eager" as const, fetchPriority: "high" as const }
+              : { loading: "lazy" as const, decoding: "async" as const })}
+            className="w-full h-auto block"
+          />
+        </picture>
       </div>
       {caption && (
         <figcaption className="text-sm text-tertiary text-center mt-3 italic">{caption}</figcaption>

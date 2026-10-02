@@ -1,3 +1,4 @@
+import { childrenOf } from "../core/categoryTree";
 import { getRecordsByPath } from "../core/records";
 import type { Category } from "../types";
 
@@ -10,6 +11,11 @@ export interface Props {
    * @description Get the category data from a specific slug.
    */
   slug?: string;
+  /**
+   * @title Parent category slug
+   * @description Return only the direct children of this category.
+   */
+  parentSlug?: string;
   /**
    * @title Items count
    * @description Number of categories to return
@@ -29,6 +35,7 @@ export interface Props {
 export default function GetCategories({
   count,
   slug,
+  parentSlug,
   sortBy = "title_desc",
 }: Props): Category[] | null {
   const categories = getRecordsByPath<Category>(COLLECTION_PATH, ACCESSOR);
@@ -53,7 +60,9 @@ export default function GetCategories({
 
   if (!validCategories.length) return null;
 
-  const sortedCategories = validCategories.sort((a, b) => {
+  const scoped = parentSlug ? childrenOf(parentSlug, validCategories) : validCategories;
+
+  const sortedCategories = scoped.sort((a, b) => {
     const comparison = a.name.localeCompare(b.name);
     return sortBy.endsWith("_desc") ? comparison : -comparison;
   });

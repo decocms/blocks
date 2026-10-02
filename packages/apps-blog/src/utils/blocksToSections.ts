@@ -123,9 +123,14 @@ function blockToSection(
       case "image":
         return toSection(`${BASE}/BlockImage.tsx`, {
           url: content.url,
+          mobileUrl: content.mobileUrl,
           alt: content.alt,
           caption: content.caption,
           size: content.size,
+          // Upstream does not forward this, which leaves every block-pipeline
+          // image lazy-loaded and the prop reachable only on a hand-placed
+          // BlockImage section.
+          highPriority: content.highPriority,
         });
 
       case "video":

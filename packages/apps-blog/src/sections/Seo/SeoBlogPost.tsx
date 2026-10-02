@@ -52,7 +52,9 @@ export function loader(props: Props, req?: Request, seo?: BlogSeoDefaults) {
         toBlogPosting(jsonLD.post, pageUrl, publisher),
         toBreadcrumbList(pageUrl, {
           currentName: jsonLD.post.title,
-          categories: jsonLD.post.categories,
+          // The ancestor chain, so every category segment of the canonical path
+          // resolves to its real name instead of a humanized slug.
+          categories: jsonLD.categories ?? jsonLD.post.categories,
         }),
       ]
     : [];
