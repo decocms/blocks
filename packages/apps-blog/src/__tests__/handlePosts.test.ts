@@ -212,6 +212,11 @@ describe("filterRelatedPosts", () => {
     const result = filterRelatedPosts(posts, ["news"]);
     expect(result.find((p) => p.slug === "c")).toBeUndefined();
   });
+
+  // Opposite of filterPostsByCategory, which reads an empty list as "no filter".
+  it("relates nothing on an empty slug list", () => {
+    expect(filterRelatedPosts(posts, [])).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

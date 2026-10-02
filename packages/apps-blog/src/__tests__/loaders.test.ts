@@ -100,6 +100,18 @@ describe("BlogRelatedPostsLoader", () => {
     mockGetRecords.mockReturnValue([]);
     expect(await BlogRelatedPostsLoader({})).toBeNull();
   });
+
+  // A post with no categories arrives here as `slug: []`. Answering the whole
+  // blog would turn "related posts" into a second listing of everything.
+  it("returns null for an empty category list, not every post", async () => {
+    expect(await BlogRelatedPostsLoader({ slug: [] })).toBeNull();
+  });
+
+  it("still relates on a non-empty category list", async () => {
+    const result = await BlogRelatedPostsLoader({ slug: ["news"] });
+    expect(result).not.toBeNull();
+    expect(result).toHaveLength(3);
+  });
 });
 
 // ---------------------------------------------------------------------------

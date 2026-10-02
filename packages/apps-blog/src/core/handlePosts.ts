@@ -101,9 +101,16 @@ export const filterPostsByTerm = (posts: BlogPost[], term: string): BlogPost[] =
     [content, excerpt, title].some((field) => field?.toLowerCase().includes(term.toLowerCase())),
   );
 
-/** Filter posts whose categories overlap with the given slug array. */
+/**
+ * Filter posts whose categories overlap with the given slug array.
+ *
+ * An empty array means "this post has no categories to relate on", which is the
+ * opposite of what `filterPostsByCategory` reads it as (no filter, every post),
+ * so it is answered here rather than delegated. Diverges from upstream, where
+ * this is an unguarded alias.
+ */
 export const filterRelatedPosts = (posts: BlogPost[], slugs: string[]): BlogPost[] =>
-  filterPostsByCategory(posts, slugs);
+  slugs.length > 0 ? filterPostsByCategory(posts, slugs) : [];
 
 /** Slice posts for pagination. */
 export const slicePosts = (
