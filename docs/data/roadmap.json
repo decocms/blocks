@@ -124,7 +124,7 @@
   "overview": {
     "intro": "<p>Deco Blocks is the next major version of Deco's framework, which ships today as the <code>@decocms</code> 7.x packages. The API in these docs is proposed and hasn't shipped yet; this page is the to-do list for releasing it (a release of the framework, not to be confused with content releases). To build it, we checked the proposed API feature by feature against three real sites that will move to it: a <a href=\"#roadmap-storefront\">TanStack storefront</a> on the current packages, a <a href=\"#roadmap-blog\">TanStack blog</a> on an older package, and a <a href=\"#roadmap-faststore\">Next.js storefront</a> on another CMS.</p>\n<p>No site can move using only what these docs describe. Each first needs something missing: Studio support, a way for blocks to read the current request, or SDK functions beyond the CMS. The <a href=\"#roadmap-blockers\">ten release blockers</a> gate the release; the status of every feature the three sites use is under <a href=\"#roadmap--release-readiness\">Release readiness</a>.</p>",
     "readiness_lead": "None of the 111 features those sites use is done yet: 11 are still to build, 66 are to finish, 28 are left to site code, and 6 go away with the migration.",
-    "fix_docs": "<a class=\"rm-do-t\" href=\"#roadmap-docs\">Fix the docs</a> A few statements in these docs still disagree. <a href=\"#schema\">Schema generation</a> says the CMS never sees <code>Content</code>, while the <a href=\"#api-reference\">API reference</a> says <code>list</code> also matches aliases of a type, which for a <code>Content</code> type only the CLI knows. The fixes are the first two docs work items: {{item:roadmap-docs--resolve-contradictions-in-these-docs}} and {{item:roadmap-docs--correct-studio-compatibility}}."
+    "fix_docs": "<a class=\"rm-do-t\" href=\"#roadmap-docs\">Fix the docs</a> A few statements in these docs are still loose or wrong. The fixes are the first two docs work items: {{item:roadmap-docs--resolve-contradictions-in-these-docs}} and {{item:roadmap-docs--correct-studio-compatibility}}."
   },
   "blockers": [
     {
@@ -258,7 +258,7 @@
     {
       "id": "roadmap-blockers--make-the-next-major-load-and-resolve-legacy-content",
       "title": "Make the next major load and resolve legacy content",
-      "today": "Filename decoding is unspecified, and the alias bridge covers only pages, matchers and multivariate, while Studio writes Lazy, SeoV2, <code>site/apps/site.ts</code>, redirect, secret and the <code>multi</code> matcher. UNKNOWN_BLOCK now fails the parent block, and <code>list()</code> can't see Content aliases.",
+      "today": "Filename decoding is unspecified, and the alias bridge covers only pages, matchers and multivariate, while Studio writes Lazy, SeoV2, <code>site/apps/site.ts</code>, redirect, secret and the <code>multi</code> matcher. UNKNOWN_BLOCK now fails the parent block.",
       "plan": "Use the protocol's one filename rule (decode exactly once), widen the alias bridge, ship <code>deco content</code> (with <code>deco schema</code> reporting collisions), and have the CLI emit a runtime alias table.",
       "features": [
         "block-type-discriminator",
@@ -1172,7 +1172,7 @@
       "id": "roadmap-cli--add-deco-schema-check-a-compatibility-check",
       "group": "cli",
       "title": "Add <code>deco schema --check</code>, a compatibility check",
-      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type or <code>Content</code> type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes; Content types wait for the <a href=\"#roadmap-cli--emit-a-runtime-alias-table\">runtime alias table</a>. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime. Ships with the first release.</p>",
+      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime. Ships with the first release.</p>",
       "features": [
         "content-schema-drift",
         "ci-and-release-workflows",
@@ -1311,7 +1311,7 @@
       "id": "roadmap-cli--emit-a-runtime-alias-table",
       "group": "cli",
       "title": "Emit a runtime alias table",
-      "plan": "<p>The CLI emits an alias table, a list of second names for types. <code>createCMS</code> accepts it, so <code>list()</code> and <code>resolve()</code> work through Content aliases. The schema carries it too, mapping the short names (<code>page</code>, <code>redirect</code>, <code>always</code>, <code>never</code>, <code>multivariate</code>, <code>secret</code>) to the well-known types Studio's special screens look for, so those screens keep working for renamed types.</p>",
+      "plan": "<p>The CLI emits an alias table, a list of second names for types. <code>createCMS</code> accepts it, so <code>list()</code> and <code>resolve()</code> work through aliases. The schema carries it too, mapping the short names (<code>page</code>, <code>redirect</code>, <code>always</code>, <code>never</code>, <code>multivariate</code>, <code>secret</code>) to the well-known types Studio's special screens look for, so those screens keep working for renamed types.</p>",
       "features": [
         "cms-page-routing",
         "codegen-pipeline",
@@ -1626,7 +1626,7 @@
       "id": "roadmap-docs--resolve-contradictions-in-these-docs",
       "group": "docs",
       "title": "Resolve contradictions in these docs",
-      "plan": "<ul><li>'The CMS never sees Content' (<a href=\"#schema\">Schema generation</a>) vs list through aliases (<a href=\"#api-reference\">API reference</a>).</li></ul><p>Also: make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden block's <code>undefined</code> render nothing, say what a reference to a Content entry resolves to, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
+      "plan": "<p>Make Page.seo optional, drop array elements that resolve to <code>undefined</code> (Studio's hidden array items), make a hidden block's <code>undefined</code> render nothing, and fix the credential sentence in <a href=\"#preview\">Preview</a>.</p>",
       "features": [
         "cms-page-routing",
         "codegen-pipeline",
@@ -2064,7 +2064,7 @@
           "id": "roadmap-blog--alias-legacy-types-and-render-body-blocks",
           "kind": "content",
           "title": "Alias legacy types and render body blocks",
-          "text": "25 legacy types (210 occurrences) need aliases, and body blocks become a Content-typed renderer.",
+          "text": "25 legacy types (210 occurrences) need aliases, and body blocks become a data-only block with a renderer.",
           "features": [
             "block-type-discriminator",
             "post-body-block-renderer"
@@ -2625,7 +2625,7 @@
       "sites": [
         "blog-tanstack"
       ],
-      "summary": "Block functions get no access to the content they're resolved against, so apps-blog's loaders, which read the global `loadBlocks()`, must be rewritten around a client the app provides. How `list()` learns Content aliases is unexplained.",
+      "summary": "Block functions get no access to the content they're resolved against, so apps-blog's loaders, which read the global `loadBlocks()`, must be rewritten around a client the app provides.",
       "docs": [
         "api-reference",
         "routes-and-redirects",
@@ -2646,7 +2646,7 @@
       "sites": [
         "blog-tanstack"
       ],
-      "summary": "The in-memory join is trivial for 4 authors and 5 categories, but it depends on the same unsolved client access as key-prefix collections. A real reference to a Content-only entry would fail with UNKNOWN_BLOCK.",
+      "summary": "The in-memory join is trivial for 4 authors and 5 categories, but it depends on the same unsolved client access as key-prefix collections.",
       "docs": [
         "api-reference",
         "blocks",
@@ -2726,7 +2726,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "A block that references a Content-typed menu entry fails with UNKNOWN_BLOCK, which contradicts the advice to declare navigation in Content. Nothing says whether `deco schema` handles the intersections and recursion in `SiteNavigationElement`.",
+      "summary": "Navigation is a data-only block, so a block can reference a saved menu entry. Nothing says whether `deco schema` handles the intersections and recursion in `SiteNavigationElement`.",
       "docs": [
         "blocks",
         "routes-and-redirects",
@@ -2984,7 +2984,7 @@
       "sites": [
         "faststore"
       ],
-      "summary": "Server-side product inputs and typed card config work as documented, but apps-vtex has no tax-inclusive prices, full installment ladders or delivery badges, and a Content-typed card-config entry nested in a block fails with UNKNOWN_BLOCK.",
+      "summary": "Server-side product inputs and typed card config work as documented, but apps-vtex has no tax-inclusive prices, full installment ladders or delivery badges",
       "docs": [
         "block-maps",
         "blocks",
@@ -4295,7 +4295,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `--check` compatibility check yet, and Content aliases can't work at runtime.",
+      "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `--check` compatibility check yet",
       "docs": [
         "schema",
         "block-maps",

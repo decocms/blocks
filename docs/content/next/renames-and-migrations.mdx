@@ -13,21 +13,19 @@ This page covers renaming safely, and bringing in content from a site built on D
 
 ## Rename a type with an alias
 
-An alias is another key pointing at the same thing: the same function in the block map, or the same type in [`Content`](/next/schema). Content that stores the old name keeps working, and routing is unaffected because `matchRoute` looks at each entry's `path` field (see [Routes and redirects](/next/routes-and-redirects)), not its type name. Here, [`Page`](/next/routes-and-redirects) is the built-in page type from `@decocms/blocks`; you declare only the legacy name, since `page` itself is built in:
+An alias is another key in the block map pointing at the same function. Content that stores the old name keeps working, and routing is unaffected because `matchRoute` looks at each entry's `path` field (see [Routes and redirects](/next/routes-and-redirects)), not its type name:
 
 ```ts title="blocks.ts"
-import type { Blocks, Page } from "@decocms/blocks";
+import type { Blocks } from "@decocms/blocks";
 import productCard from "./product-card";
 
 export default {
   "product-card": productCard,
   "site/sections/Product.tsx": productCard,     // the name legacy content stores
 } satisfies Blocks;
-
-export type Content = {
-  "website/pages/Page.tsx": Page;               // the built-in page type, legacy name; entries still route
-};
 ```
+
+Legacy page names such as `website/pages/Page.tsx` need no entry: the CLI's alias table maps them to the built-in `page` (see [Studio compatibility](/next/studio-compatibility)).
 
 An alias only works while both names take the same inputs. If the old shape differs, register a function under the old name that converts the old inputs and calls the new function, or migrate the content first. Here the old content called the title `name`:
 

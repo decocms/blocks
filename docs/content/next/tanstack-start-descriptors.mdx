@@ -19,16 +19,15 @@ Editors choose page URLs in Studio, so your app can't know its routes ahead of t
 import type { Blocks, Seo } from "@decocms/blocks";
 import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, ResolvedPage } from "./model";
 
-export type Content = { page: ResolvedPage<BlockDescriptor> };
-
 export default {
+  page: (input: ResolvedPage<BlockDescriptor>) => input,
   seo: (input: Seo) => input,
   "promo-banner": (input: PromoBannerProps): BlockDescriptor => ({ component: "promo-banner", props: input }),
   "product-hero": (input: ProductHeroProps): BlockDescriptor => ({ component: "product-hero", props: input }),
 } satisfies Blocks;
 ```
 
-These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. `Content` overrides the `page` schema with `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`. The built-in `page` and `redirect` blocks are added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
+These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. The `page` key overrides the built-in page with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in `redirect` block is added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
 
 ```json title="package.json"
 {

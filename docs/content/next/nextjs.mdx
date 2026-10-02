@@ -189,7 +189,7 @@ If any block fails, `resolve` returns an error, `openPage` throws it, and Next s
 
 ## 6. List another content type
 
-Add `src/post.ts` from [Your own routable types](/next/routes-and-redirects#your-own-routable-types), add `export type Content = { post: Post };` to `src/blocks.tsx` (importing `Post` from `./post`), and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `npx @decocms/blocks content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
+Add `src/post.ts` from [Your own routable types](/next/routes-and-redirects#your-own-routable-types), add `post: (props: Post) => props` to the default export of `src/blocks.tsx` (importing `Post` from `./post`), run `npx @decocms/blocks schema` again, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `npx @decocms/blocks content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins: `match.entry` is already the saved post. Call `c.resolve(match.entry)` only if your posts contain blocks:
 
 ```ts title="src/open-page.server.ts (changes)"
 import type { Post } from "./post";

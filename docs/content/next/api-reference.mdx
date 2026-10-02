@@ -141,7 +141,7 @@ A string target is always a saved block's name. Any other value is walked as is,
 
 ## `client.list(type, options?)`
 
-Every saved block whose `__resolveType` is `type` or an [alias](/next/renames-and-migrations) of it (another key for the same type, used when renaming). By default nothing runs: each entry comes back as `resolve(name, { run: false })` would return it. With `run: true` each entry is resolved, so every block inside it, and the entry's own type, must be in the block map (built-ins included) or a saved block, or it fails with `UNKNOWN_BLOCK`. `list("page", { run: true })` returns ready pages. Listing a `Content`-only type such as `post` with `run: true` fails.
+Every saved block whose `__resolveType` is `type` or an [alias](/next/renames-and-migrations) of it (another key for the same type, used when renaming). By default nothing runs: each entry comes back as `resolve(name, { run: false })` would return it. With `run: true` each entry is resolved, so every block inside it, and the entry's own type, must be in the block map (built-ins included) or a saved block, or it fails with `UNKNOWN_BLOCK`. `list("page", { run: true })` returns ready pages.
 
 ```ts
 interface ListOptions<T> {
@@ -225,8 +225,8 @@ interface DraftPointer { host: string; path: string; version: string }
 
 interface Route { name: string; path: string }                    // extend it to give a type a URL
 
-// The built-in types. Their blocks are always in the registry: override the schema in Content with an
-// interface that extends them, or the runtime block by declaring the key in your block map.
+// The built-in types. Their blocks are always in the registry and the schema: override one by declaring
+// the key in your block map, e.g. page: (props: StorePage) => props with an interface that extends Page.
 interface Seo { title: string; description: string }
 interface Page extends Route { seo: Seo; sections: ReactNode[] }   // resolved types (see Schema)
 interface Redirect { from: string; to: string; permanent: boolean }
