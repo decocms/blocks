@@ -964,6 +964,27 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     expect(json).not.toContain("VideoObject");
   });
 
+  it("points ListItems at the canonical product URL and drops items without one", () => {
+    const seo = extractSeoFromProps({
+      jsonLD: plp({
+        products: [
+          {
+            name: "SKU A",
+            url: "https://x.com/a/p?skuId=1",
+            isVariantOf: { name: "A", url: "https://x.com/a/p" },
+          },
+          { name: "No URL" },
+          { name: "B", url: "https://x.com/b/p?skuId=2" },
+        ],
+      }),
+    });
+    expect(seo.jsonLDs?.[0].itemListElement).toEqual([
+      { "@type": "ListItem", position: 1, url: "https://x.com/a/p", name: "A" },
+      { "@type": "ListItem", position: 2, url: "https://x.com/b/p?skuId=2", name: "B" },
+    ]);
+    expect(seo.jsonLDs?.[0].numberOfItems).toBe(2);
+  });
+
   it("omits the BreadcrumbList when the listing has no breadcrumb", () => {
     const seo = extractSeoFromProps({ jsonLD: plp({ breadcrumb: undefined }) });
     expect(seo.jsonLDs).toHaveLength(1);
@@ -976,6 +997,7 @@ describe("extractSeoFromProps — commerce jsonLD structured data", () => {
     });
     const seo = extractSeoFromProps({ jsonLD: source, omitVariants: true });
     expect(seo.jsonLDs?.[0].product.isVariantOf.hasVariant).toEqual([]);
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture
     expect((source.product as any).isVariantOf.hasVariant).toHaveLength(1);
   });
 });
@@ -1296,7 +1318,9 @@ describe("layoutCacheKey — the resolved-layout cache is segmented by device", 
   // navigation.
 
   it("mobile, tablet and desktop are three distinct keys", () => {
-    const keys = [MOBILE_UA, TABLET_UA, DESKTOP_UA].map((ua) => layoutCacheKey(KEY, { userAgent: ua }));
+    const keys = [MOBILE_UA, TABLET_UA, DESKTOP_UA].map((ua) =>
+      layoutCacheKey(KEY, { userAgent: ua }),
+    );
     expect(new Set(keys).size).toBe(3);
   });
 
