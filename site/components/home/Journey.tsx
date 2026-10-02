@@ -39,7 +39,7 @@ function commitMessage(saved: Values, values: Values) {
   return changed.length ? `update ${changed.length} experiments` : ''
 }
 
-const Arrow = () => (
+export const Arrow = () => (
   <span
     className="absolute z-2 top-1/2 -right-[18px] size-[26px] -mt-[13px] grid place-items-center rounded-full bg-win-panel border border-border text-eyebrow shadow-sm max-rail:hidden"
     aria-hidden="true"
@@ -49,57 +49,34 @@ const Arrow = () => (
 )
 
 /* The four panes. `jp` is the hook the phone carousel queries. */
-const pane = 'jp relative min-w-0 flex flex-col border border-hairline rounded-xl bg-win-panel max-md:snap-start'
-const head = 'flex items-center gap-2 h-[42px] px-3.5 border-b border-hairline'
-const stepNum = 'text-12 leading-4 tabular-nums text-eyebrow'
-const title = 'text-13.5 leading-5 font-medium text-fg tracking-ui whitespace-nowrap'
-const meta = 'ml-auto min-w-0 font-mono text-11 leading-4 font-normal text-muted-fg overflow-hidden text-ellipsis whitespace-nowrap'
+export const pane = 'jp relative min-w-0 flex flex-col border border-hairline rounded-xl bg-win-panel max-md:snap-start'
+export const head = 'flex items-center gap-2 h-[42px] px-3.5 border-b border-hairline'
+export const stepNum = 'text-12 leading-4 tabular-nums text-eyebrow'
+export const title = 'text-13.5 leading-5 font-medium text-fg tracking-ui whitespace-nowrap'
+export const meta = 'ml-auto min-w-0 font-mono text-11 leading-4 font-normal text-muted-fg overflow-hidden text-ellipsis whitespace-nowrap'
 /* The panes sit on the mock's light surface, so a scrolling pane's focus ring is the olive ring,
    not the lime one the Hero gives its other descendants. */
-const pre = 'flex-1 m-0 pb-3.5 overflow-x-auto text-10.5 leading-[18px] text-code-fg scrollbar-none focus-visible:outline-ring'
+export const pre = 'flex-1 m-0 pb-3.5 overflow-x-auto text-10.5 leading-[18px] text-code-fg scrollbar-none focus-visible:outline-ring'
 /** A numbered pane: no left padding, the line numbers' hairline drawn as a scrolling background. */
-const preLn = `${pre} pt-3 pl-0 pr-2 [counter-reset:ln] [background:linear-gradient(to_right,transparent_21px,var(--hairline)_21px,var(--hairline)_22px,transparent_22px)_local]`
-const foot = 'flex items-center gap-2 min-h-[42px] px-3.5 py-2.5 border-t border-hairline text-11.5 leading-4 text-muted-fg'
-const footText = 'min-w-0 overflow-hidden text-ellipsis whitespace-nowrap'
-const footMono = `${mono} text-10.5 whitespace-nowrap overflow-hidden text-ellipsis`
-const footIcon = 'size-3.5 text-eyebrow'
+export const preLn = `${pre} pt-3 pl-0 pr-2 [counter-reset:ln] [background:linear-gradient(to_right,transparent_21px,var(--hairline)_21px,var(--hairline)_22px,transparent_22px)_local]`
+export const foot = 'flex items-center gap-2 min-h-[42px] px-3.5 py-2.5 border-t border-hairline text-11.5 leading-4 text-muted-fg'
+export const footText = 'min-w-0 overflow-hidden text-ellipsis whitespace-nowrap'
+export const footMono = `${mono} text-10.5 whitespace-nowrap overflow-hidden text-ellipsis`
+export const footIcon = 'size-3.5 text-eyebrow'
 /* Diff lines of the JSON pane. */
-const dl = 'block -mx-3.5 pl-2 pr-3.5 whitespace-pre'
-const gut = 'inline-block w-3 select-none'
-const source = 'inline-flex items-center gap-1.5 h-6 pl-2 pr-2.5 border border-border rounded-full bg-surface text-fg whitespace-nowrap'
+export const dl = 'block -mx-3.5 pl-2 pr-3.5 whitespace-pre'
+export const gut = 'inline-block w-3 select-none'
+export const source = 'inline-flex items-center gap-1.5 h-6 pl-2 pr-2.5 border border-border rounded-full bg-surface text-fg whitespace-nowrap'
 
 const STEPS = ['Type', 'Edit', 'Commit', 'Resolve']
 
-export function Journey() {
-  const [saved, setSaved] = useState<Values>(INITIAL_SAVED)
-  const [values, setValues] = useState<Values>(INITIAL_VALUES)
-  const [lastCommit, setLastCommit] = useState('')
-  const [flashKey, setFlashKey] = useState<Key | null>(null)
+/**
+ * The phone carousel of a journey window (both homes' heroes): below 768px the `.jp` panes scroll
+ * horizontally; the step pills follow the scroll position (`step`) and drive it (`showPanel`).
+ */
+export function useJourneyCarousel() {
   const [step, setStep] = useState(0)
   const journeyRef = useRef<HTMLDivElement>(null)
-  const footRef = useRef<HTMLDivElement>(null)
-
-  const changed = KEYS.filter((k) => values[k] !== saved[k]).length
-  const state = changed ? 'dirty' : lastCommit ? 'committed' : 'clean'
-  const status = changed ? `${changed}${changed === 1 ? ' change' : ' changes'} · not committed yet` : lastCommit ? 'Committed' : 'No changes'
-  const commitLine = changed ? commitMessage(saved, values) : lastCommit || 'up to date with main'
-
-  const save = () => {
-    const message = commitMessage(saved, values)
-    if (!message) return
-    setLastCommit(message)
-    setSaved({ ...values })
-    setFlashKey(null)
-    const foot = footRef.current
-    if (foot) {
-      foot.classList.remove('just')
-      void foot.offsetWidth
-      foot.classList.add('just')
-    }
-    toast('In Studio, Save commits the file to your repository.')
-  }
-
-  /* ---- phone carousel: the pills follow the scroll position and drive it ---- */
   const panels = () => Array.from(journeyRef.current?.querySelectorAll<HTMLElement>('.jp') ?? [])
   const showPanel = useCallback((i: number) => {
     const journey = journeyRef.current
@@ -150,6 +127,65 @@ export function Journey() {
       journey.removeEventListener('focusin', onFocusIn)
     }
   }, [showPanel])
+
+  return { journeyRef, step, showPanel }
+}
+
+/** The step pills under a journey window (phones only). */
+export function JourneyPills({ steps, step, onSelect }: { steps: string[]; step: number; onSelect: (i: number) => void }) {
+  return (
+    <div
+      className={`hidden max-md:flex justify-center flex-wrap gap-1.5 mt-4 ${enter}`}
+      data-pagefind-ignore=""
+      style={{ '--d': '480ms' } as CSSProperties}
+      role="group"
+      aria-label="Steps in the product window"
+    >
+      {steps.map((label, i) => (
+        <button
+          type="button"
+          className="group h-[30px] inline-flex items-center gap-1.5 px-3 border border-[rgba(255,255,255,.22)] rounded-full bg-transparent text-[rgba(255,255,255,.78)] text-13 leading-4 transition-[background-color,color,border-color] duration-300 aria-[current=step]:bg-[rgba(255,255,255,.2)] aria-[current=step]:border-transparent aria-[current=step]:text-white"
+          data-jp={i}
+          aria-current={i === step ? 'step' : undefined}
+          key={label}
+          onClick={() => onSelect(i)}
+        >
+          <span className="tabular-nums text-[rgba(255,255,255,.5)] group-aria-[current=step]:text-lime" aria-hidden="true">{`0${i + 1}`}</span>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function Journey() {
+  const [saved, setSaved] = useState<Values>(INITIAL_SAVED)
+  const [values, setValues] = useState<Values>(INITIAL_VALUES)
+  const [lastCommit, setLastCommit] = useState('')
+  const [flashKey, setFlashKey] = useState<Key | null>(null)
+  const footRef = useRef<HTMLDivElement>(null)
+
+  const changed = KEYS.filter((k) => values[k] !== saved[k]).length
+  const state = changed ? 'dirty' : lastCommit ? 'committed' : 'clean'
+  const status = changed ? `${changed}${changed === 1 ? ' change' : ' changes'} · not committed yet` : lastCommit ? 'Committed' : 'No changes'
+  const commitLine = changed ? commitMessage(saved, values) : lastCommit || 'up to date with main'
+
+  const save = () => {
+    const message = commitMessage(saved, values)
+    if (!message) return
+    setLastCommit(message)
+    setSaved({ ...values })
+    setFlashKey(null)
+    const foot = footRef.current
+    if (foot) {
+      foot.classList.remove('just')
+      void foot.offsetWidth
+      foot.classList.add('just')
+    }
+    toast('In Studio, Save commits the file to your repository.')
+  }
+
+  const { journeyRef, step, showPanel } = useJourneyCarousel()
 
   const prop = (k: Key, v: number, comma: string, del?: boolean) => (
     <>
@@ -443,32 +479,12 @@ export function Journey() {
             </pre>
             <div className={foot}>
               <Icon name="check" className={footIcon} />
-              <span className={footText}>Same result as the direct call, same type</span>
+              <span className={footText}>Same result as calling experiments() directly</span>
             </div>
           </div>
         </div>
       </div>
-      <div
-        className={`hidden max-md:flex justify-center flex-wrap gap-1.5 mt-4 ${enter}`}
-        data-pagefind-ignore=""
-        style={{ '--d': '480ms' } as CSSProperties}
-        role="group"
-        aria-label="Steps in the product window"
-      >
-        {STEPS.map((label, i) => (
-          <button
-            type="button"
-            className="group h-[30px] inline-flex items-center gap-1.5 px-3 border border-[rgba(255,255,255,.22)] rounded-full bg-transparent text-[rgba(255,255,255,.78)] text-13 leading-4 transition-[background-color,color,border-color] duration-300 aria-[current=step]:bg-[rgba(255,255,255,.2)] aria-[current=step]:border-transparent aria-[current=step]:text-white"
-            data-jp={i}
-            aria-current={i === step ? 'step' : undefined}
-            key={label}
-            onClick={() => showPanel(i)}
-          >
-            <span className="tabular-nums text-[rgba(255,255,255,.5)] group-aria-[current=step]:text-lime" aria-hidden="true">{`0${i + 1}`}</span>
-            {label}
-          </button>
-        ))}
-      </div>
+      <JourneyPills steps={STEPS} step={step} onSelect={showPanel} />
       <div className={`flex items-baseline justify-between gap-6 mt-7 max-md:block max-md:mt-5 ${enter}`} style={{ '--d': '520ms' } as CSSProperties}>
         <p className="m-0 max-w-[78ch] text-14 leading-5.5 text-band-muted">
           The Quickstart, end to end. Studio saves it, or an agent edits it: either way it's a commit, and the function never changes.{' '}

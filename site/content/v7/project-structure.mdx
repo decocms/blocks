@@ -1,0 +1,105 @@
+---
+title: Project structure
+group: Getting started
+order: 5
+description: The files of a Deco Blocks v7 site, the files the code generator writes, and which of them to commit.
+---
+
+# Project structure
+
+A v7 site is an ordinary TanStack Start or Next.js project with a few conventional folders the framework reads, and a `.deco/` folder for content and generated files. This page maps every one of them, so you know what you edit, what the tools write, and what belongs in git.
+
+## The tree
+
+A TanStack Start site on Cloudflare Workers looks like this. A Next.js site has the same `src/sections`, `src/loaders`, `src/actions` and `.deco/` folders, with `src/app/` routes instead of `src/routes/`.
+
+```text
+my-store/
+├── .deco/
+│   ├── blocks/                  content: one JSON file per block (you and Studio edit these)
+│   │   ├── pages-home.json
+│   │   ├── pages-summer-sale.json
+│   │   ├── Header.json
+│   │   └── Site.json
+│   ├── blocks.gen.json          generated: all blocks in one file
+│   ├── blocks.gen.ts            generated: small stub the Vite plugin fills in
+│   ├── sections.gen.ts          generated: section conventions (and sectionImports on Next.js)
+│   ├── loaders.gen.ts           generated: registry of src/loaders and src/actions
+│   ├── meta.gen.json            generated: the schema Studio reads
+│   ├── generate.digests.json    generated: the generator's cache records
+│   └── .cache/                  generated: local cache, ignored by git
+├── public/                      static files, and CSV redirect files
+├── src/
+│   ├── sections/                sections: React components editors place on pages
+│   │   ├── Hero.tsx
+│   │   ├── ProductShelf.tsx
+│   │   ├── Header/Header.tsx
+│   │   └── Footer/Footer.tsx
+│   ├── loaders/                 site loaders: server functions that fetch data
+│   ├── actions/                 site actions: server functions that change something
+│   ├── components/              ordinary React components used by sections
+│   ├── routes/                  TanStack routes: __root, index, $ and deco/*
+│   ├── server/invoke.gen.ts     generated (TanStack with @decocms/apps-vtex): client-callable server functions
+│   ├── setup.ts                 registers sections, content and admin settings
+│   ├── router.tsx               createDecoRouter
+│   ├── server.ts                TanStack Start server entry
+│   └── worker-entry.ts          the Worker's entry: createDecoWorkerEntry
+├── vite.config.ts
+├── wrangler.jsonc
+└── package.json
+```
+
+## Folders you write
+
+**`src/sections/`.** Every `.tsx` or `.ts` file in this folder, at any depth, is a section, except test, spec, story and `.gen` files. A section's *key* is its path under `src/` with a `site/` prefix: `src/sections/Header/Header.tsx` is `site/sections/Header/Header.tsx`. Content refers to sections by that exact key in `__resolveType`, so renaming or moving a section file changes its key and breaks the content that uses it. Keep other components in `src/components/` and let a section file be a thin entry point if you like:
+
+```tsx title="src/sections/Hero.tsx"
+export { default } from "../components/Hero/Hero";
+export type { HeroProps as Props } from "../components/Hero/Hero";
+```
+
+**`src/loaders/` and `src/actions/`.** Server functions with a default export. `generate` registers them under `site/loaders/<path>` and `site/actions/<path>`, so content and the `/deco/invoke` endpoint can call them. See [Loaders and actions](/v7/loaders).
+
+**`.deco/blocks/`.** The content, one JSON file per block. The file name is the block's name, URL-encoded (`encodeURIComponent(name) + ".json"`), so a block named `pages-summer-sale` lives in `pages-summer-sale.json`. You can edit these by hand, and they're the source the generator bundles into your build. Content edited in Studio reaches this folder when it's synced back to your repository. See [Content and the decofile](/v7/content).
+
+**`src/setup.ts`** (TanStack) or **`src/deco/setup.ts`** (Next.js). The one place that registers sections and content with the runtime. On TanStack it runs in both the browser and the Worker, so keep server-only modules (commerce loader maps, anything holding credentials) out of it and import those from the Worker entry instead. See the quickstarts for [TanStack](/v7/quickstart) and [Next.js](/v7/quickstart-nextjs).
+
+## Files the tools write
+
+The `generate` command from `@decocms/blocks-cli` writes most generated files; run it with `tsx node_modules/@decocms/blocks-cli/scripts/generate.ts`. In development the TanStack Vite plugin also regenerates them as you edit. Which generators run depends on the project: Next.js sites get the manifest instead of `blocks.gen.*`, and the invoke file is only for TanStack sites with `@decocms/apps-vtex` installed.
+
+| File | Written by | Read by | Commit it? |
+|---|---|---|---|
+| `.deco/blocks.gen.json` | `generate` (TanStack); the Vite plugin on dev start | The server bundle, as the default content | No. It's one large line that conflicts on every content change; it's rebuilt on every build. |
+| `.deco/blocks.gen.ts` | `generate` (TanStack) | `setup.ts`; the Vite plugin swaps its contents for the JSON at build time and empties it in the browser bundle | Yes |
+| `.deco/blocksManifest.gen.ts` | `generate` (Next.js) | `src/deco/setup.ts`, as the content source | Yes |
+| `.deco/sections.gen.ts` | `generate` | `setup.ts` (`applySectionConventions`, or `createNextSetup`'s `sections` and `conventions`) | Yes |
+| `.deco/loaders.gen.ts` | `generate` | Your commerce-loader registration, to make site loaders callable | Yes |
+| `.deco/meta.gen.json` | `generate`; the Vite plugin when source changes | `createAdminSetup`'s or `createNextSetup`'s `meta`, served at `/live/_meta` | Yes, so Studio works on a fresh clone |
+| `src/server/invoke.gen.ts` | `generate` (TanStack with `@decocms/apps-vtex` installed) | Client code that calls the app's loaders and actions | Yes |
+| `.deco/generate.digests.json` | `generate` | `generate`, to skip unchanged generators | Yes. Fresh clones and CI then hit the cache. |
+| `.deco/.cache/` | `generate` | `generate` (a local speed-up only) | No. It contains its own `.gitignore`. |
+| `src/routeTree.gen.ts` | The TanStack Start plugin | The router | Usually not |
+
+<Callout type="warning">**Leave `src/server/invoke.gen.ts` in `src/`.** It holds server functions that TanStack Start's compiler turns into client-callable RPC stubs, and that only works for files compiled as part of your application code. Moved into `.deco/`, the calls fail on the server.</Callout>
+
+If two people regenerate in parallel, `generate.digests.json` may conflict in a merge. Resolve it either way and run `generate` again.
+
+## Names and keys
+
+A few naming rules are worth knowing early:
+
+| Thing | Key format | Example |
+|---|---|---|
+| Section | `site/sections/<path under src/sections>` | `site/sections/Product/SearchResult.tsx` |
+| Site loader | `site/loaders/<path>` (also accepted without `.ts`) | `site/loaders/wishlist.ts` |
+| Site action | `site/actions/<path>` | `site/actions/newsletter.ts` |
+| App loader | `<app>/loaders/<path>` | `vtex/loaders/intelligentSearch/productList.ts` |
+| Page block | Any name starting with `pages-`, or any block with `__resolveType: "website/pages/Page.tsx"` | `pages-summer-sale` |
+| Site-wide settings | A block named `Site` (or `site`) | `Site` |
+
+## Next steps
+
+- [Blocks and sections](/v7/model): what goes in a section file.
+- [Content and the decofile](/v7/content): what goes in `.deco/blocks/`.
+- [Code generation](/v7/generate): every generator and flag.

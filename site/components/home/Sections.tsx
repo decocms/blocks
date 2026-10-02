@@ -3,7 +3,7 @@
  * stability band, publishing timeline, and "Small on purpose". (The stepper is Stepper.tsx; the
  * final CTA and footer are Footer.tsx; shared pieces are in ui.tsx.)
  */
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Icon, Mark, type MarkName } from '~/components/ui/Icon'
 import { MdxLink } from '~/components/mdx/MdxLink'
 import { Cobogo } from './Hero'
@@ -42,7 +42,7 @@ const STACK: [MarkName, string][] = [
 ]
 
 /** A grid of cards separated by 1px hairlines (the gap shows the border colour behind them). */
-const hairlineGrid = 'grid gap-px overflow-hidden border border-border rounded-2xl bg-border'
+export const hairlineGrid = 'grid gap-px overflow-hidden border border-border rounded-2xl bg-border'
 
 export function StackStrip() {
   return (
@@ -66,16 +66,16 @@ export function StackStrip() {
 }
 
 /* "Every change is a commit": the three cards' small window visuals. */
-const ciVisual = 'relative h-[212px] border-hairline rounded-xl overflow-hidden max-home-xl:row-span-3 max-sm:h-[204px]'
-const ciWin = `${win} ${ciVisual}`
-const card = 'min-w-0 pt-6 px-7 pb-9 bg-bg max-home-xl:grid max-home-xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-home-xl:gap-x-8 max-home-xl:items-start max-md:block max-sm:pt-4 max-sm:px-4 max-sm:pb-7'
-const cardNum = 'block mt-[30px] text-13 leading-4 tabular-nums text-eyebrow max-home-xl:mt-1 max-md:mt-[26px]'
-const cardH3 = 'mt-2.5 mb-2.5 text-22 leading-tight font-normal tracking-heading'
-const cardP = 'm-0 text-15 leading-[1.6] text-muted-fg'
-const mfRow = 'grid grid-cols-[64px_minmax(0,1fr)] items-center gap-3 py-[9px]'
-const mfLabel = 'text-11.5 leading-4 text-muted-fg'
-const mfInput = 'h-8 flex items-center px-3 border rounded-full bg-surface text-fg min-w-0 whitespace-nowrap overflow-hidden'
-const chip = 'h-[26px] inline-flex items-center px-2.5 rounded-full text-12 leading-4 font-normal'
+export const ciVisual = 'relative h-[212px] border-hairline rounded-xl overflow-hidden max-home-xl:row-span-3 max-sm:h-[204px]'
+export const ciWin = `${win} ${ciVisual}`
+export const card = 'min-w-0 pt-6 px-7 pb-9 bg-bg max-home-xl:grid max-home-xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-home-xl:gap-x-8 max-home-xl:items-start max-md:block max-sm:pt-4 max-sm:px-4 max-sm:pb-7'
+export const cardNum = 'block mt-[30px] text-13 leading-4 tabular-nums text-eyebrow max-home-xl:mt-1 max-md:mt-[26px]'
+export const cardH3 = 'mt-2.5 mb-2.5 text-22 leading-tight font-normal tracking-heading'
+export const cardP = 'm-0 text-15 leading-[1.6] text-muted-fg'
+export const mfRow = 'grid grid-cols-[64px_minmax(0,1fr)] items-center gap-3 py-[9px]'
+export const mfLabel = 'text-11.5 leading-4 text-muted-fg'
+export const mfInput = 'h-8 flex items-center px-3 border rounded-full bg-surface text-fg min-w-0 whitespace-nowrap overflow-hidden'
+export const chip = 'h-[26px] inline-flex items-center px-2.5 rounded-full text-12 leading-4 font-normal'
 const aeLine = 'block py-0.5 px-3 text-12 leading-5 whitespace-pre border-0 rounded-none'
 const aeIcon = 'size-[13px] text-eyebrow'
 
@@ -206,10 +206,10 @@ export function ContentModel() {
 const pkgTile = 'min-w-0 grid content-start gap-px pt-3 px-3 pb-[13px] border rounded-xl max-home-sm:pt-2.5 max-home-sm:px-2.5 max-home-sm:pb-[11px]'
 const pkgStrong = 'text-14.5 leading-5 font-medium tracking-ui max-home-sm:text-13.5'
 const pkgSmall = 'text-11.5 leading-[17px] max-home-sm:leading-4'
-const stRow = 'flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 min-h-[52px] py-2.5 px-0.5'
-const stKey = 'text-14 leading-5 text-fg'
-const stPill = 'inline-flex items-center gap-[7px] h-7 pl-2.5 pr-3 rounded-full text-12.5 leading-4 font-medium whitespace-nowrap'
-const stIcon = 'size-[13px]'
+export const stRow = 'flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 min-h-[52px] py-2.5 px-0.5'
+export const stKey = 'text-14 leading-5 text-fg'
+export const stPill = 'inline-flex items-center gap-[7px] h-7 pl-2.5 pr-3 rounded-full text-12.5 leading-4 font-medium whitespace-nowrap'
+export const stIcon = 'size-[13px]'
 
 export function Stability() {
   return (
@@ -317,7 +317,7 @@ export function Stability() {
   )
 }
 
-function Point({ title, children }: { title: string; children: string }) {
+export function Point({ title, children }: { title: string; children: ReactNode }) {
   return (
     <li className="grid grid-cols-[32px_minmax(0,1fr)] pt-[18px] pb-[19px] border-t border-band-line max-home-sm:grid-cols-[28px_minmax(0,1fr)]">
       <Icon name="check" strokeWidth={2.25} className="size-4 mt-[3px] text-lime" />
@@ -333,25 +333,25 @@ function Point({ title, children }: { title: string; children: string }) {
    `--c`, linked to the previous one by a dashed connector (::before) and a chevron (::after) that
    span the `--gap`. Below 1000px the lanes sit side by side and each becomes a vertical list. */
 const gap = '[--gap:28px] max-home-lg:[--gap:20px] max-home:[--gap:16px]'
-const laneGrid = `${gap} grid grid-cols-6 gap-x-(--gap) max-home:grid-cols-1 max-home:gap-x-0`
-const stepBox =
+export const laneGrid = `${gap} grid grid-cols-6 gap-x-(--gap) max-home:grid-cols-1 max-home:gap-x-0`
+export const stepBox =
   'relative min-w-0 flex items-center justify-center border rounded-full text-14 leading-[18px] font-medium tracking-ui text-center max-home-lg:text-13.5 max-home:col-[1] max-home:w-full max-home:max-w-[240px] max-home:justify-self-center max-home-sm:text-13'
-const step = `${stepBox} col-(--c) row-[1] h-10 px-2.5 whitespace-nowrap max-home-lg:px-2 max-home:row-(--c) max-home:h-[38px] max-home:text-13.5 max-home-sm:px-1.5`
-const stepPlain = 'border-border-strong bg-surface text-fg'
-const stepSkip = 'border-dashed border-border-strong bg-transparent text-muted-fg line-through decoration-1'
+export const step = `${stepBox} col-(--c) row-[1] h-10 px-2.5 whitespace-nowrap max-home-lg:px-2 max-home:row-(--c) max-home:h-[38px] max-home:text-13.5 max-home-sm:px-1.5`
+export const stepPlain = 'border-border-strong bg-surface text-fg'
+export const stepSkip = 'border-dashed border-border-strong bg-transparent text-muted-fg line-through decoration-1'
 /** The link from the previous pill (dashed line + chevron, in src/styles/components/home.css). */
-const linked = 'tl-linked'
+export const linked = 'tl-linked'
 /** …across a skipped column (Edit → Commit). */
-const linkedFar = 'tl-linked tl-far'
-const lane = 'pt-[26px] px-7 pb-5 max-home-lg:pt-6 max-home-lg:px-[22px] max-home-lg:pb-[18px] max-home:grid max-home:row-span-3 max-home:grid-rows-subgrid max-home:content-start max-home:pt-5 max-home:px-4 max-home:pb-4 max-home-sm:pt-[18px] max-home-sm:px-2.5 max-home-sm:pb-3.5'
+export const linkedFar = 'tl-linked tl-far'
+export const lane = 'pt-[26px] px-7 pb-5 max-home-lg:pt-6 max-home-lg:px-[22px] max-home-lg:pb-[18px] max-home:grid max-home:row-span-3 max-home:grid-rows-subgrid max-home:content-start max-home:pt-5 max-home:px-4 max-home:pb-4 max-home-sm:pt-[18px] max-home-sm:px-2.5 max-home-sm:pb-3.5'
 const label =
   'flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-6 text-13.5 leading-5 text-muted-fg max-home:items-start max-home:content-start max-home:mb-5 max-home:text-13 max-home-sm:text-12.5 max-home-sm:leading-[18px]'
-const notes = `${laneGrid} mt-2.5 min-h-[30px] text-12.5 leading-[18px] text-muted-fg max-home:mt-3 max-home:min-h-0`
-const bracket =
+export const notes = `${laneGrid} mt-2.5 min-h-[30px] text-12.5 leading-[18px] text-muted-fg max-home:mt-3 max-home:min-h-0`
+export const bracket =
   'relative col-[4/6] pt-3 text-center before:absolute before:top-0 before:left-[18%] before:right-[18%] before:h-[7px] before:border before:border-t-0 before:border-border-strong before:rounded-b-[7px] max-home:hidden'
-const cap = 'col-[6] justify-self-center pt-3 text-center whitespace-nowrap max-home:col-[1] max-home:pt-0 max-home:whitespace-normal'
+export const cap = 'col-[6] justify-self-center pt-3 text-center whitespace-nowrap max-home:col-[1] max-home:pt-0 max-home:whitespace-normal'
 
-function LaneLabel({ title, sub }: { title: string; sub: string }) {
+export function LaneLabel({ title, sub }: { title: string; sub: string }) {
   return (
     <p className={label}>
       <b className="font-medium text-fg">{title}</b>
@@ -470,7 +470,7 @@ export function Publishing() {
   )
 }
 
-function PubPoint({ title, children }: { title: string; children: string }) {
+export function PubPoint({ title, children }: { title: string; children: ReactNode }) {
   return (
     <li className="min-w-0 flex flex-col pt-6 px-[26px] pb-[30px] bg-bg max-home-lg:last:odd:col-span-full max-home-sm:pt-[18px] max-home-sm:px-4 max-home-sm:pb-6">
       <strong className="mb-2 text-19 leading-[1.3] font-normal tracking-[-.012em] text-fg max-home-sm:text-18">{title}</strong>
@@ -479,7 +479,7 @@ function PubPoint({ title, children }: { title: string; children: string }) {
   )
 }
 
-const c = (n: number) => ({ '--c': n }) as CSSProperties
+export const c = (n: number) => ({ '--c': n }) as CSSProperties
 
 const HOOD_LINKS: { href: string; title: string; text: string; read: string }[] = [
   {
@@ -511,11 +511,11 @@ const HOOD_LINKS: { href: string; title: string; text: string; read: string }[] 
 const OWN: [string, string, 'yours' | 'opt'][] = [
   ['Content', 'Your Git repository', 'yours'],
   ['Code', 'Your Git repository', 'yours'],
-  ['Hosting', 'Any JavaScript runtime you choose: Node, Cloudflare Workers, Deno or Bun', 'yours'],
+  ['Hosting', 'Any JavaScript runtime you choose: Node, Cloudflare Workers, Deno, Bun or a React Native app', 'yours'],
   ['Visual editor & publishing without a redeploy', 'Hosted Deco CMS', 'opt'],
 ]
 
-const tag = 'h-6 inline-flex items-center px-[11px] rounded-full text-12 leading-4 font-medium whitespace-nowrap'
+export const tag = 'h-6 inline-flex items-center px-[11px] rounded-full text-12 leading-4 font-medium whitespace-nowrap'
 
 export function SmallOnPurpose() {
   return (

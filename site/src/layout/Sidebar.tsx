@@ -89,13 +89,13 @@ export function Sidebar({ groups, label = 'Documentation navigation' }: { groups
         </button>
       </div>
       <SiteTabs where="drawer" label="Site sections (menu)" />
-      {/* Docs: only the version select shows here (below 900px); search, theme and GitHub stay in
-          the header. Landing: everything, below 480px, when the header has handed them over. */}
-      <div className={cx('hidden flex-none gap-2 border-b border-hairline p-4', landing ? 'max-xs:grid' : 'max-nav:grid')}>
+      {/* The version select shows here below 900px (the header has it above). Landing: search,
+          theme and GitHub too, below 480px, when the header has handed them over. */}
+      <div className="hidden flex-none gap-2 border-b border-hairline p-4 max-nav:grid">
         <button
           className={cx(
             'h-11 items-center gap-2.5 rounded-full border border-border bg-surface px-4 text-left text-15 leading-5 text-muted-fg transition-[border-color,color] duration-300 hover:border-border-strong hover:text-fg',
-            landing ? 'flex' : 'hidden',
+            landing ? 'hidden max-xs:flex' : 'hidden',
           )}
           type="button"
           data-search-open
@@ -105,7 +105,7 @@ export function Sidebar({ groups, label = 'Documentation navigation' }: { groups
           <span>Search docs…</span>
         </button>
         <VersionSelect id="version-select-drawer" where="drawer" />
-        <div className={landing ? 'flex gap-2' : 'hidden'}>
+        <div className={landing ? 'hidden gap-2 max-xs:flex' : 'hidden'}>
           <a className={drawerLink} href={GITHUB_URL} rel="noopener">
             <Icon name="github" />
             GitHub

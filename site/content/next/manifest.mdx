@@ -1,7 +1,7 @@
 ---
 title: Block maps
 group: Advanced
-order: 7
+order: 8
 ---
 
 # Block maps
@@ -34,21 +34,21 @@ The map above imports every block at the top, so they all load with the map. Tha
 What's heavy is the component a block renders, and your framework already knows how to load components lazily. So do it in one place, the map, and let the block files stay plain components:
 
 ```tsx title="blocks.tsx (Next.js)"
-import dynamic from 'next/dynamic'
-import type { Blocks } from '@decocms/blocks'
-import seo from './seo'
-import type { ProductProps } from './components/Product'
-import type { HeroProps } from './components/Hero'
+import dynamic from "next/dynamic";
+import type { Blocks } from "@decocms/blocks";
+import seo from "./seo";
+import type { ProductCardProps } from "./components/ProductCard";
+import type { HeroProps } from "./components/Hero";
 
 // Each component is split into its own chunk and fetched on first render.
-const Product = dynamic(() => import('./components/Product'))
-const Hero    = dynamic(() => import('./components/Hero'))
+const ProductCard = dynamic(() => import("./components/ProductCard"));
+const Hero        = dynamic(() => import("./components/Hero"));
 
 export default {
-  seo,                                                    // eager: tiny, used everywhere
-  product: (input: ProductProps) => <Product {...input} />,
-  hero:    (input: HeroProps)    => <Hero {...input} />,
-} satisfies Blocks
+  seo,                                                                    // eager: tiny, used everywhere
+  "product-card": (input: ProductCardProps) => <ProductCard {...input} />,
+  hero:           (input: HeroProps)        => <Hero {...input} />,
+} satisfies Blocks;
 ```
 
 With TanStack Start, use React's `lazy` instead of `dynamic`. Where it goes depends on which of the two rendering modes you use (see [Rendering](/next/rendering)), and the [TanStack guides](/next/tanstack-data) show the code. In every case the component files know nothing about the CMS, the map stays a plain object the CLI can read, and the bundler splits on the `import()`.
@@ -57,12 +57,12 @@ For a block that's heavy for a non-UI reason, say a data function that pulls in 
 
 ```ts
 "catalog-product": async (input: ProductQuery) => {
-  const { fetchProduct } = await import("./commerce")   // loaded on first call; the JS module system caches it after that
-  return fetchProduct(input)
+  const { fetchProduct } = await import("./commerce");   // loaded on first call; the JS module system caches it after that
+  return fetchProduct(input);
 },
 ```
 
-Keep import paths literal in both cases. A bundler can split `import("./components/Product")` into its own chunk; it can't split `` import(`./components/${name}`) ``.
+Keep import paths literal in both cases. A bundler can split `import("./components/ProductCard")` into its own chunk; it can't split `` import(`./components/${name}`) ``.
 
 ## Choose type names that last
 

@@ -1,7 +1,7 @@
 ---
 title: Routing
 group: Websites
-order: 11
+order: 12
 ---
 
 # Routing
@@ -10,39 +10,50 @@ The CMS doesn't route. It lists and resolves. Routing is three steps in your req
 
 ## The example used here and in the guides
 
-This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/content-types)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Content and loaders](/next/content)). Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) declares `seo` and its own `product`. Pages and redirects are built-in content types (see [Content that is only data](/next/schema#content-that-is-only-data)); the guides override `page` with `StoredPage`, below, to narrow its `sections` field, so Studio's form matches what the guide code reads.
+This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/content-types)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Content and loaders](/next/content)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner` and `product-hero`. Pages and redirects are built-in content types (see [Content that is only data](/next/schema#content-that-is-only-data)); the guides override `page` with `StoredPage`, below, to narrow its `sections` field, so Studio's form matches what the guide code reads.
 
-In `src/model.ts`, `ProductDescriptor` is the descriptor a `product` block returns in data mode (see [Rendering](/next/rendering)), and `StoredPage` is a page exactly as saved, before any of its blocks run.
+In `src/model.ts`, `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)), and `StoredPage` is a page exactly as saved, before any of its blocks run.
 
 ```ts title="src/model.ts"
-import type { Block, Page } from '@decocms/blocks'
+import type { Block, Page } from "@decocms/blocks";
 
 export interface SEO { title: string; description: string }
-export interface ProductProps { id: string; name: string; price: number; currency: string }
-export interface ProductDescriptor { component: 'product'; props: ProductProps }
+export interface PromoBannerProps { title: string; href: string }
+export interface ProductHeroProps { name: string; price: number; currency: string; image: string }
+
+// What a block returns in data mode: a component name and its props.
+export type BlockDescriptor =
+  | { component: "promo-banner"; props: PromoBannerProps }
+  | { component: "product-hero"; props: ProductHeroProps };
 
 // A saved page, as client.list returns it by default (nothing run).
 // Overrides the built-in Page to keep sections a plain array: no variant around the whole list.
 export interface StoredPage extends Page {
-  sections: Block[]
+  sections: Block[];
 }
 ```
 
 `StoredPage` narrows the built-in `Page` type from [Routes and redirects](/next/content-types): it doesn't allow a [variant](/next/variants) around the whole `sections` list. Each guide's block map exports `export type Content = { page: StoredPage }`, so `deco schema` gives Studio the narrower form. If you keep the built-in `Page`, which does allow it, resolve the list first, `const [list] = await client.resolve(page.sections)`, which picks the variant and also runs every block in it, or store the variant's values as entry names as in [Every variant resolves](/next/variants#every-variant-resolves).
 
-```json title=".deco/blocks/ProductPage.json"
+```json title=".deco/blocks/ShirtPage.json"
 {
   "__resolveType": "page",
-  "name": "Product page",
+  "name": "Summer shirt",
   "path": "/:slug/p",
   "seo": {
     "__resolveType": "seo",
     "title": "Summer shirt | Deco example",
-    "description": "A small example of independently resolved fields."
+    "description": "Light cotton shirt for hot days."
   },
   "sections": [
-    { "__resolveType": "product", "id": "details", "name": "Summer shirt", "price": 49, "currency": "USD" },
-    { "__resolveType": "product", "id": "related", "name": "Related shirt", "price": 39, "currency": "USD" }
+    { "__resolveType": "promo-banner", "title": "Free shipping on orders over $50", "href": "/shipping" },
+    {
+      "__resolveType": "product-hero",
+      "name": "Summer shirt",
+      "price": 49,
+      "currency": "USD",
+      "image": "/images/summer-shirt.jpg"
+    }
   ]
 }
 ```
@@ -51,15 +62,15 @@ export interface StoredPage extends Page {
 // Means (page isn't a function, so the object stays data; the blocks inside it are calls)
 {
   __resolveType: "page",
-  name: "Product page",
+  name: "Summer shirt",
   path: "/:slug/p",
-  seo: seo({ title: "Summer shirt | Deco example", description: "A small example of independently resolved fields." }),
+  seo: seo({ title: "Summer shirt | Deco example", description: "Light cotton shirt for hot days." }),
   sections: [
-    product({ id: "details", name: "Summer shirt", price: 49, currency: "USD" }),
-    product({ id: "related", name: "Related shirt", price: 39, currency: "USD" }),
+    promoBanner({ title: "Free shipping on orders over $50", href: "/shipping" }),
+    productHero({ name: "Summer shirt", price: 49, currency: "USD", image: "/images/summer-shirt.jpg" }),
   ],
 }
-// product is whatever each guide's block map registers: JSX in Next.js and TanStack RSC, a descriptor in data mode
+// Each guide's block map decides what these return: JSX in Next.js and TanStack RSC, a descriptor in data mode
 ```
 
 ```json title=".deco/blocks/LegacyProduct.json"
@@ -71,7 +82,7 @@ export interface StoredPage extends Page {
 }
 ```
 
-The redirect sends `/old-products/summer` to `/summer/p`. The page uses literal product values to keep the example small. A real page would use a block that fetches the product for the slug, reading `match.params` from your app's request state (see [Block maps](/next/manifest)).
+The redirect sends `/old-products/summer` to `/summer/p`. The hero uses literal product values to keep the example small. On a real store, the hero's block function fetches the product for the slug through an [upstream client](/next/clients#write-a-client), reading `match.params` from your app's request state (see [Block maps](/next/manifest)).
 
 ## Route a request
 

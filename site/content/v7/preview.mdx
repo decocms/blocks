@@ -1,0 +1,154 @@
+---
+title: Previews and draft preview
+nav: Previews & drafts
+group: Core concepts
+order: 13
+description: How Studio previews sections and pages, how to make previews render correctly, and how draft preview shows unpublished content on the real site.
+---
+
+# Previews and draft preview
+
+Editors need to see a change before visitors do. v7 gives them two ways. *Previews* render a section or page inside Studio, with the editor's unsaved props, as they type. *Draft preview* goes further: it renders the real site, on its real URLs, with unpublished content from Studio, through a shareable link. This page covers both, and what each binding needs from you.
+
+<Terms>
+  <Term name="Preview">A section or page rendered by your site inside Studio's frame, with props Studio sends. Nothing is saved.</Term>
+  <Term name="Draft preview">Rendering unpublished Studio content on the real site through a `?__draft=` link, only on allowed hosts. See the [glossary](/v7/glossary#draft-preview).</Term>
+  <Term name="Preview wrapper">A component wrapped around every preview to provide context (a router, a query client) your sections expect.</Term>
+</Terms>
+
+## Previews in Studio
+
+When an editor changes a field, Studio asks your site to render the section, or the whole page, with the new props through the `/live/previews/*` endpoint (see [Deco Studio and the admin protocol](/v7/studio)). Nothing is published: the props travel with the request, and any changed blocks apply only to that one render.
+
+Previews render outside your app's normal route tree, so two things need setting up.
+
+**The document around the preview.** Previews use your stylesheet and fonts from setup (`createAdminSetup({ css, fonts })` on TanStack, `createNextSetup({ renderShell })` on Next.js). If your styles use DaisyUI theme colors, set the theme with `setRenderShell({ theme: "light" })`; see [What previews look like](/v7/studio#what-previews-look-like).
+
+**Context your sections use.** A section that calls a router hook or a TanStack Query hook crashes if there's no router or query client above it. The *preview wrapper* provides them. On TanStack Start, use `PreviewProviders` from `@decocms/tanstack`, which supplies an in-memory router and a query client:
+
+```ts title="src/setup.ts (excerpt)"
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
+import { PreviewProviders } from "@decocms/tanstack";
+
+createAdminSetup({
+  meta: () => import("../.deco/meta.gen.json").then((m) => m.default),
+  css: appCss,
+  previewWrapper: PreviewProviders,
+});
+```
+
+If your sections need more context (a theme provider, a cart context), write your own wrapper that renders `PreviewProviders` around it.
+
+### Previews on Next.js
+
+On Next.js, preview requests are redirected to a page you mount at `/deco/preview`, built with `createDecoPreviewPage`:
+
+```tsx title="src/app/deco/preview/[[...path]]/page.tsx"
+import { createDecoPreviewPage } from "@decocms/nextjs";
+import { ensureSetup } from "../../../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export default createDecoPreviewPage({ setup: ensureSetup });
+```
+
+It's a page rather than a route handler because a plain HTML renderer can't run components marked `"use client"`; only Next's Server Components renderer can combine them with server sections. So keep `"use client"` wherever a section needs state, effects or browser APIs, and let previews go through this page.
+
+## Draft preview
+
+Draft preview lets someone open the real site, for example `https://www.example.com/summer-sale`, and see the content an editor hasn't published yet. Studio produces a link with a `__draft` query parameter; the site fetches that draft from Deco's content service, uses it for the request, and falls back to published content if anything goes wrong.
+
+Only allow-listed hosts render drafts: on every other host the parameter is ignored. The link's token says where the draft lives and carries a grant signed by Studio, and the site fetches drafts only from Deco's content-service domains (see `DECO_PREVIEW_API_DOMAINS` below).
+
+### What a drafted visitor gets
+
+<Flow label="Draft preview">
+  <FlowNode title="Open the link">`?__draft=<token>` on an allowed host</FlowNode>
+  <FlowNode title="Cookie">The site sets a `__deco_draft` cookie for 30 minutes</FlowNode>
+  <FlowNode title="Browse">Every page renders with the draft content</FlowNode>
+  <FlowNode title="Exit">`?__draft=off`, or the badge's exit button, clears it</FlowNode>
+</Flow>
+
+- The draft follows the visitor across pages through the `__deco_draft` cookie, which lasts 30 minutes.
+- Drafted responses are marked `private` and not to be stored by shared caches, and carry `X-Robots-Tag: noindex, nofollow`, so drafts don't reach other visitors or search engines. On Next.js, Next may replace the `Cache-Control` value on dynamic pages with `no-cache, must-revalidate`, which still makes a shared cache check with your site before reusing a response.
+- A floating badge marks the page as a draft, with buttons to share the link or exit. It hides itself inside Studio's frame. On TanStack, `DecoRootLayout` renders it for you, and on Next.js `createDecoPage` does; the component is `DraftPreviewBadge` from `@decocms/blocks/preview`.
+- If the draft can't be loaded, the page renders published content.
+
+### Allow hosts
+
+Draft preview does nothing until at least one host is allowed. Hosts are compared exactly, port included (`localhost:3000`, not `localhost`). There are two ways to allow them:
+
+- **In content:** a `previewHosts` list in the [Site block](/v7/content#the-site-block), such as `"previewHosts": ["preview.example.com", "localhost:3000"]`.
+- **In the environment:** `DECO_ALLOWED_PREVIEW_HOSTS`, a comma-separated list. When set, it replaces the Site block's list.
+
+Set `DECO_ALLOWED_PREVIEW_HOSTS=none` to turn draft preview off completely, whatever the content says.
+
+On TanStack Start, when `DECO_SITE_NAME` is set, your site's Deco-hosted domains are allowed automatically. On Next.js, list every host yourself.
+
+`DECO_PREVIEW_API_DOMAINS` limits which content-service domains a draft may be loaded from. The defaults cover Deco's hosted Studio and local development; you only need it when running Studio somewhere else.
+
+### On TanStack Start
+
+Nothing to wire. `createDecoWorkerEntry` reads the draft parameter and cookie, binds the draft to the request, and bypasses the edge cache for it. Your routes, loaders and `/deco/invoke` calls see the draft content.
+
+### On Next.js
+
+`createDecoPage` honors drafts on its own once a host is allowed. Two optional pieces complete the setup.
+
+**Middleware** sets and clears the cookie and the cache and noindex headers, which a Server Component can't do, and forwards the draft to the rest of the render so shared parts such as a header resolved in the layout see it too. Use `draftMiddleware` from `@decocms/nextjs/middleware` as your whole middleware, or compose its parts into one you already have:
+
+```ts title="src/middleware.ts"
+import {
+  applyDraft,
+  draftRequestHeaders,
+  prepareDraft,
+  rewriteToDraftRoute,
+} from "@decocms/nextjs/middleware";
+import { type NextRequest, NextResponse } from "next/server";
+
+export function middleware(request: NextRequest) {
+  const decision = prepareDraft(request);
+  // Your own middleware logic can go here.
+  const response =
+    rewriteToDraftRoute(request, decision) ??
+    NextResponse.next({ request: { headers: draftRequestHeaders(request, decision) } });
+  return applyDraft(response, decision);
+}
+```
+
+On Next.js 16, the file is `proxy.ts` and the function is exported as `proxy`.
+
+**A separate draft route** keeps normal pages static. Reading the draft cookie makes a page dynamic, so if your catch-all page is statically generated or uses ISR, `rewriteToDraftRoute` sends drafted requests to a route under `/_draft` instead. Mount a copy of your page there; the folder name is URL-encoded because Next.js treats folders starting with `_` as private:
+
+```tsx title="src/app/%5Fdraft/[[...slug]]/page.tsx"
+import { createDecoPage } from "@decocms/nextjs";
+
+const page = createDecoPage({ siteName: "My Store" });
+
+export const generateMetadata = page.generateMetadata;
+export default page.default;
+```
+
+If you render pages with your own component instead of `createDecoPage`, call `await ensureDraft(await searchParams)` from `@decocms/nextjs` in the page before resolving anything. It returns whether a draft was bound. Call it from the page itself; a layout awaiting it doesn't cover the page.
+
+### Honor drafts in your own endpoints
+
+A route of your own that reads content (a JSON feed, a sitemap) shows published content unless you bind the draft yourself. `resolveDraftForRequest` from `@decocms/blocks/cms` returns the request's draft decofile, or `null`, and `withDraftBlocks` uses it in place of the published content for the duration of a function:
+
+```ts title="A draft-aware handler"
+import { loadBlocks, resolveDraftForRequest, withDraftBlocks } from "@decocms/blocks/cms";
+
+export async function handleFeed(request: Request): Promise<Response> {
+  const work = async () => Response.json(Object.keys(loadBlocks()));
+  const draft = await resolveDraftForRequest(request);
+  return draft ? withDraftBlocks(draft, work) : work();
+}
+```
+
+Inside `work`, `loadBlocks()` and everything built on it, including `resolveDecoPage`, see the draft. Other requests running at the same time are unaffected.
+
+## Next steps
+
+- [Deco Studio and the admin protocol](/v7/studio): the preview endpoints and render shell.
+- [Matchers and variants](/v7/variants): preview a segment with `x-deco-matchers-override`.
+- [Configuration reference](/v7/configuration): every environment variable.

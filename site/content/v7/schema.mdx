@@ -1,0 +1,139 @@
+---
+title: Schema generation
+group: Core concepts
+order: 11
+description: How Studio's forms are generated from your TypeScript Props types and JSDoc tags, and how the schema is served to Studio.
+---
+
+# Schema generation
+
+Studio never asks you to describe a form. It reads your sections' and loaders' TypeScript types and builds one input per field. The bridge is a JSON Schema file, `.deco/meta.gen.json`, that the code generator writes from your source and your site serves to Studio. This page explains what goes into it, which JSDoc tags shape the form, and how the file reaches Studio.
+
+<Terms>
+  <Term name="Schema (meta)">The JSON Schema of your sections, loaders and pages, written to `.deco/meta.gen.json` and served at `/live/_meta`. See the [glossary](/v7/glossary#schema-meta).</Term>
+  <Term name="Props type">The type the generator reads for a section or loader: its exported `Props`, or the input type of its loader.</Term>
+  <Term name="Widget">A type alias such as `ImageWidget` that tells Studio which input to show for a string.</Term>
+</Terms>
+
+## From types to forms
+
+<Flow label="Schema path">
+  <FlowNode title="Your types">`Props` in `src/sections`, `src/loaders` and the apps you've installed</FlowNode>
+  <FlowNode title={<><code>generate</code></>}>Reads them with the TypeScript compiler and writes `.deco/meta.gen.json`</FlowNode>
+  <FlowNode title="Your site">Serves the schema at `/live/_meta` with a content ETag</FlowNode>
+  <FlowNode title="Studio">Builds forms, pickers and validation from it</FlowNode>
+</Flow>
+
+The schema step is part of `generate`, so the command you already run produces it:
+
+```bash
+bun run generate
+```
+
+`generate` runs the schema step whenever a TypeScript file under `src/`, your `tsconfig.json` or an installed app changes; it needs both a `tsconfig.json` and a sections folder. In TanStack development, the Vite plugin regenerates the schema half a second after you save a source file. See [Code generation](/v7/generate) for flags such as `--only schema`.
+
+## What the generator reads
+
+For each file under `src/sections/` and `src/loaders/`, and for the loaders of installed apps, the generator finds a props type and turns it into a JSON Schema definition. It also adds the framework's own types (the page block, matchers, the section picker), so the file Studio receives is complete on its own.
+
+For a section, the props type is the first of these that exists:
+
+1. The input type of a `loader` exported from the same file. If the section has a loader, editors fill in the loader's input, not the component's props.
+2. An exported `Props` interface or type alias.
+3. A `Props` re-exported from another file (followed up to three hops).
+4. The type of the default export's first parameter.
+
+Each definition is keyed by namespace and path: `site/sections/Hero.tsx`, `site/loaders/storeHours.ts`. The namespace is `site` unless you pass `--namespace`. Test, spec, story and `.gen` files are skipped.
+
+## Shape the form with JSDoc
+
+JSDoc tags on a field become JSON Schema keywords. Write each tag on its own line:
+
+```tsx title="src/sections/ProductShelf.tsx (excerpt)"
+export interface Props {
+  /**
+   * @title Shelf title
+   * @description Shown above the products.
+   * @default Best sellers
+   */
+  title: string;
+  /**
+   * @title Products per row
+   * @minimum 2
+   * @maximum 6
+   * @default 4
+   */
+  perRow?: number;
+  /**
+   * @title Background color
+   * @format color
+   */
+  background?: string;
+  /** @hide true */
+  trackingId?: string;
+}
+```
+
+| Tag | Effect |
+|---|---|
+| `@title`, `@description` | The field's label and help text. |
+| `@default` | The default value. Parsed as JSON, a number or a boolean when it looks like one, otherwise kept as text. |
+| `@examples` | Example values, one per line or a JSON array. |
+| `@minimum`, `@maximum`, `@exclusiveMinimum`, `@exclusiveMaximum`, `@multipleOf` | Number limits. |
+| `@minLength`, `@maxLength` | String length limits. |
+| `@minItems`, `@maxItems` | Array length limits. |
+| `@minProperties`, `@maxProperties` | Object size limits. |
+| `@readOnly`, `@writeOnly`, `@deprecated`, `@uniqueItems` | Boolean keywords; write `true` after the tag. |
+| `@format` | Picks a specialized input: `color`, `image-uri`, `rich-text`, `textarea`, `date-time`, `code` and others. |
+| `@hide` | Keeps the field in the schema but hides it in Studio. |
+| `@ignore` | Leaves the field out. |
+| Anything else (`@titleBy`, `@icon`, `@label`, `@options`, `@pattern`, `@placeholder`, …) | Copied into the schema as written, for Studio to use. |
+
+`@titleBy` names the field to use as the label of each item in a list, so a list of banners shows each banner's `alt` instead of "Item 1, Item 2".
+
+## Widget types
+
+A widget type is a `string` alias that sets `format` for you. Import them from `@decocms/blocks/types/widgets`:
+
+| Type | Format | Studio input |
+|---|---|---|
+| `ImageWidget` | `image-uri` | Image upload and picker |
+| `VideoWidget` | `video-uri` | Video upload |
+| `HTMLWidget` | `html` | HTML editor |
+| `RichText` | `rich-text` | Rich text editor |
+| `TextArea` | `textarea` | Multi-line text |
+| `Color` | `color` | Color picker |
+| `Secret` | `password` | Password field |
+
+For the other formats, such as `code` and `date-time`, use `@format` on a plain `string`.
+
+Unions of string or number literals become dropdowns, optional fields become optional inputs, arrays become repeatable lists, and nested interfaces become grouped fields. A field whose type is written `Section` and resolves to `any` becomes a section picker (see [Blocks and sections](/v7/model#nest-sections-inside-sections)).
+
+## Serve the schema
+
+The site serves the schema at `GET /live/_meta`. You point the admin side at the generated file in setup:
+
+```ts title="src/setup.ts (TanStack, excerpt)"
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
+
+createAdminSetup({
+  meta: () => import("../.deco/meta.gen.json").then((m) => m.default),
+  css: appCss,
+});
+```
+
+On Next.js, pass the same function as `createNextSetup({ meta })`.
+
+Keep `meta` a dynamic `import()`. The schema can be large, and only Studio needs it, so it's loaded on the first `/live/_meta` request rather than when the server starts. A static import would load it into every server instance at boot.
+
+When Studio asks for it, the site adds the framework's definitions with `composeMeta` (a no-op for a schema `generate` already composed), computes an ETag from its content, and answers `304 Not Modified` when Studio already has that version. Publishing new content resets the ETag and rebuilds the schema on the next request. Without a `meta` function, `/live/_meta` answers 503 with "Schema not initialized".
+
+## Schemas from apps
+
+Installed apps contribute their loaders and actions to the schema in two ways. During `generate`, the generator reads the loaders of apps your site imports through bridge files in `src/apps/` (pass `--skip-apps` to skip this). At runtime, apps call `registerAppSchemas` from `@decocms/blocks/cms` with schemas they ship pre-generated, which replace the placeholder entries `registerCommerceLoaders` adds for loaders without one. You normally don't call either yourself; see [Apps](/v7/apps).
+
+## Next steps
+
+- [Deco Studio and the admin protocol](/v7/studio): the other endpoints Studio uses.
+- [Code generation](/v7/generate): running and caching `generate`.
+- [Blocks and sections](/v7/model): writing the types the schema comes from.

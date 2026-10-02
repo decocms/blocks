@@ -1,0 +1,162 @@
+---
+title: Section conventions
+group: Rendering
+order: 15
+description: The exports a section file can declare (eager, layout, cache, sync, LoadingFallback and the rest), what each one changes, and how they reach the runtime.
+---
+
+# Section conventions
+
+A section file can export a few extra values next to its component. Each one changes how the runtime loads, renders or caches that section: `export const layout = true` caches a header across pages, `export function LoadingFallback` gives a deferred section its skeleton, and so on. You declare them in the file, `generate` records them, and one call in setup applies them.
+
+<Terms>
+  <Term name="Convention export">A named export in a section file, such as `export const sync = true`, that `generate` reads and the runtime turns into a registration.</Term>
+  <Term name="Layout section">A section such as a header or footer whose resolved output is cached for a few minutes and shared across pages. See the [glossary](/v7/glossary#layout-section).</Term>
+  <Term name="Deferred section">A section rendered as a skeleton first and loaded afterwards. See [Deferred sections](/v7/rendering).</Term>
+</Terms>
+
+## An example
+
+```tsx title="src/sections/ProductShelf.tsx"
+import type { Product } from "@decocms/apps-commerce/types";
+
+export interface Props {
+  title: string;
+  products: Product[] | null;
+}
+
+export const cache = "listing";
+
+export function LoadingFallback() {
+  return <section style={{ minHeight: 420 }} aria-busy="true" />;
+}
+
+export default function ProductShelf({ title, products }: Props) {
+  return (
+    <section style={{ minHeight: 420 }}>
+      <h2>{title}</h2>
+      <ul>
+        {products?.map((p) => (
+          <li key={p.productID}>
+            <img src={p.image?.[0]?.url} alt={p.name} width={200} height={200} />
+            <a href={p.url}>{p.name}</a>
+            <span>{p.offers?.lowPrice}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+```
+
+`cache = "listing"` caches the section loader's results with the `listing` cache profile, and `LoadingFallback` is what visitors see while the section loads, if an editor marks it async in Studio. After you add or change one of these exports, run `generate` again.
+
+## The exports
+
+| Export | Default | What it does | Same as calling |
+|---|---|---|---|
+| `export function LoadingFallback` | none | Skeleton rendered in place of the section while it loads: when it's deferred, and while its code chunk downloads. When the section is deferred it gets no props, so don't depend on them. TanStack Start only; see [Skeletons](#skeletons). | `registerSection(key, loader, { loadingFallback })` |
+| `export function ErrorFallback` | none | Rendered instead of the section if it throws while rendering. It gets `{ error }`. TanStack Start reads it from the module when the section loads; `generate` doesn't record it. | `registerSection(key, loader, { errorFallback })` |
+| `export const layout = true` | off | Caches the section's resolved props and its section loader's output for 5 minutes, shared by every page, one copy per device class. For headers, footers and theme sections. | `registerLayoutSections([key])` |
+| `export const cache = "<profile>"` | off | Caches the section loader's results, keyed by the section and its props, using the loader freshness of a [cache profile](/v7/caching#cache-profiles) such as `"listing"` or `"product"`. Stale results are served while a refresh runs in the background. Has an effect only if the section has a [registered section loader](/v7/loaders). | `registerCacheableSections({ [key]: "listing" })` |
+| `export const sync = true` | off | Bundles the section into the main bundle instead of a lazy chunk, so it renders without a loading state on both server and client. For sections above the fold that must never flash. | `registerSectionsSync({ [key]: module })` |
+| `export const clientOnly = true` | off | Skips server rendering. The section renders only in the browser, after hydration. On TanStack Start its `LoadingFallback` shows until then. For widgets that need `window`. | `registerSection(key, loader, { clientOnly: true })` |
+| `export const seo = true` | off | Marks the section as an SEO section: after its loader runs, its `title`, `description`, `canonical`, `image`, `noIndexing` and `jsonLDs` props feed the page's `<head>`. See [SEO](/v7/seo). | `registerSeoSections([key])` |
+| `export const deferred = true` | off | Always defers this section for human visitors, whether or not an editor marked it async. | none in the public API; use the export |
+| `export const eager = true` | off | Keeps the section server-rendered when position-based deferral is turned on and the section falls within the fold. No effect by default. | `registerEagerSections([key])` |
+| `export const neverDefer = true` | off | Keeps the section server-rendered when position-based deferral is turned on, wherever it sits on the page. No effect by default. | `registerNeverDeferSections([key])` |
+| `export const renderJson` | included | `false` drops the section from `?renderJson` output; a function `(props) => props` trims what it sends. See [Storefront as an API](/v7/storefront-api). | `setSectionRenderJson(key, value)` |
+
+Every `register*` function in the last column is exported from `@decocms/blocks/cms`, for sections whose file you don't control (an app's section, for example) or for keys you compute.
+
+`eager`, `neverDefer` and `deferred` are about *where* a section renders. None of them overrides an editor: a section marked async (⚡) in Studio is deferred even if its file says `neverDefer`. [Deferred sections](/v7/rendering#which-sections-are-deferred) has the full order.
+
+`generate` reads these exports with a pattern match on the source, not by running the file. Write each one as a literal on a single line (`export const cache = "listing";`), not computed or re-exported under another name. `LoadingFallback` and `renderJson` may also be re-exported (`export { LoadingFallback } from "./Skeleton"`).
+
+## Apply them in setup
+
+`generate` writes what it finds to `.deco/sections.gen.ts`: a `sectionMeta` map of the flags per section key, plus `syncComponents`, `loadingFallbacks` and `renderJsons`, which import the modules and functions those flags need. Setup hands them to the runtime.
+
+On TanStack Start, call `applySectionConventions` from `@decocms/blocks/cms` after `createSiteSetup`, passing the same section glob:
+
+```ts title="src/setup.ts (excerpt)"
+import { applySectionConventions } from "@decocms/blocks/cms";
+import { loadingFallbacks, renderJsons, sectionMeta, syncComponents } from "../.deco/sections.gen";
+
+const sections = import.meta.glob("./sections/**/*.tsx") as Record<string, () => Promise<any>>;
+
+// createSiteSetup({ sections, blocks, ... }) comes first
+
+applySectionConventions({
+  meta: sectionMeta,
+  syncComponents,
+  loadingFallbacks,
+  renderJsons,
+  sectionGlob: sections,
+});
+```
+
+`sectionGlob` is what lets `clientOnly` and `LoadingFallback` register against the right lazy import; without it those two are skipped. `applySectionConventions` also turns on async rendering, which is what makes the editor's ⚡ toggle work at all, so call it even if no section uses a convention yet.
+
+On Next.js, pass the same values as `conventions` to `createNextSetup`, which calls `applySectionConventions` for you with your `sections` map as the glob:
+
+```ts title="src/setup.ts (excerpt, Next.js)"
+import { loadingFallbacks, renderJsons, sectionImports, sectionMeta, syncComponents } from "deco/sections.gen";
+
+export const ensureSetup = createNextSetup({
+  // blocks, blocksDir, meta, ...
+  sections: sectionImports,
+  conventions: { meta: sectionMeta, syncComponents, loadingFallbacks, renderJsons },
+});
+```
+
+## Layout sections
+
+A header or footer appears on every page with the same content. Resolving it again on each request repeats the same work, including any commerce loader inside it, such as a menu built from categories. Marking it a layout section caches two things for 5 minutes: the section's resolved props, and its section loader's output. Concurrent requests for the same section share one in-flight resolution.
+
+Each cache entry is keyed by the section and the visitor's device class (`mobile`, `tablet` or `desktop`), and by nothing else.
+
+<Callout type="warning">
+
+**A layout section's output is shared by every visitor on the same device class.** It isn't keyed on cookies, location, search parameters or login state. A header that shows the visitor's name, a regional price, or a cart count from a cookie must not be a layout section: the first visitor's version would be served to everyone for up to 5 minutes.
+
+Move the personal part into a client component or a separate, non-layout section. To opt out a section that an app or a generated list marks as layout, call `unregisterLayoutSections([key])` from `@decocms/blocks/cms` in setup after `applySectionConventions`.
+
+</Callout>
+
+In development the runtime warns when a section loader registered for a layout section reads request-specific data (built with `withSearchParam`, for example), and when a section whose key contains "header" or "footer" isn't registered as a layout section.
+
+Layout sections are never deferred by position. A layout section that an editor marks async in Studio is still deferred, though, so leave headers and footers unmarked.
+
+## Cached sections
+
+`export const cache = "<profile>"` is for sections whose loader output depends only on their props: a shelf with a fixed collection, a list of blog posts. The cache key is the section key plus the props the loader receives, so two shelves configured differently get separate entries. A failed refresh keeps serving the cached result.
+
+Valid values are the [cache profile](/v7/caching#cache-profiles) names. To set a freshness in milliseconds instead, register it in setup:
+
+```ts title="src/setup.ts (excerpt)"
+import { registerCacheableSections } from "@decocms/blocks/cms";
+
+registerCacheableSections({
+  "site/sections/ProductShelf.tsx": { maxAge: 60_000, staleWhileRevalidate: 300_000 },
+});
+```
+
+`staleWhileRevalidate` defaults to 5 minutes. Don't cache a section whose loader reads cookies or the logged-in visitor: like layout sections, the cached result is shared.
+
+## Skeletons
+
+A `LoadingFallback` should take the same space as the section it replaces, so the page doesn't jump when the real section arrives. Give it the section's final height (fixed, or derived from its props, like the number of rows), and keep it a plain layout component: no data fetching, no browser APIs.
+
+A deferred section's content isn't sent to the browser with the page, so its `LoadingFallback` renders with no props. When the section is only waiting for its code chunk, it gets the section's props.
+
+If a deferred section has no `LoadingFallback`, TanStack Start renders the `loadingFallback` passed to `DecoPageRenderer`, or else a generic placeholder; in development the placeholder is outlined in red with a reminder to add one.
+
+On Next.js, deferred sections stream in behind the `loadingFallback` passed to `DecoPageRenderer`, not the section's own `LoadingFallback`. `createDecoPage` passes none, so a deferred section takes no space until it arrives.
+
+## Next steps
+
+- [Deferred sections](/v7/rendering): when sections are deferred and how they load.
+- [Loaders and actions](/v7/loaders): the section loaders that `cache` and `layout` cache.
+- [Caching](/v7/caching): cache profiles and the edge cache.
+- [Code generation](/v7/generate): the generator that reads these exports.

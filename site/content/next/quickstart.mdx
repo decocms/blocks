@@ -58,7 +58,7 @@ This function doesn't render anything; it returns flags. A block function can ju
 
 - Node.js 24 or later, and `tsx` to run TypeScript.
 - An ESM project (`"type": "module"` in `package.json`), because the examples use top-level `await`.
-- Optional: a site on the hosted Deco CMS connected to this repository, and its token, if you want to try Studio or publish without a deploy. Creating a site and issuing a token for this API isn't available yet (see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service)). Everything on this page works without it.
+- Optional: a site on the hosted Deco CMS connected to this repository, with its site ID and token, if you want to try Studio or publish without a deploy. Creating a site and issuing a token for this API isn't available yet (see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service)). Everything on this page works without it.
 
 ```bash
 npm install @decocms/blocks
@@ -88,14 +88,14 @@ The CLI reads the map and turns the `Experiments` type into a JSON Schema. The J
 npx deco schema
 ```
 
-It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in `src/` (`--entry` points it at any other file; see [Schema generation](/next/schema)), and writes `.deco/schema.json`. Commit the file. If the repository is connected to the hosted Deco CMS, then once that code is deployed, Studio shows each experiment as a number field clamped to 0–100. Without it, the schema still describes the content you or an agent write by hand.
+It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in `src/` (`--entry` points it at any other file; see [Schema generation](/next/schema)), and writes `.deco/schema.json`. Commit the file. If the repository is connected to the hosted Deco CMS, then once the commit is on your main branch, Studio shows each experiment as a number field clamped to 0–100: it reads the committed schema, not your running site (see [Studio and the content protocol](/next/studio-protocol)). Without it, the schema still describes the content you or an agent write by hand.
 
 ## 3. Add content
 
 There are two ways to create content:
 
 - **By hand.** Write the JSON file yourself, or ask an AI agent to "ramp the new checkout to 25%" and let it edit the file.
-- **In Studio (hosted Deco CMS).** Pick the `experiments` block type, fill in the form, and save. Studio commits the same file.
+- **In Studio (hosted Deco CMS).** Pick the `experiments` block type, fill in the form, and save. Studio commits the same file. To edit your local checkout from Studio instead, run `npx deco content serve` and open the link it prints; saves then write to your working tree.
 
 Both routes produce the same file in `.deco/blocks`, which is where the CLI looks for content (its `--root` flag points it at another `.deco` folder):
 
@@ -144,9 +144,9 @@ import blocks from "./blocks";
 export const cms = createCMS({ blocks, content });
 ```
 
-Then ask it for a client, the object you read content with. `forRelease()` returns a client over the published content, the release; with plain files, the release is simply what's in the content module. Its sibling `forDraft()` reads unpublished drafts for previews (see [Preview](/next/preview)). Make one client per request: a client reads one consistent version of the content for its whole life.
+Then ask it for a client, the object you read content with. `forRelease()` returns a client over the published content, the release; with plain files, the release is what's in the content module. Its sibling `forDraft()` reads unpublished drafts for previews (see [Preview](/next/preview)). Make one client per request: a client reads one consistent version of the content for its whole life.
 
-Fetch the entry by name. The client runs `experiments` on the saved inputs, so you get the same value as calling `experiments()` yourself. An entry name is just a string, so TypeScript can't infer the result type from it; pass the type you expect, and it's checked at compile time, not at runtime:
+Fetch the entry by name. The client runs `experiments` on the saved inputs, so you get the same value as calling `experiments()` yourself. An entry name is a string, so TypeScript can't infer the result type from it; pass the type you expect, and it's checked at compile time, not at runtime:
 
 ```ts title="checkout.ts"
 import { cms } from "./cms";
@@ -164,7 +164,7 @@ Every call returns a `[value, error]` tuple, so a missing entry or a failing fun
 
 Run it with `npx tsx checkout.ts`. Now open `.deco/blocks/Experiments.json`, change `newCheckout` to `100`, and run it again (no need to rerun `deco content`: only adding or removing a file needs that): `newCheckout` is `true` every time. You changed what the code does without touching the code.
 
-That's it. The function didn't change, but its inputs now live in a file that editors change through a form and agents change directly, and every change is a commit. A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Block maps](/next/manifest)).
+The function didn't change, but its inputs now live in a file that editors change through a form and agents change directly, and every change ends up as a commit. A real implementation would hash a visitor ID from a cookie instead of rolling a die, so each visitor gets a stable result. Block functions receive only their saved inputs, not the HTTP request, so read the cookie the way the rest of your app does (see [Block maps](/next/manifest)).
 
 ## Next steps
 

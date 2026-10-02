@@ -1,26 +1,84 @@
 ---
-title: Caching and observability
-nav: Caching & observability
+title: Caching and telemetry
+nav: Caching & telemetry
 group: Production
-order: 17
+order: 18
+description: The caches a request passes through, and the sampled telemetry a site sends to Deco with its site ID and token.
 ---
 
-# Caching and observability
+# Caching and telemetry
 
-A request passes through several caches. Deco Blocks manages the first two, the JavaScript runtime the third, and the last two are yours, and getting their keys wrong is how a site shows one customer's cart to another or serves last week's prices.
+A wrong cache key is how a site shows one customer's cart to another or serves last week's prices. A request passes through several caches; the table shows who owns each one and what you're responsible for.
 
 | Layer | Lifetime | Your responsibility |
 |---|---|---|
 | Content map | Cached in the CMS: releases by revision, indefinitely; drafts by version. One cache per process, even if the package is loaded twice (see [One instance per process](/next/standalone#one-instance-per-process)). See [Content and loaders](/next/content) and [how remoteLoader stays current](/next/loader-internals). | Nothing, unless you write a loader: then key by revision. |
 | Resolved blocks | For one client. A client runs each block once and reuses the result for the rest of the request. | Make a client per request and resolve everything the response renders through it. |
 | Dynamically imported modules | Block functions you load lazily with `import()` (see [Block maps](/next/manifest)) are cached by the JavaScript runtime for the life of the process, so anything a module stores in a top-level variable is shared by every request. | Keep per-request state out of module globals. |
+| Upstream data | Responses from the APIs your code calls (a commerce platform, a search service), cached by your framework binding: the Cloudflare Cache API on Workers, Next's data cache on Next.js. See [Upstream API clients](/next/clients#caching). | Include tenant, locale, currency, or customer in the key. Never cache private data as public. |
 | Cross-request results | Anything you cache across requests yourself (rendered HTML at a CDN, a resolved page in KV). Your policy. | Key by revision, app version (new code can render the same content differently), inputs, and relevant request context. Define TTL and invalidation. |
-| Upstream data | Responses from the APIs your blocks call (a commerce platform, a search service). Follows the upstream API. | Include tenant, locale, currency, or customer in the key. Never cache private data as public. |
 
 A block type alone is never a cache key. Include every input that can change the result. A cache hit doesn't bypass authorization.
 
-Block functions run whenever content is resolved: for a visitor, in a Studio preview, for an agent, possibly more than once. So they should only read. Put anything that changes state, like adding to a cart, in your own route handlers.
+Block functions should only read; see [Blocks](/next/model#block-functions-should-only-read).
 
-## Tracing
+## Telemetry
 
-If you use [OpenTelemetry](https://opentelemetry.io/), make each request span the parent of block resolution spans and outbound HTTP spans. One way to get block spans is to wrap each function in your block map in a span named after its block type. Record the entry name (when the block came from a saved entry), the block type, duration, errors, and cache outcome, and keep credentials and customer data out of attributes. Recording the served revision needs the client to expose it, which is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle). Export telemetry asynchronously, so an unavailable collector never blocks rendering.
+<Callout>**Status.** Telemetry, the Telemetry entry and its field names are proposed; see the [Roadmap](/roadmap#roadmap-platform--build-the-telemetry-collector).</Callout>
+
+With the hosted Deco CMS, your site sends Deco **telemetry**: sampled, aggregated measurements of its own requests and the third-party APIs it calls, so Deco can show you upstream latency and error rates for your site and spot regressions. It uses the same site ID and site token that load your content, so there's nothing else to configure:
+
+```ts title="cms.ts"
+export const cms = createCMS({
+  blocks,
+  content,
+  site: process.env.DECO_SITE,          // your site's ID in the hosted Deco CMS
+  token: process.env.DECO_SITE_TOKEN,   // your site token (secret)
+});
+```
+
+Without a site and a token, nothing is sent: in development, in tests, and on any site that doesn't use the hosted Deco CMS. (Issuing site tokens isn't available yet; see the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service).)
+
+### What's sent
+
+| Measurement | Labels | Reported by |
+|---|---|---|
+| Upstream latency: each request to a third-party API, timed until its response headers arrive | `provider`, `operation`, `status_class` (2xx, 4xx, 5xx, error), `cached`, `retries` | The framework's instrumented fetch, which every [upstream client](/next/clients) uses |
+| Inbound requests: duration and status of the requests your site serves | route kind, `status_class` | Your framework binding |
+| Edge cache: hits and misses for rendered pages and upstream responses | cache layer, outcome | Your framework binding |
+| Error logs | error code, block type, provider | The SDK and the bindings |
+
+The bindings' caching and request metrics aren't in the framework guides yet. An app that uses only `@decocms/blocks` sends upstream latency and error telemetry from the instrumented fetch, but no binding-level cache or inbound metrics (see the [Roadmap](/roadmap#roadmap-api--add-observability-seams)).
+
+A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. Error logs are structured: they carry the error's code, message and where it happened, never upstream response bodies, tokens or cookies.
+
+### Sampling
+
+Telemetry is heavily sampled, so its cost stays flat as traffic grows:
+
+- **Metrics are aggregated** in memory, per server, and sent in batches: counts, sums and latency buckets per combination of labels, not one record per request.
+- **Error logs are sampled** at the rate the telemetry settings give, so a burst of identical errors sends a few examples, not thousands.
+- **Sending never delays a response.** Batches go out in the background (on Cloudflare Workers, after the response, inside `ctx.waitUntil`), and a collector that's down only loses that batch.
+
+### Telemetry settings are content
+
+The settings live in a **Telemetry entry**: a well-known saved entry named `Telemetry`, whose type, `telemetry`, the framework provides, so `deco schema` always includes it and Studio shows it as a form:
+
+```json title=".deco/blocks/Telemetry.json"
+{
+  "__resolveType": "telemetry",
+  "enabled": true,
+  "metrics": true,
+  "errorSampleRate": 0.05
+}
+```
+
+The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it, editors change it in Studio, and it travels with every release, so each server picks up changes with its once-a-minute check. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Deco can make the same change remotely, for example during an incident; it shows in Studio like any other edit and reaches your servers like any other release. Without the entry, the framework's defaults apply.
+
+### Real-user monitoring
+
+Real-user monitoring (RUM) measures what visitors experience in their browsers: a customer-facing alternative to Google Analytics, linked to A/B tests through variant exposure events (see [Matchers and variants](/next/variants)). It's planned as a follow-up after the first release; see the [Roadmap](/roadmap#roadmap-later--add-real-user-monitoring).
+
+## Your own tracing
+
+If you also use [OpenTelemetry](https://opentelemetry.io/), make each request span the parent of block resolution spans and outbound HTTP spans. One way to get block spans is to wrap each function in your block map in a span named after its block type. Record the entry name (when the block came from a saved entry), the block type, duration, errors, and cache outcome, and keep credentials and customer data out of attributes. Recording the served revision needs the client to expose it, which is on the [Roadmap](/roadmap#roadmap-api--add-a-revision-handle). Export asynchronously, so an unavailable collector never blocks rendering.

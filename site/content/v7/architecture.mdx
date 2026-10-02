@@ -1,0 +1,89 @@
+---
+title: How v7 works
+nav: How it works
+group: Getting started
+order: 2
+description: The request path, the authoring path and the package graph of a Deco Blocks v7 site.
+---
+
+# How v7 works
+
+A v7 site has two loops running through it. In the request loop, a visitor asks for a URL and the site turns stored JSON into a rendered page. In the authoring loop, a developer's TypeScript types become Studio forms, and what editors save becomes the JSON the request loop reads. This page walks through both, then shows how the packages split the work.
+
+## The request path
+
+When a request arrives, the framework binding (`@decocms/tanstack` or `@decocms/nextjs`) hands its path to the runtime in `@decocms/blocks`. The runtime holds the site's content in memory as the *decofile*: a flat map from block names to JSON.
+
+<Flow label="Request path">
+  <FlowNode title="Find the page">The path is matched against every page block's `path` pattern, most specific first</FlowNode>
+  <FlowNode title="Resolve">Every `__resolveType` in the page's sections is followed: named blocks, matchers, commerce loaders</FlowNode>
+  <FlowNode title="Section loaders">Server functions attached to sections enrich their props</FlowNode>
+  <FlowNode title="Render">React renders the sections; deferred ones render a skeleton and load later</FlowNode>
+</Flow>
+
+1. **Find the page.** A page block is a block with a `path` (a URL pattern such as `/:category/:slug/p`) and a list of `sections`. The runtime picks the most specific pattern that matches. See [Pages and routing](/v7/routing).
+2. **Resolve.** Content is JSON, but some values in it stand for something else. A value with a `__resolveType` field names a section, another block, a matcher-guarded variant or a data loader. *Resolution* follows those names recursively until every value is plain data. A product shelf's `products` prop, for example, becomes the result of a VTEX search. See [Blocks and sections](/v7/model) and [Matchers and variants](/v7/variants).
+3. **Section loaders.** After resolution, each section can have a server function that adds props (device, search params, its own data). See [Loaders and actions](/v7/loaders).
+4. **Render.** The binding renders the sections as React. Sections an editor marked async in Studio render as a skeleton first and are fetched separately, so the first byte isn't held up by slow data. See [Deferred sections](/v7/rendering).
+
+On TanStack Start, all of this runs inside a Cloudflare Worker that also owns an edge cache, CMS redirects and the admin endpoints; see [The Worker request pipeline](/v7/request-pipeline). On Next.js, it runs inside Server Components.
+
+## The authoring path
+
+Editors never write JSON by hand. Studio builds a form for every section from its TypeScript `Props` type, and saves what editors enter as blocks.
+
+<Flow label="Authoring path">
+  <FlowNode title="Your TypeScript">Sections with an exported `Props` type and JSDoc labels</FlowNode>
+  <FlowNode title={<><code>generate</code></>}>Writes `.deco/meta.gen.json` (the schema) and the section registry</FlowNode>
+  <FlowNode title="Studio">Reads the schema at `/live/_meta`, shows forms and live previews</FlowNode>
+  <FlowNode title="Decofile">Saved content: `.deco/blocks/*.json`, and the in-memory copy on the site</FlowNode>
+</Flow>
+
+The `generate` command from `@decocms/blocks-cli` reads your sections, loaders and installed apps and writes generated files into `.deco/`. The most important one, `meta.gen.json`, is the JSON Schema Studio builds its forms from. In development the TanStack Vite plugin reruns the generators as you edit; on Next.js you run `generate` before `dev` and `build`. See [Schema generation](/v7/schema) and [Code generation](/v7/generate).
+
+Studio talks to your running site over a handful of HTTP endpoints, called the *admin protocol*: it reads the schema and the current content, renders previews of a section or page, calls loaders, and publishes. See [Deco Studio and the admin protocol](/v7/studio).
+
+## What happens when an editor publishes
+
+Publishing sends the new content to the site with `POST /.decofile`, either as the full decofile or as a delta of changed blocks. The instance that receives it swaps its in-memory decofile in one step, clears its loader cache and invalidates the schema ETag, so requests that start after the swap see the new content.
+
+What makes the change last depends on how the site is deployed:
+
+- **By default,** content ships with the code. The build bundles `.deco/blocks/` into the server, and a new instance starts from that bundled copy. A publish changes only the memory of the instance that received it, so content that has to survive a restart or reach every instance must be in `.deco/blocks/` in the deployed build. Studio commits each publish to your repository, so it becomes permanent with your next deploy.
+- **With Fast Deploy** (TanStack on Workers, opt-in), content lives in Cloudflare KV keyed by deployment. A publish writes there, and the other Worker isolates running the same deployment pick it up on their next revision check (about every ten seconds) without a redeploy. See [Deploying and Fast Deploy](/v7/releases).
+
+## The packages and their graph
+
+The framework is five packages. The dependency graph only points one way, so the runtime never depends on a binding and the two bindings never depend on each other.
+
+```text
+Package                  depends on
+───────────────────────  ─────────────────────────────────────────────
+@decocms/blocks          nothing from Deco (the runtime)
+@decocms/blocks-admin    blocks
+@decocms/blocks-cli      blocks
+@decocms/tanstack        blocks, blocks-admin, blocks-cli
+@decocms/nextjs          blocks, blocks-admin
+```
+
+| Package | Role in the loops above |
+|---|---|
+| `@decocms/blocks` | Holds the decofile, finds pages, resolves blocks, runs section loaders and matchers. Knows nothing about TanStack, Next.js or Studio. |
+| `@decocms/blocks-admin` | Implements the admin protocol endpoints and the admin half of setup (`createAdminSetup`). Also configures apps from their decofile blocks. |
+| `@decocms/blocks-cli` | Runs at build time: `generate` and the migration commands. |
+| `@decocms/tanstack` | Wires everything into TanStack Start and a Cloudflare Worker, including the edge cache and Fast Deploy. |
+| `@decocms/nextjs` | Wires everything into the Next.js App Router. |
+
+The companion apps (`@decocms/apps-*`) build on `@decocms/blocks` and `@decocms/apps-commerce`. An app is configured from a block in the decofile and registers its loaders, actions and sections when the site starts. See [Apps](/v7/apps).
+
+Each package ships plain TypeScript source rather than a bundled build, so the runtime state (the decofile, the section registry) exists exactly once in your app. [How v7 is built](/v7/internals) explains why that matters.
+
+<Callout type="preview">**Next major.** The next version keeps the same content model but replaces sections and setup calls with plain typed functions and a smaller API. If you're curious how the two compare, see [how the next major works](/next/architecture).</Callout>
+
+## Next steps
+
+- [Blocks and sections](/v7/model): the content model in detail.
+- [Content and the decofile](/v7/content): where content lives and how it reaches the runtime.
+- [Pages and routing](/v7/routing): how a path finds a page.
+- [Deco Studio and the admin protocol](/v7/studio): the endpoints Studio calls.
+- [How v7 is built](/v7/internals): the package split and module state.

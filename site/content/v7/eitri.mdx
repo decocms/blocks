@@ -1,0 +1,133 @@
+---
+title: Eitri apps
+nav: Eitri
+group: Framework guides
+order: 22
+description: Use @decocms/eitri to generate the schema and content snapshot Studio needs to author content for an Eitri mobile app.
+---
+
+# Eitri apps
+
+Eitri is a platform for building mobile apps that renders its components natively on the device. `@decocms/eitri` lets editors manage an Eitri app's content in [Deco Studio](/v7/studio). Unlike the web bindings, it renders nothing and ships no runtime: it only **generates** the files Studio reads, from your app's section types. Eitri fetches the content and renders it.
+
+## Who does what
+
+| Concern | Owner |
+|---|---|
+| Turning section `Props` types into a JSON Schema, and bundling content into a snapshot | `@decocms/eitri` |
+| Authoring content: forms, page composition | Studio, reading the generated files |
+| Fetching the content on the device and rendering sections | The Eitri platform and your app |
+
+Studio preview of Eitri apps isn't available yet. Editors author through Studio's forms; you see the result in the app.
+
+## Install and set up
+
+Add the package as a development dependency of your Eitri app:
+
+```bash
+bun add -d @decocms/eitri
+```
+
+Then scaffold the configuration:
+
+```bash
+npx deco-eitri init
+```
+
+`init` creates two files and never overwrites one that already exists:
+
+- **`tsconfig.json`**, extending `@decocms/eitri/tsconfig`. It's required: the schema generator needs a TypeScript configuration to read your `Props` types.
+- **`src/eitri-env.d.ts`**, declarations for the `eitri-luminus`, `eitri-bifrost` and `eitri-commons` modules, so your editor and `tsc` accept those imports. Generation works without it. Delete it if you install real type definitions for those modules.
+
+If you already have a `tsconfig.json`, `init` skips it, so add the `extends` yourself. The minimal file is:
+
+```json title="tsconfig.json"
+{ "extends": "@decocms/eitri/tsconfig", "include": ["src"] }
+```
+
+The shared configuration targets ESNext with bundler module resolution and `react-jsx`, allows JavaScript files and doesn't type-check them, and turns off `strict`.
+
+## Write a section
+
+An Eitri section is a Deco **section**: a component that is the default export of a file under `src/sections/`, with an exported `Props` type. JSDoc tags on the props become the Studio form, as described in [Schema generation](/v7/schema).
+
+```tsx title="src/sections/Banners/Hero.tsx"
+import { Image, View } from "eitri-luminus";
+
+export interface Props {
+  /** @title Hero image */
+  image: string;
+  /** @title Alt text */
+  alt?: string;
+  /**
+   * @title Publish date
+   * @format datetime
+   */
+  publishAt?: string;
+}
+
+export default function HeroBanner({ image, alt }: Props) {
+  return (
+    <View>
+      <Image src={image} alt={alt} />
+    </View>
+  );
+}
+```
+
+The section's key is `site/sections/Banners/Hero.tsx`, the same rule as on the web. For Eitri apps:
+
+- section files may be `.tsx`, `.ts`, `.jsx` or `.js`;
+- Eitri's `@format datetime` is normalized to the standard `date-time`.
+
+## Generate
+
+```bash
+npx deco-eitri generate
+```
+
+This runs the same [`generate`](/v7/generate) command web sites use, with `--platform eitri` added. On that platform only two generators run:
+
+| Output | What it is |
+|---|---|
+| `.deco/meta.gen.json` | The schema, self-contained: your section schemas plus the framework's own types (pages, matchers, the section picker), tagged with `framework: "eitri"`. Studio reads it as is. |
+| `.deco/blocks.gen.json` | The content snapshot: every block in `.deco/blocks/` merged into one JSON object, the file the Eitri runtime consumes. A new app starts with an empty one; it fills as editors author content. A small `.deco/blocks.gen.ts` stub is written next to it. |
+| `.deco/generate.digests.json` | The incremental-generation cache. Commit it. |
+
+The web-only outputs (the section registry, the loader map, the blocks manifest and the invoke server functions) aren't produced.
+
+Every `generate` flag passes through, so you can target a sub-app in a monorepo or force a rebuild:
+
+```bash
+npx deco-eitri generate --root apps/mobile --force
+```
+
+`deco-eitri generate --help` prints the full flag list. If you pass your own `--platform`, it's left as is. Add a script so the team runs the same command:
+
+```json title="package.json (excerpt)"
+{ "scripts": { "deco:generate": "deco-eitri generate" } }
+```
+
+## From code
+
+The package root exports the same operations as functions, for build scripts:
+
+```ts title="scripts/generate-deco.ts"
+import { generateEitri, runEitriInit } from "@decocms/eitri";
+
+runEitriInit({ root: "apps/mobile" });
+const exitCode = await generateEitri({ root: "apps/mobile", force: true });
+process.exitCode = exitCode;
+```
+
+| Function | What it does |
+|---|---|
+| `generateEitri(options?)` | Runs `generate` with `--platform eitri`. Options: `root`, `site`, `namespace` (default `"site"`), `force`, and `extraArgs` (raw flags). Resolves to the exit code, `0` on success. |
+| `eitriGenerateArgs(options?)` | Returns the argument list `generateEitri` would pass, without running anything. |
+| `runEitriInit(options?)` | Scaffolds the two files in `root` (default: the current directory). Returns `{ created, skipped }`, the file lists. |
+
+## Related
+
+- [Schema generation](/v7/schema) lists the JSDoc tags and widget formats.
+- [Code generation](/v7/generate) covers every flag and the cache.
+- [CLI reference](/v7/cli) has the `deco-eitri` synopsis next to the other commands.

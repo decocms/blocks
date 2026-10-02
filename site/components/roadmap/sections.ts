@@ -26,6 +26,7 @@ export const SECTION_IDS = [
   'roadmap-cli',
   'roadmap-platform',
   'roadmap-docs',
+  'roadmap-later',
   'roadmap-storefront',
   'roadmap-blog',
   'roadmap-faststore',
@@ -39,6 +40,7 @@ export const SECTION_GROUPS: readonly { title: string; ids: readonly SectionId[]
   { title: 'Release blockers', ids: ['roadmap-blockers'] },
   { title: 'Studio support', ids: ['roadmap-studio-new', 'roadmap-studio-legacy'] },
   { title: 'Work items', ids: ['roadmap-api', 'roadmap-cli', 'roadmap-platform', 'roadmap-docs'] },
+  { title: 'After the first release', ids: ['roadmap-later'] },
   { title: 'Site migrations', ids: ['roadmap-storefront', 'roadmap-blog', 'roadmap-faststore'] },
   { title: 'Feature readiness', ids: ['roadmap-features'] },
 ]
@@ -57,6 +59,7 @@ export const SECTION_NAV: Record<SectionId, string> = {
   'roadmap-cli': 'CLI and manifest',
   'roadmap-platform': 'Studio and Deco API',
   'roadmap-docs': 'Docs fixes',
+  'roadmap-later': 'Follow-ups',
   'roadmap-storefront': 'TanStack storefront',
   'roadmap-blog': 'TanStack blog',
   'roadmap-faststore': 'Next.js storefront',

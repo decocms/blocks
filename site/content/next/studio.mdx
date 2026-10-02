@@ -8,48 +8,190 @@ order: 5
 
 # Deco Studio compatibility
 
-## What Studio reads
+Studio reads and writes a next-major site through the [content protocol](/next/studio-protocol), which needs only the committed schema and the files in `.deco/blocks`. This page is the protocol's detail, what Studio reads from the schema, and the endpoints older sites still serve.
 
-Studio learns about your site from your site. Your app serves a few HTTP endpoints for it. The main one, `/live/_meta`, returns the schema the CLI wrote; Studio also calls your app to render previews (`/live/previews`), to run functions for pickers and the Run button (`/deco/invoke`), and to encrypt secret fields (`/live/invoke`). In today's packages, these handlers come from `@decocms/blocks-admin`; how the new API mounts them is on the [Roadmap](/roadmap#roadmap-studio-new). Studio also reads your content files in `.deco/blocks`. Which schema Studio uses is up to you: usually the one on your main branch, but you can point it at another. Everything Studio knows about the shape of your content comes from the schema, so it's all inferred from your types; the other endpoints run your code, they don't describe it.
+<Callout>**Status.** The protocol is proposed (draft, version 1.0) and not built yet. Names and limits may change; see the [Roadmap](/roadmap#roadmap-api--publish-the-content-protocol-and-its-package).</Callout>
 
-The schema file has two parts. `definitions` holds one JSON Schema per type: the form Studio shows. `manifest` lists every key of your block map and your `Content` type, grouped by kind, so Studio knows which keys render UI, which are rules, and so on. The group names are Studio's, inherited from Deco's previous framework. Each manifest entry points at its definition with a JSON Schema `$ref`. The CLI picks the group from the type:
+## The content protocol
+
+One HTTP endpoint takes JSON-RPC 2.0 requests: `POST <endpoint>` with `Content-Type: application/json` and a body that's one request object or a batch array. The local server's path is `/rpc`; Studio mounts its own per project.
+
+- `params` is always an object. A method without parameters accepts `{}` or no `params`.
+- Every request has an `id`. A request without one is rejected rather than run silently, because a dropped write is worse than an error.
+- Unknown parameters are rejected, so a guard the server doesn't understand never turns into an unguarded write.
+- Errors come back in the JSON-RPC `error` object with HTTP 200, except a missing or invalid bearer token (401) and a body over the size limit (413), which apply to the whole batch.
+- A batch runs in order and returns results in order, up to 10 calls. It isn't atomic: atomicity exists only inside one `blocks.apply`.
+- Responses are gzip-compressed when the request accepts it; schemas are often over a megabyte.
+
+### The four methods
+
+```ts
+function describe(): {
+  protocol: "deco-content";
+  version: { major: 1; minor: number };          // minors only add; a client refuses an unknown major
+  server: { name: string; version: string };     // e.g. "deco-cli", "studio-github"
+  kind: "working-tree" | "git";                  // Studio hides publish and draft UI for a working tree
+  readOnly: boolean;
+  layout: { root: string; blocksDir: string; schemaPath: string };   // relative to the repository root
+  schemaFormat: "deco-meta@1";
+  refs: null | { default: string; autoCreate: boolean };            // branches; null on the local server
+  pollIntervalMs: number;                        // local: 2000; git: 30000, plus on window focus
+  limits: { maxOpsPerApply: number; maxBlockBytes: number; maxRequestBytes: number };
+  preview: null | { origin: string };            // where "open the real page" points
+};
+
+function schemaGet(params?: { ref?: string; ifNoneMatch?: string }):
+  | { notModified: true; version: string }
+  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta };
+
+function blocksList(params?: { ref?: string; ifNoneMatch?: string }):
+  | { notModified: true; revision: string; resolvedRef: string | null }
+  | { notModified: false; revision: string; resolvedRef: string | null;
+      blocks: Record<string, object>;            // every saved entry, by name
+      versions: Record<string, string>;          // one opaque version per entry
+      diagnostics: Diagnostic[] };               // files skipped or shadowed
+
+function blocksApply(params: {
+  ref?: string;
+  set?: Record<string, object>;                  // whole-entry replace (create or update)
+  delete?: string[];                             // a missing name counts as deleted
+  ifMatch?: Record<string, string | null>;       // a version the entry must have; null = must not exist
+}): { revision: string; versions: Record<string, string | null> };
+```
+
+Versions and revisions are opaque strings defined by each storage (a git blob hash on GitHub and on disk), compared only for equality and never across servers. `schema.get` reads `<root>/.deco/schema.json`, falling back to `<root>/.deco/meta.gen.json`, and parses it before serving, so a file caught mid-write is never served torn. With branches, a read of a branch that doesn't exist yet returns the default branch's content (reported in `resolvedRef`), and the first write creates the branch.
+
+`blocks.apply` is the only write:
+
+1. **All or nothing.** Every name in `set` and `delete` lands together (one commit on git) or none does.
+2. **Durable when it returns.** It resolves only after the commit or the file renames landed, which is what Studio's autosave indicator relies on.
+3. **`set` wins** when a name is in both `set` and `delete`.
+4. **Validated first.** Names, value shapes, sizes and the secret guard are checked before anything is written, and every violation is reported at once.
+5. **Preconditions are optional.** A failed `ifMatch` writes nothing and returns a conflict with each entry's expected and actual version. Without `ifMatch`, the last writer wins, as Studio's autosave does in this version.
+
+Renaming, duplicating and moving entries are recipes over one `blocks.apply` (a `set` plus a `delete`, with `ifMatch: { [newName]: null }` for create-only), not methods of their own. Publishing, discarding a draft and the draft pointer stay Studio routes outside the protocol.
+
+### Polling instead of events
+
+There's no event stream. A client polls with one batched request that carries the versions it has; when nothing changed, both answers are a few bytes:
+
+```json title="A poll when nothing changed"
+→ [{"jsonrpc":"2.0","id":4,"method":"schema.get","params":{"ifNoneMatch":"9f2c…"}},
+   {"jsonrpc":"2.0","id":5,"method":"blocks.list","params":{"ifNoneMatch":"4be1…"}}]
+← [{"jsonrpc":"2.0","id":4,"result":{"notModified":true,"version":"9f2c…"}},
+   {"jsonrpc":"2.0","id":5,"result":{"notModified":true,"revision":"4be1…","resolvedRef":null}}]
+```
+
+After its own write, a client adopts the returned revision, so its next poll is "not modified" unless someone else wrote. When the map did change, the client replaces its copy except for entries it's still saving.
+
+### Errors and limits
+
+| Code | Name | When |
+|---|---|---|
+| -32001 | NotFound | No schema, no `.deco` folder at all (Studio's "not a Deco site"), or a branch that can't be created |
+| -32002 | Conflict | An `ifMatch` precondition failed |
+| -32003 | InvalidBlock | A name or value breaks the rules below, or a secret entry holds a plain-text value |
+| -32005 | ReadOnly | A write to a read-only endpoint |
+| -32006 | Unsupported | A feature the endpoint doesn't offer, such as branches on the local server |
+| -32007 | LimitExceeded | Too many operations, batch entries or bytes |
+| -32008 | Unavailable | The storage failed or is rate-limited, or retries ran out; carries `retryAfterMs` when known |
+| -32010 | Unauthorized | Missing or invalid bearer token (HTTP 401) |
+| -32011 | Forbidden | Authenticated, but not allowed for this project |
+
+Plus the standard JSON-RPC codes (-32700, -32600, -32601, -32602, -32603). The defaults: at most 500 names per `blocks.apply`, 1 MiB per entry and 8 MiB per request; a storage can lower them, and `describe` reports the values in effect.
+
+### File names
+
+Studio, `deco content serve` and `deco content` import one rule from the protocol package, so an entry Studio edits is the entry your app renders:
+
+- **Name to file:** `encodeURIComponent(name) + ".json"`, directly in `.deco/blocks` (no subfolders). A page named `pages-Home%20Page-6f1e` is stored as `pages-Home%2520Page-6f1e.json`; `collections/blog/posts/abc` as `collections%2Fblog%2Fposts%2Fabc.json`.
+- **File to name:** decode the file name, without `.json`, exactly once. If decoding fails, the raw name is the entry name.
+- **Two spellings of one name** (files that decode to the same name after repeated decoding): one wins, the file whose entry has a `path`, then the one that took more decoding, then the lowest file name. The others are reported as diagnostics. A write overwrites the winning spelling and deletes the others in the same commit.
+- **Names Studio can't save:** empty names; names containing `\`, `..` or NUL; names whose encoded form is over 250 bytes, so the file fits a 255-byte file-name limit; a new name that differs from another entry's only in letter case; Windows device names such as `CON`; `__proto__`; and names ending in a source extension such as `.ts` or `.tsx`, which would shadow a module (those can still be deleted).
+- **File content:** `JSON.stringify(entry, null, 2)` plus a newline, UTF-8.
+
+### The local server
+
+`deco content serve` binds 127.0.0.1 only and checks a random token on every request (or one you pass with `--token` or `DECO_CONTENT_TOKEN`). The token travels in the connect link's URL fragment, so it never reaches logs or `Referer` headers. Browser requests are accepted only from Studio's origins, plus any `--allow-origin`. The server answers Chrome's local-network preflight, rejects any `Host` header other than its own loopback address (against DNS rebinding) and any `Content-Type` other than JSON (against cross-site form posts). Studio stores the endpoint and token per project and asks you to reconnect when the server restarts with a new token.
+
+### The package
+
+The protocol ships as one package, proposed as `@decocms/blocks-protocol`, with `zod` as its only runtime dependency and no other Deco package. The CLI depends on it; the SDK doesn't.
+
+```text
+@decocms/blocks-protocol             method types, errors, client, keys    (browser-safe)
+@decocms/blocks-protocol/keys        the file-name rule above
+@decocms/blocks-protocol/server      createContentHandler(storage): (Request) => Response
+@decocms/blocks-protocol/storage/fs  the filesystem storage (Node only)
+@decocms/blocks-protocol/conformance a black-box test suite over HTTP
+```
+
+A storage implements a small interface: a snapshot of names and versions, reading file bodies, reading the schema, and one atomic commit attempt. The core owns everything else: the JSON-RPC layer, validation, the file-name rule, the secret guard, limits and retries. Studio's GitHub backend is one storage; the CLI's filesystem storage is another. The conformance suite runs against any endpoint, which is how both are kept to the same contract.
+
+## What Studio reads from the schema
+
+Everything Studio knows about the shape of your content comes from the schema, so it's all inferred from your types. Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none. The file follows Studio's format, `deco-meta@1`:
+
+- **`manifest`**: every key of your block map and `Content` type, grouped by kind (table below).
+- **`schema.definitions`**: one JSON Schema per type, the form Studio shows, keyed by the padded-base64 type name.
+
+The group names are Studio's, inherited from the Fresh and Deno framework. The CLI picks the group from the type:
 
 | Manifest group | What lands there | Studio uses it for |
 |---|---|---|
 | `sections` (Studio's legacy name) | Block functions that return JSX or a render descriptor | Studio's "add" catalog: the blocks an editor can add to a page |
 | `matchers` | Block functions that return `boolean` | The rule picker on a variant |
-| `loaders` | Every other block function. Studio calls these loaders, after the old framework's name for data functions; they're not the content loaders from [Content and loaders](/next/content). | Data fields that can point at a function |
+| `loaders` | Every other block function. Studio calls these loaders, after the Fresh and Deno name for data functions; they're not the content loaders from [Content and loaders](/next/content). | Data fields that can point at a function |
 | `pages` | `Content` types that extend `Route` | The page list, "new page", the URL field |
 | `redirects` | `Redirect` | The redirects screen |
-| `content` | Every other `Content` type | Plain entries: navigation, settings, posts |
+| `content` | Every other `Content` type, including the built-in `telemetry` | Plain entries: navigation, settings, posts |
 
 ```json title=".deco/schema.json, abridged"
 {
   "manifest": {
     "blocks": {
-      "sections": { "hero": { "$ref": "#/definitions/hero" } },
-      "matchers": { "always": { "$ref": "…" }, "never": { "$ref": "…" }, "date": { "$ref": "…" } },
-      "loaders":  { "seo": { "$ref": "…" }, "multivariate": { "$ref": "…" } },
-      "pages":    { "page": { "$ref": "…" } },
+      "sections":  { "hero": { "$ref": "#/definitions/aGVybw==" } },
+      "matchers":  { "always": { "$ref": "…" }, "never": { "$ref": "…" }, "date": { "$ref": "…" } },
+      "loaders":   { "seo": { "$ref": "…" }, "multivariate": { "$ref": "…" } },
+      "pages":     { "page": { "$ref": "…" } },
       "redirects": { "redirect": { "$ref": "…" } }
     }
   },
-  "definitions": { "hero": { "type": "object", "properties": { "title": { "type": "string", "title": "Heading" } } } }
+  "schema": {
+    "definitions": {
+      "aGVybw==": { "type": "object", "properties": { "title": { "type": "string", "title": "Heading" } } }
+    },
+    "root": { "sections": { "anyOf": ["…"] } }
+  }
 }
 ```
 
-Three conventions follow from this, and they're the ones the rest of the doc already uses. A key is a **block type if it's in the manifest and a saved entry if it isn't**, so short names like `hero` are fine, as long as no saved entry uses the same name (see [Blocks](/next/model)). A variant is `{ "variants": [{ "rule": …, "value": … }, …] }`. The first variant whose rule is true wins, so the default, with the `always` rule, goes last. A redirect is a flat `{ from, to, permanent }` entry.
+Three conventions follow from this:
 
-## Studio compatibility today
+- A key is a **block type if it's in the manifest and a saved entry if it isn't**, so short names like `hero` are fine, as long as no saved entry uses the same name (see [Blocks](/next/model)).
+- A variant is `{ "variants": [{ "rule": …, "value": … }, …] }`. The first variant whose rule is true wins, so the default, with the `always` rule, goes last.
+- A redirect is a flat `{ from, to, permanent }` entry.
 
-Deco's previous framework named every block type by the path of the file that defined it, so a page type was `website/pages/Page.tsx` and the always-true rule was `website/matchers/always.ts`. Today's Studio was built for that framework and still expects those names. It decides whether a key is a block type or a saved entry by checking for a file extension, and it finds pages, the `always` rule (the default variant), the `never` rule (how it hides a block) and `multivariate` (`website/flags/multivariate.ts`) by their old paths.
+Saved entries aren't in the schema: Studio builds its pickers of saved blocks from the map `blocks.list` returns. Schema strings, such as titles and `@image` templates, are untrusted input to Studio, which escapes them.
 
-Until Studio reads the manifest instead, the CLI bridges the gap: for the types Studio looks up by name, it also writes the old path into the manifest as an alias (a second key for the same type). Content Studio saves under an old name resolves through the [same alias mechanism](/next/adoption) your own renames use. Your code uses `page` and `always`; the manifest carries both spellings; nothing in the SDK changes.
+## Well-known types and the alias table
+
+The Fresh and Deno framework, and v7, name every block type by the path of the file that defined it, so a page type was `website/pages/Page.tsx` and the always-true rule was `website/matchers/always.ts`. Studio's special screens still find a few types by those names, and `deco-meta@1` keeps them:
+
+| Role | The name Studio looks for |
+|---|---|
+| Page | `website/pages/Page.tsx` (or `$live/pages/LivePage.tsx`) |
+| Variant | `website/flags/multivariate.ts`, `website/flags/multivariate/section.ts` |
+| Always and never rules (the default variant; hiding a block) | `website/matchers/always.ts`, `website/matchers/never.ts` |
+| Redirect | `website/loaders/redirect.ts` |
+| Secret | `website/loaders/secret.ts` |
+
+Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so Studio's screens find your types under the names they expect. Content Studio saves under an old name resolves through the runtime alias table the CLI emits, which `createCMS` will accept (planned; see the [Roadmap](/roadmap#roadmap-cli--emit-a-runtime-alias-table)). Until then, aliases for `Content` types such as `page` and `redirect` work in Studio's screens but not in `list()`.
 
 Two gaps remain. Redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/content-types):
 
 ```json
-// Saved by today's Studio
+// Saved by Studio's legacy redirect screen
 { "__resolveType": "website/loaders/redirect.ts",
   "redirect": { "from": "/campaigns/summer", "to": "/summer", "type": "permanent" } }
 
@@ -57,4 +199,18 @@ Two gaps remain. Redirects created in Studio are saved in the old nested shape, 
 { "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": true }
 ```
 
-`matchRoute` accepts both. And Studio's file-extension check must become a manifest lookup before a site can drop the aliases. Both are Studio work, tracked in the [Roadmap](/roadmap#roadmap-studio-legacy), not something sites do.
+`matchRoute` accepts both. And Studio decides whether a key is a block type or a saved entry by checking for a file extension; that check must become a manifest lookup before a site can drop the aliases. Both are Studio work, tracked in the [Roadmap](/roadmap#roadmap-studio-legacy), not something sites do.
+
+## Legacy endpoints
+
+Sites on Fresh and Deno are edited the legacy way: Studio reads from the running site and calls it for anything that runs code. v7 sites serve the same endpoints, from `@decocms/blocks-admin`, so a v7 project can stay on this path:
+
+| Endpoint | Legacy use |
+|---|---|
+| `GET /live/_meta` | The schema and manifest |
+| `GET /.decofile` | The saved entries |
+| `/live/previews` | Block previews: gallery thumbnails, saved blocks, in-place renders |
+| `/deco/invoke` | Running a loader or action: dynamic pickers and the Run button |
+| `/live/invoke` | Encrypting secret fields through the site's encrypt action |
+
+Next-major sites serve none of them, and the SDK has no invoke endpoint. Studio picks the protocol for a project that has a committed `.deco/schema.json` or `.deco/meta.gen.json` under its folder, and the legacy path otherwise; a project setting in Studio overrides the choice. v7 sites commit `meta.gen.json`, so they qualify for either.

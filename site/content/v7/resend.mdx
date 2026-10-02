@@ -1,0 +1,98 @@
+---
+title: Resend
+group: Apps
+order: 35
+description: Send transactional email, such as contact-form messages, through Resend.
+---
+
+# Resend
+
+`@decocms/apps-resend` sends email through [Resend](https://resend.com)'s HTTP API. The typical use is a contact form: editors set the API key, sender, recipients and subject in Studio, and your site sends a message with one call. It has a single action, `sendEmail`.
+
+```bash
+bun add @decocms/apps-resend
+```
+
+## Configuring
+
+Editors configure the app in a `deco-resend` block:
+
+| Field | What it does |
+|---|---|
+| `apiKey` | Your Resend API key: plain text or an encrypted secret. Falls back to the `RESEND_API_KEY` environment variable. |
+| `emailFrom.name` | The sender's display name. Defaults to `Contact`. |
+| `emailFrom.domain` | The sender's **full address**, such as `hello@store.example.com`, despite the field's name. It's placed inside the angle brackets of `Name <address>`. Defaults to `onboarding@resend.dev`, Resend's test sender. |
+| `emailTo` | Default recipients, as a list of addresses. |
+| `subject` | Default subject. |
+
+`configure` returns `null` when no API key resolves, and the app isn't installed: `sendEmail` then throws `Resend not configured`. Install it with the registry entry (see [Apps](/v7/apps#installing-apps-with-autoconfig)):
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps, type AppRegistry } from "@decocms/blocks-admin/apps";
+import { loadBlocks } from "@decocms/blocks/cms";
+import { RESEND_REGISTRY_ENTRY } from "@decocms/apps-resend/registry";
+import * as resendMod from "@decocms/apps-resend/mod";
+
+const APP_REGISTRY: AppRegistry = [{ ...RESEND_REGISTRY_ENTRY, module: async () => resendMod }];
+
+await autoconfigApps(loadBlocks(), APP_REGISTRY);
+```
+
+To configure it from code instead, call `configureResend` once at module scope. You then resolve the key yourself; this path doesn't decrypt secrets:
+
+```ts title="src/setup/resend.ts"
+import { configureResend } from "@decocms/apps-resend/client";
+
+configureResend({
+  apiKey: process.env.RESEND_API_KEY ?? "",
+  emailFrom: "My Store <hello@store.example.com>",
+  emailTo: ["team@store.example.com"],
+  subject: "Contact form submission",
+});
+```
+
+`ResendConfig.emailFrom` here is the complete `Name <address>` string.
+
+## Sending email
+
+`sendEmail(payload)` merges what you pass over the configured defaults and posts the message to Resend:
+
+| Field | Default |
+|---|---|
+| `from` | The configured sender, else `Contact <onboarding@resend.dev>` |
+| `to` | The configured `emailTo`, else an empty list (which Resend rejects) |
+| `subject` | The configured subject, else `No subject` |
+| `html`, `text`, `cc`, `bcc`, `reply_to`, `headers` | Sent only when you set them |
+
+It never throws for an error Resend reports. It always resolves to `{ data, error }`:
+
+```ts title="src/actions/contact.ts"
+import { sendEmail } from "@decocms/apps-resend";
+
+export interface Props {
+  name: string;
+  email: string;
+  message: string;
+}
+
+export default async function contact(props: Props) {
+  const { data, error } = await sendEmail({
+    subject: `Message from ${props.name}`,
+    reply_to: props.email,
+    text: props.message,
+  });
+  if (error) return { ok: false, reason: error.name };
+  return { ok: true, id: data?.id };
+}
+```
+
+On success `data` is `{ id }` and `error` is `null`. On failure `data` is `null` and `error` is Resend's `{ message, name }`, where `name` is one of Resend's error codes, such as `validation_error`, `invalid_from_address`, `rate_limit_exceeded` or `missing_api_key` (the full list is `RESEND_ERROR_CODES_BY_KEY` in `@decocms/apps-resend/types`). Network failures and timeouts, after 10 seconds, still throw. Calling `sendEmail` before the app is configured throws `Resend not configured`.
+
+## Calling it from a form
+
+Call `sendEmail` from server code you own, not from the browser. For a form, write a small action like `contact` above: it fixes the recipients and subject on the server, accepts only the fields the form needs, and is the place to add validation and spam protection. Put it in `src/actions/` and the [generate](/v7/generate) command makes it callable as `site/actions/contact` (see [Loaders and actions](/v7/loaders)).
+
+## Related
+
+- [Apps](/v7/apps): installing apps and secrets.
+- [Loaders and actions](/v7/loaders): site actions and invoke.

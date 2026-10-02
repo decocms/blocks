@@ -1,0 +1,229 @@
+---
+title: Upgrading from @decocms/start 6.x
+nav: From @decocms/start 6.x
+group: Upgrading
+order: 41
+description: Move a TanStack Start site from the single @decocms/start 6.x and @decocms/apps 5.x packages to the split v7 packages.
+---
+
+# Upgrading from @decocms/start 6.x
+
+Before v7, the framework shipped as two large packages: `@decocms/start` and `@decocms/apps`. v7 splits them into `@decocms/blocks`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/tanstack` and one `@decocms/apps-*` package per platform. The functions are mostly the same; their import paths change. This page is for sites **already on TanStack Start** with `@decocms/start` 6.x and `@decocms/apps` 5.x in `package.json`. A codemod does the mechanical part; the rest is a short list of manual changes and checks.
+
+If your site is still on Fresh and Deno, see [Migrating from Fresh and Deno](/v7/migrate-from-fresh). For a Next.js site on `@decocms/start` 5.x, see [Moving a Next.js site off @decocms/start 5.x](/v7/nextjs-from-start).
+
+## Plan the work as four commits
+
+Each step leaves the repository in a state you can review and type-check on its own:
+
+1. **Dependencies.** Swap the packages and the `generate` script.
+2. **Imports.** Run the codemod; no behaviour changes.
+3. **Generated files.** Move generated artifacts into `.deco/`.
+4. **Bump and verify.** Pin versions, regenerate, run the checks.
+
+Before you start, record the current type-check output (`tsc --noEmit`) on the unchanged branch. Many sites have pre-existing errors; the goal is **no new errors**, not zero.
+
+## 1. Swap the dependencies
+
+Remove `@decocms/start` and `@decocms/apps`. Add the framework packages:
+
+```bash
+bun add @decocms/blocks @decocms/blocks-admin @decocms/tanstack
+```
+
+```bash
+bun add -d @decocms/blocks-cli
+```
+
+Then add only the app packages the site imports. List them with:
+
+```bash
+grep -rhoE '@decocms/apps/[a-z-]+' src/ | sort -u
+```
+
+Each `@decocms/apps/<vendor>` becomes `@decocms/apps-<vendor>`. Almost every site also needs `@decocms/apps-commerce` (shared types and helpers) and `@decocms/apps-website` (SEO and analytics sections). The repository's own guidance targets 7.6.0 or later; 7.7.0 or later removes two workarounds noted below.
+
+In the same commit:
+
+- **Replace the chain of `generate:*` scripts** with the single orchestrator, folding in any per-generator flags (`--exclude`, `--namespace`, `--skip-apps`, `--platform`):
+
+  ```json title="package.json"
+  {
+    "scripts": {
+      "generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --site my-store",
+      "build": "npm run generate && tsr generate && vite build"
+    }
+  }
+  ```
+
+  Commit `.deco/generate.digests.json`, which it writes, so fresh clones and CI skip unchanged generators. `.deco/.cache/` stays out of git (see [Code generation](/v7/generate)).
+- **Update `resolve.dedupe`** in `vite.config.ts`: replace `@decocms/start` and `@decocms/apps` with the new package names.
+- **Delete a stale `package-lock.json`** if the site uses Bun. An npm install from an old lockfile installs the 6.x packages again, and the upgrade silently doesn't take effect.
+
+## 2. Rewrite the imports
+
+The `deco-upgrade-6-to-7` codemod rewrites import paths in `src/` and updates `package.json`. Run it without flags first to see what it would change, then apply:
+
+```bash
+npx -p @decocms/blocks-cli deco-upgrade-6-to-7
+```
+
+```bash
+npx -p @decocms/blocks-cli deco-upgrade-6-to-7 --write
+```
+
+`--src-dir <dir>` scans another directory. The codemod adds the framework packages and `@decocms/apps-commerce` to `package.json` at `latest`; pin exact versions after installing. It prints lines starting with `MANUAL:` for changes it can't make itself.
+
+### The import mapping
+
+| Before (6.x) | After (v7) |
+|---|---|
+| `@decocms/start/sdk/<name>` | `@decocms/blocks/sdk/<name>` (same subpath) |
+| `@decocms/start/cms`, server code | `@decocms/blocks/cms` |
+| `@decocms/start/cms`, client code (`getSection`, `getSectionRegistry`) | `@decocms/blocks/cms/client` |
+| `@decocms/start/setup` | `@decocms/blocks/setup` + `@decocms/blocks-admin/setup` (see below) |
+| `@decocms/start/types/widgets` | `@decocms/blocks/types/widgets` |
+| `@decocms/start` root (types) | `@decocms/blocks/types` |
+| `@decocms/start/matchers/builtins` | Usually delete it (see below) |
+| `@decocms/start/admin` | `@decocms/blocks-admin` |
+| `@decocms/start/routes`: `cmsRouteConfig`, `cmsHomeRouteConfig`, `loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`, `withSiteGlobals` | `@decocms/tanstack` |
+| `@decocms/start/routes`: `decoMetaRoute`, `decoRenderRoute`, `decoInvokeRoute` | `decoMetaRouteConfig()`, `decoRenderRouteConfig()`, `decoInvokeRouteConfig()` from `@decocms/tanstack` (now factories) |
+| `@decocms/start/routes`: `deferredSectionLoader` | `@decocms/tanstack/sdk/deferredSectionLoader` |
+| `@decocms/start/hooks`: `DecoPageRenderer`, `DecoRootLayout`, `SectionRenderer`, `PreviewProviders` | `@decocms/tanstack` |
+| `@decocms/start/hooks`: `RenderSection` | `@decocms/blocks/hooks` (the codemod instead renames it to `SectionRenderer` from `@decocms/tanstack`; either works) |
+| `@decocms/start/sdk/router` (`createDecoRouter`), `@decocms/start/sdk/workerEntry` (`createDecoWorkerEntry`) | `@decocms/tanstack` |
+| `@decocms/start/vite` | `@decocms/tanstack/vite` |
+| `@decocms/start/sdk/cookiePassthrough` | `@decocms/tanstack/sdk/cookiePassthrough` |
+| `@decocms/start/sdk/createInvoke` | `@decocms/tanstack/sdk/createInvoke` |
+| `@decocms/start/sdk/useHydrated` | `useHydrated` from `@tanstack/react-router` |
+| `@decocms/apps/<vendor>/<path>` | `@decocms/apps-<vendor>/<path>` |
+| `@decocms/apps/commerce/{sdk,types,utils}/*` | `@decocms/apps-commerce/*` |
+| `@decocms/apps/commerce/components/{Image,Picture,JsonLd}` | `@decocms/blocks/hooks` |
+| `@decocms/apps/website/*` | `@decocms/apps-website/*` |
+| `@decocms/apps/registry` (`APP_REGISTRY`) | Each app's own `@decocms/apps-<vendor>/registry` entry (see below) |
+
+The codemod covers the framework paths and `@decocms/apps/{commerce,vtex}`; rewrite the other `@decocms/apps/<vendor>` paths by hand with the same rule.
+
+### Split the setup call
+
+v6's setup took every option in one call. In v7, the framework half and the admin half are separate functions in separate packages:
+
+```ts title="src/setup.ts"
+import { createSiteSetup } from "@decocms/blocks/setup";
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
+import { PreviewProviders } from "@decocms/tanstack";
+import { blocks } from "../.deco/blocks.gen";
+import appCss from "./styles/app.css?url";
+
+createSiteSetup({
+  sections: import.meta.glob("./sections/**/*.tsx"),
+  blocks,
+  productionOrigins: ["https://www.example.com"],
+});
+
+createAdminSetup({
+  meta: () => import("../.deco/meta.gen.json").then((m) => m.default),
+  css: appCss,
+  previewWrapper: PreviewProviders,
+});
+```
+
+- `createSiteSetup` takes `sections`, `blocks`, `productionOrigins`, `customMatchers`, `onResolveError`, `onDanglingReference` and `initPlatform`.
+- `createAdminSetup` takes `meta`, `css`, `fonts`, `previewWrapper` and `getCommerceLoaders`.
+- Remove `customMatchers: [registerBuiltinMatchers]` and its import: `createSiteSetup` always registers the built-in matchers.
+
+### Use the admin route factories
+
+The admin routes are now factories. Call them in each route file, and never pass a shared object:
+
+```ts title="src/routes/deco/meta.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoMetaRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
+```
+
+Same for `/deco/render` with `decoRenderRouteConfig()` and `/deco/invoke/$` with `decoInvokeRouteConfig()`. These factories exist from 7.10.0.
+
+### Rebuild the app registry
+
+6.x exported one aggregate `APP_REGISTRY` from `@decocms/apps/registry`. v7 has none: each app package exports its own entry from `./registry`, and you list the ones whose loaders appear in your content. Pass the modules statically, because the entries' dynamic imports can fail in the production Worker bundle:
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps, type AppRegistry } from "@decocms/blocks-admin/apps";
+import { VTEX_REGISTRY_ENTRY } from "@decocms/apps-vtex/registry";
+import * as vtexMod from "@decocms/apps-vtex/mod";
+
+const APP_REGISTRY: AppRegistry = [{ ...VTEX_REGISTRY_ENTRY, module: async () => vtexMod }];
+
+export const setupApps = (blocks: Record<string, unknown>) => autoconfigApps(blocks, APP_REGISTRY);
+```
+
+To see which app namespaces your content uses:
+
+```bash
+grep -rhoE '"(shopify|vtex|commerce|website|algolia|magento|salesforce)/[^"]+"' .deco/blocks/ | sort -u
+```
+
+A namespace with no configured app leaves its loaders unresolved, and their sections render empty. See [Apps](/v7/apps).
+
+### Remove old shims
+
+On 7.7.0 or later, delete local copies of `deferredSectionLoader` and pass the public one to `DecoPageRenderer`. On 7.6.0 or later, use `@decocms/tanstack/sdk/cookiePassthrough` instead of a local cookie-passthrough shim, and import it only from server-only modules.
+
+## 3. Move generated files into `.deco/`
+
+v7's generators write to `.deco/` instead of `src/server/`:
+
+```bash
+git mv src/server/cms/blocks.gen.json .deco/blocks.gen.json
+```
+
+Do the same for `blocks.gen.ts`, `loaders.gen.ts` and `src/server/admin/meta.gen.json` (to `.deco/meta.gen.json`), regenerate `sections.gen.ts` into `.deco/`, point the imports in `src/setup.ts` at `../.deco/…`, and delete the empty `src/server/cms/` and `src/server/admin/` directories.
+
+<Callout type="warning">
+
+**`src/server/invoke.gen.ts` stays in `src/`.** TanStack Start's compiler must see it there; moved under `.deco/`, every `/_serverFn` call fails on the server.
+
+</Callout>
+
+Don't name any file of your own `*blocks.gen.ts`: the Vite plugin replaces modules with that suffix with an empty stub in the client bundle.
+
+## 4. Bump, regenerate and verify
+
+Pin the final versions, install, and regenerate everything (a version change invalidates the generate cache):
+
+```bash
+bun install
+```
+
+```bash
+bun run generate --force
+```
+
+Then run these checks. A clean type-check alone isn't enough.
+
+1. **Clean install.** The lockfile contains no `@decocms/start` or `@decocms/apps` entries.
+2. **Regeneration is stable.** After `generate --force` and a build, `git status` shows no changes.
+3. **No new type errors** compared with the baseline you recorded.
+4. **The build passes.** `bun run build` catches server-only imports that reach the client bundle.
+5. **Dev smoke test.** `bun run dev`, then `/` renders, and `/live/_meta` and `/.decofile` return JSON.
+6. **The production build works.** Run `bun run preview` and load a real product page and listing page in a browser, checking that products render. Commerce sections are often [deferred](/v7/rendering), and some failures (such as app modules that don't resolve) only happen in the production bundle.
+7. **Parity with production.** `/live/_meta` matches the deployed site's schema, and `/.decofile` differs only by content changes you expect.
+
+## Version notes
+
+The repository records these changes within 7.x:
+
+| Version | Change |
+|---|---|
+| 7.6.0 | `getRequestCookieHeader` and `forwardResponseCookies` public at `@decocms/tanstack/sdk/cookiePassthrough`. |
+| 7.7.0 | `deferredSectionLoader` public at `@decocms/tanstack/sdk/deferredSectionLoader`. `generate` finds the VTEX app's invoke file without `--apps-dir`, and generated `sections.gen.ts` declares `neverDefer`. |
+| 7.10.0 | Admin routes exist only as factories (`decoMetaRouteConfig()` and friends). |
+| 7.11.2 (`@decocms/blocks`) | Loader keys with a `.ts` suffix fall back to the extension-less registration. |
+
+## Related
+
+- [Packages and exports](/v7/packages): every v7 import path.
+- [Troubleshooting](/v7/troubleshooting#product-or-listing-pages-show-no-product-after-an-upgrade)
+- [CLI reference](/v7/cli)

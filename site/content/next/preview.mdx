@@ -1,7 +1,7 @@
 ---
 title: Preview
 group: Core concepts
-order: 6
+order: 7
 ---
 
 # Preview
@@ -11,10 +11,10 @@ A **draft** is content an editor has changed in Studio but not published yet, ke
 Here's the whole mechanism. Studio opens your site with a **draft pointer** in the URL:
 
 ```bash
-https://store.example.com/summer?__draft=studio.decocms.com/api/acme/decofile/store/feat-summer%3Ftoken%3D…@9f3c1a
+https://store.example.com/summer?__draft=api.deco.example/drafts/acme/feat-summer%3Ftoken%3D…@9f3c1a
 ```
 
-The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `studio.decocms.com/api/…/feat-summer?token=…` is where the draft lives: the Deco API's address for this site's `feat-summer` branch, plus a token signed by Studio. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
+The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the Deco API's address for this site's `feat-summer` branch, plus a token signed by Studio. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
 
 The pointer is a string, `<host><path>@<version>`: where the draft content lives, and which version. `draftPointer(request)` reads it, from `?__draft=` or from the cookie described below, and the CMS gives you a client over that draft. Everything after that line is the same code that serves visitors:
 
@@ -67,7 +67,7 @@ A script passes it as an argument. To look inside a pointer, or build one from p
 
 ## Who may preview
 
-Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs configuration in your app. First, the pointer must name your site's own Deco API host, which `remoteLoader` looks up with your token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by Studio, which the Deco API checks before serving the draft.
+Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs configuration in your app. First, the pointer must name your site's own Deco API host, which `remoteLoader` looks up with your site ID and token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by Studio, which the Deco API checks before serving the draft.
 
 If a website wants to show drafts on its preview domain only, it checks the request's host before calling `forDraft`:
 
@@ -77,8 +77,12 @@ const pointer = host === 'preview.store.example.com' ? draftPointer(request) : n
 const client = pointer ? cms.forDraft(pointer) : cms.forRelease()
 ```
 
-<Callout type="warning">**The token is the only secret.** The site holds no other credential. Invalid or unexpected pointers are ignored and the request falls back to published content, never to an error page.</Callout>
+<Callout type="warning">**The token is the only secret.** The site ID isn't secret, and the site holds no other Deco credential. Invalid or unexpected pointers are ignored and the request falls back to published content, never to an error page.</Callout>
 
 ## Connect Studio to your site
 
-Studio opens previews on your site's URL, so the site has to be set up in the hosted Deco CMS with your token (creating a site and a token for this API is on the [Roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service)). Support for sites on this API, including previews inside Studio's frame, is still being built; see the [Roadmap](/roadmap#roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe). To try the mechanism locally: with only local files, `forDraft` returns the release, because the content module has no drafts. Testing a real draft needs a token.
+Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and site token from the hosted Deco CMS.
+
+With [`deco content serve`](/next/studio-protocol#edit-your-local-checkout), the canvas opens your dev app instead, which already renders your working tree.
+
+<Callout>**Status.** Creating a site and a site token for this API, and previews inside Studio's frame, are still being built; see the Roadmap ([release service](/roadmap#roadmap-platform--build-the-deco-api-release-service), [preview in Studio's iframe](/roadmap#roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe)).</Callout>

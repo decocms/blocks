@@ -1,0 +1,358 @@
+---
+title: VTEX
+group: Apps
+order: 28
+description: Configure the VTEX app, register its cached commerce loaders, wire checkout, segments and sitemaps into the Worker, and build the cart with Cart v2.
+---
+
+# VTEX
+
+`@decocms/apps-vtex` connects a site to VTEX. It wraps VTEX's APIs (Intelligent Search, the catalog, checkout and order forms, VTEX ID, sessions, Master Data) as [loaders](/v7/loaders) that return the shared [commerce types](/v7/apps-commerce) and actions that change carts, sessions and profiles. It also ships React hooks for the cart, user and wishlist, a request middleware for segments and logged-in visitors, and proxies that serve VTEX checkout and sitemaps from your storefront's domain.
+
+It's the most complete commerce app and the reference implementation of [Cart v2](/v7/apps-commerce#cart-v2-sections-and-projection). This page goes in the order you'll wire it up.
+
+```bash
+bun add @decocms/apps-vtex @decocms/apps-commerce @decocms/apps-website
+```
+
+The TanStack Query hooks also need `@tanstack/react-query`, an optional peer dependency.
+
+## Key terms
+
+<Terms>
+  <Term name="Account">Your VTEX account name, such as `acme`. API hosts are derived from it.</Term>
+  <Term name="Order form">VTEX's cart. Its id travels in the `checkout.vtex.com__orderFormId` cookie.</Term>
+  <Term name="Segment">VTEX's per-visitor context (sales channel, region, price tables), carried in the `vtex_segment` cookie.</Term>
+  <Term name="Sales channel">A VTEX trade policy, `"1"` by default. Prices and availability can differ per channel.</Term>
+</Terms>
+
+## Configuring
+
+Editors configure the app in a `deco-vtex` block. Install it with the registry entry, passing the module statically (see [Apps](/v7/apps#installing-apps-with-autoconfig)):
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps, type AppRegistry } from "@decocms/blocks-admin/apps";
+import { loadBlocks } from "@decocms/blocks/cms";
+import { VTEX_REGISTRY_ENTRY } from "@decocms/apps-vtex/registry";
+import * as vtexMod from "@decocms/apps-vtex/mod";
+
+const APP_REGISTRY: AppRegistry = [{ ...VTEX_REGISTRY_ENTRY, module: async () => vtexMod }];
+
+await autoconfigApps(loadBlocks(), APP_REGISTRY);
+```
+
+`configure` returns `null`, and the app isn't installed, when the block has no `account`. The block's fields:
+
+| Field | What it does |
+|---|---|
+| `account` | Required. Your VTEX account name. |
+| `publicUrl` | The public domain registered in VTEX's License Manager, such as `secure.mystore.com.br`. Product URLs normally use the host of the current request; this is the fallback when there's no request. |
+| `appKey`, `appToken` | API credentials, as plain text or an encrypted secret. Fall back to the `VTEX_APP_KEY` and `VTEX_APP_TOKEN` environment variables. Sent only when both are set. |
+| `salesChannel` | Deprecated. The default sales channel, `"1"` when empty. |
+| `locale` (or `defaultLocale`), `country`, `domain` | Locale for Intelligent Search, the ISO alpha-3 country for simulations (`BRA` by default), and the VTEX domain suffix (`com.br` by default). |
+
+The other fields Studio shows (`setRefreshToken`, `defaultSegment`, `usePortalSitemap`, `advancedConfigs`, `cachedSearchTerms`) exist so existing content validates.
+
+If you'd rather configure by hand, call `configureVtex(config)` from the package root, or `initVtexFromBlocks(blocks)` in `createSiteSetup`'s `initPlatform`. `initVtexFromBlocks` reads the `vtex` or `deco-vtex` block, but uses `appKey` and `appToken` only when they're plain strings, so prefer autoconfig when they're encrypted.
+
+## The instrumented, resilient fetch
+
+Call `setVtexFetch(createVtexFetch())` once, at module scope in your setup:
+
+```ts title="src/setup.ts"
+import { setVtexFetch, createVtexFetch } from "@decocms/apps-vtex";
+
+setVtexFetch(createVtexFetch());
+```
+
+`createVtexFetch` gives every VTEX call two layers:
+
+- **Resilience.** A per-attempt timeout and a total timeout, retries for idempotent requests only (GET and HEAD without a body) within a per-host retry budget, and a per-host circuit breaker that stops sending requests to a failing host for a few seconds. Pass `resilience: false` to turn it off, or a partial config to tune it. Setting the environment variable `VTEX_RESILIENCE_DISABLED=true` (read from `process.env`) turns it off at runtime.
+- **Instrumentation.** A span per call named by operation (such as `checkout.simulation` or `catalog.products.search`), and the upstream duration metric labelled `provider: "vtex"`. See [Observability](/v7/observability).
+
+Without `setVtexFetch`, VTEX calls use a plain fetch with a 10-second timeout and aren't measured.
+
+Read requests to the catalog, page types and Intelligent Search also go through a shared in-memory cache that serves stale data while it refreshes, keeps serving stale data for up to a day when VTEX errors, and merges concurrent identical requests. Cart and session calls are never cached.
+
+## Commerce loaders
+
+Content refers to VTEX data with blocks such as `"__resolveType": "vtex/loaders/intelligentSearch/productListingPage.ts"`. `createVtexCommerceLoaders` returns a ready-made map of these keys to cached loaders; register it with `registerCommerceLoaders`:
+
+```ts title="src/setup/commerce-loaders.ts"
+import { registerCommerceLoaders } from "@decocms/blocks/cms";
+import { createVtexCommerceLoaders } from "@decocms/apps-vtex/commerceLoaders";
+
+registerCommerceLoaders(createVtexCommerceLoaders());
+```
+
+Each loader is wrapped in the framework's loader cache with a [cache profile](/v7/caching): `listing` for listing pages and shelves, `product` for product pages, `search` for suggestions. Override them with `cacheProfiles`, and add your own loaders under `extra`:
+
+```ts
+createVtexCommerceLoaders({
+  cacheProfiles: { product: "listing" },
+  extra: { "site/loaders/featuredBrands.ts": featuredBrands },
+});
+```
+
+The map covers these keys. Every key ending in `.ts` is also registered without the extension.
+
+| Key | Returns |
+|---|---|
+| `vtex/loaders/intelligentSearch/productListingPage.ts`, `vtex/loaders/ProductListingPage.ts` | `ProductListingPage` |
+| `vtex/loaders/intelligentSearch/productDetailsPage.ts`, `vtex/loaders/legacy/productDetailsPage.ts`, `vtex/loaders/ProductDetailsPage.ts` | `ProductDetailsPage` |
+| `vtex/loaders/intelligentSearch/productList.ts`, `vtex/loaders/legacy/productList.ts`, `vtex/loaders/ProductList.ts` | `Product[]` for shelves |
+| `vtex/loaders/intelligentSearch/suggestions.ts` | `Suggestion` |
+| `vtex/loaders/legacy/relatedProductsLoader.ts` | Related products |
+| `vtex/loaders/workflow/products.ts` | Products for back-office workflows |
+| `vtex/loaders/categories/tree` | The category tree (`categoryLevels`, 3 by default) |
+| `commerce/loaders/navbar.ts`, `commerce/loaders/product/extensions/detailsPage.ts`, `website/functions/requestToParam.ts` | Small compatibility loaders older content uses |
+
+They handle a few details for you. A product page with no `slug` takes it from the page path. Listing pages understand legacy `?map=` URLs, including collection pages, and drop sort values on them that Intelligent Search doesn't accept. `createCachedPDPLoader(profile?)` returns a new cached product loader for your own section loaders.
+
+### Calling loaders from code
+
+The same loaders are plain functions. The stable entry points are the `inline-loaders` subpaths:
+
+| Import | Loader |
+|---|---|
+| `@decocms/apps-vtex/inline-loaders/productDetailsPage` | Product page by `slug` |
+| `@decocms/apps-vtex/inline-loaders/productListingPage` | Listing page by `query`, `selectedFacets`, `sort`, `page`, `count` |
+| `@decocms/apps-vtex/inline-loaders/productListShelf` | A shelf by collection, query, ids or facets (12 products by default) |
+| `@decocms/apps-vtex/inline-loaders/productList` | A full product list |
+| `@decocms/apps-vtex/inline-loaders/relatedProducts` | Related products |
+| `@decocms/apps-vtex/inline-loaders/suggestions` | Autocomplete suggestions |
+| `@decocms/apps-vtex/inline-loaders/minicart` | The visitor's cart as a `Minicart` (an empty one, without creating an order form, when there's no cart cookie) |
+
+Lower-level functions (catalog, logistics, orders, profile, session and more) are in `@decocms/apps-vtex/loaders` and its subpaths.
+
+## Wiring the Worker
+
+On TanStack, three pieces of VTEX behaviour plug into `createDecoWorkerEntry` (see [TanStack Start on Cloudflare Workers](/v7/tanstack)):
+
+- **`buildSegment`** tells the edge cache which visitors may share a cached page. `extractVtexContext(request)` reads the sales channel, region and login state from VTEX's cookies.
+- **The checkout proxy** serves VTEX's checkout, account pages and APIs from your own domain, so cookies stay first-party. `shouldProxyToVtex(pathname)` decides which paths go to VTEX.
+- **The sitemap proxy** serves VTEX's `/sitemap.xml` and `/sitemap/*` with your host in every URL.
+
+```ts title="src/worker-entry.ts"
+import "./setup";
+import "./setup/apps";
+import "./setup/commerce-loaders";
+import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import {
+  corsHeaders,
+  handleDecofileRead,
+  handleDecofileReload,
+  handleMeta,
+  handleRender,
+} from "@decocms/blocks-admin";
+import { extractVtexContext } from "@decocms/apps-vtex/middleware";
+import { createVtexCheckoutProxy, shouldProxyToVtex } from "@decocms/apps-vtex/utils/proxy";
+import { createVtexSitemapProxy } from "@decocms/apps-vtex/utils/sitemap";
+
+const serverEntry = createServerEntry({ fetch: handler.fetch });
+
+const proxyCheckout = createVtexCheckoutProxy({
+  account: "acme",
+  checkoutOrigin: "secure.store.example.com",
+});
+const proxySitemap = createVtexSitemapProxy();
+
+export default createDecoWorkerEntry(serverEntry, {
+  admin: { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, corsHeaders },
+  buildSegment: (request) => {
+    const vtex = extractVtexContext(request);
+    const ua = request.headers.get("user-agent") ?? "";
+    return {
+      device: /mobile|android|iphone/i.test(ua) ? "mobile" : "desktop",
+      loggedIn: vtex.isLoggedIn,
+      salesChannel: vtex.salesChannel,
+      regionId: vtex.regionId ?? undefined,
+    };
+  },
+  proxyHandler: async (request, url) => {
+    const sitemap = await proxySitemap(request, url);
+    if (sitemap) return sitemap;
+    if (!shouldProxyToVtex(url.pathname)) return null;
+    return proxyCheckout(request, url);
+  },
+});
+```
+
+By default `shouldProxyToVtex` matches `/checkout`, `/account`, `/api/`, `/files/`, `/arquivos/`, `/_v/`, `/no-cache/`, `/graphql/`, `/login`, `/logout`, `/assets/vtex`, `/_secure/account` and `/XMLData/`. Pass `{ excludePaths }` to keep paths of your own (such as a site `/api/` route) away from VTEX, or `{ extraPaths }` to add more.
+
+`createVtexCheckoutProxy` options:
+
+| Option | Default | What it does |
+|---|---|---|
+| `account` | — | Required. Your VTEX account. |
+| `checkoutOrigin` | — | Required. Your checkout domain, such as `secure.store.example.com`. Checkout, account and `/files/` go here. |
+| `apiOrigin` | `https://<account>.vtexcommercestable.<domain>` | Where API calls go. |
+| `myvtexOrigin` | `https://<account>.myvtex.com` | Used to rewrite redirects. |
+| `domain` | `com.br` | The VTEX domain suffix. |
+| `expireCookiesOnPaths` | — | Extra cookies to expire on given path prefixes, for example on logout. |
+| `htmlTransform` | — | Rewrite proxied HTML. |
+| `hardenAuthenticatedCache` | `true` | Keep responses for logged-in visitors out of every cache. |
+
+The proxy rewrites the `Domain` of VTEX cookies and `Location` redirects to your host. `createVtexSitemapProxy` takes `extraSitemaps` (entries to add to the sitemap index, such as `/sitemap-busca.xml`), `environment` and `cacheControl`.
+
+On Next.js, there's no Worker entry; mount the proxies in your own route handlers or rewrites if you need them.
+
+## Logged-in visitors and caching
+
+On TanStack, when the app is installed through autoconfig, the Worker entry runs its middleware on every request. For anonymous visitors it leaves caching to the framework. For a logged-in visitor, or one with custom price tables, it marks the response `private, no-cache, no-store` and removes `CDN-Cache-Control`, so personalized pages are never cached. It also sets the Intelligent Search session cookies (`vtex_is_session`, `vtex_is_anonymous`) when they're missing.
+
+On outgoing calls the app forwards the visitor's `vtex_segment` cookie, so regional sellers and price tables apply, and adds the segment's region to Intelligent Search queries. [Caching](/v7/caching) covers the edge cache.
+
+## Cart
+
+There are two cart APIs. Use **Cart v2** for new code; the legacy hooks stay for sites migrated from the earlier framework. They keep separate state, so don't show a v1 badge next to a v2 drawer.
+
+### Cart v2
+
+`createCart({ invoke })`, from `@decocms/apps-vtex/hooks/createCart`, returns a set of hooks bound to your invoke functions. Call it once, at module scope:
+
+```ts title="src/hooks/cart.ts"
+import { createCart } from "@decocms/apps-vtex/hooks/createCart";
+import { invoke } from "~/server/invoke";
+
+export const {
+  useCart,
+  useCartSummary,
+  useAddToCart,
+  useShipping,
+  useGifts,
+  useAttachments,
+  resetCart,
+} = createCart({ invoke });
+```
+
+```tsx title="src/components/AddToCartButton.tsx"
+import { useAddToCart } from "~/hooks/cart";
+
+export function AddToCartButton({ skuId, sellerId }: { skuId: string; sellerId: string }) {
+  const { add, loading } = useAddToCart();
+  return (
+    <button type="button" disabled={loading} onClick={() => add({ id: skuId, seller: sellerId })}>
+      Add to cart
+    </button>
+  );
+}
+```
+
+How it behaves:
+
+- **No cart until the first add.** Visitors who never add anything never create an order form, and the badge loader doesn't call VTEX when there's no cart cookie.
+- **Optimistic updates.** `add` bumps the badge immediately, reconciles with the server's answer, and rolls back if the call fails.
+- **Small payloads.** Adding to the cart returns `summary+items` computed from `SECTIONS_MINIMAL`. `useCart({ include: { full: true } })` loads the drawer's full `Minicart`. Pass `projection` and `sections` to `useAddToCart` to change what comes back (see [Cart v2](/v7/apps-commerce#cart-v2-sections-and-projection)).
+- `useShipping` simulates shipping for a postal code; results are cached for five minutes per isolate. To share them across isolates, provide your own store with `setSimulationCache` from `@decocms/apps-vtex/utils/simulationCache`.
+
+`createCartQuery({ invoke })`, from `@decocms/apps-vtex/hooks/cartQuery`, offers the same operations as TanStack Query hooks, for sites that already manage data that way.
+
+### What `invoke` must provide
+
+`invoke` is an object of server functions shaped like the VTEX keys: `invoke.vtex.actions.addItemsToCartV2(...)`, `invoke.vtex.loaders.cart.summary(...)` and so on.
+
+On TanStack, the [generate](/v7/generate) command writes the actions for you: it reads the VTEX app's invoke contract and emits `src/server/invoke.gen.ts`, with one top-level `createServerFn` per action and an `invoke` object containing `vtex.actions`. Keep that file in `src/`; don't move it into `.deco/`. The generator emits cart, session, newsletter and notify-me actions (`getOrCreateCartV2`, `addItemsToCartV2`, `updateCartItemsV2`, `addCouponToCartV2`, their v1 equivalents, `simulateCart`, `setShippingPostalCode`, `createSession`, `editSession`, `subscribe`, `notifyMe` and a few more). It runs only for TanStack sites.
+
+It emits actions only. Cart v2 also needs `vtex.loaders.cart.summary`, `full`, `shipping`, `gifts` and `attachments`, so add them in your own `src/server/invoke.ts`, next to the generated actions:
+
+```ts title="src/server/invoke.ts"
+import { createServerFn } from "@tanstack/react-start";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+import { forwardResponseCookies } from "@decocms/tanstack/sdk/cookiePassthrough";
+import cartSummary from "@decocms/apps-vtex/loaders/cart/summary";
+import cartFull from "@decocms/apps-vtex/loaders/cart/full";
+import { vtexActions } from "./invoke.gen";
+
+function forwardCookies() {
+  forwardResponseCookies(RequestContext.current?.responseHeaders.getSetCookie() ?? []);
+}
+
+const summary = createServerFn({ method: "POST" })
+  .inputValidator((data: { orderFormId?: string } | undefined) => data ?? {})
+  .handler(async ({ data }) => {
+    const result = await cartSummary(data);
+    forwardCookies();
+    return result;
+  });
+
+const full = createServerFn({ method: "POST" })
+  .inputValidator((data: Parameters<typeof cartFull>[0] | undefined) => data ?? {})
+  .handler(async ({ data }) => {
+    const result = await cartFull(data);
+    forwardCookies();
+    return result;
+  });
+
+// …the same for shipping, gifts and attachments, from
+// @decocms/apps-vtex/loaders/cart/{shipping,gifts,attachments}
+
+export const invoke = {
+  vtex: {
+    actions: vtexActions,
+    loaders: { cart: { summary, full /* , shipping, gifts, attachments */ } },
+  },
+};
+```
+
+Each server function must be a top-level `const`, because TanStack Start only compiles `createServerFn(...).handler(...)` calls at the top level of a module.
+
+On Next.js there's no generated file. When the app is installed through autoconfig, call the cart loaders and actions through [invoke](/v7/loaders) at `/deco/invoke/<key>`, such as `/deco/invoke/vtex/loaders/cart/summary`.
+
+### Legacy hooks
+
+Sites migrated from the earlier framework use invoke-based factories that hold their state in a signal-like `.value`:
+
+| Factory | Import | Needs on `invoke` |
+|---|---|---|
+| `createUseCart({ invoke })` | `@decocms/apps-vtex/hooks/createUseCart` | `vtex.actions` `getOrCreateCart`, `addItemsToCart`, `updateCartItems`, `addCouponToCart`, `updateOrderFormAttachment`, `simulateCart` |
+| `createUseUser({ invoke })` | `@decocms/apps-vtex/hooks/createUseUser` | `vtex.loaders.user` |
+| `createUseWishlist({ invoke })` | `@decocms/apps-vtex/hooks/createUseWishlist` | `vtex.loaders.wishlist`, `vtex.actions.addToWishlist`, `vtex.actions.removeFromWishlist` |
+
+The user and wishlist functions aren't generated; add them to your `invoke.ts` the same way as the cart loaders above.
+
+### TanStack Query hooks
+
+`useCart`, `useUser`, `useWishlist` and `useAutocomplete` (each at `@decocms/apps-vtex/hooks/<name>`) are TanStack Query hooks. They need `@tanstack/react-query` and a `QueryClientProvider` above them, which the router setup in the [quickstart](/v7/quickstart) provides. `useCart` and `useUser` call VTEX's `/api/checkout/...` and `/api/sessions` from the browser, so the checkout proxy above must be mounted.
+
+## Account pages
+
+`vtexAccountLoaders`, from `@decocms/apps-vtex/utils/accountLoaders`, returns [section loaders](/v7/loaders) for "My account" sections: `personalData`, `orders`, `cards`, `addresses`, `authentication` and `loggedIn`. Each reads the visitor's VTEX cookies from the request:
+
+```ts title="src/setup/section-loaders.ts"
+import { registerSectionLoaders } from "@decocms/blocks/cms";
+import { vtexAccountLoaders } from "@decocms/apps-vtex/utils/accountLoaders";
+
+registerSectionLoaders({
+  "site/sections/Account/PersonalData.tsx": vtexAccountLoaders.personalData(),
+  "site/sections/Account/Orders.tsx": vtexAccountLoaders.orders(),
+  "site/sections/Account/Addresses.tsx": vtexAccountLoaders.addresses(),
+});
+```
+
+`personalData` accepts `extraProfileFields` and a `mapProfile` function to shape the result.
+
+## Rules for actions
+
+<Callout type="warning">
+
+**Write to the cart only through the app's actions.** Cart and session actions use a cookie-forwarding fetch that sends the shopper's cookies to VTEX and copies VTEX's `Set-Cookie` headers back to the browser, with the domain rewritten to your store. A custom cart write that uses the plain read helpers (`vtexFetch`, `vtexCachedFetch`) won't propagate those cookies, and the browser's cart drifts from VTEX's order form. If you need a custom checkout call, use `vtexFetchWithCookies`.
+
+**Keep Master Data on the server.** The generic Master Data functions (`createDocument`, `getDocument`, `patchDocument`, `searchDocuments`, `searchDocumentsFull`, `uploadAttachment`) run with your app credentials. Call them only from server code, and expose to the browser narrow actions of your own that fix the entity, validate the input and check who's asking. The invoke generator deliberately leaves them out of `invoke.gen.ts`.
+
+</Callout>
+
+## Environment variables
+
+| Variable | What it does |
+|---|---|
+| `VTEX_APP_KEY`, `VTEX_APP_TOKEN` | Fallback API credentials when the block doesn't hold them. |
+| `VTEX_RESILIENCE_DISABLED` | Set to `true` to turn off retries, timeouts and the circuit breaker in `createVtexFetch`. |
+| `DECO_CRYPTO_KEY` | Decrypts credentials stored encrypted in the block. See [Apps](/v7/apps#secrets). |
+
+## Related
+
+- [Commerce types and utilities](/v7/apps-commerce): the types these loaders return.
+- [Loaders and actions](/v7/loaders): commerce loaders, section loaders and invoke.
+- [Caching](/v7/caching): segments, cache profiles and the `X-Cache` headers.

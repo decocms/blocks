@@ -1,0 +1,150 @@
+---
+title: Commerce types and utilities
+nav: Commerce
+group: Apps
+order: 26
+description: The shared commerce vocabulary every platform app returns, the Cart v2 contract, and small helpers for prices, links, offers and analytics.
+---
+
+# Commerce types and utilities
+
+`@decocms/apps-commerce` is the platform-neutral layer under every commerce app. It doesn't talk to any backend. Instead it defines the shapes they all return (a product, a product page, a listing page, a cart), so a section written against these types works whether the data came from VTEX, Shopify or Wake. It also holds the Cart v2 contract, the app contract types, and a handful of helpers for prices, links and analytics.
+
+It ships no UI components. Images, pictures and JSON-LD components live in `@decocms/blocks/hooks` (see [Images, scripts and UI helpers](/v7/components)).
+
+```bash
+bun add @decocms/apps-commerce
+```
+
+## The shared vocabulary
+
+The types follow [schema.org](https://schema.org), the same vocabulary search engines read, so the data a loader returns can also be rendered as structured data. Import them from `@decocms/apps-commerce/types`:
+
+```ts title="src/sections/ProductShelf.tsx"
+import type { Product } from "@decocms/apps-commerce/types";
+
+export interface Props {
+  /** @title Products */
+  products: Product[] | null;
+}
+
+export default function ProductShelf({ products }: Props) {
+  return (
+    <ul>
+      {products?.map((p) => (
+        <li key={p.productID}>
+          <img src={p.image?.[0]?.url} alt={p.name} width={200} height={200} />
+          <a href={p.url}>{p.name}</a>
+          <span>{p.offers?.lowPrice}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+The types you'll use most:
+
+| Type | What it holds |
+|---|---|
+| `Product` | One sellable item: `productID`, `sku`, `name`, `image`, `offers` (an `AggregateOffer`), and optionally `isVariantOf` (the `ProductGroup` with its sibling variants), `brand`, `additionalProperty` and more. |
+| `ProductDetailsPage` | What a product page needs: `product`, `breadcrumbList` and optional `seo`. |
+| `ProductListingPage` | What a category or search page needs: `products`, `filters`, `breadcrumb`, `pageInfo`, `sortOptions` and optional `seo`. |
+| `Filter` | Either a `FilterToggle` (a list of values with counts and URLs) or a `FilterRange` (a `min`/`max`). |
+| `PageInfo` | Pagination: `currentPage`, `nextPage`, `previousPage`, and optionally `records` and `recordPerPage`. |
+| `Suggestion` | Autocomplete results: `searches` and `products`. |
+| `SiteNavigationElement` | A menu item with `children`, nested up to five levels. Use it instead of the deprecated `Navbar`/`NavItem`. |
+| `Minicart` | A cart ready for a drawer: `original` (the platform's raw cart) plus a `storefront` view with `items`, `total`, `subtotal`, `discounts`, `currency`, `checkoutHref` and more. |
+| `Offer`, `AggregateOffer`, `UnitPriceSpecification` | Prices, list prices, installments and availability. |
+
+**Money is always in major units:** `19.9` means 19.90 in the store's currency, never 1990 cents.
+
+## Analytics types and mappers
+
+The package also defines the GA4 event vocabulary: `AnalyticsItem` and the event types (`AddToCartEvent`, `ViewItemEvent`, `ViewItemListEvent`, `SelectItemEvent`, `BeginCheckoutEvent` and the rest), grouped in the `AnalyticsEvent` union. A `deco` event carries the page's active flags.
+
+To turn a `Product` into an `AnalyticsItem`, there are two mappers with the same name in different places. Neither reads the price from the product: you pass it in, usually from [`useOffer`](#helpers). They also don't produce identical output:
+
+| Import from | `price` in the result comes from | `item_variant` is | Extra |
+|---|---|---|---|
+| `@decocms/apps-commerce/sdk/analytics` | the `lowPrice` option | the product's `sku` | An `extend` callback to add custom fields, and `mapProductToAnalyticsItemList` for lists |
+| `@decocms/apps-commerce/utils/productToAnalyticsItem` | the `price` option | the product's `name` | — |
+
+In both, `discount` is `listPrice - price` when you pass both options. Pick one mapper and use it everywhere, so the same product reports the same fields on every event. Both accept a `breadcrumbList`, which gives the most reliable category fields; without it they fall back to the product's `category` string.
+
+```ts title="src/sdk/analytics.ts"
+import { mapProductToAnalyticsItem } from "@decocms/apps-commerce/sdk/analytics";
+import { useOffer } from "@decocms/apps-commerce/sdk/useOffer";
+import type { Product } from "@decocms/apps-commerce/types";
+
+export function toItem(product: Product, index: number) {
+  const { price, listPrice } = useOffer(product.offers);
+  return mapProductToAnalyticsItem({
+    product,
+    index,
+    quantity: 1,
+    lowPrice: price,
+    price,
+    listPrice,
+  });
+}
+```
+
+## Cart v2: sections and projection
+
+Cart v2 splits every cart operation into two independent choices, so a page only pays for the data it shows:
+
+- **`sections`**: what to ask the platform to compute. On VTEX these map to the order form's sections (`items`, `totalizers`, `shippingData`, `paymentData` and so on).
+- **`projection`**: what the server sends back to the browser.
+
+| Projection | Returns | Typical use |
+|---|---|---|
+| `"none"` | `{ ok: true }` | Fire-and-forget writes |
+| `"summary"` | `{ orderFormId, totalItems, total }` | A cart badge |
+| `"summary+items"` | The summary plus slim items (name, image, price, quantity) | Add to cart, the default |
+| `"minicart"` | A full `Minicart` | A cart drawer |
+| `"raw"` | The platform's cart, untouched | Rare: debugging, migrations |
+
+Three section presets cover the usual cases: `SECTIONS_MINIMAL` (items, totals, messages), `SECTIONS_DRAWER` (what a drawer renders, including shipping and sellers) and `SECTIONS_FULL`. `defaultSectionsFor(projection)` picks the matching preset when you pass only a projection. The types and presets are exported from `@decocms/apps-commerce/types/cart`, and re-exported from `@decocms/apps-commerce/types`.
+
+VTEX is the first platform to implement Cart v2; see [VTEX](/v7/vtex#cart).
+
+## Helpers
+
+| Helper | Import from | What it does |
+|---|---|---|
+| `formatPrice(price, currency?, locale?)` | `@decocms/apps-commerce/sdk/formatPrice` | Formats a number as currency with a cached `Intl.NumberFormat`. Defaults to `"BRL"` and `"pt-BR"`. Returns `null` for `null`, `undefined` or non-finite values. |
+| `formatPriceRange(value, currency?, locale?, separator?)` | `@decocms/apps-commerce/sdk/formatPrice` | Formats a `"min:max"` facet value as a price range. Returns the input unchanged if it can't parse it. |
+| `relative(link, options?)` | `@decocms/apps-commerce/sdk/url` | Turns an absolute URL into a path plus query, for links. `stripSearchParams` removes keys such as `idsku`. |
+| `useOffer(aggregateOffer)` | `@decocms/apps-commerce/sdk/useOffer` | Picks the price, list price, availability, seller and best installment out of an offer. |
+| `useVariantPossibilities(variants, selected)` | `@decocms/apps-commerce/sdk/useVariantPossibilities` | Builds the variant matrix for a selector: property name, then value, then URL. |
+| `parseRange(value)`, `formatRange(from, to)` | `@decocms/apps-commerce/utils/filters` | Parses `"10:50"` into `{ from: 10, to: 50 }` (or `null`), and back. |
+| `canonicalFromBreadcrumblist(list)` | `@decocms/apps-commerce/utils/canonical` | The URL of the deepest breadcrumb item, for canonical links. |
+| `getStateFromZip(cep)` | `@decocms/apps-commerce/utils/stateByZip` (default export) | A Brazilian state code from a postal code. |
+
+```ts
+import { formatPrice } from "@decocms/apps-commerce/sdk/formatPrice";
+import { relative } from "@decocms/apps-commerce/sdk/url";
+
+formatPrice(99, "USD", "en-US"); // "$99.00"
+relative("https://www.example.com/p/shoe?idsku=1&color=red", { stripSearchParams: ["idsku"] }); // "/p/shoe?color=red"
+```
+
+<Callout>**`useOffer` and `useVariantPossibilities` aren't React hooks.** Despite the `use` prefix they're plain functions, so you can call them anywhere, including in loaders. `useOffer`'s installment text is always formatted in `pt-BR` and `BRL`; format it yourself from the returned `installment` for other locales.</Callout>
+
+## App contract types
+
+The types for writing an app live here too, so apps don't depend on the framework packages:
+
+- `@decocms/apps-commerce/app-types`: `AppDefinition`, `AppManifest`, `AppMiddleware`, `AppModContract`, `ResolveSecretFn`.
+- `@decocms/apps-commerce/registry`: `AppRegistryEntry` and `AppRegistry`, the shape of each app's `*_REGISTRY_ENTRY`.
+- `@decocms/apps-commerce/resolve`: `resolveApps(apps)`, which merges several app definitions into one manifest and chains their middleware (the first app runs outermost).
+- `@decocms/apps-commerce/manifest-utils`: `extractHandlers(manifest)`, which flattens a manifest into one function per key.
+
+[Apps](/v7/apps) explains how the framework uses them.
+
+## Related
+
+- [Apps](/v7/apps): installing and configuring apps.
+- [VTEX](/v7/vtex): the reference implementation of these types and of Cart v2.
+- [SEO](/v7/seo): turning these types into structured data.

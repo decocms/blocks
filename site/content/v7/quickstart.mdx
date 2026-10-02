@@ -1,0 +1,397 @@
+---
+title: "Quickstart: TanStack Start on Cloudflare Workers"
+nav: Quickstart · TanStack
+group: Getting started
+order: 3
+description: Build a TanStack Start site on Cloudflare Workers with one CMS-driven page that Deco Studio can edit.
+---
+
+# Quickstart: TanStack Start on Cloudflare Workers
+
+In this guide you'll take an empty TanStack Start app to a page whose content comes from the CMS: one section, one page block, the routes that render it, and the admin endpoints Deco Studio needs. It runs locally with `vite dev` and deploys as a Cloudflare Worker.
+
+You need Bun (or another package manager), React 19, and a basic TanStack Start project. If you're on Next.js, follow [Quickstart: Next.js App Router](/v7/quickstart-nextjs) instead.
+
+## 1. Install the packages
+
+Add the runtime, the admin package and the TanStack binding with their peers:
+
+```bash
+bun add @decocms/blocks @decocms/blocks-admin @decocms/tanstack @tanstack/react-start @tanstack/react-router @tanstack/react-query @tanstack/store react react-dom
+```
+
+Then the build tools: Vite and its plugins, the Cloudflare Vite plugin and Wrangler, and `@decocms/blocks-cli` with `tsx` to run the code generator.
+
+```bash
+bun add -d vite @vitejs/plugin-react @cloudflare/vite-plugin wrangler @decocms/blocks-cli tsx
+```
+
+## 2. Configure Vite
+
+`decoVitePlugin()` keeps server-only modules (content, loaders, the schema) out of the browser bundle, stamps each build with a hash, and regenerates `.deco/` files while you develop. Add it after the TanStack Start and React plugins, and dedupe the Deco packages so each one is loaded once:
+
+```ts title="vite.config.ts"
+import { cloudflare } from "@cloudflare/vite-plugin";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+// @ts-expect-error: the plugin is plain JavaScript and ships no type declarations
+import { decoVitePlugin } from "@decocms/tanstack/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    tanstackStart({ server: { entry: "server" } }),
+    react(),
+    decoVitePlugin(),
+  ],
+  define: {
+    "process.env.DECO_SITE_NAME": JSON.stringify(process.env.DECO_SITE_NAME || "my-store"),
+  },
+  resolve: {
+    dedupe: [
+      "@decocms/blocks",
+      "@decocms/blocks-admin",
+      "@decocms/tanstack",
+      "@tanstack/react-start",
+      "@tanstack/react-router",
+      "react",
+      "react-dom",
+    ],
+  },
+});
+```
+
+`DECO_SITE_NAME` is your site's name. When the plugin regenerates the schema during development it passes this value as the site name, so keep it the same as the `--site` value of the `generate` script in step 5.
+
+## 3. Write a section
+
+A *section* is a React component that editors can place on a page. It's a file under `src/sections/` with a default export and an exported `Props` type. JSDoc comments become labels in Studio, and widget types such as `ImageWidget` tell Studio which input to show.
+
+```tsx title="src/sections/Hero.tsx"
+import type { ImageWidget } from "@decocms/blocks/types/widgets";
+
+export interface Props {
+  /** @title Title */
+  title: string;
+  /** @title Subtitle */
+  subtitle?: string;
+  /** @title Background image */
+  image?: ImageWidget;
+}
+
+export default function Hero({ title, subtitle, image }: Props) {
+  return (
+    <section style={{ backgroundImage: image ? `url(${image})` : undefined }}>
+      <h1>{title}</h1>
+      {subtitle && <p>{subtitle}</p>}
+    </section>
+  );
+}
+```
+
+The section's *key*, the name content uses to refer to it, is `site/sections/Hero.tsx`: its path under `src/`, with a `site/` prefix. [Blocks and sections](/v7/model) covers sections in depth.
+
+## 4. Add a page
+
+Content lives in `.deco/blocks/`, one JSON file per block. A *page block* has a `path` and a list of `sections`, and either its name starts with `pages-` or its `__resolveType` is `website/pages/Page.tsx`. That is the built-in page type; the `website/` prefix is a legacy name, and no app needs installing. Create the home page:
+
+```json title=".deco/blocks/pages-home.json"
+{
+  "__resolveType": "website/pages/Page.tsx",
+  "name": "Home",
+  "path": "/",
+  "sections": [
+    {
+      "__resolveType": "site/sections/Hero.tsx",
+      "title": "Summer collection",
+      "subtitle": "Light layers for long days."
+    }
+  ]
+}
+```
+
+Each item in `sections` names a section in `__resolveType` and carries its props next to it. This is the JSON Studio will edit for you once it's connected.
+
+## 5. Generate
+
+The `generate` command turns your content and sections into files the runtime and Studio read: the bundled content (`.deco/blocks.gen.json`), the section metadata (`.deco/sections.gen.ts`), the site loader registry and the schema (`.deco/meta.gen.json`). Add it as a script:
+
+```json title="package.json (scripts)"
+{
+  "scripts": {
+    "generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --site my-store",
+    "dev": "vite dev",
+    "build": "bun run generate && vite build"
+  }
+}
+```
+
+Run it once now:
+
+```bash
+bun run generate
+```
+
+It skips generators whose inputs haven't changed, so it's cheap to run often. Commit `.deco/generate.digests.json`, which lets fresh clones and CI reuse that cache. See [Code generation](/v7/generate) for every flag.
+
+## 6. Set up the site
+
+`src/setup.ts` registers your sections and content with the runtime and configures the admin side. It's imported by both the router (browser and server) and the Worker entry, so keep server-only code out of it.
+
+```ts title="src/setup.ts"
+import { applySectionConventions } from "@decocms/blocks/cms";
+import { createSiteSetup } from "@decocms/blocks/setup";
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
+import { PreviewProviders } from "@decocms/tanstack";
+import { blocks } from "../.deco/blocks.gen";
+import { loadingFallbacks, renderJsons, sectionMeta, syncComponents } from "../.deco/sections.gen";
+import appCss from "./styles/app.css?url";
+
+const sections = import.meta.glob("./sections/**/*.tsx") as Record<string, () => Promise<any>>;
+
+createSiteSetup({
+  sections,
+  blocks,
+  productionOrigins: ["https://www.example.com"],
+});
+
+createAdminSetup({
+  meta: () => import("../.deco/meta.gen.json").then((m) => m.default),
+  css: appCss,
+  previewWrapper: PreviewProviders,
+});
+
+applySectionConventions({
+  meta: sectionMeta,
+  syncComponents,
+  loadingFallbacks,
+  renderJsons,
+  sectionGlob: sections,
+});
+```
+
+- `createSiteSetup` from `@decocms/blocks/setup` registers every file under `src/sections/` under its `site/sections/…` key, loads the content, and registers the built-in matchers. `productionOrigins` lists your live domains so absolute links to them in content are rewritten as relative ones.
+- `createAdminSetup` from `@decocms/blocks-admin/setup` tells the admin side where the schema is (keep `meta` a dynamic `import()` so it loads only when Studio asks for it), which stylesheet previews should use, and which component wraps previews. `PreviewProviders` gives previewed sections a router and a query client.
+- `applySectionConventions` applies the per-section flags `generate` found (lazy loading, layout caching, skeletons). See [Section conventions](/v7/sections).
+
+The import of `./styles/app.css?url` assumes you have a stylesheet there; create an empty one if you don't.
+
+## 7. Create the router
+
+`createDecoRouter` wraps TanStack's `createRouter` with search-param handling that suits storefront URLs. Import `./setup` here so sections are registered in the browser too, and create the `QueryClient` inside `getRouter()`:
+
+```tsx title="src/router.tsx"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createDecoRouter } from "@decocms/tanstack";
+import { routeTree } from "./routeTree.gen";
+import "./setup";
+
+export function getRouter() {
+  const queryClient = new QueryClient();
+  return createDecoRouter({
+    routeTree,
+    context: { queryClient },
+    Wrap: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+  });
+}
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: ReturnType<typeof getRouter>;
+  }
+}
+```
+
+`routeTree.gen.ts` is generated by the TanStack Start plugin from `src/routes/`.
+
+## 8. Add the routes
+
+The root route renders the whole document with `DecoRootLayout`. It already renders the matched route, so don't pass an `<Outlet />`:
+
+```tsx title="src/routes/__root.tsx"
+import { createRootRoute } from "@tanstack/react-router";
+import { DecoRootLayout } from "@decocms/tanstack";
+
+export const Route = createRootRoute({
+  head: () => ({
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+    ],
+  }),
+  component: () => <DecoRootLayout siteName="my-store" />,
+});
+```
+
+The home route and a catch-all route turn the URL into a CMS page. `cmsHomeRouteConfig` and `cmsRouteConfig` return route options (a loader that resolves the page on the server, cache headers, and a `head` with the page's SEO) that you spread into the route. You supply the component, which renders the sections with `DecoPageRenderer`:
+
+```tsx title="src/routes/index.tsx"
+import { createFileRoute } from "@tanstack/react-router";
+import { cmsHomeRouteConfig, DecoPageRenderer } from "@decocms/tanstack";
+import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
+
+export const Route = createFileRoute("/")({
+  ...cmsHomeRouteConfig({ siteName: "My Store", defaultTitle: "My Store" }),
+  component: HomePage,
+});
+
+function HomePage() {
+  const data = Route.useLoaderData() as Record<string, any> | null;
+  if (!data) return <p>No CMS page matches /.</p>;
+  return (
+    <DecoPageRenderer
+      sections={data.resolvedSections ?? []}
+      deferredSections={data.deferredSections ?? []}
+      pagePath={data.pagePath}
+      pageUrl={data.pageUrl}
+      loadDeferredSectionFn={deferredSectionLoader}
+    />
+  );
+}
+```
+
+```tsx title="src/routes/$.tsx"
+import { createFileRoute } from "@tanstack/react-router";
+import { cmsRouteConfig, DecoPageRenderer } from "@decocms/tanstack";
+import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
+
+export const Route = createFileRoute("/$")({
+  ...cmsRouteConfig({ siteName: "My Store", defaultTitle: "My Store" }),
+  component: CmsPage,
+  notFoundComponent: NotFound,
+});
+
+function CmsPage() {
+  const data = Route.useLoaderData() as Record<string, any> | null;
+  if (!data) return <NotFound />;
+  return (
+    <DecoPageRenderer
+      sections={data.resolvedSections ?? []}
+      deferredSections={data.deferredSections ?? []}
+      pagePath={data.pagePath}
+      pageUrl={data.pageUrl}
+      loadDeferredSectionFn={deferredSectionLoader}
+    />
+  );
+}
+
+function NotFound() {
+  return <h1>Page not found</h1>;
+}
+```
+
+The two `siteName` options mean different things. In `cmsHomeRouteConfig` and `cmsRouteConfig` it's a display name that page titles use (`Page name | My Store`); in `DecoRootLayout` it's the site's ID, the same value as `DECO_SITE_NAME` and the `--site` flag.
+
+`loadDeferredSectionFn={deferredSectionLoader}` lets sections that editors mark as async load after the page, including after client-side navigation. See [Deferred sections](/v7/rendering).
+
+Three more routes serve the parts of the admin protocol that run through TanStack: the schema, loader and action calls, and section rendering. Each is a factory you call, once per route file:
+
+```ts title="src/routes/deco/meta.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoMetaRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
+```
+
+```ts title="src/routes/deco/invoke.$.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoInvokeRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRouteConfig());
+```
+
+```ts title="src/routes/deco/render.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoRenderRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/render")(decoRenderRouteConfig());
+```
+
+## 9. Add the server and Worker entries
+
+`src/server.ts` is TanStack Start's server entry (the `entry: "server"` in `vite.config.ts`):
+
+```ts title="src/server.ts"
+import "./setup";
+import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";
+
+export default createStartHandler(defaultStreamHandler);
+```
+
+`src/worker-entry.ts` is the Worker's real entry point. `createDecoWorkerEntry` wraps TanStack Start with the admin endpoints Studio calls directly (`/live/_meta`, `/.decofile`, `/live/previews/*`), CMS redirects and the edge cache:
+
+```ts title="src/worker-entry.ts"
+import "./setup";
+import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import {
+  corsHeaders,
+  handleDecofileRead,
+  handleDecofileReload,
+  handleMeta,
+  handleRender,
+} from "@decocms/blocks-admin";
+
+const serverEntry = createServerEntry({ fetch: handler.fetch });
+
+export default createDecoWorkerEntry(serverEntry, {
+  admin: { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, corsHeaders },
+});
+```
+
+<Callout type="warning">
+
+**Import `./setup` first** in both `server.ts` and `worker-entry.ts`. If another import runs before it, parts of the server can execute before the content is loaded: the page renders on a full reload but client-side navigation finds no page.
+
+**Keep admin and cache logic in `createDecoWorkerEntry`,** not in TanStack's `createServerEntry`. Production builds don't keep custom request handling in the server entry, so `/live/_meta` would return HTML instead of JSON.
+
+</Callout>
+
+## 10. Configure the Worker
+
+Point Wrangler at the Worker entry and turn on Node compatibility, which the runtime needs for request-scoped state:
+
+```jsonc title="wrangler.jsonc"
+{
+  "name": "my-store",
+  "main": "src/worker-entry.ts",
+  "compatibility_date": "2025-05-01",
+  // The framework's dedup caches hold in-flight promises across requests; without this flag the Worker can hang.
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+  "vars": {
+    "DECO_SITE_NAME": "my-store"
+  }
+}
+```
+
+## 11. Run it
+
+```bash
+bun run dev
+```
+
+Open the dev server's URL (Vite prints it, usually `http://localhost:5173`). You should see the Hero with "Summer collection". Then check the admin protocol:
+
+```bash
+curl -s http://localhost:5173/live/_meta
+```
+
+This returns JSON with a `schema` and a `manifest`, and `manifest.blocks.sections` lists `site/sections/Hero.tsx`. `curl -s http://localhost:5173/.decofile` returns your blocks. Those two answers are what Studio needs to edit the site.
+
+Try editing `.deco/blocks/pages-home.json` while the dev server runs: the plugin applies the change without a restart.
+
+## What you built
+
+- A section with a typed `Props` that Studio can render a form for.
+- A page block at `/` stored as JSON.
+- Routes that resolve any path to a page block and render its sections.
+- A Worker that serves the admin protocol: the endpoints Studio reads, previews through and publishes to.
+
+## Next steps
+
+- [Project structure](/v7/project-structure): every file you just created, plus the generated ones.
+- [Content and the decofile](/v7/content): named blocks, references, and how publishing works.
+- [Loaders and actions](/v7/loaders): bring data into sections.
+- [TanStack Start on Cloudflare Workers](/v7/tanstack): every option of the Worker entry and the routes.
+- [Deploying and Fast Deploy](/v7/releases): publish content without a redeploy.

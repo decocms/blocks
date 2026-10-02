@@ -1,0 +1,83 @@
+---
+title: Studio and the content protocol
+nav: Studio & content protocol
+group: Core concepts
+order: 6
+description: What Deco Studio needs from your repository, how it reads and writes your content through the content protocol, and how to edit a local checkout with deco content serve.
+---
+
+# Studio and the content protocol
+
+Studio needs two things from your repository: the schema that `deco schema` writes, and your saved entries in `.deco/blocks`. It never runs your code. Between Studio's editor and wherever those files live sits a small protocol, the **content protocol**, so the same editor can work on your GitHub repository or on the checkout on your machine.
+
+<Callout>**Status.** The content protocol, its package, `deco content serve` and Studio's GitHub backend are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-blockers--let-studio-talk-to-a-next-major-site).</Callout>
+
+## What Studio needs
+
+- **The schema**, `.deco/schema.json`, generated from your types (see [Schema generation](/next/schema)). Studio only reads it: no editor action changes it. To change a form, change the type and run `deco schema` again.
+- **The saved entries**, one JSON file per entry in `.deco/blocks` (see [Content and loaders](/next/content)). This is all Studio writes.
+
+The `.deco` folder can be anywhere in the repository, such as `apps/storefront/.deco` in a monorepo. Studio needs no deployed site, and your app serves nothing for it: no endpoints, no handlers. A project with only a schema and a content folder can be edited before its first deploy.
+
+## Where edits go
+
+<Flow label="Studio and the content protocol">
+  <FlowNode title="Studio">Forms built from the schema; autosaves each edit</FlowNode>
+  <FlowNode title="Content protocol">Four methods over one HTTP endpoint</FlowNode>
+  <FlowNode title="Storage">Your GitHub repository, or your working tree</FlowNode>
+</Flow>
+
+Two implementations serve the protocol:
+
+| Backend | Edits | Studio checks for changes |
+|---|---|---|
+| **Studio's GitHub backend** | Your repository. Each save is one commit on the draft's branch (created on the first save), with all the files of that save. Publishing brings the draft to your production branch, which makes it a [release](/next/releases). | When you return to the tab, and about every 30 seconds |
+| **`deco content serve`**, from the Deco Blocks CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
+
+There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins in this version: if two people edit the same entry at once, the later save replaces the earlier one.
+
+## Edit your local checkout
+
+1. Start your app's dev server.
+2. Run `npx deco content serve`. It finds the nearest `.deco` folder (or takes `--root`) and prints its address, a bearer token and a connect link:
+
+   ```text
+   Deco content server  http://127.0.0.1:4545/rpc
+   Root                 apps/storefront/.deco   (schema.json, 214 blocks)
+   App preview          http://localhost:5173
+   Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
+   ```
+
+3. Open the link and pick the site in Studio to edit.
+4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access, formerly Private Network Access). Allow it.
+
+Each save writes `.deco/blocks`. Editing an existing file hot-reloads through your framework. The server also regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. The canvas opens your dev app (`--app-url`). Nothing is committed: review the diff and commit it like any other change.
+
+The server listens on 127.0.0.1 unless you pass `--host`, answers only requests that carry its token, and accepts browser requests only from Studio's origins. Its options are in [Schema generation](/next/schema#edit-local-content-from-studio).
+
+## Features that need your site's code
+
+Forms, variants and their rules, pages, redirects and uploads need only the schema and the files, so they work the same as on the legacy path. A few features ran your site's code; without it they degrade:
+
+| Feature | In this version |
+|---|---|
+| Block previews: gallery thumbnails, saved-block previews, in-place renders | A card with the block's name, its `@title` and description, and the `@image` thumbnail if the schema has one. The main canvas opens the real page: your dev app with `deco content serve`, or your deployed site with a `?__draft=` link, which shows the draft when the site handles [draft pointers](/next/preview). |
+| Pickers whose options come from your code | The options declared in the schema, else a text field. `deco schema` writes static lists into the schema (string-literal unions, enums and `@options` lists), so those stay selects; see [Annotate fields with JSDoc](/next/schema#annotate-fields-with-jsdoc). |
+| Secret and password fields (`@format password`) | Read-only. Keep credentials in environment variables, never in content. |
+| Running a loader or action from Studio, and installing apps from the store | Unavailable. A platform client is added in code (see [Upstream API clients](/next/clients)). |
+| Studio screens that find a type by name: pages, variants, hiding a block | Keep working with short type names, through the alias table the CLI writes into the schema (see [Studio compatibility](/next/studio#well-known-types-and-the-alias-table)). Redirects are still saved in the legacy shape; see [Studio compatibility](/next/studio#well-known-types-and-the-alias-table). |
+
+Sites on Fresh and Deno keep Studio's legacy path, where Studio reads from the running site. v7 sites commit `.deco/meta.gen.json`, so they can use either path: the protocol edits without the site running, and the legacy path keeps runtime previews and running loaders. A project setting in Studio picks one (see [Legacy endpoints](/next/studio#legacy-endpoints)).
+
+## The protocol in brief
+
+The content protocol is JSON-RPC 2.0 (a small standard for calling named methods with JSON) over one HTTP endpoint, `POST /rpc`, and a request can batch several calls. It has four methods:
+
+| Method | Does |
+|---|---|
+| `describe` | What this endpoint is: whether it writes git commits or a working tree, where the `.deco` folder is, its limits, and how often to poll |
+| `schema.get` | Reads the schema. There's no method that writes it. |
+| `blocks.list` | Reads every saved entry at once, with a revision for the whole set |
+| `blocks.apply` | The only write: sets and deletes entries together, all or nothing, optionally only if an entry is still at a given version |
+
+Both reads take the version they already have and answer "not modified" when it's current, which is what makes polling cheap. Studio and the CLI share one implementation, proposed as `@decocms/blocks-protocol`: the method types, a client, a server core over a storage interface, and a filesystem storage. The methods, errors, limits and file-name rule are [under the hood](/next/studio#the-content-protocol).

@@ -5,7 +5,7 @@ import { Icon } from '~/components/ui/Icon'
 import { Wordmark } from '~/components/ui/Brand'
 import { useChrome, type Tab } from '~/src/lib/chrome'
 import { equivalentPath, findPage, kindEntry, versionEntry } from '~/src/lib/content'
-import { DEFAULT_VERSION, VERSIONS } from '~/src/lib/versions'
+import { homeFor, VERSIONS } from '~/src/lib/versions'
 import { cx, openSearch } from '~/src/lib/ui'
 import { ThemeToggle } from './ThemeToggle'
 import { useMenu } from './Menu'
@@ -30,7 +30,7 @@ export function SiteTabs({ where, label }: { where: 'header' | 'drawer'; label: 
   const docs = kindEntry(version, 'docs')?.path ?? versionEntry(version)?.path ?? '/'
   const internals = kindEntry(version, 'internals')?.path ?? docs
   const tabs: { id: Tab; label: string; to: string }[] = [
-    { id: 'home', label: 'Home', to: '/' },
+    { id: 'home', label: 'Home', to: homeFor(version) },
     { id: 'docs', label: 'Docs', to: docs },
     { id: 'internals', label: 'Under the hood', to: internals },
     { id: 'roadmap', label: 'Roadmap', to: '/roadmap/' },
@@ -69,34 +69,43 @@ export function SiteTabs({ where, label }: { where: 'header' | 'drawer'; label: 
 }
 
 /**
- * Switches docs version: the same page in the other version if it has one, else its index.
+ * Switches docs version: on a home page, the other version's home (`/` ↔ `/next/`); elsewhere the
+ * page's declared counterpart (COUNTERPARTS in versions.ts), else the same page in the other version
+ * if it has one, else its index.
  *
  * A mouse or touch pick navigates at once. Arrow keys on a closed select change its value on
  * Windows and Linux, so a keyboard change only takes effect on Enter or when focus leaves the
  * select (WCAG 3.2.2): browsing the options never navigates by itself.
  */
 export function VersionSelect({ id, where }: { id: string; where: 'header' | 'drawer' }) {
-  const { version, slug, layout } = useChrome()
+  const { version, slug, layout, tab } = useChrome()
   const navigate = useNavigate()
+  const onBand = layout === 'landing' && where === 'header'
   const [pending, setPending] = useState<string | null>(null)
   const fromKeyboard = useRef(false)
   useEffect(() => setPending(null), [version])
   const go = (to: string) => {
     setPending(null)
-    if (to !== version) void navigate({ to: equivalentPath(slug, to) })
+    if (to === version) return
+    const [path, hash] = equivalentPath(slug, to, layout === 'landing' && tab === 'home', version).split('#')
+    void navigate({ to: path, hash })
   }
   return (
     <label
       className={cx(
         'relative flex-none items-center print:hidden',
-        where === 'drawer' ? 'inline-flex w-full' : layout === 'landing' ? 'hidden' : 'ml-3 inline-flex max-nav:hidden',
+        where === 'drawer' ? 'inline-flex w-full' : layout === 'landing' ? 'ml-3 inline-flex max-nav:hidden min-nav:max-hdr:ml-1' : 'ml-3 inline-flex max-nav:hidden',
       )}
     >
       <span className="sr-only">Documentation version</span>
       <select
         id={id}
         className={cx(
-          'm-0 cursor-pointer appearance-none rounded-full border border-border bg-bg-subtle pr-[30px] pl-3 font-sans font-normal leading-4 tracking-ui text-fg transition-[border-color,background-color] duration-300 hover:border-border-strong focus-visible:outline-offset-2',
+          'm-0 cursor-pointer appearance-none rounded-full border pr-[30px] pl-3 font-sans font-normal leading-4 tracking-ui transition-[border-color,background-color] duration-300 focus-visible:outline-offset-2',
+          onBand
+            ? // White on the landing's forest band; the options keep the page's colours.
+              'border-white/22 bg-white/8 text-white hover:border-white/40 hover:bg-white/12 [&>option]:bg-surface [&>option]:text-fg'
+            : 'border-border bg-bg-subtle text-fg hover:border-border-strong',
           where === 'drawer' ? 'h-10 w-full text-14' : 'h-8 text-13',
         )}
         value={pending ?? version}
@@ -124,13 +133,13 @@ export function VersionSelect({ id, where }: { id: string; where: 'header' | 'dr
           </option>
         ))}
       </select>
-      <Icon name="chevron-down" className="pointer-events-none absolute right-2.5 size-3.5 text-muted-fg" />
+      <Icon name="chevron-down" className={cx('pointer-events-none absolute right-2.5 size-3.5', onBand ? 'text-white/70' : 'text-muted-fg')} />
     </label>
   )
 }
 
 export function Header() {
-  const { layout } = useChrome()
+  const { layout, version } = useChrome()
   const menu = useMenu()
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
@@ -146,8 +155,8 @@ export function Header() {
     window.addEventListener('scroll', on, { passive: true })
     return () => window.removeEventListener('scroll', on)
   }, [])
-  // "Get started" goes to the default version's Quickstart, like the old site's #quickstart.
-  const getStarted: string = findPage(DEFAULT_VERSION, 'quickstart')?.path ?? kindEntry(DEFAULT_VERSION, 'docs')?.path ?? '/'
+  // "Get started" goes to the current version's Quickstart (the home's version on a home page).
+  const getStarted: string = findPage(version, 'quickstart')?.path ?? kindEntry(version, 'docs')?.path ?? '/'
   const landing = layout === 'landing'
   return (
     <header
@@ -210,7 +219,8 @@ export function Header() {
             className={cx(
               landing
                 ? // On the landing (from 900px) the GitHub link is a text link.
-                  cx(iconButtonBase, 'inline-grid text-white/82 hover:text-white nav:h-10 nav:w-auto nav:rounded-sm nav:p-0 nav:text-14 nav:leading-5 max-xs:hidden')
+                  // Hidden from 900 to 980px, where the version select takes its room.
+                  cx(iconButtonBase, 'inline-grid text-white/82 hover:text-white nav:h-10 nav:w-auto nav:rounded-sm nav:p-0 nav:text-14 nav:leading-5 max-xs:hidden nav:max-hdr:hidden')
                 : iconButton(),
             )}
             href={GITHUB_URL}

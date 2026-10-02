@@ -1,0 +1,109 @@
+---
+title: Salesforce Personalization
+nav: Salesforce
+group: Apps
+order: 32
+description: Product recommendations from Salesforce Marketing Cloud Personalization, as three stateless loaders.
+---
+
+# Salesforce Personalization
+
+`@decocms/apps-salesforce` brings product recommendations from **Salesforce Marketing Cloud Personalization** (the product formerly called Evergage) into your sections. It has three loaders: one for a campaign's product list, one for recommendations related to the product on the current page, and one for cross-sells based on the visitor's cart. Each returns products in the shared [commerce shape](/v7/apps-commerce), so your existing shelf sections can render them.
+
+<Callout>**Not a Commerce Cloud integration.** The package's own description mentions Salesforce Commerce Cloud, but it contains no catalog, cart or checkout for Commerce Cloud. It covers Marketing Cloud Personalization recommendations only, and you pair it with the commerce app that runs your store.</Callout>
+
+```bash
+bun add @decocms/apps-salesforce @decocms/apps-commerce
+```
+
+The package also lists `@tanstack/react-start` as a peer dependency, because it reads the visitor's cookie through it (see [Who the visitor is](#who-the-visitor-is)).
+
+## No configuration step
+
+The app has no block, no `configure` and no registry entry. Each loader takes everything it needs as props, so editors set them on the block in Studio, and one site can use several datasets or campaigns at once:
+
+| Prop | What it does |
+|---|---|
+| `baseUrl` | Your Personalization endpoint, such as `https://<account>.us-5.evergage.com`. |
+| `dataset` | The Personalization dataset. |
+| `campaignId` | The campaign whose products you want. If the response has several campaigns, the matching one is used, or else the first. |
+| `cookieName` | The name of the cookie the Personalization script sets in the browser, such as `_evga_<account>`. |
+| `currencyCode` | Optional ISO 4217 currency for prices. Defaults to each product's own currency. |
+| `propertyMapper` | Optional function that turns a raw product into extra `additionalProperty` values (see below). Set from code, not from Studio. |
+
+Register the loaders under keys your content refers to (see [Loaders and actions](/v7/loaders)):
+
+```ts title="src/setup/commerce-loaders.ts"
+import { registerCommerceLoaders } from "@decocms/blocks/cms";
+import list from "@decocms/apps-salesforce/loaders/products/list";
+import listRecomended from "@decocms/apps-salesforce/loaders/products/listRecomended";
+import listCart from "@decocms/apps-salesforce/loaders/products/listCart";
+
+registerCommerceLoaders({
+  "salesforce/loaders/products/list.ts": list,
+  "salesforce/loaders/products/listRecomended.ts": listRecomended,
+  "salesforce/loaders/products/listCart.ts": listCart,
+});
+```
+
+## The three loaders
+
+| Import | Extra props | Sends to Personalization |
+|---|---|---|
+| `@decocms/apps-salesforce/loaders/products/list` | — | A campaign request for the visitor. |
+| `@decocms/apps-salesforce/loaders/products/listRecomended` | `productId`: the page's resolved `ProductDetailsPage` (despite the name) | The product's SKU as the viewed product. |
+| `@decocms/apps-salesforce/loaders/products/listCart` | `items`: a list of `{ sku, qty, price }` from your cart; `title`: a fallback heading | A "replace cart" interaction with those items. Returns `null` when `items` is empty. |
+
+Note the spelling `listRecomended`: that's the real module name.
+
+Each returns:
+
+```json title="Result shape"
+{
+  "@type": "ProductList",
+  "list": ["…Product objects…"],
+  "additionalData": {
+    "title": "Picked for you",
+    "campaignId": "…",
+    "experienceId": "…",
+    "userGroup": "…"
+  }
+}
+```
+
+`title` comes from the campaign's header text (or, for `listCart`, your fallback `title`). The loaders never throw: on any error they log it and return `null`, so a recommendations shelf just disappears instead of breaking the page.
+
+## Who the visitor is
+
+The loaders identify the visitor from the cookie named by `cookieName`. A signed-in visitor's persistent id wins over the anonymous one, so recommendations follow them across devices. When there's no cookie, or it can't be read, the request is sent as `anonymous`, and Personalization still answers with its default campaign.
+
+<Callout type="warning">The cookie is read through TanStack Start's request APIs. On other frameworks, such as Next.js, every visitor is treated as anonymous.</Callout>
+
+## Shaping products
+
+Products are mapped to the shared `Product` type: `productID` (a cross-system `idMagento` field wins over the Personalization id when present), `sku`, name, URL, images and an offer with the regular and sale price. To expose dataset-specific columns, such as brand or product line, as `additionalProperty` values, pass a `propertyMapper`. The simplest way is a wrapper loader:
+
+```ts title="src/loaders/recommendations.ts"
+import list, { type SalesforceListLoaderProps } from "@decocms/apps-salesforce/loaders/products/list";
+
+export default function recommendations(props: SalesforceListLoaderProps) {
+  return list({
+    ...props,
+    propertyMapper: (product) => [
+      { "@type": "PropertyValue", name: "brand", value: String(product.brand ?? "") },
+    ],
+  });
+}
+```
+
+`createProductTransformer({ propertyMapper })`, from the package root, builds the same mapping for your own code.
+
+## Observability
+
+This is the one commerce app that's instrumented without any setup: its HTTP client uses the instrumented fetch by default, so upstream timings appear under `provider: "salesforce"`. If you need a custom fetch, wrap it so it stays measured: `createHttpClient({ base, fetcher: createSalesforceFetch({ baseFetch: myFetch }) })`. See [Observability](/v7/observability).
+
+## Related
+
+- [Apps](/v7/apps): all apps and their status.
+- [Commerce types and utilities](/v7/apps-commerce): the `Product` type.
+- [Loaders and actions](/v7/loaders): registering commerce loaders.

@@ -1,0 +1,156 @@
+---
+title: Shopify
+group: Apps
+order: 29
+description: Connect a site to the Shopify Storefront API for product pages, listings, shelves, carts and customer sign-in.
+---
+
+# Shopify
+
+`@decocms/apps-shopify` connects a site to Shopify through the [Storefront API](https://shopify.dev/docs/api/storefront), Shopify's GraphQL API for custom storefronts. It provides loaders for product pages, listing and search pages, shelves, related products and shop details, all returning the shared [commerce types](/v7/apps-commerce), plus cart and customer actions that keep their state in cookies.
+
+It's a smaller app than [VTEX](/v7/vtex): it runs on the server only and ships no React hooks, no request middleware, no checkout proxy and no response cache. Your site calls its actions from its own server code.
+
+```bash
+bun add @decocms/apps-shopify @decocms/apps-commerce @decocms/apps-website
+```
+
+## Configuring
+
+Editors configure the app in a `deco-shopify` block:
+
+| Field | What it does |
+|---|---|
+| `storeName` | Required. Your store's subdomain: `acme` for `acme.myshopify.com`. |
+| `storefrontAccessToken` | Required. A Storefront API access token, as plain text or an encrypted secret. Falls back to the `SHOPIFY_STOREFRONT_TOKEN` environment variable. |
+| `publicUrl` | Optional. Your storefront's public URL. |
+
+`configure` returns `null`, and the app isn't installed, when `storeName` or the token is missing. Install it with the registry entry, passing the module statically (see [Apps](/v7/apps#installing-apps-with-autoconfig)):
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps, type AppRegistry } from "@decocms/blocks-admin/apps";
+import { loadBlocks } from "@decocms/blocks/cms";
+import { SHOPIFY_REGISTRY_ENTRY } from "@decocms/apps-shopify/registry";
+import * as shopifyMod from "@decocms/apps-shopify/mod";
+
+const APP_REGISTRY: AppRegistry = [{ ...SHOPIFY_REGISTRY_ENTRY, module: async () => shopifyMod }];
+
+await autoconfigApps(loadBlocks(), APP_REGISTRY);
+```
+
+You can also configure by hand with `configureShopify({ storeName, storefrontAccessToken, publicUrl })` from the package root, or `initShopifyFromBlocks(blocks)` in `createSiteSetup`'s `initPlatform`. `initShopifyFromBlocks` only accepts a token stored as plain text and configures once per process; use autoconfig when the token is encrypted or lives in the environment.
+
+The app talks to `https://<storeName>.myshopify.com/api/2025-04/graphql.json`.
+
+## Instrumented fetch
+
+Call `setShopifyFetch(createShopifyFetch())` once, at module scope in your setup:
+
+```ts title="src/setup.ts"
+import { setShopifyFetch, createShopifyFetch } from "@decocms/apps-shopify";
+
+setShopifyFetch(createShopifyFetch());
+```
+
+Every GraphQL call is then measured and traced, with the span named after the GraphQL operation in the query (such as `shopify.GetProduct`). Without it, calls use a plain fetch with a timeout and aren't measured. The order doesn't matter: setting the fetch after the app is configured rebuilds its client. See [Observability](/v7/observability).
+
+## Loaders
+
+When the app is installed, its loaders are registered under these keys, which content refers to with `__resolveType`:
+
+| Key | Returns | Props |
+|---|---|---|
+| `shopify/loaders/ProductDetailsPage` | `ProductDetailsPage` | `slug`, `metafields?` |
+| `shopify/loaders/ProductListingPage` | `ProductListingPage` | `query?`, `collectionName?`, `count` (12), `page?`, `pageOffset?` (1), `startCursor?`, `endCursor?`, `pageHref?`, `metafields?` |
+| `shopify/loaders/ProductList` | `Product[]` | `props`: either `{ query, count, sort? }` or `{ collection, count, sort? }`; plus `filters?` (tags, product types, vendors, price range, variant options) and `metafields?` |
+| `shopify/loaders/RelatedProducts` | `Product[]` | `slug`, `count?` (10) |
+| `shopify/loaders/shop` | `Shop` | `metafields?` |
+
+Older content may refer to them with a `.ts` suffix (`shopify/loaders/ProductDetailsPage.ts`). That still resolves: when an exact key isn't registered, the resolver tries the key without its extension.
+
+A few rules worth knowing:
+
+- **Product slugs.** The product page loader treats the last `-` segment of `slug` as a variant id when it's a number; the rest is the product handle. `running-shoe-4412` loads handle `running-shoe`, variant `4412`.
+- **Listing pages.** With a `query` (or a `?q=` in the page URL) the listing loader searches; otherwise it loads the collection named by `collectionName`. Shopify paginates with cursors, so the loader reads `?page`, `?startCursor` and `?endCursor` from the page URL, along with `?sort` and filter parameters, and returns the next and previous links in `pageInfo`.
+- **Page URL.** The listing and product loaders take the page URL as a second argument, and build product links from it. When content resolves them, they don't receive one: links are then built on `https://localhost`, so render them through `relative()` from `@decocms/apps-commerce/sdk/url`. The resolver does copy the page's query parameters (except `page`) into the loader's props, so `?startCursor` and `?endCursor` still arrive; but `?q`, `?sort`, `?page` and the filter parameters are read only from the URL argument (or from `pageHref`).
+
+To give a listing page the real URL, register a small wrapper of your own and point content at its key. The resolver adds the current URL to every commerce loader's props as `__pageUrl`:
+
+```ts title="src/setup/commerce-loaders.ts"
+import { registerCommerceLoaders } from "@decocms/blocks/cms";
+import { productListingPageLoader } from "@decocms/apps-shopify";
+
+registerCommerceLoaders({
+  "site/loaders/shopifyListingPage.ts": (props) =>
+    productListingPageLoader(props, props.__pageUrl ? new URL(props.__pageUrl) : undefined),
+});
+```
+
+The package root also exports the loaders as functions: `productDetailsPageLoader`, `productListingPageLoader`, `productListLoader`, `relatedProductsLoader`, `shopLoader` and `userLoader`, and each is reachable at `@decocms/apps-shopify/loaders/<Name>`.
+
+## Cart and customers
+
+Cart and customer state live in two cookies, both `HttpOnly`, `Secure`, `SameSite=Lax` and valid for a week:
+
+| Cookie | Holds |
+|---|---|
+| `cart` | The Shopify cart id (without its `gid://shopify/Cart/` prefix) |
+| `secure_customer_sig` | The customer access token after sign-in |
+
+The cart and customer functions don't read the request on their own. Each takes the incoming request headers to read these cookies, and optionally a `Headers` object to write `Set-Cookie` into:
+
+| Function | Import | What it does |
+|---|---|---|
+| `getCart(requestHeaders, responseHeaders?)` | `@decocms/apps-shopify` | Returns the visitor's cart, creating one (and setting the cookie) if there's none. |
+| `createCart()` | `@decocms/apps-shopify` | Creates an empty cart and returns its id. |
+| `addItems({ lines, requestHeaders, responseHeaders? })` | `@decocms/apps-shopify/actions/cart/addItems` | Adds lines (`merchandiseId`, `quantity?`, `attributes?`, `sellingPlanId?`). |
+| `updateItems({ lines, requestHeaders, responseHeaders? })` | `@decocms/apps-shopify/actions/cart/updateItems` | Changes quantities by line `id`. |
+| `updateCoupons({ discountCodes, requestHeaders, responseHeaders? })` | `@decocms/apps-shopify/actions/cart/updateCoupons` | Replaces the discount codes. |
+| `signIn({ email, password, requestHeaders, responseHeaders? })` | `@decocms/apps-shopify/actions/user/signIn` | Signs in and sets `secure_customer_sig`. Returns `null` if the visitor is already signed in or the request fails; check `customerAccessTokenCreate.customerUserErrors` for wrong credentials. |
+| `signUp({ email, password, firstName?, lastName?, acceptsMarketing? })` | `@decocms/apps-shopify/actions/user/signUp` | Creates a customer account. |
+| `userLoader(requestHeaders)` | `@decocms/apps-shopify` | The signed-in customer (`email`, `givenName`, `familyName`), or `null`. |
+
+Because they take `Headers` objects, call them from your own server functions rather than over `/deco/invoke`. On TanStack, read the request from [request context](/v7/request-context) and pass the cookies on with `forwardResponseCookies`:
+
+```ts title="src/server/cart.ts"
+import { createServerFn } from "@tanstack/react-start";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+import { forwardResponseCookies } from "@decocms/tanstack/sdk/cookiePassthrough";
+import { getCart } from "@decocms/apps-shopify";
+import addItems from "@decocms/apps-shopify/actions/cart/addItems";
+
+export const loadCart = createServerFn({ method: "POST" }).handler(async () => {
+  const responseHeaders = new Headers();
+  const cart = await getCart(RequestContext.request.headers, responseHeaders);
+  forwardResponseCookies(responseHeaders.getSetCookie());
+  return cart;
+});
+
+export const addToCart = createServerFn({ method: "POST" })
+  .inputValidator((data: { merchandiseId: string; quantity: number }) => data)
+  .handler(async ({ data }) => {
+    const responseHeaders = new Headers();
+    const cart = await addItems({
+      lines: { merchandiseId: data.merchandiseId, quantity: data.quantity },
+      requestHeaders: RequestContext.request.headers,
+      responseHeaders,
+    });
+    forwardResponseCookies(responseHeaders.getSetCookie());
+    return cart;
+  });
+```
+
+Call `loadCart` first, for example when the cart drawer mounts: `getCart` creates the cart and sets its cookie, and the cart actions throw `Missing cart cookie` when the visitor has no cart yet.
+
+## Environment variables
+
+| Variable | What it does |
+|---|---|
+| `SHOPIFY_STOREFRONT_TOKEN` | Fallback Storefront API token when the block doesn't hold one. |
+| `DECO_CRYPTO_KEY` | Decrypts a token stored encrypted in the block. See [Apps](/v7/apps#secrets). |
+
+## Related
+
+- [Apps](/v7/apps): installing apps and secrets.
+- [Commerce types and utilities](/v7/apps-commerce): the shapes these loaders return.
+- [Loaders and actions](/v7/loaders): commerce loaders and how content calls them.

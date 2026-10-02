@@ -1,7 +1,7 @@
 ---
 title: Next.js App Router
 group: Framework guides
-order: 13
+order: 14
 ---
 
 # Next.js App Router
@@ -14,7 +14,7 @@ Each of a page's [blocks](/next/model#resolving-a-page-step-by-step) resolves on
 
 ## 1. Add the components
 
-`Product` is the component the `product` block renders. `CartButton` is a Client Component with state, there to show that interactive components keep working inside blocks the CMS renders on the server. Neither knows about the CMS.
+`PromoBanner` and `ProductHero` are the components the two blocks render. `CartButton` is a Client Component with state, there to show that interactive components keep working inside blocks the CMS renders on the server. None of them knows about the CMS.
 
 ```tsx title="src/CartButton.tsx"
 'use client'
@@ -30,18 +30,29 @@ export default function CartButton() {
 }
 ```
 
-```tsx title="src/Product.tsx"
-import CartButton from './CartButton'
-import type { ProductProps } from './model'
+```tsx title="src/PromoBanner.tsx"
+import type { PromoBannerProps } from './model'
 
-const money = (props: ProductProps) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: props.currency }).format(props.price)
-
-export default function Product(props: ProductProps) {
+export default function PromoBanner({ title, href }: PromoBannerProps) {
   return (
-    <section id={props.id}>
-      <h2>{props.name}</h2>
-      <p>{money(props)}</p>
+    <a href={href} role="note">
+      {title}
+    </a>
+  )
+}
+```
+
+```tsx title="src/ProductHero.tsx"
+import CartButton from './CartButton'
+import type { ProductHeroProps } from './model'
+
+export default function ProductHero({ name, price, currency, image }: ProductHeroProps) {
+  const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(price)
+  return (
+    <section>
+      <img src={image} alt={name} />
+      <h1>{name}</h1>
+      <p>{formatted}</p>
       <CartButton />
     </section>
   )
@@ -50,22 +61,24 @@ export default function Product(props: ProductProps) {
 
 ## 2. Create the CMS
 
-The `product` block returns JSX. Next renders it as a Server Component, and `CartButton` stays a Client Component.
+Both blocks return JSX. Next renders them as Server Components, and `CartButton` stays a Client Component.
 
 ```tsx title="src/blocks.tsx"
 import type { Blocks } from '@decocms/blocks'
-import Product from './Product'
-import type { ProductProps, SEO, StoredPage } from './model'
+import ProductHero from './ProductHero'
+import PromoBanner from './PromoBanner'
+import type { ProductHeroProps, PromoBannerProps, SEO, StoredPage } from './model'
 
 export type Content = { page: StoredPage }
 
 export default {
   seo: (input: SEO) => input,
-  product: (input: ProductProps) => <Product {...input} />,
+  'promo-banner': (input: PromoBannerProps) => <PromoBanner {...input} />,
+  'product-hero': (input: ProductHeroProps) => <ProductHero {...input} />,
 } satisfies Blocks
 ```
 
-`seo` just returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are built-in content types (see [Content that is only data](/next/schema#content-that-is-only-data)). The `Content` export overrides `page` with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), so Studio only saves pages this guide's code can read.
+`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are built-in content types (see [Content that is only data](/next/schema#content-that-is-only-data)). The `Content` export overrides `page` with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), so Studio only saves pages this guide's code can read.
 
 `cms.ts` imports the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved entries). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
 
@@ -74,12 +87,12 @@ import { createCMS } from '@decocms/blocks'
 import content from '../.deco/blocks.gen'
 import blocks from './blocks'
 
-// Development (no token) reads the content module. Production reads releases from the Deco API
-// and falls back to it.
-export const cms = createCMS({ blocks, content, token: process.env.DECO_SITE_TOKEN })
+// Development (no site or token) reads the content module. Production reads releases from the
+// Deco API and falls back to it.
+export const cms = createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN })
 ```
 
-The content options and their fallbacks are in [Configuring content](/next/content#configuring-content).
+The content options and their fallbacks are in [Configuring content](/next/content#configuring-content). Upstream caching and inbound-request telemetry come from the [framework binding](/next/architecture#key-terms), which this guide doesn't use yet; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings).
 
 ```ts title="src/client.server.ts"
 import 'server-only'
@@ -88,7 +101,7 @@ import { DRAFT_COOKIE } from '@decocms/blocks'
 import { cms } from './cms'
 
 // The client for this request: a draft when the cookie holds a valid pointer, production otherwise.
-// In development (no token), drafts and releases read the same content.
+// In development (no site or token), drafts and releases read the same content.
 export async function client() {
   const pointer = (await cookies()).get(DRAFT_COOKIE)?.value
   return pointer ? cms.forDraft(pointer) : cms.forRelease()
@@ -99,7 +112,7 @@ export async function client() {
 
 ## 3. Generate the schema and content
 
-Two CLI commands generate the files the app and Studio need (see [The two CLI commands](/next/schema#the-two-cli-commands)): `deco schema` writes `.deco/schema.json`, a form for each block type in Studio, from the block map it finds in `src/blocks.tsx`, and `deco content` writes the content module `cms.ts` imports. Run both before the dev server and the build:
+Two CLI commands generate the files the app and Studio need (see [CLI reference](/next/schema#the-two-cli-commands)): `deco schema` writes `.deco/schema.json`, a form for each block type in Studio, from the block map it finds in `src/blocks.tsx`, and `deco content` writes the content module `cms.ts` imports. Run both before the dev server and the build:
 
 ```json title="package.json"
 {

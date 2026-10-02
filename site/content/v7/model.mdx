@@ -1,0 +1,183 @@
+---
+title: Blocks and sections
+nav: Blocks & sections
+group: Core concepts
+order: 6
+description: What a block is, how to write a section that editors can configure, and how sections are registered and nested.
+---
+
+# Blocks and sections
+
+Everything an editor decides on a v7 site is stored as a *block*, a named piece of JSON. The most common kind of block points at a *section*, a React component you write. This page explains both: what a block looks like, how to write a section whose props Studio can edit, how sections get registered, and how a section can hold other sections.
+
+<Terms>
+  <Term name="Block">A named, typed piece of JSON in the decofile that the runtime can resolve: a section, a page, a loader call, a matcher, an app's settings. See the [glossary](/v7/glossary#block).</Term>
+  <Term name="Section">A React component editors can place on a page. Its props come from an exported `Props` type. See the [glossary](/v7/glossary#section).</Term>
+  <Term name="__resolveType">The field that says what a JSON value is: a section key, a loader key, a matcher key, or the name of another block.</Term>
+  <Term name="Section key">The name content uses for a section: `site/sections/` plus the file's path under `src/sections/`, such as `site/sections/Hero.tsx`.</Term>
+</Terms>
+
+## A block is JSON with a type
+
+Here is a block that puts a Hero on a page:
+
+```json title="A section in content"
+{
+  "__resolveType": "site/sections/Hero.tsx",
+  "title": "Summer collection",
+  "subtitle": "Light layers for long days."
+}
+```
+
+`__resolveType` names what this value is, and every other property is an input to it. When the runtime meets this value, it looks up the component registered as `site/sections/Hero.tsx` and renders it with `title` and `subtitle` as props.
+
+`__resolveType` can name more than sections. It can name a data loader (`vtex/loaders/intelligentSearch/productList.ts`), a matcher-guarded set of variants (`website/flags/multivariate.ts`), or another block in the decofile by its name. Any value anywhere in content can have one, so blocks nest: a section's `products` prop can be a loader block, and a page's list of sections is a list of section blocks. Turning all of these into plain props is called *resolution*; [Content and the decofile](/v7/content) shows the forms it takes, and [How resolution works](/v7/walkthrough) walks through the exact order.
+
+## Write a section
+
+A section is a file under `src/sections/` with a default-exported React component and an exported `Props` type:
+
+```tsx title="src/sections/Hero.tsx"
+import type { ImageWidget } from "@decocms/blocks/types/widgets";
+
+export interface CTA {
+  /** @title Label */
+  label: string;
+  /** @title Link */
+  href: string;
+}
+
+export interface Props {
+  /**
+   * @title Title
+   * @description Shown in large type over the image.
+   */
+  title: string;
+  /** @title Subtitle */
+  subtitle?: string;
+  /** @title Background image */
+  image: ImageWidget;
+  /** @title Button */
+  cta?: CTA;
+}
+
+export default function Hero({ title, subtitle, image, cta }: Props) {
+  return (
+    <section style={{ backgroundImage: `url(${image})` }}>
+      <h1>{title}</h1>
+      {subtitle && <p>{subtitle}</p>}
+      {cta && <a href={cta.href}>{cta.label}</a>}
+    </section>
+  );
+}
+```
+
+Three things make this a good section:
+
+- **`Props` is exported.** The code generator reads it to build the form editors fill in, so every field an editor should control belongs in `Props`. Optional fields (`subtitle?`) become optional inputs.
+- **JSDoc tags label the form.** `@title` and `@description` become the field's label and help text. Other tags set defaults, limits and formats; see [Schema generation](/v7/schema) for the full list.
+- **Widget types pick the input.** `ImageWidget` is just `string` to TypeScript, but it tells Studio to show an image picker. The aliases in `@decocms/blocks/types/widgets` are:
+
+| Type | Studio input |
+|---|---|
+| `ImageWidget` | Image upload and picker |
+| `VideoWidget` | Video upload |
+| `HTMLWidget` | HTML editor |
+| `RichText` | Rich text editor |
+| `TextArea` | Multi-line text |
+| `Color` | Color picker |
+| `Secret` | Password field, for credentials |
+| `TextWidget`, `ButtonWidget` | Plain text inputs |
+
+The section's key comes from its file path. `src/sections/Hero.tsx` is `site/sections/Hero.tsx`, and `src/sections/Header/Header.tsx` is `site/sections/Header/Header.tsx`. Content must use the key exactly, so moving or renaming a section file breaks the content that refers to it.
+
+Section files can also export flags that change how the section is loaded and cached, such as `export const layout = true` for a header shared by every page, or a `LoadingFallback` skeleton. Those are covered in [Section conventions](/v7/sections).
+
+## Register sections
+
+Sections are registered once, in setup, as a map from key to a lazy import. Each section is then loaded only when a page uses it.
+
+On TanStack Start, `createSiteSetup` takes Vite's `import.meta.glob` result. Its keys look like `./sections/Hero.tsx`, and setup turns them into `site/sections/Hero.tsx`:
+
+```ts title="src/setup.ts"
+import { createSiteSetup } from "@decocms/blocks/setup";
+import { blocks } from "../.deco/blocks.gen";
+
+createSiteSetup({
+  sections: import.meta.glob("./sections/**/*.tsx") as Record<string, () => Promise<any>>,
+  blocks,
+});
+```
+
+On Next.js there's no `import.meta.glob`, so `generate` writes the same map as `sectionImports` in `.deco/sections.gen.ts`, and you pass it to `createNextSetup({ sections: sectionImports })`. See [Quickstart: Next.js](/v7/quickstart-nextjs).
+
+You can also register sections yourself with `registerSection(key, () => import("…"))`, or several at once with `registerSections({ [key]: () => import("…") })`, both from `@decocms/blocks/cms`. App setup uses `registerSections` to add an app's sections.
+
+A section can also be registered *synchronously*, bundled into the main chunk instead of loaded on demand, with `export const sync = true` (or `registerSectionsSync`). Sync registration is about rendering speed; resolution still uses the lazy registry, so every section must be in the lazy map too. `createSiteSetup` and `createNextSetup` take care of that.
+
+## Nest sections inside sections
+
+A section can take other sections as props, so editors can build a layout (a tab group, a two-column block) out of any sections they like. The schema generator turns a prop into a section picker when its type is written as `Section` (or `Section[]`) and that type is opaque. Declare the alias once in your project:
+
+```ts title="src/types/deco.ts"
+// Any section. The schema generator shows a section picker for props typed `Section`.
+export type Section = any;
+```
+
+Then type the prop with it, and render the value with `RenderSection` from `@decocms/blocks/hooks`:
+
+```tsx title="src/sections/TwoColumns.tsx"
+import { RenderSection } from "@decocms/blocks/hooks";
+import type { Section } from "../types/deco";
+
+export interface Props {
+  /** @title Left column */
+  left: Section;
+  /** @title Right column */
+  right: Section;
+}
+
+export default function TwoColumns({ left, right }: Props) {
+  return (
+    <div className="grid grid-cols-2">
+      <RenderSection section={left} />
+      <RenderSection section={right} />
+    </div>
+  );
+}
+```
+
+A type named `Section` that has a concrete shape (say, a footer's `{ label; links }` columns) is treated as ordinary data and gets an inline form, not a picker. That's why the alias must be `any`: `Section` from `@decocms/blocks/types` describes the resolved `{ Component, props }` value and is the wrong type for a picker prop.
+
+In Studio, a `Section` prop shows a section picker. In content it holds a full section block:
+
+```json title="A TwoColumns block"
+{
+  "__resolveType": "site/sections/TwoColumns.tsx",
+  "left": { "__resolveType": "site/sections/Hero.tsx", "title": "Men", "image": "https://…/men.jpg" },
+  "right": { "__resolveType": "site/sections/Hero.tsx", "title": "Women", "image": "https://…/women.jpg" }
+}
+```
+
+Resolution turns each nested section into `{ Component, props }` (the component's key and its resolved props), and `RenderSection` renders that, loading the component if it hasn't been loaded yet. Pass `fallback` to show something while it loads. Nested sections get their [section loaders](/v7/loaders) run like top-level ones.
+
+In client components, import registry helpers (`getSection`, `getResolvedComponent`) from `@decocms/blocks/cms/client`, not from `@decocms/blocks/cms`, which is server-only.
+
+## When a section fails
+
+The bindings render every section inside an error boundary, so one section that throws doesn't take the page down: the rest of the page renders, and the failed section shows a fallback. Export an `ErrorFallback` component from the section file to replace the default one:
+
+```tsx title="src/sections/ProductShelf.tsx (excerpt)"
+export function ErrorFallback({ error }: { error: Error }) {
+  return <div role="alert">Products are unavailable right now.</div>;
+}
+```
+
+A section that isn't registered at all resolves to nothing, with a warning in the server log. If a section you added doesn't appear, check that its key in content matches the file path exactly.
+
+## Next steps
+
+- [Content and the decofile](/v7/content): named blocks, references and how content is stored.
+- [Section conventions](/v7/sections): `layout`, `sync`, `LoadingFallback` and the other flags.
+- [Schema generation](/v7/schema): every JSDoc tag and widget format.
+- [Loaders and actions](/v7/loaders): give sections data.

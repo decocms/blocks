@@ -91,6 +91,12 @@
       "title": "Docs fixes and additions"
     },
     {
+      "id": "roadmap-later",
+      "nav": "Follow-ups",
+      "eyebrow": "After the first release",
+      "title": "Planned after the first release"
+    },
+    {
       "id": "roadmap-storefront",
       "nav": "TanStack storefront",
       "eyebrow": "Site migrations",
@@ -124,8 +130,8 @@
     {
       "id": "roadmap-blockers--let-studio-talk-to-a-next-major-site",
       "title": "Let Studio talk to a next-major site",
-      "today": "Nothing serves <code>/live/_meta</code>, <code>/.decofile</code>, <code>/live/previews</code>, <code>/deco/invoke</code> or the secrets encrypt action, and Studio's code contradicts the claim in <a href=\"#studio\">Studio compatibility</a> that it only reads the schema and files.",
-      "plan": "Ship <code>createStudioHandler({ cms, schema, render })</code> in <code>@decocms/blocks-admin</code>, mounted in one line per binding, and correct <a href=\"#studio\">Studio compatibility</a>.",
+      "today": "Studio reads the schema and content from the running site (<code>/live/_meta</code>, <code>/.decofile</code>) and calls it for previews, <code>/deco/invoke</code> and the secrets encrypt action. A next-major site serves none of these.",
+      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco content serve</code> for a local checkout. Features that need the site's code degrade in this version (see <a href=\"#studio-protocol\">Studio and the content protocol</a>).",
       "features": [
         "admin-protocol-endpoints",
         "invoke-and-actions",
@@ -135,7 +141,10 @@
         "site-bootstrap"
       ],
       "delivered_by": [
-        "roadmap-api--ship-the-studio-protocol-handler",
+        "roadmap-api--publish-the-content-protocol-and-its-package",
+        "roadmap-platform--build-studio-s-github-content-backend",
+        "roadmap-platform--move-studio-s-editor-onto-the-protocol-client",
+        "roadmap-cli--ship-deco-content-serve-a-local-content-server",
         "roadmap-docs--correct-studio-compatibility"
       ]
     },
@@ -143,7 +152,7 @@
       "id": "roadmap-blockers--make-the-cli-write-a-schema-studio-can-read",
       "title": "Make the CLI write a schema Studio can read",
       "today": "The CLI writes <code>.deco/schema.json</code> with top-level <code>definitions</code>; Studio reads <code>.deco/meta.gen.json</code> in LiveMeta shape (btoa keys, <code>schema.root</code>). There are no <code>apps</code> or <code>actions</code> groups, no per-type variant definitions, and the widget vocabulary is undocumented, so 22 image pickers would become text inputs and HTML fields plain strings.",
-      "plan": "Emit Studio's exact file and shape, add <code>apps</code>/<code>actions</code> groups and one multivariate definition per <code>VariantOf&lt;T&gt;</code>, publish the JSDoc/@format table, and keep widget-alias detection and return-type loader unions.",
+      "plan": "Emit Studio's exact format as <code>.deco/schema.json</code>, one multivariate definition per <code>VariantOf&lt;T&gt;</code>, write static option lists into the schema, publish the JSDoc/@format table, and keep widget-alias detection and return-type loader unions.",
       "features": [
         "studio-schema-generation",
         "codegen-pipeline",
@@ -156,14 +165,15 @@
       "delivered_by": [
         "roadmap-cli--write-a-studio-compatible-schema-file",
         "roadmap-cli--publish-the-tag-and-widget-vocabulary",
-        "roadmap-cli--define-the-loader-picker-rule"
+        "roadmap-cli--define-the-loader-picker-rule",
+        "roadmap-cli--write-static-option-lists-into-the-schema"
       ]
     },
     {
       "id": "roadmap-blockers--give-blocks-the-page-url-and-route-params",
       "title": "Give blocks the page URL and route params",
       "today": "On SPA navigation <code>getRequest()</code> returns the <code>/_serverFn</code> URL, Next's <code>headers()</code> has no URL, app packages' loaders have no standard way to receive the URL or <code>match.params</code>, and apps-vtex's RequestContext is never populated.",
-      "plan": "Add one binding-owned request scope (<code>url</code>, <code>params</code>, <code>request</code>, <code>client</code>, response headers) that both bindings' openPage populate and apps can import.",
+      "plan": "Add one binding-owned request scope (<code>url</code>, <code>params</code>, <code>request</code>, <code>client</code>, response headers) that both bindings' openPage populate and that block functions and site code can read, passing what a client needs as arguments.",
       "features": [
         "section-loaders",
         "plp-filters-sort-pagination",
@@ -196,7 +206,7 @@
       "id": "roadmap-blockers--define-the-non-cms-sdk-surface",
       "title": "Define the non-CMS SDK surface",
       "today": "apps-* and the ClickHouse telemetry depend on <code>sdk/requestContext</code>, <code>instrumentedFetch</code>, <code>fetchCache</code> and <code>cachedLoader</code>, and sites' widgets on <code>sdk/useDevice</code> and the Image and JsonLd hooks. These docs only list 'loaders, client, resolution, router'.",
-      "plan": "Publish a 7.x-to-next surface map, keep <code>sdk/*</code> as a documented utility tier, and ship <code>@decocms/blocks/image</code>.",
+      "plan": "The framework doesn't fetch data: the apps become thin, instrumented API clients over the framework's instrumented fetch, the core drops <code>/deco/invoke</code> and <code>cachedLoader</code>, and caching moves to the bindings. Publish a 7.x-to-next surface map and ship <code>@decocms/blocks/image</code>.",
       "features": [
         "framework-import-surface",
         "in-isolate-caches",
@@ -206,7 +216,9 @@
         "interactive-ui-widgets"
       ],
       "delivered_by": [
-        "roadmap-api--keep-the-utility-tier-and-document-it",
+        "roadmap-api--turn-the-apps-into-thin-instrumented-clients",
+        "roadmap-api--remove-deco-invoke-and-cachedloader",
+        "roadmap-api--cache-upstream-requests-in-the-bindings",
         "roadmap-api--add-an-image-module"
       ],
       "delivered_note": "No work item covers the 7.x-to-next surface map yet."
@@ -247,7 +259,7 @@
       "id": "roadmap-blockers--make-the-next-major-load-and-resolve-legacy-content",
       "title": "Make the next major load and resolve legacy content",
       "today": "Filename decoding is unspecified, and the alias bridge covers only pages, matchers and multivariate, while Studio writes Lazy, SeoV2, <code>site/apps/site.ts</code>, redirect, secret and the <code>multi</code> matcher. UNKNOWN_BLOCK now fails the parent block, and <code>list()</code> can't see Content aliases.",
-      "plan": "Specify single-decode filenames, widen the alias bridge, ship <code>deco check</code> and <code>deco content</code>, and have the CLI emit a runtime alias table.",
+      "plan": "Use the protocol's one filename rule (decode exactly once), widen the alias bridge, ship <code>deco content</code> (with <code>deco schema</code> reporting collisions), and have the CLI emit a runtime alias table.",
       "features": [
         "block-type-discriminator",
         "orphan-and-dangling-blocks",
@@ -282,8 +294,8 @@
     {
       "id": "roadmap-blockers--define-a-model-for-apps-config-and-secrets",
       "title": "Define a model for apps, config and secrets",
-      "today": "App loaders get no config, there's no <code>apps</code> manifest group, <code>website/loaders/secret.ts</code> can't decrypt, and without the site's encrypt action Studio refuses to save any Secret field.",
-      "plan": "Define an app contract (<code>blocks</code>, <code>Config</code>, <code>configure()</code>), plus <code>@decocms/blocks/secrets</code> (the secret block and the site-side encrypt action) and an <code>apps</code> group.",
+      "today": "App loaders get no config, there's no <code>apps</code> manifest group, <code>website/loaders/secret.ts</code> can't decrypt, and Studio encrypts Secret fields through an action the site serves.",
+      "plan": "Define the client contract (a factory that takes its config from site code), keep <code>@decocms/blocks/secrets</code> for decrypting existing secret entries, clients take their config from site code, and vendored loaders keep their old type names as aliases. No apps group in this version. Studio shows secret fields read-only in this version.",
       "features": [
         "app-installation-and-store-config",
         "env-vars-and-secrets",
@@ -300,47 +312,36 @@
     {
       "id": "roadmap-studio-new--give-studio-a-schema-it-can-read-so-the-editor-loads",
       "title": "Give Studio a schema it can read, so the editor loads",
-      "today": "Studio reads <code>.deco/meta.gen.json</code> or <code>/live/_meta</code> in LiveMeta shape, so a next-major site shows 'live meta unavailable'.",
+      "today": "Studio reads <code>.deco/meta.gen.json</code> or <code>/live/_meta</code> in LiveMeta shape, so a next-major site shows 'live meta unavailable'. On protocol projects it reads the committed <code>.deco/schema.json</code>, which must be in that shape.",
       "features": [
         "studio-schema-generation",
         "ci-and-release-workflows",
         "codegen-pipeline"
       ],
       "delivered_by": [
-        "roadmap-cli--write-a-studio-compatible-schema-file"
+        "roadmap-cli--write-a-studio-compatible-schema-file",
+        "roadmap-platform--build-studio-s-github-content-backend"
       ]
     },
     {
       "id": "roadmap-studio-new--keep-gallery-theme-and-in-place-previews-working",
-      "title": "Keep gallery, theme and in-place previews working",
-      "today": "Studio's section thumbnails (its legacy name for block previews), global and theme previews, and Fast Preview in-place render all go through <code>/live/previews</code>.",
+      "title": "Replace gallery, theme and in-place previews",
+      "today": "Studio's section thumbnails (its legacy name for block previews), global and theme previews, and Fast Preview in-place render all go through <code>/live/previews</code>, which runs site code. The protocol never does: these become name cards, or open the real page.",
       "features": [
         "section-catalog",
         "theming-and-styling",
         "global-layout-sections"
       ],
       "delivered_by": [
-        "roadmap-api--ship-the-studio-protocol-handler",
-        "roadmap-platform--align-the-preview-protocol"
-      ]
-    },
-    {
-      "id": "roadmap-studio-new--require-a-draft-grant-for-in-place-preview-renders",
-      "title": "Require a draft grant for in-place preview renders",
-      "today": "The proposed Studio handler doesn't define who may request an in-place render.",
-      "features": [
-        "admin-protocol-endpoints",
-        "studio-preview"
-      ],
-      "delivered_by": [
-        "roadmap-api--ship-the-studio-protocol-handler",
+        "roadmap-platform--move-studio-s-editor-onto-the-protocol-client",
+        "roadmap-platform--fix-the-add-section-gate",
         "roadmap-platform--align-the-preview-protocol"
       ]
     },
     {
       "id": "roadmap-studio-new--let-editors-save-secret-fields-on-next-major-sites",
-      "title": "Let editors save Secret fields on next-major sites",
-      "today": "Studio encrypts Secret fields through an encrypt action the site serves. On a next-major site without that action, editors can't save any Secret field.",
+      "title": "Show Secret fields read-only on next-major sites",
+      "today": "Studio encrypts Secret fields through an encrypt action the site serves. Protocol projects have no such action, so secret and <code>@format password</code> fields are read-only in this version, and credentials live in environment variables.",
       "features": [
         "env-vars-and-secrets",
         "app-installation-and-store-config",
@@ -348,19 +349,21 @@
       ],
       "delivered_by": [
         "roadmap-api--ship-decocms-blocks-secrets",
-        "roadmap-api--ship-the-studio-protocol-handler"
+        "roadmap-platform--move-studio-s-editor-onto-the-protocol-client"
       ]
     },
     {
       "id": "roadmap-studio-new--keep-options-run-and-pickers-working",
-      "title": "Keep <code>@options</code>, Run and pickers working",
-      "today": "These need <code>/deco/invoke</code> and <code>/live/invoke</code>. The blog ProductShelf picker even calls production's <code>/deco/invoke</code> with legacy VTEX keys.",
+      "title": "Fall back for <code>@options</code>, Run and pickers",
+      "today": "These need <code>/deco/invoke</code> and <code>/live/invoke</code>, which the protocol replaces. The blog ProductShelf picker even calls production's <code>/deco/invoke</code> with legacy VTEX keys. Pickers fall back to the schema's options, else free text; Run is hidden.",
       "features": [
         "invoke-and-actions",
-        "app-installation-and-store-config"
+        "app-installation-and-store-config",
+        "icon-by-name-enums"
       ],
       "delivered_by": [
-        "roadmap-api--ship-the-studio-protocol-handler"
+        "roadmap-cli--write-static-option-lists-into-the-schema",
+        "roadmap-platform--move-studio-s-editor-onto-the-protocol-client"
       ]
     },
     {
@@ -426,7 +429,8 @@
         "section-registration-conventions"
       ],
       "delivered_by": [
-        "roadmap-platform--use-manifest-lookup-instead-of-path-heuristics"
+        "roadmap-platform--use-manifest-lookup-instead-of-path-heuristics",
+        "roadmap-cli--emit-a-runtime-alias-table"
       ]
     },
     {
@@ -454,14 +458,14 @@
     },
     {
       "id": "roadmap-studio-new--fix-local-and-tunnel-modes-show-local-edits-in-dev",
-      "title": "Fix local and tunnel modes; show local edits in dev",
-      "today": "The dev server serves neither endpoint. With a token in <code>.dev.vars</code>, <code>remoteLoader</code> swaps in the production release over local edits.",
+      "title": "Edit a local checkout from Studio; show local edits in dev",
+      "today": "The dev server serves neither endpoint Studio's local and tunnel modes use. With a site and token in <code>.dev.vars</code>, <code>remoteLoader</code> swaps in the production release over local edits.",
       "features": [
         "dev-studio-content-loop",
         "bundler-config"
       ],
       "delivered_by": [
-        "roadmap-cli--add-a-local-dev-loop",
+        "roadmap-cli--ship-deco-content-serve-a-local-content-server",
         "roadmap-api--add-remoteloader-options"
       ]
     },
@@ -551,7 +555,8 @@
         "content-storage-and-delivery"
       ],
       "delivered_by": [
-        "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle"
+        "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle",
+        "roadmap-api--publish-the-content-protocol-and-its-package"
       ]
     },
     {
@@ -634,33 +639,29 @@
       "pinned": false
     },
     {
-      "id": "roadmap-api--ship-the-studio-protocol-handler",
+      "id": "roadmap-api--publish-the-content-protocol-and-its-package",
       "group": "api",
-      "title": "Ship the Studio protocol handler",
-      "plan": "<p><code>createStudioHandler({ cms, schema, render })</code> in blocks-admin serves <code>/live/_meta</code>, <code>/.decofile</code>, <code>/deco/invoke/:key</code> (allowlist, CORS), and <code>POST /live/invoke/website/actions/secrets/encrypt.ts</code> plus the <code>$live/actions/secrets/encrypt.ts</code> key (<code>{ value }</code> → <code>{ value: hex }</code>, what Studio's Secret field calls). It also serves <code>/live/previews</code> (framework render callback, request-scoped CMS, <code>preview</code> resolver), the one preview contract for gallery, theme and in-place renders. In-place renders require a draft grant the content API verifies, or a configured preview host.</p>",
+      "title": "Publish the content protocol and its package",
+      "plan": "<p>Write down the protocol between Studio and stored content: JSON-RPC 2.0 over one HTTP endpoint (<code>POST /rpc</code>, batches allowed) with four methods, <code>describe</code>, <code>schema.get</code>, <code>blocks.list</code> and <code>blocks.apply</code>, plus its errors, limits and conditional reads for polling. Ship it as <code>@decocms/blocks-protocol</code> (proposed name): the types and method definitions, a client, a server core over a <code>ContentStorage</code> interface, a filesystem storage and a black-box conformance suite any implementation runs over HTTP. Its key module holds the one filename rule (decode exactly once) that Studio, <code>deco content serve</code> and <code>deco content</code> all import. See <a href=\"#studio\">Studio compatibility</a>.</p>",
       "features": [
         "admin-protocol-endpoints",
-        "invoke-and-actions",
-        "section-catalog",
-        "global-layout-sections",
-        "theming-and-styling",
-        "site-bootstrap",
         "dev-studio-content-loop",
-        "worker-server-entry",
-        "app-loader-overrides",
-        "section-loaders",
-        "icon-by-name-enums",
-        "env-vars-and-secrets",
-        "studio-preview"
+        "block-type-discriminator",
+        "content-storage-and-delivery",
+        "studio-schema-generation",
+        "section-catalog",
+        "site-bootstrap"
       ],
-      "docs": [],
-      "pinned": false
+      "docs": [
+        "studio",
+        "studio-protocol"
+      ]
     },
     {
       "id": "roadmap-api--let-studio-follow-the-deployed-schema",
       "group": "api",
       "title": "Let Studio follow the deployed schema",
-      "plan": "<p>Studio builds its forms from whichever schema the user points it at, usually the one on the main branch. An option to follow the schema the deployed site serves at <code>/live/_meta</code> would keep editors from adding a block type before the code that defines it is live. Update <a href=\"#schema\">Schema generation</a> once it ships.</p>",
+      "plan": "<p>Studio builds its forms from whichever schema the user points it at, usually the one committed on the main branch. An option to follow the schema of the commit the production site runs would keep editors from adding a block type before the code that defines it is live. Update <a href=\"#schema\">Schema generation</a> once it ships.</p>",
       "features": [
         "admin-protocol-endpoints",
         "content-schema-drift",
@@ -735,22 +736,54 @@
       "pinned": false
     },
     {
-      "id": "roadmap-api--keep-the-utility-tier-and-document-it",
+      "id": "roadmap-api--turn-the-apps-into-thin-instrumented-clients",
       "group": "api",
-      "title": "Keep the utility tier and document it",
-      "plan": "<p>Document <code>instrumentedFetch</code>, <code>fetchCache</code>, <code>cached()</code> (cachedLoader), <code>fetchTimeout</code> and <code>recordCommerceMetric</code> as importable by apps, with preview bypass and <code>clear()</code>.</p>",
+      "title": "Turn the apps into thin, instrumented clients",
+      "plan": "<p>The framework doesn't fetch data. Each companion app (VTEX, Shopify, Wake, Magento, Algolia, Resend, …) becomes a thin API client for its platform: typed request functions over the framework's instrumented fetch, keeping the platform's API and generated types. Latency is measured to the response headers, retries count as one data point with a <code>retries</code> attribute, and error logs are structured and never contain upstream bodies, tokens or cookies. The VTEX client keeps retry and circuit breaking on by default. Converters to commerce types, the cart, user and wishlist hooks, cart, session and auth flows, and website features beyond the three built-in matchers (SEO helpers, sitemaps, redirect logic, analytics scripts) move to platform templates and site code. <a href=\"#clients\">Upstream API clients</a> has the recipe for writing a client.</p>",
       "features": [
         "framework-import-surface",
-        "in-isolate-caches",
         "upstream-fetch-instrumentation",
         "commerce-platform-binding",
         "cart-customer-server-functions",
-        "web-fonts",
+        "client-commerce-state-hooks",
         "vtex-io-app-settings",
-        "bff-custom-endpoints"
+        "bff-custom-endpoints",
+        "web-fonts"
       ],
-      "docs": [],
-      "pinned": false
+      "docs": [
+        "clients"
+      ]
+    },
+    {
+      "id": "roadmap-api--remove-deco-invoke-and-cachedloader",
+      "group": "api",
+      "title": "Remove <code>/deco/invoke</code> and <code>cachedLoader</code>",
+      "plan": "<p>The core drops the <code>/deco/invoke</code> endpoint and <code>cachedLoader</code>. Per-shopper reads and actions become the framework's own server functions or route handlers, which call the clients directly. A block function may still fetch data when a site wants it to; it calls a client like any other code.</p>",
+      "features": [
+        "invoke-and-actions",
+        "in-isolate-caches",
+        "site-local-loaders",
+        "saved-loader-blocks"
+      ],
+      "docs": [
+        "clients",
+        "standalone"
+      ]
+    },
+    {
+      "id": "roadmap-api--cache-upstream-requests-in-the-bindings",
+      "group": "api",
+      "title": "Cache upstream requests in the bindings",
+      "plan": "<p>Caching depends on the platform, so it lives in the framework bindings, not in the clients: the Cloudflare Cache API in <code>@decocms/tanstack</code> on Workers, Next's data cache in <code>@decocms/nextjs</code>. The instrumented fetch reports whether each response came from the cache (the <code>cached</code> label), and drafts bypass the cache.</p>",
+      "features": [
+        "in-isolate-caches",
+        "upstream-fetch-instrumentation",
+        "edge-html-cache-profiles"
+      ],
+      "docs": [
+        "clients",
+        "operations"
+      ]
     },
     {
       "id": "roadmap-api--add-remoteloader-options",
@@ -773,7 +806,7 @@
       "id": "roadmap-api--document-and-support-kv-only-content-for-large-workers-sites",
       "group": "api",
       "title": "Document and support KV-only content for large Workers sites",
-      "plan": "<p>With <code>content</code> plus <code>token</code>, the bundled content module stays in memory as the fallback next to the live release, against a Worker isolate's 128 MB limit, and it also counts toward the script size limit. Document passing a KV-backed <code>Loader</code> as <code>content</code> for large sites, so no copy is bundled and the fallback is read from KV only when needed. Ship a first-party <code>kvLoader(env.CONTENT, { key })</code>, and a documented deploy step that writes the content to the key before the new Worker takes traffic, since with a missing key every new isolate fails its first reads until its first release check.</p>",
+      "plan": "<p>With <code>content</code> plus <code>site</code> and <code>token</code>, the bundled content module stays in memory as the fallback next to the live release, against a Worker isolate's 128 MB limit, and it also counts toward the script size limit. Document passing a KV-backed <code>Loader</code> as <code>content</code> for large sites, so no copy is bundled and the fallback is read from KV only when needed. Ship a first-party <code>kvLoader(env.CONTENT, { key })</code>, and a documented deploy step that writes the content to the key before the new Worker takes traffic, since with a missing key every new isolate fails its first reads until its first release check.</p>",
       "features": [
         "fast-deploy-kv",
         "hosting-and-deploy-config",
@@ -791,7 +824,7 @@
       "id": "roadmap-api--add-session-region-delivery-promise-and-prices-to-apps-vtex",
       "group": "api",
       "title": "Add session, region, delivery promise and prices to <code>apps-vtex</code>",
-      "plan": "<p>A session module (<code>resolveRegion</code>, <code>setSegment</code>, <code>useVtexSession</code>), delivery promise in the Intelligent Search loaders, tax-inclusive prices, full installments with InterestRate, an invoke-free cart hook, an Intelligent Search events subscriber and <code>createVtexIoClient</code>.</p>",
+      "plan": "<p>Typed requests for delivery promise in Intelligent Search, tax-inclusive prices, full installments with InterestRate, Intelligent Search events, and <code>createVtexIoClient</code> for persisted IO queries. The session module (<code>resolveRegion</code>, <code>setSegment</code>), the session and cart hooks move to the VTEX platform template, which sites copy.</p>",
       "features": [
         "session-regionalization",
         "delivery-promise",
@@ -823,8 +856,8 @@
     {
       "id": "roadmap-api--ship-an-seo-kit-in-apps-website-and-apps-commerce",
       "group": "api",
-      "title": "Ship an SEO kit in <code>apps-website</code> and <code>apps-commerce</code>",
-      "plan": "<p><code>PageSeo</code>, and SEO functions pre-aliased to SeoV2/Seo/SeoPDPV2/SeoPLPV2. <code>mergeSiteSeo(siteSeo, pageSeo)</code> is the one site-SEO merge, sharing a test suite with Studio. <code>seoToNextMetadata</code> / <code>seoToTanStackHead</code>, JSON-LD builders and a <code>&lt;JsonLd&gt;</code> renderer.</p>",
+      "title": "Ship an SEO kit in the platform templates",
+      "plan": "<p>SEO helpers are website features, so they live in the platform templates, as code a site owns: <code>PageSeo</code> and SEO functions pre-aliased to SeoV2/Seo/SeoPDPV2/SeoPLPV2, <code>mergeSiteSeo(siteSeo, pageSeo)</code> as the one site-SEO merge (sharing a test suite with Studio), <code>seoToNextMetadata</code> / <code>seoToTanStackHead</code>, JSON-LD builders and a <code>&lt;JsonLd&gt;</code> renderer.</p>",
       "features": [
         "page-seo-blocks",
         "site-seo-defaults",
@@ -839,8 +872,8 @@
     {
       "id": "roadmap-api--define-an-app-contract",
       "group": "api",
-      "title": "Define an app contract",
-      "plan": "<p>Each <code>@decocms/apps-*</code> exports <code>blocks</code> (legacy keys), <code>type Config</code> and <code>configure()</code> from env, with no <code>@decocms/tanstack</code> dependency and no dynamic <code>module</code> import.</p>",
+      "title": "Define the client contract",
+      "plan": "<p>Each client package exports a factory that takes its configuration as arguments (for example <code>createVtexClient({ account, appKey, appToken })</code>, read from environment variables in site code) and typed request functions. No block map, no <code>@decocms/tanstack</code> dependency, no dynamic <code>module</code> import. Installing an app from Studio's store is unavailable on next-major sites: a client is added in code.</p>",
       "features": [
         "app-installation-and-store-config",
         "commerce-platform-binding",
@@ -902,7 +935,7 @@
       "id": "roadmap-api--ship-decocms-blocks-secrets",
       "group": "api",
       "title": "Ship <code>@decocms/blocks/secrets</code>",
-      "plan": "<p><code>@decocms/blocks/secrets</code>: a <code>secret</code> block aliased as <code>website/loaders/secret.ts</code> that decrypts with DECO_CRYPTO_KEY, and the encrypt action createStudioHandler serves. Encryption stays on the site, so the key never leaves it. Amend 'the token is the only secret' in <a href=\"#preview\">Preview</a>.</p>",
+      "plan": "<p><code>@decocms/blocks/secrets</code>: a <code>secret</code> block aliased as <code>website/loaders/secret.ts</code> that decrypts existing encrypted values with DECO_CRYPTO_KEY, so content saved by today's Studio keeps working. New credentials go in environment variables. Studio shows secret and <code>@format password</code> fields read-only in this version, so there's no encrypt action to serve. Amend 'the token is the only secret' in <a href=\"#preview\">Preview</a>.</p>",
       "features": [
         "app-installation-and-store-config",
         "invoke-and-actions",
@@ -956,8 +989,8 @@
     {
       "id": "roadmap-api--add-an-analytics-bootstrap-and-experiment-support",
       "group": "api",
-      "title": "Add an analytics bootstrap and experiment support",
-      "plan": "<p>A framework-neutral <code>&lt;DecoAnalytics /&gt;</code> (DECO.events + ANALYTICS_SCRIPT) and a typed <code>useSendEvent</code>/dispatch. An <code>assignExperiments()</code> middleware helper, and a way for random matchers to know their entry name.</p>",
+      "title": "Support experiments; move the analytics bootstrap to the templates",
+      "plan": "<p>Analytics scripts are a website feature: the DECO.events bootstrap and a typed <code>useSendEvent</code>/dispatch move to the platform templates. The framework keeps what experiments need: an <code>assignExperiments()</code> middleware helper and a way for random matchers to know their entry name. Variant exposure events for real-user monitoring come after the first release (see {{item:roadmap-later--add-real-user-monitoring}}).</p>",
       "features": [
         "analytics-trackers",
         "ecommerce-analytics-events",
@@ -982,14 +1015,45 @@
     {
       "id": "roadmap-api--add-observability-seams",
       "group": "api",
-      "title": "Add observability seams",
-      "plan": "<p>A <code>createCMS</code> <code>onEvent</code>/<code>instrument</code> hook, <code>instrumentRequest(handler)</code> outside createDecoWorkerEntry, a Node/Next meter bootstrap and a traced <code>&lt;BlockSlot&gt;</code>.</p>",
+      "title": "Report inbound requests and edge cache hits from the bindings",
+      "plan": "<p>Both bindings report inbound request metrics and edge cache hits into the telemetry pipeline, outside <code>createDecoWorkerEntry</code> on TanStack and with a meter bootstrap on Node and Next.js. Apps that run their own tracing get an <code>instrument</code> hook on <code>createCMS</code>.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation"
       ],
-      "docs": [],
+      "docs": [
+        "operations"
+      ],
       "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-the-telemetry-block-sampling-and-aggregation",
+      "group": "api",
+      "title": "Add the Telemetry block, sampling and aggregation",
+      "plan": "<p><code>createCMS({ blocks, content, site, token })</code>: the site ID and site token (usually <code>DECO_SITE</code> and <code>DECO_SITE_TOKEN</code>) load hosted content and send telemetry; without both, nothing is sent. Telemetry settings (on or off, sample rates) live in a well-known saved entry, <code>Telemetry</code>, whose schema the framework provides: a committed <code>.deco/blocks/Telemetry.json</code> that <code>deco content</code> scaffolds and editors change in Studio. It travels with every release and each server picks it up with the once-a-minute content check; without it, the framework's defaults apply. Error logs are sampled; metrics are aggregated in memory before they're sent.</p>",
+      "features": [
+        "otel-observability",
+        "upstream-fetch-instrumentation",
+        "env-vars-and-secrets"
+      ],
+      "docs": [
+        "operations",
+        "standalone",
+        "content"
+      ]
+    },
+    {
+      "id": "roadmap-api--rename-apps-salesforce-to-a-marketing-cloud-personalization-client",
+      "group": "api",
+      "title": "Rename <code>apps-salesforce</code> to a Marketing Cloud Personalization client",
+      "plan": "<p>The package is a client for Salesforce Marketing Cloud Personalization (formerly Evergage), so name it for that, on the same thin-client model as the other apps.</p>",
+      "features": [
+        "commerce-platform-binding",
+        "upstream-fetch-instrumentation"
+      ],
+      "docs": [
+        "clients"
+      ]
     },
     {
       "id": "roadmap-api--add-predictive-search-and-shipping-rates-to-apps-shopify",
@@ -1006,8 +1070,8 @@
     {
       "id": "roadmap-api--generate-the-sitemap-from-a-client",
       "group": "api",
-      "title": "Generate the sitemap from a client",
-      "plan": "<p><code>sitemapEntries(client, { types, expand, exclude })</code>, keeping <code>toSitemapXml</code>/<code>toSitemapIndex</code>, plus a Shopify sitemap merge.</p>",
+      "title": "Put sitemap generation in the platform templates",
+      "plan": "<p>Sitemaps are a website feature, so the templates ship them as site code: <code>sitemapEntries(client, { types, expand, exclude })</code>, <code>toSitemapXml</code>/<code>toSitemapIndex</code>, plus a Shopify sitemap merge.</p>",
       "features": [
         "sitemap"
       ],
@@ -1029,7 +1093,7 @@
       "id": "roadmap-cli--write-a-studio-compatible-schema-file",
       "group": "cli",
       "title": "Write a Studio-compatible schema file",
-      "plan": "<p>Write <code>.deco/meta.gen.json</code> in LiveMeta shape: <code>manifest.blocks</code>, <code>schema.definitions</code> keyed by padded, path-independent btoa, and <code>schema.root</code> unions. Add <code>apps</code> and <code>actions</code> groups. For every <code>VariantOf&lt;T&gt;</code> field, emit a monomorphized multivariate definition per T (value typed as T) under Studio's legacy per-kind keys (<code>website/flags/multivariate/section.ts</code>, <code>…/image.ts</code>, …), so the field variant UI renders the right input.</p>",
+      "plan": "<p>Write <code>.deco/schema.json</code> in Studio's format (<code>deco-meta@1</code>, byte-compatible with today's <code>meta.gen.json</code>, which the protocol still reads as a fallback): <code>manifest.blocks</code>, <code>schema.definitions</code> keyed by padded, path-independent btoa, and <code>schema.root</code> unions. Add <code>apps</code> and <code>actions</code> groups. For every <code>VariantOf&lt;T&gt;</code> field, emit a monomorphized multivariate definition per T (value typed as T) under Studio's legacy per-kind keys (<code>website/flags/multivariate/section.ts</code>, <code>…/image.ts</code>, …), so the field variant UI renders the right input.</p>",
       "features": [
         "studio-schema-generation",
         "codegen-pipeline",
@@ -1046,6 +1110,22 @@
       ],
       "docs": [],
       "pinned": false
+    },
+    {
+      "id": "roadmap-cli--write-static-option-lists-into-the-schema",
+      "group": "cli",
+      "title": "Write static option lists into the schema",
+      "plan": "<p>Studio no longer calls the site for picker options, so <code>deco schema</code> writes every static list into the schema as an <code>enum</code>: string-literal unions, TypeScript enums and <code>@options</code> literal lists, with labels where the code gives them. A picker whose options come from a function falls back to free text in this version.</p>",
+      "features": [
+        "icon-by-name-enums",
+        "editor-widgets-and-image-fields",
+        "studio-schema-generation",
+        "conditional-schema-fields"
+      ],
+      "docs": [
+        "schema",
+        "studio-protocol"
+      ]
     },
     {
       "id": "roadmap-cli--widen-the-legacy-alias-bridge",
@@ -1072,7 +1152,7 @@
       "id": "roadmap-cli--add-validation-commands-to-the-cli",
       "group": "cli",
       "title": "Add validation commands to the CLI",
-      "plan": "<p><code>deco check</code>/<code>validate</code> reporting UNKNOWN_BLOCK, NOT_FOUND, orphans, schema violations and route collisions, with an optional resolve-every-page smoke test.</p>",
+      "plan": "<p>Content-model checks in <code>deco schema</code> reporting UNKNOWN_BLOCK, NOT_FOUND, orphans, schema violations and route collisions, with an optional resolve-every-page smoke test.</p>",
       "features": [
         "orphan-and-dangling-blocks",
         "content-schema-drift",
@@ -1143,6 +1223,23 @@
       "pinned": false
     },
     {
+      "id": "roadmap-cli--vendor-the-loaders-and-actions-a-site-uses-during-migration",
+      "group": "cli",
+      "title": "Vendor the loaders and actions a site uses during migration",
+      "plan": "<p>The companion apps stop shipping loaders and actions, so the migration copies the ones a site actually uses (found from its saved content and imports) into the site's own code, rewritten over the thin clients, with their legacy type names kept as aliases so saved content still resolves.</p>",
+      "features": [
+        "site-local-loaders",
+        "saved-loader-blocks",
+        "commerce-platform-binding",
+        "app-loader-overrides",
+        "inline-loader-props"
+      ],
+      "docs": [
+        "adoption",
+        "clients"
+      ]
+    },
+    {
       "id": "roadmap-cli--build-a-faststore-importer",
       "group": "cli",
       "title": "Build a FastStore importer",
@@ -1198,7 +1295,7 @@
       "id": "roadmap-cli--specify-the-filename-rule-and-ship-a-content-bundle",
       "group": "cli",
       "title": "Specify the filename rule and ship a content bundle",
-      "plan": "<p>One <code>decodeURIComponent</code> per stem, with a collision report. <code>deco content</code> writes <code>.deco/blocks.gen.ts</code>, one import per JSON file, exporting the snapshot <code>{ revision, blocks }</code> with the revision computed the same way the Deco API computes it, and <code>computeRevision</code> is exported.</p>",
+      "plan": "<p>Use the protocol package's one filename rule: a file name is decoded exactly once, and Studio, <code>deco content serve</code> and <code>deco content</code> import the same module, with a collision report. <code>deco content</code> writes <code>.deco/blocks.gen.ts</code>, one import per JSON file, exporting the snapshot <code>{ revision, blocks }</code> with the revision computed the same way the Deco API computes it, and <code>computeRevision</code> is exported.</p>",
       "features": [
         "block-type-discriminator",
         "content-storage-and-delivery",
@@ -1214,36 +1311,42 @@
       "id": "roadmap-cli--emit-a-runtime-alias-table",
       "group": "cli",
       "title": "Emit a runtime alias table",
-      "plan": "<p>The CLI emits an alias table that <code>createCMS</code> accepts, so <code>list()</code> and <code>resolve()</code> work through Content aliases.</p>",
+      "plan": "<p>The CLI emits an alias table, a list of second names for types. <code>createCMS</code> accepts it, so <code>list()</code> and <code>resolve()</code> work through Content aliases. The schema carries it too, mapping the short names (<code>page</code>, <code>redirect</code>, <code>always</code>, <code>never</code>, <code>multivariate</code>, <code>secret</code>) to the well-known types Studio's special screens look for, so those screens keep working for renamed types.</p>",
       "features": [
         "cms-page-routing",
         "codegen-pipeline",
         "studio-schema-generation",
         "key-prefix-content-collections",
-        "redirects"
+        "redirects",
+        "block-type-discriminator"
       ],
-      "docs": [],
+      "docs": [
+        "studio",
+        "adoption"
+      ],
       "pinned": false
     },
     {
-      "id": "roadmap-cli--add-a-local-dev-loop",
+      "id": "roadmap-cli--ship-deco-content-serve-a-local-content-server",
       "group": "cli",
-      "title": "Add a local dev loop",
-      "plan": "<p><code>deco schema --watch</code> and <code>deco content --watch</code> run next to the framework's own dev server; there is no <code>deco dev</code> wrapper. Editing a JSON file hot-reloads through the framework's HMR, and only adding or removing a file needs <code>deco content</code> to regenerate. Still to build: a tunnel and a mounted Studio handler so Studio can edit a local checkout.</p>",
+      "title": "Ship <code>deco content serve</code>, a local content server",
+      "plan": "<p>A command in <code>@decocms/blocks-cli</code> that serves the content protocol on <code>localhost:&lt;port&gt;</code> for the developer's working tree, so Studio can edit a local checkout. It listens only on the loopback address, prints a bearer token and a connect link at start, allows only Studio's origins (CORS) and answers Chrome's local-network permission preflight. Writes land in <code>.deco/blocks</code> and the app hot-reloads; the server regenerates the content module when a write adds or removes a file. It never commits. <code>deco schema --watch</code> and <code>deco content --watch</code> stay as they are.</p>",
       "features": [
         "dev-studio-content-loop",
         "bundler-config",
         "codegen-pipeline",
         "studio-schema-generation"
       ],
-      "docs": [],
-      "pinned": false
+      "docs": [
+        "schema",
+        "studio-protocol"
+      ]
     },
     {
       "id": "roadmap-cli--ship-the-deco-command",
       "group": "cli",
       "title": "Ship the <code>deco</code> command",
-      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its two commands, <code>deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code> and <code>deco content [--root &lt;dir&gt;] [--watch]</code>. By default <code>deco schema</code> looks for the block map at <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>; <code>--entry</code> overrides it. Add the other <code>deco</code> subcommands on this page to it.</p>",
+      "plan": "<p>These docs run <code>npx deco schema</code>, but no package declares a <code>deco</code> bin yet. Ship it from <code>@decocms/blocks-cli</code>, as <a href=\"#quickstart\">Quickstart</a> installs it, with its two commands, <code>deco schema [--entry &lt;path&gt;] [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code> and <code>deco content [--root &lt;dir&gt;] [--watch]</code>, and <code>deco content serve</code>. By default <code>deco schema</code> looks for the block map at <code>blocks.ts</code> or <code>blocks.tsx</code> in the project root or in <code>src/</code>; <code>--entry</code> overrides it. Add the other <code>deco</code> subcommands on this page to it.</p>",
       "features": [
         "codegen-pipeline",
         "studio-schema-generation",
@@ -1254,6 +1357,57 @@
         "schema"
       ],
       "pinned": false
+    },
+    {
+      "id": "roadmap-platform--build-studio-s-github-content-backend",
+      "group": "studio",
+      "title": "Build Studio's GitHub content backend",
+      "plan": "<p>A <code>ContentStorage</code> inside Studio's API that reads and writes <code>.deco/blocks</code> through the GitHub API, for a <code>.deco</code> folder anywhere in the repository (a monorepo subfolder included). Every write is a commit, and all files of one <code>blocks.apply</code> go in one tree and one commit, with file contents inlined in the tree request. Clients poll on window focus and about every 30 seconds with one batched conditional request. Publishing, the draft pointer and <code>?__draft=</code> links stay Studio routes outside the protocol. Drop the requirement for a deployed preview URL, so a project with no deployment can still be edited.</p>",
+      "features": [
+        "admin-protocol-endpoints",
+        "content-storage-and-delivery",
+        "studio-schema-generation",
+        "site-bootstrap",
+        "workspace-packages"
+      ],
+      "docs": [
+        "studio-protocol",
+        "studio"
+      ]
+    },
+    {
+      "id": "roadmap-platform--move-studio-s-editor-onto-the-protocol-client",
+      "group": "studio",
+      "title": "Move Studio's editor onto the protocol client",
+      "plan": "<p>Projects with a committed <code>.deco/schema.json</code> or <code>.deco/meta.gen.json</code> under their folder use the protocol client, so v7 projects that commit <code>meta.gen.json</code> qualify, and a project setting picks the path. Fresh and Deno sites, whose schema exists only at runtime, stay on the legacy path. Features that need the site's code degrade: block previews become name cards or open the real page (the local dev app, or the deployed site with a <code>?__draft=</code> link), dynamic pickers fall back to the schema's options, else free text, secret and password fields are read-only, and Run and installing apps from the store are hidden. Autosave stays last-writer-wins. Add the connect flow for a local <code>deco content serve</code> endpoint, with a one-line explainer before Chrome's local-network prompt.</p>",
+      "features": [
+        "section-catalog",
+        "global-layout-sections",
+        "theming-and-styling",
+        "invoke-and-actions",
+        "env-vars-and-secrets",
+        "app-installation-and-store-config",
+        "dev-studio-content-loop",
+        "icon-by-name-enums",
+        "studio-preview"
+      ],
+      "docs": [
+        "studio-protocol",
+        "studio"
+      ]
+    },
+    {
+      "id": "roadmap-platform--fix-the-add-section-gate",
+      "group": "studio",
+      "title": "Fix the Add Section gate",
+      "plan": "<p>Studio shows Add Section only when a preview server is configured. Gate it on having the schema and the blocks instead; otherwise adding blocks to a page disappears on protocol projects.</p>",
+      "features": [
+        "section-catalog",
+        "per-page-section-whitelists"
+      ],
+      "docs": [
+        "studio-protocol"
+      ]
     },
     {
       "id": "roadmap-platform--read-manifest-groups-for-pages-redirects-content-and-apps",
@@ -1296,7 +1450,7 @@
       "id": "roadmap-platform--build-the-deco-api-release-service",
       "group": "studio",
       "title": "Build the Deco API release service",
-      "plan": "<p>A release endpoint and site tokens (with a DECO_SITE_TOKEN lifecycle), rejection of ambiguous-route releases, and per-environment channels. The service serves every commit as it lands and doesn't compare schemas; compatibility is checked in CI by <code>deco schema --check</code>.</p>",
+      "plan": "<p>A release endpoint, site IDs and site tokens (with a DECO_SITE and DECO_SITE_TOKEN lifecycle), rejection of ambiguous-route releases, and per-environment channels. The service serves every commit as it lands and doesn't compare schemas; compatibility is checked in CI by <code>deco schema --check</code>.</p>",
       "features": [
         "content-storage-and-delivery",
         "cms-page-routing",
@@ -1313,7 +1467,7 @@
       "id": "roadmap-platform--align-the-preview-protocol",
       "group": "studio",
       "title": "Align the preview protocol",
-      "plan": "<p>Send an empty <code>__draft=</code> (or keep 'off' as a documented contract) and force variants in the draft content. Keep gallery, global and in-place previews on <code>/live/previews</code>, which createStudioHandler serves, and include the draft grant in in-place renders, as the handler requires.</p>",
+      "plan": "<p>Send an empty <code>__draft=</code> (or keep 'off' as a documented contract) and force variants in the draft content. On protocol projects the canvas opens the real page with the draft pointer, and gallery thumbnails and in-place renders are replaced by name cards, since the protocol never runs site code.</p>",
       "features": [
         "studio-preview",
         "device-detection-and-targeting",
@@ -1388,10 +1542,24 @@
       "pinned": false
     },
     {
+      "id": "roadmap-platform--build-the-telemetry-collector",
+      "group": "studio",
+      "title": "Build the telemetry collector",
+      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token. Deco switches a site's telemetry off remotely by committing a change to the site's <code>.deco/blocks/Telemetry.json</code>, which reaches its servers as a normal release.</p>",
+      "features": [
+        "otel-observability",
+        "upstream-fetch-instrumentation",
+        "analytics-trackers"
+      ],
+      "docs": [
+        "operations"
+      ]
+    },
+    {
       "id": "roadmap-platform--update-the-injected-agent-rules",
       "group": "studio",
       "title": "Update the injected agent rules",
-      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. Two files are generated and never edited by hand: <code>.deco/schema.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within about a minute, not on save, and with DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
+      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. Two files are generated and never edited by hand: <code>.deco/schema.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within about a minute, not on save, and with DECO_SITE and DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
       "features": [
         "ai-agent-instructions"
       ],
@@ -1432,7 +1600,7 @@
       "id": "roadmap-docs--correct-studio-compatibility",
       "group": "docs",
       "title": "Correct Studio compatibility",
-      "plan": "<p><a href=\"#studio\">Studio compatibility</a> now lists <code>/live/_meta</code>, <code>/live/previews</code>, <code>/deco/invoke</code> and <code>/live/invoke</code>. Add <code>/.decofile</code> and the secrets encrypt action, say how the new API mounts these endpoints, and state that sites allow framing through frame-ancestors, never X-Frame-Options, as the entry wrappers do.</p>",
+      "plan": "<p><a href=\"#studio\">Studio compatibility</a> now describes the content protocol, with the old site endpoints (<code>/live/_meta</code>, <code>/.decofile</code>, <code>/live/previews</code>, <code>/deco/invoke</code>, <code>/live/invoke</code>) as the legacy path. Keep it in step with the protocol as Studio's implementation lands, and state that sites allow framing through frame-ancestors, never X-Frame-Options, as the entry wrappers do.</p>",
       "features": [
         "admin-protocol-endpoints",
         "invoke-and-actions",
@@ -1545,8 +1713,8 @@
     {
       "id": "roadmap-docs--write-an-operations-page",
       "group": "docs",
-      "title": "Write an operations page",
-      "plan": "<p>Five deliverables: (1) the DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without a token; (2) a per-host table of how the SDK schedules its once-a-minute check on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the observability chokepoint rule (<code>createInstrumentedFetch</code> + <code>createFetchCache</code>) and the DECO_OTEL_* contract; (5) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
+      "title": "Finish the operations page",
+      "plan": "<p><a href=\"#operations\">Caching and telemetry</a> now covers telemetry. Still to add: (1) the DECO_SITE and DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without them; (2) a per-host table of how the SDK schedules its once-a-minute check on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
       "features": [
         "env-vars-and-secrets",
         "hosting-and-deploy-config",
@@ -1594,6 +1762,59 @@
         "schema"
       ],
       "pinned": false
+    },
+    {
+      "id": "roadmap-later--add-real-user-monitoring",
+      "group": "later",
+      "title": "Add real-user monitoring",
+      "plan": "<p>Real-user monitoring (RUM): what visitors experience in the browser, as a customer-facing alternative to Google Analytics, linked to A/B testing through variant exposure events. It's planned as a follow-up after the first release, not a release blocker, and it's being worked on. Its API isn't designed yet.</p>",
+      "features": [
+        "analytics-trackers",
+        "ab-traffic-split",
+        "ecommerce-analytics-events"
+      ],
+      "docs": [
+        "operations",
+        "variants"
+      ]
+    },
+    {
+      "id": "roadmap-later--detect-conflicting-edits-in-studio",
+      "group": "later",
+      "title": "Detect conflicting edits in Studio",
+      "plan": "<p>Studio's autosave is last-writer-wins in the first version of the protocol. Send each save with <code>ifMatch</code>, the version the form opened with, and show 'changed elsewhere: reload or overwrite' when it conflicts.</p>",
+      "features": [
+        "dev-studio-content-loop",
+        "content-storage-and-delivery"
+      ],
+      "docs": [
+        "studio"
+      ]
+    },
+    {
+      "id": "roadmap-later--serve-the-content-protocol-from-the-dev-server",
+      "group": "later",
+      "title": "Serve the content protocol from the dev server",
+      "plan": "<p>Let <code>@decocms/tanstack/vite</code> mount the content protocol's handler in the app's own dev server, so editing a local checkout from Studio needs one process instead of two. <code>deco content serve</code> stays for other setups.</p>",
+      "features": [
+        "dev-studio-content-loop",
+        "bundler-config"
+      ],
+      "docs": [
+        "studio-protocol"
+      ]
+    },
+    {
+      "id": "roadmap-later--add-long-polling-for-faster-local-updates",
+      "group": "later",
+      "title": "Add long polling for faster local updates",
+      "plan": "<p>An optional wait on the protocol's conditional reads, announced in <code>describe</code>, so a hand edit in the working tree shows in Studio in a fraction of a second instead of on the next 2-second poll. One tab per endpoint would hold the request, so autosaves never queue behind it.</p>",
+      "features": [
+        "dev-studio-content-loop"
+      ],
+      "docs": [
+        "studio"
+      ]
     }
   ],
   "sites": [
@@ -1905,7 +2126,7 @@
           "id": "roadmap-faststore--rename-componentkey-values-to-path-shaped-keys-and-avoid-type-name-collisions",
           "kind": "fix",
           "title": "Rename <code>$componentKey</code> values to path-shaped keys and avoid type-name collisions",
-          "text": "There's no legacy Deco content, so no legacy-type aliases. The importer must still rename <code>$componentKey</code> values (Navbar, Footer, Alert…) to path-shaped keys until Studio does manifest lookups, and avoid entry names that collide with type names. The Studio handler and schema fixes ({{item:roadmap-api--ship-the-studio-protocol-handler}}, {{item:roadmap-cli--write-a-studio-compatible-schema-file}}) gate editing.",
+          "text": "There's no legacy Deco content, so no legacy-type aliases. The importer must still rename <code>$componentKey</code> values (Navbar, Footer, Alert…) to path-shaped keys until Studio does manifest lookups, and avoid entry names that collide with type names. The content protocol and schema fixes ({{item:roadmap-api--publish-the-content-protocol-and-its-package}}, {{item:roadmap-cli--write-a-studio-compatible-schema-file}}) gate editing.",
           "features": [
             "studio-schema-generation",
             "studio-preview",
@@ -2870,13 +3091,15 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "There's no invoke endpoint, and [Studio compatibility](#studio) is wrong: Studio calls `/deco/invoke` for @options fields, Run and the product picker, and `/live/invoke` to encrypt secrets.",
+      "summary": "There's no invoke endpoint, and the plan drops it: Studio calls `/deco/invoke` for @options fields, Run and the product picker, and `/live/invoke` to encrypt secrets. On protocol projects pickers fall back to schema options and Run is hidden.",
       "docs": [
         "studio",
         "internals",
         "operations",
         "standalone",
-        "tanstack-data"
+        "tanstack-data",
+        "clients",
+        "studio-protocol"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3516,7 +3739,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Cross-request caching is 'your policy', and the SWR and dedup utilities apps and telemetry depend on aren't on the documented surface. Draft caches are unbounded, input-keyed caches miss request state, and Studio's bypass flag is ignored.",
+      "summary": "Cross-request caching is 'your policy', and upstream caching moves to the framework bindings and isn't designed yet. Draft caches are unbounded, input-keyed caches miss request state, and Studio's bypass flag is ignored.",
       "docs": [
         "operations",
         "standalone",
@@ -3561,13 +3784,14 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "Nothing serves the endpoints Studio calls (`/live/_meta`, `/.decofile`, `/live/previews`, `/deco/invoke`), and Studio's code contradicts [Studio compatibility](#studio). Invoke is needed in production too, for the blog's product picker.",
+      "summary": "Nothing serves the endpoints Studio calls on a site today (`/live/_meta`, `/.decofile`, `/live/previews`, `/deco/invoke`). The plan replaces them with the content protocol, which needs only the committed schema and files, so features that run site code degrade. Today the blog's product picker also calls invoke in production; on protocol projects it falls back to free-text product IDs.",
       "docs": [
         "studio",
         "internals",
         "schema",
         "manifest",
-        "operations"
+        "operations",
+        "studio-protocol"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3668,14 +3892,15 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "With a token in dev, `remoteLoader` swaps in the production release over local edits, so Studio sandbox saves vanish from the dev preview. Nothing regenerates the schema or serves the Local-mode endpoints.",
+      "summary": "With a site and token in dev, `remoteLoader` swaps in the production release over local edits, so Studio sandbox saves vanish from the dev preview. Nothing regenerates the schema or serves the Local-mode endpoints.",
       "docs": [
         "standalone",
         "tanstack-data",
         "preview",
         "schema",
         "loader-internals",
-        "quickstart"
+        "quickstart",
+        "studio-protocol"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -4087,7 +4312,8 @@
         "content-types",
         "manifest",
         "schema",
-        "internals"
+        "internals",
+        "clients"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -4368,7 +4594,8 @@
         "operations",
         "manifest",
         "rendering",
-        "internals"
+        "internals",
+        "clients"
       ],
       "confidence": "high",
       "first_rated": null,

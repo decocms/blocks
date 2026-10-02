@@ -62,7 +62,7 @@ export interface StudioItemData {
 }
 export interface WorkItemData {
   id: string
-  group: 'api' | 'cli' | 'studio' | 'docs'
+  group: 'api' | 'cli' | 'studio' | 'docs' | 'later'
   title: string
   plan: string
   features: string[]
@@ -105,8 +105,8 @@ export interface RoadmapData {
 }
 
 // ------------------------------------------------------------------------------ constants
-/** Work-item groups -> their sections. */
-export const GROUP_SEC = { api: 'roadmap-api', cli: 'roadmap-cli', studio: 'roadmap-platform', docs: 'roadmap-docs' } as const
+/** Work-item groups -> their sections. `later` holds follow-ups planned after the first release (not release work). */
+export const GROUP_SEC = { api: 'roadmap-api', cli: 'roadmap-cli', studio: 'roadmap-platform', docs: 'roadmap-docs', later: 'roadmap-later' } as const
 export type WorkGroup = keyof typeof GROUP_SEC
 /** Status id -> its one-letter code (data-v="…"; SectionViews.tsx maps it to the --gx-* colours). */
 export const VC: Record<string, string> = { 'to-build': 'g', 'to-finish': 'p', 'site-code': 'a', done: 'c', 'goes-away': 'n' }
@@ -400,7 +400,7 @@ export function createRoadmap(input: RoadmapData, opts: RoadmapOptions) {
   const BACK = new Map<string, BackLink[]>()
   const addBack = (fid: string, b: BackLink) => BACK.set(fid, [...(BACK.get(fid) ?? []), b])
   TOP.forEach((b, i) => b.features.forEach((f) => addBack(f, { id: b.id, n: i + 1, title: b.title })))
-  for (const key of ['api', 'cli', 'studio', 'docs'] as const) for (const c of WORK_BY_GROUP[key]) c.features.forEach((f) => addBack(f, { id: c.id, title: c.title }))
+  for (const key of ['api', 'cli', 'studio', 'docs', 'later'] as const) for (const c of WORK_BY_GROUP[key]) c.features.forEach((f) => addBack(f, { id: c.id, title: c.title }))
 
   /** Features in a category, in the readiness order: status rank, effort, name. */
   const VRANK = Object.fromEntries(VERDICTS.map((v, i) => [v, i]))

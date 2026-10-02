@@ -23,10 +23,10 @@ export function FinalCta() {
           The quickstart runs in plain Node, no framework. Or read the{' '}
           <MdxLink className={noteLink} href="/next/standalone">
             API reference
-          </MdxLink>{' '}
-          ·{' '}
+          </MdxLink>
+          , or{' '}
           <MdxLink className={noteLink} href="/next/internals">
-            Under the hood
+            what's under the hood
           </MdxLink>
           .
         </p>
@@ -35,7 +35,14 @@ export function FinalCta() {
   )
 }
 
-const COLUMNS: { title: string; links: [string, string][] }[] = [
+export interface FooterColumn {
+  title: string
+  /** [href, label] */
+  links: [string, string][]
+}
+
+/** The next major's footer columns (its home is /next/). The current release's are in v7/columns.ts. */
+export const NEXT_COLUMNS: FooterColumn[] = [
   {
     title: 'Docs',
     links: [
@@ -72,20 +79,23 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
     links: [
       ['https://github.com/decocms/blocks', 'GitHub'],
       ['/next/internals#contributing', 'Contributing'],
-      ['/next/adoption', 'Renaming & migrating'],
+      ['/next/adoption', 'Renames & migrations'],
       ['/roadmap', 'Roadmap'],
     ],
   },
 ]
 
-/** The landing's site footer. `site-footer` is the hook Menu.tsx uses to make it inert under the open drawer. */
-export function SiteFooter() {
+/**
+ * The landing's site footer, with the columns of the home's version. `site-footer` is the hook
+ * Menu.tsx uses to make it inert under the open drawer.
+ */
+export function SiteFooter({ columns }: { columns: FooterColumn[] }) {
   return (
     <footer className="site-footer p-2 bg-footer-bg max-sm:p-1.5 [&_:where(:focus-visible)]:outline-lime">
       <div className="relative overflow-hidden pt-32 rounded-2xl bg-footer-panel text-[#E7E5E4] max-sm:pt-16">
         <div className={container}>
           <div className="grid grid-cols-4 gap-10 max-md:grid-cols-2 max-md:gap-x-6 max-md:gap-y-9">
-            {COLUMNS.map((col) => (
+            {columns.map((col) => (
               <nav aria-label={col.title} key={col.title}>
                 <p className="mb-2 text-18 leading-[1.625] font-medium text-lime">{col.title}</p>
                 {col.links.map(([href, label]) => (

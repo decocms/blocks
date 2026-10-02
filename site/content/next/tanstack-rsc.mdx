@@ -2,16 +2,16 @@
 title: TanStack Start with React Server Components
 nav: TanStack Start · RSC
 group: Framework guides
-order: 15
+order: 16
 ---
 
 # TanStack Start with React Server Components
 
 <Callout type="warning">**Experimental.** TanStack Start's RSC support is experimental and needs the extra Vite plugin configured in step 4.</Callout>
 
-This guide reuses the [data guide](/next/tanstack-data)'s content, CMS and `openPage`, but the `product` block returns JSX instead of a descriptor. The server renders it as React Server Components and streams the result in React's wire format (Flight). Because the browser receives rendered output, it needs no view registry, and view code used only on the server never ships.
+This guide reuses the [data guide](/next/tanstack-data)'s content, CMS and `openPage`, but the blocks return JSX instead of descriptors. The server renders them as React Server Components and streams the result in React's wire format (Flight). Because the browser receives rendered output, it needs no view registry, and view code used only on the server never ships.
 
-## 1. Swap the product block
+## 1. Swap the block map
 
 Replace `src/blocks.ts` with the [Next.js guide](/next/nextjs)'s `src/blocks.tsx`. Keep `src/cms.ts`, `src/open-page.server.ts` and `src/start.ts` (the preview cookie) from the data guide as they are. `deco schema` finds `src/blocks.tsx` on its own, so the scripts don't change.
 

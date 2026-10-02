@@ -382,6 +382,8 @@ export function overview(rm: Roadmap): SectionView {
   const [ledeHtml, ...restHtml] = rm.introParagraphs
   const shorts = rm.REPOS.map((r) => <b key={r}>{rm.SHORT[r]}</b>)
   const nStudio = rm.STUDIO_NEW.length + rm.STUDIO_LEGACY.length
+  const nLater = rm.WORK_BY_GROUP.later.length
+  const nRelease = rm.CHANGES.length - nLater
   const head = (id: string, text: string): RailItem => ({ id, html: esc(text), depth: 2 })
   const article = (
     <Article rm={rm} id="roadmap" lede={<Html as="p" html={ledeHtml} />}>
@@ -474,8 +476,11 @@ export function overview(rm: Roadmap): SectionView {
           <a href={rm.hrefOf('roadmap-studio-new')}>Studio support</a>: what has to work for editors, on a next-major site and with legacy content ({nStudio} items).
         </li>
         <li>
-          <a href={rm.hrefOf('roadmap-api')}>Work items</a>: {rm.CHANGES.length} changes, deduplicated from the {n} per-feature proposals, in four groups: the API, the CLI, Studio and the Deco
+          <a href={rm.hrefOf('roadmap-api')}>Work items</a>: {nRelease} changes, deduplicated from the {n} per-feature proposals, in four groups: the API, the CLI, Studio and the Deco
           API, and these docs.
+        </li>
+        <li>
+          <a href={rm.hrefOf('roadmap-later')}>After the first release</a>: {nLater} follow-up{nLater === 1 ? '' : 's'} planned once the first release ships. They don't block it.
         </li>
         <li>
           <a href={rm.hrefOf('roadmap-storefront')}>Site migrations</a>: each site's plan as a checklist, in execution order ({rm.nSteps} steps).
@@ -605,6 +610,11 @@ export function changes(rm: Roadmap, key: WorkGroup): SectionView {
     docs: (
       <>
         {items.length} changes to the guides, recipes and reference. Two of them correct statements that are wrong today; they come first, and the rest are sorted by how many features need them.
+      </>
+    ),
+    later: (
+      <>
+        {items.length} follow-up{items.length === 1 ? '' : 's'} planned after the first release. None of them blocks the release, and their APIs aren't designed yet. {sort}
       </>
     ),
   }[key]
@@ -926,6 +936,8 @@ export function sectionView(rm: Roadmap, id: SectionId, filter?: FeatureFilter, 
       return changes(rm, 'studio')
     case 'roadmap-docs':
       return changes(rm, 'docs')
+    case 'roadmap-later':
+      return changes(rm, 'later')
     case 'roadmap-features':
       return features(rm, filter, setFilter)
     default: {

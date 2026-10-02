@@ -2,7 +2,7 @@
 title: Releases and deployment
 nav: Releases & deployment
 group: Production
-order: 16
+order: 17
 ---
 
 # Releases and deployment
@@ -11,17 +11,17 @@ Your code ships when you deploy. Your content can ship the same way, or on its o
 
 | Content from | How a content change reaches visitors |
 |---|---|
-| The content module | The content ships with the app: `.deco/blocks.gen.ts`, which `deco content` generates from your files, is bundled like any other import. On its own, changing content means a deploy (in development, editing a file hot-reloads). With a token, it's the fallback: what a server serves until it has fetched its first release. |
-| `content` plus `token` (`remoteLoader`) | The Deco API serves each commit of the production branch as a release that never changes. The loader keeps the current one in memory, with the content the build shipped with as the fallback. A content change reaches visitors without a deploy. |
+| The content module | The content ships with the app: `.deco/blocks.gen.ts`, which `deco content` generates from your files, is bundled like any other import. On its own, changing content means a deploy (in development, editing a file hot-reloads). With a site and token, it's the fallback: what a server serves until it has fetched its first release. |
+| `content` plus `site` and `token` (`remoteLoader`) | The Deco API serves each commit of the production branch as a release that never changes. The loader keeps the current one in memory, with the content the build shipped with as the fallback. A content change reaches visitors without a deploy. |
 | A `Loader` you write | Whatever your store does. Content reaches visitors when the loader returns a new revision; if it can go stale, implement `update()`, which the CMS calls once a minute at an idle moment (see [Write your own loader](/next/content#write-your-own-loader)). |
 
 A revision never changes once it exists: change any entry and you get a new revision. That makes a revision a safe cache key everywhere.
 
 ## Publishing
 
-With the hosted Deco CMS, publishing is committing. A developer or an agent edits the entry files in your content directory (`.deco/blocks`, or the folder you give the CLI's `--root`) and pushes; an editor saves in Studio, which commits to the same repository. (If you load from your own store, see [Content and loaders](/next/content).) Either way, the production branch (the branch the hosted Deco CMS publishes from, usually `main`) moves.
+With the hosted Deco CMS, publishing is committing. A developer or an agent edits the entry files in your content directory (`.deco/blocks`, inside the `.deco` folder you give the CLI's `--root`) and pushes; an editor saves in Studio, which commits to the same repository. (If you load from your own store, see [Content and loaders](/next/content).) Either way, the production branch (the branch the hosted Deco CMS publishes from, usually `main`) moves.
 
-Publishing takes seconds: the Deco API serves that commit as the current release as soon as it lands. Each server checks for a new release about once a minute, at an idle moment, so a publish is live everywhere within about a minute. Calling `cms.update()`, for example from a webhook, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check (see [Loaders](/next/standalone#loaders)). Requests never wait on this: `load()` always returns from memory, and the check runs in the background. Step by step: [under the hood](/next/loader-internals).
+The Deco API serves a commit as the current release within seconds of it landing. Each server checks for a new release about once a minute, at an idle moment, so a publish reaches every visitor within about a minute. Calling `cms.update()`, for example from a webhook, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check (see [Loaders](/next/standalone#loaders)). Requests never wait on this: `load()` always returns from memory, and the check runs in the background. Step by step: [under the hood](/next/loader-internals).
 
 Because content and code share one history, a deploy and a content change are the same kind of event: a commit. Rolling content back is reverting one.
 
@@ -41,4 +41,4 @@ A revision only selects content; it isn't a secret and unlocks nothing. Unpublis
 
 ## Deploying on Workers
 
-Workers need nothing special, except on sites with several megabytes of content (see “Large content on Workers” under [Create the CMS](/next/tanstack-data#2-create-the-cms)). The content module is bundled like any other import, and because Workers run no timers between requests, the SDK runs a due release check after the response inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent). You don't call `cms.update()`. The [deploying checklist](/next/tanstack-data#deploying-checklist) in the TanStack Start guide lists every step.
+Workers need nothing special, except on sites with several megabytes of content (see “Large content on Workers” under [Create the CMS](/next/tanstack-data#2-create-the-cms)). The content module is bundled like any other import, and because Workers run no timers between requests, the SDK runs a due release check after the response inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent). You don't call `cms.update()`. The [deployment checklist](/next/tanstack-data#deployment-checklist) in the TanStack Start guide lists every step.

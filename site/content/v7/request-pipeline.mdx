@@ -1,0 +1,86 @@
+---
+title: The Worker request pipeline
+nav: Worker pipeline
+group: Under the hood
+kind: internals
+order: 3
+description: Everything createDecoWorkerEntry does with a request on TanStack Start, in order, from opening the request scope to the edge cache and the response headers.
+---
+
+# The Worker request pipeline
+
+On TanStack Start, every request reaches your site through `createDecoWorkerEntry` before TanStack sees it (see [TanStack Start on Cloudflare Workers](/v7/tanstack#the-worker-entry)). This page lists what it does, in order. It's useful when a request behaves unexpectedly: a page served from cache when you expected a fresh one, an admin route answered by your app, a redirect that doesn't fire.
+
+The pipeline has three parts: preparing the request, routing it (most branches answer and stop), and finishing the response. TanStack Start renders a page only when a request reaches the last branches of the routing part.
+
+## 1. Preparing the request
+
+These steps run for every request:
+
+1. **Location cookies.** With `autoInjectGeoCookies` (the default), Cloudflare's geolocation for the visitor is copied into request cookies that matchers read. They exist only inside the Worker and are never sent to the browser.
+2. **Request scope.** Everything after this runs inside a [request context](/v7/request-context) for this request, so loaders and helpers anywhere can read it.
+3. **Content.** With [Fast Deploy](/v7/releases#fast-deploy) on, the first request in a Worker instance loads the current decofile from KV, and the instance checks for a newer revision at most every 10 seconds. Without it, the content bundled with the build is used.
+4. **Apps.** Installed [apps](/v7/apps) are configured from their blocks the first time, and again after the content changes.
+5. **Tracing.** The request gets an id (the incoming `x-request-id`, or a new one) and joins the caller's trace when a `traceparent` header is present. `?__d` forces this request's trace to be recorded.
+6. **Draft preview.** If the request carries a valid draft link or cookie for an allowed host, the draft's content is used for this request only. See [Draft preview](/v7/preview#draft-preview).
+7. **Security nonce.** With `cspMode: "enforce"`, a per-request nonce is generated for inline scripts.
+8. **App middleware.** Apps that ship middleware (VTEX, for example) wrap the routing step, so they can read and set cookies around everything that follows.
+
+## 2. Routing
+
+The Worker tries each branch in this order. The first one that answers ends the routing.
+
+1. **Admin protocol.** `/live/_meta`, `/.decofile`, `/live/previews/*` and the liveness check go to the `admin` handlers you passed in. They're never cached. See [Deco Studio and the admin protocol](/v7/studio).
+2. **Purging.** `POST /_cache/purge` and `POST /_cache/purge-loaders`, with the purge token. See [Caching](/v7/caching#purging).
+3. **CMS redirects.** Redirect blocks from the content, and with Fast Deploy also the redirects stored in KV. Exact paths are checked before patterns, across both sources. A match answers with its status (301 or 302) and `Location`. See [Pages and routing](/v7/routing).
+4. **Page JSON.** `?renderJson` and `?asJson` on a page URL return the resolved page as JSON instead of HTML, unless turned off. See [Storefront as an API](/v7/storefront-api).
+5. **Your proxy.** `proxyHandler`, if set, gets a chance to answer, typically by forwarding checkout and account paths to the commerce platform.
+6. **Static assets.** Fingerprinted build assets are served with a one-year immutable cache. An asset path that comes back as HTML (a missing file falling through to the app) becomes a 404.
+7. **Server functions.** `POST` requests to TanStack's server-function endpoints carry page data and deferred sections. They're cached at the edge with the `listing` profile, keyed on a hash of the request body plus the dimensions listed below, and only when the response marks itself cacheable and sets no cookie. Draft, logged-in and matcher-override requests bypass the cache.
+8. **Requests that aren't cacheable.** Anything other than `GET`, the bypass paths (`/deco/`, `/live/`, `/.decofile`, `/_build` and your own), draft and preview requests, and requests that force matcher results go straight to TanStack. If the URL's [cache profile](/v7/caching#cache-profiles) is `private`, `none` or `cart`, the response is marked `no-store`.
+9. **Cacheable pages.** Everything else is a cacheable `GET`, handled by the edge cache in the next section.
+
+## 3. The edge cache
+
+For a cacheable request, the Worker builds a cache key, then looks it up in Cloudflare's Cache API:
+
+- **Logged-in visitors** (`loggedIn: true` from `buildSegment`) skip the cache entirely and always get a fresh render.
+- **Fresh hit** (`X-Cache: HIT`): the stored response is returned.
+- **Stale hit** (`X-Cache: STALE-HIT`): within the profile's stale-while-revalidate window, the stored response is returned at once and a fresh one is rendered in the background to replace it.
+- **Miss** (`X-Cache: MISS`): TanStack renders the page. The result is stored only if it's a `200`, isn't degraded, sets no cookies other than the safe ones (which are removed from the stored copy), its profile is public, and the request carried no tracking parameters.
+- **Origin failure.** If rendering throws, returns a 5xx or a 429, or produces a degraded page, and a stored copy is still within the profile's stale-if-error window, that copy is served (`X-Cache: STALE-ERROR`). Otherwise the response passes through uncached.
+
+The cache is skipped in local development. [Caching](/v7/caching#reading-the-cache-headers) explains every `X-Cache` and `X-Cache-Reason` value.
+
+### What the cache key includes
+
+Two requests share a cached response only if all of these are the same:
+
+| Dimension | Notes |
+|---|---|
+| The URL | Path and query string, with tracking parameters (`utm_*`, `gclid` and the like) removed. |
+| The deploy | Each build gets its own cache namespace, from `BUILD_HASH` or the hash the Vite plugin injects. A deploy never serves the previous build's pages. |
+| The segment | What `buildSegment` returns (device, sales channel, region, flags and custom keys). Without `buildSegment`, the device class, unless `deviceSpecificKeys` is `false`. |
+| Location | Added when `geoCacheKey` asks for it, or in `"auto"` mode when the content uses the location matcher. |
+| Crawler or human | Crawlers get every section server-rendered, so they have their own entries. |
+| Programmatic fetch | Requests with `Sec-Fetch-Dest: empty` (a script fetching the page) also get everything server-rendered, and their own entries. |
+| A/B cohort | The visitor's assigned variants from random-split tests. |
+
+Cookies, other headers and the logged-in visitor's identity are never part of the key, which is why logged-in visitors bypass the cache and why responses that set private cookies aren't stored.
+
+## 4. Finishing the response
+
+Whatever branch answered, the response then gets:
+
+1. **Cookie cleanup.** Duplicate `Set-Cookie` headers for the same cookie are reduced to the last one.
+2. **CDN instructions.** A `CDN-Cache-Control` header for Cloudflare's CDN in front of the Worker. Bypassed responses, and any without one, get `no-store`. See [Caching](/v7/caching#the-cdn-in-front-of-the-worker).
+3. **Security headers** on HTML responses, from `securityHeaders` and `csp`, including the `frame-ancestors` policy that lets Studio frame the site.
+4. **Identification:** `x-request-id`, `x-trace-id` when the request was traced, and `x-powered-by`.
+5. **Draft cookies.** Setting or clearing the draft-preview cookie, and the headers that keep draft responses out of caches and search indexes.
+6. **Telemetry.** A request metric with the method, status, duration and cache decision. With `DECO_OTEL_*` endpoints configured, traces, metrics and logs are exported; see [Observability](/v7/observability).
+
+## Next steps
+
+- [TanStack Start on Cloudflare Workers](/v7/tanstack): every option of `createDecoWorkerEntry`.
+- [Caching](/v7/caching): profiles, segments and purging in depth.
+- [How resolution works](/v7/walkthrough): what happens when TanStack renders a page.

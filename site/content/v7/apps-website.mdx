@@ -1,0 +1,164 @@
+---
+title: Website app
+nav: Website
+group: Apps
+order: 27
+description: "The generic, non-commerce half of a site: SEO sections, analytics tags, theme and fonts, video, and the secret and environment loaders."
+---
+
+# Website app
+
+`@decocms/apps-website` holds the pieces every site needs whatever it sells: the SEO section editors place on pages, the Google Tag Manager and GA4 tags, a theme and font loader, a video component, and the small loaders Studio uses for secrets and environment values. It's an [app](/v7/apps) like the commerce ones, configured from a website block in the decofile.
+
+```bash
+bun add @decocms/apps-website
+```
+
+## What lives here, and what doesn't
+
+Many content types carry a `website/...` name, but not all of them come from this package. Pages, matchers, flags, redirects, and the `Lazy`/`Deferred` rendering wrappers are built into `@decocms/blocks` itself, so they work without installing anything:
+
+| `__resolveType` | Provided by |
+|---|---|
+| `website/pages/Page.tsx` | `@decocms/blocks` (see [Pages and routing](/v7/routing)) |
+| `website/matchers/*`, `website/flags/multivariate*` | `@decocms/blocks` (see [Matchers and variants](/v7/variants)) |
+| `website/loaders/redirect.ts`, `redirects.ts`, `redirectsFromCsv.ts` | `@decocms/blocks` (see [Pages and routing](/v7/routing)) |
+| `website/sections/Rendering/Lazy.tsx`, `Deferred.tsx` | `@decocms/blocks` (see [Deferred sections](/v7/rendering)) |
+| `website/sections/Seo/SeoV2.tsx`, `Seo.tsx` | This package, but page SEO is read by the binding (see [SEO sections](#seo-sections)) |
+| `website/sections/Analytics/Analytics.tsx` | This package (render the component; see [Analytics](#analytics)) |
+| `website/loaders/secret.ts`, `secretString.ts`, `environment.ts` | This package |
+| `website/loaders/fonts/googleFonts.ts`, `fonts/local.ts` | This package |
+
+## Configuring
+
+The app's `configure` reads one thing from its block: `seo`, the site-wide SEO defaults. It stores them so the SEO section can fall back to them, and returns the app's loaders and sections. It never returns `null`, so the app installs even with an empty block.
+
+Unlike the commerce apps, this package has no `./registry` entry. Write one yourself, using the key your decofile gives the website block:
+
+```ts title="src/setup/apps.ts"
+import type { AppRegistryEntry } from "@decocms/blocks-admin/apps";
+import * as websiteMod from "@decocms/apps-website/mod";
+
+export const WEBSITE_ENTRY: AppRegistryEntry = {
+  blockKey: "<your website block key>",
+  module: async () => websiteMod,
+};
+```
+
+Add it to the array you pass to `autoconfigApps` (see [Apps](/v7/apps#installing-apps-with-autoconfig)). Without it, `website/loaders/*` blocks in your content have nothing to resolve to, and sections that use them render without that data.
+
+If you don't use autoconfig, set the SEO defaults directly with `configureWebsite`, from the package root:
+
+```ts title="src/setup.ts"
+import { configureWebsite } from "@decocms/apps-website";
+
+configureWebsite({
+  seo: {
+    title: "My Store",
+    titleTemplate: "%s | My Store",
+    description: "Everything for your home.",
+    type: "website",
+  },
+});
+```
+
+`getWebsiteConfig()` reads the defaults back; it throws if neither `configure` nor `configureWebsite` has run.
+
+The site SEO block fields (`SeoConfig`, from `@decocms/apps-website/types`):
+
+| Field | Default | What it does |
+|---|---|---|
+| `title` | — | Fallback page title. |
+| `titleTemplate` | `%s` | A template where `%s` is replaced by the page title. |
+| `description` | — | Fallback description. |
+| `descriptionTemplate` | `%s` | Same, for the description. |
+| `type` | `website` | Open Graph type: `website` or `article`. |
+| `image` | — | Social sharing image; 1200×630 is recommended. |
+| `favicon` | — | A 16×16 icon. |
+| `themeColor` | — | The browser's theme color. |
+| `noIndexing` | — | Ask search engines not to index the site. |
+
+## SEO sections
+
+Editors set a page's SEO by putting a `SeoV2` block (`website/sections/Seo/SeoV2.tsx`) in the page's SEO field. The framework treats that field specially: the binding resolves it eagerly and writes the page's `<head>` itself, so you don't render anything for it. The same SEO types placed in a page's list of sections are skipped and render nothing. [SEO](/v7/seo) covers that path.
+
+This package holds the section module behind those blocks. Its `loader` merges the page's own values over the site defaults and applies the templates: the page title, or else the site title, inserted into `titleTemplate`. `Seo` (v1) is deprecated in favour of `SeoV2`.
+
+The section renders the `Seo` component, which you can also use directly, for example in your own section. It emits the `<title>`, description, canonical link, robots, Open Graph and Twitter tags, and JSON-LD scripts, and relies on React 19 moving them into `<head>`. This section reads the product page its loader provides and passes the page's `seo` fields (`title`, `description`, `canonical`, `noIndexing`) to `Seo`:
+
+```tsx title="src/sections/Product/ProductSeo.tsx"
+import Seo from "@decocms/apps-website/components/Seo";
+import type { ProductDetailsPage } from "@decocms/apps-commerce/types";
+
+export interface Props {
+  page: ProductDetailsPage | null;
+}
+
+export default function ProductSeo({ page }: Props) {
+  return <Seo {...(page?.seo ?? {})} titleTemplate="%s | My Store" />;
+}
+```
+
+HTML in `title` and `description` is stripped. `robots` becomes `noindex, nofollow` when `noIndexing` is set. How SEO is put together for a whole page, including on TanStack and Next.js, is in [SEO](/v7/seo).
+
+## Analytics
+
+Three analytics pieces can run side by side; each has its own switch.
+
+| Piece | Where | On by default | What it does |
+|---|---|---|---|
+| `Analytics` component | `@decocms/apps-website/components/Analytics` | When rendered | Renders GTM containers (`trackingIds`) and GA4 tags (`googleAnalyticsIds`), and forwards the page's `DECO` events to `window.dataLayer`. |
+| `OneDollarStats` component | `@decocms/apps-website/components/OneDollarStats` | Yes, once mounted | A lightweight analytics integration that records page views and DECO events, enriched with the visitor's A/B flags. |
+| `Stats` component | `@decocms/blocks/hooks` | No | Deco's first-party collector. The TanStack root layout mounts it; it renders only when `DECO_ANALYTICS_ENABLED` is `"true"`. |
+
+Render the `Analytics` component from your own layout or a site section: an `Analytics` block (`website/sections/Analytics/Analytics.tsx`) placed in a page's sections is skipped by the resolver and renders nothing. The GTM and GA4 tags render only when `NODE_ENV` is `production`; in development you'll only see the event-forwarding snippet. Set `disableAutomaticEventPush` to stop the forwarding.
+
+`OneDollarStats` is meant to be mounted once, inside the root layout:
+
+```tsx title="src/routes/__root.tsx"
+import { createRootRoute } from "@tanstack/react-router";
+import { DecoRootLayout } from "@decocms/tanstack";
+import OneDollarStats from "@decocms/apps-website/components/OneDollarStats";
+
+export const Route = createRootRoute({
+  component: () => (
+    <DecoRootLayout siteName="my-store">
+      <OneDollarStats />
+    </DecoRootLayout>
+  ),
+});
+```
+
+| Variable | What it does |
+|---|---|
+| `ONEDOLLAR_ENABLED` | Set to `false` to turn `OneDollarStats` off. |
+| `ONEDOLLAR_COLLECTOR` | Override the collector URL. The `collectorAddress` prop wins over it. |
+| `ONEDOLLAR_STATIC_SCRIPT` | Override the tracker script URL. The `staticScriptUrl` prop wins over it. |
+
+## Theme, fonts and video
+
+`Theme` (`@decocms/apps-website/components/Theme`) injects font stylesheets and CSS custom properties. It takes `fonts`, `variables` (a list of `{ name, value }`) and an optional `colorScheme` of `light` or `dark`, which wraps the variables in a matching media query.
+
+The fonts can come from one of two loaders in this package:
+
+- `website/loaders/fonts/googleFonts.ts` fetches the Google Fonts stylesheet for the families and weights you list.
+- `website/loaders/fonts/local.ts` builds `@font-face` rules from font files you upload.
+
+The resolver skips a `googleFonts.ts` block found in content, so to use Google Fonts, call the loader from your own code (it's exported at `@decocms/apps-website/loaders/fonts/googleFonts`) and pass its result to `Theme`.
+
+`Video` (`@decocms/apps-website/components/Video`) is a `<video>` wrapper that requires `width` and `height`, to avoid layout shift. With `forceOptimizedSrc` it routes the source through the image CDN.
+
+## Secret and environment loaders
+
+Two small loaders let content refer to values that shouldn't live in the decofile as plain text:
+
+- **`website/loaders/secret.ts`** takes `encrypted` and an optional `name`. This is the block Studio writes when an editor fills in a secret field. As a loader, it returns an object with a `get()` method: if an environment variable called `name` is set, `get()` returns it; otherwise it returns the stored value as-is, without decrypting it. `secretString.ts` is a deprecated variant.
+- **`website/loaders/environment.ts`** takes `value` and an optional `name`, and returns the environment variable `name` if it's set, otherwise `value`.
+
+Apps don't go through these loaders. They receive their block as stored, with the secret still in its `{ encrypted, name }` form, and pass it to `resolveSecret`, which decrypts it with `DECO_CRYPTO_KEY`; see [Apps](/v7/apps#secrets).
+
+## Related
+
+- [SEO](/v7/seo): page SEO end to end.
+- [Images, scripts and UI helpers](/v7/components): `Image`, `Picture` and `Stats`.
+- [Apps](/v7/apps): installing apps.

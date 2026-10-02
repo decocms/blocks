@@ -48,7 +48,9 @@ for (const p of pages) {
 
 for (const p of pages) {
   const src = sources.get(p.file)!
-  const links = [...src.matchAll(/\]\((\/[^)\s]*)\)/g), ...src.matchAll(/href="(\/[^"]*)"/g)].map((m) => m[1])
+  // Links inside fenced code are example code (an href in a JSX snippet), not doc links.
+  const prose = src.replace(/```[\s\S]*?```/g, '')
+  const links = [...prose.matchAll(/\]\((\/[^)\s]*)\)/g), ...prose.matchAll(/href="(\/[^"]*)"/g)].map((m) => m[1])
   for (const href of links) {
     const [route, frag] = href.split('#')
     if (!known.has(route)) {

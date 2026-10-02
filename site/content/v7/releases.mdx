@@ -1,0 +1,222 @@
+---
+title: Deploying and Fast Deploy
+nav: Deploying & Fast Deploy
+group: Production
+order: 36
+description: How a v7 site ships code and content, and how Fast Deploy lets a Studio publish go live on Cloudflare Workers without a redeploy.
+---
+
+# Deploying and Fast Deploy
+
+A v7 site ships two things: code (your sections, loaders and routes) and content (the decofile). By default they ship together, because the content is bundled into the build. This page explains that default, how to deploy a TanStack site to Cloudflare Workers, and Fast Deploy, an opt-in mode that serves content from Cloudflare KV so a Studio publish reaches every visitor in seconds without a new deploy.
+
+## How content ships by default
+
+`generate` turns `.deco/blocks/*.json` into `.deco/blocks.gen.json`, and the binding bundles it (see [Code generation](/v7/generate)). Each build therefore carries the content that was committed when it was built, and every server starts from that snapshot.
+
+When an editor publishes in [Deco Studio](/v7/glossary#deco-studio), Studio sends the change to your running site with `POST /.decofile` (see [Deco Studio and the admin protocol](/v7/studio)). The site swaps it into memory right away, so the next request renders the new content. But it lives only in that server's memory:
+
+- On Cloudflare Workers, each **isolate** (one running copy of your Worker) holds its own copy. An isolate that starts later begins again from the bundled snapshot.
+- On Next.js, each server instance holds its own copy, and a restart returns to the bundled content.
+
+Content becomes permanent when it's committed to `.deco/blocks/` and the site is rebuilt. Fast Deploy removes that gap on Workers.
+
+## Deploying a TanStack site to Workers
+
+A TanStack site deploys with Wrangler like any Worker. The `main` entry of `wrangler.jsonc` must be your own `src/worker-entry.ts`, the file that calls `createDecoWorkerEntry` (see [TanStack Start on Cloudflare Workers](/v7/tanstack)).
+
+```bash
+npx wrangler deploy --var BUILD_HASH:$(git rev-parse --short HEAD)
+```
+
+`BUILD_HASH` identifies the build. The Worker adds it to every edge cache key, so each deploy reads and writes its own cache entries, and HTML cached by an older deploy, which points at older JavaScript chunks, is never served after a new one goes live. You can rename the variable with the `cacheVersionEnv` option. When it's missing, the Worker uses a hash the Vite plugin injects at build time (the commit sha on Cloudflare Workers Builds, otherwise the local git sha).
+
+## Fast Deploy
+
+[Fast Deploy](/v7/glossary#fast-deploy) decouples content from code on `@decocms/tanstack`. Content is stored in a Cloudflare KV namespace, and every isolate reads it from there, so a publish reaches all of them within seconds and survives new isolates. Only code changes need `wrangler deploy`.
+
+It isn't available in `@decocms/nextjs`: edge KV is specific to Cloudflare Workers.
+
+### How it works
+
+KV holds the **whole decofile as one value**, keyed by **deployment id**: the identifier of the code version, normally its git commit sha. Keying by deployment means each code version reads only its own content. During a rolling deploy, old and new code never read each other's content, and rolling back to an older version finds its content still there.
+
+<Flow label="Content with Fast Deploy">
+  <FlowNode title="Build">CI writes this commit's content to KV, keyed by its sha</FlowNode>
+  <FlowNode title="Cold start">An isolate loads its deployment's snapshot from KV once and swaps it into memory</FlowNode>
+  <FlowNode title="Publish">Studio's `POST /.decofile` updates memory and writes the snapshot back to KV</FlowNode>
+  <FlowNode title="Poll">Every isolate checks the snapshot's revision at most every 10 seconds and reloads on change</FlowNode>
+</Flow>
+
+The details:
+
+- **Rendering never waits on KV.** Resolution reads content from memory, as it does without Fast Deploy. KV is touched once per isolate on its first request, and afterwards by a background check, at most once every 10 seconds, of a small revision key (a hash of the snapshot). When the revision changes, the isolate reloads the snapshot.
+- **The bundle is the fallback.** If no deployment id resolves, or KV fails, or the key is missing, the isolate serves the content bundled with its own build. It never serves another deployment's content.
+- **Exact redirects live in their own keys.** Redirects with an exact `from` path are stored one per KV key and looked up per request, so a site with tens of thousands of them doesn't hold them all in memory. Wildcard redirects stay in the decofile. A redirect-only change doesn't change the snapshot's revision; isolates pick it up within 60 seconds.
+
+The deployment id comes from the `DECO_DEPLOYMENT_ID` variable, then `BUILD_HASH`, then the hash the Vite plugin injected at build time.
+
+### Turn it on
+
+Fast Deploy requires **both** an explicit flag and a KV binding, so binding a namespace on its own never changes how a site behaves.
+
+<Steps>
+<Step>
+
+**Create a KV namespace and bind it as `DECO_KV`**, then set the flag in `wrangler.jsonc`:
+
+```jsonc title="wrangler.jsonc"
+{
+  "kv_namespaces": [{ "binding": "DECO_KV", "id": "<your namespace id>" }],
+  "vars": {
+    "DECO_FAST_DEPLOY": "1"
+  }
+}
+```
+
+`DECO_FAST_DEPLOY` accepts `"1"` or `"true"`. Don't set `DECO_DEPLOYMENT_ID` here; the deploy command passes it.
+
+</Step>
+<Step>
+
+**Call `setupTanstackFastDeploy()` once in your setup module.** It hands the KV binding to the admin protocol so a Studio publish writes through to KV.
+
+```ts title="src/setup.ts"
+import { createSiteSetup } from "@decocms/blocks/setup";
+import { createAdminSetup } from "@decocms/blocks-admin/setup";
+import { setupTanstackFastDeploy } from "@decocms/tanstack";
+import { blocks } from "../.deco/blocks.gen";
+import appCss from "./styles/app.css?url";
+
+createSiteSetup({
+  sections: import.meta.glob("./sections/**/*.tsx"),
+  blocks,
+});
+
+createAdminSetup({
+  meta: () => import("../.deco/meta.gen.json").then((m) => m.default),
+  css: appCss,
+});
+
+setupTanstackFastDeploy();
+```
+
+</Step>
+<Step>
+
+**Seed content at build time and pass the deployment id at deploy time.** With Cloudflare Workers Builds, set the build command to your build followed by a content sync:
+
+```bash
+npx -p @decocms/blocks-cli deco-sync-blocks-to-kv --write --all --deployment-id "$WORKERS_CI_COMMIT_SHA"
+```
+
+and the deploy command to deploy, then mark the deployment live:
+
+```bash
+npx wrangler deploy --var DECO_DEPLOYMENT_ID:"$WORKERS_CI_COMMIT_SHA"
+```
+
+```bash
+npx -p @decocms/blocks-cli deco-sync-blocks-to-kv --set-live --deployment-id "$WORKERS_CI_COMMIT_SHA"
+```
+
+Chain each pair with `&&` in the build settings. Seeding before the deploy means new code never starts without its content. Use whatever variable your CI exposes for the commit sha; `WORKERS_CI_COMMIT_SHA` is Cloudflare Workers Builds'.
+
+</Step>
+<Step>
+
+**Check it.** After a deploy, publish a change in Studio and load the page from a new browser session. `POST /.decofile` answers with `"kvWritten": true` when the write reached KV.
+
+</Step>
+</Steps>
+
+<Callout type="warning">
+
+**Without `setupTanstackFastDeploy()`, a Studio publish reports success but writes nothing to KV.** The change shows on the isolate that received it and disappears as others reload from KV. The same happens (with `"kvWritten": false` in the response) when no deployment id resolves.
+
+</Callout>
+
+### Credentials for the sync CLI
+
+`deco-sync-blocks-to-kv` writes through Cloudflare's KV REST API, so it runs anywhere, without a Worker binding. It reads:
+
+| Variable | Fallback | What it is |
+|---|---|---|
+| `CF_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account id. |
+| `CF_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | A token with **Workers KV Storage: Edit**. |
+| `CF_KV_NAMESPACE_ID` | The `DECO_KV` namespace id in `wrangler.jsonc` | The namespace to write. |
+
+Cloudflare Workers Builds already provides the `CLOUDFLARE_*` values, and the namespace id comes from your `wrangler.jsonc`, so no extra configuration is needed there.
+
+Always write KV through this CLI rather than your own script. The isolates compare the snapshot's revision byte for byte with what they compute in memory; a different serialization makes them reload forever.
+
+### The sync CLI's options
+
+| Flag | What it does |
+|---|---|
+| `--deployment-id <id>` | The deployment to write. Required to write. |
+| `--write` | Apply the changes. Without it the CLI prints what it would do. |
+| `--all` | Write the full snapshot even if no block changed since `--since`. |
+| `--since <ref>` | Without `--all`, skip the write when no `.deco/blocks/*.json` changed since this git ref. Default `HEAD~1`. |
+| `--set-live` | Only record this deployment as the live one. Cheap; run it after the deploy is active. |
+| `--blocks-dir <dir>` | Where the block files are. Default `.deco/blocks`. |
+| `--retain <n>` | How many deployments' snapshots to keep. Default 10. The live one is never removed. |
+| `--purge-url <origin>` | After writing, call `POST /_cache/purge` on this origin. |
+| `--purge-token <token>` | The purge token. Defaults to the `PURGE_TOKEN` environment variable. |
+
+To seed one deployment by hand (for example the very first one), `deco-migrate-blocks-to-kv --deployment-id <sha> --write` writes `.deco/blocks/` to KV once. See [CLI reference](/v7/cli).
+
+### Roll back or turn it off
+
+- **Roll back content with code.** Redeploy an older commit. It reads its own snapshot, which the sync kept (up to `--retain` deployments).
+- **Turn Fast Deploy off.** Unset `DECO_FAST_DEPLOY`, set it to `"0"`, or remove the `DECO_KV` binding. The Worker serves its bundled snapshot immediately.
+
+### Code that reads content at module scope
+
+Fast Deploy swaps the content in memory when a snapshot arrives. Code that read `loadBlocks()` once, at module scope, keeps the bundled content it saw at startup and never sees updates:
+
+```ts title="src/redirects.ts"
+import { loadBlocks } from "@decocms/blocks/cms";
+import { loadRedirects } from "@decocms/blocks/sdk/redirects";
+
+// Don't: computed once from the bundled snapshot.
+// const redirects = loadRedirects(loadBlocks());
+
+// Do: read inside the request path.
+export function getRedirects() {
+  return loadRedirects(loadBlocks());
+}
+```
+
+The framework's own redirect handling already rebuilds whenever the content revision changes. To react to content changes in your own code, subscribe with `onChange` from `@decocms/blocks/cms` (see [Content and the decofile](/v7/content)).
+
+### Bundle-stub mode (advanced)
+
+By default an isolate holds the content twice: the bundled snapshot (the fallback) and the snapshot it loaded from KV. On sites with several megabytes of content that matters against Workers' memory limit. `decoVitePlugin({ fastDeploy: true })` removes the bundled snapshot from the server bundle so only the KV copy exists.
+
+<Callout type="warning">
+
+**Bundle-stub mode removes the fallback.** With no bundled content, a cold start that can't read KV fails the request with a server error instead of rendering. Use it only when your pipeline always seeds the deployment's snapshot before activating it. The default, `fastDeploy: "auto"`, stubs only when the build environment sets `DECO_SEEDED_DEPLOY` (set by deployment pipelines that seed KV first); Cloudflare Workers Builds and a manual `wrangler deploy` keep the bundled snapshot. `false` never stubs.
+
+</Callout>
+
+## Deploying a Next.js site
+
+On Next.js, content ships with the build. The recommended setup imports every block file through the generated `.deco/blocksManifest.gen.ts`, so Next bundles the JSON with your code (see [Next.js App Router](/v7/nextjs)). A Studio publish updates a running instance's memory; commit the content and rebuild to make it permanent. Deploy as you deploy any Next.js app.
+
+## Keeping `.deco/blocks` in sync with production
+
+Studio commits content to your repository. If a site's content is also published somewhere else (for example, while a migrated site's old storefront is still the one editors publish to), `deco-sync-blocks-bot` pulls it back. It downloads `GET <origin>/.decofile` from the live site, writes one file per block into `.deco/blocks/`, and rewrites only the blocks whose content changed, so you can run it on a schedule and open a pull request with the diff.
+
+```bash
+npx -p @decocms/blocks-cli deco-sync-blocks-bot --origin https://www.example.com --dry-run
+```
+
+By default it never overwrites the `Site` block or any block holding an encrypted secret, and `--fail-on-plaintext-secret` stops it if an incoming block looks like it carries a credential in the clear. Its flags are in the [CLI reference](/v7/cli).
+
+## Related
+
+- [Caching](/v7/caching): cache versioning per deploy, and purging.
+- [Deco Studio and the admin protocol](/v7/studio): what `POST /.decofile` accepts and how it's authorized.
+- [Configuration reference](/v7/configuration): every Fast Deploy variable in one table.
+- [Troubleshooting](/v7/troubleshooting#a-studio-publish-doesn-t-show-up-with-fast-deploy)

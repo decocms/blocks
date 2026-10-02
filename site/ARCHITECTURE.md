@@ -41,12 +41,12 @@ not the styles or scripts, since asset URLs are root-relative; use `bun run prev
 ```
 site/
 ├── content/                  MDX pages, one folder per docs version
-│   ├── next/*.mdx            the next major (served at /next/<file name>)
-│   └── v7/*.mdx              the current release (/v7/…); index.mdx is /v7/
+│   ├── v7/*.mdx              the current release (/v7/…); index.mdx is /v7/
+│   └── next/*.mdx            the next major (served at /next/<file name>; /next/ is its home)
 ├── components/
 │   ├── mdx/                  components MDX pages use (API: components/mdx/README.md)
 │   ├── ui/                   Icon/Mark (the icon set), Brand (wordmark, symbol)
-│   ├── home/                 the Home page: index.tsx default export (see "Home")
+│   ├── home/                 the two home pages: index.tsx default export (see "Home")
 │   ├── roadmap/              the Roadmap pages, from data/roadmap.json (see "Roadmap")
 │   ├── widgets/              interactive MDX widgets: named exports of index.tsx
 │   └── search/               the ⌘K dialog: index.tsx default export (see "Search")
@@ -55,10 +55,10 @@ site/
 │   ├── router.tsx            createRouter: basepath, scroll restoration, hydrate hook
 │   ├── routes/               file-based routes (routeTree.gen.ts is generated, and committed)
 │   │   ├── __root.tsx        <html>, head (fonts, CSS, theme script), header, global UI
-│   │   ├── index.tsx         /            Home
+│   │   ├── index.tsx         /            Home (the current release, v7)
 │   │   ├── roadmap/          /roadmap/    Roadmap overview (index.tsx), /roadmap/<section> ($section.tsx)
 │   │   └── $version/
-│   │       ├── index.tsx     /next/, /v7/ the version's index
+│   │       ├── index.tsx     /next/ (the next major's home), /v7/ (its index.mdx)
 │   │       └── $slug.tsx     /next/quickstart … a doc page
 │   ├── layout/               Header, Sidebar, DocsShell (+ LandingShell), Rail, DocPage, NotFound, …
 │   ├── lib/                  content (manifest + page loading), nav models, chrome, theme, ui, versions
@@ -114,13 +114,16 @@ always hydrates against identical markup.
 
 ## Versions
 
-`src/lib/versions.ts` lists them (`next`: "Next major", `v7`) and the default (`next`, used by Home,
-"Get started" and the tabs outside a doc page). The header's version `<select>` (in the drawer on
-small screens) goes to the same slug in the other version if it exists, else to that version's
-index. A version index without `index.mdx` renders the version's first page (kept out of search).
-Adding a version: an entry in `VERSIONS` and a `content/<id>/` folder.
+`src/lib/versions.ts` lists them in select order (`v7`: "v7 (current)", then `next`: "Next major"),
+each with its optional `home` path (`/` for v7, `/next/` for the next major), and the default (`v7`,
+used by the tabs and the not-found page outside a version). The header's version `<select>` (in the
+drawer below 900px) shows on doc pages and on both homes: on a home it goes to the other version's
+home (`/` ↔ `/next/`); on a doc page to the same slug in the other version if it exists, else to that
+version's index. The Home tab goes to the current version's home, "Get started" to its Quickstart. A
+version index without `index.mdx` (and without a home there) renders the version's first page (kept
+out of search). Adding a version: an entry in `VERSIONS` and a `content/<id>/` folder.
 
-The Roadmap (`/roadmap/…`) and Home (`/`) are version-less.
+The Roadmap (`/roadmap/…`) is version-less (its chrome shows the next major).
 
 ## Layouts and "chrome"
 
@@ -214,9 +217,14 @@ dispatch the `docs:search-open` window event (`SEARCH_OPEN_EVENT` / `openSearch(
 
 The routes pick these up with `import.meta.glob`, so each folder can be built independently:
 
-- **Home**: `components/home/index.tsx` default export renders the whole page, inside
-  `<LandingShell nav={sidebarFor(DEFAULT_VERSION, 'docs')} footer={<SiteFooter/>}>…</LandingShell>`
-  (the drawer shows the Docs navigation). Styled with utilities (shared pieces in
+- **Home**: `components/home/index.tsx` default export `Home({ version })` renders a version's
+  whole landing: `/` renders v7's (`components/home/v7/`), `/next/` the next major's (the rest of
+  `components/home/`). Both sit in `HomeFrame` (`Frame.tsx`): `<LandingShell nav={sidebarFor(version,
+  'docs')} footer={<SiteFooter columns={…}/>}>`, so the drawer and the footer columns follow the
+  version (`NEXT_COLUMNS` in `Footer.tsx`, `V7_COLUMNS` in `v7/columns.ts`). The v7 home reuses the
+  next major's pieces (hero band, journey carousel, cards, status window, publishing timeline,
+  `StepperShell`). The `$version/index` loader must not reference the home module (loaders stay in
+  the entry chunk; only the component is split). Styled with utilities (shared pieces in
   `components/home/ui.tsx`); the
   cobogó defs are `assets/cobogo-defs.svg` (imported `?raw`), brand marks in
   `components/ui/Brand.tsx`, icons in `components/ui/Icon.tsx`.

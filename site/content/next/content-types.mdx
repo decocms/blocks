@@ -2,7 +2,7 @@
 title: Routes, redirects, and content types
 nav: Routes & redirects
 group: Websites
-order: 9
+order: 10
 ---
 
 # Routes, redirects, and content types
@@ -26,7 +26,7 @@ interface Redirect {
 }
 ```
 
-A page is a route with SEO and a list of [blocks](/next/model#resolving-a-page-step-by-step) (its `sections` field). It's not special to the router; it's just the first type that extends `Route`. It's shaped like the `SummerSale` entry in [Blocks](/next/model), with three additions: `"__resolveType": "page"`, so the CMS can list it by type, and a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override it in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
+A page is a route with SEO and a list of [blocks](/next/model#resolving-a-page-step-by-step) (its `sections` field). It's not special to the router: it's the first type that extends `Route`. It's shaped like the `SummerSale` entry in [Blocks](/next/model), which carries `"__resolveType": "page"` so the CMS can list it by type, plus a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override it in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
 
 ```ts
 /** The built-in `page` content type. */
@@ -82,7 +82,10 @@ A blog doesn't want a `page` entry per post. Make `Post` extend `Route`, declare
 import type { Route } from "@decocms/blocks";
 
 export interface Post extends Route {
-  /** @title Published on @format date */
+  /**
+   * @title Published on
+   * @format date
+   */
   date: string;
   /** @format rich-text */
   body: string;

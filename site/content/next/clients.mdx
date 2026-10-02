@@ -1,0 +1,150 @@
+---
+title: Upstream API clients
+nav: Upstream clients
+group: Production
+order: 19
+description: Deco Blocks doesn't fetch data. Sites call commerce, search and email platforms through thin, instrumented API clients, and this page shows how to write one.
+---
+
+# Upstream API clients
+
+Deco Blocks doesn't fetch data. Your site calls commerce platforms, search services and email providers itself, through **upstream clients**: thin, typed API clients that send every request through the framework's instrumented fetch, so every call to a third-party API is measured the same way.
+
+<Callout>**Status.** The client model and `createInstrumentedFetch` are proposed and not released yet. See the [Roadmap](/roadmap#roadmap-api--turn-the-apps-into-thin-instrumented-clients).</Callout>
+
+## What a client is
+
+Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algolia, Resend and others. Each one is:
+
+- **Typed request functions**, one per API operation, with the platform's own request and response types (generated from its API description where it has one).
+- **Built on the instrumented fetch**, `createInstrumentedFetch`, which times each request and reports it to [telemetry](/next/operations#telemetry).
+- **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it.
+
+Everything else lives in code your site owns:
+
+| Not in a client | Where it lives |
+|---|---|
+| Converters from a platform's types to shared commerce types | [Platform templates](/next/architecture#key-terms), the starter sites you copy and then own, and your code |
+| React hooks for the cart, the user and the wishlist | Platform templates |
+| Cart, session and sign-in flows | Platform templates, as your framework's server functions or route handlers |
+| Website features: SEO helpers, sitemaps, redirect logic, analytics scripts | Platform templates and your code. The framework itself ships only the `always`, `never` and `date` matchers. |
+| Loaders and actions that Studio ran through `/deco/invoke` | Your code. The SDK has no invoke endpoint and no `cachedLoader`. |
+
+The Salesforce client covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
+
+## Call a client
+
+Create a client once, at module scope, and call it from wherever your app fetches data: a route loader, a server function, a route handler. A block function can call one too, since it's ordinary code; it gets its inputs from content and fetches what it needs.
+
+Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [Blocks](/next/model#block-functions-should-only-read).
+
+```ts title="commerce.ts"
+import { createVtexClient } from "@decocms/apps-vtex";
+
+export const vtex = createVtexClient({
+  account: process.env.VTEX_ACCOUNT!,
+  appKey: process.env.VTEX_APP_KEY!,
+  appToken: process.env.VTEX_APP_TOKEN!,
+});
+
+// Anywhere on the server
+const products = await vtex.search.products({ query: "linen shirt", count: 12 });
+```
+
+The operation names here are illustrative; each client mirrors its platform's API.
+
+## Caching
+
+Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/architecture#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Drafts bypass the cache. The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in telemetry. How a request opts in is still being designed; see the [Roadmap](/roadmap#roadmap-api--cache-upstream-requests-in-the-bindings). Telemetry without a binding is covered in [What's sent](/next/operations#what-s-sent).
+
+Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and telemetry](/next/operations) for the other caches a request passes through.
+
+## Retries and failures
+
+**Defaults per client.** The VTEX client turns on retries and a circuit breaker, which fails fast for a short time after repeated failures; other clients leave both off.
+
+How retries, latency and errors are reported is in [What's sent](/next/operations#what-s-sent).
+
+## Write a client
+
+When there's no client for the service you call, write one. It's a small module: a factory that takes the configuration, and one function per operation.
+
+```ts title="acme-search.ts"
+import { createInstrumentedFetch } from "@decocms/blocks/fetch";
+
+export interface AcmeSearchConfig {
+  endpoint: string;   // e.g. https://api.acme-search.example
+  apiKey: string;
+}
+
+export interface ProductHit {
+  sku: string;
+  name: string;
+  price: number;
+  image: string;
+  url: string;
+}
+
+export class AcmeSearchError extends Error {
+  constructor(readonly operation: string, readonly status: number) {
+    super(`acme-search ${operation} failed with HTTP ${status}`);   // no body, no key
+  }
+}
+
+export function createAcmeSearch(config: AcmeSearchConfig, options: { fetch?: typeof fetch } = {}) {
+  // Every request through this fetch is timed and reported as provider "acme-search".
+  const request = createInstrumentedFetch({ provider: "acme-search", fetch: options.fetch });
+
+  return {
+    async search(query: string, limit = 10): Promise<ProductHit[]> {
+      const url = new URL("/v1/search", config.endpoint);
+      url.searchParams.set("q", query);
+      url.searchParams.set("limit", String(limit));
+
+      const response = await request(url, {
+        operation: "search",                                    // the operation label
+        headers: { authorization: `Bearer ${config.apiKey}` },
+      });
+      if (!response.ok) throw new AcmeSearchError("search", response.status);
+
+      const body = (await response.json()) as { hits: ProductHit[] };
+      return body.hits;
+    },
+  };
+}
+```
+
+Then create it with your settings, once, and use it like any other client:
+
+```ts title="search.ts"
+import { createAcmeSearch } from "./acme-search";
+
+export const search = createAcmeSearch({
+  endpoint: process.env.ACME_SEARCH_URL!,
+  apiKey: process.env.ACME_SEARCH_KEY!,
+});
+```
+
+A block function can then fetch what it renders:
+
+```tsx title="blocks.tsx (excerpt)"
+"product-shelf": async ({ title, query }: { title: string; query: string }) => {
+  const products = await search.search(query, 8);
+  return <ProductShelf title={title} products={products} />;
+},
+```
+
+A few rules keep clients consistent:
+
+1. **One provider name per service**, lowercase, such as `acme-search`. Dashboards group by it.
+2. **Name every operation.** Use the API's own name for it (`search`, `getProduct`), never a URL with IDs in it, so the label has a small, fixed set of values.
+3. **Take configuration as arguments.** Read environment variables where the site creates the client, not inside it, so the same client works on Node, Workers and in tests.
+4. **Keep it thin.** Return the platform's types. Converting to your own types, caching policy and UI state belong to the site.
+5. **Never put bodies, tokens or cookies in errors or logs.** Report the operation and the status.
+6. **Accept a `fetch` option** for tests: pass a fake that returns canned responses, and assert on the requests it received.
+
+`createInstrumentedFetch` reports to the telemetry of the CMS in the same process. Where no CMS has a site and token, as in tests and local development, requests are measured but nothing is sent. Its options are in the [API reference](/next/standalone#createinstrumentedfetch-options).
+
+## Moving an existing site
+
+Sites on [v7](/v7/loaders) call loaders and actions that live in the [apps](/v7/apps). The migration copies (vendors) the ones a site actually uses into the site's own code, rewritten over the clients, and keeps their old type names as [aliases](/next/adoption#rename-a-type-with-an-alias), so saved content that refers to them still resolves. After that, the code is yours to change. See the [Roadmap](/roadmap#roadmap-cli--vendor-the-loaders-and-actions-a-site-uses-during-migration).

@@ -12,7 +12,7 @@ import type { MDXComponents } from 'mdx/types'
 import manifest from 'virtual:content-manifest'
 import type { ManifestPage, VersionManifest } from '~/build/manifest'
 import type { DocHeading } from '~/build/rehype-docs'
-import { DEFAULT_VERSION, VERSIONS } from './versions'
+import { counterpartSlug, DEFAULT_VERSION, hasHomeAtIndex, homeFor, VERSIONS } from './versions'
 
 export { manifest }
 export type { ManifestPage, VersionManifest, DocHeading }
@@ -73,12 +73,14 @@ export function resolvePage(version: string, slug: string): ManifestPage | undef
 
 /**
  * Finds the content page for a router path (`/next/quickstart`, `/next/quickstart.html`, `/v7/`,
- * `/v7`), if any.
+ * `/v7`), if any. A version index that is the version's home page (`/next/`) has none.
  */
 export function pageForPath(pathname: string): ManifestPage | undefined {
   const m = /^\/([^/]+)(?:\/([^/]*))?\/?$/.exec(pathname)
   if (!m) return undefined
-  return resolvePage(m[1], decodeURIComponent(m[2] ?? ''))
+  const slug = decodeURIComponent(m[2] ?? '')
+  if (normalizeSlug(slug) === '' && hasHomeAtIndex(m[1])) return undefined
+  return resolvePage(m[1], slug)
 }
 
 export async function preloadForPath(pathname: string): Promise<void> {
@@ -88,14 +90,25 @@ export async function preloadForPath(pathname: string): Promise<void> {
 
 /** The first page of a kind ("docs" / "internals") in a version, falling back to the default version. */
 export function kindEntry(version: string, kind: 'docs' | 'internals'): ManifestPage | undefined {
-  const inVersion = manifest.versions[version]?.pages.find((p) => p.kind === kind && p.slug !== '')
+  const inVersion = manifest.versions[version]?.pages.find((p) => p.kind === kind)
   if (inVersion) return inVersion
   if (kind === 'docs') return versionEntry(version)
   return manifest.versions[DEFAULT_VERSION]?.pages.find((p) => p.kind === kind)
 }
 
-/** Where the version select goes: the same page in the other version if it exists, else its index. */
-export function equivalentPath(slug: string | undefined, toVersion: string): string {
+/**
+ * Where the version select goes: from a home page, the other version's home; from a doc page, its
+ * declared counterpart in the other version (COUNTERPARTS in versions.ts, which may add a #hash),
+ * else the page with the same slug if it exists, else the other version's index.
+ */
+export function equivalentPath(slug: string | undefined, toVersion: string, fromHome = false, fromVersion?: string): string {
+  if (fromHome) return homeFor(toVersion)
+  const counterpart = slug !== undefined ? counterpartSlug(fromVersion, toVersion, slug) : undefined
+  if (counterpart !== undefined) {
+    const [target, hash] = counterpart.split('#')
+    const page = findPage(toVersion, target)
+    if (page) return hash ? `${page.path}#${hash}` : page.path
+  }
   const same = slug !== undefined ? findPage(toVersion, slug) : undefined
   return (same ?? versionEntry(toVersion))?.path ?? `/${toVersion}/`
 }

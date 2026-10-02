@@ -1,0 +1,244 @@
+---
+title: Troubleshooting
+group: Production
+order: 40
+description: Symptoms you may hit on a v7 site, what causes each one, and how to fix it.
+---
+
+# Troubleshooting
+
+Each entry below starts from what you see, explains the cause, and gives the fix. Most are about wiring: a file imported in the wrong order, a handler mounted in the wrong place, a module that runs in a different bundle than you expect. Entries for both bindings come first, then TanStack Start, then Next.js.
+
+## Both bindings
+
+### Sections render empty, or with "Cannot read properties of undefined"
+
+**Cause.** A section has its own `loader` export, and you registered a [section loader](/v7/glossary#section-loader) for it built only from mixins, such as `compose(withDevice(), withSearchParam())`. A registered section loader replaces the section's own loader, so the section's data is never fetched and the component receives props it doesn't expect.
+
+**Fix.** Add `withSectionLoader` to the composition, last, so the section's own loader runs after the mixins:
+
+```ts title="src/setup/section-loaders.ts"
+import { compose, registerSectionLoaders, withDevice, withSearchParam, withSectionLoader } from "@decocms/blocks/cms";
+
+registerSectionLoaders({
+  "site/sections/Product/SearchResult.tsx": compose(
+    withDevice(),
+    withSearchParam(),
+    withSectionLoader(() => import("../sections/Product/SearchResult")),
+  ),
+});
+```
+
+See [Loaders and actions](/v7/loaders).
+
+### Hydration mismatch on `dangerouslySetInnerHTML.__html`
+
+**Cause.** `useScript(fn, ...args)` serializes a function with `fn.toString()`, and the server and client builds compile the same function to different text. React then sees different `__html` on each side. `useScript` and `useScriptAsDataURI` are deprecated for this reason; in development they warn once per function.
+
+**Fix.** Write the script as a string and use `inlineScript`:
+
+```tsx title="src/sections/Hero.tsx"
+import { inlineScript } from "@decocms/blocks/sdk/useScript";
+
+const markReady = (id: string) => `document.getElementById("${id}").dataset.ready = "true"`;
+
+export default function Hero() {
+  return (
+    <div id="hero">
+      <script {...inlineScript(markReady("hero"))} />
+    </div>
+  );
+}
+```
+
+### `node:async_hooks` error in a client bundle
+
+**Cause.** A file that runs in the browser imports from `@decocms/blocks/cms`. That barrel is server-only: it imports `AsyncLocalStorage` from `node:async_hooks`. On Next.js, Turbopack rejects the import; other bundlers may fail later or ship a broken module.
+
+**Fix.** In Client Components and other browser code, import registry lookups (`getResolvedComponent`, `getSection`, `registerSection`, the section mixins) from `@decocms/blocks/cms/client`. Read request state through `@decocms/blocks/sdk/requestContext`, which resolves to a browser-safe stub in client bundles (see [Request context](/v7/request-context)).
+
+### A section is `null`, and the console says `[CMS] Unhandled resolver`
+
+**Cause.** A block in the decofile has a `__resolveType` that nothing registered: a section key that doesn't match a file, or a loader from an app that wasn't configured. It resolves to `null` with a warning rather than an error.
+
+**Fix.** Check that the key matches `site/sections/<path>.tsx` exactly, that the section file exists, and that the app providing the loader is installed and configured (see [Apps](/v7/apps)). For loaders and actions with no registration at all, `onDanglingReference` in `createSiteSetup` lets you log or replace them.
+
+### `/deco/invoke` returns 404 "Unknown handler"
+
+**Cause.** The key you invoked isn't registered. Site loaders and actions come from the generated `.deco/loaders.gen.ts`; app loaders and actions come from configured apps.
+
+**Fix.** Run `generate` again after adding a loader, and make sure the module that registers the invoke handlers is imported by the server (see [Loaders and actions](/v7/loaders)). Keys work with and without the `.ts` suffix.
+
+### Product or listing pages show "no product" after an upgrade
+
+**Cause.** One of two things, both only on sites that moved from older packages:
+
+- **Loader keys with `.ts`.** Older decofiles reference app loaders with the file extension (`shopify/loaders/ProductDetailsPage.ts`), while apps register them without it. `@decocms/blocks` falls back to the extension-less key from 7.11.2; on earlier versions the inner loader isn't found and returns `null`.
+- **An app registry entry that fails in the production build only.** Registry entries load their module with a dynamic `import()`, which resolves in `vite dev` but can fail in the production Worker bundle. The app is then skipped, and its loaders resolve to `null`. Since autoconfig logs `[autoconfigApps] failed to configure app`, check the Worker's logs.
+
+**Fix.** Upgrade `@decocms/blocks` (or register both key forms on older versions), and pass app modules statically to `autoconfigApps`:
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps } from "@decocms/blocks-admin/apps/autoconfig";
+import { SHOPIFY_REGISTRY_ENTRY } from "@decocms/apps-shopify/registry";
+import * as shopifyMod from "@decocms/apps-shopify/mod";
+
+export const setupApps = (blocks: Record<string, unknown>) =>
+  autoconfigApps(blocks, [{ ...SHOPIFY_REGISTRY_ENTRY, module: async () => shopifyMod }]);
+```
+
+Test with the production build (`bun run preview` on TanStack), not only the dev server, and load a real product page in a browser: commerce sections are often [deferred](/v7/rendering), so a `curl` of the HTML doesn't exercise them.
+
+### Signals don't re-render a component
+
+**Cause.** Migrated code reads `signal.value` during render. In Preact that subscribed the component; in React it doesn't.
+
+**Fix.** `signal()` from `@decocms/blocks/sdk/signal` is backed by a TanStack store and exposes it as `.store`. Subscribe to that store with `useStore` from `@tanstack/react-store` and render the value it returns:
+
+```tsx title="src/components/CartCount.tsx"
+import { useStore } from "@tanstack/react-store";
+import { signal } from "@decocms/blocks/sdk/signal";
+
+export const cartCount = signal(0);
+
+export function CartCount() {
+  const count = useStore(cartCount.store);
+  return <span>{count}</span>;
+}
+```
+
+Writes through `cartCount.value = n` still work and now re-render every subscribed component.
+
+## TanStack Start
+
+### Client navigation shows "No CMS page block matches this URL", but reloading works
+
+**Cause.** The server rendered the first page correctly, but the server-function call made during client navigation ran in a module that loaded before your setup. TanStack Start splits server functions into separate chunks, and if `src/setup.ts` isn't imported first, those chunks can run before the content and sections are registered.
+
+**Fix.** Make `import "./setup";` the **first** import in both `src/server.ts` and `src/worker-entry.ts`.
+
+### `/live/_meta` returns HTML, and responses have no `X-Cache` header
+
+**Cause.** The Worker isn't running `createDecoWorkerEntry`. Either `wrangler.jsonc`'s `main` doesn't point at `src/worker-entry.ts`, or the admin and cache logic was placed inside TanStack's `createServerEntry`, where Vite strips custom request handling from production builds.
+
+**Fix.** Set `"main": "src/worker-entry.ts"` and wrap the server entry there, passing the admin handlers (see [TanStack Start on Cloudflare Workers](/v7/tanstack)). To check a build, search the built worker in `dist/` for `X-Cache` or `_cache/purge`; if they're missing, the wrapper isn't in the bundle.
+
+### "Failed to fetch dynamically imported module" after a deploy
+
+**Cause.** The edge served HTML cached by the previous deploy, which points at JavaScript chunks the new deploy no longer has.
+
+**Fix.** Pass a new `BUILD_HASH` on every deploy (`wrangler deploy --var BUILD_HASH:$(git rev-parse --short HEAD)`) so each deploy uses its own cache namespace (see [Deploying and Fast Deploy](/v7/releases)). To clear pages immediately, call `POST /_cache/purge` (see [Caching](/v7/caching#purging)).
+
+### Eager sections flash or disappear during hydration
+
+**Cause.** A section rendered above the fold isn't registered synchronously, so on the client it loads through `React.lazy` and suspends while hydrating. In development the console says `[DecoPageRenderer] Eager section "…" is not in registerSectionsSync()`.
+
+**Fix.** Mark the section with `export const sync = true` and regenerate, so it's bundled synchronously instead of lazy-loaded, or register it yourself with `registerSectionsSync`. See [Section conventions](/v7/sections).
+
+### Deferred sections stay as skeletons after client navigation
+
+**Cause.** `DecoPageRenderer` didn't get `loadDeferredSectionFn`. Deferred sections that stream during the first render have nothing to load them on later navigations.
+
+**Fix.** Pass `deferredSectionLoader` from `@decocms/tanstack/sdk/deferredSectionLoader`:
+
+```tsx
+<DecoPageRenderer
+  sections={data.resolvedSections ?? []}
+  deferredSections={data.deferredSections ?? []}
+  pagePath={data.pagePath}
+  pageUrl={data.pageUrl}
+  loadDeferredSectionFn={deferredSectionLoader}
+/>
+```
+
+### Pages always show `X-Cache: BYPASS`
+
+**Cause.** Read `X-Cache-Reason`. The most common:
+
+- `private-set-cookie`: something sets a cookie on every response.
+- `logged-in`: `buildSegment` returned `loggedIn: true`.
+- `profile:<name>` or `non-cacheable:<name>`: the URL maps to `private`, `cart` or `none`.
+- `status:<code>` or `degraded`: the origin errored, or a section loader failed.
+
+**Fix.** For cookies, set them after the cache (in middleware or the browser) or add them to `safeCookies` if they're safe to share. For profiles, check the URL rules and your `detectProfile`. The full table is in [Caching](/v7/caching#reading-the-cache-headers).
+
+### A Studio publish doesn't show up with Fast Deploy
+
+**Cause.** The publish reached one isolate's memory but not KV. Either `setupTanstackFastDeploy()` isn't called in setup, or no deployment id resolved, or the KV write failed. The `POST /.decofile` response says `"kvWritten": false` in the last two cases.
+
+**Fix.** Call `setupTanstackFastDeploy()` in your setup module, deploy with `--var DECO_DEPLOYMENT_ID:<sha>` (or `BUILD_HASH`), and check that both `DECO_FAST_DEPLOY` and the `DECO_KV` binding are set. Code of your own that reads `loadBlocks()` at module scope won't see updates either; move it into the request path. See [Deploying and Fast Deploy](/v7/releases).
+
+### Dev HMR error: "Route cannot have both an 'id' and a 'path' option"
+
+**Cause.** An admin route passes a shared config object, the pattern from before the admin routes became factories. The router mutates the object it receives, so the second evaluation in dev fails and every route returns 500 until restart.
+
+**Fix.** Call the factory in each route file:
+
+```ts title="src/routes/deco/meta.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoMetaRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
+```
+
+Do the same with `decoRenderRouteConfig()` and `decoInvokeRouteConfig()`.
+
+### `/_serverFn` returns 500 "Invalid server function ID"
+
+**Cause.** `@decocms/tanstack` was pre-bundled by Vite's dependency optimizer for the server, so its server functions weren't registered.
+
+**Fix.** Keep `decoVitePlugin()` in `vite.config.ts`. It adds `@decocms/tanstack` to the SSR environment's `resolve.noExternal`, so the package goes through TanStack Start's compiler instead of being pre-bundled. If you set `noExternal` for SSR yourself, make sure `@decocms/tanstack` stays in it (or set it to `true`).
+
+### Dev only: intermittent 500s on parallel `/_serverFn` requests
+
+**Cause.** In `vite dev`, the Cloudflare Vite plugin's local Worker runner sometimes fails concurrent server-function requests with `TypeError: Cannot read properties of undefined (reading 'method')`. With many deferred sections on a page, some stay empty. Deployed Workers aren't affected.
+
+**Fix.** Nothing in your code. Scroll slowly or reload to retry the failed sections, and check behaviour that depends on many parallel requests on a preview deploy.
+
+### Dev server: "tsImport(@decocms/blocks-cli/generate-blocks) returned an empty module namespace"
+
+**Cause.** Your lockfile resolves `tsx` 4.22.0 to 4.22.4, which have a loader bug inside the Vite dev server.
+
+**Fix.** Upgrade `tsx` to 4.22.5 or later.
+
+### Outbound requests rejected by a partner's firewall
+
+**Cause.** Some upstream APIs block requests without a `User-Agent`.
+
+**Fix.** Nothing to do by default: the Worker entry sets `User-Agent: Deco/<version> (+https://deco.cx)` on outgoing `fetch` calls that don't set one. To send your own, pass `outboundUserAgent: "<value>"`; `false` leaves `fetch` untouched.
+
+## Next.js
+
+### `route.ts` crashes with "createContext is not a function" or "Class extends value undefined"
+
+**Cause.** The route handler imports from the root of `@decocms/nextjs`. Route handlers run under React's server build, and the root barrel includes Client Component code that can't load there.
+
+**Fix.** In `route.ts` files, import only from `@decocms/nextjs/routeHandlers` (and `/config`, `/setup`). The root package is for `page.tsx` and `layout.tsx`.
+
+### `/live/_meta` returns 503 "Schema not initialized"
+
+**Cause.** `createNextSetup` didn't get a `meta` option, so there's no schema to serve.
+
+**Fix.** Pass the generated schema lazily:
+
+```ts title="src/deco/setup.ts"
+meta: () => import("deco/meta.gen.json").then((m) => m.default),
+```
+
+### Pages render without content, or Studio previews are empty
+
+**Cause.** `ensureSetup()` wasn't awaited before rendering. `createNextSetup` returns a function; nothing happens when the module is imported.
+
+**Fix.** Await it in the root layout, and pass it as `setup` to `createDecoRouteHandlers` and `createDecoPreviewPage` (see [Next.js App Router](/v7/nextjs)).
+
+### A Client Component section fails in Studio previews
+
+**Cause.** The preview was rendered with plain `renderToString`, which can't run Next's client references.
+
+**Fix.** Mount `createDecoPreviewPage` at `app/deco/preview/[[...path]]/page.tsx`; the catch-all route redirects preview requests there. Don't remove `"use client"` from the section to make the preview render.
+
+## Related
+
+- [Configuration reference](/v7/configuration)
+- [Caching](/v7/caching)
+- [Observability](/v7/observability)

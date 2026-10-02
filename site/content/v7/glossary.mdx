@@ -1,0 +1,118 @@
+---
+title: Glossary
+group: Reference
+order: 46
+description: The terms used throughout the v7 docs, each with a short definition and a pointer to where it's explained.
+---
+
+# Glossary
+
+The words these docs use for Deco Blocks v7, in alphabetical order. Each entry is a short definition with a link to the page that explains it in full.
+
+## Action
+
+A server function that changes something, such as adding an item to a cart or sending an email. Actions are called by key through [invoke](#invoke). See [Loaders and actions](/v7/loaders).
+
+## Admin protocol
+
+The HTTP endpoints [Deco Studio](#deco-studio) calls on your running site: `GET /live/_meta` (the [schema](#schema-meta)), `GET` and `POST /.decofile` (read and publish content), `/live/previews/*` and `/deco/render` (previews) and `/deco/invoke` (run loaders and actions). Implemented by `@decocms/blocks-admin` and mounted by each [binding](#binding). See [Deco Studio and the admin protocol](/v7/studio).
+
+## App
+
+A companion package, `@decocms/apps-*`, that brings the loaders, actions, sections and configuration for one platform (VTEX, Shopify, a blog, an email provider). An app is configured from a [block](#block) in the [decofile](#decofile), such as `deco-vtex`. See [Apps](/v7/apps).
+
+## Binding
+
+The framework package that connects the runtime to an app framework: `@decocms/tanstack` for TanStack Start on Cloudflare Workers, or `@decocms/nextjs` for the Next.js App Router. The binding finds the page for a URL, renders it, and mounts the [admin protocol](#admin-protocol). See [How v7 works](/v7/architecture).
+
+## Block
+
+A named, typed piece of JSON content in the [decofile](#decofile) that the runtime can resolve: a [section](#section), a [page](#page-block), a [loader](#loader) call, a [matcher](#matcher), an [app](#app) configuration. A block's type is given by its [`__resolveType`](#resolvetype). See [Blocks and sections](/v7/model).
+
+## Cache profile
+
+A named caching policy, one of `static`, `product`, `listing`, `search`, `cart`, `private` and `none`, applied consistently at the edge, browser, loader and client layers. The framework picks one from the URL unless you choose. See [Caching](/v7/caching).
+
+## Commerce loader
+
+A [loader](#loader) referenced from content by key, such as `vtex/loaders/intelligentSearch/productListingPage.ts`, and registered at setup with `registerCommerceLoaders` (apps provide ready-made maps). The resolver calls it when it meets that key and passes the page URL along. See [Loaders and actions](/v7/loaders).
+
+## Deco Blocks
+
+The framework these docs describe. "v7" means the current released version of its packages: `@decocms/blocks`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/tanstack` and `@decocms/nextjs`. See [Deco Blocks v7](/v7/).
+
+## Deco Studio
+
+Deco's visual editor, also called Studio or the admin. It reads your [schema](#schema-meta) and content from your running site, shows editors forms and live previews, and publishes changes back over the [admin protocol](#admin-protocol). See [Deco Studio and the admin protocol](/v7/studio).
+
+## Decofile
+
+The site's content: a flat map from [block](#block) name to JSON. It's stored as one file per block under `.deco/blocks/`, committed to your repository, and bundled as `.deco/blocks.gen.json` by `generate`. See [Content and the decofile](/v7/content).
+
+## Deferred section
+
+A [section](#section) rendered first as a skeleton (its `LoadingFallback`) and loaded separately afterwards, when it nears the viewport. Editors mark a section deferred with the ⚡ toggle in Studio. Bots always get the full page. See [Deferred sections](/v7/rendering).
+
+## Deployment id
+
+The identifier of one deployed version of your code, normally its git commit sha, passed as `DECO_DEPLOYMENT_ID`. [Fast Deploy](#fast-deploy) keys content by it so each code version reads its own content. See [Deploying and Fast Deploy](/v7/releases).
+
+## Draft preview
+
+Rendering unpublished Studio content on the real site through a `?__draft=` link. It works only on allowed hosts, is never cached, and is marked `noindex`. `?__draft=off` leaves it. See [Previews and draft preview](/v7/preview).
+
+## Fast Deploy
+
+An opt-in feature of `@decocms/tanstack` that serves content from Cloudflare KV, so a Studio publish reaches every Worker isolate within seconds without a redeploy. It needs `DECO_FAST_DEPLOY=1`, a `DECO_KV` binding and `setupTanstackFastDeploy()`. See [Deploying and Fast Deploy](/v7/releases).
+
+## Invoke
+
+Calling a [loader](#loader) or [action](#action) by key over HTTP, at `POST /deco/invoke/<key>`, or from code through the `invoke` proxy in `@decocms/blocks/sdk/invoke`. See [Loaders and actions](/v7/loaders).
+
+## Layout section
+
+A [section](#section), such as a header or footer, whose resolved output is cached for a few minutes and shared across pages, keyed by device. Register layout sections with `registerLayoutSections` or `export const layout = true`. A section whose output depends on cookies, location or query parameters shouldn't be one. See [Section conventions](/v7/sections).
+
+## Loader
+
+A server function that fetches data. A loader is either called from content (a [commerce loader](#commerce-loader)) or attached to a section (a [section loader](#section-loader)), and site loaders can also be [invoked](#invoke) by key. See [Loaders and actions](/v7/loaders).
+
+## Matcher
+
+A rule `(rule, context) => boolean` that content uses to choose between [variants](#variant-multivariate-flag): by device, cookie, date, host, path, query string, location, user agent or a random traffic split. Built-in matchers are registered by `createSiteSetup`; add your own with `registerMatcher`. See [Matchers and variants](/v7/variants).
+
+## Page block
+
+A [block](#block) with a `path` and a list of `sections`, whose name starts with `pages-` or whose `__resolveType` is `website/pages/Page.tsx`. The binding renders the page block whose `path` matches the URL. See [Pages and routing](/v7/routing).
+
+## Resolution
+
+Turning raw [decofile](#decofile) JSON into props ready to render, by following each [`__resolveType`](#resolvetype) recursively: dereferencing named blocks, choosing variants, calling commerce loaders. See [Blocks and sections](/v7/model) and, in depth, [How resolution works](/v7/walkthrough).
+
+## `__resolveType`
+
+The field that says what a JSON value in the decofile is: a [section](#section) key (`site/sections/Hero.tsx`), a loader key, a matcher key, or the name of another block to reuse. See [Blocks and sections](/v7/model).
+
+## Revision
+
+A hash of the whole [decofile](#decofile). It changes whenever any block changes, and is used to detect new content (by [Fast Deploy](#fast-deploy)) and as a cache key. See [Content and the decofile](/v7/content).
+
+## Schema (meta)
+
+The JSON Schema of your sections, loaders and pages, generated from their TypeScript types into `.deco/meta.gen.json` and served at `/live/_meta`. Studio builds its forms from it. See [Schema generation](/v7/schema).
+
+## Section
+
+A React component that editors can place on a page. Its key is `site/sections/<path>.tsx`, matching its file under `src/sections/`, and its props are described by an exported `Props` type. See [Blocks and sections](/v7/model).
+
+## Section loader
+
+A server function that runs after [resolution](#resolution) and before rendering, enriching one section's props: the section's own `loader` export, or one registered with `registerSectionLoaders`. See [Loaders and actions](/v7/loaders).
+
+## Segment
+
+The part of a visitor's identity that changes what a page looks like (device, logged in or not, sales channel, region), returned by the Worker entry's `buildSegment` and added to the edge cache key. See [Caching](/v7/caching).
+
+## Variant (multivariate flag)
+
+A block holding several alternatives, each guarded by a [matcher](#matcher). The first alternative whose matcher matches is used; if none does, the block is dropped. Used for A/B tests, scheduled content and personalization. See [Matchers and variants](/v7/variants).
