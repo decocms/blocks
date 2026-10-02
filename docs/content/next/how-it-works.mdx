@@ -8,7 +8,7 @@ order: 1
 
 <Callout>**Status.** The next version of Deco is being designed in the open: the API on these pages is proposed and not released yet. The [Roadmap](/roadmap) lists what's left.</Callout>
 
-Most of what changes on a website isn't the code. It's the values the code is given: a headline, a banner image, the share of visitors who see the new checkout. Deco keeps the two apart. Developers write ordinary functions, and the values live as JSON files in your Git repository. Editors change them in Studio, Deco's visual editor; AI agents edit the files directly; and every change ships with your next deploy.
+Most of what changes on a website isn't the code. It's the values the code is given: a headline, a banner image, the share of visitors who see the new checkout. Deco keeps the two apart. Developers write ordinary functions, and the values live as JSON files in your Git repository. Editors change them in [Studio](#studio), Deco's content editor; AI agents edit the files directly; and every change ships with your next deploy.
 
 This page follows one such change, marketing switching the summer banner from "Free shipping over $75" to "Free shipping over $50", from the first line of code to a visitor's screen, and points you to the page that explains each step.
 
@@ -54,9 +54,23 @@ Everything above runs on one package, `@decocms/blocks`, plus a visual editor:
 | **CLI** (`deco`, in `@decocms/blocks`) | Steps 2 and 4 | [CLI](/next/cli) |
 | **Studio** | Steps 2 and 3 | [Studio and the content protocol](/next/content-protocol) |
 
-The SDK and CLI are open source and run without a Deco account. Local editing in Studio without an account is planned through a play workspace ([Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)).
+The SDK and CLI are open source and run without a Deco account.
 
-<Hosted to="/next/hosted" label="What the hosted Deco CMS adds">**An optional hosted service** that works on the same files.</Hosted>
+### Studio
+
+Studio is Deco's content editor: the web app where marketing and the rest of the business change your site without touching code. It shows a form for each block, built from your types, and saves every change back to the JSON files in `.deco/blocks`. To use it on your own checkout, run [`npx @decocms/blocks serve`](/next/cli#deco-serve) and open the link it prints; Studio then edits the files on your machine. Doing that without a Deco account is planned through a play workspace ([Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)).
+
+### The hosted Deco CMS
+
+Deco also runs a hosted version of Studio and everything around it, working on the same files. It's optional, and it adds:
+
+- **Publishing without a deploy:** a published change reaches visitors without a new build.
+- **Editing on GitHub:** editors work in Studio with no checkout; each save is a commit.
+- **Drafts on your real site:** preview a change on your actual pages before it's published.
+- **Asset storage:** uploaded images go to a CDN instead of your repository.
+- **Telemetry:** errors and upstream latency from your site, with nothing to set up.
+
+<Hosted to="/next/hosted" label="What the hosted Deco CMS adds">**See the hosted Deco CMS** for how each of these works and how to connect a site.</Hosted>
 
 ## Small on purpose
 
