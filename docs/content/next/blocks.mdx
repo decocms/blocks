@@ -49,7 +49,7 @@ What a block can contain:
 
 ### Reading the request
 
-A block function gets only its inputs: no request, no context object. When it needs the current request, a cookie or a route parameter, it reads it the way the rest of your app does, through your framework's request-scoped storage (`next/headers`, TanStack Start's `getRequest()`, or Node's `AsyncLocalStorage`). That keeps block functions plain functions you can call in a test.
+A block function gets only its inputs: no request, no context object. When it needs the current request, a cookie or a route parameter, it reads it the way the rest of your app does, through your framework's request-scoped storage (`next/headers`, TanStack Start's `getRequest()`, or Node's `AsyncLocalStorage`). That keeps block functions pure, so you can call them in a test.
 
 ## Composing blocks
 
