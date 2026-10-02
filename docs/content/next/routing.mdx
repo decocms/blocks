@@ -132,7 +132,7 @@ Mount this handler as your app's catch-all route, the one that runs when no othe
 | `"redirect"` | `location` with parameters filled in, and `status` (`301` or `302`). |
 | `"not-found"` | None |
 
-<Callout>**`matchRoute` is a helper, not a requirement.** The CMS has no idea what a URL is. If your framework already routes, or you'd rather open a page by name (`client.resolve("SummerPage")` returns it ready to render) or find it by a field of your own, skip it. It exists because "an editor typed a path into Studio and that page is now live" is the common case, and getting precedence and parameters right by hand is tedious.</Callout>
+<Callout>**`matchRoute` is a helper, not a requirement.** The CMS has no idea what a URL is. If your framework already routes, or you'd rather open a page by name (`client.resolve("SummerPage")` returns it ready to render) or find it by a field of your own, skip it. It exists because "an editor typed a path into [Studio](/next/how-it-works#studio) and that page is now live" is the common case, and getting precedence and parameters right by hand is tedious.</Callout>
 
 Which types route is your decision, per handler: a blog lists `post`, a docs site lists `doc`. `match.params` holds the URL parameters; hand them to your code however your app shares request state. The CMS never injects them into blocks.
 

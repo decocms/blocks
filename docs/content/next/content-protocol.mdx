@@ -3,12 +3,12 @@ title: Studio and the content protocol
 nav: Content protocol
 group: Core concepts
 order: 6
-description: What Deco Studio needs from your repository, how it reads and writes your content through the content protocol, and how to edit a local checkout with deco serve.
+description: What Deco Studio needs from your repository, how it reads and writes your content through the content protocol, and how to edit the files on your machine with deco serve.
 ---
 
 # Studio and the content protocol
 
-Studio, Deco's visual editor, edits your content without running your code. It reads and writes your files through a small protocol, the **content protocol**, so the same editor works on the checkout on your machine or, through the hosted Deco CMS, on your GitHub repository.
+[Studio](/next/how-it-works#studio) edits your content without running your code. It reads and writes your files through a small protocol, the **content protocol**, so Studio works on the files on your machine or, through the hosted Deco CMS, on your GitHub repository.
 
 <Callout>**Status.** The content protocol, its package and `deco serve` are proposed and not built yet. See the [Roadmap](/roadmap#roadmap-blockers--let-studio-talk-to-a-next-major-site).</Callout>
 
@@ -36,9 +36,9 @@ Two implementations serve the protocol:
 
 There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins in this version: if two people edit the same saved block at once, the later save replaces the earlier one.
 
-<Hosted to="/next/hosted-studio" label="Editing in Studio on GitHub">**Edit without a checkout.** With the hosted Deco CMS, Studio's GitHub backend commits each save to a draft branch, and publishes by bringing the draft to your production branch, so editors need no checkout, dev server or Git.</Hosted>
+<Hosted to="/next/hosted-studio" label="Editing in Studio on GitHub">**Edit without a local copy.** With the hosted Deco CMS, Studio's GitHub backend commits each save to a draft branch, and publishes by bringing the draft to your production branch, so editors need no copy of the code, dev server or Git.</Hosted>
 
-## Edit your local checkout
+## Edit on your machine
 
 1. Start your app's dev server.
 2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco` folder (or takes `--root`) and prints its address, a bearer token and a connect link:
@@ -51,7 +51,7 @@ There's no event stream. Studio polls with one batched request, and when nothing
    Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
    ```
 
-3. Open the link and pick the site in Studio to edit. Editing your checkout is planned to need no Deco account: without one, the link opens a play workspace in Studio, which isn't built yet (see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)).
+3. Open the link and pick the site in Studio to edit. Editing on your machine is planned to need no Deco account: without one, the link opens a play workspace in Studio, which isn't built yet (see the [Roadmap](/roadmap#roadmap-platform--add-a-play-workspace-for-local-editing)).
 4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access, formerly Private Network Access). Allow it.
 
 Each save writes `.deco/blocks`. Editing an existing file hot-reloads through your framework. The server also regenerates the content module when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. The canvas opens your dev app (`--app-url`). Nothing is committed: review the diff and commit it like any other change.

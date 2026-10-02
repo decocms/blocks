@@ -71,7 +71,7 @@ Each field is typed as what the page receives, already resolved: a `Seo` object 
 
 Two SDK functions turn these entries into URLs. `client.list("page")` returns every saved block whose `__resolveType` is `page`. `matchRoute(url, { routes, redirects })` picks the entry that matches a URL. [Routing](/next/routing) puts them together.
 
-**The router's rule is one line: an entry with a string `path` matches at that path.** `Route` is what makes that intentional. The CLI checks that any type declaring `path` extends `Route`, so a stray `path` field on an unrelated block is a schema error rather than a surprise URL. Editors see `name` and `path` as ordinary fields on every routable thing, in Studio, which is how a marketing team gets `/summer-sale` live without a developer. Keep `path` and `from` plain strings, not blocks, so the router can match without running code.
+**The router's rule is one line: an entry with a string `path` matches at that path.** `Route` is what makes that intentional. The CLI checks that any type declaring `path` extends `Route`, so a stray `path` field on an unrelated block is a schema error rather than a surprise URL. Editors see `name` and `path` as ordinary fields on every routable thing, in [Studio](/next/how-it-works#studio), which is how a marketing team gets `/summer-sale` live without a developer. Keep `path` and `from` plain strings, not blocks, so the router can match without running code.
 
 ## Your own routable types
 

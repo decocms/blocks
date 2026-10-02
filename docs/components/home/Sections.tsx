@@ -161,7 +161,7 @@ export function ContentModel() {
             <span className={cardNum}>02</span>
             <h3 className={cardH3}>Editable for humans</h3>
             <p className={cardP}>
-              Deco Studio, the visual editor in the hosted Deco CMS, turns your types into forms and live previews. Marketers and editors
+              With the hosted Deco CMS, Studio turns your types into forms and live previews. Marketers and editors
               change pages, campaigns, and settings without a developer, and every change is a commit you can review and roll back.
             </p>
           </div>
@@ -371,7 +371,7 @@ export function Publishing() {
             Publish in seconds, <Dim>not on the next deploy.</Dim>
           </H2>
           <Lede className={reveal} style={d('120ms')}>
-            The hosted Deco CMS adds Deco Studio, the visual editor, and publishing without a redeploy: each change reaches every visitor in
+            The hosted Deco CMS adds Studio and publishing without a redeploy: each change reaches every visitor in
             seconds, and editors preview drafts on your real pages first. Without it, developers and agents edit the files, and content goes
             live with your next deploy.
           </Lede>

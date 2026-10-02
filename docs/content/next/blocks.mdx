@@ -68,7 +68,7 @@ productCard({
 
 Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives the resolved `Product`, never a pending call. If a function is `async`, its result is awaited first.
 
-So type the prop as what the function receives, `product: Product`, not as a block. [Schema](/next/schema#from-types-to-forms) shows how Studio then offers the functions that return a `Product`, such as `catalogProduct`.
+So type the prop as what the function receives, `product: Product`, not as a block. [Schema](/next/schema#from-types-to-forms) shows how [Studio](/next/how-it-works#studio) then offers the functions that return a `Product`, such as `catalogProduct`.
 
 To resolve a block from your code, pass it to `client.resolve`. Get a client with `cms.forRelease()` (`cms` is set up in [The `deco content` command](#the-deco-content-command)), one per request ([why](/next/releases-and-deployment#one-revision-per-response)):
 
@@ -168,7 +168,7 @@ Saved blocks are files in your repository: one JSON file per saved block in `.de
 └── SummerCard.json
 ```
 
-Edit them as files, with an AI agent, or in Studio (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)). Because they're files in Git, every edit is a commit you can review and revert, and publishing is pushing to your production branch: your next deploy serves it (see [Releases and deployment](/next/releases-and-deployment#publishing)).
+Edit them as files, with an AI agent, or in Studio (see [Edit on your machine](/next/content-protocol#edit-on-your-machine)). Because they're files in Git, every edit is a commit you can review and revert, and publishing is pushing to your production branch: your next deploy serves it (see [Releases and deployment](/next/releases-and-deployment#publishing)).
 
 ### The `deco content` command
 
@@ -199,4 +199,6 @@ export const cms = createCMS({ blocks, content });
 
 The generated file belongs in `.gitignore`, like TanStack Router's `routeTree.gen.ts`. Run it before your dev server and your build, after `deco schema` (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)).
 
-Editing a file reloads through your framework's hot module replacement (HMR), with no rerun. Adding or removing a file needs the command again: rerun `npx @decocms/blocks content`, or leave `npx @decocms/blocks content --watch` running beside your dev server. Every option is in the [CLI reference](/next/cli).
+Editing a file reloads through your framework's hot module replacement (HMR), with no rerun. Adding or removing a file needs the command again: rerun `npx @decocms/blocks content`, or leave `npx @decocms/blocks content --watch` running beside your dev server.
+
+It reads only the JSON files, never your block map. You can pass another folder or an `--out` path, but Studio only edits `.deco/blocks`, and with `--out` you also update the `import content` path. Every option is in the [CLI reference](/next/cli#deco-schema-and-deco-content).

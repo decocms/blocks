@@ -8,7 +8,7 @@ order: 15
 
 In this guide, you'll render CMS pages with Server Components and generate metadata from the page's SEO block. An optional last step streams each of a page's blocks under its own Suspense boundary.
 
-Editors choose page URLs in Studio, so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
+Editors choose page URLs in [Studio](/next/how-it-works#studio), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
 
 **Prerequisites:** an App Router app (the SDK reads no files, so the Node and Edge runtimes both work), with a root layout; `npm install @decocms/blocks server-only` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); and the [example project](/next/routing#the-example-used-here-and-in-the-guides): `src/model.ts` plus the entries in `.deco/blocks` at the project root.
 
@@ -344,6 +344,6 @@ To edit this app's content in Studio while you develop, run [`deco serve`](/next
 npx @decocms/blocks serve --app-url http://localhost:3000
 ```
 
-Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
+Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/content-protocol#edit-on-your-machine)).
 
 <Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Publish and preview without a deploy.** Two environment variables connect this app to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>

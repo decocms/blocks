@@ -11,7 +11,7 @@ Your block functions and your content ship together. Both live in your repositor
 
 | Step | What happens |
 |---|---|
-| Commit | A developer, an agent, or an editor in Studio changes a function, a saved block, or both. Review them in one pull request like any other change. |
+| Commit | A developer, an agent, or an editor in [Studio](/next/how-it-works#studio) changes a function, a saved block, or both. Review them in one pull request like any other change. |
 | Build | `prebuild` runs `deco schema && deco content`, which bundles `.deco/blocks` into the build as the [content module](/next/blocks#the-deco-content-command). |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 

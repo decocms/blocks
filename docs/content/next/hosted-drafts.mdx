@@ -8,7 +8,7 @@ description: With the hosted Deco CMS, Studio opens your real site with a ?__dra
 
 # Drafts on your site
 
-Without the hosted Deco CMS, a draft is a branch, and you preview it in your dev app or a preview deploy (see [Preview](/next/preview)). With it, Studio opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
+Without the hosted Deco CMS, a draft is a branch, and you preview it in your dev app or a preview deploy (see [Preview](/next/preview)). With it, [Studio](/next/how-it-works#studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
 
 <Callout>**Status.** Site tokens, the draft service and previews inside Studio's frame are still being built; see the Roadmap ([release service](/roadmap#roadmap-platform--build-the-deco-api-release-service), [preview in Studio's iframe](/roadmap#roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe)).</Callout>
 
@@ -156,4 +156,4 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 ## Studio's canvas
 
-Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its [site ID and token](/next/hosted#connect-your-site) and the wiring above. With [`deco serve`](/next/content-protocol#edit-your-local-checkout), the canvas opens your dev app instead, which already renders your working tree.
+Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its [site ID and token](/next/hosted#connect-your-site) and the wiring above. With [`deco serve`](/next/content-protocol#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.

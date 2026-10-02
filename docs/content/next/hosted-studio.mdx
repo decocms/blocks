@@ -3,12 +3,12 @@ title: Editing in Studio on GitHub
 nav: Studio on GitHub
 group: Hosted Deco CMS
 order: 26
-description: "With the hosted Deco CMS, Studio edits your GitHub repository directly, with no checkout: saves are commits on a draft branch, and publishing brings them to production."
+description: "With the hosted Deco CMS, Studio edits your GitHub repository directly, with nothing to clone or install: saves are commits on a draft branch, and publishing brings them to production."
 ---
 
 # Editing in Studio on GitHub
 
-Studio edits your content through the [content protocol](/next/content-protocol), wherever the files live. On your machine, [`deco serve`](/next/cli#deco-serve) serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no checkout, no dev server and no Git.
+[Studio](/next/how-it-works#studio) edits your content through the [content protocol](/next/content-protocol), wherever the files live. On your machine, [`deco serve`](/next/cli#deco-serve) serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no copy of the code, no dev server and no Git.
 
 <Callout>**Status.** The content protocol and Studio's GitHub backend are proposed and not built yet; see the [Roadmap](/roadmap#roadmap-platform--build-studio-s-github-content-backend).</Callout>
 
@@ -25,7 +25,7 @@ Studio's forms, variants, pages and redirects are the same on both backends: the
 | Uploads | Files in `.deco/assets/` (or the folder you pass with `--assets`) in your working tree, which you commit | Deco's asset storage, served from a CDN |
 | Preview canvas | Your dev app | Your site, with a [`?__draft=` link](/next/hosted-drafts) |
 | Studio checks for changes | About every 2 seconds | When you return to the tab, and about every 30 seconds |
-| Needs | A checkout and a running CLI | A connected site |
+| Needs | A copy of the repository on your machine and a running CLI | A connected site |
 
 ## Uploads
 

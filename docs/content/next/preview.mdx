@@ -10,9 +10,9 @@ Previewing a content change means rendering the same code against different cont
 
 ## Preview locally
 
-Your dev app already renders your working tree. Each file in `.deco/blocks` is an ordinary import of the content module, so editing one reloads through your framework's hot module replacement (HMR), and the running CMS gets the new content (see [The `deco content` command](/next/blocks#the-deco-content-command)). Change a file, by hand, with an agent or in Studio, and the page in your browser shows it.
+Your dev app already renders your working tree. Each file in `.deco/blocks` is an ordinary import of the content module, so editing one reloads through your framework's hot module replacement (HMR), and the running CMS gets the new content (see [The `deco content` command](/next/blocks#the-deco-content-command)). Change a file, by hand, with an agent or in [Studio](/next/how-it-works#studio), and the page in your browser shows it.
 
-To edit through Studio's forms instead of JSON, run [`deco serve`](/next/cli#deco-serve) beside your dev server. Studio writes the files in your working tree, and its canvas opens your dev app with `--app-url`, so each save shows up on the real page (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
+To edit through Studio's forms instead of JSON, run [`deco serve`](/next/cli#deco-serve) beside your dev server. Studio writes the files in your working tree, and its canvas opens your dev app with `--app-url`, so each save shows up on the real page (see [Edit on your machine](/next/content-protocol#edit-on-your-machine)).
 
 ```bash
 npm run dev                                                # your app, on http://localhost:3000

@@ -50,7 +50,7 @@ interface Client {
 
 ## Loaders
 
-One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module (see [Configuring content](#configuring-content)). Here a loader is a source of content; it isn't Studio's "loaders" or a router's route loader.
+One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module (see [Configuring content](#configuring-content)). Here a loader is a source of content; it isn't [Studio](/next/how-it-works#studio)'s "loaders" or a router's route loader.
 
 ```ts
 interface Loader {

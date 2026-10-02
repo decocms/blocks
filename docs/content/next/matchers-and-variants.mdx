@@ -44,7 +44,7 @@ import hero from "./hero";
 export default { always, never, date, multivariate, hero } satisfies Blocks;
 ```
 
-Editors compose them in Studio. Each variant is a tab, and its rule is picked from the matchers in your map. Variants are checked in order, so the one with the `always` rule goes last and catches everything else. A hero whose title changes for a campaign is a `hero` whose `title` is a `multivariate`:
+Editors compose them in [Studio](/next/how-it-works#studio). Each variant is a tab, and its rule is picked from the matchers in your map. Variants are checked in order, so the one with the `always` rule goes last and catches everything else. A hero whose title changes for a campaign is a `hero` whose `title` is a `multivariate`:
 
 ```json title="Saved as HomeHero"
 {
