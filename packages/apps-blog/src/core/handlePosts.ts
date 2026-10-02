@@ -80,10 +80,16 @@ export const sortPosts = async (blogPosts: BlogPost[], sortBy: SortBy): Promise<
  * Returns a filtered BlogPost list.
  *
  * @param posts Posts to be handled
- * @param slug Category slug to filter by
+ * @param slug Category slug, or a list of slugs a post may belong to any of.
+ *   A list is how a parent category pulls in its descendants' posts.
  */
-export const filterPostsByCategory = (posts: BlogPost[], slug?: string): BlogPost[] =>
-  slug ? posts.filter(({ categories }) => categories?.find((c) => c.slug === slug)) : posts;
+export const filterPostsByCategory = (posts: BlogPost[], slug?: string | string[]): BlogPost[] => {
+  if (!slug || (Array.isArray(slug) && slug.length === 0)) {
+    return posts;
+  }
+  const slugs = new Set(Array.isArray(slug) ? slug : [slug]);
+  return posts.filter(({ categories }) => categories?.some((c) => slugs.has(c?.slug)));
+};
 
 /** Filter posts whose slug is in the given list. */
 export const filterPostsBySlugs = (posts: BlogPost[], postSlugs: string[]): BlogPost[] =>
@@ -97,7 +103,7 @@ export const filterPostsByTerm = (posts: BlogPost[], term: string): BlogPost[] =
 
 /** Filter posts whose categories overlap with the given slug array. */
 export const filterRelatedPosts = (posts: BlogPost[], slugs: string[]): BlogPost[] =>
-  posts.filter(({ categories }) => categories?.find((c) => slugs.includes(c.slug)));
+  filterPostsByCategory(posts, slugs);
 
 /** Slice posts for pagination. */
 export const slicePosts = (
@@ -134,19 +140,12 @@ const filterPosts = (
 ): BlogPost[] => {
   const posts = filterRoutablePosts(allPosts);
 
-  if (typeof slug === "string") {
-    const firstFilter =
-      postSlugs && postSlugs.length > 0
-        ? filterPostsBySlugs(posts, postSlugs)
-        : filterPostsByCategory(posts, slug);
+  const byCategory =
+    postSlugs && postSlugs.length > 0
+      ? filterPostsBySlugs(posts, postSlugs)
+      : filterPostsByCategory(posts, slug);
 
-    return term ? filterPostsByTerm(firstFilter, term) : firstFilter;
-  }
-  if (Array.isArray(slug)) {
-    return filterRelatedPosts(posts, slug);
-  }
-
-  return term ? filterPostsByTerm(posts, term) : posts;
+  return term ? filterPostsByTerm(byCategory, term) : byCategory;
 };
 
 /**

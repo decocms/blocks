@@ -29,11 +29,12 @@ export interface BlogSeoDefaults {
 
 export interface BlogConfig {
   /**
-   * Slug pattern of the category route, e.g. `/blog/:category`.
+   * Slug pattern of the category route, e.g. `/blog/:category*`. Categories can
+   * nest, so the route must be a catch-all for subcategories to resolve.
    */
   categorySlug?: string;
   /**
-   * Slug pattern of the post route, e.g. `/blog/:category/:slug`.
+   * Slug pattern of the post route, e.g. `/blog/:category*\/:slug`.
    */
   pageSlug?: string;
   /**

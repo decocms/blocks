@@ -22,14 +22,16 @@ import type { Publisher } from "./types";
 export interface Props {
   /**
    * @title Category Slug
-   * @description The slug of the Categories of the blogposts. Use :category
-   * @example /blog/:category
+   * @description The slug of the Categories of the blogposts. Use :category.
+   * Categories can nest, so the route must be a catch-all for subcategories to
+   * resolve.
+   * @example /blog/:category*
    */
   categorySlug?: string;
   /**
    * @title Page Slug
    * @description The slug of the BlogPostPage to embed. Use :category and :slug.
-   * @example /blog/:category/:slug
+   * @example /blog/:category*\/:slug
    */
   pageSlug?: string;
   /**

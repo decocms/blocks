@@ -1,4 +1,10 @@
 import { logger, serializeError } from "@decocms/blocks/sdk/logger";
+import {
+  ancestorsOf,
+  descendantSlugs,
+  indexCategories,
+  withCategoryPath,
+} from "../core/categoryTree";
 import handlePosts, { slicePosts } from "../core/handlePosts";
 import { getRecordsByPath } from "../core/records";
 import type { BlogPost, BlogPostListingPage, Category, PageInfo, SortBy } from "../types";
@@ -11,7 +17,9 @@ const CATEGORY_ACCESSOR = "category";
 export interface Props {
   /**
    * @title Category Slug
-   * @description Filter by a specific category slug.
+   * @description Filter by a category slug. May be a full path
+   * ("parent/child"); posts of every subcategory below the last segment are
+   * included.
    */
   slug?: string;
   /**
@@ -72,13 +80,6 @@ export default async function BlogPostListing(
   const posts = getRecordsByPath<BlogPost>(COLLECTION_PATH, ACCESSOR);
 
   try {
-    const handledPosts = await handlePosts(posts, pageSort, slug, undefined, term);
-
-    if (!handledPosts) return null;
-
-    const slicedPosts = slicePosts(handledPosts, pageNumber, postsPerPage);
-    if (slicedPosts.length === 0) return null;
-
     let categories: Category[] | null = null;
     try {
       categories = loadCategories();
@@ -86,24 +87,52 @@ export default async function BlogPostListing(
       report("blog/BlogpostListing/categories", e);
     }
 
+    // The slug prop carries the whole category path ("pai/filho") when the
+    // site routes the listing as a catch-all; only the leaf identifies the
+    // category, the segments before it are its ancestors.
+    const requestedSegments = (slug ?? "").split("/").filter(Boolean);
+    const leafSlug = requestedSegments[requestedSegments.length - 1];
+
+    const index = indexCategories(categories);
+    const chain = leafSlug ? ancestorsOf(leafSlug, index) : null;
+
+    // A parent lists its own posts plus every descendant's.
+    const categorySlugs = leafSlug ? descendantSlugs(leafSlug, categories) : undefined;
+
+    const handledPosts = await handlePosts(posts, pageSort, categorySlugs, undefined, term);
+
+    if (!handledPosts) return null;
+
+    const slicedPosts = slicePosts(handledPosts, pageNumber, postsPerPage);
+    if (slicedPosts.length === 0) return null;
+
     let category: Category | null = null;
-    if (slug) {
+    if (leafSlug) {
       // Prefer the standalone category record (it carries description and
       // sections); fall back to the denormalized copy embedded in a post,
       // which is all a site that never created category records will have.
-      category = categories?.find((c) => c.slug === slug) ?? null;
-      category ??= slicedPosts[0]?.categories?.find((c) => c.slug === slug) ?? null;
+      category =
+        index.get(leafSlug) ??
+        slicedPosts[0]?.categories?.find((c) => c?.slug === leafSlug) ??
+        null;
     }
+
+    // Only a chain that came out of the records is trustworthy enough to name
+    // a canonical URL; a missing or broken one keeps the flat behaviour.
+    const canonical = chain ? withCategoryPath(url, chain, { requested: requestedSegments }) : null;
 
     return {
       posts: slicedPosts,
       category,
       categories,
+      categoryPath: chain ?? (category ? [category] : null),
       pageInfo: toPageInfo(handledPosts, postsPerPage, pageNumber, params),
       seo: {
         title: category?.name ?? "",
         description: category?.description,
-        canonical: new URL(url.pathname, url.origin).href,
+        // Reached through a stale or wrong path, the page still renders and
+        // points at the one canonical URL instead of 404ing.
+        canonical: canonical ?? new URL(url.pathname, url.origin).href,
       },
     };
   } catch (e) {

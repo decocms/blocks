@@ -123,6 +123,25 @@ describe("filterPostsByCategory", () => {
     const result = filterPostsByCategory(posts, "tech");
     expect(result.find((p) => p.slug === "b")).toBeTruthy();
   });
+
+  /**
+   * A parent category lists its descendants' posts by expanding its slug into
+   * the whole subtree, so the filter has to match on any slug of a list.
+   */
+  it("matches a post in any slug of a list", () => {
+    const inCategory = (slug: string) =>
+      makePost({ slug: `post-${slug}`, categories: [{ name: slug, slug }] });
+    const tree = [inCategory("root"), inCategory("child"), inCategory("other")];
+
+    expect(filterPostsByCategory(tree, ["root", "child"]).map((p) => p.slug)).toEqual([
+      "post-root",
+      "post-child",
+    ]);
+    expect(filterPostsByCategory(tree, "child").map((p) => p.slug)).toEqual(["post-child"]);
+    // No slug at all means no category filter, same as before.
+    expect(filterPostsByCategory(tree, [])).toHaveLength(3);
+    expect(filterPostsByCategory(tree)).toHaveLength(3);
+  });
 });
 
 // ---------------------------------------------------------------------------

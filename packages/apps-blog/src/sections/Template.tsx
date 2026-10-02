@@ -51,22 +51,27 @@ export default function Template({ post }: Props) {
     excerpt = "Excerpt",
     date,
     image,
+    mobileImage,
     alt,
     sections,
     slug,
     categories,
   } = post;
 
+  // Only the leaf slug, not the ancestor path: resolving the chain needs
+  // `getRecordsByPath`, which pulls the server-only `@decocms/blocks/cms`
+  // entry into this client-reachable section. The preview iframe lands on the
+  // flat URL, which still renders.
   const postCategorySlug = categories?.[0]?.slug ?? "";
 
   if (pageSlug) {
-    const resolvedUrl = pageSlug.replace(":category", postCategorySlug).replace(":slug", slug);
+    const resolvedUrl = pageSlug.replace(/:category\*?/, postCategorySlug).replace(":slug", slug);
 
     return <iframe src={resolvedUrl} style={iframeStyle} title={title} />;
   }
 
   if (categorySlug) {
-    const resolvedUrl = categorySlug.replace(":category", postCategorySlug);
+    const resolvedUrl = categorySlug.replace(/:category\*?/, postCategorySlug);
 
     return <iframe src={resolvedUrl} style={iframeStyle} title={title} />;
   }
@@ -87,7 +92,12 @@ export default function Template({ post }: Props) {
               })
             : ""}
         </p>
-        {image && <img className="w-full rounded-2xl bg-cover" src={image} alt={alt ?? title} />}
+        {image && (
+          <picture>
+            {mobileImage && <source media="(max-width: 767px)" srcSet={mobileImage} />}
+            <img className="w-full rounded-2xl bg-cover" src={image} alt={alt ?? title} />
+          </picture>
+        )}
         <div dangerouslySetInnerHTML={{ __html: content as string }} />
         <div className="content-sections">{sections?.map(renderSection)}</div>
       </div>
