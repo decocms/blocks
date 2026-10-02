@@ -34,6 +34,22 @@ The `deco` command ships inside `@decocms/blocks` rather than in a package of it
 - **Programmatic use.** The same commands are importable from the `@decocms/blocks/cli` subpath.
 - **Nothing in your bundle.** `typescript` is a peer dependency, which npm and Bun install for you, and the CLI loads it only when a command runs. Bundlers only include what your app imports, and apps never import `@decocms/blocks/cli`, so the CLI and the TypeScript compiler never reach an app bundle. The runtime never imports the `cli` subpath either.
 
+## How `deco check` works
+
+[`deco check`](/next/cli#deco-check) validates your saved blocks with a JSON Schema validator, against the same schema `deco schema` writes. It doesn't type-check generated TypeScript with `tsc`, for three reasons:
+
+- **Speed.** Validating thousands of JSON files takes milliseconds. `tsc` would have to load your whole app first.
+- **Messages that point at the data.** Each error names the file and the field, such as `.deco/blocks/HomePage.json › sections[2].title`, not a line in a generated file.
+- **One contract.** The schema also carries what types can't express, such as `@maxLength` or `@format date`, and it's what Studio enforces. What passes `deco check` is exactly what Studio allows.
+
+Three things make the messages useful:
+
+1. **Dispatch on `__resolveType`.** A field that takes any block of a type, like `product: Product` or `sections: ReactNode[]`, is an `anyOf` in the schema, and plain `anyOf` validation reports every branch that didn't match. The check reads `__resolveType` first and validates against that one block type's schema, so an unknown name is a single error: `unknown block type "promo-banner"`.
+2. **References by return type.** A reference to a saved block is checked against the return type of the function behind it, the same rule Studio uses to offer blocks for a field.
+3. **Plain wording.** Validator errors are rewritten into short lines: `title: required`, `title: 214 characters, max 60`, `size: "xl" isn't one of "sm", "md", "lg"`.
+
+The check is only as accurate as the schema, so `deco schema`'s translation of types into schemas is tested on its own. Your usual `tsc` run still checks the code itself.
+
 ## Contributing
 
 The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Four core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. A fifth core package, `@decocms/blocks-protocol` for the [content protocol](/next/studio-compatibility#the-content-protocol), is proposed; it depends on no other Deco package, and the `cli` subpath of `@decocms/blocks` would use it (the runtime never imports it). The core packages depend on each other in one direction only:

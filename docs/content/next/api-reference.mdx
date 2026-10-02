@@ -251,7 +251,7 @@ interface CMSError {
 
 ## Errors
 
-Client calls never throw: `resolve` and `list` return `[value, null]` or `[null, error]`. The one exception in the SDK is `matchRoute`, which throws when two entries can match the same URL. That's a content bug `deco schema` also reports, so run it in CI on every commit, content commits included (see [Backward compatibility](/next/schema#backward-compatibility)), and catch the throw in your handler (see [Path templates and match order](/next/routing#path-templates-and-match-order)). Check the error, not the value, because a block function can legitimately return `null`.
+Client calls never throw: `resolve` and `list` return `[value, null]` or `[null, error]`. The one exception in the SDK is `matchRoute`, which throws when two entries can match the same URL. That's a content bug [`deco check`](/next/cli#deco-check) also reports (see [Backward compatibility](/next/schema#backward-compatibility)), and catch the throw in your handler (see [Path templates and match order](/next/routing#path-templates-and-match-order)). Check the error, not the value, because a block function can legitimately return `null`.
 
 | Code | When |
 |---|---|

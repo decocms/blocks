@@ -1151,8 +1151,8 @@
     {
       "id": "roadmap-cli--add-validation-commands-to-the-cli",
       "group": "cli",
-      "title": "Add validation commands to the CLI",
-      "plan": "<p>Content-model checks in <code>deco schema</code> reporting UNKNOWN_BLOCK, NOT_FOUND, orphans, schema violations and route collisions, with an optional resolve-every-page smoke test.</p>",
+      "title": "Add <code>deco check</code>, which validates saved content against the code",
+      "plan": "<p><code>deco check [--root &lt;dir&gt;]</code> generates the schema from <code>.deco/index.ts</code> in memory (it writes nothing), validates every saved block in <code>.deco/blocks</code> against it, lists the problems per file and exits 1 if there is any. Saved content is valid when every block's props match its block type's schema (required fields, allowed values, limits); every <code>__resolveType</code> names a block type (built-ins and aliases included) or an existing saved block; a reference in a typed field points to a block that returns that type; no saved block is named like a block type, built-in or alias; no two entries match the same URL; and the committed <code>.deco/schema.gen.json</code> is up to date. It catches both directions, code that breaks saved content and content that uses types or fields the code lacks, and runs on content-only changes too, the same locally and in CI. The docs ship a CI example: one step, <code>npx @decocms/blocks check</code>, plus “Require branches to be up to date before merging” (or a merge queue), so two changes that pass alone can't merge into a broken pair. The Deco API and <code>remoteLoader</code> don't validate content at runtime. Ships with the first release.</p><p>Implementation: validate with a JSON Schema validator (such as Ajv) against the generated schema, not by type-checking generated TypeScript with <code>tsc</code>: it takes milliseconds, its errors name the file and field, and it enforces JSDoc constraints and exactly what Studio allows. Dispatch on <code>__resolveType</code> instead of reporting every <code>anyOf</code> branch, check references against the return type of the function behind them, and rewrite validator errors into short plain lines.</p>",
       "features": [
         "orphan-and-dangling-blocks",
         "content-schema-drift",
@@ -1163,21 +1163,7 @@
         "cms-schema-upload-pipeline",
         "page-seo-blocks",
         "site-bootstrap",
-        "codegen-pipeline"
-      ],
-      "docs": [],
-      "pinned": false
-    },
-    {
-      "id": "roadmap-cli--add-deco-schema-check-a-compatibility-check",
-      "group": "cli",
-      "title": "Add <code>deco schema --check</code>, a compatibility check",
-      "plan": "<p><code>deco schema --check &lt;base&gt;</code> generates the schema, compares it with a base <code>.deco/schema.gen.json</code> (in CI, the one on the target branch), lists every breaking change and exits non-zero if there is one. It writes nothing. Breaking: removing a block type (any removal, since it compares schemas only), removing or renaming a field, adding a required field or making an optional one required, and narrowing a field's type (a string becoming a union of allowed values, a union losing a member, a tighter limit: a lower <code>@maximum</code>/<code>@maxLength</code> or a higher <code>@minimum</code>/<code>@minLength</code>). Not breaking: adding a type, adding an optional field, widening a type. An alias keeps a renamed type's old name in the schema, so a block type renamed with an alias passes. The docs ship a GitHub Actions example. Compatibility is checked here, before merge; the Deco API and <code>remoteLoader</code> don't compare schemas at runtime. Ships with the first release.</p>",
-      "features": [
-        "content-schema-drift",
-        "ci-and-release-workflows",
         "codegen-pipeline",
-        "dev-tooling-and-repo-hygiene",
         "content-storage-and-delivery"
       ],
       "docs": [
@@ -1363,7 +1349,7 @@
       "id": "roadmap-cli--ship-the-deco-command",
       "group": "cli",
       "title": "Ship the <code>deco</code> command",
-      "plan": "<p>These docs run <code>npx @decocms/blocks schema</code>, but <code>@decocms/blocks</code> doesn't declare a <code>deco</code> bin yet. Ship the CLI inside <code>@decocms/blocks</code>, so <a href=\"#quickstart\">Quickstart</a> installs one package and the CLI always matches the runtime version. Declare <code>deco</code> as the package's single bin, so <code>npx @decocms/blocks &lt;command&gt;</code> runs it with nothing installed and <code>package.json</code> scripts call <code>deco &lt;command&gt;</code>; the bin is a small JavaScript file that loads the TypeScript sources, so it runs under plain Node as well as Bun. Export the commands from the <code>@decocms/blocks/cli</code> subpath, make <code>typescript</code> a required peer dependency (so npm and Bun install it) that the CLI loads only when a command runs, and keep the runtime from ever importing the <code>cli</code> subpath, so app bundles never include the CLI. It has three commands, <code>deco schema [--root &lt;dir&gt;] [--watch] [--check &lt;base&gt;]</code>, <code>deco content [--root &lt;dir&gt;] [--watch]</code> and <code>deco serve [--root &lt;dir&gt;] [--port &lt;n&gt;] [--host &lt;addr&gt;] [--app-url &lt;url&gt;] [--token &lt;t&gt;] [--allow-origin &lt;origin&gt;]… [--assets &lt;dir&gt;] [--read-only]</code>. Every command works on one folder, <code>.deco/</code>, in the app root (the folder with the app's <code>package.json</code>). <code>--root</code> is the folder that contains it; by default, every command walks up from the current folder to the first folder with a <code>.deco/</code>. There are no input or output paths: <code>deco schema</code> reads <code>.deco/index.ts</code> (or <code>.deco/index.tsx</code>) and writes <code>.deco/schema.gen.json</code>; <code>deco content</code> reads <code>.deco/blocks</code> and writes <code>.deco/blocks.gen.ts</code>, and never reads the block map. The <code>.gen.</code> infix marks the two generated files. The flags of each command are in the <a href=\"/next/cli#deco-schema-and-deco-content\">CLI reference</a>.</p>",
+      "plan": "<p>These docs run <code>npx @decocms/blocks schema</code>, but <code>@decocms/blocks</code> doesn't declare a <code>deco</code> bin yet. Ship the CLI inside <code>@decocms/blocks</code>, so <a href=\"#quickstart\">Quickstart</a> installs one package and the CLI always matches the runtime version. Declare <code>deco</code> as the package's single bin, so <code>npx @decocms/blocks &lt;command&gt;</code> runs it with nothing installed and <code>package.json</code> scripts call <code>deco &lt;command&gt;</code>; the bin is a small JavaScript file that loads the TypeScript sources, so it runs under plain Node as well as Bun. Export the commands from the <code>@decocms/blocks/cli</code> subpath, make <code>typescript</code> a required peer dependency (so npm and Bun install it) that the CLI loads only when a command runs, and keep the runtime from ever importing the <code>cli</code> subpath, so app bundles never include the CLI. It has four commands, <code>deco schema [--root &lt;dir&gt;] [--watch]</code>, <code>deco check [--root &lt;dir&gt;]</code>, <code>deco content [--root &lt;dir&gt;] [--watch]</code> and <code>deco serve [--root &lt;dir&gt;] [--port &lt;n&gt;] [--host &lt;addr&gt;] [--app-url &lt;url&gt;] [--token &lt;t&gt;] [--allow-origin &lt;origin&gt;]… [--assets &lt;dir&gt;] [--read-only]</code>. Every command works on one folder, <code>.deco/</code>, in the app root (the folder with the app's <code>package.json</code>). <code>--root</code> is the folder that contains it; by default, every command walks up from the current folder to the first folder with a <code>.deco/</code>. There are no input or output paths: <code>deco schema</code> reads <code>.deco/index.ts</code> (or <code>.deco/index.tsx</code>) and writes <code>.deco/schema.gen.json</code>; <code>deco content</code> reads <code>.deco/blocks</code> and writes <code>.deco/blocks.gen.ts</code>, and never reads the block map. The <code>.gen.</code> infix marks the two generated files. The flags of each command are in the <a href=\"/next/cli#deco-schema-and-deco-content\">CLI reference</a>.</p>",
       "features": [
         "codegen-pipeline",
         "studio-schema-generation",
@@ -1500,7 +1486,7 @@
       "id": "roadmap-platform--build-the-deco-api-release-service",
       "group": "studio",
       "title": "Build the Deco API release service",
-      "plan": "<p>A release endpoint, site IDs and site tokens (with a DECO_SITE and DECO_SITE_TOKEN lifecycle), rejection of ambiguous-route releases, and per-environment channels. The service serves every commit as it lands and doesn't compare schemas; compatibility is checked in CI by <code>deco schema --check</code>.</p>",
+      "plan": "<p>A release endpoint, site IDs and site tokens (with a DECO_SITE and DECO_SITE_TOKEN lifecycle), rejection of ambiguous-route releases, and per-environment channels. The service serves every commit as it lands and doesn't compare schemas; content is checked against the code in CI by <code>deco check</code>.</p>",
       "features": [
         "content-storage-and-delivery",
         "cms-page-routing",
@@ -4206,7 +4192,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "The file model matches, but filename encoding, bundling, the release service and skew protection are unspecified. Compatibility between content and the deployed code is meant to be checked in CI by `deco schema --check`, which isn't built yet.",
+      "summary": "The file model matches, but filename encoding, bundling, the release service and skew protection are unspecified. Content is meant to be validated against the code in CI by `deco check`, which isn't built yet.",
       "docs": [
         "quickstart",
         "blocks",
@@ -4251,7 +4237,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "The CI job is a few lines, but the CLI doesn't emit what Studio reads and has no `--check` mode. The blog's `regen-blocks.yml` is its live content-delivery path today; deleting it early freezes its content.",
+      "summary": "The CI job is a few lines, but the CLI doesn't emit what Studio reads and has no `deco check` yet. The blog's `regen-blocks.yml` is its live content-delivery path today; deleting it early freezes its content.",
       "docs": [
         "schema",
         "releases-and-deployment",
@@ -4295,7 +4281,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `--check` compatibility check yet",
+      "summary": "`deco schema` and a hand-written block map replace the registries, `deco content` (planned) generates the content module for every runtime, but there's no `deco check` to validate content against the code yet",
       "docs": [
         "schema",
         "block-maps",
@@ -4407,7 +4393,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Ordinary app work, and the CI drift check is one line, but there's no `--check` mode or content validator. Sites' own lint and quality scripts carry over as app scripts.",
+      "summary": "Ordinary app work, and the CI drift check is one line, but there's no `deco check` content validator yet. Sites' own lint and quality scripts carry over as app scripts.",
       "docs": [
         "schema",
         "router-internals",

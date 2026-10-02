@@ -17,7 +17,7 @@ Step through `client.resolve("SummerCard")` to watch [the lookup rule](/next/blo
 
 [Blocks](/next/blocks#the-lookup-rule) gives the rule in one paragraph. These are the details behind it:
 
-- **One namespace.** Saved blocks, built-in blocks and your block map share one registry, `{ ...savedBlocks, ...builtIns, ...blocks }`, so names should be unique. When a saved block has the same name as a block type, the function wins; `deco schema` reports the collision.
+- **One namespace.** Saved blocks, built-in blocks and your block map share one registry, `{ ...savedBlocks, ...builtIns, ...blocks }`, so names should be unique. When a saved block has the same name as a block type, the function wins; `deco check` reports the collision.
 - **Inputs resolve concurrently.** A function's inputs resolve before it runs, children before parents, and sibling blocks at the same time.
 - **Failures stop the parent.** If a nested block fails, its parent never runs and `resolve` returns the error, much as an outer call never runs when an inner one throws. The error's `path` says where in the tree it happened.
 - **A name with no saved block fails.** `client.resolve("Name")` fails with `NOT_FOUND` when nothing is saved under that name; a string is always a saved block's name, never a block type.

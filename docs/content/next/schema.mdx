@@ -141,20 +141,20 @@ Nothing is lost: inputs resolve before the function runs, so returning `props` g
 
 ### Names must not clash
 
-`deco schema` checks your saved content: it fails if a saved block in `.deco/blocks` has the name of a block type, built-ins included (no saved block can be called `page`, `redirect` or `telemetry`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); `deco schema` makes it an error so you catch it before you deploy. It doesn't yet check each saved block's values against the schema; that's part of the first release (see the [Roadmap](/roadmap#roadmap-cli--add-validation-commands-to-the-cli)).
+A saved block in `.deco/blocks` can't have the name of a block type, built-ins included (no saved block can be called `page`, `redirect` or `telemetry`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); [`deco check`](/next/cli#deco-check) makes it an error so you catch it before you deploy.
 
 ## Backward compatibility
 
-Saved content must keep working when your code changes. `deco schema --check` makes sure it does: it compares the schema your code generates with the one on your base branch, and fails on any change that could break saved content, such as removing a block type or a field, adding a required field, or narrowing a type. Adding things is always safe.
+Saved content must keep working when your code changes, and content must only use the block types and fields your code has. [`deco check`](/next/cli#deco-check) makes sure of both: it validates every saved block against the schema your code generates, whichever of the two changed.
 
-Run it on every pull request, and make the job a required check so a breaking change can't merge:
+Run it on every pull request, and make the job a required check so content that doesn't fit can't merge:
 
-```yaml title=".github/workflows/schema.yml"
-name: Schema
+```yaml title=".github/workflows/check.yml"
+name: Check
 on: pull_request
 
 jobs:
-  schema:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -163,25 +163,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: The committed schema matches the code
-        run: |
-          npx @decocms/blocks schema
-          if [ -n "$(git status --porcelain -- .deco/schema.gen.json)" ]; then
-            git diff -- .deco/schema.gen.json
-            echo ".deco/schema.gen.json is missing or out of date: run npx @decocms/blocks schema and commit it."
-            exit 1
-          fi
-      - name: No breaking changes for saved content
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          git fetch --depth=1 origin "$BASE_REF"
-          if git show "origin/$BASE_REF:.deco/schema.gen.json" > base-schema.json; then
-            npx @decocms/blocks schema --check base-schema.json
-          fi
+      - run: npx @decocms/blocks check
 ```
 
-In a monorepo, add `--root apps/storefront` to both commands and use `apps/storefront/.deco/schema.gen.json` as the path.
+Turn on "Require branches to be up to date before merging" in your branch protection (or use a merge queue), so the check runs on the code and content that will actually ship together.
+
+In a monorepo, run `npx @decocms/blocks check --root apps/storefront`.
 
 To rename a block type, keep the old name as an alias (see [Renaming and migrating](/next/renames-and-migrations#rename-a-type-with-an-alias)). To rename a field, add the new one, move the content over, then remove the old one.
 

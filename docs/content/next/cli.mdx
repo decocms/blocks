@@ -37,10 +37,11 @@ Don't edit `schema.gen.json` or `blocks.gen.ts`; `index.ts` and `blocks/` are yo
 | `blocks.gen.ts` | The content module, built from `blocks/` | `deco content` | No, gitignore it |
 | `assets/` | Uploaded images and files | `deco serve` | Yes |
 
-It has three commands, and each does one job:
+It has four commands, and each does one job:
 
 - **`deco schema`** turns the types in `.deco/index.ts` into `.deco/schema.gen.json`. Commit this file. See [Schema](/next/schema).
 - **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/blocks#the-deco-content-command), `.deco/blocks.gen.ts`. It's generated, so gitignore it. If `.deco/blocks` has no `Telemetry.json`, it also scaffolds one: settings only the [hosted Deco CMS](/next/hosted-telemetry) reads. Without a connected site the entry is inert, and you can delete it.
+- **`deco check`** makes sure your saved blocks fit your code, and fails if one doesn't. It writes nothing. Run it in CI (see [below](#deco-check)).
 - **`deco serve`** is the local server [Studio](/next/how-it-works#studio) uses to edit the files on your machine (see [below](#deco-serve)).
 
 ## Run it before dev and build
@@ -78,7 +79,7 @@ deco content --root apps/storefront
 ## `deco schema` and `deco content`
 
 ```bash
-deco schema  [--root <dir>] [--watch] [--check <base>]
+deco schema  [--root <dir>] [--watch]
 deco content [--root <dir>] [--watch]
 ```
 
@@ -93,7 +94,34 @@ The options:
 
 - `--root <dir>`: the folder that contains `.deco/` (see [above](#finding-the-deco-folder)).
 - `--watch`: regenerate as files change.
-- `--check <base>` (`deco schema` only): compare the schema your code generates now with an earlier one, and fail on breaking changes. It writes nothing. See [Backward compatibility](/next/schema#backward-compatibility).
+
+## `deco check`
+
+```bash
+deco check [--root <dir>]
+```
+
+`deco check` makes sure your saved blocks fit your code. It generates the schema from `.deco/index.ts` in memory, writes nothing, and validates every saved block in `.deco/blocks` against it:
+
+- Each saved block's props match its block type's schema: required fields are present, and values respect enums and limits.
+- Every `__resolveType` names a block type (built-ins and aliases included) or a saved block that exists.
+- A reference in a typed field points to a block that returns that type.
+- No saved block has the name of a block type, a built-in or an alias (see [Names must not clash](/next/schema#names-must-not-clash)).
+- No two entries can match the same URL (see [Path templates and match order](/next/routing#path-templates-and-match-order)).
+- The committed `.deco/schema.gen.json` is up to date with your code.
+
+Because it checks the content itself, it catches both directions: a code change that breaks saved content, and content that uses a block type or field your code doesn't have. It runs on content-only changes too (from you, an AI agent or Studio), and works the same on your machine as in CI.
+
+When everything fits, it exits with 0. Otherwise it lists the problems per file and exits with 1:
+
+```text
+.deco/blocks/HomePage.json
+  sections[2].title: required
+.deco/blocks/Promo.json
+  unknown block type "promo-banner"
+```
+
+Run it on every pull request as a required check; the workflow is in [Backward compatibility](/next/schema#backward-compatibility).
 
 ## `deco serve`
 

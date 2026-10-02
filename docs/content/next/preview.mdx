@@ -23,7 +23,7 @@ Nothing is committed. Review the diff and commit it when the page looks right.
 
 ## Drafts are branches
 
-A content change is a change to files, so it gets the review flow your code already has. Commit it on a branch and open a pull request: reviewers read the diff of `.deco/blocks`, and CI runs `npx @decocms/blocks schema`, which checks saved block names and route collisions in the same pull request (see [Backward compatibility](/next/schema#backward-compatibility)).
+A content change is a change to files, so it gets the review flow your code already has. Commit it on a branch and open a pull request: reviewers read the diff of `.deco/blocks`, and CI runs `npx @decocms/blocks check`, which validates the saved blocks against the schema in the same pull request (see [Backward compatibility](/next/schema#backward-compatibility)).
 
 To let others see the draft rendered, use your host's preview deployments. Each branch builds its own app, and `prebuild` runs `deco content`, so each preview bundles that branch's content module and serves exactly the content on that branch, at its own URL:
 
