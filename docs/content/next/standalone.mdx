@@ -6,7 +6,7 @@ order: 13
 
 # API reference
 
-Everything on this page is exported from `@decocms/blocks`. The built-in matchers (`always`, `never`, `date`) are in `@decocms/blocks/matchers`, and the instrumented fetch for upstream clients is in `@decocms/blocks/fetch`.
+Everything on this page is exported from `@decocms/blocks`. The ready-made matchers (`always`, `never`, `date`) are in `@decocms/blocks/matchers`, and the instrumented fetch for upstream clients is in `@decocms/blocks/fetch`.
 
 ## `createCMS(config)`
 
@@ -120,7 +120,7 @@ formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=â€
 
 ## `client.resolve(target, options?)`
 
-Loads the content once and applies the [registry rule](/next/model#the-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. With `{ run: false }` it reads without running: entries expand, but no function runs. Built-in blocks (`page`, `redirect`, `telemetry`) are always defined.
+Loads the content once and applies the [registry rule](/next/model#the-rule) to the target: saved entries expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/model#built-in-blocks) are always defined.
 
 | Call | Returns |
 |---|---|
@@ -132,6 +132,8 @@ Loads the content once and applies the [registry rule](/next/model#the-rule) to 
 | `resolve({ title: "Store" })` | The same object: it contains no blocks |
 
 A string target is always an entry name. Any other value is walked as is, so you can pass a page field without checking whether it's a block or a literal. `T` describes the result you expect, because an entry name can't carry a static type; it isn't validated at runtime.
+
+**Reading without running.** With `{ run: false }`, `resolve` stops after expanding saved entries: references are replaced and merged, and no function runs. Use it for previews, tooling and debugging, and to get a page's blocks without running them, so you can resolve each one with its own call; the [Next.js guide](/next/nextjs#7-stream-each-block-optional) streams a page that way. `client.list` returns entries this way by default.
 
 ## `client.list(type, options?)`
 
@@ -248,8 +250,8 @@ Client calls never throw: `resolve` and `list` return `[value, null]` or `[null,
 | Code | When |
 |---|---|
 | `NOT_FOUND` | A string target or a reference names an entry that doesn't exist. |
-| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map (the built-ins `page`, `redirect` and `telemetry` included) nor a saved entry. |
-| `CYCLE` | References lead back to an entry that's already being expanded. |
+| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map nor a saved entry. [Built-in blocks](/next/model#built-in-blocks) never cause it. |
+| `CYCLE` | References lead back to an entry that's already being expanded (see [The rule in full](/next/walkthrough#the-rule-in-full)). |
 | `BLOCK_FAILED` | A block function threw. The original error is in `cause`. |
 | `LOADER_FAILED` | The loader couldn't load the content. The original error is in `cause`. |
 

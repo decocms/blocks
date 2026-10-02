@@ -17,7 +17,7 @@ Replace `src/blocks.ts` with the [Next.js guide](/next/nextjs)'s `src/blocks.tsx
 
 ## 2. Render blocks on the server
 
-Replace `src/page.functions.ts` with this file. It's `.tsx` now, because it contains JSX.
+Replace `src/page.functions.ts` with this file. It's `.tsx` now, because it contains JSX. Each block renders under its own Suspense boundary as soon as it's ready, the streaming technique the [Next.js guide](/next/nextjs#7-stream-each-block-optional) walks through.
 
 ```tsx title="src/page.functions.tsx"
 import { Suspense, type ReactNode } from "react";

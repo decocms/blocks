@@ -7,7 +7,7 @@ order: 10
 
 # Routes, redirects, and content types
 
-A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are built in: the framework adds a block for each to your block map, and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
+A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/model#built-in-blocks), and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
 
 ```ts
 /** An entry that lives at a URL. Extend it to make a type routable. */
@@ -99,11 +99,9 @@ Two entries with the same path, or two templates that can match the same URL, ar
 
 ## Resolving pages and redirects
 
-`page` is a built-in block, so `client.resolve("SummerPage")`, or `client.resolve(match.entry)` after routing, returns the page with `seo` and every block in `sections` resolved. That's the simplest way to render a page. To stream blocks independently, read the page with `{ run: false }` and resolve `page.seo` and each block in `page.sections` with separate calls, so each renders as soon as its own data is ready (see [Rendering](/next/rendering)). `redirect` is built in too: resolving a redirect entry returns its data. `matchRoute` reads redirects as listed, so routing never needs to resolve them.
+`page` and `redirect` are [built-in blocks](/next/model#built-in-blocks): `client.resolve("SummerPage")`, or `client.resolve(match.entry)` after routing, returns the page with `seo` and every block in `sections` resolved. That's the simplest way to render a page; to send each block as soon as it's ready instead, see [Stream each block](/next/nextjs#7-stream-each-block-optional). `matchRoute` reads redirects as listed, so routing never needs to resolve them.
 
-Built-in blocks never fail with `UNKNOWN_BLOCK`: `client.resolve("SummerPage")` and `client.list("page", { run: true })` both return resolved pages. Types you declare only in `Content`, such as `post`, are different, because the CMS never sees `Content`. Resolving a `post` entry by name, or listing posts with `run: true`, fails with `UNKNOWN_BLOCK` (see [the rule](/next/model#the-rule)). Read those with `client.list("post")` or `{ run: false }`.
-
-<Callout>**Override the page block.** To run your own code for a whole page, such as validation or a layout step, declare `page` in your block map: `page: (input: ResolvedPage<ReactNode>) => <Layout seo={input.seo}>{input.sections}</Layout>`, where `ResolvedPage` is the page with `seo` and `sections` resolved (see [the example model](/next/routing#the-example-used-here-and-in-the-guides)). Your function replaces the built-in at runtime, because `createCMS` spreads your map over the built-ins, and it runs after every block in the page, with their results as its input. `client.resolve` then returns whatever your function returns, here JSX rather than `{ seo, sections }`, so code that reads `page.seo`, such as Next's `generateMetadata`, has to read it from the stored entry instead. For a built-in key, the block map and `Content` don't conflict: the function in the block map sets what runs, and `page` in `Content` (or the built-in `Page`) sets Studio's form. To change only the fields, override the type in `Content` and keep the built-in function.</Callout>
+Types you declare only in `Content`, such as `post`, run no function, because the CMS never sees `Content`: resolving a `post` entry by name, or listing posts with `run: true`, fails with `UNKNOWN_BLOCK`. Read them with `client.list("post")`.
 
 ## Content types without a URL
 

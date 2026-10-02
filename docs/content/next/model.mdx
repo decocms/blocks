@@ -44,9 +44,21 @@ export const productCard = (input: ProductCardProps) => <ProductCard {...input} 
 
 That first snippet is function composition. The inner call runs first, and its result becomes an input to the outer one, so `productCard` receives product data, never a pending call. The functions are the developer's job. The composition is a decision: which product, which title, which function fetches the data. Written in code, changing that decision means editing code and deploying it.
 
+Your site lists these functions in one object, exported from your blocks file:
+
+```ts title="blocks.tsx"
+import type { Blocks } from "@decocms/blocks";
+import { productCard } from "./product-card";
+import { catalogProduct } from "./catalog-product";
+
+export default { "product-card": productCard, "catalog-product": catalogProduct } satisfies Blocks;
+```
+
+This object is your block map: it gives each function the name content uses to call it.
+
 ## A block is that composition, stored as data
 
-Write the same composition as JSON and nobody has to edit code to change it. `__resolveType` names the function, the other properties are its inputs, and a block inside an input is a call inside a call. Here `productCard` and `catalogProduct` are the functions your block map registers as `"product-card"` and `"catalog-product"`:
+Write the same composition as JSON and nobody has to edit code to change it. `__resolveType` names the function, the other properties are its inputs, and a block inside an input is a call inside a call. `"product-card"` and `"catalog-product"` are the names from your block map:
 
 ```jsonc
 // Stored as JSON
@@ -63,11 +75,11 @@ productCard({
 })
 ```
 
-Now an editor can change the title or the slug in Studio, and an agent can even point `product` at a different function, and the composition changes without a code change. The functions are whatever your [block map](/next/manifest) registers, and each one's input type is what `deco schema` turns into the editor form. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.
+Now an editor can change the title or the slug in Studio, and an agent can even point `product` at a different function, and the composition changes without a code change. The functions are whatever your [block map](/next/manifest) registers, and each one's input type is what [`deco schema`](/next/schema), a CLI command, turns into the editor form. Use the same model for anything your site needs: UI, product data, SEO, navigation, campaign settings. The CMS doesn't reserve any directories or categories.
 
 ## Name a composition, reuse it
 
-In code, you'd give a composition you use often a name and reuse it. Saved entries do that. Alongside the block map of functions, the CMS reads a second map, the content map, where each name holds a piece of saved JSON. `{ "__resolveType": "SummerSEO" }` means whatever is saved under the name `SummerSEO`, written in place. Your saved entries are the JSON files in `.deco/blocks`, one file per name; see [Your content in Git](/next/content).
+In code, you'd give a composition you use often a name and reuse it. Saved entries do that. Alongside the block map of functions, the CMS reads your saved entries, where each name holds a piece of saved JSON. `{ "__resolveType": "SummerSEO" }` means whatever is saved under the name `SummerSEO`, written in place. Your saved entries are the JSON files in `.deco/blocks`, one file per name; see [Your content in Git](/next/content).
 
 Unlike a `const` that holds a result, what's named here is the call itself, inputs and all. That's why you can add inputs to a reference to override the saved entry's inputs for this one use:
 
@@ -82,7 +94,7 @@ Unlike a `const` that holds a result, what's named here is the call itself, inpu
 seo({ title: "Summer sale", description: "Light layers for long days." })
 ```
 
-- **Overrides are shallow.** The merge is `{ ...entry, ...inputs }`, so an override replaces the whole top-level property, and the saved entry itself doesn't change. It isn't currying or partial application: the reference is expanded into one complete call.
+- **Overrides are shallow.** The merge is `{ ...entry, ...inputs }`, so an override replaces the whole top-level property, and the saved entry itself doesn't change. The reference becomes one complete call.
 - **An entry doesn't have to be a block.** It can be any JSON that contains blocks: an object literal with calls inside. Resolving it calls each block inside and leaves the rest of the JSON as it is.
 
 ## Resolving a composition
@@ -101,7 +113,7 @@ Resolving a composition is evaluating it: saved entries expand, then calls run f
 }
 ```
 
-`resolve` takes an entry name (a string is always an entry name) or any JSON value.
+`client` is the object you read content with; [Quickstart](/next/quickstart) shows how to create one. Its `resolve` method takes an entry name (a string is always an entry name) or any JSON value.
 
 **Step 1. Expand the entries.** `client.resolve("SummerCard")` first replaces each reference with its saved entry. `CurrentProduct` names a function, `catalog-product`, so expansion stops there:
 
@@ -123,32 +135,73 @@ const card = productCard({ title: "Summer collection", product }); // then the o
 **Step 3. Use the result.** `client.resolve("SummerCard")` returns the outer call's result, here a React element:
 
 ```tsx
-const [card] = await client.resolve("SummerCard");
+const [card, error] = await client.resolve("SummerCard");
 // card = <ProductCard title="Summer collection" product={{ name: "Summer shirt", … }} />
 ```
 
-A page is a composition too: the built-in `page` block takes SEO and a list of blocks, and resolves the same way. [Routes and redirects](/next/content-types) shows how to find the page for a URL.
+`resolve` never throws: it returns `[result, null]`, or `[null, error]` if something failed.
 
-To stop after step 1, pass `{ run: false }`: entries expand and no function runs. That helps with previews, tooling and debugging. To step through this example interactively, see [How resolution works](/next/walkthrough).
+A page is a composition too: the built-in `page` block takes SEO and a list of blocks, and resolves the same way (see [Built-in blocks](#built-in-blocks)). To step through this example interactively, see [How resolution works](/next/walkthrough).
 
 ## The rule
 
-Every `__resolveType` names one of two things: a block function to call (code), or a saved entry to expand (JSON). Both live in one registry, so a name can't be both. They differ in who changes them: functions are written by developers, while saved entries are edited by editors and agents as files in the same repository.
-
-```ts
-const registry = { ...savedEntries, ...builtIns, ...blocks };   // name → saved JSON | function; your blocks override built-ins
-```
-
-Functions come from your block map, plus a few built-in blocks the framework adds, such as `page` and `redirect`; a key you declare with the same name replaces the built-in. The CMS applies one rule to every object with a `__resolveType`:
+Every `__resolveType` names one of two things: a block function to call (code), or a saved entry to expand (JSON). Give entries and functions different names; if they clash, the function wins and `deco schema` warns you. Functions are written by developers; saved entries are edited by editors and agents, as files in the same repository. The CMS applies one rule to every object with a `__resolveType`:
 
 1. **Look up the name.**
-2. **Data:** replace the object with `{ ...entry, ...inputs }`, so your inputs override the entry's, and apply the rule to the result again.
-3. **Function:** resolve the inputs first, children before parents and siblings concurrently, then call the function. Its return value takes the block's place.
-4. **Neither:** the name is in neither the block map (built-ins included) nor the saved entries, so fail with `UNKNOWN_BLOCK`.
+2. **Saved entry:** replace the object with `{ ...entry, ...inputs }`, so your inputs override the entry's, and apply the rule to the result again.
+3. **Function:** resolve the inputs first, then call the function with them. Its return value takes the block's place.
+4. **Neither:** fail with `UNKNOWN_BLOCK`.
 
 ## The rule in detail
 
-- **Failures stop the parent.** If a nested block fails, its parent never runs and `resolve` returns the error, much as an outer call never runs when an inner one throws. A reference to an entry that doesn't exist fails with `NOT_FOUND`.
-- **Results are returned as is.** The CMS never walks a function's return value. Return plain data, a descriptor, or JSX. This is also why a function that returns its input, like `seo`, can't loop: `__resolveType` is stripped before the call, and whatever comes back is never looked up again.
-- **Only data can loop.** A saved-entry expansion is the one branch that applies the rule again, so two entries that reference each other, or an entry that references itself, would recurse forever. The CMS tracks the entries expanded on the current path and fails with `CYCLE` the moment one repeats, with the chain in `error.path`.
+- **Failures stop the parent.** If a block fails, the block that contains it doesn't run, and `resolve` returns the error. `client.resolve("Name")` with a name that has no saved entry fails with `NOT_FOUND`.
+- **Results are used as is.** Whatever your function returns, plain data or JSX, takes the block's place, and the CMS doesn't look inside it.
 - **Block functions should only read.** They run whenever content is resolved: for a visitor, in a preview, or when an agent checks its edit. Put side effects in your own route handlers or server functions (see [Call a client](/next/clients#call-a-client)).
+
+How the CMS handles the harder cases, such as entries that refer to each other in a loop, is [under the hood](/next/walkthrough#the-rule-in-full).
+
+## Built-in blocks
+
+Every website needs pages and redirects, so you don't write those functions yourself. Built-in blocks are block functions the framework adds to your block map for you:
+
+```ts
+{ ...savedEntries, ...builtIns, ...blocks }   // where every __resolveType is looked up; later keys win
+```
+
+A built-in is always defined, so it never fails with `UNKNOWN_BLOCK`, and you don't register it. To replace one, declare the same key in your block map.
+
+### `page`
+
+**Inputs:** `name`, `path`, `seo` (the page's SEO data, usually a block your map registers, such as `seo`) and `sections` (the page's blocks, in order). **Resolving it** returns the page with `seo` and every block in `sections` resolved, ready to render. [Routes and redirects](/next/content-types) shows how to find the page for a URL.
+
+To wrap every page in your own layout, declare `page` in your block map. Your function runs after the page's blocks, with their results as its input, and `client.resolve` returns whatever it returns:
+
+```tsx title="blocks.tsx"
+import type { ReactNode } from "react";
+import type { Blocks } from "@decocms/blocks";
+import type { ResolvedPage } from "./model";
+import { Layout } from "./layout";
+
+export default {
+  page: ({ seo, sections }: ResolvedPage<ReactNode>) => (
+    <Layout seo={seo}>{sections}</Layout>
+  ),
+  // …your other blocks
+} satisfies Blocks;
+```
+
+Code that reads `page.seo` or `page.sections` from the result, like the [Next.js guide](/next/nextjs), must change too, since the result is now your layout.
+
+### `redirect`
+
+**Inputs:** `from` (the old path), `to` (where to send visitors) and `permanent` (`true` for a 301, `false` for a 302). **Resolving it** returns the redirect data as saved. [Routing](/next/routing) turns redirects into responses.
+
+### `telemetry`
+
+Settings for the [hosted Deco CMS](/next/hosted-telemetry)'s monitoring, such as where telemetry is sent. Without the hosted CMS, the entry does nothing.
+
+### Changing a built-in
+
+To change the fields editors see for a built-in in Studio, override its type in `Content` (see [Schema generation](/next/schema#content-that-is-only-data)); to change what runs, override it in your block map. You can do both.
+
+Matchers (`always`, `never`, `date`) aren't built in: import them from `@decocms/blocks/matchers` and add them to your block map (see [Variants](/next/variants)).

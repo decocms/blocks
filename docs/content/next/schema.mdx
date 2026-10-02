@@ -78,7 +78,7 @@ export type Content = {                                  // data: a schema per t
 
 The CLI reads both exports. Keys of the default export get a schema from each function's parameter type; keys of `Content` get one from the type itself. The two share one namespace, and a key in both is an error, except a built-in key (below). The CMS never sees `Content`, so a type declared only there runs nothing: resolving a `post` entry by name fails with `UNKNOWN_BLOCK`.
 
-**Built-ins: override or opt out.** `page`, `redirect` and `telemetry` (the shape of the [Telemetry entry](/next/hosted-telemetry#telemetry-settings-are-content)) are built-in blocks: `createCMS` adds them to your block map, so resolving them always works, and `deco schema` always includes their schemas. `Page`, `Redirect` and `Route` are exported from `@decocms/blocks`. Declaring a built-in key in `Content` replaces its schema, and the built-in block still runs. Declaring it in your block map replaces what runs (see [Override the page block](/next/content-types#resolving-pages-and-redirects)); for a built-in key you can do both. Extend the exported type to add fields, or to narrow `sections`, a page's ordered list of blocks:
+**Built-ins: override or opt out.** `deco schema` always includes the schemas of the [built-in blocks](/next/model#built-in-blocks), `page`, `redirect` and `telemetry`. `Page`, `Redirect` and `Route` are exported from `@decocms/blocks`. Declaring a built-in key in `Content` replaces its form; see [Built-in blocks](/next/model#built-in-blocks). Extend the exported type to add fields, or to narrow `sections`, a page's ordered list of blocks:
 
 ```ts
 import type { Page } from "@decocms/blocks";

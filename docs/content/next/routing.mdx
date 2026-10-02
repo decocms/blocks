@@ -10,7 +10,7 @@ The CMS doesn't route. It lists and resolves. Routing is three steps in your req
 
 ## The example used here and in the guides
 
-This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/content-types)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Your content in Git](/next/content)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner` and `product-hero`. `page` and `redirect` are [built-in blocks](/next/model#the-rule), so the block maps don't register them.
+This page and the framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](/next/content-types)), and two content entries, stored as files in `.deco/blocks`, which `deco content` turns into the content module (see [Your content in Git](/next/content)). The page is a product page with two blocks: a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map (`src/blocks.tsx` or `src/blocks.ts`) registers `seo`, `promo-banner` and `product-hero`. `page` and `redirect` are [built-in blocks](/next/model#built-in-blocks), so the block maps don't register them.
 
 In `src/model.ts`, `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)), `StoredPage` is a page exactly as saved, before any of its blocks run, and `ResolvedPage<T>` is what the built-in `page` block returns, with `T` being what your blocks return.
 
@@ -36,7 +36,7 @@ export interface StoredPage extends Page {
 export interface ResolvedPage<T> { name: string; path: string; seo: SEO; sections: T[] }
 ```
 
-The guides narrow `sections` with `StoredPage` (no [variant](/next/variants) around the whole list) because they resolve each block separately to stream it; each guide's block map exports `export type Content = { page: StoredPage }`, so Studio's form matches. If you resolve the whole page, the built-in `Page` is fine.
+The guides narrow `sections` with `StoredPage` (no [variant](/next/variants) around the whole list) so the optional [streaming step](/next/nextjs#7-stream-each-block-optional) can resolve each block separately; each guide's block map exports `export type Content = { page: StoredPage }`, so Studio's form matches. If you only resolve the whole page, the built-in `Page` is fine.
 
 ```json title=".deco/blocks/ShirtPage.json"
 {

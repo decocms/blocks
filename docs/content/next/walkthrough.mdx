@@ -12,3 +12,14 @@ Here's the setup. Your block map registers two functions, `product-card` and `ca
 Step through `client.resolve("SummerCard")` to watch [the rule](/next/model#the-rule) at work, or switch to `{ run: false }` to see what a read returns. `product-card` can return a descriptor or a React element (for frameworks that render React Server Components, such as the Next.js App Router); the second toggle compares them. This is an illustration, so it doesn't run any application code.
 
 <Walkthrough />
+
+## The rule in full
+
+[Blocks](/next/model#the-rule) gives the rule in four steps. These are the details behind them:
+
+- **One namespace.** Saved entries, built-in blocks and your block map share one registry, `{ ...savedEntries, ...builtIns, ...blocks }`, so names should be unique. When a saved entry has the same name as a block type, the function wins; `deco schema` reports the collision.
+- **Inputs resolve concurrently.** A function's inputs resolve before it runs, children before parents, and sibling blocks at the same time.
+- **Failures stop the parent.** If a nested block fails, its parent never runs and `resolve` returns the error, much as an outer call never runs when an inner one throws. The error's `path` says where in the tree it happened.
+- **Results are returned as is.** The CMS never walks a function's return value. This is also why a function that returns its input, like `seo`, can't loop: `__resolveType` is stripped before the call, and whatever comes back is never looked up again.
+- **Only data can loop.** A saved-entry expansion is the one branch that applies the rule again, so two entries that reference each other, or an entry that references itself, would recurse forever. The CMS tracks the entries expanded on the current path and fails with `CYCLE` the moment one repeats, with the chain in `error.path`.
+- **Reading without running.** `client.resolve(target, { run: false })` stops after expansion: saved entries are replaced and merged, and no function runs. It's useful for previews, tooling and debugging, and it's what `client.list` returns by default (see the [API reference](/next/standalone#client-resolve-target-options)).

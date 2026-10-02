@@ -6,9 +6,9 @@ order: 14
 
 # Next.js App Router
 
-In this guide, you'll render CMS pages with Server Components, stream each of a page's blocks under its own Suspense boundary, and generate metadata from the page's SEO block.
+In this guide, you'll render CMS pages with Server Components and generate metadata from the page's SEO block. An optional last step streams each of a page's blocks under its own Suspense boundary.
 
-Each of a page's [blocks](/next/model) resolves on its own, so a slow block never holds up the rest. Editors also choose page URLs in Studio, so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
+Editors choose page URLs in Studio, so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
 
 **Prerequisites:** an App Router app (the SDK reads no files, so the Node and Edge runtimes both work), with a root layout; `npm install @decocms/blocks server-only` and the CLI from [Quickstart](/next/quickstart); and the [example project](/next/routing#the-example-used-here-and-in-the-guides): `src/model.ts` plus the entries in `.deco/blocks` at the project root.
 
@@ -78,7 +78,7 @@ export default {
 } satisfies Blocks;
 ```
 
-`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/model#the-rule): the framework adds them to this map, so they aren't listed here. The `Content` export overrides the page *schema* with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), so Studio only saves pages this guide's code can read.
+`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/model#built-in-blocks), so they aren't listed here. The `Content` export overrides the page *schema* with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), a page whose `sections` is a plain list, so Studio only saves pages this guide's code can read, including the [streaming step](#7-stream-each-block-optional).
 
 `cms.ts` imports the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved entries). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
 
@@ -124,15 +124,119 @@ Commit `.deco/schema.json` and gitignore `.deco/blocks.gen.ts`. What reloads on 
 
 ## 4. Match the URL to a page
 
-`openPage` lists pages and redirects and matches the pathname. Without streaming, one call would return the page ready to render, since the built-in `page` block resolves `seo` and every block in `sections`:
+`openPage` lists pages and redirects, matches the pathname, and resolves the page that wins. The built-in `page` block resolves `seo` and every block in `sections`, so the page comes back ready to render. Listing is cheap: the CMS holds the content in memory.
 
-```ts
-const [page] = await c.resolve<ResolvedPage<ReactNode>>(match.entry);   // page.seo, page.sections
+`generateMetadata` and the page component both need the page. Wrap the lookup in React's `cache` so they share one client and one result.
+
+```ts title="src/open-page.server.ts"
+import "server-only";
+import { cache, type ReactNode } from "react";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
+import { matchRoute, type Redirect } from "@decocms/blocks";
+import { client } from "./client.server";
+import type { ResolvedPage, StoredPage } from "./model";
+
+export const openPage = cache(async (pathname: string) => {
+  const c = await client();
+  const [pages, pagesError] = await c.list<StoredPage>("page");
+  if (pagesError) throw pagesError;
+  const [redirects, redirectsError] = await c.list<Redirect>("redirect");
+  if (redirectsError) throw redirectsError;
+
+  const match = matchRoute(pathname, { routes: pages, redirects });
+  if (match.kind === "not-found") notFound();
+  if (match.kind === "redirect") {
+    if (match.status === 301) permanentRedirect(match.location);
+    redirect(match.location);
+  }
+
+  const [page, error] = await c.resolve<ResolvedPage<ReactNode>>(match.entry);
+  if (error) throw error;
+  return page;
+});
+
+export const pathnameFor = (segments: string[] = []) =>
+  "/" + segments.map(encodeURIComponent).join("/");
 ```
 
-This guide resolves each block separately instead, starting them all without waiting for any, so every block streams into its own Suspense boundary as soon as it's ready. Listing is cheap: the CMS holds the content in memory. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate.
+## 5. Render the catch-all route
 
-`generateMetadata` and the page component both need the page. Wrap the lookup in React's `cache` so they share one client, one match, and the same block promises.
+The page's `sections` are already rendered blocks, so the route lists them in order.
+
+```tsx title="src/app/[[...path]]/page.tsx"
+import { Fragment } from "react";
+import type { Metadata } from "next";
+import { openPage, pathnameFor } from "../../open-page.server";
+
+type Props = { params: Promise<{ path?: string[] }> };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const page = await openPage(pathnameFor((await params).path));
+  return { title: page.seo.title, description: page.seo.description };
+}
+
+export default async function Page({ params }: Props) {
+  const page = await openPage(pathnameFor((await params).path));
+  return (
+    <main>
+      {page.sections.map((section, index) => (
+        <Fragment key={index}>{section}</Fragment>
+      ))}
+    </main>
+  );
+}
+```
+
+If any block fails, `resolve` returns an error, `openPage` throws it, and Next shows its error page. To show a fallback for just the failing block, use the [streaming step](#7-stream-each-block-optional).
+
+## 6. List another content type
+
+Add `src/post.ts` from [Your own routable types](/next/content-types#your-own-routable-types), change the `Content` export in `src/blocks.tsx` to `{ page: StoredPage; post: Post }`, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `deco content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
+
+```ts title="src/open-page.server.ts (changes)"
+import type { Post } from "./post";
+
+  // inside openPage, after listing pages and redirects:
+  const [posts, postsError] = await c.list<Post>("post");
+  if (postsError) throw postsError;
+
+  const match = matchRoute(pathname, { routes: [...pages, ...posts], redirects });
+  // … not-found and redirect handling as before …
+
+  if (match.entry.__resolveType === "post") return { post: match.entry as Post, page: null };
+  const [page, error] = await c.resolve<ResolvedPage<ReactNode>>(match.entry);
+  if (error) throw error;
+  return { post: null, page };
+```
+
+`openPage` now returns `{ post, page }`, one of them set. In `Page`, render the post when `post` is set (for example `<article><h1>{post.name}</h1>…</article>`), and the page's sections otherwise. In `generateMetadata`, use `post.name` as the title for a post.
+
+A blog index needs no page entry. List the `post` type; each entry carries its own `path`:
+
+```tsx title="src/app/blog/page.tsx"
+import Link from "next/link";
+import { client } from "../../client.server";
+import type { Post } from "../../post";
+
+export default async function BlogIndex() {
+  const c = await client();
+  const [posts, error] = await c.list<Post>("post", { sort: (a, b) => b.date.localeCompare(a.date) });
+  if (error) throw error;
+  return (
+    <ul>
+      {posts.map((post) => (
+        <li key={post.path}><Link href={post.path}>{post.name}</Link></li>
+      ))}
+    </ul>
+  );
+}
+```
+
+## 7. Stream each block (optional)
+
+So far the page renders once every block is ready, so one slow block holds up the whole page. To send each block as soon as it's ready, resolve the blocks one by one instead of resolving the page, and give each its own Suspense boundary. A failing block then shows a fallback instead of failing the page.
+
+`c.list("page")` already returns each page as saved, with its blocks not yet run (the same as `c.resolve(entry, { run: false })`; see [Reading without running](/next/standalone#client-resolve-target-options)). So `openPage` starts resolving `seo` and every block in `sections` with separate calls, without waiting for any, and returns the promises. This is why the `Content` export narrows `sections` to a plain list. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate. These files replace steps 4 and 5; if you added posts in step 6, see the changes right after them:
 
 ```ts title="src/open-page.server.ts"
 import "server-only";
@@ -156,7 +260,7 @@ export const openPage = cache(async (pathname: string) => {
     redirect(match.location);
   }
 
-  const page = match.entry;
+  const page = match.entry;   // as saved: seo and sections are still blocks
   return {
     blocks: page.sections.map((block, index) => ({
       key: `${pathname}:${index}`,
@@ -170,9 +274,7 @@ export const pathnameFor = (segments: string[] = []) =>
   "/" + segments.map(encodeURIComponent).join("/");
 ```
 
-## 5. Render the catch-all route
-
-Each block is a promise of a `Result`, `[value, error]`. `BlockSlot` awaits it inside its own Suspense boundary and shows a fallback if that one block failed.
+Each block is now a promise of a `Result`, `[value, error]`. `BlockSlot` awaits it inside its own Suspense boundary and shows a fallback if that one block failed.
 
 ```tsx title="src/app/[[...path]]/page.tsx"
 import { Suspense, type ReactNode } from "react";
@@ -212,58 +314,24 @@ export default async function Page({ params }: Props) {
 }
 ```
 
-## 6. List another content type
+If you added posts in step 6, list them and pass them to `matchRoute` as before, return the post before resolving any block, and add `post: null` to the page's return value:
 
-Add `src/post.ts` from [Your own routable types](/next/content-types#your-own-routable-types), change the `Content` export in `src/blocks.tsx` to `{ page: StoredPage; post: Post }`, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `deco content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
-
-```ts title="src/open-page.server.ts (changes)"
-import type { Result } from "@decocms/blocks";
-import type { Post } from "./post";
-
-  // inside openPage, after listing pages and redirects:
-  const [posts, postsError] = await c.list<Post>("post");
-  if (postsError) throw postsError;
-
-  const match = matchRoute(pathname, { routes: [...pages, ...posts], redirects });
-  // … not-found and redirect handling as before …
-
+```ts title="src/open-page.server.ts (posts)"
   if (match.entry.__resolveType === "post") {
-    const post = match.entry as Post;
-    const seo: Result<SEO> = [{ title: post.name, description: "" }, null];
-    return { post, blocks: [], seo: Promise.resolve(seo) };
+    return { post: match.entry as Post, blocks: [], seo: null };
   }
-  const page = match.entry as StoredPage;
-  return { post: null, blocks: …, seo: … };  // blocks and seo exactly as before
+  // … build blocks and seo as above, then:
+  return { post: null, blocks, seo };
 ```
 
-In `Page`, render the post when `page.post` is set (for example `<article><h1>{page.post.name}</h1>…</article>`), and the page's blocks otherwise. `generateMetadata` keeps working unchanged.
+`Page` and `generateMetadata` check `post` the same way as in step 6: when it's set, render the post and use `post.name` as the title, and only otherwise await `page.seo` and render `page.blocks`.
 
-A blog index needs no page entry. List the `post` type; each entry carries its own `path`:
-
-```tsx title="src/app/blog/page.tsx"
-import Link from "next/link";
-import { client } from "../../client.server";
-import type { Post } from "../../post";
-
-export default async function BlogIndex() {
-  const c = await client();
-  const [posts, error] = await c.list<Post>("post", { sort: (a, b) => b.date.localeCompare(a.date) });
-  if (error) throw error;
-  return (
-    <ul>
-      {posts.map((post) => (
-        <li key={post.path}><Link href={post.path}>{post.name}</Link></li>
-      ))}
-    </ul>
-  );
-}
-```
+Metadata now waits only for SEO, and Next can stream it separately. Once streaming starts, the status code and headers are already sent, so a later error can't change them; `openPage` decides 404s and redirects before anything streams (see [Errors, streaming, and cancellation](/next/rendering#errors-streaming-and-cancellation)). The same technique works in TanStack Start; see the [TanStack guides](/next/tanstack-data).
 
 ## How it works
 
 - **One place picks the content.** Every page gets its client from `client()`, so changing where content comes from touches only that function.
 - **`openPage` takes a pathname.** React's `cache` compares arguments by identity, so pass a primitive. If content depends on query parameters, include a normalized search string in the argument. A block that needs headers or cookies reads them with `next/headers`, like any other server code.
-- **Metadata waits only for SEO.** Next can stream metadata separately. A metadata error after streaming starts can't change headers that were already sent.
 - **Redirect status codes.** Next's navigation helpers send 308 and 307. For an exact 301 or 302, match redirects in a `proxy.ts` (Next.js 16's name for `middleware.ts`) with `matchRoute` and return `NextResponse.redirect(url, match.status)`. Proxy makes its own client, so if the content changes between the two (in development, for example), the redirect check and the page can briefly see different versions of it.
 
 These files use the default App Router configuration. [Cache Components](https://nextjs.org/docs/app/api-reference/config/next-config-js/cacheComponents) adds caching and Suspense requirements of its own. See the Next.js docs on [metadata](https://nextjs.org/docs/app/api-reference/functions/generate-metadata) and [proxy](https://nextjs.org/docs/app/api-reference/file-conventions/proxy).
