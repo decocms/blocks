@@ -2,7 +2,7 @@
 title: TanStack Start with data descriptors
 nav: TanStack Start · descriptors
 group: Framework guides
-order: 15
+order: 16
 ---
 
 # TanStack Start with data descriptors
@@ -28,7 +28,7 @@ export default {
 } satisfies Blocks;
 ```
 
-As in the Next.js guide, `Content` overrides the built-in `page` schema with the narrower `StoredPage`; the built-in `page` and `redirect` blocks are added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/schema#the-cli-commands)):
+As in the Next.js guide, `Content` overrides the built-in `page` schema with the narrower `StoredPage`; the built-in `page` and `redirect` blocks are added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
 
 ```json title="package.json"
 {
@@ -198,7 +198,7 @@ export default defineConfig({
 
 ## Edit in Studio
 
-To edit this app's content in Studio while you develop, run [`deco serve`](/next/schema#edit-local-content-from-studio) (`npx deco serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
+To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx deco serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit your local checkout](/next/content-protocol#edit-your-local-checkout)).
 
 ## Deployment checklist
 

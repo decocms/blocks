@@ -1,7 +1,7 @@
 ---
 title: Troubleshooting
 group: Production
-order: 21
+order: 22
 ---
 
 # Troubleshooting
@@ -21,10 +21,10 @@ Most problems come down to three facts: which revision this server is serving, w
 | Hydration mismatch (React's browser render doesn't match the server's HTML) | Look for time-dependent or random rendering, and for request context the server and browser see differently. If the browser fetches data after the page loads, it may get a newer revision; render data that must match the HTML in the same response. |
 | Content changes mid-response | Use one client for the whole response; a client never changes revision. If you pass a custom `content` object, check that it never returns different content under an existing revision. |
 | Old content after a deploy | Compare the revision your server logs (see above) with the one in `.deco/blocks.gen.ts` after running `deco content` on your latest commit. If they differ, the build didn't rerun `deco content`: check that `prebuild` runs `deco schema && deco content` and that the build checked out the commit you expect. See [Releases and deployment](/next/releases-and-deployment). |
-| `UNKNOWN_BLOCK` right after a content change | The content uses a block type its code doesn't have, usually because it was committed before the code that defines the type, or the code was rolled back to a version without it. Ship the code in the same change, or revert the content commit. See [Keep the schema compatible](/next/schema#keep-the-schema-compatible). |
+| `UNKNOWN_BLOCK` right after a content change | The content uses a block type its code doesn't have, usually because it was committed before the code that defines the type, or the code was rolled back to a version without it. Ship the code in the same change, or revert the content commit. See [Change types safely](/next/schema#change-types-safely). |
 | A new content file isn't found in development | Run `deco content`, or keep `deco content --watch` running beside your dev server. Only adding or removing a file needs it; edits to an existing file hot-reload. |
 | Warning about an instance with different options | `createCMS` ran twice with the same content but different options. The first instance is kept. Create the CMS once, at module scope (see [One instance per process](/next/api-reference#one-instance-per-process)). |
 | Studio can't reach `deco serve` | Check that the server is still running and that you opened the link from this run: a restart prints a new token, and Studio asks you to reconnect. Allow the browser's prompt to let Studio reach your machine (Local Network Access). If you use another browser origin than Studio's, pass it with `--allow-origin`. See [Studio and the content protocol](/next/content-protocol#edit-your-local-checkout). |
-| A form field in Studio is a text box instead of a picker | Studio never runs your code, so options that would come from a function aren't available in this version. Give the field a string-literal union, an enum or an `@options` list, and run `deco schema` (see [Annotate fields with JSDoc](/next/schema#annotate-fields-with-jsdoc)). |
+| A form field in Studio is a text box instead of a picker | Studio never runs your code, so options that would come from a function aren't available in this version. Give the field a string-literal union, an enum or an `@options` list, and run `deco schema` (see [Refine fields with JSDoc](/next/schema#refine-fields-with-jsdoc)). |
 
 Problems specific to the hosted Deco CMS, such as a release that hasn't reached a server or telemetry that doesn't arrive, are in [Publishing without a deploy](/next/hosted-publishing#troubleshooting) and [Telemetry](/next/hosted-telemetry#troubleshooting).

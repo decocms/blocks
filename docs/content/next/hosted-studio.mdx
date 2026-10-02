@@ -2,13 +2,13 @@
 title: Editing in Studio on GitHub
 nav: Studio on GitHub
 group: Hosted Deco CMS
-order: 25
+order: 26
 description: "With the hosted Deco CMS, Studio edits your GitHub repository directly, with no checkout: saves are commits on a draft branch, and publishing brings them to production."
 ---
 
 # Editing in Studio on GitHub
 
-Studio edits your content through the [content protocol](/next/content-protocol), wherever the files live. On your machine, [`deco serve`](/next/schema#edit-local-content-from-studio) serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no checkout, no dev server and no Git.
+Studio edits your content through the [content protocol](/next/content-protocol), wherever the files live. On your machine, [`deco serve`](/next/cli#deco-serve) serves your working tree and you commit the changes yourself. With the hosted Deco CMS, Studio's **GitHub backend** serves your repository itself, so editors work with no checkout, no dev server and no Git.
 
 <Callout>**Status.** The content protocol and Studio's GitHub backend are proposed and not built yet; see the [Roadmap](/roadmap#roadmap-platform--build-studio-s-github-content-backend).</Callout>
 
@@ -49,7 +49,7 @@ Because Studio reads the schema committed on the branch it edits, editors only s
 
 ## CI on Studio commits
 
-Studio's saves are commits to the same repository. They only change content, never the schema, so `deco schema --check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions). Saves always land on a draft branch, never on production. When publishing opens a pull request, the [schema workflow](/next/schema#keep-the-schema-compatible) checks it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` to run it on those commits too.
+Studio's saves are commits to the same repository. They only change content, never the schema, so `deco schema --check` always passes them, and `deco schema` still checks the content model (entry names, aliases and route collisions). Saves always land on a draft branch, never on production. When publishing opens a pull request, the [schema workflow](/next/schema#run-it-in-ci) checks it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so a check can only report a problem afterwards: add `push: { branches: [main] }` under `on` to run it on those commits too.
 
 ```yaml title=".github/workflows/schema.yml (changes)"
 on:

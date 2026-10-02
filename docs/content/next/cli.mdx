@@ -1,0 +1,67 @@
+---
+title: CLI
+group: Reference
+order: 14
+---
+
+# CLI
+
+The Deco Blocks CLI is the `deco` command. It turns your TypeScript types into the schema Studio builds its forms from, turns your saved content into a module your app imports, and serves your checkout to Studio while you develop. It comes in the `@decocms/blocks-cli` package; install it as a development dependency and run it with `npx`:
+
+```bash
+npm install -D @decocms/blocks-cli
+npx deco schema
+```
+
+It has three commands, and each does one job:
+
+- **`deco schema`** turns the types in your block map into `.deco/schema.json`. Commit this file. See [Schema](/next/schema).
+- **`deco content`** turns the files in `.deco/blocks` into the [content module](/next/blocks#the-deco-content-command), `.deco/blocks.gen.ts`. It's generated, so gitignore it. If `.deco/blocks` has no `Telemetry.json`, it also scaffolds one: settings only the [hosted Deco CMS](/next/hosted-telemetry) reads. Without a connected site the entry is inert, and you can delete it.
+- **`deco serve`** is the local server Studio edits your checkout through (see [below](#deco-serve)).
+
+## Run it before dev and build
+
+There's no separate dev command: run `deco schema` and `deco content` before your dev server and your build. Why the content module is gitignored, and what reloads without a rerun, is in [The `deco content` command](/next/blocks#the-deco-content-command).
+
+```json title="package.json"
+{
+  "scripts": {
+    "predev": "deco schema && deco content",
+    "prebuild": "deco schema && deco content"
+  }
+}
+```
+
+## `deco schema` and `deco content`
+
+```bash
+deco schema [--entry <path>] [--root <dir>] [--watch] [--check <base>]
+deco content [--root <dir>] [--watch]
+```
+
+- `--entry <path>` (`deco schema` only): the file that exports your block map. By default the CLI looks for `blocks.ts` or `blocks.tsx` in the project root or in `src/`.
+- `--root <dir>`: the folder that contains `.deco`, such as `apps/storefront` in a monorepo. By default, the CLI walks up from the current directory to the first folder with a `.deco`.
+- `--watch`: regenerate as files change.
+- `--check <base>` (`deco schema` only): compare the schema your code generates now with an earlier one, and fail on breaking changes. It writes nothing. It isn't built yet and ships with the first release (see the [Roadmap](/roadmap#roadmap-cli--add-deco-schema-check-a-compatibility-check)). See [Change types safely](/next/schema#change-types-safely).
+
+## `deco serve`
+
+```bash
+deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--token <t>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]
+```
+
+`deco serve` is the local server for Studio. Over the [content protocol](/next/content-protocol), it serves three things from your working tree:
+
+- **Your content**: the entries in `.deco/blocks`, which Studio reads and writes.
+- **Your schema**: `.deco/schema.json`, read-only. Studio builds its forms from it; `deco schema` writes it.
+- **Upload URLs**: where Studio sends the images and other files editors upload. Each one is written to `.deco/assets/` (or the folder `--assets` names), and the field stores `/assets/<name>`.
+
+See [Edit your local checkout](/next/content-protocol#edit-your-local-checkout) for the flow. Besides `--root`, it takes:
+
+- `--port <n>`: the port to listen on (default 4545).
+- `--host <addr>`: the address to listen on. The default is 127.0.0.1; any other address prints a warning, because the server would be reachable from other machines.
+- `--app-url <url>`: your dev app, which Studio's canvas opens. By default, the port from your Vite config, else `http://localhost:5173`.
+- `--token <t>`: a fixed token instead of a random one per run (or `DECO_SERVE_TOKEN`).
+- `--allow-origin <origin>`: another browser origin allowed to call the server, besides Studio's (repeatable).
+- `--assets <dir>`: the folder Studio's uploads are written to, relative to the folder that contains `.deco` (default `.deco/assets`). The field always stores `/assets/<name>`, whatever this folder is, so point it at a folder your app serves at `/assets/`, such as `public/assets`; see [Images and other uploads](/next/content-protocol#images-and-other-uploads).
+- `--read-only`: serve the content without accepting writes or uploads.

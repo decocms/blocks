@@ -7,7 +7,7 @@ order: 10
 
 # Routes, redirects, and content types
 
-A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content that is only data](/next/schema#content-that-is-only-data)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
+A **content type** is a kind of saved entry, such as a page, a blog post or a redirect. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), and `deco schema` always includes their schemas. Types you declare only in `Content`, like `post`, run no function (see [Content without a function](/next/schema#content-without-a-function)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
 
 ```ts
 /** An entry that lives at a URL. Extend it to make a type routable. */
@@ -26,7 +26,7 @@ interface Redirect {
 }
 ```
 
-A page is a route with SEO and a list of [blocks](/next/blocks) (its `sections` field). It's not special to the router: it's the first type that extends `Route`. A saved page carries `"__resolveType": "page"` so the CMS can list it by type, plus a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override its schema in `Content` (`interface StorePage extends Page { … }`; see [Schema generation](/next/schema#content-that-is-only-data)). It's exported from `@decocms/blocks`:
+A page is a route with SEO and a list of [blocks](/next/blocks) (its `sections` field). It's not special to the router: it's the first type that extends `Route`. A saved page carries `"__resolveType": "page"` so the CMS can list it by type, plus a `name` and `path`, so the router can find it. It's built in, so you don't declare it. To add fields, override its schema in `Content` (`interface StorePage extends Page { … }`; see [Content without a function](/next/schema#content-without-a-function)). It's exported from `@decocms/blocks`:
 
 ```ts
 /** The built-in `page` content type. */
