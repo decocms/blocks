@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDraftOverrideGetter } from "./draftSource";
 import {
   findPageByPath,
+  getAllPages,
   loadBlocks,
   matchPath,
   setBlocks,
@@ -219,6 +220,91 @@ describe("findPageByPath specificity", () => {
       },
     });
     expect(findPageByPath("/nope")).toBeNull();
+  });
+});
+
+describe("findPageByPath page index cache", () => {
+  afterEach(() => {
+    setBlocks({});
+  });
+
+  it("serves a change published by setBlocks()", () => {
+    setBlocks({ "pages-a": { name: "A", path: "/a", sections: [] } });
+    expect(findPageByPath("/a")?.blockKey).toBe("pages-a");
+
+    setBlocks({ "pages-b": { name: "B", path: "/b", sections: [] } });
+    expect(findPageByPath("/a")).toBeNull();
+    expect(findPageByPath("/b")?.blockKey).toBe("pages-b");
+  });
+
+  it("serves a change when setBlocks() gets the same object mutated in place", () => {
+    const blocks: Record<string, unknown> = {
+      "pages-a": { name: "A", path: "/a", sections: [] },
+    };
+    setBlocks(blocks);
+    expect(findPageByPath("/a")?.blockKey).toBe("pages-a");
+
+    blocks["pages-b"] = { name: "B", path: "/b", sections: [] };
+    setBlocks(blocks);
+    expect(findPageByPath("/b")?.blockKey).toBe("pages-b");
+  });
+
+  it("matches a page that only exists in the draft override", () => {
+    setBlocks({ "pages-a": { name: "A", path: "/a", sections: [] } });
+    const match = withBlocksOverride(
+      { "pages-draft": { name: "Draft", path: "/draft", sections: [] } },
+      () => findPageByPath("/draft"),
+    );
+    expect(match?.blockKey).toBe("pages-draft");
+    expect(findPageByPath("/draft")).toBeNull();
+  });
+
+  it("matches a literal path through its percent-encoded spelling", () => {
+    setBlocks({ "pages-promo": { name: "Promo", path: "/promoção", sections: [] } });
+    expect(findPageByPath("/promo%C3%A7%C3%A3o")?.blockKey).toBe("pages-promo");
+    expect(findPageByPath("/promoção")?.blockKey).toBe("pages-promo");
+  });
+
+  it("keeps literal matching case-sensitive and trailing-slash exact", () => {
+    setBlocks({ "pages-lego": { name: "Lego", path: "/lego", sections: [] } });
+    expect(findPageByPath("/lego")?.params).toEqual({});
+    expect(findPageByPath("/LEGO")).toBeNull();
+    expect(findPageByPath("/lego/")).toBeNull();
+  });
+
+  it("keeps the first of two pages with the same path", () => {
+    setBlocks({
+      "pages-first": { name: "First", path: "/same", sections: [] },
+      "pages-second": { name: "Second", path: "/same", sections: [] },
+    });
+    expect(findPageByPath("/same")?.blockKey).toBe("pages-first");
+  });
+
+  it("skips a malformed pattern without throwing", () => {
+    setBlocks({
+      "pages-bad": { name: "Bad", path: "/(unclosed", sections: [] },
+      "pages-ok": { name: "OK", path: "/ok", sections: [] },
+    });
+    expect(findPageByPath("/(unclosed")).toBeNull();
+    expect(findPageByPath("/ok")?.blockKey).toBe("pages-ok");
+  });
+
+  it("returns a fresh array from getAllPages()", () => {
+    setBlocks({ "pages-a": { name: "A", path: "/a", sections: [] } });
+    getAllPages().pop();
+    expect(getAllPages()).toHaveLength(1);
+  });
+
+  it("throws when the runtime lacks URLPattern, even for literal-only pages", () => {
+    setBlocks({ "pages-a": { name: "A", path: "/a", sections: [] } });
+    const g = globalThis as { URLPattern?: unknown };
+    const saved = g.URLPattern;
+    delete g.URLPattern;
+    try {
+      expect(() => findPageByPath("/a")).toThrow(/URLPattern.*Node\.js >= 24/s);
+    } finally {
+      if (saved !== undefined) g.URLPattern = saved;
+    }
   });
 });
 
