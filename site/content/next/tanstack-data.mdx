@@ -7,7 +7,7 @@ order: 15
 
 # TanStack Start with data descriptors
 
-There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: "product-hero", props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It isn't a content loader from [Content and loaders](/next/content).) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
+There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: "product-hero", props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It has nothing to do with the `content` you give `createCMS`.) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
 
 Editors choose page URLs in Studio, so your app can't know its routes ahead of time. One catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's [blocks](/next/model#resolving-a-page-step-by-step).
 
@@ -63,17 +63,7 @@ export const client = (request: Request) => {
 
 The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. Its revision is the same content hash the Deco API computes, so a new Worker instance whose build already holds the current release skips downloading it (see [Loader internals](/next/loader-internals)). Workers run no timers between requests, so when a release check is due, the SDK runs it after the response inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent): you don't call `cms.update()`.
 
-**Large content on Workers.** When you pass `content` with `site` and `token`, the content module stays in memory as the fallback, alongside the release the loader fetched. Once you publish, the live release and the fallback are different revisions, so your content is in memory more than once. A Worker isolate has a 128 MB memory limit, and the bundled content also counts toward the Worker's script size limit. For a few hundred kilobytes of JSON this doesn't matter; for several megabytes, it can. On large sites, pass a [loader that reads from KV](/next/content#write-your-own-loader) as `content` instead of the content module. No copy is bundled into the Worker, and none is held in memory just because the module was imported: the fallback is read from KV only when it's needed. Once read, it's held in memory like any other content, so this removes the bundled copy, not every duplicate:
-
-```ts title="src/cms.ts (large sites)"
-import { env } from "cloudflare:workers";
-// kvContent: the KV loader from Write your own loader
-
-// The fallback comes from KV, not from the bundle
-export const cms = createCMS({ blocks, content: kvContent, site: env.DECO_SITE, token: env.DECO_SITE_TOKEN });
-```
-
-The trade-off: the fallback is now only as good as the KV key. Your deploy pipeline must write the current content to it before the new Worker serves traffic. Until a new isolate's first release check (about a minute), and whenever the Deco API can't be reached, reads come from the KV key. So if the key is missing, every new isolate fails its first reads with `LOADER_FAILED` until it has fetched a release, and keeps failing if it can't reach the API. A first-party `kvLoader` helper is planned (see the [Roadmap](/roadmap#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites)).
+**Large content on Workers.** With `site` and `token`, the bundled content module stays in memory as the fallback beside the live release, so a published site holds two copies (a Worker isolate has 128 MB), and the bundle counts toward the script size limit. That only matters at several megabytes of JSON; for sites that large, a first-party `kvLoader` that keeps the fallback in Workers KV is planned (see the [Roadmap](/roadmap#roadmap-api--document-and-support-kv-only-content-for-large-workers-sites)).
 
 ## 3. Match the URL to a page
 
@@ -236,8 +226,8 @@ export default defineConfig({
 - Run `deco schema && deco content` before each build (the `prebuild` script).
 - Pass `site` and `token` to `createCMS` so releases arrive without a deploy and upstream telemetry reaches Deco (binding-level cache and request metrics aren't wired in yet; see [What's sent](/next/operations#what-s-sent)).
 - Set `DECO_SITE` in `vars` and the token with `npx wrangler secret put DECO_SITE_TOKEN`.
-- Expect each new Worker instance (Cloudflare calls it an isolate) to serve the build's content module until its first check, or the content in your KV key if you pass a KV loader as `content` (write the key before the deploy). Checks run after responses, about once a minute.
-- If your content is several megabytes, use a KV loader instead of the bundled content module, and write the KV key before the new Worker takes traffic (see [Create the CMS](#2-create-the-cms)).
+- Expect each new Worker instance (Cloudflare calls it an isolate) to serve the build's content module until its first check. Checks run after responses, about once a minute.
+- If your content is several megabytes, see “Large content on Workers” under [Create the CMS](#2-create-the-cms).
 - Keep both compatibility flags.
 - The [Next.js guide](/next/nextjs) runs on Next's Node or Edge runtime, not on Workers.
 

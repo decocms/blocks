@@ -30,7 +30,7 @@ export async function handle(request: Request) {
 }
 ```
 
-`forDraft` hands the pointer to whatever supplies your content. `remoteLoader` fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole revision, deletions included, so a page in preview looks exactly as it will after publishing. The content module has no drafts, so it ignores the pointer: in development you're already looking at the files. A loader you write honors it if your store has drafts (see [Write your own loader](/next/content#write-your-own-loader)). That's why the code above never checks where its content comes from.
+`forDraft` passes the pointer on. With the hosted Deco CMS, the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole revision, deletions included, so a page in preview looks exactly as it will after publishing. The content module has no drafts, so it ignores the pointer: in development you're already looking at the files. That's why the same code serves previews and visitors.
 
 ## Keep the draft across navigation
 
@@ -67,7 +67,7 @@ A script passes it as an argument. To look inside a pointer, or build one from p
 
 ## Who may preview
 
-Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs configuration in your app. First, the pointer must name your site's own Deco API host, which `remoteLoader` looks up with your site ID and token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by Studio, which the Deco API checks before serving the draft.
+Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs configuration in your app. First, the pointer must name your site's own Deco API host, which the CMS looks up from your site ID and token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by Studio, which the Deco API checks before serving the draft.
 
 If a website wants to show drafts on its preview domain only, it checks the request's host before calling `forDraft`:
 

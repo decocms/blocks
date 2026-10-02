@@ -67,7 +67,7 @@ Now an editor can change the title or the slug in Studio, and an agent can even 
 
 ## Name a composition, reuse it
 
-In code, you'd give a composition you use often a name and reuse it. Saved entries do that. Alongside the block map of functions, the CMS reads a second map, the content map, where each name holds a piece of saved JSON. `{ "__resolveType": "SummerSEO" }` means whatever is saved under the name `SummerSEO`, written in place. The map can come from files in your repository, the hosted Deco CMS, or your own store; see [Content and loaders](/next/content).
+In code, you'd give a composition you use often a name and reuse it. Saved entries do that. Alongside the block map of functions, the CMS reads a second map, the content map, where each name holds a piece of saved JSON. `{ "__resolveType": "SummerSEO" }` means whatever is saved under the name `SummerSEO`, written in place. Your saved entries are the JSON files in `.deco/blocks`, one file per name; see [Your content in Git](/next/content).
 
 Unlike a `const` that holds a result, what's named here is the call itself, inputs and all. That's why you can add inputs to a reference to override the saved entry's inputs for this one use:
 
@@ -135,13 +135,13 @@ To step through a deeper example, see [How resolution works](/next/walkthrough).
 
 ## The rule
 
-Every `__resolveType` names one of two things: a block function in your block map to call (code), or a saved entry in your content to expand (JSON). Both share one namespace, one registry. They differ in how they change: functions ship with a deploy, while saved content is versioned (each version has a revision), can have drafts, and can be published without a deploy.
+Every `__resolveType` names one of two things: a block function in your block map to call (code), or a saved entry in your content to expand (JSON). Both share one namespace, one registry. They differ in how they change: functions ship with a deploy, while saved content is versioned (each version has a revision), and, with the hosted Deco CMS, can have drafts and be published without a deploy.
 
 ```ts
 const registry = { ...savedEntries, ...blocks };   // name → saved JSON | function
 ```
 
-Saved entries are the content map you pass as `createCMS`'s [`content`](/next/content). Functions come from the block map you give `createCMS`. The CMS applies one rule to every object with a `__resolveType`:
+Saved entries are your content, the files in `.deco/blocks`, which you pass to `createCMS` as [`content`](/next/content#the-content-module). Functions come from the block map you give `createCMS`. The CMS applies one rule to every object with a `__resolveType`:
 
 1. **Look up the name.**
 2. **Data:** replace the object with `{ ...entry, ...inputs }`, so your inputs override the entry's, and apply the rule to the result again.

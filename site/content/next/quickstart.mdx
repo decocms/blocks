@@ -95,7 +95,7 @@ It finds the block map in `blocks.ts` or `blocks.tsx`, in the project root or in
 There are two ways to create content:
 
 - **By hand.** Write the JSON file yourself, or ask an AI agent to "ramp the new checkout to 25%" and let it edit the file.
-- **In Studio (hosted Deco CMS).** Pick the `experiments` block type, fill in the form, and save. Studio commits the same file. To edit your local checkout from Studio instead, run `npx deco content serve` and open the link it prints; saves then write to your working tree.
+- **In Studio (hosted Deco CMS).** Pick the `experiments` block type, fill in the form, save, and publish. Studio commits the same file to your repository; pull it before the next step. To edit your local checkout from Studio instead, run `npx deco content serve` and open the link it prints; saves then write to your working tree.
 
 Both routes produce the same file in `.deco/blocks`, which is where the CLI looks for content (its `--root` flag points it at another `.deco` folder):
 
@@ -113,7 +113,7 @@ Both routes produce the same file in `.deco/blocks`, which is where the CLI look
 experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
 ```
 
-The file is a saved entry: one named piece of content that code, or other content, can refer to. Its file name without `.json` is its name (see [Content and loaders](/next/content)). `__resolveType` is a reserved key (the underscores keep it from clashing with your fields) that names the function to call by its block type. The other keys are that function's inputs.
+The file is a saved entry: one named piece of content that code, or other content, can refer to. Its file name without `.json` is its name (see [Your content in Git](/next/content)). `__resolveType` is a reserved key (the underscores keep it from clashing with your fields) that names the function to call by its block type. The other keys are that function's inputs.
 
 Two names are in play, on purpose: `experiments` is the block type and names a function, and `Experiments` is the entry name and names this one piece of saved content. You could save several entries that call `experiments`, such as `HolidayExperiments`. Names are case-sensitive, so they don't clash.
 
@@ -134,7 +134,7 @@ It writes `.deco/blocks.gen.ts`, which imports each JSON file in `.deco/blocks` 
 
 ## 5. Read the content from your code
 
-Create the CMS once, at module scope, with your block map and the content module (to connect the hosted Deco CMS or another store, see [Configuring content](/next/content#configuring-content)).
+Create the CMS once, at module scope, with your block map and the content module (to publish without a deploy through the hosted Deco CMS, see [Configuring content](/next/content#configuring-content)).
 
 ```ts title="cms.ts"
 import { createCMS } from "@decocms/blocks";
@@ -169,7 +169,7 @@ The function didn't change, but its inputs now live in a file that editors chang
 ## Next steps
 
 - [Blocks](/next/model): how blocks nest and refer to each other, which is how a page is built from a list of blocks.
-- [Content and loaders](/next/content): where saved entries come from, and how to read them from somewhere other than `.deco/blocks`.
+- [Your content in Git](/next/content): where your saved entries live, how your app reads them, and how a change goes live.
 - [Schema generation](/next/schema): how your types become editor forms, and the JSDoc tags that shape them.
 - [Preview](/next/preview): render drafts in your real pages, no deploy.
 - [Block maps](/next/manifest), when you need more: lazy loading and naming types.

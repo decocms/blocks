@@ -12,7 +12,7 @@ A wrong cache key is how a site shows one customer's cart to another or serves l
 
 | Layer | Lifetime | Your responsibility |
 |---|---|---|
-| Content map | Cached in the CMS: releases by revision, indefinitely; drafts by version. One cache per process, even if the package is loaded twice (see [One instance per process](/next/standalone#one-instance-per-process)). See [Content and loaders](/next/content) and [how remoteLoader stays current](/next/loader-internals). | Nothing, unless you write a loader: then key by revision. |
+| Content map | Cached in the CMS: releases by revision, indefinitely; drafts by version. One cache per process, even if the package is loaded twice (see [One instance per process](/next/standalone#one-instance-per-process)). See [Your content in Git](/next/content) and [how remoteLoader stays current](/next/loader-internals). | Nothing. |
 | Resolved blocks | For one client. A client runs each block once and reuses the result for the rest of the request. | Make a client per request and resolve everything the response renders through it. |
 | Dynamically imported modules | Block functions you load lazily with `import()` (see [Block maps](/next/manifest)) are cached by the JavaScript runtime for the life of the process, so anything a module stores in a top-level variable is shared by every request. | Keep per-request state out of module globals. |
 | Upstream data | Responses from the APIs your code calls (a commerce platform, a search service), cached by your framework binding: the Cloudflare Cache API on Workers, Next's data cache on Next.js. See [Upstream API clients](/next/clients#caching). | Include tenant, locale, currency, or customer in the key. Never cache private data as public. |
