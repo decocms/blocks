@@ -5,8 +5,11 @@ import { forwardRef } from "react";
 // Known asset prefixes that get stripped to produce a relative src path
 // -------------------------------------------------------------------------
 
-const DECO_CACHE_URL = "https://assets.decocache.com/";
-const S3_URL = "https://deco-sites-assets.s3.sa-east-1.amazonaws.com/";
+// decocache, S3, and decoims.com — the legacy default image CDN (pre-#495).
+// Decofiles are full of decoims URLs; passing one as `src=` to a Deco CDN makes
+// it fetch itself → 508 Loop Detected. Anchored: only a leading host is stripped.
+const DECO_ASSET_PREFIX_RE =
+	/^https:\/\/(?:assets\.decocache\.com|deco-sites-assets\.s3\.sa-east-1\.amazonaws\.com|decoims\.com)\//;
 
 // -------------------------------------------------------------------------
 // Configurable CDN domain
@@ -132,7 +135,7 @@ function optimizeShopify(originalSrc: string, width: number, height?: number): s
 /**
  * Builds an optimized image URL.
  *
- * For Deco-hosted images (decocache / S3), strips the known prefix and
+ * For Deco-hosted images (decocache / S3 / decoims), strips the known prefix and
  * routes through the Deco image CDN for edge resize + format conversion.
  *
  * For platform-specific images (VTEX, Shopify), rewrites the URL using
@@ -169,7 +172,7 @@ export function getOptimizedMediaUrl(opts: OptimizationOptions): string {
 		return optimizeShopify(originalSrc, width, height);
 	}
 
-	let imageSource = originalSrc.replace(DECO_CACHE_URL, "").replace(S3_URL, "").split("?")[0];
+	let imageSource = originalSrc.replace(DECO_ASSET_PREFIX_RE, "").split("?")[0];
 
 	// Already on the image CDN — strip the host so we don't proxy through ourselves.
 	const cdnPrefix = `https://${imageCdnDomain}/`;
