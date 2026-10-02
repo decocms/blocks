@@ -7,11 +7,11 @@ order: 16
 
 # TanStack Start with data descriptors
 
-There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-start-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: "product-hero", props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It has nothing to do with the `content` you give `createCMS`.) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
+There are two ways to render with TanStack Start: this guide, which works with any React setup, and the experimental [RSC guide](/next/tanstack-start-rsc); [Which mode to use](/next/rendering#which-mode-to-use) compares them. Here, block functions don't return JSX. They return a descriptor, a plain object such as `{ component: "product-hero", props }` (see [Rendering](/next/rendering)). Start sends a route's loader data to the browser as serialized data, and JSX can't make that trip, but a descriptor can. (Here "loader" is TanStack Router's route loader, the function that fetches a route's data. It has nothing to do with the `content` you give [`createCMS`](/next/api-reference#createcms-config).) In the browser, a small `View` component maps each name to a React component. Start streams each block's descriptor as it resolves, renders the views on the server, and hydrates them in the browser. It deploys to Cloudflare Workers.
 
-Editors choose page URLs in [Studio](/next/how-it-works#studio), so your app can't know its routes ahead of time. One catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's [blocks](/next/blocks).
+Editors choose page URLs in [Studio](/next/how-it-works#studio), so your app can't know its routes ahead of time. One catch-all route receives every URL, asks [`matchRoute`](/next/api-reference#matchroute-url-items) which page or redirect owns it, and renders that page's [blocks](/next/blocks).
 
-**Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); the [example project](/next/routing#the-example-used-here-and-in-the-guides); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the content module.
+**Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); the [example project](/next/routing#the-example-used-here-and-in-the-guides); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the [content module](/next/blocks#the-deco-content-command).
 
 ## 1. Return descriptors from blocks
 
@@ -27,7 +27,7 @@ export default {
 } satisfies Blocks;
 ```
 
-These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. The `page` key overrides the built-in page with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in `redirect` block is added for you. Generate the schema from the map file (`deco schema` reads `.deco/index.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
+These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. The `page` key [overrides the built-in page](/next/schema#override-a-built-in) with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in `redirect` block is added for you. Generate the schema from the map file (`deco schema` reads `.deco/index.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
 
 ```json title="package.json"
 {
@@ -55,12 +55,12 @@ export const cms = createCMS({ blocks, content });
 export const client = (_request: Request) => cms.forRelease();
 ```
 
-The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. `client` takes the request even though this guide doesn't read it (hence the `_` that keeps unused-parameter lint rules quiet); [hosted drafts](/next/hosted-drafts#tanstack-start) read it, and the steps below stay the same.
+`createCMS` combines your block map and your content into the `cms` object, and `cms.forRelease()` returns a client, the object your code calls `list` and `resolve` on (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)). The content module is ordinary imports, so Vite bundles it into the Worker like any other module; nothing here is specific to Workers. `client` takes the request even though this guide doesn't read it (hence the `_` that keeps unused-parameter lint rules quiet); [hosted drafts](/next/hosted-drafts#tanstack-start) read it, and the steps below stay the same.
 
 
 ## 3. Match the URL to a page
 
-This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser. If an editor wrapped the whole `sections` list in a [variant](/next/matchers-and-variants), it's one block that resolves to a list (`T[]`), so it streams as one.
+This helper is shared by both TanStack guides. It resolves each block separately rather than calling [`c.resolve(page)`](/next/api-reference#client-resolve-target-options), so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser. If an editor wrapped the whole `sections` list in a [variant](/next/matchers-and-variants), it's one block that resolves to a list (`T[]`), so it streams as one.
 
 ```ts title="src/open-page.server.ts"
 import { notFound, redirect } from "@tanstack/react-router";

@@ -8,25 +8,25 @@ description: Deco doesn't fetch data. Sites call commerce, search and email plat
 
 # Upstream API clients
 
-Deco doesn't fetch data. Your site calls commerce platforms, search services and email providers itself, through **upstream clients**: thin, typed API clients that send every request through the framework's instrumented fetch, so every call to a third-party API is measured the same way.
+Deco doesn't fetch data. Your site calls commerce platforms, search services and email providers itself, through **upstream clients**: thin, typed API clients that send every request through the framework's [instrumented fetch](/next/caching-and-observability#measuring-upstream-calls), so every call to a third-party API is measured the same way.
 
 ## What a client is
 
 Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algolia, Resend and others. Each one is:
 
 - **Typed request functions**, one per API operation, with the platform's own request and response types (generated from its API description where it has one).
-- **Built on the instrumented fetch**, `createInstrumentedFetch`, which times each request (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)).
+- **Built on the instrumented fetch**, [`createInstrumentedFetch`](/next/api-reference#createinstrumentedfetch-options), which times each request.
 - **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it.
 
 Everything else lives in code your site owns:
 
 | Not in a client | Where it lives |
 |---|---|
-| Converters from a platform's types to shared commerce types | [Platform templates](/next/how-it-works#key-terms), the starter sites you copy and then own, and your code |
+| Converters from a platform's types to shared commerce types | [Platform templates](/next/how-it-works#other-terms), the starter sites you copy and then own, and your code |
 | React hooks for the cart, the user and the wishlist | Platform templates |
 | Cart, session and sign-in flows | Platform templates, as your framework's server functions or route handlers |
-| Website features: SEO helpers, sitemaps, redirect logic, analytics scripts | Platform templates and your code. The framework itself ships only the `always`, `never` and `date` matchers. |
-| Loaders and actions that [Studio](/next/how-it-works#studio) ran through `/deco/invoke` | Your code. The SDK has no invoke endpoint and no `cachedLoader`. |
+| Website features: SEO helpers, sitemaps, redirect logic, analytics scripts | Platform templates and your code. The framework itself ships only the `always`, `never` and `date` [matchers](/next/matchers-and-variants#matchers). |
+| [Loaders and actions](/v7/loaders) (v7's data functions) that [Studio](/next/how-it-works#studio) ran through `/deco/invoke` | Your code. The SDK has no invoke endpoint and no `cachedLoader`. |
 
 The Salesforce client covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
 
@@ -53,7 +53,7 @@ The operation names here are illustrative; each client mirrors its platform's AP
 
 ## Caching
 
-Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/how-it-works#key-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements.
+Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/how-it-works#other-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements.
 
 Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and observability](/next/caching-and-observability) for the other caches a request passes through.
 
@@ -123,7 +123,7 @@ export const search = createAcmeSearch({
 });
 ```
 
-A block function can then fetch what it renders:
+A block function in your [block map](/next/blocks#the-block-map) can then fetch what it renders:
 
 ```tsx title=".deco/index.tsx (excerpt)"
 "product-shelf": async ({ title, query }: { title: string; query: string }) => {

@@ -7,7 +7,7 @@ order: 10
 
 # Routes, redirects, and content types
 
-A **content type** is a block type whose entries you save and list, such as a page, a blog post or a redirect; this page calls it that, but it's an ordinary block type. Its name is the value of `__resolveType`. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), and `deco schema` always includes their schemas. Your own types, like `post`, are blocks too, declared in your block map (see [Data-only blocks](/next/schema#data-only-blocks)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
+A **content type** is a block type whose entries you save and list, such as a page, a blog post or a redirect; this page calls it that, but it's an ordinary [block type](/next/blocks#the-block-map). Its name is the value of [`__resolveType`](/next/blocks#functions-as-blocks). `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), and [`deco schema`](/next/cli#deco-schema-and-deco-content) always includes their schemas. Your own types, like `post`, are blocks too, declared in your block map (see [Data-only blocks](/next/schema#data-only-blocks)). The framework also ships the `Route` interface, which any content type can extend to get a URL.
 
 ```ts
 /** An entry that lives at a URL. Extend it to make a type routable. */
@@ -36,7 +36,7 @@ interface Page extends Route {
 }
 ```
 
-Each field is typed as what the page receives, already resolved: a `Seo` object and a list of rendered blocks ([how Studio fills them](/next/schema#from-types-to-forms)). In the saved JSON below, `seo` is a block and `sections` is a list of blocks.
+Each field is typed as what the page receives, already resolved: a `Seo` object and a list of rendered blocks ([how Studio fills them](/next/schema#from-types-to-forms)). In the saved JSON below, `seo` is a block and `sections` is a list of blocks; after it is what [`client.resolve`](/next/api-reference#client-resolve-target-options) returns for it.
 
 ```json title="Saved as SummerPage"
 {
@@ -69,9 +69,9 @@ Each field is typed as what the page receives, already resolved: a `Seo` object 
 }
 ```
 
-Two SDK functions turn these entries into URLs. `client.list("page")` returns every saved block whose `__resolveType` is `page`. `matchRoute(url, { routes, redirects })` picks the entry that matches a URL. [Routing](/next/routing) puts them together.
+Two SDK functions turn these entries into URLs. [`client.list("page")`](/next/api-reference#client-list-type-options) returns every saved block whose `__resolveType` is `page`. [`matchRoute(url, { routes, redirects })`](/next/api-reference#matchroute-url-items) picks the entry that matches a URL. [Routing](/next/routing) puts them together.
 
-**The router's rule is one line: an entry with a string `path` matches at that path.** `Route` is what makes that intentional. The CLI checks that any type declaring `path` extends `Route`, so a stray `path` field on an unrelated block is a schema error rather than a surprise URL. Editors see `name` and `path` as ordinary fields on every routable thing, in [Studio](/next/how-it-works#studio), which is how a marketing team gets `/summer-sale` live without a developer. Keep `path` and `from` plain strings, not blocks, so the router can match without running code.
+**The router's rule is one line: an entry with a string `path` matches at that path.** `Route` is what makes that intentional. The [CLI](/next/cli) checks that any type declaring `path` extends `Route`, so a stray `path` field on an unrelated block is a schema error rather than a surprise URL. Editors see `name` and `path` as ordinary fields on every routable thing, in [Studio](/next/how-it-works#studio), which is how a marketing team gets `/summer-sale` live without a developer. Keep `path` and `from` plain strings, not blocks, so the router can match without running code.
 
 ## Your own routable types
 

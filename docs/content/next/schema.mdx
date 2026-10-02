@@ -12,7 +12,7 @@ This page shows how types become fields, how to pick widgets, how to declare dat
 
 ## From types to forms
 
-`deco schema` reads the default export of `.deco/index.ts` (or `.deco/index.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (see [CLI](/next/cli)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
+`deco schema` reads the default export of `.deco/index.ts` (or `.deco/index.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (see [`deco schema`](/next/cli#deco-schema-and-deco-content)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
 
 ```bash
 npx @decocms/blocks schema
@@ -20,7 +20,7 @@ npx @decocms/blocks schema
 
 It finds `.deco/` by walking up from the current folder, or takes `--root` ([how it finds the folder](/next/cli#finding-the-deco-folder)). Commit `.deco/schema.gen.json` with your code.
 
-For each block, the compiler reads the type of the function's first parameter. Each property becomes a field:
+For each block, `deco schema` reads the type of the function's first parameter. Each property becomes a field:
 
 | TypeScript type | Field in Studio |
 |---|---|
@@ -45,10 +45,10 @@ interface ProductCardProps {
 `deco schema` reads each block function's return type to know which functions fit which fields:
 
 - **Objects** (`product: Product`, `seo: Seo`) take a plain value, or a block whose function returns that type, such as `catalogProduct` or `seo`.
-- **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a matcher never shows up as a section.
+- **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a [matcher](/next/matchers-and-variants#matchers) (a function that returns a `boolean`) never shows up as a section.
 - **Simple types** (`string`, `number`, `boolean`, a union of literals) get a plain input only. A function that returns a `string` isn't offered for `title: string`, and matchers aren't offered for `permanent: boolean`.
 
-Two things work on top of this. Any field can be a [variant](/next/matchers-and-variants): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list ([Variants](/next/matchers-and-variants#variants) shows how it picks one). And a variant's `rule` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a [matcher](/next/matchers-and-variants#matchers)).
+Two things work on top of this. Any field can be a [variant](/next/matchers-and-variants#variants), one of several values picked per visitor: `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. And a variant's `rule` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher).
 
 Never type a prop as a block. `Block` is only the shape of saved JSON (see [Composing blocks](/next/blocks#composing-blocks)).
 
@@ -58,7 +58,7 @@ A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format
 Any block whose function returns the field's type can fill it, so editors can swap one for another without touching code. (This is polymorphism: Studio matches functions by their return type, the way TypeScript does.) For such a field, Studio offers two kinds of choices:
 
 - **A new block**: pick one of the functions that fit, and fill in its form right there.
-- **A saved block**: Studio reads the saved blocks with `blocks.list` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reusing blocks](/next/blocks#reusing-blocks)).
+- **A saved block**: Studio lists the saved blocks in `.deco/blocks` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reusing blocks](/next/blocks#reusing-blocks)).
 
 ## Widgets
 
@@ -118,11 +118,11 @@ const post = (props: Post) => props;                     // data only: returns w
 export default { seo, hero, post } satisfies Blocks;     // page and redirect are built-in blocks; no need to declare them
 ```
 
-A `post` is now a block like any other. Your app reads posts by type with `client.list("post")` or by URL with `matchRoute` (see [Routing](/next/routing)), and `client.resolve` works on a saved post too. Blocks inside a post still resolve, because a block's inputs resolve before its function runs. And like any block, it can fill a field of its return type: a block with a `featured: Post` field lets editors pick a saved post (see [Interchangeable blocks](#interchangeable-blocks)).
+A `post` is now a block like any other. Your app reads posts by type with [`client.list("post")`](/next/api-reference#client-list-type-options) or by URL with [`matchRoute`](/next/api-reference#matchroute-url-items) (see [Routing](/next/routing)), and [`client.resolve`](/next/api-reference#client-resolve-target-options) works on a saved post too. Blocks inside a post still resolve, because a block's inputs resolve before its function runs. And like any block, it can fill a field of its return type: a block with a `featured: Post` field lets editors pick a saved post (see [Interchangeable blocks](#interchangeable-blocks)).
 
 ### Override a built-in
 
-The schema and the runtime always include the [built-in blocks](/next/blocks#built-in-blocks): `page`, `redirect` and `telemetry`. To change a built-in's form, declare the same key in the default export. `Page` is exported from `@decocms/blocks`; extend it to add fields:
+The schema and the runtime always include the [built-in blocks](/next/blocks#built-in-blocks): `page`, `redirect` and `telemetry`. To change a built-in's form, declare the same key in the default export. [`Page`](/next/api-reference#types) is exported from `@decocms/blocks`; extend it to add fields:
 
 ```ts title=".deco/index.ts"
 import type { Blocks, Page } from "@decocms/blocks";
@@ -143,7 +143,7 @@ A saved block in `.deco/blocks` can't have the name of a block type, built-ins i
 
 ## Backward compatibility
 
-Saved content must keep working when your code changes, and content must only use the block types and fields your code has. [`deco check`](/next/cli#deco-check) makes sure of both: it validates every saved block against the schema your code generates, whichever of the two changed.
+Saved content must keep working when your code changes, and content must only use the block types and fields your code has. `deco check` makes sure of both: it validates every saved block against the schema your code generates, whichever of the two changed.
 
 Run it on every pull request, and make the job a required check so content that doesn't fit can't merge:
 
@@ -169,7 +169,7 @@ The second step fails if the committed `schema.gen.json` is out of date, which m
 
 In a monorepo, pass `--root` to both commands (`npx @decocms/blocks schema --root apps/storefront && npx @decocms/blocks check --root apps/storefront`) and diff `apps/storefront/.deco/schema.gen.json`.
 
-The build runs `deco check` too (in `prebuild`), so a broken mix of code and content fails the build and never deploys: the live site keeps serving the previous deploy. Optionally, turn on "Require branches to be up to date before merging" in your branch protection (or use a merge queue) to catch it at pull-request time instead of at build time: two pull requests can each pass on their own and break together.
+The build runs `deco check` too (in the [`prebuild` script](/next/cli#run-it-before-dev-and-build)), so a broken mix of code and content fails the build and never deploys: the live site keeps serving the previous deploy. Optionally, turn on "Require branches to be up to date before merging" in your branch protection (or use a merge queue) to catch it at pull-request time instead of at build time: two pull requests can each pass on their own and break together.
 
 To rename a block type, keep the old name as an alias (see [Renaming and migrating](/next/renames-and-migrations#rename-a-type-with-an-alias)). To rename a field, add the new one, move the content over, then remove the old one.
 

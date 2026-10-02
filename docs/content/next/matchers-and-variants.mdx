@@ -24,7 +24,7 @@ import { always, never, date } from "@decocms/blocks/matchers";
 // date({ start?: string; end?: string }) => boolean, true when now is between start and end
 ```
 
-Here's the summer sale as a `date` block:
+Here's the summer sale as a `date` block (`__resolveType` names the block function to run; see [Functions as blocks](/next/blocks#functions-as-blocks)):
 
 ```jsonc
 // Stored as JSON
@@ -151,7 +151,7 @@ export default {
 } satisfies Blocks;
 ```
 
-Now a page's hero can differ on mobile. `MobileHero` and `DesktopHero` are [saved blocks](/next/blocks#blocks-in-your-repository):
+Now a page's hero can differ on mobile. `MobileHero` and `DesktopHero` are [saved blocks](/next/blocks#reusing-blocks):
 
 ```jsonc
 // Stored as JSON, one entry in a page's sections
@@ -201,7 +201,7 @@ Matchers aren't tied to a website: a mobile app can read the shopper's loyalty t
 
 Every variant's `value` resolves before `multivariate` picks one. For a title that's free. For two heroes that each fetch products, it costs both fetches, and a failure in a variant that wasn't picked still fails the whole block. Studio hides a block by wrapping it in a variant whose only rule is `never()`, so a hidden block still runs, and its result is `undefined`.
 
-To run only the picked one, make the values the names of saved blocks, as plain strings. A string isn't a block, so nothing runs; `multivariate` returns a name, and you resolve it with [`client.resolve`](/next/blocks#composing-blocks):
+To run only the picked one, make the values the names of saved blocks, as plain strings. A string isn't a block, so nothing runs; `multivariate` returns a name, and you resolve it with [`client.resolve`](/next/api-reference#client-resolve-target-options):
 
 ```jsonc
 // Stored as JSON, saved as HeroPick

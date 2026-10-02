@@ -8,21 +8,21 @@ order: 6
 
 # Deco Studio compatibility
 
-[Studio](/next/how-it-works#studio) reads and writes a next-major site through the [content protocol](/next/content-protocol), which needs only the committed schema and the files in `.deco/blocks`. This page covers what Studio reads from the schema, the alias table, and the endpoints older sites still serve.
+[Studio](/next/how-it-works#studio) reads and writes a next-major site through the [content protocol](/next/content-protocol), which needs only the committed [schema](/next/schema#from-types-to-forms) and the files in `.deco/blocks`. This page covers what Studio reads from the schema, the alias table, and the endpoints older sites still serve.
 
 ## What Studio reads from the schema
 
 Everything Studio knows about the shape of your content comes from the schema, so it's all inferred from your types. Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none. The file follows Studio's format, `deco-meta@1`:
 
-- **`manifest`**: every key of your block map, plus the built-ins, grouped by kind (table below).
+- **`manifest`**: every key of your [block map](/next/blocks#the-block-map), plus the [built-ins](/next/blocks#built-in-blocks), grouped by kind (table below).
 - **`schema.definitions`**: one JSON Schema per type, the form Studio shows, keyed by the padded-base64 type name.
 
 The group names are Studio's, inherited from the Fresh and Deno framework. The CLI picks the group from the type:
 
 | Manifest group | What lands there | Studio uses it for |
 |---|---|---|
-| `sections` (Studio's legacy name) | Block functions that return JSX or a render descriptor | Studio's "add" catalog: the blocks an editor can add to a page |
-| `matchers` | Block functions that return `boolean` | The rule picker on a variant |
+| `sections` (Studio's legacy name) | Block functions that return JSX or a [render descriptor](/next/rendering#which-mode-to-use) | Studio's "add" catalog: the blocks an editor can add to a page |
+| `matchers` | Block functions that return `boolean` ([matchers](/next/matchers-and-variants#matchers)) | The rule picker on a [variant](/next/matchers-and-variants#variants) |
 | `loaders` | Every other block function, such as one that fetches products. Studio calls these loaders, after the Fresh and Deno name for data functions; they have nothing to do with where your content comes from. | Data fields that can point at a function |
 | `pages` | The built-in `page` (or your override of it) and [data-only blocks](/next/schema#data-only-blocks) whose type extends `Route`, like `post` | The page list, "new page", the URL field |
 | `redirects` | The built-in `redirect` | The redirects screen |
@@ -51,7 +51,7 @@ The group names are Studio's, inherited from the Fresh and Deno framework. The C
 
 Three conventions follow from this:
 
-- A key is a **block type if it's in the manifest and a saved block if it isn't**, so short names like `hero` are fine, as long as no saved block uses the same name (see [Blocks](/next/blocks)).
+- A key is a **block type if it's in the manifest and a saved block if it isn't**, so short names like `hero` are fine, as long as no saved block uses the same name (see [the lookup rule](/next/blocks#the-lookup-rule)).
 - A variant is `{ "variants": [{ "rule": …, "value": … }, …] }`. The first variant whose rule is true wins, so the default, with the `always` rule, goes last.
 - A redirect is a flat `{ from, to, permanent }` entry.
 
@@ -69,7 +69,7 @@ The Fresh and Deno framework, and v7, name every block type by the path of the f
 | Redirect | `website/loaders/redirect.ts` |
 | Secret | `website/loaders/secret.ts` |
 
-Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so Studio's screens find your types under the names they expect. Content Studio saves under an old name resolves too: `deco content` writes the alias table into the content module, and `createCMS` reads it from there.
+Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so Studio's screens find your types under the names they expect. Content Studio saves under an old name resolves too: [`deco content`](/next/blocks#the-deco-content-command) writes the alias table into the content module, and [`createCMS`](/next/api-reference#createcms-config) reads it from there.
 
 One difference remains: redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/routes-and-redirects):
 
@@ -82,7 +82,7 @@ One difference remains: redirects created in Studio are saved in the old nested 
 { "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": true }
 ```
 
-`matchRoute` accepts both. Studio decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
+[`matchRoute`](/next/api-reference#matchroute-url-items) accepts both. Studio decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
 
 ## Legacy endpoints
 

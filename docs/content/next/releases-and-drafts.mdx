@@ -14,7 +14,7 @@ Your app always renders one version of your content. Usually that's the release.
 
 A **release** is the content everyone sees right now. In the open-source setup, it's the content module in your build: the `.deco/blocks` files of the commit you deployed (see [The `deco content` command](/next/blocks#the-deco-content-command)). A new release goes out with your next deploy (see [Releases and deployment](/next/releases-and-deployment)).
 
-`cms.forRelease()` gives you a client that reads it.
+`cms.forRelease()` gives you a client, the object you read content with, over the release. `cms` is the object your app creates once with [`createCMS`](/next/api-reference#createcms-config) (see the [Quickstart](/next/quickstart#5-read-the-content-from-your-code)).
 
 <Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Releases without a deploy.** With the hosted Deco CMS, the release is your latest publish, and it reaches running servers within seconds, with no new build.</Hosted>
 
@@ -22,7 +22,7 @@ A **release** is the content everyone sees right now. In the open-source setup, 
 
 A **draft** is another version of your content, not live yet. Your content [loader](/next/api-reference#loaders) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Drafts on your site](/next/hosted-drafts)).
 
-The loader is what you pass to `createCMS` as `content`:
+The loader is what you pass to `createCMS` as its [`content`](/next/api-reference#configuring-content) option:
 
 ```ts
 const cms = createCMS({ blocks, content: myLoader });   // myLoader.load(pointer) returns the draft
@@ -34,7 +34,7 @@ The open-source setup passes the content module, which has no drafts: it ignores
 
 ## Preview
 
-Preview is your real app rendering a draft instead of the release. It isn't a separate feature. In your route or page handler, where `cms` is the object from `createCMS` (see [Rendering](/next/rendering)), read the pointer from the request and pick the client:
+Preview is your real app rendering a draft instead of the release. It isn't a separate feature. In your route or page handler (see [Rendering](/next/rendering)), read the pointer from the request with [`draftPointer`](/next/api-reference#draft-pointers) and pick the client:
 
 ```ts
 import { draftPointer } from "@decocms/blocks";

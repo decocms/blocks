@@ -8,7 +8,7 @@ description: With the hosted Deco CMS, Studio opens your real site with a ?__dra
 
 # Drafts on your site
 
-Without the hosted Deco CMS, you check a content change in your dev app or on your host's preview deployment of a branch (see [Releases and drafts](/next/releases-and-drafts#checking-changes-without-a-draft-loader)). With it, [Studio](/next/how-it-works#studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
+Without the [hosted Deco CMS](/next/hosted), you check a content change in your dev app or on your host's preview deployment of a branch (see [Releases and drafts](/next/releases-and-drafts#checking-changes-without-a-draft-loader)). With it, [Studio](/next/how-it-works#studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
 
 ## The `?__draft=` link
 
@@ -18,13 +18,13 @@ With the hosted Deco CMS, a [draft](/next/releases-and-drafts#drafts) is an edit
 https://store.example.com/summer?__draft=api.deco.example/drafts/acme/feat-summer%3Ftoken%3D…@9f3c1a
 ```
 
-The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the Deco API's address for this site's `feat-summer` branch, plus a token signed by Studio. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
+The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the [Deco API](/next/hosted#terms)'s address for this site's `feat-summer` branch, plus a token signed by Studio. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
 
-The pointer is a string, `<host><path>@<version>`. `cms.forDraft(pointer)` gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole revision, deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client serves what a normal request would get, never a mix of draft and published entries.
+The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#createcms-config) gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole [revision](/next/releases-and-deployment) (one version of all your content), deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client serves what a normal request would get, never a mix of draft and published entries.
 
 ## Wire drafts into your app
 
-Your app serves visitors with `cms.forRelease()`. Drafts take one more line, the same pattern as [Preview](/next/releases-and-drafts#preview): `draftPointer(request)` reads the pointer, from `?__draft=` or from the cookie described below, and returns `null` on an ordinary request. Everything after it is the same code that serves visitors:
+Your app serves visitors with `cms.forRelease()`. Drafts take one more line, the same pattern as [Preview](/next/releases-and-drafts#preview): [`draftPointer(request)`](/next/api-reference#draft-pointers) reads the pointer, from `?__draft=` or from the cookie described below, and returns `null` on an ordinary request. Everything after it is the same code that serves visitors:
 
 ```ts title="A plain request handler"
 import { draftPointer } from "@decocms/blocks";
@@ -38,7 +38,7 @@ export async function handle(request: Request) {
 }
 ```
 
-Without a site and token (in development, for example), the CMS reads the content module, which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere.
+Without a [site ID and token](/next/hosted#connect-your-site) (in development, for example), the CMS reads the [content module](/next/blocks#the-deco-content-command), which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere.
 
 ## Keep the draft across navigation
 
@@ -154,4 +154,4 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 ## Studio's canvas
 
-Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its [site ID and token](/next/hosted#connect-your-site) and the wiring above. With [`deco serve`](/next/cli#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.
+Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and token and the wiring above. With [`deco serve`](/next/cli#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.

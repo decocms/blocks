@@ -28,7 +28,7 @@ The banner is an ordinary component, `PromoBanner`, whose props are typed: a `ti
 
 ### 2. The types become a form
 
-The `deco schema` command reads those prop types and writes a schema file, `.deco/schema.gen.json`. Studio builds a form from that file, so `title` becomes a text box without anyone designing a form. See [Schema](/next/schema).
+The [`deco schema`](/next/cli#deco-schema-and-deco-content) command reads those prop types and writes a schema file, `.deco/schema.gen.json`. Studio builds a form from that file, so `title` becomes a text box without anyone designing a form. See [Schema](/next/schema).
 
 ### 3. Someone changes the content
 
@@ -42,7 +42,7 @@ Your usual CI builds and deploys the app, and the new text goes live with it, th
 
 ### 5. Your app renders it
 
-Your app asks the SDK (the `client` your app gets from `cms.forRelease()`, where `cms` comes from `createCMS`) for `SummerBanner`. The SDK calls `PromoBanner` with the saved props and hands back the result, which you render like any other component. See [Rendering](/next/rendering) for the two ways that result reaches the browser.
+Your app asks the SDK, Deco's library `@decocms/blocks`, for `SummerBanner`. It asks through a `client` it gets from `cms.forRelease()`, where `cms` is the object your app creates once with [`createCMS`](/next/api-reference#createcms-config) (walked through in the [Quickstart](/next/quickstart#5-read-the-content-from-your-code)). The SDK calls `PromoBanner` with the saved props and hands back the result, which you render like any other component. See [Rendering](/next/rendering) for the two ways that result reaches the browser.
 
 ## The pieces
 

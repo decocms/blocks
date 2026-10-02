@@ -7,13 +7,13 @@ order: 21
 
 # Renaming and migrating
 
-Saved content refers to your code by name: every block stores a type name in `__resolveType`, references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content. Renaming a type or removing an input affects every block that uses it, and renaming a saved block breaks every reference to it (`NOT_FOUND`).
+Saved content refers to your code by name: every block stores a type name in [`__resolveType`](/next/blocks#functions-as-blocks), references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content. Renaming a type or removing an input affects every block that uses it, and renaming a saved block breaks every reference to it ([`NOT_FOUND`](/next/api-reference#errors)).
 
 This page covers renaming safely, and bringing in content from a site built on Deco's earlier framework, where type names were file paths such as `site/sections/Product.tsx`. Moving source files is free; only names matter.
 
 ## Rename a type with an alias
 
-An alias is another key in the block map pointing at the same function. Content that stores the old name keeps working, and routing is unaffected because `matchRoute` looks at each entry's `path` field (see [Routes and redirects](/next/routes-and-redirects)), not its type name:
+An alias is another key in the [block map](/next/blocks#the-block-map) pointing at the same function. Content that stores the old name keeps working, and routing is unaffected because [`matchRoute`](/next/api-reference#matchroute-url-items) looks at each entry's `path` field (see [Routes and redirects](/next/routes-and-redirects)), not its type name:
 
 ```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
@@ -25,7 +25,7 @@ export default {
 } satisfies Blocks;
 ```
 
-Legacy page names such as `website/pages/Page.tsx` need no entry: the CLI's alias table maps them to the built-in `page` (see [Studio compatibility](/next/studio-compatibility)).
+Legacy page names such as `website/pages/Page.tsx` need no entry: the [CLI](/next/cli)'s alias table maps them to the [built-in `page`](/next/blocks#built-in-blocks) (see [Studio compatibility](/next/studio-compatibility)).
 
 An alias only works while both names take the same inputs. If the old shape differs, register a function under the old name that converts the old inputs and calls the new function, or migrate the content first. Here the old content called the title `name`:
 
@@ -39,7 +39,7 @@ export default {
 } satisfies Blocks;
 ```
 
-`deco check` rejects an alias that collides with a saved block's name.
+[`deco check`](/next/cli#deco-check) rejects an alias that collides with a saved block's name.
 
 ## Loaders and actions from the apps
 
@@ -48,8 +48,8 @@ On [v7](/v7/loaders), saved content often calls loaders and actions that ship in
 ## Checklist for migrating existing content
 
 1. **Keep existing names.** If the content stores file-path type names, register them as they are or alias them, including the app loaders and actions you vendored.
-2. **Check inputs.** Run [`deco check`](/next/cli#deco-check): it validates every saved block against the schema and lists each one that no longer fits. It can't see changed defaults, so review those yourself.
-3. **Migrate the content in one commit.** A script reads the JSON in `.deco/blocks`, rewrites it, and writes it back. The commit is a new revision you can revert in one step. Keep fields the script doesn't recognize instead of deleting them, and report references to missing entries (`NOT_FOUND`) instead of dropping them.
+2. **Check inputs.** Run `deco check`: it validates every saved block against the [schema](/next/schema#from-types-to-forms) and lists each one that no longer fits. It can't see changed defaults, so review those yourself.
+3. **Migrate the content in one commit.** A script reads the JSON in `.deco/blocks`, rewrites it, and writes it back. The commit is a new [revision](/next/releases-and-deployment) you can revert in one step. Keep fields the script doesn't recognize instead of deleting them, and report references to missing entries (`NOT_FOUND`) instead of dropping them.
 4. **Test the integration.** Load real pages against the migrated content: routes resolve, titles and SEO tags are right, blocks that load later (if your framework streams them) appear, failing blocks show their fallback, and navigation works.
 5. **Keep a rollback pair.** Keep the previous build plus the content revision it was tested with. Rolling back content alone can't bring back code you removed.
 

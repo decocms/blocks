@@ -12,7 +12,7 @@ description: How Studio reads and writes saved blocks without running your code.
 
 ## What it reads and writes
 
-- **The schema**, `<root>/.deco/schema.gen.json`. It's read-only: no method writes it.
+- **The [schema](/next/schema#from-types-to-forms)**, `<root>/.deco/schema.gen.json`. It's read-only: no method writes it.
 - **The saved blocks**, one JSON file per block in `<root>/.deco/blocks`. This is the only thing it writes.
 
 The root is the app root, the folder that contains `.deco/`, such as `apps/storefront` in a monorepo. `describe` reports it.
@@ -30,7 +30,7 @@ Two implementations serve the protocol:
 | Backend | Edits | Studio checks for changes |
 |---|---|---|
 | **[`deco serve`](/next/cli#deco-serve)**, from the Deco CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
-| **Studio's GitHub backend**, part of the hosted Deco CMS | Your repository on GitHub, with draft branches and publishing. | About every 30 seconds |
+| **Studio's GitHub backend**, part of the [hosted Deco CMS](/next/hosted) | Your repository on GitHub, with [draft branches](/next/hosted-studio#drafts-are-branches) and publishing. | About every 30 seconds |
 
 There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins: if two people edit the same saved block at once, the later save replaces the earlier one.
 
@@ -107,7 +107,7 @@ Versions and revisions are opaque strings defined by each storage (a git blob ha
 4. **Validated first.** Names, value shapes, sizes and the secret guard are checked before anything is written, and every violation is reported at once.
 5. **Preconditions are optional.** A failed `ifMatch` writes nothing and returns a conflict with each entry's expected and actual version. Without `ifMatch`, the last writer wins, as with Studio's autosave.
 
-Renaming, duplicating and moving entries are recipes over one `blocks.apply` (a `set` plus a `delete`, with `ifMatch: { [newName]: null }` for create-only), not methods of their own. Publishing, discarding a draft and the draft pointer stay Studio routes outside the protocol.
+Renaming, duplicating and moving entries are recipes over one `blocks.apply` (a `set` plus a `delete`, with `ifMatch: { [newName]: null }` for create-only), not methods of their own. Publishing, discarding a draft and the [draft pointer](/next/api-reference#draft-pointers) stay Studio routes outside the protocol.
 
 ### Polling instead of events
 
@@ -140,7 +140,7 @@ Plus the standard JSON-RPC codes (-32700, -32600, -32601, -32602, -32603). The d
 
 ### File names
 
-Studio, `deco serve` and `deco content` import one rule from the protocol package, so an entry Studio edits is the entry your app renders:
+Studio, `deco serve` and [`deco content`](/next/blocks#the-deco-content-command) import one rule from the protocol package, so an entry Studio edits is the entry your app renders:
 
 - **Name to file:** `encodeURIComponent(name) + ".json"`, directly in `.deco/blocks` (no subfolders). A page named `pages-Home%20Page-6f1e` is stored as `pages-Home%2520Page-6f1e.json`; `collections/blog/posts/abc` as `collections%2Fblog%2Fposts%2Fabc.json`.
 - **File to name:** decode the file name, without `.json`, exactly once. If decoding fails, the raw name is the entry name.

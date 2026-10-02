@@ -8,7 +8,7 @@ order: 15
 
 In this guide, you'll render CMS pages with Server Components and generate metadata from the page's SEO block. An optional last step streams each of a page's blocks under its own Suspense boundary.
 
-Editors choose page URLs in [Studio](/next/how-it-works#studio), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks `matchRoute` which page or redirect owns it, and renders that page's blocks.
+Editors choose page URLs in [Studio](/next/how-it-works#studio), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks [`matchRoute`](/next/api-reference#matchroute-url-items) which page or redirect owns it, and renders that page's blocks.
 
 **Prerequisites:** an App Router app (the SDK reads no files, so the Node and Edge runtimes both work), with a root layout; `npm install @decocms/blocks server-only` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); and the [example project](/next/routing#the-example-used-here-and-in-the-guides): `src/model.ts` plus the entries in `.deco/blocks`, in your app root.
 
@@ -61,7 +61,7 @@ export default function ProductHero({ name, price, currency, image }: ProductHer
 
 ## 2. Create the CMS
 
-Both blocks return JSX. Next renders them as Server Components, and `CartButton` stays a Client Component. The block map lives in `.deco/`, in your app root, next to your content (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)), so it imports your components from `../src/`.
+Both blocks return JSX. Next renders them as Server Components, and `CartButton` stays a Client Component. The [block map](/next/blocks#the-block-map) lives in `.deco/`, in your app root, next to your content (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)), so it imports your components from `../src/`.
 
 ```tsx title=".deco/index.tsx"
 import type { Blocks, Seo } from "@decocms/blocks";
@@ -89,7 +89,7 @@ import content from "../.deco/blocks.gen";
 export const cms = createCMS({ blocks, content });
 ```
 
-The content options are in [Configuring content](/next/api-reference#configuring-content). Upstream caching comes from the [framework binding](/next/how-it-works#key-terms), which this guide doesn't use (see [Caching](/next/upstream-clients#caching)).
+[`createCMS`](/next/api-reference#createcms-config) combines your block map and your content into the `cms` object; its content options are in [Configuring content](/next/api-reference#configuring-content). Upstream caching comes from the [framework binding](/next/how-it-works#key-terms), which this guide doesn't use (see [Caching](/next/upstream-clients#caching)).
 
 ```ts title="src/client.server.ts"
 import "server-only";
@@ -102,7 +102,7 @@ export async function client() {
 }
 ```
 
-`import "server-only"` makes the build fail if a Client Component imports this file, which keeps the CMS and its content out of the browser.
+`cms.forRelease()` returns a client: the object your code calls `list` and `resolve` on, reading the published content (one client per request; see [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `import "server-only"` makes the build fail if a Client Component imports this file, which keeps the CMS and its content out of the browser.
 
 
 ## 3. Generate the schema and content
@@ -122,7 +122,7 @@ Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit e
 
 ## 4. Match the URL to a page
 
-`openPage` lists pages and redirects, matches the pathname, and resolves the page that wins. The built-in `page` block resolves `seo` and every block in `sections`, so the page comes back ready to render. Listing is cheap: the CMS holds the content in memory.
+`openPage` lists pages and redirects, matches the pathname, and resolves the page that wins (each step is explained in [Route a request](/next/routing#route-a-request)). The built-in `page` block resolves `seo` and every block in `sections`, so the page comes back ready to render. Listing is cheap: the CMS holds the content in memory.
 
 `generateMetadata` and the page component both need the page. Wrap the lookup in React's `cache` so they share one client and one result.
 

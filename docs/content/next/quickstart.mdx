@@ -67,7 +67,7 @@ The package also provides the `deco` command, the CLI used below. Run it with `n
 
 ## 1. Make the function configurable
 
-Any function with a typed first parameter can become a block function. Register it in a block map, a plain object of functions. Each key is a block type, the name content uses to call that function; here it's `experiments`. Everything Deco lives in one folder, `.deco/`, in your app root (the folder with your app's `package.json`), so create it and put the map in `.deco/index.ts`. The CLI reads this file, and your app hands it to `createCMS`.
+Any function with a typed first parameter can become a block function. Register it in a block map, a plain object of functions. Each key is a block type, the name content uses to call that function; here it's `experiments`. Everything Deco lives in one folder, `.deco/`, in your app root (the folder with your app's `package.json`), so create it and put the map in `.deco/index.ts`. The CLI reads this file, and your app hands it to Deco in [step 5](#5-read-the-content-from-your-code).
 
 ```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
@@ -164,7 +164,7 @@ To make sure your saved blocks fit your code, run `npx @decocms/blocks schema &&
 
 ## 5. Read the content from your code
 
-Create the CMS once, at module scope, with your block map and the content module:
+Create the CMS once, at module scope, by calling [`createCMS`](/next/api-reference#createcms-config) with your block map and the content module. It returns `cms`, the object your app reads content through:
 
 ```ts title="cms.ts"
 import { createCMS } from "@decocms/blocks";
@@ -174,9 +174,9 @@ import content from "./.deco/blocks.gen";
 export const cms = createCMS({ blocks, content });
 ```
 
-Then ask it for a client, the object you read content with. `forRelease()` returns a client over the content your app serves to visitors, the release: here, what's in the content module. Its sibling `forDraft()` reads a draft from a content source that has drafts; the content module has none, so you won't need it here. Make one client per request: a client reads one consistent version of the content for its whole life ([why](/next/releases-and-deployment#one-revision-per-response)).
+Then ask it for a client, the object you read content with. `forRelease()` returns a client over the content your app serves to visitors, the [release](/next/releases-and-drafts#releases): here, what's in the content module. Its sibling `forDraft()` reads a [draft](/next/releases-and-drafts#drafts) from a content source that has drafts; the content module has none, so you won't need it here. Make one client per request: a client reads one consistent version of the content for its whole life ([why](/next/releases-and-deployment#one-revision-per-response)).
 
-Fetch the saved block by name. The client runs `experiments` on the saved inputs, so you get the same value as calling `experiments()` yourself. A name is a string, so TypeScript can't infer the result type from it; pass the type you expect, and it's checked at compile time, not at runtime:
+Fetch the saved block by name with [`client.resolve`](/next/api-reference#client-resolve-target-options). The client runs `experiments` on the saved inputs, so you get the same value as calling `experiments()` yourself. A name is a string, so TypeScript can't infer the result type from it; pass the type you expect, and it's checked at compile time, not at runtime:
 
 ```ts title="checkout.ts"
 import { cms } from "./cms";

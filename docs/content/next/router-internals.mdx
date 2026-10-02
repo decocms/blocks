@@ -8,7 +8,7 @@ order: 4
 
 # How `matchRoute` matches
 
-The naive version of this function walks every entry and tests each path against the URL. That's fine for fifty pages and wrong for fifty thousand. `matchRoute` instead compiles the entries into a **segment trie**, once per list, and matches in time proportional to the URL's length, not the catalog's size.
+The naive version of this function walks every entry and tests each path against the URL. That's fine for fifty pages and wrong for fifty thousand. [`matchRoute`](/next/api-reference#matchroute-url-items) instead compiles the entries into a **segment trie**, once per list, and matches in time proportional to the URL's length, not the catalog's size.
 
 A segment is one piece of a URL path between slashes: `/blog/hello` has the segments `blog` and `hello`. A trie is a tree where each edge is one segment, so paths that start the same share nodes.
 
@@ -28,9 +28,9 @@ A segment is one piece of a URL path between slashes: `/blog/hello` has the segm
 <Small>Top: four route paths. Below: the trie built from them. Quoted words are literal segments, `:slug` is a parameter, and \[Brackets\] mark the entry stored at that node.</Small>
 
 1. **Build, once per list.** Every path is split on `/` and inserted segment by segment. A literal segment becomes a named child; a `:param` segment becomes the node's single parameter child. The entry is stored at the leaf. Cost is the total number of segments, and the result is cached in a `WeakMap` keyed by the array you passed, so the second call with the same array skips this entirely. A new array rebuilds the trie, which is one pass over the paths.
-2. **Resolve ambiguity while building.** Two entries reaching the same leaf, or two parameter children under one node (`/:slug/p` and `/:id/p` have the same shape, so every URL that matches one matches the other), are a conflict: the entry earlier in the array keeps the leaf, so a lookup never throws. The CLI runs the same build in `deco check` and reports the conflict with both names, so CI catches it (see [Backward compatibility](/next/schema#backward-compatibility) and [CI on Studio commits](/next/hosted-studio#ci-on-studio-commits)).
+2. **Resolve ambiguity while building.** Two entries reaching the same leaf, or two parameter children under one node (`/:slug/p` and `/:id/p` have the same shape, so every URL that matches one matches the other), are a conflict: the entry earlier in the array keeps the leaf, so a lookup never throws. The CLI runs the same build in [`deco check`](/next/cli#deco-check) and reports the conflict with both names, so CI catches it (see [Backward compatibility](/next/schema#backward-compatibility) and [CI on Studio commits](/next/hosted-studio#ci-on-studio-commits)).
 3. **Match, one segment at a time.** Walk the URL's segments from the root. At each node try the literal child first, then the parameter child. If a branch dead-ends, go back up and try the parameter child you skipped. Each node has at most one literal match and one parameter, so a lookup visits about as many nodes as the URL has segments, however many entries exist.
 4. **Precedence falls out of the walk order.** Trying the literal child before the parameter child at every node is exactly "exact paths win over templates", per segment rather than per path: `/blog/archive` beats `/blog/:slug` for `/blog/archive`, and `/blog/:slug` still serves `/blog/hello-world`. No sorting, no regex.
-5. **Redirects are a second trie**, checked first, with the same rules. A hit fills the parameters into the redirect's `to` path and returns `{ kind: "redirect", location, status }`.
+5. **[Redirects](/next/routes-and-redirects) are a second trie**, checked first, with the same rules. A hit fills the parameters into the redirect's `to` path and returns `{ kind: "redirect", location, status }`.
 
 Before matching, the URL is normalized: percent-decoded, query and fragment dropped, trailing slash removed except for `/`. Parameters capture one segment and never contain a slash. That's the whole algorithm; it's the same shape as the routers in Fastify and Hono, and it's about a hundred lines.

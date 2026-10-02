@@ -23,8 +23,8 @@ Deco runs three services for a connected site:
 ## What stays the same
 
 - **Your repository is the source of truth.** Content is still the JSON files in `.deco/blocks`, and every edit is still a commit.
-- **Your code doesn't change.** Block functions, the block map, `resolve`, `list` and routing work the same way. The same `createCMS` call takes two more options, `site` and `token`.
-- **The content module stays.** Your build still bundles `.deco/blocks.gen.ts`. It's what a server serves before it has fetched its first release, and what it keeps serving if the Deco API is unreachable.
+- **Your code doesn't change.** Block functions, the [block map](/next/blocks#the-block-map), [`resolve`](/next/api-reference#client-resolve-target-options), [`list`](/next/api-reference#client-list-type-options) and routing work the same way. The same [`createCMS`](/next/api-reference#createcms-config) call takes two more options, `site` and `token`.
+- **The content module stays.** Your build still bundles [`.deco/blocks.gen.ts`](/next/blocks#the-deco-content-command). It's what a server serves before it has fetched its first release, and what it keeps serving if the Deco API is unreachable.
 
 ## Connect your site
 
@@ -45,7 +45,7 @@ export const cms = createCMS({
 
 The site ID isn't a secret; the token is, so keep it out of the repository. When either value is undefined, in development or in tests for example, the CMS reads `content` only and sends nothing, exactly like `createCMS({ blocks, content })`. So the same line works everywhere, and a site keeps working if you disconnect it.
 
-Releases and telemetry follow from these two values with nothing else to configure. Drafts need a few lines of wiring in your app; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app). How often servers check for a release is the core `interval` option; see [Check interval](/next/hosted-publishing#check-interval).
+Releases and telemetry follow from these two values with nothing else to configure. Drafts need a few lines of wiring in your app; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app). How often servers check for a release is the `interval` option of `createCMS`; see [Check interval](/next/hosted-publishing#check-interval).
 
 ### Next.js
 
@@ -77,8 +77,8 @@ Release checks on Workers run after the response, inside `ctx.waitUntil`, on the
 <Terms>
   <Term name="Site ID and site token">The two values that connect your app to the hosted Deco CMS, usually the `DECO_SITE` and `DECO_SITE_TOKEN` environment variables, passed to `createCMS` as `site` and `token`. They load releases and drafts and send telemetry. Only the token is secret.</Term>
   <Term name="Deco API">The HTTP service that serves your site's releases and drafts, and receives its telemetry.</Term>
-  <Term name="Release">With the hosted Deco CMS, the content of one commit to your production branch, served by the Deco API. A release never changes, and its revision, the same hash `deco content` computes, identifies it. See [Publishing without a deploy](/next/hosted-publishing).</Term>
-  <Term name="Draft pointer">The string Studio puts in a `?__draft=` link: where a draft lives on the Deco API, with a token Studio signed, and which version. `cms.forDraft(pointer)` reads it. See [Drafts on your site](/next/hosted-drafts).</Term>
+  <Term name="Release">With the hosted Deco CMS, the content of one commit to your production branch, served by the Deco API. A release never changes, and its [revision](/next/releases-and-deployment), the same hash [`deco content`](/next/cli#deco-schema-and-deco-content) computes, identifies it. See [Publishing without a deploy](/next/hosted-publishing).</Term>
+  <Term name="Draft pointer">The string Studio puts in a `?__draft=` link: where a draft lives on the Deco API, with a token Studio signed, and which version. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) reads it. See [Drafts on your site](/next/hosted-drafts).</Term>
   <Term name="Draft branch">The branch Studio's GitHub backend commits an editor's saves to, created on the first save. Publishing brings it to your production branch. See [Editing in Studio on GitHub](/next/hosted-studio).</Term>
 </Terms>
 
