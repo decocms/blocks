@@ -68,7 +68,9 @@ productCard({
 });
 ```
 
-Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives a product, never a pending call. If a function is `async`, its result is awaited first.
+Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives the resolved `Product`, never a pending call. If a function is `async`, its result is awaited first.
+
+So type the prop as what the function receives, `product: Product`, not as a block. [Schema](/next/schema#from-types-to-forms) shows how Studio then offers the functions that return a `Product`, such as `catalogProduct`.
 
 To resolve a block from your code, pass it to `client.resolve`. `cms` is created once with `createCMS` (see [The `deco content` command](#the-deco-content-command)). `cms.forRelease()` gives you a client that reads your published content; create one per request so a response sees one consistent version:
 
@@ -86,7 +88,7 @@ const [card, error] = await client.resolve({
 
 `resolve` never throws: it returns `[value, null]`, or `[null, error]` if something failed. It accepts any JSON value, not only a block: blocks anywhere inside are resolved, and everything else comes back as it is. Pass an array of blocks and you get an array of results.
 
-<Callout>**Reading without running.** `client.resolve(target, { run: false })` returns the JSON that would be called, with nothing run. It's most useful with saved blocks ([next section](#reusing-blocks)), which it writes in place, and handy for previews, tooling and debugging. See [`client.resolve`](/next/api-reference#client-resolve-target-options).</Callout>
+<Callout>**Reading without running.** `client.resolve(target, { run: false })` returns the JSON that would be called, with nothing run. It's most useful with saved blocks ([next section](#reusing-blocks)), which it writes in place, and handy for previews, tooling and debugging. Code that handles this saved JSON types it as `Block`, `{ __resolveType: string; …inputs }`; props never do. See [`client.resolve`](/next/api-reference#client-resolve-target-options).</Callout>
 
 ## Reusing blocks
 
@@ -147,7 +149,7 @@ Content chooses the arguments; code chooses which functions exist. A block can o
 
 Every website needs pages and redirects, so the framework adds these functions to your block map for you:
 
-- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. [Routes and redirects](/next/routes-and-redirects) shows how to find the page for a URL.
+- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. Its type is `interface Page extends Route { seo: Seo; sections: ReactNode[] }`. [Routes and redirects](/next/routes-and-redirects) shows how to find the page for a URL.
 - **`redirect`** takes `from`, `to` and `permanent` (`true` for a 301, `false` for a 302), and returns them as saved. [Routing](/next/routing) turns redirects into responses.
 - **`telemetry`** holds settings read by the [hosted Deco CMS](/next/hosted-telemetry); it does nothing otherwise.
 

@@ -152,7 +152,7 @@
       "id": "roadmap-blockers--make-the-cli-write-a-schema-studio-can-read",
       "title": "Make the CLI write a schema Studio can read",
       "today": "The CLI writes <code>.deco/schema.json</code> with top-level <code>definitions</code>; Studio reads <code>.deco/meta.gen.json</code> in LiveMeta shape (btoa keys, <code>schema.root</code>). There are no <code>apps</code> or <code>actions</code> groups, no per-type variant definitions, and the widget vocabulary is undocumented, so 22 image pickers would become text inputs and HTML fields plain strings.",
-      "plan": "Emit Studio's exact format as <code>.deco/schema.json</code>, one multivariate definition per <code>VariantOf&lt;T&gt;</code>, write static option lists into the schema, publish the JSDoc/@format table, and keep widget-alias detection and return-type loader unions.",
+      "plan": "Emit Studio's exact format as <code>.deco/schema.json</code>, one multivariate definition per field type a variant can fill, write static option lists into the schema, publish the JSDoc/@format table, and keep widget-alias detection and return-type loader unions.",
       "features": [
         "studio-schema-generation",
         "codegen-pipeline",
@@ -396,7 +396,7 @@
     {
       "id": "roadmap-studio-new--give-field-level-variants-a-schema-contract",
       "title": "Give field-level variants a schema contract",
-      "today": "Studio's field variant UI needs a single-option block-ref whose definition has <code>variants</code>, and takes the inner field from <code>variants.items.properties.value</code>, else a plain string (schema-form.tsx:76-87, 254-280). The proposed API's one generic <code>multivariate&lt;T&gt;</code> and <code>VariantOf&lt;T&gt;</code> give the CLI no concrete T. Legacy schemas had one flag per kind, e.g. <code>website/flags/multivariate/image.ts</code>.",
+      "today": "Studio's field variant UI needs a single-option block-ref whose definition has <code>variants</code>, and takes the inner field from <code>variants.items.properties.value</code>, else a plain string (schema-form.tsx:76-87, 254-280). The proposed API's one generic <code>multivariate&lt;T&gt;</code> gives the CLI no concrete T, so it has to take T from the field the variant fills. Legacy schemas had one flag per kind, e.g. <code>website/flags/multivariate/image.ts</code>.",
       "features": [
         "matchers-and-variants",
         "editor-widgets-and-image-fields",
@@ -1093,7 +1093,7 @@
       "id": "roadmap-cli--write-a-studio-compatible-schema-file",
       "group": "cli",
       "title": "Write a Studio-compatible schema file",
-      "plan": "<p>Write <code>.deco/schema.json</code> in Studio's format (<code>deco-meta@1</code>, byte-compatible with today's <code>meta.gen.json</code>, which the protocol still reads as a fallback): <code>manifest.blocks</code>, <code>schema.definitions</code> keyed by padded, path-independent btoa, and <code>schema.root</code> unions. Add <code>apps</code> and <code>actions</code> groups. For every <code>VariantOf&lt;T&gt;</code> field, emit a monomorphized multivariate definition per T (value typed as T) under Studio's legacy per-kind keys (<code>website/flags/multivariate/section.ts</code>, <code>…/image.ts</code>, …), so the field variant UI renders the right input.</p>",
+      "plan": "<p>Write <code>.deco/schema.json</code> in Studio's format (<code>deco-meta@1</code>, byte-compatible with today's <code>meta.gen.json</code>, which the protocol still reads as a fallback): <code>manifest.blocks</code>, <code>schema.definitions</code> keyed by padded, path-independent btoa, and <code>schema.root</code> unions. Add <code>apps</code> and <code>actions</code> groups. For every field a variant can fill (a field of type T), emit a monomorphized multivariate definition per T (value typed as T) under Studio's legacy per-kind keys (<code>website/flags/multivariate/section.ts</code>, <code>…/image.ts</code>, …), so the field variant UI renders the right input.</p>",
       "features": [
         "studio-schema-generation",
         "codegen-pipeline",
@@ -1260,8 +1260,8 @@
     {
       "id": "roadmap-cli--define-the-loader-picker-rule",
       "group": "cli",
-      "title": "Define the loader-picker rule",
-      "plan": "<p>A field of type T accepts any block function that returns T (anyOf $refs). The CLI follows imported app maps with last-key-wins and warns on <code>any</code>.</p>",
+      "title": "Match fields to block functions by return type",
+      "plan": "<p>A field's type is the value the function receives. <code>deco schema</code> reads each block function's awaited return type, so an object field of type T accepts a plain T or any block whose function returns <code>T</code> or <code>Promise&lt;T&gt;</code> (anyOf $refs), and Studio's block picker offers those functions plus the saved blocks that resolve through them. <code>ReactNode</code> and <code>ReactNode[]</code> fields take only functions that return JSX (a React element, or a promise of one; Studio's legacy <code>__SECTION_REF__</code>): <code>ReactNode</code> also includes strings, numbers and booleans, but functions returning those are left out, so matchers never fit <code>sections</code>. Simple types (<code>string</code>, <code>number</code>, <code>boolean</code>, literal unions) stay plain inputs. The generic <code>multivariate&lt;T&gt;</code> fits any field, with T taken from the field and its <code>undefined</code> (no rule matched) allowed, and functions that return <code>boolean</code> fill a variant's rule. The CLI follows imported app maps with last-key-wins and warns on <code>any</code>.</p>",
       "features": [
         "inline-loader-props",
         "saved-loader-blocks",
@@ -1269,24 +1269,24 @@
         "web-fonts",
         "product-card",
         "commerce-platform-binding",
-        "route-params-request-to-param"
+        "route-params-request-to-param",
+        "nested-section-props",
+        "section-catalog"
       ],
-      "docs": [],
+      "docs": [
+        "schema",
+        "blocks"
+      ],
       "pinned": false
     },
     {
-      "id": "roadmap-cli--support-typed-section-references",
+      "id": "roadmap-cli--add-singleton-and-descriptor-markers",
       "group": "cli",
-      "title": "Support typed block references",
-      "plan": "<p><code>BlockOf&lt;\"hero\" | \"alert\"&gt;</code> becomes an anyOf or Studio's legacy <code>__SECTION_REF__</code>. Also a <code>Descriptor&lt;P&gt;</code> marker, <code>@singleton</code> and <code>@catalog false</code>.</p>",
+      "title": "Add a singleton tag and a descriptor type",
+      "plan": "<p>A <code>@singleton</code> JSDoc tag marks a block type saved once per site, such as site-wide settings, so Studio opens its one entry instead of a list. A <code>Descriptor&lt;P&gt;</code> type gives data-mode blocks, which return descriptors instead of JSX, one shared return type, so the CLI can match them to fields the way it matches JSX. Hiding blocks from pickers (the old <code>@catalog false</code> plan) waits until categories of blocks are designed.</p>",
       "features": [
-        "nested-section-props",
-        "per-page-section-whitelists",
-        "section-catalog",
         "site-config-block",
-        "section-registration-conventions",
-        "tabbed-shelf-partial",
-        "dev-tooling-and-repo-hygiene"
+        "section-registration-conventions"
       ],
       "docs": [],
       "pinned": false
@@ -1808,7 +1808,7 @@
       "id": "roadmap-docs--fill-in-the-schema-reference-details",
       "group": "docs",
       "title": "Fill in the schema reference details",
-      "plan": "<p>Unions to anyOf with const discriminators, intersections and recursion, type resolution through packages, filename-to-entry encoding, and how <code>VariantOf&lt;T&gt;</code> becomes one multivariate definition per T.</p>",
+      "plan": "<p>Unions to anyOf with const discriminators, intersections and recursion, type resolution through packages, filename-to-entry encoding, and how a variant on a field of type T becomes one multivariate definition per T.</p>",
       "features": [
         "conditional-schema-fields",
         "cms-navigation-menus",
@@ -2605,7 +2605,7 @@
       "sites": [
         "storefront-tanstack"
       ],
-      "summary": "There's no documented way to type an input that takes a block so the CLI emits a block picker; today's schema uses Studio's legacy `__SECTION_REF__`. Nested blocks also resolve eagerly, with no Suspense boundary of their own.",
+      "summary": "The rule is documented: a field typed as the resolved value (`product: Product`, `sections: ReactNode[]`) takes any block whose function returns that type (`T` or `Promise<T>`). The CLI doesn't emit block pickers from return types yet; today's schema uses Studio's legacy `__SECTION_REF__`. Nested blocks also resolve eagerly, with no Suspense boundary of their own.",
       "docs": [
         "blocks",
         "rendering",
@@ -2684,7 +2684,7 @@
       "sites": [
         "faststore"
       ],
-      "summary": "A page's sections list can't be typed as a subset of block types, because `Block` is untyped. Studio's add-section catalog (its legacy name) is the union of all UI blocks anyway, so a narrowed schema wouldn't restrict it.",
+      "summary": "A page's `sections: ReactNode[]` takes every block function that returns JSX; limiting a page type to some of them isn't designed yet. Studio's add-section catalog (its legacy name) is the union of all UI blocks anyway.",
       "docs": [
         "routes-and-redirects",
         "api-reference",

@@ -205,8 +205,9 @@ v7's `/deco/invoke` endpoint (which runs loaders and actions over HTTP for Studi
 ## Types
 
 ```ts
+// A block as stored: the JSON in .deco/blocks, and what client.list and { run: false } return.
+// Props never use it: a field's type is the value the function receives (see Schema).
 type Block = { __resolveType: string; [input: string]: unknown };
-type VariantOf<T> = T | Block;   // T, or a block (usually a multivariate) that resolves to one
 
 // A block map: what blocks.ts exports and the CLI reads.
 type BlockFunction = (inputs: any) => unknown | Promise<unknown>;
@@ -226,7 +227,8 @@ interface Route { name: string; path: string }                    // extend it t
 
 // The built-in types. Their blocks are always in the registry: override the schema in Content with an
 // interface that extends them, or the runtime block by declaring the key in your block map.
-interface Page extends Route { seo: Block; sections: VariantOf<Array<VariantOf<Block>>> }
+interface Seo { title: string; description: string }
+interface Page extends Route { seo: Seo; sections: ReactNode[] }   // resolved types (see Schema)
 interface Redirect { from: string; to: string; permanent: boolean }
 
 // The Telemetry entry's type (built in, always in the schema; read by the hosted Deco CMS, inert without it). Field names are proposed.

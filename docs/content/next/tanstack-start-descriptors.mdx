@@ -16,19 +16,19 @@ Editors choose page URLs in Studio, so your app can't know its routes ahead of t
 ## 1. Return descriptors from blocks
 
 ```ts title="src/blocks.ts"
-import type { Blocks } from "@decocms/blocks";
-import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, SEO, StoredPage } from "./model";
+import type { Blocks, Seo } from "@decocms/blocks";
+import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, ResolvedPage } from "./model";
 
-export type Content = { page: StoredPage };
+export type Content = { page: ResolvedPage<BlockDescriptor> };
 
 export default {
-  seo: (input: SEO) => input,
+  seo: (input: Seo) => input,
   "promo-banner": (input: PromoBannerProps): BlockDescriptor => ({ component: "promo-banner", props: input }),
   "product-hero": (input: ProductHeroProps): BlockDescriptor => ({ component: "product-hero", props: input }),
 } satisfies Blocks;
 ```
 
-As in the Next.js guide, `Content` overrides the built-in `page` schema with the narrower `StoredPage`; the built-in `page` and `redirect` blocks are added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
+These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. `Content` overrides the `page` schema with `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`. The built-in `page` and `redirect` blocks are added for you. Generate the schema from the map file (`deco schema` finds `src/blocks.ts`), and the content module (`.deco/blocks.gen.ts`, which `cms.ts` imports) from `.deco/blocks`, before the dev server and the build (see [CLI reference](/next/cli)):
 
 ```json title="package.json"
 {
@@ -61,13 +61,13 @@ The content module is ordinary imports, so Vite bundles it into the Worker like 
 
 ## 3. Match the URL to a page
 
-This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser.
+This helper is shared by both TanStack guides. It resolves each block separately rather than calling `c.resolve(page)`, so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser. If an editor wrapped the whole `sections` list in a [variant](/next/matchers-and-variants), it's one block that resolves to a list (`T[]`), so it streams as one.
 
 ```ts title="src/open-page.server.ts"
 import { notFound, redirect } from "@tanstack/react-router";
-import { matchRoute, type Redirect } from "@decocms/blocks";
+import { matchRoute, type Redirect, type Seo } from "@decocms/blocks";
 import { client } from "./cms";
-import type { SEO, StoredPage } from "./model";
+import type { StoredPage } from "./model";
 
 export async function openPage<T>(href: string, request: Request) {
   const c = client(request);
@@ -81,16 +81,18 @@ export async function openPage<T>(href: string, request: Request) {
   if (match.kind === "redirect") throw redirect({ href: match.location, statusCode: match.status });
 
   const page = match.entry;
-  const blocks = page.sections.map((block, index) => ({
+  // A variant around the whole list is one block: it resolves to the chosen list and streams as one.
+  const sections = Array.isArray(page.sections) ? page.sections : [page.sections];
+  const blocks = sections.map((block, index) => ({
     key: `${href}:${index}`,
-    value: c.resolve<T>(block).then(([value, blockError]) => {
+    value: c.resolve<T | T[]>(block).then(([value, blockError]) => {
       if (blockError) console.error(blockError);
       return value;
     }),
   }));
 
   // Every block has started before SEO is awaited.
-  const [seo, seoError] = await c.resolve<SEO>(page.seo);
+  const [seo, seoError] = await c.resolve<Seo>(page.seo);
   if (seoError) throw seoError;
   return { seo, blocks };
 }
@@ -123,7 +125,8 @@ import type { BlockDescriptor } from "../model";
 import { loadPage } from "../page.functions";
 
 // Maps each descriptor to its component. Add a case per block type.
-function View({ block }: { block: BlockDescriptor }) {
+function View({ block }: { block: BlockDescriptor | BlockDescriptor[] }) {
+  if (Array.isArray(block)) return block.map((item, index) => <View key={index} block={item} />);   // a whole-list variant
   switch (block.component) {
     case "promo-banner":
       return <PromoBanner {...block.props} />;

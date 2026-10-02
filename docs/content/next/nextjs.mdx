@@ -64,21 +64,19 @@ export default function ProductHero({ name, price, currency, image }: ProductHer
 Both blocks return JSX. Next renders them as Server Components, and `CartButton` stays a Client Component.
 
 ```tsx title="src/blocks.tsx"
-import type { Blocks } from "@decocms/blocks";
+import type { Blocks, Seo } from "@decocms/blocks";
 import ProductHero from "./ProductHero";
 import PromoBanner from "./PromoBanner";
-import type { ProductHeroProps, PromoBannerProps, SEO, StoredPage } from "./model";
-
-export type Content = { page: StoredPage };
+import type { ProductHeroProps, PromoBannerProps } from "./model";
 
 export default {
-  seo: (input: SEO) => input,
+  seo: (input: Seo) => input,
   "promo-banner": (input: PromoBannerProps) => <PromoBanner {...input} />,
   "product-hero": (input: ProductHeroProps) => <ProductHero {...input} />,
 } satisfies Blocks;
 ```
 
-`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), so they aren't listed here. The `Content` export overrides the page *schema* with the narrower `StoredPage` from [the example](/next/routing#the-example-used-here-and-in-the-guides), a page whose `sections` is a plain list, so Studio only saves pages this guide's code can read, including the [streaming step](#7-stream-each-block-optional).
+`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), so they aren't listed here. Both blocks return JSX, so they [fit the built-in page's](/next/schema#from-types-to-forms) `sections: ReactNode[]`.
 
 `cms.ts` imports the [content module](/next/blocks#the-deco-content-command), `.deco/blocks.gen.ts`: the file the CLI command `deco content` generates from your JSON files, exporting a snapshot `{ revision, blocks }` (one fixed copy of all your saved entries). Step 3 sets up that command; until it has run once, TypeScript can't find the import.
 
@@ -191,7 +189,7 @@ If any block fails, `resolve` returns an error, `openPage` throws it, and Next s
 
 ## 6. List another content type
 
-Add `src/post.ts` from [Your own routable types](/next/routes-and-redirects#your-own-routable-types), change the `Content` export in `src/blocks.tsx` to `{ page: StoredPage; post: Post }`, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `npx @decocms/blocks content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
+Add `src/post.ts` from [Your own routable types](/next/routes-and-redirects#your-own-routable-types), add `export type Content = { post: Post };` to `src/blocks.tsx` (importing `Post` from `./post`), and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `npx @decocms/blocks content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins, since a post is data with nothing to resolve:
 
 ```ts title="src/open-page.server.ts (changes)"
 import type { Post } from "./post";
@@ -236,15 +234,15 @@ export default async function BlogIndex() {
 
 So far the page renders once every block is ready, so one slow block holds up the whole page. To send each block as soon as it's ready, resolve the blocks one by one instead of resolving the page, and give each its own Suspense boundary. A failing block then shows a fallback instead of failing the page.
 
-`c.list("page")` already returns each page as saved, with its blocks not yet run (the same as `c.resolve(entry, { run: false })`; see [Reading without running](/next/api-reference#client-resolve-target-options)). So `openPage` starts resolving `seo` and every block in `sections` with separate calls, without waiting for any, and returns the promises. This is why the `Content` export narrows `sections` to a plain list. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate. These files replace steps 4 and 5; if you added posts in step 6, see the changes right after them:
+`c.list("page")` already returns each page as saved, with its blocks not yet run (the same as `c.resolve(entry, { run: false })`; see [Reading without running](/next/api-reference#client-resolve-target-options)). So `openPage` starts resolving `seo` and every block in `sections` with separate calls, without waiting for any, and returns the promises. If an editor wrapped the whole list in a [variant](/next/matchers-and-variants), `sections` is one block instead of a list; `openPage` then resolves it as one, and React renders the list it returns in one Suspense boundary. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate. These files replace steps 4 and 5; if you added posts in step 6, see the changes right after them:
 
 ```ts title="src/open-page.server.ts"
 import "server-only";
 import { cache, type ReactNode } from "react";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
-import { matchRoute, type Redirect } from "@decocms/blocks";
+import { matchRoute, type Redirect, type Seo } from "@decocms/blocks";
 import { client } from "./client.server";
-import type { SEO, StoredPage } from "./model";
+import type { StoredPage } from "./model";
 
 export const openPage = cache(async (pathname: string) => {
   const c = await client();
@@ -261,12 +259,14 @@ export const openPage = cache(async (pathname: string) => {
   }
 
   const page = match.entry;   // as saved: seo and sections are still blocks
+  // A variant around the whole list is one block: it resolves to the chosen list and streams as one.
+  const sections = Array.isArray(page.sections) ? page.sections : [page.sections];
   return {
-    blocks: page.sections.map((block, index) => ({
+    blocks: sections.map((block, index) => ({
       key: `${pathname}:${index}`,
       result: c.resolve<ReactNode>(block),
     })),
-    seo: c.resolve<SEO>(page.seo),
+    seo: c.resolve<Seo>(page.seo),
   };
 });
 
