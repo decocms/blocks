@@ -294,7 +294,7 @@ function DeferredSectionWrapper({
   const skeleton = !optionsReady
     ? null
     : hasCustomFallback
-      ? createElement(loadedOptions!.loadingFallback!, deferred.rawProps)
+      ? createElement(loadedOptions!.loadingFallback!, skeletonProps(deferred))
       : (loadingFallback ??
         (isDev ? (
           <DevMissingFallbackWarning component={deferred.component} />
@@ -466,6 +466,20 @@ function DeferredSectionWrapper({
 // DeferredSectionSkeleton — resolves the best fallback for a deferred section
 // ---------------------------------------------------------------------------
 
+/**
+ * Props handed to a section's `LoadingFallback`.
+ *
+ * Full `rawProps` are stripped from the serialized payload (they can carry
+ * whole product lists), so on the client only the primitive projection the
+ * runtime keeps — `fallbackProps` — is available. Passing `{}`, as this used
+ * to, meant any CMS text in the skeleton was missing from the served HTML, and
+ * a skeleton that cannot render its own text also cannot reserve the real
+ * section's height.
+ */
+function skeletonProps(deferred: DeferredSection): Record<string, unknown> {
+  return deferred.rawProps ?? deferred.fallbackProps ?? {};
+}
+
 function DeferredSectionSkeleton({
   deferred,
   fallback,
@@ -475,9 +489,7 @@ function DeferredSectionSkeleton({
 }) {
   const options = getSectionOptions(deferred.component);
   if (options?.loadingFallback) {
-    // rawProps are no longer serialized to the client — pass empty object.
-    // LoadingFallback components should be pure layout skeletons.
-    return createElement(options.loadingFallback, deferred.rawProps ?? {});
+    return createElement(options.loadingFallback, skeletonProps(deferred));
   }
   if (fallback) return <>{fallback}</>;
   if (isDev) return <DevMissingFallbackWarning component={deferred.component} />;
