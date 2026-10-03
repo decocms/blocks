@@ -12,41 +12,9 @@ export function isBuiltIn(name: string): boolean {
 }
 
 /**
- * The legacy alias table: the names the Fresh/Deno framework and v7 gave the
- * built-ins, mapped to the short names. The site editor's special screens
- * still look types up by these names (spec: studio-compatibility › Well-known
- * types and the alias table), and content saved under them must keep
- * resolving, so `deco schema` writes this table into the schema and
- * `deco content` into the content module.
- *
- * Only names whose target exists in every block map are listed. Legacy types
- * with no built-in counterpart (the v7 Lazy/Deferred section wrapper, Seo
- * sections, `site/apps/site.ts`, the device/random/multi matchers) are not
- * aliases: a site keeps them working with a block map entry of its own.
+ * The legacy alias table lives with the runtime's alias bridge, so the
+ * schema, the content module and resolution share one list. The site
+ * editor's special screens still look types up by these names (spec:
+ * studio-compatibility › Well-known types and the alias table).
  */
-export const LEGACY_ALIASES: Readonly<Record<string, string>> = {
-  "website/pages/Page.tsx": "page",
-  "$live/pages/LivePage.tsx": "page",
-  "website/flags/multivariate.ts": "multivariate",
-  "website/flags/multivariate/section.ts": "multivariate",
-  "website/flags/multivariate/image.ts": "multivariate",
-  "website/flags/multivariate/message.ts": "multivariate",
-  "website/flags/multivariate/page.ts": "multivariate",
-  "$live/flags/multivariate.ts": "multivariate",
-  "website/matchers/always.ts": "always",
-  "$live/matchers/MatchAlways.ts": "always",
-  "website/matchers/never.ts": "never",
-  "website/matchers/date.ts": "date",
-  "$live/matchers/MatchDate.ts": "date",
-  "website/loaders/redirect.ts": "redirect",
-  "website/loaders/secret.ts": "secret",
-};
-
-/**
- * Legacy multivariate names store each variant's `value` plain; the runtime's
- * alias bridge wraps it in a `lazy` block. Under the short name `multivariate`
- * every value must already carry the wrapper.
- */
-export function storesPlainVariants(name: string): boolean {
-  return Object.hasOwn(LEGACY_ALIASES, name) && LEGACY_ALIASES[name] === "multivariate";
-}
+export { LEGACY_ALIASES, storesPlainVariants } from "../builtins/legacy";

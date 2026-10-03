@@ -4,8 +4,7 @@
  * without a block-map entry (see /next/studio-compatibility#well-known-types-and-the-alias-table
  * and /next/renames-and-migrations#rename-a-type-with-an-alias).
  *
- * Only the names those pages list. A snapshot's own `aliases` (the table
- * `deco content` writes) win over these, and a key in the block map wins over
+ * A snapshot's own `aliases` (the table `deco content` writes) win over these, and a key in the block map wins over
  * both, so a site can still register a legacy name itself.
  *
  * - Redirects keep v7's nested shape: `redirect` returns its arguments as
@@ -19,29 +18,46 @@
  */
 import { isPlainObject, type JsonObject } from "../json";
 
-/** Legacy type name → built-in. */
+/**
+ * Legacy type name → built-in. The one table: the runtime falls back to it,
+ * and `deco schema` / `deco content` write it into the schema and the content
+ * module. Only names whose target exists in every block map are listed;
+ * legacy types with no built-in counterpart (the v7 Lazy/Deferred section
+ * wrapper, Seo sections, `site/apps/site.ts`, the device/random/multi
+ * matchers) are left to the site's block map.
+ */
 export const LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   "website/pages/Page.tsx": "page",
   "$live/pages/LivePage.tsx": "page",
   "website/flags/multivariate.ts": "multivariate",
   "website/flags/multivariate/section.ts": "multivariate",
+  "website/flags/multivariate/image.ts": "multivariate",
+  "website/flags/multivariate/message.ts": "multivariate",
+  "website/flags/multivariate/page.ts": "multivariate",
+  "$live/flags/multivariate.ts": "multivariate",
   "website/matchers/always.ts": "always",
+  "$live/matchers/MatchAlways.ts": "always",
   "website/matchers/never.ts": "never",
+  "website/matchers/date.ts": "date",
+  "$live/matchers/MatchDate.ts": "date",
   "website/loaders/redirect.ts": "redirect",
   "website/loaders/secret.ts": "secret",
 });
 
-const LEGACY_VARIANT_TYPES = new Set([
-  "website/flags/multivariate.ts",
-  "website/flags/multivariate/section.ts",
-]);
+/**
+ * Whether a legacy name stores its variants' values plain (every legacy name
+ * for `multivariate`); under the short name each value carries a `lazy`.
+ */
+export function storesPlainVariants(type: string): boolean {
+  return Object.hasOwn(LEGACY_ALIASES, type) && LEGACY_ALIASES[type] === "multivariate";
+}
 
 /**
  * A legacy variants block with each plain `value` wrapped in `lazy`; any
  * other block as is. A value that already is a `lazy` block stays one.
  */
 export function wrapLegacyVariants(type: string, node: JsonObject): JsonObject {
-  if (!LEGACY_VARIANT_TYPES.has(type) || !Array.isArray(node.variants)) return node;
+  if (!storesPlainVariants(type) || !Array.isArray(node.variants)) return node;
   return {
     ...node,
     variants: node.variants.map((variant) =>
