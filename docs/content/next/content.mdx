@@ -85,7 +85,7 @@ export const cms = createCMS({ blocks, content: myLoader });
 - **`update()` never blocks a request.** A loader with `update()` is checked every `interval` (default 60 000 ms, never less), at the next idle moment. `cms.update()` checks at once, for a webhook or a "refresh now" button.
 - **A failed draft is an error.** A content source with no drafts, like the content module, ignores the pointer. Otherwise, if `load(pointer)` fails, or the pointer doesn't parse, every `resolve` and `list` on that client returns `[null, error]` with [`LOADER_FAILED`](/next/api-reference#errors). The CMS never swaps in published content, and never mixes draft and published entries; your app decides what to show.
 
-The exact `Loader` interface, `interval`, and the loaders the framework ships, such as `kvLoader` for Workers KV, are in [Loaders](/next/api-reference#loaders).
+The exact `Loader` interface, `interval`, the loaders the framework ships, and a loader for Workers KV you can copy are in [Loaders](/next/api-reference#loaders).
 
 ## One instance per process
 

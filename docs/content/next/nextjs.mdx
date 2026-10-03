@@ -91,7 +91,7 @@ import content from "../.deco/blocks.gen";
 export const cms = createCMS({ blocks, content });
 ```
 
-[`createCMS`](/next/api-reference#createcms-config) combines your block map and your content into the `cms` object (see [Create the CMS](/next/content#create-the-cms)). Upstream caching comes from the [framework binding](/next/how-it-works#key-terms), which this guide doesn't use (see [Upstream data](/next/caching#upstream-data)).
+[`createCMS`](/next/api-reference#createcms-config) combines your block map and your content into the `cms` object (see [Create the CMS](/next/content#create-the-cms)). This guide doesn't cache upstream responses; for a short recipe over Next's data cache, see [Upstream data](/next/caching#next-js).
 
 Telemetry is one more option, and it's off until you say where it goes: for example, `telemetry: { endpoint: process.env.OTLP_ENDPOINT! }` sends it to your own OpenTelemetry collector. See [Telemetry](/next/telemetry#choose-where-telemetry-goes).
 

@@ -174,7 +174,7 @@
       "id": "roadmap-blockers--give-blocks-the-page-url-and-route-params",
       "title": "Give blocks the page URL and route params",
       "today": "On SPA navigation <code>getRequest()</code> returns the <code>/_serverFn</code> URL, Next's <code>headers()</code> has no URL, app packages' loaders have no standard way to receive the URL or <code>match.params</code>, and apps-vtex's RequestContext is never populated.",
-      "plan": "Add one binding-owned request scope (<code>url</code>, <code>params</code>, <code>request</code>, <code>client</code>, response headers) that both bindings' openPage populate and that block functions and site code can read, passing what a client needs as arguments.",
+      "plan": "Add one request scope (<code>url</code>, <code>params</code>, <code>request</code>, <code>client</code>, response headers) that the templates' openPage populates and that block functions and site code can read, passing what a client needs as arguments.",
       "features": [
         "section-loaders",
         "plp-filters-sort-pagination",
@@ -190,7 +190,7 @@
       "id": "roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe",
       "title": "Make draft preview work inside the site editor's iframe",
       "today": "The SameSite=Lax cookie is rejected cross-site, the TanStack guide never sets it, and <code>?__draft=off</code> is ignored. There's no no-store rule, and no StudioBridge or <code>data-manifest-key</code>, so click-to-select is lost.",
-      "plan": "Ship <code>withDeco()</code>/<code>decoProxy()</code>, which set the cookie as <code>Secure; SameSite=None; Partitioned</code>, treat <code>?__draft=off</code> as exit and mark drafts private/no-store. Add <code>&lt;StudioBridge/&gt;</code>, and have the bindings wrap each rendered block in the site editor's <code>section[data-manifest-key]</code> marker.",
+      "plan": "Give the templates <code>withDeco()</code>/<code>decoProxy()</code> recipes, which set the cookie as <code>Secure; SameSite=None; Partitioned</code>, treat <code>?__draft=off</code> as exit and mark drafts private/no-store. Add <code>&lt;StudioBridge/&gt;</code>, and have the templates wrap each rendered block in the site editor's <code>section[data-manifest-key]</code> marker.",
       "features": [
         "studio-preview",
         "worker-server-entry",
@@ -206,7 +206,7 @@
       "id": "roadmap-blockers--define-the-non-cms-sdk-surface",
       "title": "Define the non-CMS SDK surface",
       "today": "apps-* and the ClickHouse telemetry depend on <code>sdk/requestContext</code>, <code>instrumentedFetch</code>, <code>fetchCache</code> and <code>cachedLoader</code>, and sites' widgets on <code>sdk/useDevice</code> and the Image and JsonLd hooks. These docs only list 'loaders, client, resolution, router'.",
-      "plan": "The framework doesn't fetch data: the apps become thin, instrumented API clients over the framework's instrumented fetch, the core drops <code>/deco/invoke</code> and <code>cachedLoader</code>, and caching moves to the bindings. Ship <code>@decocms/blocks/image</code>.",
+      "plan": "The framework doesn't fetch data: the apps become thin, instrumented API clients over the framework's instrumented fetch, the core drops <code>/deco/invoke</code> and <code>cachedLoader</code>, and caching moves to template recipes. Ship <code>@decocms/blocks/image</code>.",
       "features": [
         "framework-import-surface",
         "in-isolate-caches",
@@ -224,9 +224,9 @@
     },
     {
       "id": "roadmap-blockers--add-a-revision-handle-an-edge-cache-kit-and-an-isr-recipe",
-      "title": "Add a revision handle, an edge cache kit and an ISR recipe",
+      "title": "Add a revision handle, an edge cache recipe and an ISR recipe",
       "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached. The planned check for a new release runs once a minute, at an idle moment (inside <code>ctx.waitUntil</code> on Workers), so propagation depends on the check interval and manifest cache lifetime; a cold isolate serves the content module it was deployed with until its first check.",
-      "plan": "Add a revision handle, a way to read and pin the revision a client serves (<code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code>), and <code>markDegraded()</code>. Add an edge cache kit, <code>withEdgeCache()</code> in <code>@decocms/tanstack</code>, for caching rendered pages at the edge, and an ISR (Incremental Static Regeneration: re-rendering cached pages in the background) recipe for Next.js.",
+      "plan": "Add a revision handle, a way to read and pin the revision a client serves (<code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code>), and <code>markDegraded()</code>. Add an edge cache recipe for Workers templates, <code>withEdgeCache()</code>, for caching rendered pages at the edge, and an ISR (Incremental Static Regeneration: re-rendering cached pages in the background) recipe for Next.js.",
       "features": [
         "edge-html-cache-profiles",
         "fast-deploy-kv",
@@ -617,7 +617,7 @@
       "id": "roadmap-api--add-a-request-scope",
       "group": "api",
       "title": "Add a request scope",
-      "plan": "<p>One binding-owned scope in <code>@decocms/blocks</code>, behind conditional exports: <code>requestScope()</code> returns <code>{ url, params, request, client, device, forcedRules }</code>, plus <code>appendResponseHeader()</code>. Both bindings' openPage populate it with the real page href (port <code>derivePageUrl</code>), <code>match.params</code> and the per-request client. It replaces <code>sdk/requestContext</code>, the page-scope helpers and <code>currentClient()</code>, so apps import one framework-neutral port and content-reading loaders stay revision-pinned. <code>device</code> honors <code>?deviceHint</code> and <code>forcedRules</code> exposes <code>x-deco-matchers-override</code>, both on drafts only.</p>",
+      "plan": "<p>One scope in <code>@decocms/blocks</code>, behind conditional exports: <code>requestScope()</code> returns <code>{ url, params, request, client, device, forcedRules }</code>, plus <code>appendResponseHeader()</code>. The templates' openPage populates it with the real page href (port <code>derivePageUrl</code>), <code>match.params</code> and the per-request client. It replaces <code>sdk/requestContext</code>, the page-scope helpers and <code>currentClient()</code>, so apps import one framework-neutral port and content-reading loaders stay revision-pinned. <code>device</code> honors <code>?deviceHint</code> and <code>forcedRules</code> exposes <code>x-deco-matchers-override</code>, both on drafts only.</p>",
       "features": [
         "section-loaders",
         "inline-loader-props",
@@ -701,8 +701,8 @@
     {
       "id": "roadmap-api--ship-the-withdeco-and-decoproxy-entry-wrappers",
       "group": "api",
-      "title": "Ship the <code>withDeco()</code> and <code>decoProxy()</code> entry wrappers",
-      "plan": "<p><code>withDeco(handler, { cms })</code> (TanStack) and <code>decoProxy()</code> (Next) own the per-request plumbing. They set the draft cookie as <code>Secure; SameSite=None; Partitioned; HttpOnly</code> and treat <code>__draft=off</code> as exit. Drafted responses are private/no-store/noindex, and security headers carry frame-ancestors from an exported <code>STUDIO_FRAME_ANCESTORS</code>, never X-Frame-Options. Site editor routes are optional. The CMS keys draft caches on the API ETag, bounded by an LRU.</p>",
+      "title": "Add <code>withDeco()</code> and <code>decoProxy()</code> entry wrappers to the templates",
+      "plan": "<p>Template code, not a package: <code>withDeco(handler, { cms })</code> in the TanStack templates and <code>decoProxy()</code> in the Next templates own the per-request plumbing. They set the draft cookie as <code>Secure; SameSite=None; Partitioned; HttpOnly</code> and treat <code>__draft=off</code> as exit. Drafted responses are private/no-store/noindex, and security headers carry frame-ancestors from an exported <code>STUDIO_FRAME_ANCESTORS</code>, never X-Frame-Options. Site editor routes are optional. The CMS keys draft caches on the API ETag, bounded by an LRU.</p>",
       "features": [
         "worker-server-entry",
         "csp-security-headers",
@@ -775,8 +775,8 @@
     {
       "id": "roadmap-api--cache-upstream-requests-in-the-bindings",
       "group": "api",
-      "title": "Cache upstream requests in the bindings",
-      "plan": "<p>Caching depends on the platform, so it lives in the framework bindings, not in the clients: the Cloudflare Cache API in <code>@decocms/tanstack</code> on Workers, Next's data cache in <code>@decocms/nextjs</code>. The instrumented fetch reports whether each response came from the cache (the <code>cached</code> label), and drafts bypass the cache.</p>",
+      "title": "Document upstream caching recipes",
+      "plan": "<p>Caching depends on the platform, so it lives in the templates, not in a package or the clients: a short recipe per platform, a fetch over the Cloudflare Cache API on Workers and over Next's data cache on Next.js, passed as a client's <code>fetch</code> option. The instrumented fetch reports whether each response came from the cache (the <code>cached</code> label), and drafts bypass the cache.</p>",
       "features": [
         "in-isolate-caches",
         "upstream-fetch-instrumentation",
@@ -810,7 +810,7 @@
       "id": "roadmap-api--document-and-support-kv-only-content-for-large-workers-sites",
       "group": "api",
       "title": "Document and support KV-only content for large Workers sites",
-      "plan": "<p>With <code>content</code> plus <code>site</code> and <code>token</code>, the bundled content module stays in memory as the fallback next to the live release, against a Worker isolate's 128 MB limit, and it also counts toward the script size limit. Document passing a KV-backed <code>Loader</code> as <code>content</code> for large sites, so no copy is bundled and the fallback is read from KV only when needed. Ship a first-party <code>kvLoader(env.CONTENT, { key })</code>, and a documented deploy step that writes the content to the key before the new Worker takes traffic, since with a missing key every new isolate fails its first reads until its first release check.</p>",
+      "plan": "<p>With <code>content</code> plus <code>site</code> and <code>token</code>, the bundled content module stays in memory as the fallback next to the live release, against a Worker isolate's 128 MB limit, and it also counts toward the script size limit. Document passing a KV-backed <code>Loader</code> as <code>content</code> for large sites, so no copy is bundled and the fallback is read from KV only when needed. Document a few-line KV loader as template code (no new API: any object with <code>load()</code>), and a deploy step that writes the content to the key before the new Worker takes traffic, since with a missing key every new isolate fails its first reads until its first release check.</p>",
       "features": [
         "fast-deploy-kv",
         "hosting-and-deploy-config",
@@ -875,7 +875,7 @@
       "id": "roadmap-api--define-an-app-contract",
       "group": "api",
       "title": "Define the client contract",
-      "plan": "<p>Each client package exports a factory that takes its configuration as arguments (for example <code>createVtexClient({ account, appKey, appToken })</code>, read from environment variables in site code) and typed request functions. No block map, no <code>@decocms/tanstack</code> dependency, no dynamic <code>module</code> import. Installing an app from the site editor's store is unavailable on next-major sites: a client is added in code.</p>",
+      "plan": "<p>Each client package exports a factory that takes its configuration as arguments (for example <code>createVtexClient({ account, appKey, appToken })</code>, read from environment variables in site code) and typed request functions. No block map, no framework package dependency, no dynamic <code>module</code> import. Installing an app from the site editor's store is unavailable on next-major sites: a client is added in code.</p>",
       "features": [
         "app-installation-and-store-config",
         "commerce-platform-binding",
@@ -890,8 +890,8 @@
     {
       "id": "roadmap-api--add-an-edge-cache-kit",
       "group": "api",
-      "title": "Add an edge cache kit",
-      "plan": "<p><code>withEdgeCache(entry, { segment, profiles })</code> in <code>@decocms/tanstack</code>, keyed by URL, build, revision and segment. It skips drafts, cold-start fallback and degraded pages. Plus <code>cacheHeaders(profile)</code> and <code>markDegraded()</code>.</p>",
+      "title": "Add an edge cache recipe",
+      "plan": "<p>A Workers template recipe, <code>withEdgeCache(entry, { segment, profiles })</code>, keyed by URL, build, revision and segment. It skips drafts, cold-start fallback and degraded pages. Plus <code>cacheHeaders(profile)</code> and <code>markDegraded()</code>.</p>",
       "features": [
         "edge-html-cache-profiles",
         "saved-loader-blocks",
@@ -1020,7 +1020,7 @@
       "id": "roadmap-api--add-observability-seams",
       "group": "api",
       "title": "Send the SDK's measurements to any collector",
-      "plan": "<p>The SDK reports what it sees: resolution, upstream fetches through <code>createInstrumentedFetch</code>, and errors. Inbound requests and page caches come from the framework's own OpenTelemetry setup, not from the bindings. Where the SDK's measurements go is the <code>telemetry</code> option of <code>createCMS</code>: <code>{ endpoint, headers? }</code> sends OpenTelemetry over OTLP/HTTP to any collector, <code>{ site, token }</code> sends to the hosted Deco CMS collector, and <code>false</code> turns it off; when the option is omitted, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is used if set, otherwise nothing is sent. Sending happens in the background (<code>ctx.waitUntil</code> on Workers), so a slow collector never delays a response.</p>",
+      "plan": "<p>The SDK reports what it sees: resolution, upstream fetches through <code>createInstrumentedFetch</code>, and errors. Inbound requests and page caches come from the framework's own OpenTelemetry setup, not from Deco CMS. Where the SDK's measurements go is the <code>telemetry</code> option of <code>createCMS</code>: <code>{ endpoint, headers? }</code> sends OpenTelemetry over OTLP/HTTP to any collector, <code>{ site, token }</code> sends to the hosted Deco CMS collector, and <code>false</code> turns it off; when the option is omitted, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is used if set, otherwise nothing is sent. Sending happens in the background (<code>ctx.waitUntil</code> on Workers), so a slow collector never delays a response.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation"
@@ -1117,7 +1117,7 @@
       "id": "roadmap-api--give-the-traffic-split-a-home-and-bypass-drafts-by-default",
       "group": "api",
       "title": "Give the traffic split a home and bypass drafts by default",
-      "plan": "<p>Move <code>withABTesting</code> to <code>@decocms/tanstack/traffic-split</code> and bypass drafts by default.</p>",
+      "plan": "<p>Move <code>withABTesting</code> into the TanStack templates as a recipe and bypass drafts by default.</p>",
       "features": [
         "ab-traffic-split"
       ],
@@ -1900,7 +1900,7 @@
       "id": "roadmap-later--serve-the-content-protocol-from-the-dev-server",
       "group": "later",
       "title": "Serve the content protocol from the dev server",
-      "plan": "<p>Let <code>@decocms/tanstack/vite</code> mount the content protocol's handler in the app's own dev server, so editing the files on your machine from the site editor needs one process instead of two. <code>deco serve</code> stays for other setups.</p>",
+      "plan": "<p>Add a few-line Vite plugin recipe to the templates that mounts the content protocol's handler in the app's own dev server, so editing the files on your machine from the site editor needs one process instead of two. <code>deco serve</code> stays for other setups.</p>",
       "features": [
         "dev-studio-content-loop",
         "bundler-config"
@@ -3822,7 +3822,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Cross-request caching is 'your policy', and upstream caching moves to the framework bindings and isn't designed yet. Draft caches are unbounded, input-keyed caches miss request state, and the site editor's bypass flag is ignored.",
+      "summary": "Cross-request caching is 'your policy', and upstream caching moves to template recipes (a caching fetch passed to a client), not yet in the templates. Draft caches are unbounded, input-keyed caches miss request state, and the site editor's bypass flag is ignored.",
       "docs": [
         "caching",
         "api-reference",
@@ -4252,7 +4252,7 @@
         "storefront-tanstack",
         "blog-tanstack"
       ],
-      "summary": "`remoteLoader` will check once a minute (configurable with `interval`), cold isolates serve the deployed content module until their first check, a webhook reaches one isolate, and the first-party `kvLoader` is still to ship. Impact on these sites is low: none serves content from KV today.",
+      "summary": "`remoteLoader` will check once a minute (configurable with `interval`), cold isolates serve the deployed content module until their first check, a webhook reaches one isolate, and the KV loader is a template recipe, not yet in the templates. Impact on these sites is low: none serves content from KV today.",
       "docs": [
         "api-reference",
         "releases-and-deployment",

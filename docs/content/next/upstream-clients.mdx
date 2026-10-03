@@ -62,7 +62,7 @@ const products = await vtex.search.products({ query: "linen shirt", count: 12 })
 
 The operation names here are illustrative; each client mirrors its platform's API.
 
-Caching upstream responses is the framework binding's job, not the client's; see [Upstream data](/next/caching#upstream-data).
+Caching upstream responses is your app's job, not the client's: pass a caching fetch as the client's `fetch` option (see [Upstream data](/next/caching#upstream-data)).
 
 ## Retries and failures
 
@@ -146,6 +146,6 @@ A few rules keep clients consistent:
 3. **Take configuration as arguments.** Read environment variables where the site creates the client, not inside it, so the same client works on Node, Workers and in tests.
 4. **Keep it thin.** Return the platform's types. Converting to your own types, caching policy and UI state belong to the site.
 5. **Never put bodies, tokens or cookies in errors or logs.** Report the operation and the status.
-6. **Accept a `fetch` option** for tests: pass a fake that returns canned responses, and assert on the requests it received.
+6. **Accept a `fetch` option** for tests and caching (see [Upstream data](/next/caching#upstream-data)). For tests, pass a fake that returns canned responses, and assert on the requests it received.
 
 `createInstrumentedFetch` measures every request; the measurements go wherever [telemetry](/next/telemetry#choose-where-telemetry-goes) is configured, and nowhere when it's off (see [What's sent](/next/telemetry#whats-sent)). Its options are in the [API reference](/next/api-reference#createinstrumentedfetch-options).

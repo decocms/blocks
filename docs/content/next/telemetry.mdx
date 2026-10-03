@@ -51,7 +51,7 @@ The top-level `site` and `token` options load [hosted releases and drafts](/next
 | Error logs | error code, block type, provider | The SDK |
 | Traces (off by default) | block resolution and upstream spans | The SDK, at `traceSampleRate` |
 
-That's everything: the framework bindings add no measurements of their own. The requests your site serves and its page cache belong to your web framework, so measure them with its OpenTelemetry setup (Next.js has [`instrumentation.ts`](https://nextjs.org/docs/app/guides/open-telemetry); on Cloudflare Workers, turn on Workers observability). Point it at the same collector and both show up side by side.
+That's everything the SDK measures. The requests your site serves and its page cache belong to your web framework, so measure them with its OpenTelemetry setup (Next.js has [`instrumentation.ts`](https://nextjs.org/docs/app/guides/open-telemetry); on Cloudflare Workers, turn on Workers observability). Point it at the same collector and both show up side by side.
 
 A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. The `cached` label tells you whether a response came from a [cache](/next/caching#upstream-data), so hit rates show up next to latency. Page views from the browser aren't telemetry: they're [analytics](/next/analytics), a separate built-in block.
 

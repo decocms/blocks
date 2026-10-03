@@ -29,6 +29,8 @@ DECO_CRYPTO_KEY=… npx @decocms/blocks-migrate
 
 It changes your files in place and prints a report of what it did and what's left for you. It writes a block map that keeps your old type names as [aliases](#rename-a-type-with-an-alias), copies the [loaders](#loaders-actions-and-invoke) your content uses, re-encrypts [secrets](#secrets), and lists what it can't move by itself, such as [tag IDs](#telemetry-and-analytics). Review the diff and commit it like any other change.
 
+Next-major apps depend only on `@decocms/blocks`. Remove `@decocms/tanstack` or `@decocms/nextjs`, and `@decocms/blocks-admin`, from your dependencies: they stay on the 7.x line. What they did for your platform is now a few lines of your own code: upstream caching is a fetch you pass to a client (see [Upstream data](/next/caching#upstream-data)), and content in Workers KV is a small loader (see [Example: Workers KV](/next/api-reference#example-workers-kv)).
+
 Seven v7 type names have no alias in the next major, so the migration rewrites them in your saved content to a name that resolves the same way, with the same props:
 
 | v7 name | Saved as |
@@ -71,7 +73,7 @@ export default {
 
 On [v7](/v7/loaders), saved content often calls loaders and actions that ship in Deco's [apps](/v7/apps), such as a VTEX product loader. In the next major the apps are thin [upstream clients](/next/upstream-clients) and ship no loaders, so the migration copies (vendors) the ones your site actually uses into your own code, rewritten over the clients, and registers each under its old type name as an [alias](#rename-a-type-with-an-alias). Content keeps resolving, and the copied code is yours to change from then on.
 
-v7's `/deco/invoke` endpoint (which ran loaders and actions over HTTP for the site editor and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) are gone. Call upstream clients from your framework's server functions or route handlers instead; upstream caching lives in the framework binding (see [Upstream data](/next/caching#upstream-data)).
+v7's `/deco/invoke` endpoint (which ran loaders and actions over HTTP for the site editor and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) are gone. Call upstream clients from your framework's server functions or route handlers instead; upstream caching is a fetch your app passes to a client (see [Upstream data](/next/caching#upstream-data)).
 
 <h2 id="telemetry-and-analytics">Telemetry and analytics</h2>
 

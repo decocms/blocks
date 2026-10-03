@@ -65,7 +65,7 @@ Before rolling code back, select a retained content revision compatible with the
 
 ## Large content on Workers
 
-With `site` and `token` (your [site ID and token](/next/hosted#connect-your-site)), the bundled content module stays in memory as the fallback beside the live release, so a published site holds two copies (a Worker isolate has 128 MB), and the bundle counts toward the script size limit. That only matters at several megabytes of JSON; for sites that large, pass the first-party [`kvLoader`](/next/api-reference#loaders) as `content` instead, which keeps the fallback in Workers KV. Your deploy must write the content to that key before the new Worker takes traffic (for example with `wrangler kv key put`); if the key is missing, a new isolate's first reads fail until its first release check.
+With `site` and `token` (your [site ID and token](/next/hosted#connect-your-site)), the bundled content module stays in memory as the fallback beside the live release, so a published site holds two copies (a Worker isolate has 128 MB), and the bundle counts toward the script size limit. That only matters at several megabytes of JSON; for sites that large, pass a loader that reads Workers KV as `content` instead, which keeps the fallback in KV; it's a few lines of your own code (see [Example: Workers KV](/next/api-reference#example-workers-kv)). Your deploy must write the content to that key before the new Worker takes traffic (for example with `wrangler kv key put`); if the key is missing, a new isolate's first reads fail until its first release check.
 
 ## Troubleshooting
 

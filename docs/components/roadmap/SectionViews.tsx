@@ -594,7 +594,7 @@ export function changes(rm: Roadmap, key: WorkGroup): SectionView {
   const lede = {
     api: (
       <>
-        {items.length} changes to the SDK, the bindings and the <code className="is-short">@decocms/apps-*</code> packages. {sort}
+        {items.length} changes to the SDK, the templates and the <code className="is-short">@decocms/apps-*</code> packages. {sort}
       </>
     ),
     cli: (

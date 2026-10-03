@@ -59,7 +59,7 @@ The check is only as accurate as the schema, so `deco schema`'s translation of t
 
 ## Contributing
 
-The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Four core packages make up the framework, and `blocks-migrate` moves v7 sites onto it; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. The [content protocol](/next/content-protocol) lives inside `@decocms/blocks`, as its `protocol` subpath; the `cli` subpath uses it, and the runtime never imports it. The core packages depend on each other in one direction only:
+The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). The framework is one package, `@decocms/blocks`, and `@decocms/blocks-migrate` moves v7 sites onto it; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. The [content protocol](/next/content-protocol) lives inside `@decocms/blocks`, as its `protocol` subpath; the `cli` subpath uses it, and the runtime never imports it. The core packages depend on each other in one direction only:
 
 ```text
 packages/
@@ -68,19 +68,13 @@ packages/
 │                                              protocol the site editor and deco serve speak
 │                                              (the protocol subpath).
 │                                              depends on no other @decocms package
-├── blocks-admin/    @decocms/blocks-admin     the legacy HTTP endpoints the site editor calls on 7.x sites.
-│                                              depends on: @decocms/blocks
-├── tanstack/        @decocms/tanstack         the framework binding for TanStack Start on Cloudflare Workers.
-│                                              depends on: @decocms/blocks, @decocms/blocks-admin
-├── nextjs/          @decocms/nextjs           the framework binding for the Next.js App Router.
-│                                              depends on: @decocms/blocks, @decocms/blocks-admin
 └── blocks-migrate/  @decocms/blocks-migrate   the one-time v7 migration (see Migrating from v7).
                                                depends on: @decocms/blocks
 ```
 
-The framework used to be a single bundled package, and bundling one package into another can create two copies of a module that must exist once, such as the block registry; two registries in one process disagree in ways that are hard to find. So packages import each other's TypeScript source, never a bundled build. The SDK also guards against this at runtime: [`createCMS`](/next/api-reference#createcms-config) and [`remoteLoader`](/next/api-reference#loaders) keep their instances on `globalThis`, so a second copy reuses the first (see [One instance per process](/next/api-reference#one-instance-per-process)). `blocks` never imports from the others, and the two [framework bindings](/next/how-it-works#key-terms) never import from each other; if a feature needs both sides, split it into two functions rather than import in reverse.
+The framework used to be a single bundled package, and bundling one package into another can create two copies of a module that must exist once, such as the block registry; two registries in one process disagree in ways that are hard to find. So packages import each other's TypeScript source, never a bundled build. The SDK also guards against this at runtime: [`createCMS`](/next/api-reference#createcms-config) and [`remoteLoader`](/next/api-reference#loaders) keep their instances on `globalThis`, so a second copy reuses the first (see [One instance per process](/next/api-reference#one-instance-per-process)). `blocks` never imports from `blocks-migrate`; if a feature needs both sides, split it into two functions rather than import in reverse.
 
-Apps following these docs need only `@decocms/blocks`, which includes the CLI (see [How the CLI ships](#how-the-cli-ships)). The scripts that move sites off Fresh and Deno are v7 tooling (see [Migrate from Fresh](/v7/migrate-from-fresh)). The two framework bindings serve v7 sites on the site editor's legacy endpoints. In the next major they keep only what depends on the platform (caching upstream responses and rendered pages), and the site editor reaches next-major apps through the content protocol instead of through them.
+Apps following these docs need only `@decocms/blocks`, which includes the CLI (see [How the CLI ships](#how-the-cli-ships)). The scripts that move sites off Fresh and Deno are v7 tooling (see [Migrate from Fresh](/v7/migrate-from-fresh)). The next major has no per-framework packages. v7's `@decocms/blocks-admin`, `@decocms/tanstack` and `@decocms/nextjs` stay on the 7.x line, serving v7 sites on the site editor's legacy endpoints; next-major apps don't depend on them. What depended on the platform (caching upstream responses, loading content from Workers KV) is a few lines in your template (see [Upstream data](/next/caching#upstream-data) and [Example: Workers KV](/next/api-reference#example-workers-kv)), and the site editor reaches next-major apps through the content protocol.
 
 ```bash
 bun install
