@@ -35,11 +35,11 @@ As blocks, the code above is analogous to this content, which editors can change
     "variants": [
       {
         "rule": { "__resolveType": "date", "start": "2026-11-27T00:00:00-05:00", "end": "2026-12-01T00:00:00-05:00" },
-        "value": { "__resolveType": "lazy", "value": "Black Friday: 40% off everything" }
+        "value": "Black Friday: 40% off everything"
       },
       {
         "rule": { "__resolveType": "always" },
-        "value": { "__resolveType": "lazy", "value": "Free shipping over $50" }
+        "value": "Free shipping over $50"
       }
     ]
   },
@@ -54,18 +54,30 @@ As blocks, the code above is analogous to this content, which editors can change
 | The ternary, or a chain of `if`/`else if` | `multivariate` with a list of variants; the first whose rule is `true` wins. |
 | The date condition | The built-in `date` matcher. |
 | The final `else` | A last variant whose rule is `always`. |
-| Only the chosen branch runs, like `cond ? a() : b()` | A [`lazy`](/next/blocks#lazy-blocks) value. |
 | The constants | Saved values that editors change in [Studio](/next/how-it-works#studio). |
 
-Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so every rule runs first and `multivariate` sees each one as a boolean. It returns the value of the first variant whose rule is `true`, and `PromoBanner` gets a plain string: it never knows a variant was involved.
+`end` takes the campaign down too, so there's nothing to do on Monday. `PromoBanner` gets a plain string: it never knows a variant was involved.
 
-<Callout>**Why `lazy`?** Without it, every variant's value would be computed before `multivariate` picks one, like running both branches of an `if`. `lazy` waits until a value is chosen, so only the winning branch runs. For a plain title that changes nothing; for a hero section that fetches products, only the chosen hero fetches. Studio adds the wrapper for you (see [Lazy blocks](/next/blocks#lazy-blocks)).</Callout>
+### Only the chosen variant runs
 
-`end` takes the campaign down too, so there's nothing to do on Monday.
+There's a catch in the version above. Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)): every argument is computed before the function that receives it runs. So every variant's `value` is computed before `multivariate` picks one, as if an `if` ran both of its branches. For a title, that costs nothing. But if each value were a hero section that fetches products, every hero would fetch, and all but one result would be thrown away.
+
+The fix is a [lazy block](/next/blocks#lazy-blocks). Wrapped in `lazy`, a value isn't computed until `multivariate` chooses it, so only the winning branch runs, like `cond ? a() : b()`:
+
+```jsonc
+{
+  "rule": { "__resolveType": "date", "start": "2026-11-27T00:00:00-05:00", "end": "2026-12-01T00:00:00-05:00" },
+  "value": { "__resolveType": "lazy", "value": "Black Friday: 40% off everything" }
+}
+```
+
+That's why `multivariate` takes lazy values, and why saved variants always carry the wrapper (`deco check` flags a value without it). Rules stay eager: they're cheap booleans.
+
+### In Studio
+
+Each variant is a tab. An editor schedules the same campaign there: add a variant, pick `date` as its rule, fill in `start` and `end`, type the campaign title as its value, and keep the `always` tab last. Editors just type the value; Studio writes the `lazy` block around it.
 
 Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
-
-In Studio, each variant is a tab. An editor schedules the same campaign there: add a variant, pick `date` as its rule, fill in `start` and `end`, type the campaign title as its value, and keep the `always` tab last. Editors just type the value; Studio writes the `lazy` block around it.
 
 ## Built-in matchers
 
