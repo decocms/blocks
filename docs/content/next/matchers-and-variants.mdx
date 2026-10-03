@@ -60,7 +60,7 @@ As blocks, the code above is analogous to this content, which editors can change
 
 Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
 
-### Only the chosen variant runs
+### Lazy evaluation
 
 There's a catch in the version above. Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)): every argument is computed before the function that receives it runs. So every variant's `value` is computed before `multivariate` picks one, as if an `if` ran both of its branches. For a title, that costs nothing. But if each value were a hero section that fetches products, every hero would fetch, and all but one result would be thrown away.
 
