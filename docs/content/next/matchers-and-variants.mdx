@@ -58,6 +58,8 @@ As blocks, the code above is analogous to this content, which editors can change
 
 `end` takes the campaign down too, so there's nothing to do on Monday. `PromoBanner` gets a plain string: it never knows a variant was involved.
 
+Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
+
 ### Only the chosen variant runs
 
 There's a catch in the version above. Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)): every argument is computed before the function that receives it runs. So every variant's `value` is computed before `multivariate` picks one, as if an `if` ran both of its branches. For a title, that costs nothing. But if each value were a hero section that fetches products, every hero would fetch, and all but one result would be thrown away.
@@ -71,32 +73,7 @@ The fix is a [lazy block](/next/blocks#lazy-blocks). Wrapped in `lazy`, a value 
 }
 ```
 
-That's why `multivariate` takes lazy values, and why saved variants always carry the wrapper (`deco check` flags a value without it). Rules stay eager: they're cheap booleans.
-
-### Matchers: conditions for the marketing team
-
-A block function that returns `true` or `false` is a **matcher**. Matchers are what make variants usable without code: Studio lists every matcher in your block map in each variant's rule picker, so the marketing team builds conditions by picking from a list and filling a short form. `date` is one; you can add your own, such as:
-
-- **Temperature**: `true` when it's above a given temperature where the visitor is, to promote cold drinks on hot days.
-- **Birthday**: `true` during a signed-in customer's birthday week, to show a gift.
-- **Cart value**: `true` when the cart is over an amount, to offer free shipping.
-- **Loyalty tier**: `true` for gold members, to show early access.
-
-In Studio, each variant is a tab. An editor schedules the Black Friday campaign by adding a variant, picking `date` as its rule, filling in `start` and `end`, typing the campaign title as its value, and keeping the `always` tab last. Editors just type the value; Studio writes the `lazy` block around it. [Write your own matcher](#write-your-own-matcher) shows how to add one.
-
-Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
-
-## Built-in matchers
-
-Three matchers are [built-in blocks](/next/blocks#built-in-blocks), because they depend on nothing but the clock. Like every built-in, they need no import:
-
-- **`always`** is always `true`. Use it for the fallback.
-- **`never`** is always `false`.
-- **`date`** is `true` from `start` until `end`. Both are optional.
-
-`start` and `end` are ISO 8601 strings. Write them with the offset your store's time zone has on that date, like `"2026-11-27T00:00:00-05:00"` for New York in November, so the campaign starts at midnight on your clock. Daylight saving time changes the offset (New York is `-04:00` in summer), so check it for each date. A date without a time, like `"2026-11-27"`, means midnight UTC. `end` itself doesn't match, so a campaign that ends at midnight uses that midnight as its `end`.
-
-`multivariate` and `lazy` are built in too.
+That's why `multivariate` takes lazy values, and why saved variants always carry the wrapper (`deco check` flags a value without it). Editors never see it: Studio adds it for them. Rules stay eager: they're cheap booleans.
 
 ## Why it goes live on time
 
@@ -112,7 +89,28 @@ A scheduled campaign is a change to content files, so it's checked like any othe
 - **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight.
 - **Keep `always()` last.** The first match wins, so the `always()` variant is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends.
 
-## Write your own matcher
+## Matchers: conditions for the marketing team
+
+A block function that returns `true` or `false` is a **matcher**. Matchers are what make variants usable without code: Studio lists every matcher in your block map in each variant's rule picker, so the marketing team builds conditions by picking from a list and filling a short form. `date` is one; you can add your own (see [Write your own matcher](#write-your-own-matcher)), such as:
+
+- **Temperature**: `true` when it's above a given temperature where the visitor is, to promote cold drinks on hot days.
+- **Birthday**: `true` during a signed-in customer's birthday week, to show a gift.
+- **Cart value**: `true` when the cart is over an amount, to offer free shipping.
+- **Loyalty tier**: `true` for gold members, to show early access.
+
+### Built-in matchers
+
+Three matchers are [built-in blocks](/next/blocks#built-in-blocks), because they depend on nothing but the clock. Like every built-in, they need no import:
+
+- **`always`** is always `true`. Use it for the fallback.
+- **`never`** is always `false`.
+- **`date`** is `true` from `start` until `end`. Both are optional.
+
+`start` and `end` are ISO 8601 strings. Write them with the offset your store's time zone has on that date, like `"2026-11-27T00:00:00-05:00"` for New York in November, so the campaign starts at midnight on your clock. Daylight saving time changes the offset (New York is `-04:00` in summer), so check it for each date. A date without a time, like `"2026-11-27"`, means midnight UTC. `end` itself doesn't match, so a campaign that ends at midnight uses that midnight as its `end`.
+
+`multivariate` and `lazy` are built in too.
+
+### Write your own matcher
 
 In code, a weekend title would be one more condition, like `today === "Sat" || today === "Sun"`. As a matcher, that condition moves into a function that returns a `boolean`. This one is `true` on the days of the week you pick, in your store's time zone:
 
