@@ -3,7 +3,7 @@
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
-import { lazySchema, resolvableRef, sectionRef, toBase64 } from "./typeToSchema";
+import { lazySchema, resolvableRef, sectionRef } from "./typeToSchema";
 
 export type ManifestGroup = "sections" | "matchers" | "loaders" | "pages" | "redirects" | "content";
 
@@ -230,12 +230,6 @@ export function legacyMultivariateValue(alias: string): any {
   switch (alias) {
     case "website/flags/multivariate/section.ts":
       return { ...sectionRef(), title: "Section" };
-    case "website/flags/multivariate/image.ts":
-      return { type: "string", format: "image-uri", title: "Image" };
-    case "website/flags/multivariate/message.ts":
-      return { type: "string", title: "Message" };
-    case "website/flags/multivariate/page.ts":
-      return { $ref: `#/definitions/${toBase64("page")}`, title: "Page" };
     default:
       return { title: "Value" };
   }

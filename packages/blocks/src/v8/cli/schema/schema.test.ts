@@ -36,16 +36,7 @@ describe("the deco-meta@1 file", () => {
     expect(meta.format).toBe(SCHEMA_FORMAT);
     expect(meta.framework).toBe("deco-cli");
     expect(Object.keys(meta.manifest.blocks).sort()).toEqual(
-      [
-        "actions",
-        "apps",
-        "content",
-        "loaders",
-        "matchers",
-        "pages",
-        "redirects",
-        "sections",
-      ].sort(),
+      ["content", "loaders", "matchers", "pages", "redirects", "sections"].sort(),
     );
     for (const group of ["sections", "loaders", "matchers", "pages", "redirects", "content"]) {
       expect(meta.schema.root[group].anyOf[0]).toEqual({ $ref: "#/definitions/Resolvable" });
@@ -360,11 +351,7 @@ describe("built-ins and aliases", () => {
     expect(value("website/flags/multivariate/section.ts")).toMatchObject({
       $ref: "#/definitions/__SECTION_REF__",
     });
-    expect(value("website/flags/multivariate/image.ts")).toMatchObject({
-      type: "string",
-      format: "image-uri",
-    });
-    expect(value("website/flags/multivariate/message.ts")).toMatchObject({ type: "string" });
+    expect(value("website/flags/multivariate.ts")).toMatchObject({ title: "Value" });
   });
 
   it("writes the legacy redirect alias in the nested shape the old screen saves", () => {

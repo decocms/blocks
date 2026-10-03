@@ -2,8 +2,9 @@
  * `blocks-migrate`: moves a v7 site to the next major in one pass (spec:
  * renames-and-migrations › Migrating from v7). The steps, in order:
  *
- * 1. content: saved blocks in `.deco/blocks`, v7 generated files removed;
- *    and A/B tests keyed on a random matcher get its name as `experiment`;
+ * 1. content: saved blocks in `.deco/blocks`, v7 generated files removed,
+ *    legacy type names outside the alias table renamed, and A/B tests keyed
+ *    on a random matcher get its name as `experiment`;
  * 2. secrets: v7 secrets re-encrypted with `.deco/secrets.pub`;
  * 3. block map: `.deco/index.ts` with aliases under the v7 names, after
  *    vendoring the app loaders and actions the content calls;
@@ -19,6 +20,7 @@ import { writeBlockMap } from "./blockMap";
 import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
 import { rewriteImports } from "./imports";
+import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
 import { reencryptSecrets } from "./secrets";
 
@@ -76,6 +78,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   }
   const report = createReport();
   moveContent(root, report, { decofile: options.decofile });
+  renameLegacyTypes(root, report);
   copyExperimentIds(root, report);
   await reencryptSecrets(root, report);
   const { vendored } = writeBlockMap(root, report);
