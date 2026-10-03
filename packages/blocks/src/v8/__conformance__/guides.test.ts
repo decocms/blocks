@@ -804,8 +804,8 @@ describe("internals", () => {
     expect(typeof remoteLoader).toBe("function");
   });
 
-  it("in-16: the layout cache race regression test still exists", () => {
-    expect(fs.existsSync(path.join(SRC, "cms/layoutCacheRace.test.ts"))).toBe(true);
+  it("in-16: the regression test for two copies of the package in one process still exists", () => {
+    expect(fs.existsSync(path.join(SRC, "v8/dualInstance.test.ts"))).toBe(true);
   });
 });
 

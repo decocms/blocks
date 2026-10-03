@@ -1,10 +1,9 @@
 // @vitest-environment node
 /**
  * The package root serves the v8 API per the docs (`import { createCMS } from
- * "@decocms/blocks"`) while every v7 export keeps working.
+ * "@decocms/blocks"`), and nothing else.
  */
 import { describe, expect, it } from "vitest";
-import * as v7cms from "../cms/index";
 import * as root from "../index";
 import * as v8 from "./index";
 
@@ -21,18 +20,9 @@ describe("@decocms/blocks root", () => {
     expect(root.formatDraftPointer).toBe(v8.formatDraftPointer);
   });
 
-  it("serves v8's parseDraftPointer where the names clash; v7's stays at /cms", () => {
-    expect(root.parseDraftPointer).toBe(v8.parseDraftPointer);
-    expect(v7cms.parseDraftPointer).not.toBe(v8.parseDraftPointer);
-    const pointer = "api.deco.example/drafts/x?token=t@v1";
-    expect(root.parseDraftPointer(pointer)).toEqual(v7cms.parseDraftPointer(pointer));
-  });
-
-  it("keeps v7 exports reachable from the root", () => {
-    expect(typeof root.loadBlocks).toBe("function");
-    expect(typeof root.resolveDecoPage).toBe("function");
-    expect(typeof root.registerSection).toBe("function");
-    expect(typeof root.findPageByPath).toBe("function");
+  it("exports nothing outside the v8 API", () => {
+    const extra = Object.keys(root).filter((name) => !(name in v8));
+    expect(extra).toEqual([]);
   });
 
   it("the documented quickstart compiles and runs from the root", async () => {
