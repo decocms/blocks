@@ -14,15 +14,20 @@ const COLLECTOR = "https://stats.example.com/events";
 
 let images: string[] = [];
 let beacons: { url: string; body: string }[] = [];
+let pixels: { onerror: (() => void) | null }[] = [];
 const originalPushState = history.pushState;
 
 beforeEach(() => {
   images = [];
   beacons = [];
+  pixels = [];
   vi.stubGlobal(
     "Image",
     class {
       onerror: (() => void) | null = null;
+      constructor() {
+        pixels.push(this);
+      }
       set src(value: string) {
         images.push(value);
       }
@@ -66,6 +71,13 @@ function decode(src: string): any {
 }
 
 describe("AnalyticsScript", () => {
+  it("sends a page view once: a collector answering the GET with a non-image doesn't resend it", () => {
+    runTracker();
+    expect(images).toHaveLength(1);
+    for (const pixel of pixels) pixel.onerror?.();
+    expect(beacons).toHaveLength(0);
+  });
+
   it("renders one script tag with the collector, the hosted one by default", () => {
     expect(renderToStaticMarkup(AnalyticsScript({ collector: COLLECTOR }) as ReactElement)).toMatch(
       /^<script data-url="https:\/\/stats\.example\.com\/events">\(function\(\)\{.*<\/script>$/,
