@@ -522,10 +522,10 @@ describe("AR-18 / AR-19 content: a snapshot or any loader", () => {
 });
 
 describe("AR-22 remoteLoader", () => {
-  it("is exported from the root, and returns the fallback unchanged without site or token", () => {
+  it("is exported from the root, and is a loader over the fallback without site or token", async () => {
     expect(root.remoteLoader).toBe(remoteLoader);
     const fallback = docsSnapshot();
-    expect(remoteLoader(fallback, { site: "", token: "" })).toBe(fallback);
+    expect(await remoteLoader(fallback, { site: "", token: "" }).load()).toBe(fallback);
   });
 
   it("createCMS builds it when site and token are set: forDraft reaches the Deco API", async () => {
