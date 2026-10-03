@@ -7,7 +7,7 @@
 <h1 align="center">blocks</h1>
 
 <p align="center">
-  The framework and integration layer behind Deco CMS storefronts.
+  Deco CMS: make any typed function editable, with content saved as plain JSON in your repo.
 </p>
 
 <p align="center">
@@ -21,17 +21,16 @@
 <p align="center">
   <img alt="CMS" src="https://img.shields.io/badge/CMS-runtime-07401A?style=flat-square" />
   <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&logo=react&logoColor=white" />
-  <img alt="TanStack Start" src="https://img.shields.io/badge/TanStack-Start-FF4154?style=flat-square" />
-  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-App_Router-000000?style=flat-square&logo=next.js&logoColor=white" />
-  <img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat-square&logo=cloudflareworkers&logoColor=white" />
+  <img alt="Any framework" src="https://img.shields.io/badge/framework-any-FF4154?style=flat-square" />
 </p>
 
-`blocks` is a Bun workspace monorepo containing Deco's framework-agnostic CMS runtime, Studio admin protocol, code generators, framework bindings, and portable commerce integrations. Packages are published together under the `@decocms/*` scope and export TypeScript source directly—there is no bundled dist layer or duplicated runtime state.
+`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks, plus thin upstream clients, `@decocms/apps-*`. Packages export TypeScript source directly: no bundled dist layer, no duplicated runtime state.
+
+v7 (`@decocms/tanstack`, `@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce` and the rest) is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
 
 ## Contents
 
 - [Why blocks](#why-blocks)
-- [Architecture](#architecture)
 - [Packages](#packages)
 - [Getting started](#getting-started)
 - [Migration](#migration)
@@ -43,156 +42,91 @@
 
 ## Why blocks
 
-- **One CMS runtime:** resolve pages, sections, flags, matchers, loaders, and request-scoped state without tying the core to a web framework.
-- **Native framework bindings:** render through TanStack Start on Cloudflare Workers, Next.js App Router/RSC, or generate native authoring artifacts for Eitri.
-- **Studio-ready:** expose metadata, content snapshots, invokes, and live previews through the Deco admin protocol.
-- **Portable integrations:** share commerce types and connect VTEX, Shopify, Magento, Salesforce Commerce Cloud, Algolia, Resend, blog, SEO, analytics, and theme capabilities.
-- **Migration tooling included:** move Fresh/Preact storefronts to TanStack Start or upgrade older `@decocms/start` sites to the split packages.
-
-## Architecture
-
-The dependency graph is intentionally one-way. Framework packages compose the lower layers; the runtime never imports a framework binding.
-
-```text
-                  Storefront or native app
-                           │
-          ┌────────────────┼─────────────────┐
-          │                │                 │
- @decocms/tanstack  @decocms/nextjs  @decocms/eitri
-          │                │                 │
-          ├──────┬─────────┘                 │
-          │      │                           │
- @decocms/blocks-admin              @decocms/blocks-cli
-          │      │                           │
-          └──────┴──────────┬────────────────┘
-                            │
-                    @decocms/blocks
-                            ▲
-                            │
-                    @decocms/apps-*
-```
-
-The split fixes the module-state duplication that occurred when the former `@decocms/start` package bundled multiple copies of shared singletons. Every public export now resolves to its owning package's source.
-
-### Repository layout
-
-```text
-packages/
-├── blocks/          CMS runtime and portable SDK
-├── blocks-admin/    Studio protocol and admin setup
-├── blocks-cli/      Code generation, audits, and migrations
-├── tanstack/        TanStack Start + Cloudflare Workers binding
-├── nextjs/          Next.js App Router binding
-├── eitri/           Eitri schema and decofile generator
-└── apps-*/          Shared capabilities and platform integrations
-examples/
-├── tanstack-smoke/  Next-major TanStack Start app (the descriptor guide, on Workers)
-└── nextjs-smoke/    Minimal Next.js consumer
-docs/                Architecture, operations, troubleshooting, and guides
-.agents/skills/      Agent-assisted migration playbooks
-```
+- **Your functions, editable:** register any function with a typed first parameter in a block map; the CLI turns its types into editor forms and checks saved content against them.
+- **Content is JSON in your repo:** saved blocks live in `.deco/blocks`, read through `createCMS` with no database and no framework lock-in.
+- **Any framework:** TanStack Start, Next.js App Router or plain Node; the package has no framework binding and runs on Workers, Node and Bun.
+- **Site-editor ready:** the content protocol (`@decocms/blocks/protocol`) lets the site editor read and write saved blocks without running your code.
+- **Measured upstream calls:** every client sends through `createInstrumentedFetch`, so each upstream request is timed and labeled.
 
 ## Packages
 
 All packages are versioned and released in lockstep.
 
-### Runtime and tooling
-
 | Package | Purpose |
 | --- | --- |
-| [`@decocms/blocks`](./packages/blocks) | Framework-agnostic CMS resolution, section registry, flags, matchers, middleware, hooks, and SDK utilities. |
-| [`@decocms/blocks-admin`](./packages/blocks-admin) | Studio protocol handlers for metadata, decofile content, invokes, previews, and admin setup. |
-| [`@decocms/blocks-cli`](./packages/blocks-cli) | Incremental code generation, validation, observability tooling, and storefront migration CLIs. |
+| [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`) and secrets (`/secrets`). |
+| [`@decocms/apps-vtex`](./packages/apps-vtex) | Thin VTEX client. |
+| [`@decocms/apps-shopify`](./packages/apps-shopify) | Thin Shopify Storefront API client. |
+| [`@decocms/apps-wake`](./packages/apps-wake) | Thin Wake Commerce client, with storefront operations on `/storefront`. |
+| [`@decocms/apps-magento`](./packages/apps-magento) | Thin Magento client. |
+| [`@decocms/apps-algolia`](./packages/apps-algolia) | Thin Algolia Search REST client. |
+| [`@decocms/apps-resend`](./packages/apps-resend) | Thin Resend email client. |
+| [`@decocms/apps-sfmc-personalization`](./packages/apps-sfmc-personalization) | Thin Salesforce Marketing Cloud Personalization (formerly Evergage) client. |
 
-### Framework bindings
+Clients depend only on `@decocms/blocks`. Converters, hooks, cart flows and caching live in your platform template, not in a package.
 
-| Package | Target | Highlights |
-| --- | --- | --- |
-| [`@decocms/tanstack`](./packages/tanstack) | TanStack Start + Cloudflare Workers | CMS routes, worker entry, Vite plugin, deferred sections, and KV-backed fast deploy. |
-| [`@decocms/nextjs`](./packages/nextjs) | Next.js 15+ App Router | RSC-native pages and previews, route handlers, root layout, and one-call setup. |
-| [`@decocms/eitri`](./packages/eitri) | Eitri mobile stack | Generates self-contained Studio schema and decofile artifacts; rendering remains native. |
+### Repository layout
 
-### Apps and integrations
-
-| Package | Integration |
-| --- | --- |
-| [`@decocms/apps-commerce`](./packages/apps-commerce) | Shared commerce types, registry, SDK, and portable utilities. |
-| [`@decocms/apps-website`](./packages/apps-website) | v7 only: SEO, analytics, themes, fonts, and generic website capabilities. Next major: platform templates and built-ins. |
-| [`@decocms/apps-vtex`](./packages/apps-vtex) | VTEX Commerce. |
-| [`@decocms/apps-shopify`](./packages/apps-shopify) | Shopify. |
-| [`@decocms/apps-magento`](./packages/apps-magento) | Magento. |
-| [`@decocms/apps-algolia`](./packages/apps-algolia) | Algolia search. |
-| [`@decocms/apps-blog`](./packages/apps-blog) | v7 only: blog content and CMS integration. Next major: data-only blocks and `client.list` in the blog template. |
-| [`@decocms/apps-resend`](./packages/apps-resend) | Resend transactional email. |
-| [`@decocms/apps-sfmc-personalization`](./packages/apps-sfmc-personalization) | Salesforce Marketing Cloud Personalization (formerly Evergage). Replaces `@decocms/apps-salesforce`. |
+```text
+packages/
+├── blocks/          @decocms/blocks: runtime, CLI and content protocol
+└── apps-*/          thin upstream clients
+tests/               cross-package tests (upstream-client guardrail and conformance)
+examples/
+├── tanstack-smoke/      TanStack Start on Workers (the descriptor guide)
+├── tanstack-rsc-smoke/  TanStack Start with React Server Components
+└── nextjs-smoke/        Next.js App Router
+.agents/skills/      agent skills: the v7 -> v8 migration, plus v7 playbooks (7.x)
+```
 
 ## Getting started
 
-The monorepo uses [Bun](https://bun.sh/) 1.3+. The web bindings target React 19; Eitri is generation-only. Pick the binding that matches your application.
+Every framework uses the same package:
+
+```bash
+bun add @decocms/blocks
+```
+
+Register your functions in a block map, `.deco/index.ts`:
+
+```ts
+import type { Blocks } from "@decocms/blocks";
+import hero from "../src/sections/hero";
+
+export default { hero } satisfies Blocks;
+```
+
+Generate the schema and the content module (`deco schema && deco content`, in `predev`/`prebuild`), then read content through the CMS:
+
+```ts
+import { createCMS } from "@decocms/blocks";
+import blocks from "./.deco";
+import content from "./.deco/blocks.gen";
+
+export const cms = createCMS({ blocks, content });
+
+const [props, error] = await cms.forRelease().resolve("Home Hero");
+```
 
 ### TanStack Start
 
-```bash
-bun add @decocms/blocks @decocms/blocks-admin @decocms/tanstack \
-  @tanstack/react-start @tanstack/react-query @tanstack/store react react-dom
-bun add -d vite
-```
-
-Bootstrap the runtime and Studio protocol in your server setup:
-
-```ts
-import { createAdminSetup } from "@decocms/blocks-admin/setup";
-import { createSiteSetup } from "@decocms/blocks/setup";
-import { setupTanstackFastDeploy } from "@decocms/tanstack";
-
-createSiteSetup({
-  sections: import.meta.glob("./sections/**/*.tsx"),
-  blocks: {},
-});
-
-createAdminSetup({ meta: () => Promise.resolve({}), css: "" });
-setupTanstackFastDeploy();
-```
-
-Add `decoVitePlugin()` to Vite and mount `cmsRouteConfig()` in the catch-all route. See the [fast deploy guide](./docs/fast-deploy.md) for production wiring. (`examples/tanstack-smoke` now follows the next-major TanStack Start guide instead.)
+Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS` over the content module, `matchRoute` in a catch-all route, one promise per block. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps.
 
 ### Next.js App Router
 
-```bash
-bun add @decocms/blocks @decocms/blocks-admin @decocms/nextjs
-```
-
-The Next.js binding has four required integration points:
-
-1. wrap `next.config` with `withDeco()`;
-2. create an `ensureSetup` function with `createNextSetup()`;
-3. mount the Studio catch-all route and RSC preview page;
-4. await setup from the root layout and render CMS pages with `createDecoPage()`.
-
-The complete copy-ready setup is in the [`@decocms/nextjs` guide](./packages/nextjs/README.md). ([`nextjs-smoke`](./examples/nextjs-smoke) now follows the next-major Next.js guide, which uses `@decocms/blocks` alone.)
-
-### Eitri
-
-```bash
-bun add -d @decocms/eitri
-bunx deco-eitri init
-bunx deco-eitri generate
-```
-
-Eitri uses Deco for schema and content authoring, then renders sections natively. See the [`@decocms/eitri` guide](./packages/eitri/README.md).
+Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./examples/nextjs-smoke) is a complete app. There is no `@decocms/nextjs` in v8: a Server Component resolves the page and renders its blocks.
 
 ## Migration
 
-Choose the migration path based on the site's current stack:
+Moving a v7 site (`@decocms/blocks` 7.x with `@decocms/tanstack` or `@decocms/nextjs`) to v8 is the [`deco-v7-to-v8-migration`](./.agents/skills/deco-v7-to-v8-migration) agent skill. Point your coding agent at it, or run its script yourself from a checkout of this branch:
 
-| From | To | Guide |
-| --- | --- | --- |
-| Fresh / Preact / Deno | TanStack Start / React / Workers | [`deco-to-tanstack-migration`](./.agents/skills/deco-to-tanstack-migration) |
-| Automated Fresh migration | TanStack Start / React / Workers | [`deco-migrate-script`](./.agents/skills/deco-migrate-script) |
-| `@decocms/start@6.x` + `@decocms/apps@5.x` | Split v7 TanStack packages | [`decocms-v6-to-v7-upgrade`](./.agents/skills/decocms-v6-to-v7-upgrade) |
-| `@decocms/start@5.x` Next tiers | Split Next.js packages | [`deco-next-package-migration`](./.agents/skills/deco-next-package-migration) |
+```bash
+DECO_CRYPTO_KEY=… bun .agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
+```
 
-These playbooks follow the Agent Skills format and can be used from Codex, Claude Code, Cursor, or another compatible agent.
+It writes the block map with your v7 type names as aliases, vendors the app loaders your content calls, moves content to `.deco/blocks`, re-encrypts secrets and reports every v7 import with its replacement. See the skill's `SKILL.md` and the docs page "Migrating from v7" (`/next/renames-and-migrations`).
+
+Older migrations (Fresh to TanStack, `@decocms/start` 6.x to 7.x) target v7: use the playbooks on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
 
 ## Development
 
@@ -202,39 +136,28 @@ Install dependencies from the repository root:
 bun install
 ```
 
-Common commands:
-
 | Command | What it checks |
 | --- | --- |
-| `bun run build` | Builds every package with TypeScript. |
-| `bun run typecheck` | Type-checks every package without emitting files. |
-| `bun run test` | Runs the Vitest suite for every package. |
-| `bun run lint` | Runs Biome across package sources and scripts. |
-| `bun run lint:unused` | Finds unused exports with Knip. |
-| `bun run audit:secrets` | Scans package sources for leaked secrets. |
-| `bun run check` | Runs typecheck, lint, unused-export checks, and the secrets audit. |
+| `bun run test` | Runs Vitest over the whole repo: packages, `tests/` and the migration skill's scripts. |
+| `bun run typecheck` | Type-checks every package, the skill's scripts and `tests/`. |
+| `bun run examples` | Builds the three examples, then type-checks them. |
+| `bun run lint` | Runs Biome. |
+| `bun run lint:unused` | Finds unused files, dependencies and exports with Knip. |
+| `bun run check` | Runs typecheck, lint and lint:unused. |
 
-This repository contains libraries rather than a root application. Run either smoke app directly when you need a development server:
-
-```bash
-cd examples/tanstack-smoke && bun run dev
-# or
-cd examples/nextjs-smoke && bun run dev
-```
-
-To test unpublished local changes in another site, run `bun link` inside each package you need, then link those package names from the consuming site.
+To try unpublished changes in another site, run `bun link` in `packages/blocks` (and any client you use), then `bun link @decocms/blocks` in the site.
 
 ## Contributing
 
 Contributions are welcome. Before opening a pull request:
 
-1. read [`CLAUDE.md`](./CLAUDE.md) for the package boundaries and load-bearing architectural constraints;
-2. keep changes inside the package that owns the concern—especially the one-way dependency graph;
+1. read [`CLAUDE.md`](./CLAUDE.md) for the package boundaries and load-bearing constraints;
+2. keep changes inside the package that owns the concern; clients depend only on `@decocms/blocks`;
 3. add or update tests for behavior changes;
-4. run `bun run check` and the relevant package tests;
+4. run `bun run check` and `bun run test`;
 5. use [Conventional Commits](https://www.conventionalcommits.org/) so semantic-release can determine the next version.
 
-For migration-tooling work, the signed-off decisions in [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) are authoritative. For release history, see the [changelog](./CHANGELOG.md) and [GitHub releases](https://github.com/decocms/blocks/releases).
+For release history, see the [changelog](./CHANGELOG.md) and [GitHub releases](https://github.com/decocms/blocks/releases).
 
 ## Contributors
 
@@ -250,14 +173,8 @@ New contributors are always welcome—start with an [open issue](https://github.
 
 | Topic | Guide |
 | --- | --- |
-| Fast deploy and KV-backed content | [`docs/fast-deploy.md`](./docs/fast-deploy.md) |
-| Observability | [`docs/observability.md`](./docs/observability.md) |
-| Troubleshooting | [`docs/troubleshooting.md`](./docs/troubleshooting.md) |
-| Operations runbooks | [`docs/runbooks`](./docs/runbooks) |
-| Deco filesystem contract | [`docs/deco-fs-contract.md`](./docs/deco-fs-contract.md) |
-| Hydration and SSR migration | [`docs/hydration-and-ssr-migration.md`](./docs/hydration-and-ssr-migration.md) |
-| Known gaps | [`docs/known-gaps.md`](./docs/known-gaps.md) |
-| Storefront implementation skills | [`docs/skills`](./docs/skills) |
+| Next major (v8) | The docs site's `/next` pages: Quickstart, Blocks, Content, CLI, Upstream clients, API reference, Migrating from v7 |
+| v7 operations (fast deploy, observability, runbooks) | [`docs/`](./docs) — v7 reference material; v7 itself is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x) |
 
 ## License
 

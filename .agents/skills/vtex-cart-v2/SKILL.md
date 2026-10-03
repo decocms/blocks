@@ -1,9 +1,11 @@
 ---
 name: vtex-cart-v2
-description: Cart v2 for VTEX storefronts — modular, granular, framework-agnostic. Explains the thesis (reduce cart API traffic, lazy cart creation, projection/sections fragmentation), the available hooks and loaders, and how to wire them in a Next.js or TanStack Start site.
+description: v7 only (7.x branch). Cart v2 for VTEX storefronts — modular, granular, framework-agnostic. Explains the thesis (reduce cart API traffic, lazy cart creation, projection/sections fragmentation), the available hooks and loaders, and how to wire them in a Next.js or TanStack Start site.
 ---
 
 # VTEX Cart v2 — Modular, Granular, Framework-Agnostic
+
+> **v7 only.** This skill targets v7 sites (`@decocms/blocks` 7.x with `@decocms/tanstack`/`@decocms/nextjs`) and is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x); paths such as `packages/blocks-cli`, `packages/tanstack` or `packages/apps-*` loaders refer to that branch. To move a v7 site to the next major, use `deco-v7-to-v8-migration`.
 
 ## The problem with the legacy cart
 

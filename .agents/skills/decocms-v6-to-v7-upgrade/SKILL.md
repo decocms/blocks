@@ -1,9 +1,11 @@
 ---
 name: decocms-v6-to-v7-upgrade
-description: Upgrades an already-TanStack site from the monolithic @decocms/start@6.x + @decocms/apps@5.x to the split 7.x packages (@decocms/blocks, @decocms/tanstack, @decocms/blocks-admin, @decocms/blocks-cli, @decocms/apps-*). Use when a TanStack Start site's package.json pins @decocms/start to 6.x and/or @decocms/apps to 5.x. Not for Fresh/Deno sites (use the Fresh→TanStack migrator) and not for Next.js sites (use deco-next-package-migration).
+description: v7 only (7.x branch). Upgrades an already-TanStack site from the monolithic @decocms/start@6.x + @decocms/apps@5.x to the split 7.x packages (@decocms/blocks, @decocms/tanstack, @decocms/blocks-admin, @decocms/blocks-cli, @decocms/apps-*). Use when a TanStack Start site's package.json pins @decocms/start to 6.x and/or @decocms/apps to 5.x. Not for Fresh/Deno sites (use the Fresh→TanStack migrator) and not for Next.js sites (use deco-next-package-migration).
 ---
 
 # @decocms 6.x → 7.x Split-Package Upgrade (TanStack sites)
+
+> **v7 only.** This skill targets v7 sites (`@decocms/blocks` 7.x with `@decocms/tanstack`/`@decocms/nextjs`) and is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x); paths such as `packages/blocks-cli`, `packages/tanstack` or `packages/apps-*` loaders refer to that branch. To move a v7 site to the next major, use `deco-v7-to-v8-migration`.
 
 Moves a TanStack Start site off the two monoliths onto the split packages:
 

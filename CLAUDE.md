@@ -4,166 +4,96 @@ Guidance for AI assistants working in this repo.
 
 ## Project Overview
 
-This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo housing the framework layer for [deco.cx](https://deco.cx) storefronts. It used to be a single npm package, `@decocms/start`, published as a tsup-bundled dist tier. That package was reverted at v5.2.2 after tsup bundling caused module-state duplication (two separate module instances of what should have been one singleton — e.g. the CMS registry — existing simultaneously in the same process). This repo is the fix: real package boundaries, plain `.ts` source exports, no bundler in the loop.
+This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo for the framework layer of [deco.cx](https://deco.cx) sites. This line (`main`) is the **next major (v8)**: one package, `@decocms/blocks`, plus thin upstream clients, `@decocms/apps-*`. The spec is the docs site's `/next/*` pages; when the code and the docs disagree, the docs win.
 
-**None of these packages are published yet** (all sit at `0.0.0`). Consuming sites link against a local checkout via `bun link` — see "Local dev / linking a site" below.
+**v7 lives on the `7.x` branch.** `@decocms/tanstack`, `@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce`, `@decocms/apps-blog`, `@decocms/apps-website` and v7's `@decocms/blocks` modules (`/cms`, `/sdk/*`, `/hooks`, `/setup`, …) are maintained and released there, not here. Don't reintroduce them on this line.
 
-## Migration tooling policy (constitutional)
-
-This repo also hosts the migration scripts + skills that move Deco storefronts from Fresh/Deno to TanStack Start. That work is governed by signed-off architectural decisions (D1–D5) and a strict priority order — see [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc) (always-loaded) and [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) (full record). Defer to the plan when in doubt. This governs the migration *scripts and skills*, not the package split itself.
+History worth knowing: the framework used to be a single tsup-bundled package, `@decocms/start`, reverted at v5.2.2 because bundling created two module instances of what must be one singleton (the CMS registry). Packages here import each other's plain `.ts` source; no bundler is in the loop.
 
 ## Tech Stack
 
-- Package manager / workspace: Bun (`bun install`, `bun run --filter`)
-- Runtime targets: Cloudflare Workers (`@decocms/tanstack`) and Node/RSC (`@decocms/nextjs`)
-- Framework bindings: TanStack Start / TanStack Router, Next.js App Router
-- UI: React 19
-- Build (site-side): Vite (TanStack) — `@decocms/nextjs` has no Vite dependency, it's RSC-native
-- Test runner: Vitest, workspace-root config (`vitest.config.ts`), each package's `test` script runs `vitest run --root ../.. packages/<name>`
+- Package manager / workspace / test runner: Bun + Vitest (one root `vitest.config.ts`)
+- Runtime targets: any (Cloudflare Workers, Node, Bun, browsers for the client-safe parts); `@decocms/blocks` has no framework binding
+- UI types: React 19 (types only; the runtime does not render)
+- Lint/format: Biome; unused code: knip (run once from the root over all workspaces)
 
 ## Common Commands
 
 ```bash
 bun install
-bun run build        # tsc -> dist/, per package
-bun run typecheck     # tsc --noEmit, per package
-bun run test          # vitest run, per package
+bun run test          # vitest, whole repo: packages, tests/, the migration skill's scripts
+bun run typecheck     # tsc --noEmit per package, plus the skill scripts and tests/
+bun run examples      # build the three examples, then typecheck them
 bun run check         # typecheck + lint + lint:unused
 ```
 
-No dev server at the repo root — these are libraries. `examples/tanstack-smoke` and `examples/nextjs-smoke` are real, runnable consumers (`cd examples/<name> && bun run dev`).
+No dev server at the root. `examples/tanstack-smoke`, `examples/tanstack-rsc-smoke` and `examples/nextjs-smoke` are real consumers that depend only on `@decocms/blocks` (`cd examples/<name> && bun run dev`).
 
-## Architecture: five packages, one-way dependency graph
+## Architecture: one package and thin clients
 
 ```
 packages/
-├── runtime/    @decocms/blocks   — CMS core. Zero deco-package deps.
-├── admin/      @decocms/blocks-admin     — admin protocol + createAdminSetup.  depends on: runtime
-├── cli/        @decocms/blocks-cli       — codegen + migration scripts.       depends on: runtime
-├── tanstack/   @decocms/tanstack  — TanStack Start + CF Workers binding. depends on: runtime, admin, cli
-└── next/       @decocms/nextjs      — Next.js App Router binding.        depends on: runtime, admin
-examples/
-├── tanstack-smoke/   real TanStack Start app following the next-major descriptor guide (@decocms/blocks only)
-└── nextjs-smoke/     real Next.js app following the next-major Next.js guide (@decocms/blocks only)
+├── blocks/                     @decocms/blocks — runtime (createCMS, matchRoute, loaders, built-in blocks),
+│                               the deco CLI (/cli, bin `deco`) and the content protocol (/protocol/*)
+├── apps-vtex/                  @decocms/apps-vtex                 ┐
+├── apps-shopify/               @decocms/apps-shopify              │
+├── apps-wake/                  @decocms/apps-wake                 │ thin upstream clients built on
+├── apps-magento/               @decocms/apps-magento              │ createInstrumentedFetch;
+├── apps-algolia/               @decocms/apps-algolia              │ depend only on @decocms/blocks
+├── apps-resend/                @decocms/apps-resend               │
+└── apps-sfmc-personalization/  @decocms/apps-sfmc-personalization ┘
+tests/                          cross-package tests (upstream-client guardrail and conformance)
+examples/                       tanstack-smoke, tanstack-rsc-smoke, nextjs-smoke
 .agents/skills/
-├── deco-to-tanstack-migration/   Fresh/Preact/Deno -> TanStack Start (site-code migration)
-├── deco-migrate-script/          the automated 8-phase script backing the above
-└── deco-next-package-migration/  old single-package @decocms/start -> the split, for Next.js sites
+├── deco-v7-to-v8-migration/    the v7 → v8 site migration (SKILL.md, reference/, runnable scripts/)
+└── …                           v7 skills; they target v7 sites and the 7.x branch
 ```
 
-**The dependency graph is one-way and load-bearing.** `runtime` never imports from `admin`/`cli`/`tanstack`/`next`. `tanstack` and `next` never import from each other. When splitting a concern between packages, check which side of this graph it belongs on before writing code — a circular need (Phase 1's `createSiteSetup` originally needed both runtime-only and admin-only options) is resolved by splitting the function, not by adding a back-edge.
+Nothing else is published from this line: the release allowlist in `.releaserc.json` is `blocks` plus the seven `apps-*`.
 
-No `tsconfig.json` `references` arrays anywhere in `packages/*` — cross-package imports resolve to `.ts` source directly (`moduleResolution: bundler`), which is also what makes the package split's central guarantee ("no package bundles another's compiled output") actually hold. Adding a `references` field back in reintroduces a real TS6305 build-ordering bug that was root-caused and removed early in this repo's history — don't add it back.
+### `@decocms/blocks` exports
 
-### Package Exports
+Every export maps to a source file; there is no dist indirection.
 
-Every export maps to a source file — no dist indirection. Representative subset (see each package's `package.json` `exports` map for the full list):
+| Import path | File |
+|---|---|
+| `@decocms/blocks` | `src/index.ts` — the v8 runtime API only (`createCMS`, `matchRoute`, `remoteLoader`, `draftPointer`, `Blocks`, `Lazy`, …), re-exported from `src/v8/index.ts` as one explicit `export { … } from "./v8/index"` block (a conformance test parses that form) |
+| `@decocms/blocks/analytics` | `src/v8/analytics.ts` — `AnalyticsScript`, `track` |
+| `@decocms/blocks/fetch` | `src/v8/fetch.ts` — `createInstrumentedFetch` |
+| `@decocms/blocks/secrets` | `src/v8/secrets.ts` |
+| `@decocms/blocks/cli` | `src/v8/cli/index.ts` — the `deco` CLI (`schema`, `content`, `check`, `serve`), also the bin (`bin/deco.js`, which loads the TS sources via tsx under Node, directly under Bun). CLI-only: the runtime never imports it (`run.test.ts`), so it and the TypeScript compiler never reach an app bundle |
+| `@decocms/blocks/protocol` (+ `/keys`, `/server`, `/storage/fs`, `/conformance`) | `src/protocol/**` — the content protocol the site editor uses; browser-safe except `storage/fs` (conditional export: `node` → real, `default` → a stub that throws) |
 
-| Import path | Package | File |
-|---|---|---|
-| `@decocms/blocks/cms` | blocks | `src/cms/index.ts` — full barrel: resolver, loader, registry. Server-only (transitively imports `node:async_hooks` via `loader.ts`/`resolve.ts`) — bundling it for a browser target fails (Turbopack rejects outright; webpack has historically let it through uncaught). |
-| `@decocms/blocks/cms/client` | blocks | `src/cms/client.ts` — client-safe subset: section registry lookups (`getResolvedComponent`, `registerSection`, etc.), `sectionMixins`, `schema`. Use this from Client Components / browser-bundled code; use `@decocms/blocks/cms` from server-only code. Verified via a real esbuild browser-target bundle in `src/cms/client.browserBundle.test.ts`, not just `tsc` — that's the only way this class of bug reliably surfaces. |
-| `@decocms/blocks/setup` | blocks | `src/setup.ts` |
-| `@decocms/blocks/cli` | blocks | `src/v8/cli/index.ts` — the next-major `deco` CLI (`schema`, `content`, `check`, `serve`), also the package's single bin (`bin/deco.js`, which loads the TS sources under Node via tsx, or directly under Bun). CLI-only: the runtime must never import it (guarded by a test in `run.test.ts`), so it and the TypeScript compiler never reach an app bundle. Lives beside the v7 `@decocms/blocks-cli` generators until a later PR removes them. |
-| `@decocms/blocks/sdk/*` | blocks | `src/sdk/*.ts` |
-| `@decocms/blocks/hooks` | blocks | `src/hooks/index.ts` |
-| `@decocms/blocks-admin` (root) | blocks-admin | `src/admin/index.ts` |
-| `@decocms/blocks-admin/setup` | blocks-admin | `src/createAdminSetup.ts` |
-| `@decocms/blocks-admin/apps/autoconfig` | blocks-admin | `src/apps/autoconfig.ts` |
-| `@decocms/tanstack` (root) | tanstack | `src/index.ts` (re-exports routes, hooks, worker entry, router sdk) |
-| `@decocms/tanstack/vite` | tanstack | `src/vite/plugin.js` (plain JS, no `.d.ts` yet) |
-| `@decocms/nextjs` (root) | nextjs | `src/index.ts` |
-| `@decocms/blocks-cli/generate` | blocks-cli | `scripts/generate.ts` — the unified incremental orchestrator (runs blocks/manifest/sections/loaders/invoke/schema as one command over a two-tier cache: committed content-hash digest records in `.deco/generate.digests.json` — commit it, fresh clones then cache-hit — plus a gitignored local stat memo in `.deco/.cache/stat-memo.json`; sites scaffold `"generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts <flags>"` instead of chaining the individual scripts) |
-| `@decocms/blocks-cli/generate-blocks` | blocks-cli | `scripts/generate-blocks.ts` — the ONLY other blocks-cli exports-map entry, kept because `@decocms/tanstack`'s vite plugin tsImports it (programmatic `generateBlocks` + `readBlockDelta`). The remaining `scripts/generate-*.ts` / `scripts/migrate*.ts` files ship in the package but are internal implementation details of `./generate` — reachable as literal filesystem paths (e.g. `node_modules/@decocms/blocks-cli/scripts/generate-schema.ts`), not as module specifiers; CLIs are exposed via `bin` |
+### Key boundaries
 
-### Key Boundaries
+- **The runtime never imports the protocol or the CLI.** `src/v8` modules import only each other (no Node built-ins, no React at runtime); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. The CLI may import the protocol.
+- **Clients depend only on `@decocms/blocks`**, with no peers and no framework binding. A client takes settings as arguments (no env reads), never caches, has no hooks, converters or `"use client"` code: those belong in the site's platform template (`tests/upstream-clients.conformance.test.ts`).
+- **Cross-package imports resolve to `.ts` source** (`moduleResolution: bundler`). No `tsconfig.json` `references` anywhere: adding them back reintroduces a TS6305 build-ordering bug.
+- **No compat layers.** If a site needs something a package should export, add the export; don't let sites (or this repo) re-create v7 APIs as shims.
 
-- `@decocms/blocks` must NOT import from `admin`/`cli`/`tanstack`/`next`, and must NOT contain framework-specific code (no TanStack Router types, no Next.js types, no Cloudflare-Workers-only APIs at the type level).
-- `@decocms/tanstack` and `@decocms/nextjs` must NOT import from each other.
-- `@decocms/apps` (commerce integrations — separate repo) must NOT contain UI components or framework-binding code.
-- Site repos must NOT contain compat/wrapper directories reimplementing what a package already exports — if something's missing from a package's public surface, that's a gap in the package, not a reason to hand-roll a workaround in every site (see "Known gaps in package exports" below).
+## v8 core — `packages/blocks/src/v8/`
 
-## Fast Deploy (KV-first content) — `@decocms/tanstack` only
+- **`createCMS` instances are `globalThis` singletons** under `Symbol.for("decocms.blocks.cms:<content identity>[|site|token-hash]")`, so two copies of the package share one content cache (`dualInstance.test.ts`, the regression test for the bug this repo exists to prevent). Never key on the revision, and never put a raw token in a symbol.
+- **`lazy` is the resolver's only special case**; everything else is an ordinary block function. Values from the snapshot are copied while walked, so callers and block functions can't mutate shared content.
+- **No framework binding, no request scope.** Platform specifics (a Workers KV `Loader`, a Cache API upstream cache passed as `createInstrumentedFetch`'s `fetch`) are template code shown as docs recipes, not package exports. Block functions read the request through the framework's own storage; don't add `requestScope()`, `Deferred`, `BlockList` or other non-CMS helpers to the core.
+- **Conformance tests** (`src/v8/__conformance__/`) encode the docs' claims, one test per claim. When the docs change, change the test; don't relax an assertion to make code pass.
 
-Decouples CMS content updates from code deploys: content served from Cloudflare KV with the bundled `blocks.gen` as fallback. Whole-snapshot swap — each isolate loads the decofile once and swaps the in-memory map via `setBlocks()`, so the synchronous resolver is unchanged. Gated on explicit opt-in — requires both `DECO_FAST_DEPLOY=1` and the `DECO_KV` binding; inert otherwise.
+## Upstream observability
 
-Keys are **per deployment id** (commit sha), never a single mutable pointer — a rolling deploy must not feed new content to still-live old code. `decofile:<id>`, `index:revision:<id>`, plus `index:live` and `index:deployments`. The builders (`snapshotKey`/`revisionKey`, `LIVE_KEY`, `DEPLOYMENTS_KEY`) are exported from `@decocms/blocks/cms` as the single source of truth — don't hand-write a key.
+Every client builds its requests with `createInstrumentedFetch({ provider: "<name>" })` from `@decocms/blocks/fetch`, which measures each request once (`http.client.request.duration` with `provider`/`operation`/`status_class`/`cached`/`retries` labels) and reports to the CMS's telemetry in the same process. Nothing has to be wired at boot: the instrumented fetch is the only way a client reaches the network. An upstream cache is the site's own `fetch` passed as the `fetch` option; a response it serves carries `x-cache: HIT` and is measured with `cached=true`.
 
-`decoVitePlugin` additionally stubs `blocks.gen` out of the server bundle so the KV copy is the isolate's only one, which is the fix for the decofile being resident three times (bundled graph + KV graph + escaped JSON string ≈ 27MB for a 9.2MB decofile, against a 128MB cap with no GC knob). **In that mode the bundled snapshot is not a fallback** — `ensureBlocksHydrated` 5xxs rather than serve an empty site the edge would cache. So it is gated on the deploy pipeline declaring it seeds `decofile:<id>` before activation (`DECO_SEEDED_DEPLOY`, default `fastDeploy: "auto"`); CF Workers Builds and a manual `wrangler deploy` never declare it and keep the bundled snapshot.
+`tests/upstream-clients.guardrail.test.ts` checks that every `packages/apps-*` is listed and that its client imports `createInstrumentedFetch` from `@decocms/blocks/fetch` under its provider name and never calls `fetch` directly; Biome denies the bare `fetch` global in `packages/apps-*/src` too. A new client package goes in that test's `CLIENTS`.
 
-This is deliberately **not** available in `@decocms/nextjs` — edge KV + Cloudflare Workers caching is a `tanstack`-specific concern, not something `next`'s Node/RSC target needs or should carry. Read path: `packages/blocks/src/cms/blockSource.ts`, `packages/blocks-admin/src/admin/decofile.ts` (`setFastDeployKVGetter` — dependency injection so `admin` doesn't need a hard KV dependency), `packages/tanstack/src/setupFastDeploy.ts`. Full guide + cross-repo contracts: [`docs/fast-deploy.md`](./docs/fast-deploy.md).
+## Migration skills
 
-## Admin Protocol
+1. **`deco-v7-to-v8-migration`** (this line) — moves a v7 site onto v8: `scripts/main.ts` (run with `bun` or `npx tsx`) writes the block map with legacy aliases, vendors the app loaders the content calls, moves content to `.deco/blocks`, re-encrypts secrets and reports every v7 import with its replacement; `reference/` holds the import map, legacy-name table, gotchas and approved parity patterns. Its tests run with `bun run test`; it imports `@decocms/blocks` (`/cli`, `/protocol/keys`, `/secrets`), so keep those exports stable.
+2. **v7 skills** — `deco-to-tanstack-migration`, `deco-migrate-script`, `deco-next-package-migration`, `decocms-v6-to-v7-upgrade`, `deco-reconcile-snapshot`, `vtex-cart-v2`, and `.claude/skills/run-migration`: they target v7 sites and reference code that lives on the `7.x` branch (e.g. `packages/blocks-cli`). They are governed by the migration tooling policy (`.cursor/rules/migration-tooling-policy.mdc`, `MIGRATION_TOOLING_PLAN.md`), which applies to the v7 tooling on 7.x.
 
-Communicates with `admin.deco.cx` via:
+## Important constraints
 
-- `GET /live/_meta` — JSON Schema + manifest (content-hash ETag)
-- `GET /.decofile` — site content blocks
-- `POST /deco/render` — section/page preview in iframe
-- `POST /deco/invoke` — loader/action execution
-
-Both bindings expose the same four handlers from `@decocms/blocks-admin` (`handleMeta`, `handleDecofileRead`/`handleDecofileReload`, `handleRender`, `handleInvoke`), but wire them up differently:
-
-- **TanStack**: admin routes MUST be handled inside `createDecoWorkerEntry` (`@decocms/tanstack`), NOT inside TanStack's `createServerEntry` — Vite strips custom fetch logic from server entries in production builds.
-- **Next.js**: mount `createDecoRouteHandlers({ setup })` from the `@decocms/nextjs/routeHandlers` subpath at `app/deco/[[...deco]]/route.ts`, and mount `createDecoPreviewPage({ setup })` from the root package at the fixed `app/deco/preview/[[...path]]/page.tsx` route. The catch-all serves the protocol and always redirects preview GETs to `/deco/preview`; that framework-owned path is not configurable. POST render requests retain the plain-HTML handler.
-
-The separate Next preview page is load-bearing. `handleRender` uses `react-dom/server.renderToString`, which cannot invoke the client-reference proxies Next creates for modules marked `"use client"`; only Next's App Router/RSC renderer can compose Server Components with those Client Components and emit hydration metadata. Do not fix preview failures by stripping `"use client"` from components that need hooks, events, browser APIs, or client-only context. Also keep route-handler imports on the `/routeHandlers` subpath: importing the root barrel from `route.ts` pulls client component code into a react-server-only module graph and can fail at import time.
-
-Schema is composed at runtime: `@decocms/blocks-cli`'s `generate-schema.ts` produces section schemas, `composeMeta()` (in `@decocms/blocks/cms`) injects page schemas and framework definitions.
-
-## Request-scoped state: `RequestContext` (client-bundle-safe)
-
-`@decocms/blocks/sdk/requestContext` binds per-request state (request, abort signal, device info, flags) via `AsyncLocalStorage`. The tricky part: `AsyncLocalStorage` comes from `node:async_hooks`, which breaks Next's client webpack bundle if statically imported from anything reachable by a `"use client"` file.
-
-Fixed via conditional package exports on `@decocms/blocks/sdk/requestContextStorage` — `workerd`/`node`/`default` resolve to the real `AsyncLocalStorage`-backed implementation, `browser` resolves to a no-op stub with the identical shape (`{ run, getStore }`). **Condition order matters and is a real footgun**: `workerd`/`node` must be listed *before* `browser` in the exports map, because Cloudflare Workers builds activate a condition set that includes `browser` too (`["workerd", "worker", "browser"]`) — if `browser` came first, a real Workers production deploy would silently get the no-op stub instead of the real backend, breaking cookies/abort-signal/device-detection with no build error. This is exactly the kind of dual-instance-state bug the whole package split exists to eliminate — if you touch this file, verify the condition order empirically (Node's own `--conditions` flag, or a clean-room reproduction of `PACKAGE_TARGET_RESOLVE`), don't just eyeball it.
-
-There's a permanent regression test for a related-but-distinct historical bug at `packages/blocks/src/cms/layoutCacheRace.test.ts`: `resolveDecoPage`'s layout-section cache (Header/Footer) returns a shared object to every concurrent caller, and mutating `.index` on it in place (rather than cloning first) let one request's flat position overwrite another's — this shipped in `@decocms/start@6.12.1` and caused a same-day production rollback on two live sites before being fixed in 6.12.2. If you ever see this test fail, do not "fix" it by relaxing the assertion — it's asserting exactly the invariant that broke production once already.
-
-## Next major (v8) core — `packages/blocks/src/v8/`
-
-The v8 SDK the next-major docs specify (`/next/api-reference`) lives in `packages/blocks/src/v8/`, beside the v7 code it will replace; both ship until the v7 modules are deleted. The package root re-exports it, so `import { createCMS, matchRoute, draftPointer } from "@decocms/blocks"` works as documented. Where a name clashes (`DraftPointer`, `parseDraftPointer`), the root's explicit re-export of the v8 symbol shadows v7's `export *`; v7's stays at `@decocms/blocks/cms`.
-
-- **Self-contained and runtime-neutral.** v8 modules import only each other (no v7 code, no React at runtime, no Node built-ins); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. Don't import v7 helpers into it.
-- **`createCMS` instances are `globalThis` singletons** under `Symbol.for("decocms.blocks.cms:<content identity>[|site|token-hash]")`, so two copies of the package share one content cache (`dualInstance.test.ts`). Never key on the revision, and never put a raw token in a symbol.
-- **`lazy` is the resolver's only special case**; everything else is an ordinary block function. Values from the snapshot are always copied while walked, so callers and block functions can't mutate shared content.
-- **No framework binding.** v8 sites depend on `@decocms/blocks` (plus upstream clients) only; `@decocms/tanstack` and `@decocms/nextjs` are v7-only. Platform specifics (a Workers KV `Loader`, a Cache API upstream cache passed as `createInstrumentedFetch`'s `fetch`) are template code shown as docs recipes, not package exports. No v8 package (`blocks`, `apps-*`, `blocks-migrate`) may depend on a binding (`src/v8/__conformance__/sdk.test.ts` checks).
-- **No request scope in the core.** Block functions read the request through the framework's own storage, per template; don't add a `requestScope()` here.
-
-## Known gaps in package exports (documented, not yet fixed)
-
-A few symbols have real, intended-for-external-use implementations that aren't reachable from any package's public barrel or `exports` map. Sites currently work around this with local shim files rather than patching the package (tracked, not yet resolved):
-
-- `@decocms/tanstack`: `deferredSectionLoader` (in `src/routes/cmsRoute.ts`, exported from the internal `src/routes/index.ts` barrel but not the root), `getRequestCookieHeader`/`forwardResponseCookies` (`src/sdk/cookiePassthrough.ts`), `createInvokeFn` (`src/sdk/createInvoke.ts`).
-- `@decocms/blocks-cli`: `./scripts/generate-sections` and `./scripts/generate-loaders` have no `exports` map entry (only `generate-blocks`/`generate-schema`/`generate-invoke` do), even though the script files exist. Consumers reference them by literal filesystem path.
-
-If you're the one wiring up a new site and hit one of these, the fix belongs in the package (add the export), not another copy-pasted local shim — check this list first.
-
-## Migration Skills
-
-Three, each with a distinct scope:
-
-1. **`deco-to-tanstack-migration`** (`.agents/skills/`) — the site-code migration playbook, Fresh/Preact/Deno → TanStack Start/React/Workers. Import rewrites, Deco-framework elimination, commerce type migration, platform hooks (useCart/useUser/useWishlist), Vite config, documented gotchas.
-2. **`deco-migrate-script`** — the automated script backing (1): 8 phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap → compile), invoked via `@decocms/blocks-cli`'s `scripts/migrate.ts`.
-3. **`deco-next-package-migration`** — a different migration: moving a site *off the old single-package `@decocms/start`* (the abandoned `/next`, `/core`, `/node` tiers specifically) *onto the current split*, for sites building on `@decocms/nextjs`. Has its own import-mapping reference and worked `setup.ts`/admin-routes templates, proven end-to-end against a real production Next.js site.
-
-Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework* (Fresh → TanStack), the third migrates a site's *package dependency* on an already-TanStack-or-Next site.
-
-## Cache & upstream observability (apps must follow this to be covered)
-
-Cache/upstream telemetry reaches ClickHouse only through two shared chokepoints in `@decocms/blocks`. A new commerce app is instrumented **for free** iff it uses both — there is no per-metric wiring beyond this:
-
-1. **Upstream HTTP** (`http.client.request.duration`, `provider`/`operation`/`status_class`/`cached` labels) — route every egress fetch through `createInstrumentedFetch` (`@decocms/blocks/sdk/instrumentedFetch`) with an `onComplete` that calls `recordCommerceMetric`. The per-provider factory pattern is `createVtexFetch` / `createShopifyFetch` / `createMagentoFetch` (each in that app's `src/utils/instrumentedFetch.ts`, plus a `src/utils/operationRouter.ts`). **The factory existing is not enough — the site must actually wire it**: call `setXFetch(createXFetch())` once at boot (VTEX/Shopify/Magento default to an uninstrumented `globalThis.fetch` until you do, so a site that forgets stays dark).
-2. **In-memory SWR cache hit/miss** (`deco.cache.requests`, `deco.cache.layer="swr"`, `deco.cache.provider=<provider>`) — cache upstream GETs via `createFetchCache` from `@decocms/blocks/sdk/fetchCache` (the single shared SWR/dedup/stale-if-error impl). Do **not** copy-paste a per-app fetch cache — that's how VTEX and a production Magento cache went dark. The metric MUST be emitted inside the cache (not in `createInstrumentedFetch`): on a HIT the cache returns before `doFetch` runs, so the instrumented fetch never sees it. The `swr` layer joins the framework's `edge` (Cloudflare Cache API, `workerEntry.ts`) and `cachedLoader` (`sdk/cachedLoader.ts`) layers on the same `deco.cache.requests` counter — note the backend rides on `deco.cache.provider`, distinct from `deco.cache.profile` (page-type, set by `edge`), so the two never blend in a `sum by` panel.
-
-A guardrail test (`packages/apps-commerce/src/instrumentation-guardrail.test.ts`) checks that each listed commerce app *ships* an instrumented `src/utils/instrumentedFetch.ts` (it greps for the two required symbols; it does **not** verify the site wired `setXFetch`) — add new providers to its `REQUIRED` list. Thin v8 clients (`apps-algolia`, `apps-resend`, `apps-sfmc-personalization`; see `/next/upstream-clients`) are a separate list, `THIN_CLIENTS`: each builds its requests on `createInstrumentedFetch` from `@decocms/blocks/fetch`, which measures every request itself, so there's nothing for the site to wire.
-
-## Important Constraints
-
-1. **No compat layers in a package** — if a site needs a symbol a package should export, add the export; don't let sites accumulate local reimplementations (see "Known gaps" above).
-2. **`AsyncLocalStorage`** — see the `RequestContext` section above. Never add a bare `node:async_hooks` import to any file reachable from a `"use client"` boundary; route through the existing conditional-exports pattern.
-3. **Preview shell** — must include `data-theme="light"` for DaisyUI v4 color variables.
-4. **Next preview rendering** — Client Components must render through `createDecoPreviewPage`; plain `renderToString` cannot execute Next client references. Preserve legitimate `"use client"` boundaries.
-5. **Base64 encoding** — `toBase64()` must produce padded output matching `btoa()` — admin uses `btoa()` for definition refs.
-6. **ETag** — content-based DJB2 hash, not string length.
-7. **Dependency graph direction** — see "Key Boundaries" above; this is enforced by convention, not tooling, so review new imports across package boundaries carefully.
-8. **Cache/upstream observability** — a new commerce app MUST route egress through `createInstrumentedFetch` and cache upstream GETs via `createFetchCache` (`@decocms/blocks/sdk/fetchCache`). See "Cache & upstream observability" above; the guardrail test enforces the first half.
+1. **No compat layers** in a package or a migrated site (see Key boundaries).
+2. **One instance per process**: anything that must be a singleton lives on `globalThis` under a `Symbol.for` key; packages never bundle each other.
+3. **Base64**: `toBase64()` in `src/v8/cli/schema/typeToSchema.ts` must produce padded output matching `btoa()`; the site editor uses `btoa()` for schema definition refs.
+4. **Dependency direction**: runtime ← CLI/protocol, and `apps-*` → `@decocms/blocks` only. Enforced by tests (`guides.cli.test.ts` in-11, `sdk.test.ts`) and review.
+5. **Upstream observability**: a new client MUST build on `createInstrumentedFetch` and be listed in the guardrail test.
+6. **Tests that guard production bugs** (e.g. `dualInstance.test.ts`): if one fails, fix the code, not the assertion.
