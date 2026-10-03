@@ -169,7 +169,7 @@ The Next.js binding has four required integration points:
 3. mount the Studio catch-all route and RSC preview page;
 4. await setup from the root layout and render CMS pages with `createDecoPage()`.
 
-The complete copy-ready setup is in the [`@decocms/nextjs` guide](./packages/nextjs/README.md). A minimal end-to-end implementation lives in [`nextjs-smoke`](./examples/nextjs-smoke).
+The complete copy-ready setup is in the [`@decocms/nextjs` guide](./packages/nextjs/README.md). ([`nextjs-smoke`](./examples/nextjs-smoke) now follows the next-major Next.js guide, which uses `@decocms/blocks` alone.)
 
 ### Eitri
 

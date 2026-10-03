@@ -359,9 +359,7 @@ implementation file) can opt into these, each read as a literal
 
 ## Verifying your setup
 
-`examples/nextjs-smoke` in this monorepo is a minimal, real Next.js App
-Router build exercising all four surfaces end to end — `withDeco` rewrites,
-the catch-all route, the RSC preview page, `createNextSetup`, and a resolved
-page render. Its preview fixture is a real interactive Client Component, so
-the build also guards the server/client boundary described above. Use it as
-a working reference if any of the above doesn't compose the way you expect.
+No example app in this monorepo exercises these surfaces any more:
+`examples/nextjs-smoke` now follows the next-major Next.js guide, which uses
+`@decocms/blocks` alone. The surfaces above are covered by this package's unit
+tests.
