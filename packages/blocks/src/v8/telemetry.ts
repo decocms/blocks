@@ -185,11 +185,20 @@ export class TelemetryPipeline {
     this.#schedule();
   }
 
-  /** The hooks one client reports through; the trace decision is made once per client. */
+  /**
+   * The hooks one client reports through. The trace decision is made once per
+   * client, on its first block, after its release is loaded, so the first
+   * client of a release already uses that release's `Telemetry` block.
+   */
   forClient(): ClientTelemetry {
-    const traceId = this.sampleTrace() ? newTraceId() : undefined;
+    let decided = false;
+    let traceId: string | undefined;
     return {
       block: (type, start, end, error) => {
+        if (!decided) {
+          decided = true;
+          traceId = this.sampleTrace() ? newTraceId() : undefined;
+        }
         if (traceId !== undefined) {
           this.span({
             name: type,
@@ -370,10 +379,14 @@ export class TelemetryPipeline {
   #resource(): Attributes {
     const site = this.#destination.site;
     return {
-      "service.name": site ?? "decocms-site",
+      "service.name": readEnv("OTEL_SERVICE_NAME") || site || "decocms-site",
+      "service.version": firstEnv(COMMIT_VARIABLES) ?? "unknown",
+      "deployment.environment.name":
+        readEnv("VERCEL_ENV") ||
+        (readEnv("NODE_ENV") === "development" ? "development" : "production"),
       ...(site ? { "deco.site": site } : {}),
       ...(this.#release ? { "deco.release": this.#release } : {}),
-      // The standard OTel override: service.version=<commit>,
+      // The standard OTel override wins: service.version=<commit>,
       // deployment.environment.name=preview, service.name=…
       ...parseKeyValues(readEnv("OTEL_RESOURCE_ATTRIBUTES")),
     };
@@ -417,6 +430,26 @@ export function setCurrentTelemetry(pipeline: TelemetryPipeline | undefined): vo
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Where hosts put the deployed commit, tried in order (`service.version`). */
+const COMMIT_VARIABLES = [
+  "DECO_COMMIT_SHA",
+  "WORKERS_CI_COMMIT_SHA",
+  "CF_PAGES_COMMIT_SHA",
+  "VERCEL_GIT_COMMIT_SHA",
+  "GITHUB_SHA",
+  "RENDER_GIT_COMMIT",
+  "SOURCE_VERSION",
+  "COMMIT_SHA",
+];
+
+function firstEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = readEnv(name);
+    if (value) return value;
+  }
+  return undefined;
+}
 
 const QUERY = /(https?:\/\/[^\s?#"'<>]+)\?[^\s#"'<>]*/gi;
 const CREDENTIAL = /\b(Bearer|Basic)\s+[\w~+/.=-]+/gi;

@@ -27,6 +27,19 @@ type InstrumentedFetch = (
   init?: RequestInit & { operation?: string },
 ) => Promise<Response>;
 
+/**
+ * Where a framework binding installs its upstream cache (on Workers,
+ * `@decocms/tanstack` installs one over the Cache API). GETs go through it,
+ * and it reports whether the response came from the cache.
+ */
+const UPSTREAM_CACHE = Symbol.for("decocms.blocks.upstreamCache");
+
+type UpstreamCache = (
+  input: string | URL | Request,
+  init: RequestInit,
+  fetch: typeof globalThis.fetch,
+) => Promise<{ response: Response; cached: boolean }>;
+
 /** Statuses worth retrying: rate limits and gateway errors. */
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
 /** Only requests that are safe to repeat are retried. */
@@ -39,10 +52,20 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
 
   return async (input, init = {}) => {
     const { operation = "unknown", ...requestInit } = init;
-    const doFetch = options.fetch ?? globalThis.fetch;
     const method = (
       requestInit.method ?? (input instanceof Request ? input.method : "GET")
     ).toUpperCase();
+    const origin = options.fetch ?? globalThis.fetch;
+    const cache = (globalThis as Record<symbol, UpstreamCache | undefined>)[UPSTREAM_CACHE];
+    let cached = false;
+    const doFetch: typeof globalThis.fetch =
+      typeof cache === "function" && method === "GET"
+        ? async (request, requestInit = {}) => {
+            const hit = await cache(request as string | URL | Request, requestInit, origin);
+            cached = hit.cached;
+            return hit.response;
+          }
+        : origin;
     const maxRetries =
       retry && IDEMPOTENT.has(method) ? Math.max(0, Math.floor(retry.attempts)) : 0;
     const startedAt = Date.now();
@@ -89,9 +112,8 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
         provider,
         operation,
         status_class: response ? `${Math.floor(response.status / 100)}xx` : "error",
-        // Upstream caching lives in the binding, under this fetch; until it
-        // reports hits, nothing here is a cache hit.
-        cached: false,
+        // Upstream caching lives in the binding, under this fetch.
+        cached,
         retries,
       };
       telemetry.histogram(
