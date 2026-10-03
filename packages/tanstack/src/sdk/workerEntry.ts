@@ -25,6 +25,7 @@
  * ```
  */
 
+import { draftPointer } from "@decocms/blocks";
 import {
   getRevision,
   getSectionOptions,
@@ -92,6 +93,7 @@ import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
+import { installUpstreamCache, recordCache, recordInbound } from "../v8/binding";
 import { installBackgroundHook, runBackgroundTasks } from "./backgroundTasks";
 import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
@@ -1288,6 +1290,8 @@ export function createDecoWorkerEntry(
     // `?__draft=` param OR the navigation cookie (SPA nav after entry), gated
     // on an allowed preview host — see requestCarriesDraft.
     if (requestCarriesDraft(request, url)) return false;
+    // A next-major draft (`?__draft=` or the `deco-draft` cookie): same rule.
+    if (draftPointer(request) !== null) return false;
     if (url.searchParams.has("__deco_preview")) return false;
     if (url.searchParams.has("pathTemplate")) return false;
     // Forced matcher results must never be served from (or stored in) the
@@ -2173,10 +2177,24 @@ export function createDecoWorkerEntry(
   // `@decocms/blocks` background work (release checks, telemetry batches)
   // queued during a request runs after its response, inside ctx.waitUntil.
   installBackgroundHook();
+  // Next major: upstream GETs made with createInstrumentedFetch are cached
+  // with the Cache API, and inbound and edge-cache metrics go to the CMS's
+  // telemetry (see ../v8/binding.ts).
+  installUpstreamCache();
   const respond = handler.fetch;
   handler.fetch = async (request, env, ctx) => {
+    const started = performance.now();
     try {
-      return await respond(request, env, ctx);
+      const response = await respond(request, env, ctx);
+      try {
+        const seconds = (performance.now() - started) / 1000;
+        recordInbound(request, response.status, seconds);
+        const decision = response.headers.get("X-Cache");
+        if (isCacheDecision(decision)) recordCache("edge", decision, seconds);
+      } catch {
+        /* observability must never fail the request */
+      }
+      return response;
     } finally {
       runBackgroundTasks(ctx);
     }
