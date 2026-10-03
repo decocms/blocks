@@ -4,7 +4,7 @@ Learned on `deco-sites/storefront-tanstack` (Shopify) and `deco-sites/blog-tanst
 
 ## Before you run the script
 
-- **Install `@decocms/blocks@^8` first.** A v7 site already has `@decocms/blocks@7`, which has no `/cli` or `/protocol/keys`; the script fails to import. Keep v7 `@decocms/apps-*` installed until after the run: vendoring copies from them.
+- **Install `@decocms/blocks@^8.1` first** (`^8` resolves to the accidental v7 build published as `8.0.0`). A v7 site already has `@decocms/blocks@7`, which has no `/cli` or `/protocol/keys`; the script fails to import. Keep v7 `@decocms/apps-*` installed until after the run: vendoring copies from them.
 - **Commit the script's output unedited** (`046de4d`, `de03793`), then do the manual work in follow-up commits.
 
 ## Rendering

@@ -20,14 +20,14 @@ Not for sites still on `@decocms/start@6.x` (upgrade to 7.x first with `decocms-
 
 1. A clean working tree: the script edits files in place.
 2. `DECO_CRYPTO_KEY` (the v7 secret key) in the environment, and `.deco/secrets.pub` committed (see `/next/secrets`). Without them, v7 secrets are reported, not re-encrypted.
-3. **Install `@decocms/blocks@^8` before running the script.** A v7 site already has `@decocms/blocks@7`, which lacks the `/cli` and `/protocol/keys` subpaths the script imports. Keep the v7 `@decocms/apps-*` packages installed until the script has run: it vendors the app loaders your content calls from `node_modules`.
+3. **Install `@decocms/blocks@^8.1` before running the script.** Not `^8`: the `8.0.0` on npm is an accidental v7 build with no `/cli`. A v7 site already has `@decocms/blocks@7`, which lacks the `/cli` and `/protocol/keys` subpaths the script imports. Keep the v7 `@decocms/apps-*` packages installed until the script has run: it vendors the app loaders your content calls from `node_modules`.
 4. `typescript` resolvable from the site (the import codemod parses `src/` with it). Every TanStack and Next site already has it.
 
 ## Run
 
 The script is `scripts/main.ts` in this skill. It resolves `@decocms/blocks` relative to its own files, so run it where that resolves to v8.
 
-**From a `decocms/blocks` checkout on the v8 line** (its `node_modules` has v8):
+**From a `decocms/blocks` checkout on the v8 line** (clone it and run `bun install` there first; the script resolves `@decocms/blocks` from that checkout's `node_modules`):
 
 ```bash
 DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
@@ -37,7 +37,7 @@ DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/
 **From an installed copy of the skill** (outside the repo): copy `scripts/` into the site so it resolves the site's `@decocms/blocks@8`, run it, then delete the copy:
 
 ```bash
-cd <site> && bun add @decocms/blocks@^8
+cd <site> && bun add @decocms/blocks@^8.1
 cp -R <skill>/scripts .deco-migrate
 DECO_CRYPTO_KEY=… bun .deco-migrate/main.ts --root .
 rm -rf .deco-migrate
@@ -64,7 +64,7 @@ The script prints **Done** and **Left to do**, grouped by step. Every "Left to d
 
 ## Manual steps (what the report leaves)
 
-1. **Dependencies.** Depend on `@decocms/blocks@^8` and the v8 `@decocms/apps-<platform>` client. Remove `@decocms/tanstack`/`@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce`, `@decocms/apps-website` and `@decocms/apps-blog` once nothing imports them, and drop the v7 codegen from `build`.
+1. **Dependencies.** Depend on `@decocms/blocks@^8.1` and the v8 `@decocms/apps-<platform>` client. Remove `@decocms/tanstack`/`@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce`, `@decocms/apps-website` and `@decocms/apps-blog` once nothing imports them, and drop the v7 codegen from `build`.
 2. **Render pages with `createCMS`.** Follow the framework guide (`/next/tanstack-start-descriptors`, `/next/nextjs`): `createCMS` over the content, `matchRoute`, one promise per block, a view registry. Delete the v7 setup files, admin routes and `/deco/*` handlers.
 3. **Move framework code into the site** (`reference/gotchas.md`): edge cache, image, SEO/head, device detection, cookies, cart/user/wishlist flows, commerce loaders and converters.
 4. **Replace `/deco/invoke`** with server functions (TanStack `createServerFn`) or Next server actions/route handlers.

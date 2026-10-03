@@ -16,7 +16,7 @@ let root: string;
 afterEach(() => root && fs.rmSync(root, { recursive: true, force: true }));
 
 function site(files: Record<string, string | object>): string {
-  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "blocks-migrate-")));
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "deco-v7-to-v8-")));
   for (const [file, data] of Object.entries(files)) {
     const full = path.join(root, file);
     fs.mkdirSync(path.dirname(full), { recursive: true });

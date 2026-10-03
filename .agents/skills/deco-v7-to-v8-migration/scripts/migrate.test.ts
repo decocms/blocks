@@ -79,7 +79,7 @@ let privateKeyPem: string;
 const savedEnv = process.env.DECO_CRYPTO_KEY;
 
 beforeAll(async () => {
-  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "blocks-migrate-")));
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "deco-v7-to-v8-")));
   fs.mkdirSync(path.join(root, "node_modules", "@decocms"), { recursive: true });
   fs.symlinkSync(BLOCKS_PACKAGE, path.join(root, "node_modules", "@decocms", "blocks"), "dir");
   write(root, "package.json", {
