@@ -4,19 +4,24 @@
  *
  * Paths compile into a segment trie, cached per array object: a lookup costs
  * the URL's depth, not the number of routes. At every node the walk tries the
- * literal child, then the parameter child, so exact paths win over templates
- * per segment. Redirects are a second trie, checked first. Two entries that
+ * literal child, then the parameter child, then a trailing `*` (a splat: one
+ * or more remaining segments), so exact paths win over parameters and
+ * parameters over a splat, per segment. Redirects are a second trie, checked
+ * first. Two entries that
  * reach the same leaf are a conflict `deco check` reports; here the earlier
  * one keeps it, so a lookup never throws. No regex, no sorting.
  */
 import type { LegacyRedirect, Match, Redirect, RedirectStatus, Route } from "./types";
 
-/** A leaf holds the entry and its parameter names, in path order. */
+/** A leaf holds the entry and its parameter names, in path order; `splat` is a trailing `*`'s leaf. */
+type Leaf<T> = { value: T; names: string[] };
 type TrieNode<T> = {
   literals: Map<string, TrieNode<T>>;
   param?: TrieNode<T>;
-  leaf?: { value: T; names: string[] };
+  leaf?: Leaf<T>;
+  splat?: Leaf<T>;
 };
+type Hit<T> = { value: T; params: Record<string, string>; rest: string[] };
 type NormalizedRedirect = Redirect & { status: RedirectStatus };
 
 const routeTries = new WeakMap<object, TrieNode<Route>>();
@@ -39,7 +44,7 @@ export function matchRoute<T extends Route>(
   );
   const redirect = lookup(redirectTrie, target.segments);
   if (redirect !== null) {
-    const location = buildLocation(redirect.value, redirect.params, target.search);
+    const location = buildLocation(redirect, target.search);
     return { kind: "redirect", location, status: redirect.value.status };
   }
 
@@ -47,9 +52,9 @@ export function matchRoute<T extends Route>(
   const trie = cached(routeTries, routes, () =>
     routes.filter((r) => typeof r?.path === "string").map((r) => [r.path, r as Route]),
   );
-  const hit = lookup(trie, target.segments);
-  if (hit === null) return { kind: "not-found" };
-  return { kind: "match", entry: hit.value as T, params: hit.params };
+  const found = lookup(trie, target.segments);
+  if (found === null) return { kind: "not-found" };
+  return { kind: "match", entry: found.value as T, params: found.params };
 }
 
 /** The URL's path segments (percent-decoded) and its query string, with its `?`, or `""`. */
@@ -97,8 +102,14 @@ function cached<T>(cache: WeakMap<object, TrieNode<T>>, key: object, entries: ()
 /** Adds `path`; returns the value already holding its leaf (a conflict: the earlier keeps it). */
 function insert<T>(root: TrieNode<T>, path: string, value: T): T | undefined {
   const names: string[] = [];
+  const segments = splitPath(path);
   let node = root;
-  for (const segment of splitPath(path)) {
+  for (const [i, segment] of segments.entries()) {
+    if (segment === "*" && i === segments.length - 1) {
+      if (node.splat) return node.splat.value;
+      node.splat = { value, names };
+      return undefined;
+    }
     if (segment.startsWith(":") && segment.length > 1) {
       names.push(segment.slice(1));
       node = node.param ??= { literals: new Map() };
@@ -129,23 +140,23 @@ export function findRouteConflicts<T extends { path: string }>(entries: readonly
   return conflicts;
 }
 
-/** Walks the URL's segments: the literal child first, then the parameter child. */
-function lookup<T>(
-  node: TrieNode<T>,
-  segments: string[],
-  depth = 0,
-  values: string[] = [],
-): { value: T; params: Record<string, string> } | null {
-  if (depth === segments.length) {
-    if (!node.leaf) return null;
-    const { value, names } = node.leaf;
-    return { value, params: Object.fromEntries(names.map((name, i) => [name, values[i]!])) };
-  }
-  const literal = node.literals.get(segments[depth]!);
-  const found = literal ? lookup(literal, segments, depth + 1, values) : null;
+/** Walks the URL's segments: the literal child first, then the parameter child, then the splat. */
+function lookup<T>(node: TrieNode<T>, segs: string[], i = 0, vals: string[] = []): Hit<T> | null {
+  if (i === segs.length) return node.leaf ? hit(node.leaf, vals, []) : null;
+  const literal = node.literals.get(segs[i]!);
+  let found = literal ? lookup(literal, segs, i + 1, vals) : null;
   // A parameter is one segment and never contains a slash, even an encoded one.
-  if (found || !node.param || segments[depth]!.includes("/")) return found;
-  return lookup(node.param, segments, depth + 1, [...values, segments[depth]!]);
+  if (!found && node.param && !segs[i]!.includes("/")) {
+    found = lookup(node.param, segs, i + 1, [...vals, segs[i]!]);
+  }
+  // A splat takes the rest (at least one segment, as there is one here).
+  return found ?? (node.splat ? hit(node.splat, vals, segs.slice(i)) : null);
+}
+
+function hit<T>({ value, names }: Leaf<T>, values: string[], rest: string[]): Hit<T> {
+  const params: Record<string, string> = Object.fromEntries(names.map((n, i) => [n, values[i]!]));
+  if (rest.length > 0) params["*"] = rest.join("/");
+  return { value, params, rest };
 }
 
 /**
@@ -168,26 +179,24 @@ function normalizeRedirect(input: unknown): NormalizedRedirect | null {
 
 /**
  * Fills the redirect's `:name` segments with the parameters `from` captured,
- * then carries the request's query string over unless the redirect discards
- * it. Each value is re-encoded and none is empty or holds a slash, so a `to`
- * on this site can't turn into `//other.host`.
+ * and a `*` segment with the splat's segments, then carries the request's
+ * query string over unless the redirect discards it. Each captured segment is
+ * re-encoded on its own and none is empty, so a `to` on this site can't turn
+ * into `//other.host` (or `/\other.host`).
  */
-function buildLocation(
-  redirect: NormalizedRedirect,
-  params: Record<string, string>,
-  search: string,
-) {
+function buildLocation({ value: redirect, params, rest }: Hit<NormalizedRedirect>, search: string) {
   const { to } = redirect;
   const hashAt = to.indexOf("#") === -1 ? to.length : to.indexOf("#");
   const queryAt = to.indexOf("?") === -1 || to.indexOf("?") > hashAt ? hashAt : to.indexOf("?");
   const filled = to
     .slice(0, queryAt)
     .split("/")
-    .map((s) =>
-      Object.hasOwn(params, s.slice(1)) && s[0] === ":"
+    .map((s) => {
+      if (s === "*" && rest.length > 0) return rest.map(encodeURIComponent).join("/");
+      return Object.hasOwn(params, s.slice(1)) && s[0] === ":"
         ? encodeURIComponent(params[s.slice(1)]!)
-        : s,
-    )
+        : s;
+    })
     .join("/");
   const carried = redirect.discardQueryParameters ? "" : search.slice(1);
   const query = [to.slice(queryAt + 1, hashAt), carried].filter(Boolean).join("&");

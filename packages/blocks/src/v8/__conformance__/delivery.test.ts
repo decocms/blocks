@@ -1158,7 +1158,7 @@ describe("hosted-releases-internals", () => {
     expect(api.assetFetches()).toBe(1);
   });
 
-  it("HRI-10/HD-4: a failed draft is an error (HRI-10's 'serves what a normal request would' is contradicted)", async () => {
+  it("HRI-10/HD-4: a draft that can't be fetched is LOADER_FAILED on every call; published content is never substituted", async () => {
     const api = deliveryApi();
     api.publish(1, await hashed("Release"));
     const cms = createCMS({

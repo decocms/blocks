@@ -377,3 +377,117 @@ describe("redirects", () => {
     expect(match.kind === "match" && match.entry.__resolveType).toBe("post");
   });
 });
+
+describe("trailing splat (/*)", () => {
+  const docs = route("DocsSplat", "/docs/*");
+  const docsPage = route("DocsPage", "/docs/:page");
+  const setup = route("DocsSetup", "/docs/setup");
+  const docsRoot = route("DocsRoot", "/docs");
+
+  it("matches one or more remaining segments into params['*']", () => {
+    expect(matchRoute("/docs/guides/setup", { routes: [docs] })).toEqual({
+      kind: "match",
+      entry: docs,
+      params: { "*": "guides/setup" },
+    });
+    expect(matchRoute("/docs/a", { routes: [docs] })).toMatchObject({ params: { "*": "a" } });
+  });
+
+  it("never matches zero segments: /docs needs its own entry", () => {
+    expect(matchRoute("/docs", { routes: [docs] })).toEqual({ kind: "not-found" });
+    expect(matchRoute("/docs/", { routes: [docs, docsRoot] })).toMatchObject({ entry: docsRoot });
+  });
+
+  it("exact beats a parameter, which beats a splat, whatever the array order", () => {
+    const all = [docs, docsPage, setup];
+    expect(matchRoute("/docs/setup", { routes: all })).toMatchObject({ entry: setup });
+    expect(matchRoute("/docs/intro", { routes: all })).toMatchObject({ entry: docsPage });
+    expect(matchRoute("/docs/2024/intro", { routes: all })).toMatchObject({ entry: docs });
+  });
+
+  it("backtracks to a splat when a deeper branch dead-ends", () => {
+    const deep = route("Deep", "/docs/:page/edit");
+    expect(matchRoute("/docs/intro/view", { routes: [deep, docs] })).toMatchObject({
+      entry: docs,
+      params: { "*": "intro/view" },
+    });
+  });
+
+  it("keeps the parameters captured before it", () => {
+    const shop = route("Shop", "/:store/*");
+    expect(matchRoute("/acme/a/b", { routes: [shop] })).toMatchObject({
+      params: { store: "acme", "*": "a/b" },
+    });
+  });
+
+  it("a storefront catch-all at /* serves every path but /, after exact and template routes", () => {
+    const category = route("Category Page", "/*");
+    const all = [category, shirt, summer, home];
+    expect(matchRoute("/", { routes: all })).toMatchObject({ entry: home });
+    expect(matchRoute("/summer", { routes: all })).toMatchObject({ entry: summer });
+    expect(matchRoute("/tenis/p", { routes: all })).toMatchObject({ entry: shirt });
+    expect(matchRoute("/feminino/roupas/vestidos", { routes: all })).toMatchObject({
+      entry: category,
+      params: { "*": "feminino/roupas/vestidos" },
+    });
+    expect(matchRoute("/", { routes: [category] })).toEqual({ kind: "not-found" });
+  });
+
+  it("two splats at the same place: the earlier one wins; deco check reports it", () => {
+    const other = route("Other", "/docs/*");
+    expect(matchRoute("/docs/a", { routes: [docs, other] })).toMatchObject({ entry: docs });
+    expect(findRouteConflicts([docs, other])).toEqual([{ entry: other, other: docs }]);
+    expect(findRouteConflicts([docs, docsPage, setup, docsRoot])).toEqual([]);
+  });
+
+  it("only a trailing * is a splat; elsewhere it's a literal segment", () => {
+    const mid = route("Mid", "/a/*/b");
+    expect(matchRoute("/a/x/b", { routes: [mid] })).toEqual({ kind: "not-found" });
+    expect(matchRoute("/a/*/b", { routes: [mid] })).toMatchObject({ entry: mid });
+  });
+
+  describe("redirects", () => {
+    const moved: Redirect = { from: "/old-blog/*", to: "/blog/*", permanent: true };
+
+    it("copies the segments into to (/old-blog/2024/hello → /blog/2024/hello)", () => {
+      expect(matchRoute("/old-blog/2024/hello?x=1", { routes, redirects: [moved] })).toEqual({
+        kind: "redirect",
+        location: "/blog/2024/hello?x=1",
+        status: 301,
+      });
+    });
+
+    it("an exact redirect wins over a splat redirect", () => {
+      const exact: Redirect = { from: "/old-blog/about", to: "/about", permanent: false };
+      expect(matchRoute("/old-blog/about", { routes, redirects: [moved, exact] })).toMatchObject({
+        location: "/about",
+        status: 302,
+      });
+    });
+
+    it("keeps each segment percent-encoded", () => {
+      expect(matchRoute("/old-blog/a%20b/c%3Fd", { routes, redirects: [moved] })).toMatchObject({
+        location: "/blog/a%20b/c%3Fd",
+      });
+    });
+
+    describe("never redirects off-site", () => {
+      const toRoot: Redirect = { from: "/old/*", to: "/*", permanent: true };
+      const cases: [string, string][] = [
+        ["/old/%2F%2Fevil.example", "/%2F%2Fevil.example"],
+        ["/old//evil.example", "/evil.example"],
+        ["/old/%5Cevil.example", "/%5Cevil.example"],
+        ["/old/%2F/evil.example", "/%2F/evil.example"],
+        ["/old/https:%2F%2Fevil.example", "/https%3A%2F%2Fevil.example"],
+      ];
+      for (const [url, location] of cases) {
+        it(`${url} → ${location}`, () => {
+          const hit = matchRoute(url, { routes, redirects: [toRoot] });
+          expect(hit).toMatchObject({ kind: "redirect", location });
+          const resolved = new URL((hit as { location: string }).location, "https://s.example");
+          expect(resolved.origin).toBe("https://s.example");
+        });
+      }
+    });
+  });
+});

@@ -1276,7 +1276,7 @@ describe("site-editor.mdx", () => {
     expect(other.status).toBe(404);
   });
 
-  it("se-03: serve regenerates the content module on add/remove; Vite apps don't need it on updates", async () => {
+  it("se-03: serve regenerates the content module after every save", async () => {
     const f = fixture({ "vite.config.ts": "export default {};\n" });
     f.write(".deco/schema.gen.json", "{}\n");
     const s = await serveFixture(f.root);
@@ -1286,8 +1286,8 @@ describe("site-editor.mdx", () => {
     await call(s, "blocks.apply", {
       set: { A: { __resolveType: "page", name: "A", path: "/a", title: "changed" } },
     });
-    // Docs: on Vite, an update to an existing entry doesn't rewrite the module.
-    expect(f.read(".deco/blocks.gen.ts")).toBe(before);
+    // The module carries the revision, so an update rewrites it too.
+    expect(f.read(".deco/blocks.gen.ts")).not.toBe(before);
     await call(s, "blocks.apply", { delete: ["A"] });
     expect(f.read(".deco/blocks.gen.ts")).not.toContain('"A"');
   });

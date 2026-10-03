@@ -851,11 +851,9 @@ describe("secrets", () => {
     expect(error?.code).toBe("BLOCK_FAILED");
   });
 
-  it("builtin-18 (client component): every decrypted value is handed to React's taint API so a Client Component refuses it", async () => {
-    // The v8 core imports no React (see ../browserBundle.test.ts), so the
-    // React-server binding installs React's experimental_taintUniqueValue under
-    // this well-known hook (like the background hook) and the secret block
-    // must register each decrypted value with it.
+  it("builtin-18 (server only): the core registers no taint hook; a secret stays server-side by resolution", async () => {
+    // built-in-blocks.mdx › Secrets: secrets resolve on the server only; any
+    // taint (React's experimental_taintUniqueValue) is the site's own code.
     const hook = Symbol.for("decocms.blocks.taint");
     const taint = vi.fn();
     (globalThis as Record<symbol, unknown>)[hook] = taint;
@@ -863,7 +861,7 @@ describe("secrets", () => {
       const block = await encryptSecret(pub, "abc");
       const [value] = await cmsWith({}, {}, priv).forRelease().resolve(block);
       expect(value).toBe("abc");
-      expect(taint).toHaveBeenCalledWith(expect.any(String), expect.anything(), "abc");
+      expect(taint).not.toHaveBeenCalled();
     } finally {
       delete (globalThis as Record<symbol, unknown>)[hook];
     }

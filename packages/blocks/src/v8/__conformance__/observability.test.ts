@@ -190,7 +190,7 @@ describe("the docs' snippets typecheck (conformance/observability)", () => {
   it("htel-01: the hosted-telemetry cms.ts compiles with site/token possibly undefined", () => {
     expect(errorsIn("hosted-cms.ts")).toBe("");
   });
-  it("ana-04: the analytics layout (`const [analytics] = …resolve(\"Analytics\")`, `<AnalyticsScript {...analytics} />`) compiles", () => {
+  it('ana-04: the analytics layout (`const [analytics] = …resolve<Analytics>("Analytics")`, `<AnalyticsScript {...analytics} />`) compiles', () => {
     expect(errorsIn("layout.tsx")).toBe("");
   });
   it("ana-08: the track() button compiles", () => {
@@ -202,9 +202,7 @@ describe("the docs' snippets typecheck (conformance/observability)", () => {
     expect(errorsIn("shelf-blocks.tsx")).toBe("");
   });
   it("nothing else in the fixture fails to typecheck", () => {
-    const unexpected = diagnostics
-      .split("\n")
-      .filter((line) => /error TS/.test(line) && !line.includes("layout.tsx"));
+    const unexpected = diagnostics.split("\n").filter((line) => /error TS/.test(line));
     expect(unexpected).toEqual([]);
   });
 });
@@ -443,7 +441,8 @@ describe("what's sent (telemetry.mdx)", () => {
     const { sent } = collector();
     createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
     const { request } = upstreamWith();
-    for (let i = 0; i < 100; i++) await request("https://search.example/q", { operation: "search" });
+    for (let i = 0; i < 100; i++)
+      await request("https://search.example/q", { operation: "search" });
     await runBackground();
     expect(sent).toHaveLength(1);
     const points = metrics(sent)[0].histogram.dataPoints;
@@ -517,7 +516,9 @@ describe("the Telemetry block (telemetry.mdx)", () => {
       expect(meta.manifest.blocks.content.telemetry).toBeDefined();
       const definition = meta.schema.definitions[toBase64("telemetry")] as any;
       const props = definition.properties ?? definition;
-      const fields = Object.keys(JSON.stringify(definition).includes("errorSampleRate") ? props : {});
+      const fields = Object.keys(
+        JSON.stringify(definition).includes("errorSampleRate") ? props : {},
+      );
       expect(JSON.stringify(definition)).toContain('"enabled"');
       expect(JSON.stringify(definition)).toContain('"metrics"');
       expect(JSON.stringify(definition)).toContain('"errorSampleRate"');
@@ -529,7 +530,9 @@ describe("the Telemetry block (telemetry.mdx)", () => {
       // ana-02: the analytics form has collector and enabled only (no site ID).
       const analytics = meta.schema.definitions[toBase64("analytics")] as any;
       expect(
-        Object.keys(analytics.properties ?? {}).filter((k) => k !== "__resolveType").sort(),
+        Object.keys(analytics.properties ?? {})
+          .filter((k) => k !== "__resolveType")
+          .sort(),
       ).toEqual(["collector", "enabled"]);
     } finally {
       fixture.remove();
@@ -710,9 +713,9 @@ describe("sampling and limits (telemetry.mdx)", () => {
     await request("https://search.example/q", { operation: "search" });
     await runBackground();
     expect(bodies).toHaveLength(1);
-    expect(bodies[0].resourceMetrics[0].scopeMetrics[0].metrics[0].histogram.dataPoints[0].count).toBe(
-      "1",
-    );
+    expect(
+      bodies[0].resourceMetrics[0].scopeMetrics[0].metrics[0].histogram.dataPoints[0].count,
+    ).toBe("1");
   });
 });
 
@@ -806,7 +809,9 @@ export default { "promo-banner": PromoBanner } satisfies Blocks;
       },
       content: docsSnapshot(),
     });
-    const [value] = await cms.forRelease().resolve({ __resolveType: "promo-banner", title: "Sale" });
+    const [value] = await cms
+      .forRelease()
+      .resolve({ __resolveType: "promo-banner", title: "Sale" });
     expect(value).toEqual({ component: "promo-banner", props: { title: "Sale" } });
   }, 120_000);
 });
@@ -949,7 +954,7 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
     clearTimeout(flushTimer as never);
   });
 
-  it("tin-09: with several CMS instances, a measurement goes to the CMS whose client handles the request", async () => {
+  it("tin-09: the instrumented fetch reports to the most recently created CMS with telemetry; several sites in one process share one destination", async () => {
     const { sent } = collector();
     const search = upstreamWith();
     const shelf = async () => {
@@ -966,9 +971,10 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
       content: { revision: "b", root: "site-b/.deco", blocks: {} },
       telemetry: { endpoint: OTHER_ENDPOINT },
     });
+    // siteB was created last: both sites' measurements go to its destination.
     await siteA.forRelease().resolve({ __resolveType: "shelf" });
     await runBackground();
-    expect(sent.map((s) => s.url)).toEqual([`${ENDPOINT}/v1/metrics`]);
+    expect(sent.map((s) => s.url)).toEqual([`${OTHER_ENDPOINT}/v1/metrics`]);
     sent.length = 0;
     await siteB.forRelease().resolve({ __resolveType: "shelf" });
     await runBackground();
@@ -1025,7 +1031,10 @@ describe("caching (caching.mdx)", () => {
                 rule: { __resolveType: "date", start: "2030-01-01T00:00:00Z" },
                 value: { __resolveType: "lazy", value: "campaign" },
               },
-              { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: "default" } },
+              {
+                rule: { __resolveType: "always" },
+                value: { __resolveType: "lazy", value: "default" },
+              },
             ],
           },
         },

@@ -648,14 +648,21 @@ describe("AR-31..AR-38 draft pointers", () => {
     expect(parseDraftPointer(raw as string | null | undefined)).toBeNull();
   });
 
-  it("AR-34 the documented example, as written", () => {
+  it("AR-34 the documented example, as written; parts that wouldn't parse throw", () => {
     expect(
+      formatDraftPointer({
+        host: "api.deco.example",
+        path: "/drafts/acme/main?token=abc123",
+        version: "9f3c1a",
+      }),
+    ).toBe("api.deco.example/drafts/acme/main?token=abc123@9f3c1a");
+    expect(() =>
       formatDraftPointer({
         host: "api.deco.example",
         path: "/drafts/acme/main?token=…",
         version: "9f3c1a",
       }),
-    ).toBe("api.deco.example/drafts/acme/main?token=…@9f3c1a");
+    ).toThrow();
   });
 
   it("AR-34 parse usage typechecks", () => {
@@ -680,15 +687,18 @@ if (pointer) console.log(\`previewing \${pointer.version} from \${pointer.host}\
     expect(draftPointer(new Request("https://s/x?__draft=off", { headers: cookie }))).toBeNull();
   });
 
-  it("AR-36 draftCookie: HttpOnly, SameSite=Lax, Path=/; off expires it; null otherwise", () => {
+  it("AR-36 draftCookie: HttpOnly; Secure; SameSite=None; Partitioned; Path=/; off expires it; null otherwise", () => {
     const set = draftCookie(new Request("https://s/x?__draft=h/u@v1"));
     expect(set).toContain("deco-draft=");
-    expect(set).toContain("HttpOnly");
-    expect(set).toContain("SameSite=Lax");
-    expect(set).toContain("Path=/");
+    for (const attribute of ["HttpOnly", "Secure", "SameSite=None", "Partitioned", "Path=/"]) {
+      expect(set).toContain(attribute);
+    }
+    expect(set).not.toContain("SameSite=Lax");
     const off = draftCookie(new Request("https://s/x?__draft=off"));
     expect(off).toMatch(/Max-Age=0|Expires=/);
     expect(draftCookie(new Request("https://s/x"))).toBeNull();
+    // An invalid ?__draft= gives null too.
+    expect(draftCookie(new Request("https://s/x?__draft=not-a-pointer"))).toBeNull();
   });
 
   it("AR-37 DRAFT_COOKIE is deco-draft", () => {
@@ -937,10 +947,32 @@ describe("AR-50..AR-52 / RT-03 / RT-07..RT-10 / RT-16 / RT-17 / RI-* matchRoute"
     expect(source).not.toMatch(/\.(replace|search|split|test)\(\//);
   });
 
-  it("only documented path syntax: literal segments and :params (no splats)", () => {
-    // `*` and `:rest*` match the remaining segments: undocumented.
-    expect(matchRoute("/a/b/c", { routes: [route("Splat", "/a/*")] })).toEqual({
+  it("RT-splat a trailing /* matches one or more segments, below exact and :params", () => {
+    // routing.mdx › Path templates: `/docs/*` gets the rest in params["*"],
+    // never zero segments; `/docs/setup` beats `/docs/:page` beats `/docs/*`.
+    const splat = route("Splat", "/docs/*");
+    const routes = [splat, route("Page", "/docs/:page"), route("Setup", "/docs/setup")];
+    expect(matchRoute("/docs/guides/setup", { routes })).toMatchObject({
+      entry: { name: "Splat" },
+      params: { "*": "guides/setup" },
+    });
+    expect(matchRoute("/docs/setup", { routes })).toMatchObject({ entry: { name: "Setup" } });
+    expect(matchRoute("/docs/intro", { routes })).toMatchObject({ entry: { name: "Page" } });
+    expect(matchRoute("/docs", { routes })).toEqual({ kind: "not-found" });
+    // `:rest*` is not syntax: it's one parameter named "rest*".
+    expect(matchRoute("/a/b/c", { routes: [route("Rest", "/a/:rest*")] })).toEqual({
       kind: "not-found",
+    });
+  });
+
+  it("RT-splat redirects copy the segments, still percent-encoded (no jump to another site)", () => {
+    const redirects = [{ from: "/old-blog/*", to: "/blog/*", permanent: true }];
+    expect(matchRoute("/old-blog/2024/hello", { routes: [], redirects })).toMatchObject({
+      location: "/blog/2024/hello",
+    });
+    const toRoot = [{ from: "/old/*", to: "/*", permanent: true }];
+    expect(matchRoute("/old/%2F%2Fevil.example", { routes: [], redirects: toRoot })).toMatchObject({
+      location: "/%2F%2Fevil.example",
     });
   });
 });
@@ -1143,9 +1175,11 @@ describe("AR-63 nothing throws at request time", () => {
     expect(result[1]?.code).toBe("BLOCK_FAILED");
   });
 
-  it("client.revision() on a draft that can't load doesn't reject", async () => {
+  it("the one exception: client.revision() on a draft that can't load rejects with LOADER_FAILED", async () => {
     const cms = createCMS({ blocks: {}, content: { load: async () => docsSnapshot() } });
-    await expect(cms.forDraft("garbage").revision()).resolves.toBeDefined();
+    await expect(cms.forDraft("garbage").revision()).rejects.toMatchObject({
+      code: "LOADER_FAILED",
+    });
   });
 });
 
@@ -1328,15 +1362,14 @@ export async function handle(request: Request): Promise<Response | undefined> {
       return new Response("Not found", { status: 404 });
     case "redirect":
       return Response.redirect(new URL(match.location, request.url), match.status);
-    case "match":
-      switch (match.entry.__resolveType) {
-        case "page": {
-          const [page] = await client.resolve<ResolvedPage<ReactNode>>(match.entry);
-          return render(page!.seo, page!.sections);
-        }
-        case "post":
-          return renderPost(match.entry);
+    case "match": {
+      const entry = match.entry;
+      if ("__resolveType" in entry && entry.__resolveType === "post") {
+        return renderPost(entry as Post);
       }
+      const [page] = await client.resolve<ResolvedPage<ReactNode>>(entry);
+      return render(page!.seo, page!.sections);
+    }
   }
 }
 `,

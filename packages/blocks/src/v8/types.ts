@@ -78,7 +78,7 @@ export interface Page extends Route {
 
 /** The built-in `redirect` block. */
 export interface Redirect {
-  /** Literal path or template. */
+  /** Literal path or template (`:name` segments, an optional trailing `/*`). */
   from: string;
   to: string;
   /** `true` for a 301, `false` for a 302. */

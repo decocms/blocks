@@ -2,7 +2,8 @@
 /**
  * Conformance: the Next.js half of caching.mdx ("Upstream data": requests go
  * through Next's data cache, no cache of the binding's own) and of
- * telemetry.mdx ("What's sent": the binding reports inbound requests).
+ * telemetry.mdx ("What's sent": the bindings add no measurements of their own;
+ * inbound requests come from Next's own OpenTelemetry setup).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -56,8 +57,10 @@ describe("upstream data on Next.js (caching.mdx)", () => {
 });
 
 describe("what the binding adds (telemetry.mdx › What's sent)", () => {
-  it("tel-09: @decocms/nextjs reports inbound requests (http.server.request.duration) to the CMS's telemetry", () => {
-    const reporters = sources().filter(({ text }) => text.includes("http.server.request.duration"));
-    expect(reporters.map((s) => s.file)).not.toEqual([]);
+  it("tel-09: @decocms/nextjs adds no measurements of its own (no inbound or page-cache metrics)", () => {
+    const reporters = sources().filter(({ text }) =>
+      /http\.server\.request\.duration|decocms\.blocks\.telemetry/.test(text),
+    );
+    expect(reporters.map((s) => s.file)).toEqual([]);
   });
 });

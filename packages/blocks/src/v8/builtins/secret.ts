@@ -14,19 +14,11 @@
  * `client.list` never run functions, so they return the ciphertext as saved.
  *
  * Every decrypted value is handed to `onDecrypt` (the CMS redacts it from
- * telemetry) and to React's taint API through the {@link TAINT_HOOK} a
- * React-server binding installs, so passing it to a Client Component fails.
- * The core imports no React, so without that hook nothing is tainted.
+ * telemetry). A decrypted value stays on the server because it's resolved
+ * there; tainting it (React's taint API) is up to the site's own code.
  */
 import { parseCiphertext } from "../ciphertext";
 import type { BlockFunction } from "../types";
-
-/** Where a React-server binding installs React's `experimental_taintUniqueValue`. */
-const TAINT_HOOK = Symbol.for("decocms.blocks.taint");
-const TAINT_MESSAGE =
-  "A decrypted secret from a Deco CMS secret block can't be passed to a Client Component.";
-
-type Taint = (message: string, lifetime: object, value: string) => void;
 
 /** True in a browser, where a secret must never be decrypted. */
 function inBrowser(): boolean {
@@ -46,8 +38,6 @@ function privateKeyDer(pem: string): Uint8Array {
  */
 export function secretBlock(key?: string, onDecrypt?: (value: string) => void): BlockFunction {
   let imported: Promise<CryptoKey> | undefined;
-  /** Taints last as long as this block (the CMS instance) does. */
-  const lifetime = {};
   return async ({ ciphertext }: { ciphertext?: unknown } = {}): Promise<string> => {
     if (inBrowser()) throw new Error("a secret block resolves on the server only");
     if (!key) throw new Error("no key to decrypt secrets: pass createCMS({ secrets: { key } })");
@@ -87,8 +77,6 @@ export function secretBlock(key?: string, onDecrypt?: (value: string) => void): 
       throw new Error("the secret could not be decrypted with this key");
     }
     onDecrypt?.(value);
-    const taint = (globalThis as Record<symbol, Taint | undefined>)[TAINT_HOOK];
-    if (typeof taint === "function") taint(TAINT_MESSAGE, lifetime, value);
     return value;
   };
 }

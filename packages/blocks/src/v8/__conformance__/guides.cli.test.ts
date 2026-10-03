@@ -812,7 +812,7 @@ export default {
     T,
   );
 
-  it("in-11: the four core packages depend on each other one way (v7 blocks-cli/eitri aside)", () => {
+  it("in-11: the core packages and blocks-migrate depend on each other one way (v7 blocks-cli/eitri aside)", () => {
     // blocks-cli and eitri are v7 tooling, removed with v7; tanstack's
     // blocks-cli edge is its v7 Vite plugin and goes with them.
     const V7 = new Set(["@decocms/blocks-cli"]);

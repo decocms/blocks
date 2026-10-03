@@ -244,7 +244,7 @@ describe("the tracker in the browser (analytics.mdx)", () => {
 });
 
 describe("wire format (telemetry-internals.mdx › Analytics events)", () => {
-  it("tin-10: a short payload is a GET with base64 JSON in ?data=, in the pinned One Dollar Stats shape", () => {
+  it("tin-10: a short payload is a GET with base64 JSON in ?data=: the page URL without query, and events with type, cross-site referrer and properties", () => {
     history.replaceState(null, "", "/summer/?utm=1#top");
     runTracker({ collector: COLLECTOR, enabled: true });
     expect(images).toHaveLength(1);

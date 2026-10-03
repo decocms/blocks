@@ -142,7 +142,11 @@ function cms() {
 }
 
 async function serve(worker: ReturnType<typeof createDecoWorkerEntry>, path: string, headers = {}) {
-  const response = await worker.fetch(new Request(`https://shop.example${path}`, { headers }), {}, ctx);
+  const response = await worker.fetch(
+    new Request(`https://shop.example${path}`, { headers }),
+    {},
+    ctx,
+  );
   await response.text();
   return response;
 }
@@ -162,34 +166,18 @@ describe("sending in the background (telemetry-internals.mdx)", () => {
 });
 
 describe("what the binding adds (telemetry.mdx › What's sent)", () => {
-  it("tel-09/tel-27: inbound requests are measured as http.server.request.duration by route pattern and status_class, never the raw URL", async () => {
+  it("tel-09: the binding adds no measurements of its own (inbound requests and the page cache are the framework's)", async () => {
     cms();
     const worker = createDecoWorkerEntry(serverEntry, { observability: false });
     await serve(worker, "/products/abc-123?x=1");
     clock += 10_000;
     await serve(worker, "/products/abc-123?x=1");
     await drain();
-    const server = metrics().find((m) => m.name === "http.server.request.duration");
-    expect(server).toBeDefined();
-    const points = server.histogram.dataPoints.map((p: any) => attrs(p.attributes));
-    expect(points[0]).toHaveProperty("status_class", "2xx");
-    expect(points[0]).toHaveProperty("http.route");
-    expect(sent.map((s) => s.text).join("\n")).not.toContain("abc-123");
-  });
-
-  it("tel-10: edge cache hits and misses are measured with a cache layer and an outcome", async () => {
-    fakeCaches();
-    cms();
-    const worker = createDecoWorkerEntry(serverEntry, { observability: false });
-    await serve(worker, "/products/abc-123");
-    clock += 10_000;
-    await serve(worker, "/products/abc-123");
-    await drain();
-    const cachePoints = metrics()
-      .flatMap((m) => m.histogram?.dataPoints ?? m.sum?.dataPoints ?? [])
-      .map((p: any) => attrs(p.attributes))
-      .filter((a: Record<string, unknown>) => Object.keys(a).some((k) => /cache/.test(k)));
-    expect(cachePoints.length).toBeGreaterThan(0);
+    const names = new Set(metrics().map((m) => m.name));
+    expect(names).toContain("http.client.request.duration");
+    expect(names).not.toContain("http.server.request.duration");
+    expect(names).not.toContain("deco.cache.requests");
+    expect([...names].every((name) => name === "http.client.request.duration")).toBe(true);
   });
 });
 
@@ -222,7 +210,9 @@ describe("upstream data (caching.mdx)", () => {
     expect(upstreamCalls).toHaveLength(1);
     const putsBefore = puts.length;
     cache.match.mockClear();
-    const draft = { cookie: `${DRAFT_COOKIE}=${encodeURIComponent("content.example/drafts/1@v1")}` };
+    const draft = {
+      cookie: `${DRAFT_COOKIE}=${encodeURIComponent("content.example/drafts/1@v1")}`,
+    };
     await serve(worker, "/products/c", draft);
     await serve(worker, "/products/d", draft);
     expect(upstreamCalls).toHaveLength(3);
