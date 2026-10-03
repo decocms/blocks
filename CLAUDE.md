@@ -64,6 +64,7 @@ Every export maps to a source file — no dist indirection. Representative subse
 | `@decocms/blocks/cms` | blocks | `src/cms/index.ts` — full barrel: resolver, loader, registry. Server-only (transitively imports `node:async_hooks` via `loader.ts`/`resolve.ts`) — bundling it for a browser target fails (Turbopack rejects outright; webpack has historically let it through uncaught). |
 | `@decocms/blocks/cms/client` | blocks | `src/cms/client.ts` — client-safe subset: section registry lookups (`getResolvedComponent`, `registerSection`, etc.), `sectionMixins`, `schema`. Use this from Client Components / browser-bundled code; use `@decocms/blocks/cms` from server-only code. Verified via a real esbuild browser-target bundle in `src/cms/client.browserBundle.test.ts`, not just `tsc` — that's the only way this class of bug reliably surfaces. |
 | `@decocms/blocks/setup` | blocks | `src/setup.ts` |
+| `@decocms/blocks/cli` | blocks | `src/v8/cli/index.ts` — the next-major `deco` CLI (`schema`, `content`, `check`, `serve`), also the package's single bin (`bin/deco.js`, which loads the TS sources under Node via tsx, or directly under Bun). CLI-only: the runtime must never import it (guarded by a test in `run.test.ts`), so it and the TypeScript compiler never reach an app bundle. Lives beside the v7 `@decocms/blocks-cli` generators until a later PR removes them. |
 | `@decocms/blocks/sdk/*` | blocks | `src/sdk/*.ts` |
 | `@decocms/blocks/hooks` | blocks | `src/hooks/index.ts` |
 | `@decocms/blocks-admin` (root) | blocks-admin | `src/admin/index.ts` |

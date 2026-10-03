@@ -1,7 +1,7 @@
 // @vitest-environment node
 /** matchRoute (routing.mdx, router-internals.mdx, api-reference#matchroute-url-items; D3 splat). */
 import { describe, expect, it } from "vitest";
-import { matchRoute } from "./matchRoute";
+import { findRouteConflicts, matchRoute } from "./matchRoute";
 import type { LegacyRedirect, Redirect, Route } from "./types";
 
 const route = (name: string, path: string) => ({ name, path, __resolveType: "page" });
@@ -161,6 +161,31 @@ describe("match order and conflicts", () => {
     });
     for (let i = 0; i < 1000; i++) matchRoute(`/products/item-${i}`, { routes: many });
     expect(performance.now() - started).toBeLessThan(2000);
+  });
+});
+
+describe("findRouteConflicts (what deco check reports)", () => {
+  const names = (entries: { name: string; path: string }[]) =>
+    findRouteConflicts(entries).map(({ entry, other }) => [entry.name, other.name]);
+
+  it("keeps the first entry at a leaf and reports the later ones", () => {
+    expect(names([route("A", "/x"), route("B", "/x/"), route("C", "/x")])).toEqual([
+      ["B", "A"],
+      ["C", "A"],
+    ]);
+  });
+
+  it("treats templates of the same shape as one leaf, whatever the parameter names", () => {
+    expect(names([route("A", "/:slug/p"), route("B", "/:id/p")])).toEqual([["B", "A"]]);
+    expect(names([route("A", "/:slug/p"), route("B", "/:slug/q")])).toEqual([]);
+  });
+
+  it("lets an exact path and a template coexist (exact wins per segment)", () => {
+    expect(names([route("A", "/blog/:slug"), route("B", "/blog/archive")])).toEqual([]);
+  });
+
+  it("treats two splats at the same place as a conflict", () => {
+    expect(names([route("A", "/c/*"), route("B", "/c/:rest*")])).toEqual([["B", "A"]]);
   });
 });
 

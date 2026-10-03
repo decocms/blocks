@@ -12,11 +12,22 @@
 		"directory": "packages/blocks"
 	},
 	"main": "./src/index.ts",
+	"files": [
+		"bin",
+		"src",
+		"!src/**/*.test.ts",
+		"!src/**/*.test.tsx",
+		"!src/**/__tests__"
+	],
+	"bin": {
+		"deco": "./bin/deco.js"
+	},
 	"exports": {
 		".": "./src/index.ts",
 		"./cms": "./src/cms/index.ts",
 		"./cms/client": "./src/cms/client.ts",
 		"./cms/loadDecofileDirectory": "./src/cms/loadDecofileDirectory.ts",
+		"./cli": "./src/v8/cli/index.ts",
 		"./hooks": "./src/hooks/index.ts",
 		"./preview": "./src/preview/index.ts",
 		"./protocol": "./src/protocol/index.ts",
@@ -113,14 +124,17 @@
 		"@opentelemetry/api": "^1.9.1",
 		"@opentelemetry/semantic-conventions": "^1.41.1",
 		"@tanstack/store": "^0.9.1",
+		"ajv": "^8.20.0",
 		"clsx": "^2.1.1",
 		"fast-json-patch": "^3.1.0",
 		"tailwind-merge": "^3.3.1",
+		"tsx": "^4.22.5",
 		"zod": "^4.4.3"
 	},
 	"peerDependencies": {
 		"react": "^19.0.0",
-		"react-dom": "^19.0.0"
+		"react-dom": "^19.0.0",
+		"typescript": "^5.0.0"
 	},
 	"devDependencies": {
 		"@types/react": "^19.0.0",
