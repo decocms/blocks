@@ -1,4 +1,4 @@
-import type { ConformanceContext } from "../context";
+import type { ConformanceContext } from "../context.ts";
 
 /** One black-box check of a content-protocol endpoint. */
 export interface ConformanceCase {

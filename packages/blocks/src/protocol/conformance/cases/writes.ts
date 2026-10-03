@@ -2,10 +2,10 @@
  * `blocks.apply`: atomic set and delete, set precedence, validation, the
  * file-name rule and preconditions.
  */
-import { ErrorCode, type InvalidBlockData } from "../../errors";
-import type { BlocksListResult } from "../../types";
-import { assert, assertEqual, type ConformanceContext, expectError } from "../context";
-import type { ConformanceCase } from "./types";
+import { ErrorCode, type InvalidBlockData } from "../../errors.ts";
+import type { BlocksListResult } from "../../types.ts";
+import { assert, assertEqual, type ConformanceContext, expectError } from "../context.ts";
+import type { ConformanceCase } from "./types.ts";
 
 type FullList = Extract<BlocksListResult, { notModified: false }>;
 

@@ -4,11 +4,11 @@
  * Shared by `blocks.list` (which needs every body) and `blocks.apply` (which
  * needs bodies only to break ties between spellings).
  */
-import { limitExceeded, unavailable } from "../errors";
-import { entryHasPath, fullyDecodeFileName, isBlockFileName, resolveSpellings } from "../keys";
-import type { ContentStorage, StorageFile, StorageSnapshot } from "../storage";
-import type { Diagnostic, Limits } from "../types";
-import { type BodyCache, type ParsedBody, parseBody } from "./bodyCache";
+import { limitExceeded, unavailable } from "../errors.ts";
+import { entryHasPath, fullyDecodeFileName, isBlockFileName, resolveSpellings } from "../keys.ts";
+import type { ContentStorage, StorageFile, StorageSnapshot } from "../storage.ts";
+import type { Diagnostic, Limits } from "../types.ts";
+import { type BodyCache, type ParsedBody, parseBody } from "./bodyCache.ts";
 
 export interface LoadedEntry {
   file: string;

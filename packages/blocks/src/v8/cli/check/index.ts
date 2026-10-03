@@ -18,17 +18,17 @@
  */
 
 import fs from "node:fs";
-import Ajv, { type ValidateFunction } from "ajv";
-import { isWellFormedCiphertext } from "../../../protocol/secrets";
-import { isBlock, own } from "../../json";
-import { findRouteConflicts } from "../../matchRoute";
-import { isBuiltIn, storesPlainVariants } from "../builtins";
-import { readSavedBlocks, type SavedBlocks } from "../content";
-import { consoleReporter, type Reporter } from "../log";
-import { CliError, decoPaths, findDecoRoot } from "../root";
-import type { DecoMeta } from "../schema/generate";
-import { SECTION_REF_KEY, toBase64 } from "../schema/typeToSchema";
-import { BLOCK_DEF, joinPath, rewriteErrors } from "./messages";
+import { Ajv, type ValidateFunction } from "ajv";
+import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
+import { isBlock, own } from "../../json.ts";
+import { findRouteConflicts } from "../../matchRoute.ts";
+import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
+import { readSavedBlocks, type SavedBlocks } from "../content.ts";
+import { consoleReporter, type Reporter } from "../log.ts";
+import { CliError, decoPaths, findDecoRoot } from "../root.ts";
+import type { DecoMeta } from "../schema/generate.ts";
+import { SECTION_REF_KEY, toBase64 } from "../schema/typeToSchema.ts";
+import { BLOCK_DEF, joinPath, rewriteErrors } from "./messages.ts";
 
 export interface Problem {
   /** The saved block's file, relative to the root: `.deco/blocks/HomePage.json`. */

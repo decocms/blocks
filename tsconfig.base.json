@@ -8,6 +8,14 @@
     "strictNullChecks": true,
     "declaration": true,
     "resolveJsonModule": true,
-    "composite": true
+    "allowImportingTsExtensions": true,
+    "customConditions": [
+      "source"
+    ],
+    "noEmit": true,
+    "types": [
+      "node"
+    ],
+    "strict": false
   }
 }

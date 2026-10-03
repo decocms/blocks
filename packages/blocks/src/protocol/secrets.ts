@@ -11,9 +11,9 @@
  * The schema marks a `Secret` field with `"format": "secret"` — the contract
  * `deco schema` emits for the `Secret` type. Browser-safe.
  */
-import { parseCiphertext } from "./ciphertext";
-import type { BlockViolation } from "./errors";
-import type { DecoMeta } from "./types";
+import { parseCiphertext } from "./ciphertext.ts";
+import type { BlockViolation } from "./errors.ts";
+import type { DecoMeta } from "./types.ts";
 
 /** The built-in block type that holds an encrypted value. */
 export const SECRET_BLOCK_TYPE = "secret";

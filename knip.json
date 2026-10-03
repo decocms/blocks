@@ -36,6 +36,9 @@
       ],
       "ignoreDependencies": [
         "esbuild"
+      ],
+      "entry": [
+        "src/v8/cli/main.ts"
       ]
     }
   },

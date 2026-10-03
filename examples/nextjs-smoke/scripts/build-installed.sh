@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds this example the way npm installs it: @decocms/blocks as a real folder in node_modules,
-# not the workspace symlink (Next only compiles .ts outside node_modules unless transpilePackages says so).
-# Needs .deco/blocks.gen.ts (run `deco content` first).
+# not the workspace symlink, so the build loads the package's compiled dist/ from node_modules.
+# Needs .deco/blocks.gen.ts (run `deco content` first) and packages/blocks/dist (run `bun run build`).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 root="$(cd "$here/../.." && pwd)"

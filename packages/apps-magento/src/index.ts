@@ -6,4 +6,4 @@ export {
   type MagentoClientOptions,
   MagentoError,
   type MagentoRequestInit,
-} from "./magentoClient";
+} from "./magentoClient.ts";

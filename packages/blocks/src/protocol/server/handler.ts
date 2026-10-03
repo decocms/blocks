@@ -23,18 +23,18 @@ import {
   limitExceeded,
   parseError,
   unauthorized,
-} from "../errors";
-import type { ContentStorage } from "../storage";
-import { assertAuthOptions, authenticate } from "./auth";
-import { type ContentHandlerOptions, Core } from "./core";
+} from "../errors.ts";
+import type { ContentStorage } from "../storage.ts";
+import { assertAuthOptions, authenticate } from "./auth.ts";
+import { type ContentHandlerOptions, Core } from "./core.ts";
 import {
   BodyEncodingError,
   BodyTooLargeError,
   isJsonContentType,
   jsonResponse,
   readBody,
-} from "./http";
-import { dispatch } from "./rpc";
+} from "./http.ts";
+import { dispatch } from "./rpc.ts";
 
 export type ContentHandler = (request: Request) => Promise<Response>;
 

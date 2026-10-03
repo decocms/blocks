@@ -2,13 +2,13 @@
  * The `deco` command line: `deco <schema|content|check|serve> [flags]`
  * (spec: cli). Parses flags, runs one command and returns its exit code.
  */
-import { check } from "./check/index";
-import { content, writeContent } from "./content";
-import { consoleReporter, type Reporter } from "./log";
-import { CliError, decoPaths, findDecoRoot } from "./root";
-import { reportSchema, schema, writeSchema } from "./schema/index";
-import { serve, startServer } from "./serve/server";
-import { watchFiles, watchTree } from "./watch";
+import { check } from "./check/index.ts";
+import { content, writeContent } from "./content.ts";
+import { consoleReporter, type Reporter } from "./log.ts";
+import { CliError, decoPaths, findDecoRoot } from "./root.ts";
+import { reportSchema, schema, writeSchema } from "./schema/index.ts";
+import { serve, startServer } from "./serve/server.ts";
+import { watchFiles, watchTree } from "./watch.ts";
 
 type FlagKind = "string" | "boolean" | "list";
 

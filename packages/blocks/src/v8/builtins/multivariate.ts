@@ -1,4 +1,4 @@
-import type { Variant } from "../types";
+import type { Variant } from "../types.ts";
 
 interface MultivariateProps<T> {
   variants?: Variant<T>[];

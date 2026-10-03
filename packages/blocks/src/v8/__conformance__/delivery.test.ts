@@ -182,7 +182,7 @@ describe("content-delivery", () => {
     const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
     const shared =
       // remoteLoader imports the SDK's leaf module; the CLI may go through the protocol's re-export.
-      /import \{[^}]*\bcomputeContentRevision\b[^}]*\} from "[./]+(protocol\/)?canonical"/;
+      /import \{[^}]*\bcomputeContentRevision\b[^}]*\} from "[./]+(protocol\/)?canonical\.ts"/;
     expect(cli).toMatch(shared);
     expect(sdk).toMatch(shared);
   });

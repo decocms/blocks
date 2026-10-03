@@ -1,9 +1,9 @@
-import type { BlockFunction } from "../types";
-import { analytics, page, redirect, telemetry } from "./data";
-import { lazy } from "./lazy";
-import { always, date, never } from "./matchers";
-import { multivariate } from "./multivariate";
-import { secretBlock } from "./secret";
+import type { BlockFunction } from "../types.ts";
+import { analytics, page, redirect, telemetry } from "./data.ts";
+import { lazy } from "./lazy.ts";
+import { always, date, never } from "./matchers.ts";
+import { multivariate } from "./multivariate.ts";
+import { secretBlock } from "./secret.ts";
 
 /**
  * The built-in blocks every block map gets. `secret` here has no key, so it

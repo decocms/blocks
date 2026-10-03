@@ -8,7 +8,7 @@ This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo for the fra
 
 **v7 lives on the `7.x` branch.** `@decocms/tanstack`, `@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce`, `@decocms/apps-blog`, `@decocms/apps-website` and v7's `@decocms/blocks` modules (`/cms`, `/sdk/*`, `/hooks`, `/setup`, …) are maintained and released there, not here. Don't reintroduce them on this line.
 
-History worth knowing: the framework used to be a single tsup-bundled package, `@decocms/start`, reverted at v5.2.2 because bundling created two module instances of what must be one singleton (the CMS registry). Packages here import each other's plain `.ts` source; no bundler is in the loop.
+History worth knowing: the framework used to be a single tsup-bundled package, `@decocms/start`, reverted at v5.2.2 because bundling created two module instances of what must be one singleton (the CMS registry). Here no bundler is in the loop: each package is compiled file-for-file by `tsc` (see "How packages build" below), so module boundaries, and the singletons that live in them, are exactly the source's.
 
 ## Tech Stack
 
@@ -20,10 +20,11 @@ History worth knowing: the framework used to be a single tsup-bundled package, `
 ## Common Commands
 
 ```bash
-bun install
+bun install           # also builds every package's dist/ (root `prepare` script)
+bun run build         # tsc (TypeScript 7) -> dist/, per package, blocks first
 bun run test          # vitest, whole repo: packages, tests/, the migration skill's scripts
 bun run typecheck     # tsc --noEmit per package, plus the skill scripts and tests/
-bun run examples      # build the three examples, then typecheck them
+bun run examples      # build the packages and the three examples, then typecheck them
 bun run check         # typecheck + lint + lint:unused
 ```
 
@@ -55,24 +56,36 @@ v7-only design docs, plans and Cursor skills live on the `7.x` branch. The docs 
 
 Nothing else is published from this line: the release allowlist in `.releaserc.json` is `blocks` plus the seven `apps-*`.
 
+### How packages build (per-file `tsc`, no bundler)
+
+Every package publishes compiled JavaScript so plain Node (scripts, Playwright, Node servers, Next without `transpilePackages`) can import it; npm never ships only `.ts`. The build is `tsc -p tsconfig.build.json` (via `scripts/tsc.mjs`, which runs the TypeScript 7 native compiler from the root `typescript7` alias): `rootDir: src`, `outDir: dist`, `module`/`moduleResolution: NodeNext`, `declaration` + declaration and source maps, tests and fixtures excluded. Each `src/**/*.ts(x)` becomes exactly one `dist/**/*.js` (+ `.d.ts`), with its imports left as imports.
+
+- **Why no bundler**: a bundle inlines modules, so a package that bundles another (or a bundle loaded next to the unbundled copy) carries a second instance of module state — the `@decocms/start` registry bug. With per-file output there is one `dist/x.js` per `src/x.ts` and every importer gets that one module, as with the source; cross-package imports stay package imports (`@decocms/blocks`), never inlined. Don't add tsup/esbuild/rollup to a package build.
+- **Relative imports carry the `.ts` extension** (`from "./run.ts"`, `from "./server/index.ts"`, never extensionless or a bare directory) and `rewriteRelativeImportExtensions` turns them into `.js` in the output; the build's `NodeNext` resolution rejects a specifier Node couldn't resolve. Test files may stay extensionless (they're never emitted).
+- **Exports maps**: every subpath is `{ "types": "./dist/….d.ts", "source": "./src/….ts", "default": "./dist/….js" }`; conditional subpaths nest that object under each branch (`/protocol/storage/fs`: `node` before `default`). `files` ships `dist` and `src` (minus tests) so the `source` condition and the declaration maps resolve. Add a subpath to both `src` and the map in that shape (`sdk.test.ts`/`run.test.ts` check it).
+- **The `source` condition** lets in-repo tools use `.ts` without a build: `tsconfig.base.json` (`customConditions`) for type-checks and `vitest.config.ts` (`resolve.conditions`) for tests, so a test importing a file by path and one importing `@decocms/blocks` share one module. A consumer that opts into `source` must do so for every environment it builds; mixing `source` and dist in one process loads both copies.
+- **The bin runs dist**: `bin/deco.js` imports `dist/v8/cli/main.js` (no tsx). `tests/globalSetup.ts` rebuilds blocks' dist before the suite because the CLI conformance tests spawn the bin.
+- **Two TypeScripts**: builds and type-checks use TypeScript 7 (`typescript7`, npm alias of `typescript@7`); the plain `typescript` name stays on 5.x because TypeScript 7 has no JavaScript compiler API, and `deco schema` loads the app's `typescript` peer through that API (as do Next's type-check and a few conformance tests).
+- **Release**: `.releaserc.json`'s `prepareCmd` runs `bun run build` after the version sync, and each package's `prepack` rebuilds, so `npm publish` never ships a stale or missing dist. CI (`.github/workflows/ci.yml`) type-checks, builds and imports every built export with plain Node.
+
 ### `@decocms/blocks` exports
 
-Every export maps to a source file; there is no dist indirection.
+Each export is built from the source file below (`dist/<same path>.js`, see above).
 
 | Import path | File |
 |---|---|
-| `@decocms/blocks` | `src/index.ts` — the v8 runtime API only (`createCMS`, `matchRoute`, `remoteLoader`, `draftPointer`, `Blocks`, `Lazy`, …), re-exported from `src/v8/index.ts` as one explicit `export { … } from "./v8/index"` block (a conformance test parses that form) |
+| `@decocms/blocks` | `src/index.ts` — the v8 runtime API only (`createCMS`, `matchRoute`, `remoteLoader`, `draftPointer`, `Blocks`, `Lazy`, …), re-exported from `src/v8/index.ts` as one explicit `export { … } from "./v8/index.ts"` block (a conformance test parses that form) |
 | `@decocms/blocks/analytics` | `src/v8/analytics.ts` — `AnalyticsScript`, `track` |
 | `@decocms/blocks/fetch` | `src/v8/fetch.ts` — `createInstrumentedFetch` |
 | `@decocms/blocks/secrets` | `src/v8/secrets.ts` |
-| `@decocms/blocks/cli` | `src/v8/cli/index.ts` — the `deco` CLI (`schema`, `content`, `check`, `serve`), also the bin (`bin/deco.js`, which loads the TS sources via tsx under Node, directly under Bun). CLI-only: the runtime never imports it (`run.test.ts`), so it and the TypeScript compiler never reach an app bundle |
+| `@decocms/blocks/cli` | `src/v8/cli/index.ts` — the `deco` CLI (`schema`, `content`, `check`, `serve`), also the bin (`bin/deco.js`, which runs the compiled `dist/v8/cli/main.js` under Node or Bun). CLI-only: the runtime never imports it (`run.test.ts`), so it and the TypeScript compiler never reach an app bundle |
 | `@decocms/blocks/protocol` (+ `/keys`, `/server`, `/storage/fs`, `/conformance`) | `src/protocol/**` — the content protocol the site editor uses; browser-safe except `storage/fs` (conditional export: `node` → real, `default` → a stub that throws) |
 
 ### Key boundaries
 
 - **The runtime never imports the protocol or the CLI.** `src/v8` modules import only each other (no Node built-ins, no React at runtime except `/analytics`); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. The CLI may import the protocol.
 - **Clients depend only on `@decocms/blocks`**, with no peers and no framework binding. A client takes settings as arguments (no env reads), never caches, has no hooks, converters or `"use client"` code: those belong in the site's platform template (`tests/upstream-clients.conformance.test.ts`).
-- **Cross-package imports resolve to `.ts` source** (`moduleResolution: bundler`). No `tsconfig.json` `references` anywhere: adding them back reintroduces a TS6305 build-ordering bug.
+- **Cross-package imports are package imports**: type-checks resolve them to `.ts` source through the `source` condition; the build resolves them to the dependency's built `dist/*.d.ts`, which is why `bun run build` builds blocks before the clients. No `tsconfig.json` `references` anywhere: adding them back reintroduces a TS6305 build-ordering bug.
 - **No compat layers.** If a site needs something a package should export, add the export; don't let sites (or this repo) re-create v7 APIs as shims.
 
 ## v8 core — `packages/blocks/src/v8/`

@@ -6,15 +6,15 @@
  * a package loaded twice (two bundles, a dev reload) still shares one content
  * cache. See /next/api-reference#one-instance-per-process.
  */
-import { runInBackground } from "./background";
-import { builtIns } from "./builtins/index";
-import { secretBlock } from "./builtins/secret";
-import { CMSClient } from "./client";
-import { ContentStore, isLoader, isSnapshot } from "./content";
-import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity";
-import { remoteLoader, resetRemoteLoaders } from "./remoteLoader";
-import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry";
-import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types";
+import { runInBackground } from "./background.ts";
+import { builtIns } from "./builtins/index.ts";
+import { secretBlock } from "./builtins/secret.ts";
+import { CMSClient } from "./client.ts";
+import { ContentStore, isLoader, isSnapshot } from "./content.ts";
+import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity.ts";
+import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
+import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry.ts";
+import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types.ts";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
 const MIN_INTERVAL = 60_000;

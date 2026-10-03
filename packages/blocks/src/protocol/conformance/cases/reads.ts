@@ -1,10 +1,10 @@
 /**
  * `describe`, `schema.get` and `blocks.list`, including conditional reads.
  */
-import { ErrorCode } from "../../errors";
-import { PROTOCOL_NAME, SCHEMA_FORMAT } from "../../types";
-import { assert, assertEqual, expectError } from "../context";
-import type { ConformanceCase } from "./types";
+import { ErrorCode } from "../../errors.ts";
+import { PROTOCOL_NAME, SCHEMA_FORMAT } from "../../types.ts";
+import { assert, assertEqual, expectError } from "../context.ts";
+import type { ConformanceCase } from "./types.ts";
 
 const LIMIT_KEYS = [
   "maxOpsPerApply",

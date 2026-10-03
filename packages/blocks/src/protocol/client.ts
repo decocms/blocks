@@ -2,7 +2,7 @@
  * A small content-protocol client: one method per protocol method, plus
  * batches. Uses `fetch`, so it runs in browsers, on Workers and on Node.
  */
-import { ContentProtocolError, ErrorCode, type RpcErrorObject } from "./errors";
+import { ContentProtocolError, ErrorCode, type RpcErrorObject } from "./errors.ts";
 import {
   type DescribeResult,
   type MethodName,
@@ -10,7 +10,7 @@ import {
   PROTOCOL_NAME,
   PROTOCOL_VERSION,
   type RpcId,
-} from "./types";
+} from "./types.ts";
 
 export interface ContentClientOptions {
   /** The endpoint URL, such as `http://127.0.0.1:4545/rpc`. */

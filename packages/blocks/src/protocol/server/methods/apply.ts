@@ -18,7 +18,7 @@
  * key reserved meanwhile) is retried against a new snapshot after a jittered
  * backoff, rechecking every guard, up to `maxCommitAttempts` times.
  */
-import { applyRequestDigest, canonicalJson } from "../../canonical";
+import { applyRequestDigest, canonicalJson } from "../../canonical.ts";
 import {
   type BlockViolation,
   conflict,
@@ -29,7 +29,7 @@ import {
   unavailable,
   unsupported,
   type VersionMismatch,
-} from "../../errors";
+} from "../../errors.ts";
 import {
   blockFileName,
   blockNameFromFile,
@@ -39,13 +39,13 @@ import {
   isBlockFileName,
   serializeBlock,
   spellingKey,
-} from "../../keys";
-import { checkSecrets } from "../../secrets";
-import type { StorageDescription, StoredReceipt } from "../../storage";
-import type { BlocksApplyParams, BlocksApplyResult, DecoMeta, Limits } from "../../types";
-import { type LoadedContent, type LoadedEntry, loadCurrentContent } from "../content";
-import type { Core } from "../core";
-import { parseSchema, readSchema } from "./read";
+} from "../../keys.ts";
+import { checkSecrets } from "../../secrets.ts";
+import type { StorageDescription, StoredReceipt } from "../../storage.ts";
+import type { BlocksApplyParams, BlocksApplyResult, DecoMeta, Limits } from "../../types.ts";
+import { type LoadedContent, type LoadedEntry, loadCurrentContent } from "../content.ts";
+import type { Core } from "../core.ts";
+import { parseSchema, readSchema } from "./read.ts";
 
 const utf8 = new TextEncoder();
 

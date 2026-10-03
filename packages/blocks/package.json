@@ -11,9 +11,11 @@
 		"url": "https://github.com/decocms/blocks.git",
 		"directory": "packages/blocks"
 	},
-	"main": "./src/index.ts",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
 	"files": [
 		"bin",
+		"dist",
 		"src",
 		"!src/**/*.test.ts",
 		"!src/**/*.test.tsx",
@@ -26,28 +28,72 @@
 		"deco": "./bin/deco.js"
 	},
 	"exports": {
-		".": "./src/index.ts",
-		"./analytics": "./src/v8/analytics.ts",
-		"./cli": "./src/v8/cli/index.ts",
-		"./fetch": "./src/v8/fetch.ts",
-		"./secrets": "./src/v8/secrets.ts",
-		"./protocol": "./src/protocol/index.ts",
-		"./protocol/keys": "./src/protocol/keys.ts",
-		"./protocol/server": "./src/protocol/server/index.ts",
-		"./protocol/storage/fs": {
-			"node": "./src/protocol/storage/fs/index.ts",
-			"default": "./src/protocol/storage/fs/unsupported.ts"
+		".": {
+			"types": "./dist/index.d.ts",
+			"source": "./src/index.ts",
+			"default": "./dist/index.js"
 		},
-		"./protocol/conformance": "./src/protocol/conformance/index.ts"
+		"./analytics": {
+			"types": "./dist/v8/analytics.d.ts",
+			"source": "./src/v8/analytics.ts",
+			"default": "./dist/v8/analytics.js"
+		},
+		"./cli": {
+			"types": "./dist/v8/cli/index.d.ts",
+			"source": "./src/v8/cli/index.ts",
+			"default": "./dist/v8/cli/index.js"
+		},
+		"./fetch": {
+			"types": "./dist/v8/fetch.d.ts",
+			"source": "./src/v8/fetch.ts",
+			"default": "./dist/v8/fetch.js"
+		},
+		"./secrets": {
+			"types": "./dist/v8/secrets.d.ts",
+			"source": "./src/v8/secrets.ts",
+			"default": "./dist/v8/secrets.js"
+		},
+		"./protocol": {
+			"types": "./dist/protocol/index.d.ts",
+			"source": "./src/protocol/index.ts",
+			"default": "./dist/protocol/index.js"
+		},
+		"./protocol/keys": {
+			"types": "./dist/protocol/keys.d.ts",
+			"source": "./src/protocol/keys.ts",
+			"default": "./dist/protocol/keys.js"
+		},
+		"./protocol/server": {
+			"types": "./dist/protocol/server/index.d.ts",
+			"source": "./src/protocol/server/index.ts",
+			"default": "./dist/protocol/server/index.js"
+		},
+		"./protocol/storage/fs": {
+			"node": {
+				"types": "./dist/protocol/storage/fs/index.d.ts",
+				"source": "./src/protocol/storage/fs/index.ts",
+				"default": "./dist/protocol/storage/fs/index.js"
+			},
+			"default": {
+				"types": "./dist/protocol/storage/fs/unsupported.d.ts",
+				"source": "./src/protocol/storage/fs/unsupported.ts",
+				"default": "./dist/protocol/storage/fs/unsupported.js"
+			}
+		},
+		"./protocol/conformance": {
+			"types": "./dist/protocol/conformance/index.d.ts",
+			"source": "./src/protocol/conformance/index.ts",
+			"default": "./dist/protocol/conformance/index.js"
+		}
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+		"prepack": "npm run build",
 		"test": "vitest run --root ../.. packages/blocks/",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
 	},
 	"dependencies": {
 		"ajv": "^8.20.0",
-		"tsx": "^4.22.5",
 		"zod": "^4.4.3"
 	},
 	"peerDependencies": {
@@ -58,8 +104,7 @@
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"esbuild": "^0.27.3",
-		"react-dom": "^19.0.0",
-		"typescript": "^5.9.0"
+		"react-dom": "^19.0.0"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org",

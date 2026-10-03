@@ -5,7 +5,7 @@
  */
 import { open, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { StorageUnavailableError } from "../../storage";
+import { StorageUnavailableError } from "../../storage.ts";
 
 const LOCK_FILE = ".blocks.lock";
 const queues = new Map<string, Promise<unknown>>();

@@ -1,7 +1,7 @@
 /**
  * Request authorization shared by the content handler and the asset handler.
  */
-import { bearerToken, timingSafeEqualStrings } from "./http";
+import { bearerToken, timingSafeEqualStrings } from "./http.ts";
 
 /**
  * What an `authorize` hook decides:

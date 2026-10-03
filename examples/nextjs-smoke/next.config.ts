@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
-// @decocms/blocks ships plain .ts source; Next compiles it only when told to.
-const nextConfig: NextConfig = { transpilePackages: ["@decocms/blocks"] };
+// No transpilePackages: @decocms/blocks ships compiled JavaScript (dist/, one
+// .js per source file), which Next loads from node_modules like any package.
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

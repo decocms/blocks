@@ -3,7 +3,7 @@
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
-import { lazySchema, resolvableRef, sectionRef } from "./typeToSchema";
+import { lazySchema, resolvableRef, sectionRef } from "./typeToSchema.ts";
 
 export type ManifestGroup = "sections" | "matchers" | "loaders" | "pages" | "redirects" | "content";
 

@@ -179,7 +179,7 @@ describe("runCli", () => {
 });
 
 describe("the bin", () => {
-  it("runs under plain Node, through tsx", () => {
+  it("runs under plain Node, from the compiled dist/", () => {
     fixture = createFixture();
     fixture.write(".deco/blocks/A.json", hero);
     const result = spawnSync(process.execPath, [path.join(packageRoot, "bin/deco.js"), "content"], {
@@ -204,13 +204,17 @@ describe("the bin", () => {
   it("is the package's single bin, and the commands are the ./cli subpath", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
     expect(pkg.bin).toEqual({ deco: "./bin/deco.js" });
-    expect(pkg.exports["./cli"]).toBe("./src/v8/cli/index.ts");
+    expect(pkg.exports["./cli"]).toEqual({
+      types: "./dist/v8/cli/index.d.ts",
+      source: "./src/v8/cli/index.ts",
+      default: "./dist/v8/cli/index.js",
+    });
     expect(pkg.peerDependencies.typescript).toBeDefined();
     // The compiler is the app's peer, not one bundled into a dependency.
     expect(pkg.dependencies["ts-morph"]).toBeUndefined();
     // Tests and their fixtures stay out of the published package.
     expect(pkg.files).toEqual(
-      expect.arrayContaining(["bin", "src", "!src/**/*.test.ts", "!src/**/__tests__"]),
+      expect.arrayContaining(["bin", "dist", "src", "!src/**/*.test.ts", "!src/**/__tests__"]),
     );
   });
 
