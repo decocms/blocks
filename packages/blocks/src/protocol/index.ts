@@ -19,10 +19,28 @@ export {
   APPLY_DIGEST_DOMAIN,
   applyRequestDigest,
   CanonicalJsonError,
+  CONTENT_HASH_FORMAT,
   canonicalJson,
+  computeContentRevision,
   sha256Hex,
 } from "./canonical";
 export {
+  CIPHERTEXT_PATTERN,
+  CIPHERTEXT_VERSION,
+  type CiphertextParts,
+  decodeBase64Url,
+  encodeBase64Url,
+  encryptToCiphertext,
+  formatCiphertext,
+  GCM_TAG_BYTES,
+  IV_BYTES,
+  parseCiphertext,
+  publicKeyDerFromPem,
+  publicKeyPemFromDer,
+  WRAPPED_KEY_BYTES,
+} from "./ciphertext";
+export {
+  assertSupportedEndpoint,
   type BatchCall,
   type BatchOutcome,
   type ContentClient,
@@ -32,7 +50,6 @@ export {
 export * from "./errors";
 export * from "./keys";
 export {
-  CIPHERTEXT_PATTERN,
   checkSecrets,
   isSecretBlock,
   isSecretFieldSchema,

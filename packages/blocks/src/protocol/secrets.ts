@@ -3,13 +3,15 @@
  * field, so the site editor and agents can't save a credential by mistake.
  *
  * A `Secret` field must hold a `secret` block with a well-formed
- * `ciphertext` (`{ "__resolveType": "secret", "ciphertext": "v1.…" }`), or a
+ * `ciphertext` (`{ "__resolveType": "secret", "ciphertext": "v1.…" }`, in the
+ * format `./ciphertext` pins: three base64url segments of checked lengths), or a
  * variant block whose every value does. Every `secret` block anywhere in an
  * entry must carry a well-formed `ciphertext`, whatever its field.
  *
  * The schema marks a `Secret` field with `"format": "secret"` — the contract
  * `deco schema` emits for the `Secret` type. Browser-safe.
  */
+import { parseCiphertext } from "./ciphertext";
 import type { BlockViolation } from "./errors";
 import type { DecoMeta } from "./types";
 
@@ -18,12 +20,6 @@ export const SECRET_BLOCK_TYPE = "secret";
 
 /** The JSON Schema `format` that marks a `Secret` field. */
 export const SECRET_FORMAT = "secret";
-
-/**
- * A well-formed ciphertext: the `v1.` version prefix, then one or more
- * dot-separated base64 or base64url segments. Checking the format needs no key.
- */
-export const CIPHERTEXT_PATTERN = /^v1(?:\.[A-Za-z0-9+/_-]+={0,2})+$/;
 
 const MULTIVARIATE_TYPES = new Set(["multivariate", "website/flags/multivariate.ts"]);
 const LAZY_TYPE = "lazy";
@@ -39,9 +35,13 @@ const resolveTypeOf = (value: unknown): string | undefined =>
 
 const escapePointer = (key: string) => key.replace(/~/g, "~0").replace(/\//g, "~1");
 
-/** True when `ciphertext` is a well-formed secret ciphertext. */
+/**
+ * True when `ciphertext` is a well-formed secret ciphertext:
+ * `v1.<wrappedKey>.<iv>.<ciphertext>` with segment lengths an RSA-OAEP and
+ * AES-256-GCM encryption produces. Checking it needs no key.
+ */
 export function isWellFormedCiphertext(ciphertext: unknown): ciphertext is string {
-  return typeof ciphertext === "string" && CIPHERTEXT_PATTERN.test(ciphertext);
+  return parseCiphertext(ciphertext) !== null;
 }
 
 /** True when a JSON Schema node describes a `Secret` field. */
@@ -177,7 +177,7 @@ class SecretWalker {
       this.report(
         pointer,
         "secret-ciphertext",
-        'a "secret" block must carry a well-formed "ciphertext" (v1.…)',
+        'a "secret" block must carry a well-formed "ciphertext" (v1.<wrappedKey>.<iv>.<ciphertext>)',
       );
     }
     const definition = this.meta ? blockIndex(this.meta).get(type) : undefined;

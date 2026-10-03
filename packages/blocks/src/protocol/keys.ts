@@ -52,10 +52,14 @@ export function blockFileName(name: string): string {
   return `${encodeURIComponent(name)}${BLOCK_FILE_EXTENSION}`;
 }
 
-/** True when `file` is a saved-block file name (ends in `.json`, has a stem, no folder). */
+/**
+ * True when `file` is a saved-block file name: it ends in `.json`, has a stem,
+ * isn't in a folder and isn't a dotfile (hidden files are never entries).
+ */
 export function isBlockFileName(file: string): boolean {
   return (
     file.endsWith(BLOCK_FILE_EXTENSION) &&
+    !file.startsWith(".") &&
     file.length > BLOCK_FILE_EXTENSION.length &&
     !file.includes("/") &&
     !file.includes("\\")
@@ -178,6 +182,7 @@ export type NameViolationReason =
   | "empty"
   | "invalid-character"
   | "dot-dot"
+  | "leading-dot"
   | "too-long"
   | "case-collision"
   | "device-name"
@@ -215,6 +220,12 @@ export function checkBlockName(name: string, options: NameCheckOptions = {}): Na
   }
   if (name.includes("..")) {
     violations.push({ reason: "dot-dot", message: 'the name contains ".."' });
+  }
+  if (name.startsWith(".")) {
+    violations.push({
+      reason: "leading-dot",
+      message: 'the name starts with ".", which would make its file hidden',
+    });
   }
   if (name === "__proto__") {
     violations.push({ reason: "reserved", message: 'the name "__proto__" is reserved' });

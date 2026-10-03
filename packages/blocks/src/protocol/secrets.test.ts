@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CIPHERTEXT,
+  ciphertextWithLengths,
   SECRET_BLOCK,
   SECRET_FIELD,
   schemaFixture,
@@ -17,21 +18,32 @@ const rules = (entry: unknown, meta = schemaFixture) =>
   checkSecrets("entry", entry, meta).map((v) => `${v.rule}@${v.pointer}`);
 
 describe("ciphertext format", () => {
-  it.each(["v1.QUJD", "v1.QUJD.ZGVm", "v1.AbX3-_x", "v1.YWJj==", "v1.a+b/c"])("accepts %j", (c) => {
-    expect(isWellFormedCiphertext(c)).toBe(true);
+  it.each([
+    ["a 2048-bit wrapped key", 256, 12, 16],
+    ["a 3072-bit wrapped key", 384, 12, 32],
+    ["a 4096-bit wrapped key", 512, 12, 1024],
+  ])("accepts %s", (_label, key, iv, ciphertext) => {
+    expect(isWellFormedCiphertext(ciphertextWithLengths(key, iv, ciphertext))).toBe(true);
   });
 
   it.each([
-    "",
-    "v1.",
-    "v1",
-    "v2.QUJD",
-    "hunter2",
-    "v1.QU JD",
-    "v1..QUJD",
-    42,
-    null,
-  ])("refuses %j", (c) => {
+    ["an empty string", ""],
+    ["the bare version", "v1."],
+    ["plain text behind the version prefix", "v1.hunter2"],
+    ["an API key behind the version prefix", "v1.my-api-key_123"],
+    ["two short segments", "v1.QUJD.ZGVm"],
+    ["another version", CIPHERTEXT.replace(/^v1/, "v2")],
+    ["a wrapped key of the wrong length", ciphertextWithLengths(255, 12, 16)],
+    ["an iv of the wrong length", ciphertextWithLengths(384, 16, 32)],
+    ["a ciphertext shorter than the GCM tag", ciphertextWithLengths(384, 12, 15)],
+    ["a fourth segment", `${CIPHERTEXT}.QUJD`],
+    ["padding", `${CIPHERTEXT}==`],
+    ["a standard-base64 character", CIPHERTEXT.replace(/.$/, "+")],
+    ["a space", CIPHERTEXT.replace(".", ". ")],
+    ["plain text", "hunter2"],
+    ["a number", 42],
+    ["null", null],
+  ])("refuses %s", (_label, c) => {
     expect(isWellFormedCiphertext(c)).toBe(false);
   });
 

@@ -2,6 +2,7 @@
  * Shared test fixtures: a small deco-meta@1 schema with a Secret field, and
  * helpers to call a handler in process.
  */
+import { encodeBase64Url, formatCiphertext, publicKeyPemFromDer } from "../ciphertext";
 import type { DecoMeta } from "../types";
 
 export const SECRET_BLOCK = "newsletter";
@@ -57,10 +58,48 @@ export const schemaFixture: DecoMeta = {
   },
 };
 
-export const CIPHERTEXT = "v1.QUJDREVG.Z2hpamts";
+const filled = (length: number, byte: number) => new Uint8Array(length).fill(byte);
+
+/** A structurally valid ciphertext (3072-bit wrapped key, 12-byte iv, 32 bytes of ciphertext). */
+export const CIPHERTEXT = formatCiphertext({
+  wrappedKey: filled(384, 7),
+  iv: filled(12, 1),
+  ciphertext: filled(32, 2),
+});
+
+/** Builds `v1.<a>.<b>.<c>` from segment lengths, valid or not. */
+export const ciphertextWithLengths = (wrappedKey: number, iv: number, ciphertext: number) =>
+  ["v1", filled(wrappedKey, 3), filled(iv, 4), filled(ciphertext, 5)]
+    .map((part) => (typeof part === "string" ? part : encodeBase64Url(part)))
+    .join(".");
+
+/** A fresh RSA-OAEP key pair, its public key as a `PUBLIC KEY` PEM (what `.deco/secrets.pub` holds). */
+export async function generateSecretsKeyPair(modulusLength = 2048) {
+  const pair = (await crypto.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt", "decrypt"],
+  )) as CryptoKeyPair;
+  const spki = new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey));
+  return { privateKey: pair.privateKey, publicKeyPem: publicKeyPemFromDer(spki) };
+}
 
 export const secretBlock = (ciphertext = CIPHERTEXT) => ({ __resolveType: "secret", ciphertext });
 
 /** A fetch that calls `handler` in process. */
 export const inProcess = (handler: (request: Request) => Promise<Response>) => (request: Request) =>
   handler(request);
+
+/** Routes `/assets/*` to the asset handler and everything else to the protocol, as `deco serve` does. */
+export const route =
+  (rpc: (request: Request) => Promise<Response>, assets: (request: Request) => Promise<Response>) =>
+  (request: Request) =>
+    new URL(request.url).pathname.startsWith("/assets/") ? assets(request) : rpc(request);
+
+/** Limits low enough for the conformance suite to probe the list and batch-response bounds. */
+export const PROBE_LIMITS = { maxListBytes: 256 * 1024, maxBatchResponseBytes: 384 * 1024 };

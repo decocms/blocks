@@ -139,6 +139,12 @@ describe("file content", () => {
     expect(isBlockFileName("a.ts")).toBe(false);
     expect(isBlockFileName("a/b.json")).toBe(false);
   });
+
+  it("never treats a dotfile as a saved block", () => {
+    expect(isBlockFileName(".env.json")).toBe(false);
+    expect(isBlockFileName("..json")).toBe(false);
+    expect(isBlockFileName(".DS_Store.json")).toBe(false);
+  });
 });
 
 describe("names the site editor can't save", () => {
@@ -151,6 +157,9 @@ describe("names the site editor can't save", () => {
     ["a\0b", "invalid-character"],
     ["a..b", "dot-dot"],
     ["..", "dot-dot"],
+    [".env", "leading-dot"],
+    [".", "leading-dot"],
+    [".hidden page", "leading-dot"],
     ["__proto__", "reserved"],
     ["CON", "device-name"],
     ["con", "device-name"],
@@ -186,6 +195,8 @@ describe("names the site editor can't save", () => {
       "COM",
       "CONsole",
       "a.json",
+      "a.b",
+      "end.",
     ]) {
       expect(reasons(name)).toEqual([]);
     }
