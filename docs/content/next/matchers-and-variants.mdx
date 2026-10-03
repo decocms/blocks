@@ -56,7 +56,7 @@ const title = now >= start && now < end ? "Black Friday: 40% off everything" : "
 <PromoBanner title={title} href="/deals" />;
 ```
 
-A **variant** is a `rule` plus a `value`; a **matcher** is a [block](/next/blocks) function that returns `true` or `false`. Each piece of the code version has a block:
+`multivariate` is a [built-in block](/next/blocks#built-in-blocks). It evaluates each variant's `rule` in order and returns the `value` of the first one that's `true`. Each rule is a **matcher**: a block function that returns `true` or `false`, such as the built-in `date` and `always`. Each piece of the code version has a block:
 
 | In code | As blocks |
 | --- | --- |
