@@ -80,7 +80,7 @@ function acceptsGzip(request: Request): boolean {
   const header = request.headers.get("accept-encoding");
   if (!header) return false;
   return header.split(",").some((part) => {
-    const [coding, ...params] = part.trim().toLowerCase().split(";");
+    const [coding = "", ...params] = part.trim().toLowerCase().split(";");
     if (coding.trim() !== "gzip" && coding.trim() !== "*") return false;
     const q = params.map((p) => p.trim()).find((p) => p.startsWith("q="));
     return q === undefined || Number(q.slice(2)) > 0;
@@ -119,7 +119,7 @@ export function jsonResponse(
 /** True when the request's `Content-Type` is JSON (`application/json`, any parameters). */
 export function isJsonContentType(request: Request): boolean {
   const type = request.headers.get("content-type");
-  return type !== null && type.split(";")[0].trim().toLowerCase() === "application/json";
+  return type !== null && type.split(";")[0]!.trim().toLowerCase() === "application/json";
 }
 
 /** The bearer token of the request, or `null` without one. */
@@ -127,7 +127,7 @@ export function bearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
   if (!header) return null;
   const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 /** Compares two strings in time independent of where they differ. */

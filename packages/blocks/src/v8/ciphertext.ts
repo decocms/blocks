@@ -81,9 +81,9 @@ const validParts = ({ wrappedKey, iv, ciphertext }: CiphertextParts) =>
 export function parseCiphertext(text: unknown): CiphertextParts | null {
   if (typeof text !== "string" || !CIPHERTEXT_PATTERN.test(text)) return null;
   const [, rawKey, rawIv, rawCiphertext] = text.split(".");
-  const wrappedKey = decodeBase64Url(rawKey);
-  const iv = decodeBase64Url(rawIv);
-  const ciphertext = decodeBase64Url(rawCiphertext);
+  const wrappedKey = decodeBase64Url(rawKey!);
+  const iv = decodeBase64Url(rawIv!);
+  const ciphertext = decodeBase64Url(rawCiphertext!);
   if (!wrappedKey || !iv || !ciphertext) return null;
   const parts = { wrappedKey, iv, ciphertext };
   return validParts(parts) ? parts : null;
@@ -109,9 +109,10 @@ const PEM_BLOCK = /-----BEGIN ([A-Z ]+)-----([\s\S]*?)-----END \1-----/g;
 /** The DER bytes of a single `PUBLIC KEY` PEM block; `null` for anything else. */
 export function publicKeyDerFromPem(pem: string): Uint8Array | null {
   const blocks = [...pem.matchAll(PEM_BLOCK)];
-  if (blocks.length !== 1 || blocks[0][1] !== "PUBLIC KEY") return null;
-  if (pem.replace(blocks[0][0], "").trim() !== "") return null;
-  const body = blocks[0][2].replace(/\s+/g, "");
+  const block = blocks[0];
+  if (blocks.length !== 1 || !block || block[1] !== "PUBLIC KEY") return null;
+  if (pem.replace(block[0], "").trim() !== "") return null;
+  const body = (block[2] ?? "").replace(/\s+/g, "");
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body)) return null;
   try {
     return Uint8Array.from(atob(body), (c) => c.charCodeAt(0));

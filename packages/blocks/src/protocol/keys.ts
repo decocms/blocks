@@ -169,6 +169,7 @@ export function resolveSpellings<T extends SpellingCandidate>(
   const winners: ResolvedSpelling<T>[] = [];
   for (const group of groups.values()) {
     const [winner, ...shadowed] = [...group].sort(compareSpellings);
+    if (!winner) continue;
     winners.push({ name: blockNameFromFile(winner.file), winner, shadowed });
   }
   winners.sort((a, b) =>
@@ -237,7 +238,7 @@ export function checkBlockName(name: string, options: NameCheckOptions = {}): Na
       message: `the encoded name is over ${MAX_ENCODED_NAME_BYTES} bytes`,
     });
   }
-  const deviceStem = encoded.split(".")[0].toUpperCase();
+  const deviceStem = encoded.split(".")[0]!.toUpperCase();
   if (WINDOWS_DEVICE_NAMES.has(deviceStem)) {
     violations.push({
       reason: "device-name",

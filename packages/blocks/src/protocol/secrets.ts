@@ -91,7 +91,7 @@ class SecretWalker {
     for (let hops = 0; hops < 32 && isObject(current) && typeof current.$ref === "string"; hops++) {
       const match = /^#\/definitions\/(.+)$/.exec(current.$ref);
       if (!match) return current;
-      const key = decodeURIComponent(match[1]).replace(/~1/g, "/").replace(/~0/g, "~");
+      const key = decodeURIComponent(match[1]!).replace(/~1/g, "/").replace(/~0/g, "~");
       current = this.meta?.schema?.definitions?.[key];
     }
     return current;

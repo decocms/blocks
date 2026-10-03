@@ -42,7 +42,7 @@ export interface AssetTypeOptions {
 }
 
 const mediaType = (contentType: string | null) =>
-  contentType ? contentType.split(";")[0].trim().toLowerCase() : "";
+  contentType ? contentType.split(";")[0]!.trim().toLowerCase() : "";
 
 /** The extensions an upload of `contentType` may have; `null` when the type isn't accepted. */
 export function assetExtensions(
@@ -50,8 +50,8 @@ export function assetExtensions(
   options: AssetTypeOptions = {},
 ): readonly string[] | null {
   const type = mediaType(contentType);
-  if (Object.hasOwn(ASSET_TYPES, type)) return ASSET_TYPES[type];
-  if (options.allowSvg && type === "image/svg+xml") return SVG_ASSET_TYPE[type];
+  if (Object.hasOwn(ASSET_TYPES, type)) return ASSET_TYPES[type] ?? null;
+  if (options.allowSvg && type === "image/svg+xml") return SVG_ASSET_TYPE[type] ?? null;
   return null;
 }
 
