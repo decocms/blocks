@@ -18,7 +18,14 @@ This page shows the one exception to that rule, the built-in `lazy` block: how t
 Blocks resolve [from the inside out](/next/blocks#composing-blocks): every argument runs before its function. A **lazy block** is the one block that doesn't. `lazy` wraps a `value` (any block or JSON), and the function receives a function instead of the value. Calling it resolves `value`:
 
 ```jsonc
-// Stored as JSON
+// The call
+productCard({
+  title: "Summer collection",
+  showProduct: false,
+  product: () => catalogProduct({ slug: "summer-shirt" }),
+});
+
+// Saved as JSON
 {
   "__resolveType": "product-card",
   "title": "Summer collection",
@@ -28,13 +35,6 @@ Blocks resolve [from the inside out](/next/blocks#composing-blocks): every argum
     "value": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
   }
 }
-
-// Means
-productCard({
-  title: "Summer collection",
-  showProduct: false,
-  product: () => catalogProduct({ slug: "summer-shirt" }),
-});
 ```
 
 `catalogProduct` runs only if `productCard` calls `product()`, and at most once: a second call returns the same result. If it's never called, nothing inside it runs. If `value` fails, calling the function rejects with that error, and the function that called it handles it.

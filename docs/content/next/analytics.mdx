@@ -18,61 +18,54 @@ Analytics has nothing to do with [telemetry](/next/telemetry): telemetry is erro
 
 ### 1. Save an `analytics` block
 
-Save a block whose type is the built-in `analytics`, with the collector page views go to:
+Save a block whose type is the built-in `analytics`. With no arguments, it uses the defaults:
+
+```json title=".deco/blocks/Analytics.json"
+{ "__resolveType": "analytics" }
+```
+
+Like any [saved block](/next/saved-blocks), it's a JSON file in your repository, and Studio shows it as a form.
+
+The `analytics` block holds settings, not a script: it returns its arguments with the defaults filled in. To send page views to your own collector, set `collector`:
 
 ```json title=".deco/blocks/Analytics.json"
 { "__resolveType": "analytics", "collector": "https://stats.example.com/events" }
 ```
 
-Like any [saved block](/next/saved-blocks), it's a JSON file in your repository, and Studio shows it as a form.
+### 2. Render the script
 
-### 2. Render it
-
-The `analytics` block returns the tracking script as JSX, so you render it like any other block. Either put it in your root layout, so every page gets it:
+Resolve the block in your root layout and pass the settings to `AnalyticsScript`, from `@decocms/blocks/analytics`, so every page gets it:
 
 ```tsx title="app/layout.tsx"
+import { AnalyticsScript } from "@decocms/blocks/analytics";
 import { cms } from "../cms";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const [analytics] = await cms.forRelease().resolve("Analytics");   // a <script> tag, or null when it's off
+  const [analytics] = await cms.forRelease().resolve("Analytics");   // the settings, defaults filled in
 
   return (
     <html lang="en">
       <body>
         {children}
-        {analytics}
+        <AnalyticsScript {...analytics} />
       </body>
     </html>
   );
 }
 ```
 
-Or add `"Analytics"` to a page's `sections`, so it runs on that page only. Either way, in the browser, the script sends a page view on every navigation: the path without its query string, the referrer and the hostname.
-
-**With [TanStack Start descriptors](/next/tanstack-start-descriptors).** There, blocks return descriptors instead of JSX, so declare `analytics` in your block map to return one too, and render it with `AnalyticsScript`, the component the built-in block uses:
-
-```tsx
-// .deco/index.ts: replaces the built-in, same props
-analytics: (input: Analytics): BlockDescriptor => ({ component: "analytics", props: input }),
-
-// src/routes/$.tsx: one more case in View
-case "analytics":
-  return <AnalyticsScript {...block.props} />;
-```
-
-`Analytics` (the props type) comes from `@decocms/blocks` and `AnalyticsScript` from `@decocms/blocks/analytics`. Saved blocks and page `sections` stay the same.
+It works the same on every framework, since the block returns plain settings. In the browser, the script sends a page view on every navigation: the path without its query string, the referrer and the hostname.
 
 ## Props
 
 | Prop | Default | What it does |
 |---|---|---|
-| `collector` | none | The endpoint page views go to: One Dollar Stats' collector or any endpoint that accepts its format. |
-| `site` | none | Your site's ID in the hosted Deco CMS, which sends page views to the hosted collector (see below). `collector` wins when both are set. |
-| `enabled` | `true` | Renders nothing when `false`. |
+| `collector` | The hosted Deco CMS collector | The endpoint page views go to: One Dollar Stats' collector or any endpoint that accepts its format. |
+| `enabled` | `true` | `AnalyticsScript` renders nothing when `false`. |
 
-Without `collector` or `site`, the block renders nothing, so nothing is sent. The exact type is in the [API reference](/next/api-reference#types).
+There's no site ID: like One Dollar Stats, the collector tells sites apart by the page's hostname. The exact type is in the [API reference](/next/api-reference#types).
 
-<Hosted to="/next/hosted" label="The hosted Deco CMS">**Analytics with nothing to run.** Set `site` instead of `collector`, `{ "__resolveType": "analytics", "site": "my-store" }`, and the hosted Deco CMS collects your page views and shows them for your site. The site ID isn't a secret, so it's safe in content.</Hosted>
+<Hosted to="/next/hosted" label="The hosted Deco CMS">**Analytics with nothing to run.** Leave `collector` out, and the hosted Deco CMS collects your page views and shows them for your site. It only counts page views from sites [connected](/next/hosted#connect-your-site) to the hosted Deco CMS, so without it, set `collector` or turn analytics off.</Hosted>
 
 ## Send your own events
 
@@ -84,17 +77,17 @@ import { track } from "@decocms/blocks/analytics";
 <button onClick={() => { addToCart(sku); track("add_to_cart", { sku }); }}>Add to cart</button>
 ```
 
-`track` sends through the script the `analytics` block renders. On a page without it, `track` does nothing.
+`track` sends through the script `AnalyticsScript` renders. On a page without it, `track` does nothing.
 
 ## Turn it off
 
 Set `enabled` to `false`, in Studio or by hand:
 
 ```json title=".deco/blocks/Analytics.json"
-{ "__resolveType": "analytics", "collector": "https://stats.example.com/events", "enabled": false }
+{ "__resolveType": "analytics", "enabled": false }
 ```
 
-It's a content edit, so it ships like any other, and switching it back on is the same one-field commit. Because it's a block, you can also wrap it in [variants](/next/matchers-and-variants), to run it only during a campaign, for example.
+It's a content edit, so it ships like any other, and switching it back on is the same one-field commit. Because it's a block, you can also pick between settings with [variants](/next/matchers-and-variants), to switch it on only during a campaign, for example.
 
 ## One Dollar Stats
 

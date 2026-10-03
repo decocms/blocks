@@ -12,7 +12,7 @@ order: 1
 
 Most of what changes on a website isn't code. It's the values the code is called with: a headline, a banner image, the share of visitors who see the new checkout. **Deco CMS** is a full suite of open-source libraries, CLIs and services that let you write your code so that marketers can tweak and evolve those values in a rich site editor. Deco CMS is powered by a syntax called [Blocks](/next/blocks). Blocks lets you serialize function calls as JSON, so the way your code calls its functions becomes editable.
 
-For example, `{ "__resolveType": "promo-banner", "title": "Free shipping over $50" }` means `PromoBanner({ title: "Free shipping over $50" })`, where `promo-banner` is the name your site gives `PromoBanner`.
+For example, the call `PromoBanner({ title: "Free shipping over $50" })` is saved as `{ "__resolveType": "promo-banner", "title": "Free shipping over $50" }`, where `promo-banner` is the name your site gives `PromoBanner`.
 
 This page follows one change, marketing switching the summer banner from "Free shipping over $75" to "Free shipping over $50", from the first line of code to a visitor's screen.
 
@@ -103,7 +103,7 @@ For the full move, see [Migrating from v7](/next/renames-and-migrations).
   <Term name="Revision">One exact version of the content, such as one commit. See [What a revision is](/next/releases-and-deployment#what-a-revision-is).</Term>
   <Term name="Resolve">What `client.resolve` does: read a saved block and call its function with the saved inputs. See [How resolution works](/next/how-resolution-works).</Term>
   <Term name="Telemetry">Errors, metrics and traces from your servers, sent over OpenTelemetry. See [Telemetry](/next/telemetry).</Term>
-  <Term name="Analytics">Page views from the browser, without cookies, compatible with One Dollar Stats. It's a built-in block you render, separate from telemetry. See [Analytics](/next/analytics).</Term>
+  <Term name="Analytics">Page views from the browser, without cookies, compatible with One Dollar Stats. It's a built-in block that holds its settings, separate from telemetry. See [Analytics](/next/analytics).</Term>
   <Term name="The hosted Deco CMS">The optional service Deco runs on the same files: publishing without a deploy, drafts on your real site, Studio on GitHub, asset storage, and collectors for telemetry and analytics. See [The hosted Deco CMS](/next/hosted).</Term>
 </Terms>
 

@@ -58,7 +58,7 @@ v7 configured telemetry with environment variables and shipped its analytics as 
 |---|---|
 | The OpenTelemetry export, switched on with `DECO_OTEL` and the `DECO_OTEL_*` endpoint and header variables (see [v7 observability](/v7/observability)) | The [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) of `createCMS`: `{ endpoint, headers? }` for your own collector, or the standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` variables. Sampling moves to the [Telemetry saved block](/next/telemetry#telemetry-settings-are-content). |
 | Metrics Deco collected for your site in its own backend | `telemetry: { site, token }`, set explicitly (see [Hosted telemetry](/next/hosted-telemetry)) |
-| The `Stats` and `OneDollarStats` components, and the `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` variables | A saved block of the built-in [`analytics`](/next/analytics) type, which speaks the [One Dollar Stats](/next/analytics#one-dollar-stats) format. Rendering it turns it on; its `enabled` field switches it off. |
+| The `Stats` and `OneDollarStats` components, and the `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` variables | A saved block of the built-in [`analytics`](/next/analytics) type, which speaks the [One Dollar Stats](/next/analytics#one-dollar-stats) format. Rendering `AnalyticsScript` with it turns it on; its `enabled` field switches it off. |
 
 ## Checklist for migrating existing content
 

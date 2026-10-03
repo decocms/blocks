@@ -23,7 +23,7 @@ This page lists the built-ins, what each one takes and returns, and how to repla
 | `page` | `name`, `path`, `seo`, `sections` | The page, fully resolved | [Pages and routing](/next/routing) |
 | `redirect` | `from`, `to`, `permanent` | Its arguments, as saved | [Pages and routing](/next/routing) |
 | `telemetry` | Telemetry settings | Its arguments, as saved | [Telemetry](/next/telemetry#telemetry-settings-are-content) |
-| `analytics` | `collector`, `site`, `enabled` | The analytics tracking script, as JSX | [Analytics](/next/analytics) |
+| `analytics` | `collector`, `enabled` | Its arguments, with defaults filled in | [Analytics](/next/analytics) |
 
 ## Language built-ins
 
@@ -49,7 +49,7 @@ These five are part of how blocks evaluate, so every site gets the same ones:
 These two are separate features:
 
 - **`telemetry`** is the type of the well-known `Telemetry` [saved block](/next/saved-blocks), which holds your site's telemetry switches and sample rates. It returns its arguments as saved; [Telemetry settings are content](/next/telemetry#telemetry-settings-are-content) lists the fields.
-- **`analytics`** takes `collector`, `site` and `enabled`, and returns the script that sends page views, as JSX (or `null` when it's off). Save one and render it in your layout or a page's `sections`; see [Analytics](/next/analytics).
+- **`analytics`** takes `collector` and `enabled`, both optional, and returns them with the defaults filled in (the hosted Deco CMS collector, and `true`). Save one, resolve it in your layout and pass it to `AnalyticsScript`; see [Analytics](/next/analytics).
 
 ## Change a built-in
 

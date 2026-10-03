@@ -40,18 +40,18 @@ export function PromoBanner({ title, href }: PromoBannerProps) {
 }
 ```
 
-And here's a block that calls it. `"promo-banner"` is the name your site gives `PromoBanner`; [The block map](#the-block-map) shows where names come from. These docs show every block in two parts: **Stored as JSON** is what's saved, and **Means** is the TypeScript call it stands for.
+And here's a block that calls it. `"promo-banner"` is the name your site gives `PromoBanner`; [The block map](#the-block-map) shows where names come from. These docs show every block in two parts: **The call** is the TypeScript you'd write, and **Saved as JSON** is how Blocks stores it.
 
 ```jsonc
-// Stored as JSON
+// The call
+PromoBanner({ title: "Free shipping over $50", href: "/summer" });
+
+// Saved as JSON
 {
   "__resolveType": "promo-banner",
   "title": "Free shipping over $50",
   "href": "/summer"
 }
-
-// Means
-PromoBanner({ title: "Free shipping over $50", href: "/summer" });
 ```
 
 Changing the headline or the link touches no code, and the same works for anything your site needs: UI, product data, SEO, navigation, campaign settings.
@@ -71,18 +71,18 @@ A block function gets only its arguments: no request, no context object. When it
 A block inside an argument is a call inside a call. Here a product card gets its product from a second function, `catalogProduct`, which fetches it from your catalog:
 
 ```jsonc
-// Stored as JSON
+// The call
+productCard({
+  title: "Summer collection",
+  product: catalogProduct({ slug: "summer-shirt" }),
+});
+
+// Saved as JSON
 {
   "__resolveType": "product-card",
   "title": "Summer collection",
   "product": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
 }
-
-// Means
-productCard({
-  title: "Summer collection",
-  product: catalogProduct({ slug: "summer-shirt" }),
-});
 ```
 
 Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives the resolved `Product`, never a pending call. If a function is `async`, its result is awaited first. Every argument resolves this way, before the function runs, with one exception: a [lazy block](/next/lazy-blocks), which runs only when the function asks for it.

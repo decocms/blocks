@@ -211,11 +211,11 @@ Each request is measured with `provider`, `operation`, `status_class`, `cached` 
 
 ## Analytics
 
-Page views come from the built-in [`analytics` block](/next/analytics), which needs no import; its props are the `Analytics` type in [Types](#types). From `@decocms/blocks/analytics`:
+Page view settings come from the built-in [`analytics` block](/next/analytics), which needs no import; its props are the `Analytics` type in [Types](#types). From `@decocms/blocks/analytics`:
 
 ```ts
-function track(name: string, props?: Record<string, string | number | boolean>): void;   // send your own event from the browser, through the script the analytics block renders; does nothing without it
-function AnalyticsScript(props: Analytics): ReactNode | null;   // the component the built-in block returns; render it yourself only with TanStack Start descriptors (see /next/analytics#2-render-it)
+function AnalyticsScript(props: Analytics): ReactNode | null;   // the tracking script; render it in your root layout with the resolved block's settings; null when enabled is false
+function track(name: string, props?: Record<string, string | number | boolean>): void;   // send your own event from the browser, through the script AnalyticsScript renders; does nothing without it
 ```
 
 ## Types
@@ -262,12 +262,10 @@ interface Telemetry {
 }
 
 // The built-in analytics block's props. Separate from telemetry. See /next/analytics.
-// The block is (props: Analytics) => ReactNode | null: the tracking script as JSX,
-// or null when enabled is false or neither collector nor site is set.
+// The block is (props?: Analytics) => Required<Analytics>: its input with the defaults filled in.
 interface Analytics {
-  collector?: string;   // an endpoint that accepts the One Dollar Stats format
-  site?: string;        // your hosted Deco CMS site ID: sends to the hosted collector; collector wins when both are set
-  enabled?: boolean;    // default true; false renders nothing
+  collector?: string;   // an endpoint that accepts the One Dollar Stats format; default: the hosted Deco CMS collector
+  enabled?: boolean;    // default true; false makes AnalyticsScript render nothing
 }
 
 type Match<T> =

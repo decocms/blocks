@@ -28,7 +28,7 @@ export default {
 } satisfies Blocks;
 ```
 
-These blocks return descriptors, not JSX, so they don't [fit](/next/schema#interchangeable-blocks) the built-in page's `sections: ReactNode[]`. The `page` key [replaces the built-in page](/next/built-in-blocks#change-a-built-in) with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in [`redirect`](/next/built-in-blocks#pages-and-redirects) block is added for you. The built-in `analytics` block returns JSX too, so if you use [analytics](/next/analytics#2-render-it), declare it the same way. Run `deco schema` and `deco content` before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
+These blocks return descriptors, not JSX, so they don't [fit](/next/schema#interchangeable-blocks) the built-in page's `sections: ReactNode[]`. The `page` key [replaces the built-in page](/next/built-in-blocks#change-a-built-in) with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in [`redirect`](/next/built-in-blocks#pages-and-redirects) block is added for you. Run `deco schema` and `deco content` before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
 
 ```json title="package.json"
 {

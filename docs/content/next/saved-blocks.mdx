@@ -60,7 +60,7 @@ What's saved is the call, not its result: `catalogProduct` runs each time the ca
 Refer to a saved block by putting its name in `__resolveType`. `{ "__resolveType": "SummerCard" }` means whatever is saved under `SummerCard`, written in place, so a home page and a campaign page can show the same card, and editing `SummerCard.json` updates every place that uses it:
 
 ```jsonc
-// Stored as JSON, in HomePage.json
+// Saved as JSON, in HomePage.json
 {
   "__resolveType": "page",
   "path": "/",
@@ -83,14 +83,15 @@ In [Studio](/next/studio), a field lists the saved blocks that fit its type, and
 A reference can add arguments. They're merged over the saved ones for that one use, and the saved block itself doesn't change:
 
 ```jsonc
+// The call
+seo({ title: "Summer sale", description: "Light layers for long days." });
+
+// Saved as JSON
 // Saved as SummerSEO
 { "__resolveType": "seo", "title": "Sunny!", "description": "Light layers for long days." }
 
 // A reference to it, anywhere in your content
 { "__resolveType": "SummerSEO", "title": "Summer sale" }
-
-// Means
-seo({ title: "Summer sale", description: "Light layers for long days." });
 ```
 
 The merge is `{ ...saved, ...arguments }`, so overrides are shallow: an override replaces a whole top-level property. The merged result is then looked up again by its `__resolveType`, by [the lookup rule](/next/blocks#the-lookup-rule).

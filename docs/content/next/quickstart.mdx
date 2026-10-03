@@ -109,8 +109,11 @@ Both routes produce the same file in `.deco/blocks`, which is where the CLI look
 ```
 
 ```ts
-// Means
+// The call
 experiments({ newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 });
+
+// Saved as JSON
+
 ```
 
 This "stored as JSON, means a call" pattern is what a block is: a function call written as JSON (see [Functions as blocks](/next/blocks#functions-as-blocks)). `__resolveType` is a reserved key that names the function to call by its block type. The other keys are that function's inputs. The file is a [saved block](/next/saved-blocks), a block stored under a name: its file name without `.json`.
