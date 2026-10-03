@@ -1,6 +1,6 @@
 ---
-description: Constitutional decisions for the deco-start migration-tooling effort (D1–D5 + D6.3/D7 deploy ownership, priorities, process). Always loaded.
-alwaysApply: true
+description: Constitutional decisions for the deco-start migration-tooling effort (D1–D5 + D6.3/D7 deploy ownership, priorities, process). Applies to the v7 migration tooling, which lives on the 7.x branch.
+alwaysApply: false
 ---
 
 # Migration Tooling Policy

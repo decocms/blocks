@@ -1,5 +1,5 @@
 /**
- * `@decocms/blocks/protocol/storage/memory`: an in-memory `ContentStorage`.
+ * An in-memory `ContentStorage` (internal; not a package subpath).
  *
  * A reference implementation of the storage contract, including durable
  * request-key receipts persisted atomically with each commit, and a fixture

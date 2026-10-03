@@ -1,15 +1,5 @@
-// @decocms/blocks — framework-agnostic core
-export * from "./cms/index";
-export * from "./hooks/index";
-export * from "./middleware/index";
-// Observability surface — logger + instrumentWorker live behind their own
-// granular imports too (see `@decocms/blocks/sdk/logger`, `.../observability`).
-export { type Logger, type LogLevel, logger, setLogLevel } from "./sdk/logger";
-export * from "./types/index";
-
-// Next major (v8) core SDK. Explicit re-exports shadow the star exports above,
-// so where v7 and v8 share a name (`DraftPointer`, `parseDraftPointer`) the
-// root serves the v8 one; v7's stays reachable at `@decocms/blocks/cms`.
+// @decocms/blocks: the v8 runtime API. The CLI, protocol and helpers live on
+// their own subpaths (`/cli`, `/protocol`, `/fetch`, `/analytics`, `/secrets`).
 export {
   type Analytics,
   type Block,

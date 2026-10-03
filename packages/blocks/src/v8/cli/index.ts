@@ -5,7 +5,7 @@
  * reaches an app bundle.
  *
  * The four commands and their options, plus what the one-time migration
- * (`@decocms/blocks-migrate`) reads: the built-in block names, the alias
+ * (the `deco-v7-to-v8-migration` skill) reads: the built-in block names, the alias
  * table and the saved-blocks reader.
  */
 export { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "./builtins";

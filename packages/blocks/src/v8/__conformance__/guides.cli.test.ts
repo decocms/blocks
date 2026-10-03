@@ -812,31 +812,24 @@ export default {
     T,
   );
 
-  it("in-11: the core packages and blocks-migrate depend on each other one way (v7 blocks-cli/eitri aside)", () => {
-    // blocks-cli and eitri are v7 tooling, removed with v7; tanstack's
-    // blocks-cli edge is its v7 Vite plugin and goes with them.
-    const V7 = new Set(["@decocms/blocks-cli"]);
-    const dep = (name: string) =>
-      Object.keys(
-        JSON.parse(fs.readFileSync(path.join(REPO, "packages", name, "package.json"), "utf8"))
-          .dependencies ?? {},
-      ).filter((d) => d.startsWith("@decocms/") && !V7.has(d));
-    expect(dep("blocks")).toEqual([]);
-    expect(dep("blocks-admin")).toEqual(["@decocms/blocks"]);
-    expect(dep("tanstack").sort()).toEqual(["@decocms/blocks", "@decocms/blocks-admin"]);
-    expect(dep("nextjs").sort()).toEqual(["@decocms/blocks", "@decocms/blocks-admin"]);
-    // The v7 migration tool (renames-and-migrations) sits on top of the SDK only.
-    expect(dep("blocks-migrate")).toEqual(["@decocms/blocks"]);
+  it("in-11: one package, @decocms/blocks, and upstream clients that depend only on it", () => {
+    const manifest = (name: string) =>
+      JSON.parse(fs.readFileSync(path.join(REPO, "packages", name, "package.json"), "utf8"));
+    const deco = (name: string) => {
+      const m = manifest(name);
+      return Object.keys({ ...m.dependencies, ...m.peerDependencies }).filter((d) =>
+        d.startsWith("@decocms/"),
+      );
+    };
     const packages = fs
       .readdirSync(path.join(REPO, "packages"))
-      .filter((d) => !d.startsWith("apps-") && !["blocks-cli", "eitri"].includes(d));
-    expect(packages.sort()).toEqual([
-      "blocks",
-      "blocks-admin",
-      "blocks-migrate",
-      "nextjs",
-      "tanstack",
-    ]);
+      .filter((d) => fs.existsSync(path.join(REPO, "packages", d, "package.json")));
+    expect(packages.filter((d) => !d.startsWith("apps-"))).toEqual(["blocks"]);
+    expect(packages.filter((d) => d.startsWith("apps-")).length).toBe(7);
+    expect(deco("blocks")).toEqual([]);
+    for (const app of packages.filter((d) => d.startsWith("apps-"))) {
+      expect([app, deco(app)]).toEqual([app, ["@decocms/blocks"]]);
+    }
   });
 });
 

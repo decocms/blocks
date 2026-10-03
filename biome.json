@@ -34,18 +34,16 @@
     "lineWidth": 100
   },
   "files": {
-    "includes": ["packages/*/src/**", "packages/*/scripts/**"]
+    "includes": [
+      "packages/*/src/**",
+      "tests/**",
+      ".agents/skills/deco-v7-to-v8-migration/scripts/**"
+    ]
   },
   "overrides": [
     {
       "includes": [
-        "packages/apps-vtex/src/**",
-        "packages/apps-wake/src/**",
-        "packages/apps-magento/src/**",
-        "packages/apps-resend/src/**",
-        "packages/apps-shopify/src/**",
-        "packages/apps-website/src/**",
-        "!packages/apps-vtex/src/hooks/**",
+        "packages/apps-*/src/**",
         "!packages/*/src/**/*.test.ts",
         "!packages/*/src/**/__tests__/**"
       ],
@@ -56,7 +54,7 @@
               "level": "error",
               "options": {
                 "deniedGlobals": {
-                  "fetch": "Bare fetch() skips the request timeout. Use this package's timeout-wrapped client (e.g. fetchSafe/vtexFetch/magentoFetch/withFetchTimeout from @decocms/blocks/sdk/fetchTimeout) instead."
+                  "fetch": "Bare fetch() skips upstream instrumentation. Use createInstrumentedFetch from @decocms/blocks/fetch."
                 }
               }
             }

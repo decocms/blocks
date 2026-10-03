@@ -44,8 +44,11 @@ name: Release
 
 on:
   push:
-    # main releases the 14 lockstep @decocms/* packages under blocks-v*.*.*
-    # tags (.releaserc.json). Publishing goes through npm Trusted Publishing
+    # main releases the 8 lockstep v8 packages (@decocms/blocks + the 7
+    # @decocms/apps-* clients) under blocks-v*.*.* tags (.releaserc.json).
+    # v7 (@decocms/blocks 7.x, tanstack, nextjs, blocks-admin, blocks-cli,
+    # apps-commerce/-blog/-website) releases from the 7.x branch, with its
+    # own copy of this workflow. Publishing goes through npm Trusted Publishing
     # (OIDC) — each package has this workflow configured as its trusted
     # publisher on npmjs.com; the "Release" step's id-token permission lets
     # `npm publish` exchange a GitHub OIDC token for a short-lived npm auth

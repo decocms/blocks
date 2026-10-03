@@ -1,9 +1,11 @@
 ---
 name: deco-next-package-migration
-description: Migrates a Next.js App Router site off the abandoned @decocms/start@5.x /next, /core, /node export tiers onto the current @decocms/blocks, @decocms/blocks-admin, and @decocms/nextjs packages. Use when a site's package.json pins @decocms/start to a 5.x-next prerelease, or imports from @decocms/start/next, @decocms/start/core, or @decocms/start/node.
+description: v7 only (7.x branch). Migrates a Next.js App Router site off the abandoned @decocms/start@5.x /next, /core, /node export tiers onto the current @decocms/blocks, @decocms/blocks-admin, and @decocms/nextjs packages. Use when a site's package.json pins @decocms/start to a 5.x-next prerelease, or imports from @decocms/start/next, @decocms/start/core, or @decocms/start/node.
 ---
 
 # Deco Next.js Package Migration
+
+> **v7 only.** This skill targets v7 sites (`@decocms/blocks` 7.x with `@decocms/tanstack`/`@decocms/nextjs`) and is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x); paths such as `packages/blocks-cli`, `packages/tanstack` or `packages/apps-*` loaders refer to that branch. To move a v7 site to the next major, use `deco-v7-to-v8-migration`.
 
 Moves a Next.js site off the reverted `@decocms/start@5.x` framework-agnostic-entrypoints tiers onto the current package split. Proven on a production Next.js 15 App Router VTEX FastStore storefront with a pre-existing `.deco/blocks/*.json` legacy content snapshot.
 

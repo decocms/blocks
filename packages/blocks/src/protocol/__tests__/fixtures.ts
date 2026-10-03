@@ -91,10 +91,6 @@ export async function generateSecretsKeyPair(modulusLength = 2048) {
 
 export const secretBlock = (ciphertext = CIPHERTEXT) => ({ __resolveType: "secret", ciphertext });
 
-/** A fetch that calls `handler` in process. */
-export const inProcess = (handler: (request: Request) => Promise<Response>) => (request: Request) =>
-  handler(request);
-
 /** Routes `/assets/*` to the asset handler and everything else to the protocol, as `deco serve` does. */
 export const route =
   (rpc: (request: Request) => Promise<Response>, assets: (request: Request) => Promise<Response>) =>

@@ -1,12 +1,14 @@
 ---
 name: deco-migrate-script
-description: Automated migration script that converts Deco storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Runs 8 phases (analyze, scaffold, transform, cleanup, report, verify, bootstrap, compile). Use when running the migration script, debugging its output, extending it with new transforms, or understanding what it does. Located at packages/blocks-cli/scripts/migrate.ts in @decocms/blocks-cli.
+description: v7 only (7.x branch). Automated migration script that converts Deco storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Runs 8 phases (analyze, scaffold, transform, cleanup, report, verify, bootstrap, compile). Use when running the migration script, debugging its output, extending it with new transforms, or understanding what it does. Located at packages/blocks-cli/scripts/migrate.ts in @decocms/blocks-cli.
 globs:
   - "packages/blocks-cli/scripts/migrate.ts"
   - "packages/blocks-cli/scripts/migrate/**/*"
 ---
 
 # Deco Migration Script
+
+> **v7 only.** This skill targets v7 sites (`@decocms/blocks` 7.x with `@decocms/tanstack`/`@decocms/nextjs`) and is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x); paths such as `packages/blocks-cli`, `packages/tanstack` or `packages/apps-*` loaders refer to that branch. To move a v7 site to the next major, use `deco-v7-to-v8-migration`.
 
 Automated TypeScript script that converts a Deco storefront from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers in one pass.
 
@@ -389,7 +391,7 @@ Generates `MIGRATION_REPORT.md` with:
 Runs automatically after all phases (skipped in `--dry-run`):
 1. `bun install`
 2. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts`
-3. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts` — emits `src/server/invoke.gen.ts` (top-level `createServerFn` declarations for every VTEX action, plus the `forwardResponseCookies()` Set-Cookie bridge). Without this step the site falls back to the `/deco/invoke/...` proxy and the cart breaks at `/checkout` after addItemToCart. See `.cursor/skills/deco-server-functions-invoke/troubleshooting.md` ("Cart 'forgets' items between requests") for the failure mode.
+3. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts` — emits `src/server/invoke.gen.ts` (top-level `createServerFn` declarations for every VTEX action, plus the `forwardResponseCookies()` Set-Cookie bridge). Without this step the site falls back to the `/deco/invoke/...` proxy and the cart breaks at `/checkout` after addItemToCart. See `.cursor/skills/deco-server-functions-invoke/troubleshooting.md` on the `7.x` branch ("Cart 'forgets' items between requests") for the failure mode.
 4. `bunx tsr generate`
 
 ### Phase 8: Compile

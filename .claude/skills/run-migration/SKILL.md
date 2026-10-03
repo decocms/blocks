@@ -1,9 +1,11 @@
 ---
 name: run-migration
-description: Run the Fresh/Deno → TanStack Start migrator from this repo against a target site workspace. Resets the target to its Fresh/Deno state (origin/main), then runs the local migration script. Use for testing the migrator on real sites. For sites ALREADY on TanStack that just need the @decocms/start@6.x → split-7.x package upgrade, use the decocms-v6-to-v7-upgrade skill instead.
+description: v7 only (7.x branch). Run the Fresh/Deno → TanStack Start migrator from this repo against a target site workspace. Resets the target to its Fresh/Deno state (origin/main), then runs the local migration script. Use for testing the migrator on real sites. For sites ALREADY on TanStack that just need the @decocms/start@6.x → split-7.x package upgrade, use the decocms-v6-to-v7-upgrade skill instead.
 ---
 
 # Run Deco Migration (Fresh/Deno → TanStack)
+
+> **7.x only.** This skill drives the v7 migrator in `packages/blocks-cli`, which lives on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x): run it from a 7.x checkout. To move a v7 site to the next major, use `deco-v7-to-v8-migration`.
 
 Runs the Fresh→TanStack migrator from a local checkout of this repo against a target site. The migrator lives in `packages/blocks-cli/scripts/migrate/` (entry point `packages/blocks-cli/scripts/migrate.ts`, also published as the `deco-migrate` bin of `@decocms/blocks-cli`). It scaffolds directly onto the split 7.x packages (`@decocms/blocks`, `@decocms/tanstack`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-*`).
 

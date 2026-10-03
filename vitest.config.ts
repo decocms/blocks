@@ -1,17 +1,15 @@
 import { defineConfig } from "vitest/config";
 
-// Each package supplies its own environment via environmentMatchGlobs —
-// packages/blocks-cli's scripts/** run in node (filesystem, migration logic),
-// every other package's src/** runs in jsdom (React rendering, hooks).
+// One config for the whole repo: `bun run test` at the root runs every
+// package, the cross-package tests in tests/ and the migration skill's
+// scripts. Files that need Node APIs say so with `// @vitest-environment node`.
 export default defineConfig({
   test: {
     environment: "jsdom",
-    environmentMatchGlobs: [
-      ["packages/blocks-cli/scripts/**", "node"],
-    ],
     include: [
-      "packages/*/src/**/*.test.{ts,tsx,js}",
-      "packages/blocks-cli/scripts/**/*.test.ts",
+      "packages/*/src/**/*.test.{ts,tsx}",
+      "tests/**/*.test.ts",
+      ".agents/skills/*/scripts/**/*.test.ts",
     ],
     globals: true,
   },

@@ -468,7 +468,7 @@ describe("how resolution works", () => {
     expect(parent).not.toHaveBeenCalled();
     expect(error?.code).toBe("BLOCK_FAILED");
     expect(error?.path).toEqual(["product"]);
-    expect((error?.cause as Error).message).toBe("down");
+    expect((error?.cause as Error | undefined)?.message).toBe("down");
   });
 
   it("res-06: a name with no saved block is NOT_FOUND, even a built-in's", async () => {

@@ -1,9 +1,11 @@
 ---
 name: deco-to-tanstack-migration
-description: Consolidated migration skill for Deco storefronts. Phase-based playbook for Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Covers all phases from scaffold to async rendering, plus post-migration patterns, hydration fixes, navigation, search, matchers, and islands elimination. Single entry point — all deep-dive content in references/.
+description: v7 only (7.x branch). Consolidated migration skill for Deco storefronts. Phase-based playbook for Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Covers all phases from scaffold to async rendering, plus post-migration patterns, hydration fixes, navigation, search, matchers, and islands elimination. Single entry point — all deep-dive content in references/.
 ---
 
 # Deco-to-TanStack-Start Migration Playbook
+
+> **v7 only.** This skill targets v7 sites (`@decocms/blocks` 7.x with `@decocms/tanstack`/`@decocms/nextjs`) and is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x); paths such as `packages/blocks-cli`, `packages/tanstack` or `packages/apps-*` loaders refer to that branch. To move a v7 site to the next major, use `deco-v7-to-v8-migration`.
 
 Phase-based playbook for converting `deco-sites/*` storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Battle-tested on a production storefront (100+ sections, VTEX, async rendering).
 
