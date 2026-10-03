@@ -3,17 +3,20 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "deco schema && deco content",
     "dev": "next dev",
+    "prebuild": "deco schema && deco content && deco check",
     "build": "next build",
+    "build:installed": "./scripts/build-installed.sh",
+    "pretypecheck": "deco content",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*",
-    "@decocms/blocks-admin": "workspace:*",
-    "@decocms/nextjs": "workspace:*",
     "next": "^15.4.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

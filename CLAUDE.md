@@ -44,7 +44,7 @@ packages/
 └── next/       @decocms/nextjs      — Next.js App Router binding.        depends on: runtime, admin
 examples/
 ├── tanstack-smoke/   real TanStack Start app following the next-major descriptor guide (@decocms/blocks only)
-└── next-smoke/       real Next.js app consuming runtime+admin+next
+└── nextjs-smoke/     real Next.js app following the next-major Next.js guide (@decocms/blocks only)
 .agents/skills/
 ├── deco-to-tanstack-migration/   Fresh/Preact/Deno -> TanStack Start (site-code migration)
 ├── deco-migrate-script/          the automated 8-phase script backing the above

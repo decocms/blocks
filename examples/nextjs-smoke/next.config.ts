@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
-import { withDeco } from "@decocms/nextjs/config";
 
-const nextConfig: NextConfig = {};
+// @decocms/blocks ships plain .ts source; Next compiles it only when told to.
+const nextConfig: NextConfig = { transpilePackages: ["@decocms/blocks"] };
 
-export default withDeco(nextConfig);
+export default nextConfig;
