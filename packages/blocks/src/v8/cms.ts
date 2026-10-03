@@ -47,7 +47,6 @@ class CMSInstance implements CMS {
   constructor(config: CMSConfig, interval: number) {
     this.config = config;
     this.#blocks = config.blocks;
-    this.#builtIns = Object.freeze({ ...builtIns, secret: secretBlock(config.secrets?.key) });
     this.#interval = interval;
     this.#store = new ContentStore(contentOf(config));
     this.fingerprint = fingerprintOf(config, interval);
@@ -56,6 +55,10 @@ class CMSInstance implements CMS {
       this.#telemetry = new TelemetryPipeline(destination);
       setCurrentTelemetry(this.#telemetry);
     }
+    // Decrypted values never leave in telemetry: the pipeline redacts each one.
+    const telemetry = this.#telemetry;
+    const secret = secretBlock(config.secrets?.key, (value) => telemetry?.redact(value));
+    this.#builtIns = Object.freeze({ ...builtIns, secret });
   }
 
   forRelease(): Client {
