@@ -1,0 +1,215 @@
+// @vitest-environment node
+/** Draft pointers (api-reference#draft-pointers, hosted-drafts.mdx). */
+import { describe, expect, it } from "vitest";
+import {
+  DRAFT_COOKIE,
+  draftCookie,
+  draftPointer,
+  formatDraftPointer,
+  parseDraftPointer,
+} from "./draft";
+
+const POINTER = "api.deco.example/drafts/acme/main?token=abc.def-ghi@9f3c1a";
+
+describe("parseDraftPointer", () => {
+  it("parses <host[:port]><path[?query]>@<version>", () => {
+    expect(parseDraftPointer(POINTER)).toEqual({
+      host: "api.deco.example",
+      path: "/drafts/acme/main?token=abc.def-ghi",
+      version: "9f3c1a",
+    });
+  });
+
+  it("accepts a port and a single-label host", () => {
+    expect(parseDraftPointer("localhost:4000/drafts/x@v1")).toEqual({
+      host: "localhost:4000",
+      path: "/drafts/x",
+      version: "v1",
+    });
+  });
+
+  it("lowercases the host and keeps path and version as they are", () => {
+    expect(parseDraftPointer("API.Deco.Example/Drafts/X?T=Y@AbC_1.2-3")).toEqual({
+      host: "api.deco.example",
+      path: "/Drafts/X?T=Y",
+      version: "AbC_1.2-3",
+    });
+  });
+
+  it("keeps percent-encoded characters in the path as they are", () => {
+    expect(parseDraftPointer("api.deco.example/drafts/a%2Fb?token=x%3Dy@v")?.path).toBe(
+      "/drafts/a%2Fb?token=x%3Dy",
+    );
+  });
+
+  const invalid: [string, string | null | undefined][] = [
+    ["null", null],
+    ["undefined", undefined],
+    ["empty", ""],
+    ["a scheme", "https://api.deco.example/drafts/x@v1"],
+    ["a protocol-relative URL", "//api.deco.example/drafts/x@v1"],
+    ["a stray @ in the path", "api.deco.example/drafts/a@b@v1"],
+    ["userinfo", "user@api.deco.example/drafts/x@v1"],
+    ["no version", "api.deco.example/drafts/x@"],
+    ["no @ at all", "api.deco.example/drafts/x"],
+    ["an unrooted path (no path)", "api.deco.example@v1"],
+    ["an empty host", "/drafts/x@v1"],
+    ["an odd character in the host", "api_deco.example/drafts/x@v1"],
+    ["a host ending with a dash", "api-.example/x@v1"],
+    ["an odd character in the version", "api.deco.example/drafts/x@v1/2"],
+    ["a version too long", `api.deco.example/x@${"a".repeat(65)}`],
+    ["a non-numeric port", "localhost:abc/x@v1"],
+    ["a port out of range", "localhost:70000/x@v1"],
+    ["two ports", "localhost:1:2/x@v1"],
+    ["whitespace", "api.deco.example/drafts/x y@v1"],
+    ["a fragment", "api.deco.example/drafts/x#frag@v1"],
+    ["a double slash path", "api.deco.example//evil.example/x@v1"],
+    ["something absurdly long", `api.deco.example/${"a".repeat(5000)}@v1`],
+  ];
+  for (const [label, raw] of invalid) {
+    it(`returns null on ${label}`, () => {
+      expect(parseDraftPointer(raw)).toBeNull();
+    });
+  }
+});
+
+describe("formatDraftPointer", () => {
+  it("is the inverse of parseDraftPointer (the api-reference example)", () => {
+    expect(
+      formatDraftPointer({
+        host: "api.deco.example",
+        path: "/drafts/acme/main?token=t",
+        version: "9f3c1a",
+      }),
+    ).toBe("api.deco.example/drafts/acme/main?token=t@9f3c1a");
+    const parsed = parseDraftPointer(POINTER);
+    expect(parsed).not.toBeNull();
+    expect(formatDraftPointer(parsed!)).toBe(POINTER);
+  });
+
+  it("throws a TypeError on parts that can't form a pointer that parses", () => {
+    expect(() => formatDraftPointer({ host: "a b", path: "/x", version: "v" })).toThrow(TypeError);
+    expect(() => formatDraftPointer({ host: "h", path: "x", version: "v" })).toThrow(TypeError);
+    expect(() => formatDraftPointer({ host: "h", path: "/x", version: "v@w" })).toThrow(TypeError);
+    expect(() => formatDraftPointer({ host: "h", path: "/x@y", version: "v" })).toThrow(TypeError);
+  });
+});
+
+function request(url: string, cookie?: string): Request {
+  return new Request(url, { headers: cookie ? { cookie } : {} });
+}
+
+describe("draftPointer", () => {
+  const encoded = encodeURIComponent(POINTER);
+
+  it("reads ?__draft= from the URL first", () => {
+    expect(draftPointer(request(`https://store.example.com/summer?__draft=${encoded}`))).toBe(
+      POINTER,
+    );
+  });
+
+  it("prefers the URL over the cookie", () => {
+    const other = encodeURIComponent("api.deco.example/drafts/other@v2");
+    expect(
+      draftPointer(
+        request(`https://store.example.com/?__draft=${encoded}`, `${DRAFT_COOKIE}=${other}`),
+      ),
+    ).toBe(POINTER);
+  });
+
+  it("then reads the deco-draft cookie", () => {
+    expect(
+      draftPointer(
+        request("https://store.example.com/summer", `theme=dark; ${DRAFT_COOKIE}=${encoded}; x=1`),
+      ),
+    ).toBe(POINTER);
+  });
+
+  it("returns null when neither is present", () => {
+    expect(draftPointer(request("https://store.example.com/summer"))).toBeNull();
+    expect(draftPointer(request("https://store.example.com/summer", "other=1"))).toBeNull();
+  });
+
+  it("returns null when the URL says ?__draft=off, even with a cookie", () => {
+    expect(
+      draftPointer(request("https://store.example.com/?__draft=off", `${DRAFT_COOKIE}=${encoded}`)),
+    ).toBeNull();
+  });
+
+  it("an empty ?__draft= falls back to the cookie", () => {
+    expect(
+      draftPointer(request("https://store.example.com/?__draft=", `${DRAFT_COOKIE}=${encoded}`)),
+    ).toBe(POINTER);
+  });
+
+  it("returns the value as is: forDraft validates it", () => {
+    expect(draftPointer(request("https://store.example.com/?__draft=garbage"))).toBe("garbage");
+  });
+
+  it("takes anything with url and headers (a framework wrapper)", () => {
+    expect(
+      draftPointer({
+        url: `https://store.example.com/?__draft=${encoded}`,
+        headers: new Headers(),
+      }),
+    ).toBe(POINTER);
+    expect(draftPointer({ url: "/relative?__draft=x", headers: new Headers() })).toBe("x");
+  });
+
+  it("ignores a cookie whose name only ends with deco-draft", () => {
+    expect(draftPointer(request("https://s.example/", `not-deco-draft=${encoded}`))).toBeNull();
+  });
+
+  it("returns null on an undecodable cookie", () => {
+    expect(draftPointer(request("https://s.example/", `${DRAFT_COOKIE}=%E0%A4%A`))).toBeNull();
+  });
+});
+
+describe("draftCookie", () => {
+  it("stores the pointer when the URL carries ?__draft= (Secure; SameSite=None; Partitioned — D4)", () => {
+    const cookie = draftCookie(
+      request(`https://store.example.com/summer?__draft=${encodeURIComponent(POINTER)}`),
+    );
+    expect(cookie).toBe(
+      `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned`,
+    );
+  });
+
+  it("round-trips: the stored cookie is read back by draftPointer", () => {
+    const cookie = draftCookie(
+      request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`),
+    )!;
+    const pair = cookie.split(";")[0]!;
+    expect(draftPointer(request("https://s.example/next-page", pair))).toBe(POINTER);
+  });
+
+  it("expires the cookie on ?__draft=off (how the site editor ends a preview)", () => {
+    expect(draftCookie(request("https://store.example.com/?__draft=off"))).toBe(
+      `${DRAFT_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned`,
+    );
+  });
+
+  it("is null on every other request", () => {
+    expect(draftCookie(request("https://store.example.com/summer"))).toBeNull();
+    expect(
+      draftCookie(
+        request(
+          "https://store.example.com/summer",
+          `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}`,
+        ),
+      ),
+    ).toBeNull();
+    expect(draftCookie(request("https://store.example.com/?__draft="))).toBeNull();
+  });
+
+  it("never stores a pointer that doesn't parse", () => {
+    expect(
+      draftCookie(request("https://store.example.com/?__draft=https://evil.example/x@1")),
+    ).toBeNull();
+    expect(draftCookie(request("https://store.example.com/?__draft=garbage"))).toBeNull();
+  });
+
+  it("names the cookie DRAFT_COOKIE", () => {
+    expect(DRAFT_COOKIE).toBe("deco-draft");
+  });
+});
