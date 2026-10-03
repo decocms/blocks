@@ -1,20 +1,21 @@
 ---
 title: API reference
+nav: API reference
 group: Reference
-order: 20
+order: 25
 ---
 
 # API reference
 
 You're writing the request handler and need the exact signature of `list` or `matchRoute`. This page lists everything `@decocms/blocks` exports.
 
-Everything here is imported from `@decocms/blocks`. The [built-in blocks](/next/blocks#built-in-blocks), such as the [matchers](/next/matchers-and-variants), `multivariate` and `lazy`, need no import. The instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is) is in `@decocms/blocks/fetch`.
+Everything here is imported from `@decocms/blocks`, except the instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is), in `@decocms/blocks/fetch`, and [analytics](#analytics), in `@decocms/blocks/analytics`. The [built-in blocks](/next/built-in-blocks), such as the [matchers](/next/matchers-and-variants#matchers), `multivariate` and `lazy`, need no import. What creating the CMS means for your app is in [Content and loaders](/next/content#create-the-cms).
 
 ## `createCMS(config)`
 
 `createCMS` returns a **CMS**: your [block map](/next/blocks#the-block-map) plus your content. Create it once, at module scope, and ask it for a client per request: `forRelease()` for visitors, who see the current [release](/next/releases-and-drafts#releases), and `forDraft(pointer)` for [drafts](/next/releases-and-drafts#drafts), where the pointer names the draft (see [Draft pointers](#draft-pointers)).
 
-- **One revision per client.** A client loads one [revision](/next/releases-and-deployment) on first use and reads only that revision afterwards; every later `list` or `resolve` reuses it. Create one client per request (why: [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `client.revision()` tells you which revision a client reads, and `cms.forRevision(revision)` returns a client pinned to it.
+- **One revision per client.** A client loads one [revision](/next/releases-and-deployment#what-a-revision-is) on first use and reads only that revision afterwards; every later `list` or `resolve` reuses it. Create one client per request (why: [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `client.revision()` tells you which revision a client reads, and `cms.forRevision(revision)` returns a client pinned to it.
 - **Results are memoized per client and per block-map object**: build the map at module scope. An entry referenced three times runs its function once per client. Results are kept per function of the map you passed, so a map rebuilt inside your handler starts with an empty cache.
 - **Clients are cheap**: the content cache lives in the CMS, shared by every client.
 - **Same config, same instance**: see [One instance per process](#one-instance-per-process).
@@ -25,10 +26,19 @@ function createCMS(config: {
   content: Snapshot | Loader;   // the content module (.deco/blocks.gen.ts), or any Loader
   interval?: number;            // ms between update() checks of a content source that has one; default DECO_CONTENT_INTERVAL or 60_000; minimum 60_000
 
-  // Hosted Deco CMS (optional), see /next/hosted
+  telemetry?: false | TelemetryConfig;   // where telemetry goes; see /next/telemetry
+
+  // Hosted releases and drafts (optional), see /next/hosted
   site?: string;                // your site's ID, usually DECO_SITE
   token?: string;               // your site token (secret), usually DECO_SITE_TOKEN
 }): CMS;
+
+type TelemetryConfig = (
+  | { site: string; token: string }                          // the hosted Deco CMS collector
+  | { endpoint: string; headers?: Record<string, string> }   // any OpenTelemetry (OTLP/HTTP) collector
+) & {
+  limits?: { errorSampleRate?: number; traceSampleRate?: number };   // caps on the Telemetry saved block; defaults 0.1 and 0
+};
 
 interface CMS {
   forRelease(): Client;                         // a client reading the current release
@@ -44,17 +54,17 @@ interface Client {
 }
 ```
 
-`content` takes the content module or a `Loader` (see [Configuring content](#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `site` and `token` connect the [hosted Deco CMS](/next/hosted) and do nothing on their own: with either of them unset, the CMS reads `content` only and sends nothing anywhere. The [rule from Blocks](/next/blocks#the-lookup-rule) is how a client resolves.
+`content` takes the content module or a `Loader` (see [Configuring content](#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `telemetry` says where measurements go: `false` sends nothing, an object sends there, and when it's left out the CMS uses `OTEL_EXPORTER_OTLP_ENDPOINT` (and `OTEL_EXPORTER_OTLP_HEADERS`) if set, otherwise nothing (see [Choose where telemetry goes](/next/telemetry#choose-where-telemetry-goes)). The top-level `site` and `token` load [hosted releases and drafts](/next/hosted) only; with either of them unset, the CMS reads `content` only. They never send telemetry by themselves. The [rule from Blocks](/next/blocks#the-lookup-rule) is how a client resolves.
 
-<Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Hosted options.** With `site` and `token` set, the CMS serves releases published without a deploy, loads drafts for `forDraft`, and sends sampled telemetry.</Hosted>
+<Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Hosted options.** With `site` and `token` set, the CMS serves releases published without a deploy and loads drafts for `forDraft`.</Hosted>
 
 ### Configuring content
 
-`content` is the content module, `.deco/blocks.gen.ts`, in almost every app (see [The `deco content` command](/next/blocks#the-deco-content-command)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
+`content` is the content module, `.deco/blocks.gen.ts`, in almost every app (see [The content module](/next/content#the-content-module)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
 
 ## Loaders
 
-One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module (see [Configuring content](#configuring-content)). Here a loader is a source of content; it isn't [Studio](/next/how-it-works#studio)'s "loaders" or a router's route loader.
+One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module. When and how to write one is in [Write a loader](/next/content#write-a-loader). Here a loader is a source of content; it isn't [Studio](/next/studio)'s "loaders" or a router's route loader.
 
 ```ts
 interface Loader {
@@ -74,7 +84,7 @@ A loader with `update()` is checked on its own: every `interval` (default `DECO_
 
 If `load(pointer)` fails, the client serves what a normal request would get, never a mix of draft and published entries.
 
-A pointer comes from request input, so a loader that serves drafts must treat it as untrusted: allow-list the hosts it may fetch from, so a crafted pointer can't make your server fetch arbitrary URLs, and require a credential it can verify, such as a signed token, before serving unpublished content.
+A pointer comes from request input, so a loader that serves drafts must treat it as untrusted (see [Write a loader](/next/content#write-a-loader)).
 
 Caching, ETags, and fallbacks live inside the CMS, which any number of clients share. The client only ever sees `{ revision, blocks }`.
 
@@ -129,7 +139,7 @@ formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=â€
 
 ## `client.resolve(target, options?)`
 
-Loads the content once and applies the [registry rule](/next/blocks#the-lookup-rule) to the target: saved blocks expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/blocks#built-in-blocks) are always defined.
+Loads the content once and applies the [lookup rule](/next/blocks#the-lookup-rule) to the target: [saved blocks](/next/saved-blocks) expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/built-in-blocks) are always defined.
 
 | Call | Returns |
 |---|---|
@@ -186,7 +196,7 @@ Redirects win over routes, exact paths win over templates, and when two entries 
 
 ## `createInstrumentedFetch(options)`
 
-From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/upstream-clients) uses: it times each request until its response headers arrive and labels the measurement. On its own it sends nothing anywhere: only the hosted Deco CMS consumes the measurements. For your own observability, instrument your code with OpenTelemetry as usual (see [Your own tracing](/next/caching-and-observability#your-own-tracing)).
+From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/upstream-clients) uses: it times each request until its response headers arrive and labels the measurement. The CMS in the same process sends those measurements wherever its [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) points; with no destination, nothing leaves your servers.
 
 ```ts
 function createInstrumentedFetch(options: {
@@ -197,9 +207,20 @@ function createInstrumentedFetch(options: {
 }): (input: string | URL | Request, init?: RequestInit & { operation?: string }) => Promise<Response>;
 ```
 
-Each request is measured with `provider`, `operation`, `status_class`, `cached` and `retries` labels. It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/upstream-clients#write-a-client).
+Each request is measured with `provider`, `operation`, `status_class`, `cached` and `retries` labels (see [What's sent](/next/telemetry#whats-sent)). It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/upstream-clients#write-a-client).
 
-<Hosted to="/next/hosted-telemetry">**Telemetry without a collector.** When the CMS in the same process has a site ID and token, these measurements reach Deco as sampled upstream latency and error rates.</Hosted>
+## Analytics
+
+From `@decocms/blocks/analytics`. Page views and your own events, in the One Dollar Stats format; see [Analytics](/next/analytics).
+
+```ts
+function Analytics(props: {
+  client: Client;       // reads the Telemetry saved block and the CMS's telemetry option through it
+  collector?: string;   // any endpoint that accepts the One Dollar Stats format; omit it to use the hosted Deco CMS collector when telemetry is { site, token }
+}): ReactNode;          // render once per page, on the server; outputs a small script that sends from the browser
+
+function track(name: string, props?: Record<string, string | number | boolean>): void;   // send your own event from the browser
+```
 
 ## Types
 
@@ -236,8 +257,14 @@ interface Redirect { from: string; to: string; permanent: boolean }
 type Lazy<T> = () => Promise<T>;                    // a prop the built-in lazy block fills; resolves its value when called, at most once
 interface Variant<T> { rule: boolean; value: Lazy<T> }   // one entry of variants: a rule and the variant it shows. Built-in multivariate takes { variants: Variant<T>[] }, runs the first variant whose rule is true, and returns Promise<T | undefined>
 
-// The Telemetry entry's type (built in, always in the schema; read by the hosted Deco CMS, inert without it).
-interface Telemetry { enabled: boolean; metrics: boolean; errorSampleRate: number }
+// The Telemetry saved block's type (built in, always in the schema). See /next/telemetry#telemetry-settings-are-content.
+interface Telemetry {
+  enabled?: boolean;          // default true; false switches telemetry and analytics off
+  metrics?: boolean;          // default true
+  errorSampleRate?: number;   // default 0.05, capped by telemetry.limits
+  traceSampleRate?: number;   // default 0, capped by telemetry.limits
+  analytics?: boolean;        // default true; false switches <Analytics /> off
+}
 
 type Match<T> =
   | { kind: "match";    entry: T; params: Record<string, string> }
@@ -256,12 +283,12 @@ interface CMSError {
 
 ## Errors
 
-Nothing in the SDK throws at request time: `resolve` and `list` return `[value, null]` or `[null, error]`, and `matchRoute` returns a `Match`. Two entries that can match the same URL are a content bug [`deco check`](/next/cli#deco-check) reports (see [Backward compatibility](/next/schema#backward-compatibility)). Check the error, not the value, because a block function can legitimately return `null`.
+Nothing in the SDK throws at request time: `resolve` and `list` return `[value, null]` or `[null, error]`, and `matchRoute` returns a `Match`. Two entries that can match the same URL are a content bug [`deco check`](/next/checking#what-deco-check-checks) reports (see [Backward compatibility](/next/checking#backward-compatibility)). Check the error, not the value, because a block function can legitimately return `null`.
 
 | Code | When |
 |---|---|
 | `NOT_FOUND` | A string target names no saved block. |
-| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map nor a saved block. [Built-in blocks](/next/blocks#built-in-blocks) never cause it. |
+| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map nor a saved block. [Built-in blocks](/next/built-in-blocks) never cause it. |
 | `CYCLE` | References lead back to an entry that's already being expanded (see [The rule in full](/next/how-resolution-works#the-rule-in-full)). |
 | `BLOCK_FAILED` | A block function threw. The original error is in `cause`. |
 | `LOADER_FAILED` | The loader couldn't load the content. The original error is in `cause`. |

@@ -1,28 +1,33 @@
 ---
 title: Releases and drafts
 nav: Releases & drafts
-group: Core concepts
-order: 6
-description: A release is the content everyone sees. A draft is another version your content loader fetches. Preview is your app rendering a draft.
+group: Delivering content
+order: 13
+kind: docs
+description: A release is the content everyone sees. A draft is another set of calls your same code runs. Preview is your app rendering a draft.
 ---
 
 # Releases and drafts
 
-Your app always renders one version of your content. Usually that's the release. When someone wants to check a change before it goes live, it's a draft. The code stays the same; only the content differs.
+Marketing has rewritten the home page for the summer sale and wants to see it on the real site before anyone else does. Visitors should keep seeing today's page until the new one is approved.
+
+This page shows the two versions of content your app can render, the release and a draft, how preview picks between them, and how to check a change when you have no drafts at all.
+
+Your app always renders one version of your content. Usually that's the release. A draft is another set of calls, run by the same code: only the content differs.
 
 ## Releases
 
-A **release** is the content everyone sees right now. In the open-source setup, it's the content module in your build: the `.deco/blocks` files of the commit you deployed (see [The `deco content` command](/next/blocks#the-deco-content-command)). A new release goes out with your next deploy (see [Deployment](/next/releases-and-deployment)).
+A **release** is the content everyone sees right now. In the open-source setup, it's the [content module](/next/content#the-content-module) in your build: the `.deco/blocks` files of the commit you deployed. A new release goes out with your next deploy (see [Deployment](/next/releases-and-deployment)).
 
-`cms.forRelease()` gives you a client, the object you read content with, over the release. `cms` is the object your app creates once with [`createCMS`](/next/api-reference#createcms-config) (see the [Quickstart](/next/quickstart#5-read-the-content-from-your-code)).
+`cms.forRelease()` gives you a client, the object you read content with, over the release. `cms` is the object your app creates once with [`createCMS`](/next/content#create-the-cms).
 
 <Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Releases without a deploy.** With the hosted Deco CMS, the release is your latest publish, and it reaches running servers within seconds, with no new build.</Hosted>
 
 ## Drafts
 
-A **draft** is another version of your content, not live yet. Your content [loader](/next/api-reference#loaders) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Previewing drafts](/next/hosted-drafts)).
+A **draft** is another version of your content, not live yet. Your content [loader](/next/content#write-a-loader) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Previewing drafts](/next/hosted-drafts)).
 
-The loader is what you pass to `createCMS` as its [`content`](/next/api-reference#configuring-content) option:
+The loader is what you pass to `createCMS` as its `content` option:
 
 ```ts
 const cms = createCMS({ blocks, content: myLoader });   // myLoader.load(pointer) returns the draft
@@ -30,7 +35,7 @@ const cms = createCMS({ blocks, content: myLoader });   // myLoader.load(pointer
 
 A **draft pointer** is a short string that says which draft to load; it travels in `?__draft=` links (see [Draft pointers](/next/api-reference#draft-pointers)). `cms.forDraft(pointer)` passes it to that same loader's `load(pointer)`. The client you get back works exactly like the release client, so your rendering code doesn't change.
 
-The open-source setup passes the content module, which has no drafts: it ignores the pointer, so `forDraft` acts like `forRelease`. You get real drafts with the hosted Deco CMS or with a loader you write. A loader you write must treat the pointer as untrusted input (see [Loaders](/next/api-reference#loaders)).
+The content module has no drafts: it ignores the pointer, so `forDraft` acts like `forRelease`. You get real drafts with the hosted Deco CMS or with a [loader you write](/next/content#write-a-loader), which must treat the pointer as untrusted input.
 
 ## Preview
 
@@ -53,11 +58,11 @@ Without a loader that serves drafts, you check a change by running a different b
 
 ### On your machine
 
-Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in Studio through [`deco serve`](/next/cli#edit-on-your-machine). Nothing is committed: review the diff and commit it when the page looks right.
+Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in Studio through [`deco serve`](/next/studio#edit-on-your-machine). Nothing is committed: review the diff and commit it when the page looks right.
 
 ### On a branch
 
-A content change is a change to files, so it can wait on a branch. Open a pull request: reviewers read the diff of `.deco/blocks`, and CI runs `npx @decocms/blocks schema && npx @decocms/blocks check` (see [Backward compatibility](/next/schema#backward-compatibility)). Your host's preview deployment builds the branch with its own content module, so its URL shows that branch's content:
+A content change is a change to files, so it can wait on a branch. Open a pull request: reviewers read the diff of `.deco/blocks`, and CI runs `npx @decocms/blocks schema && npx @decocms/blocks check` (see [Backward compatibility](/next/checking#backward-compatibility)). Your host's preview deployment builds the branch with its own content module, so its URL shows that branch's content:
 
 ```bash
 git switch -c summer-sale

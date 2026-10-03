@@ -2,7 +2,8 @@
 title: TanStack Start with React Server Components
 nav: TanStack Start + RSC
 group: Websites
-order: 14
+order: 19
+description: Switch the TanStack Start guide to React Server Components, so blocks return JSX and only Client Components ship JavaScript.
 ---
 
 # TanStack Start with React Server Components
@@ -15,7 +16,7 @@ This page shows the four changes from the [TanStack Start guide](/next/tanstack-
 
 ## 1. Swap the block map
 
-Replace `.deco/index.ts` with the [Next.js guide](/next/nextjs)'s `.deco/index.tsx`. It doesn't override `page`, because its blocks return JSX, which the built-in page already takes. Keep `src/cms.ts` and `src/open-page.server.ts` from the TanStack Start guide as they are. `deco schema` reads `.deco/index.tsx` as well as `.deco/index.ts`, so the scripts don't change.
+Replace `.deco/index.ts` with the [Next.js guide](/next/nextjs#2-create-the-cms)'s `.deco/index.tsx`. It doesn't replace [`page`](/next/built-in-blocks#pages-and-redirects), because its blocks return JSX, which the built-in page already takes. Keep `src/cms.ts` and `src/open-page.server.ts` from the TanStack Start guide as they are. `deco schema` reads `.deco/index.tsx` as well as `.deco/index.ts`, so the scripts don't change.
 
 ## 2. Render blocks on the server
 

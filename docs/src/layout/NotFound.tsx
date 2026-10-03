@@ -10,7 +10,7 @@ import { DocsShell } from './DocsShell'
 export function NotFound() {
   const docs = versionEntry(DEFAULT_VERSION)
   useEffect(() => {
-    document.title = 'Page not found — Deco Blocks'
+    document.title = 'Page not found — Deco CMS'
   }, [])
   return (
     <DocsShell nav={sidebarFor(DEFAULT_VERSION, 'docs')} crumbs={[{ label: 'Page not found' }]} rail={[]}>

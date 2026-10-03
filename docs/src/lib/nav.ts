@@ -87,10 +87,10 @@ export function railFor(headings: DocHeading[]): RailItem[] {
 }
 
 /**
- * The document title the old site used: "<nav> — Deco Blocks", or the tab name for an "Overview".
- * A version's own index.mdx (e.g. "Deco Blocks v7") goes by its title, which names the version.
+ * The document title the old site used: "<nav> — Deco CMS", or the tab name for an "Overview".
+ * A version's own index.mdx (e.g. "Deco CMS v7") goes by its title, which names the version.
  */
 export function documentTitle(page: ManifestPage): string {
   if (page.slug === '') return `${page.title} — Documentation`
-  return `${page.nav === 'Overview' ? KIND_LABELS[page.kind] : page.nav} — Deco Blocks`
+  return `${page.nav === 'Overview' ? KIND_LABELS[page.kind] : page.nav} — Deco CMS`
 }

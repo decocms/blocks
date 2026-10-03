@@ -1,0 +1,73 @@
+---
+title: Studio
+nav: Studio
+group: Built on Blocks
+kind: docs
+order: 8
+---
+
+# Studio
+
+Your merchandising team wants to swap the home page hero image for the weekend and fix a typo in the footer, and none of them opens a code editor. Studio is Deco CMS's content editor: it shows the form [`deco schema`](/next/schema) built from each block's types, next to a preview that your dev app renders, and saves each change back to the block's JSON file.
+
+This page shows what Studio is, how to run it against the app on your machine, how uploads work, and what works differently because Studio never runs your code.
+
+## What Studio is
+
+Studio is a web app with a form for each block. The forms come from your schema, `.deco/schema.gen.json` (see [Forms from types](/next/schema)), so they only accept values your functions can take. Every save writes a [saved block](/next/saved-blocks), a JSON file in `.deco/blocks`: the same file you could edit by hand or ask an AI agent to edit.
+
+Studio never runs your code. It needs only two things, both files in your repository: the saved blocks and the schema, which your `predev` script writes (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)). It reads and writes them through the [content protocol](/next/content-protocol).
+
+## Edit on your machine
+
+You can use Studio on the app running on your machine, with or without a Deco account:
+
+1. Start your app's dev server.
+2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco/` (or takes `--root`) and prints a connect link:
+
+   ```text
+   Deco server          http://127.0.0.1:4545/rpc
+   Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
+   Assets               apps/storefront/.deco/assets   (PUT /assets/<name>)
+   App preview          http://localhost:5173
+   Connect Studio       https://<studio-origin>/connect#endpoint=…&token=…
+   ```
+
+3. Open the link.
+4. The first time, Chrome asks whether Studio may reach a server on your machine (Local Network Access). Allow it.
+
+Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)). Its flags, such as `--port` and `--app-url`, are in the [CLI reference](/next/cli#deco-serve).
+
+## Images and other uploads
+
+When an editor uploads an image or another file in Studio, `deco serve` writes it into your repository, in `.deco/assets/`, and the field stores the file's path, such as `/assets/summer-banner.jpg`. Uploads are ordinary files: you review them and commit them with the rest of your content.
+
+The field always stores `/assets/<name>`, whatever folder the files are written to, so your app has to serve that folder at `/assets/`. Nothing serves `.deco/assets` by default. The simplest way is to write uploads into the folder your app already serves. Vite, TanStack Start and Next.js all serve `public/` at the site root, so with
+
+```bash
+npx @decocms/blocks serve --assets public/assets
+```
+
+uploads land in `public/assets/` and are served at `/assets/`, in development and in production, with no other configuration. The folder is relative to the folder that contains `.deco`, so in a monorepo it's your app's own `public/`. If you keep the default `.deco/assets`, you have to serve it at `/assets/` yourself and ship it with your build.
+
+With Vite, `public/assets/` ends up in the same `dist/assets/` folder as the build's hashed JavaScript and CSS. That's safe: the server never reuses a file name, so hosts that cache `/assets/*` for a long time serve it correctly.
+
+Uploads make your repository bigger: every clone carries every image, and a replaced image stays in the history. Resize and compress images before you upload them, and link large media such as video from wherever you host it.
+
+<Hosted to="/next/hosted-studio#uploads" label="Uploads in hosted storage">**Uploads without growing your repository.** With the hosted Deco CMS, Studio stores uploads in Deco's asset storage and saves their CDN address in the field, so images are served from a CDN and never enter your repository.</Hosted>
+
+## What works without your code
+
+Because Studio never runs your code, a few things that depend on it work differently:
+
+- **Block previews:** clicking a block's preview opens your dev app at that page. Gallery cards show the block's name, plus the `@title`, description and `@image` set in its JSDoc (see [Widgets](/next/schema#widgets)).
+- **Pickers whose options come from your code** show the options written into the schema, otherwise a text field (see [Widgets](/next/schema#widgets)).
+- **Secret and password fields** are read-only. Keep credentials in environment variables.
+- **Fetching data and installing apps from Studio:** older Deco sites could run data loaders and install commerce apps from Studio; here those live in your code. Add platform clients in code (see [Calling APIs](/next/upstream-clients)). These are different from [content loaders](/next/content#write-a-loader), which deliver your saved blocks.
+
+## Saved blocks and variants in Studio
+
+- **Saved blocks:** a field that takes a block offers the saved blocks whose function returns the field's type. Picking one stores a reference, so editing it updates every place that uses it (see [Reuse a block](/next/saved-blocks#reuse-a-block)).
+- **Variants:** any field can have variants, each with a rule such as a date range, and Studio writes the `multivariate` block for you (see [Matchers and variants](/next/matchers-and-variants)).
+
+<Hosted to="/next/hosted-studio" label="Studio on GitHub">**Edit with nothing to install.** With the hosted Deco CMS, editors use Studio on your GitHub repository straight from the browser: each save is a commit on a draft branch, and publishing brings it to production.</Hosted>

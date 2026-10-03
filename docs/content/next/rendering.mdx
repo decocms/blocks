@@ -1,7 +1,9 @@
 ---
 title: Rendering
+nav: Rendering
 group: Websites
-order: 11
+order: 16
+kind: docs
 ---
 
 # Rendering
@@ -13,7 +15,7 @@ This page shows the two ways a block becomes UI, how to pick one, and the rules 
 - **Descriptors (data mode):** the block returns plain JSON such as `{ component: "product-hero", props: {…} }`, and a view registry in your app (code that maps each `component` name to a React component) renders it on the server and again in the browser.
 - **React Server Components (RSC):** the block returns JSX that renders only on the server. React sends the result to the browser in its own wire format, called Flight, and only components marked `"use client"` ship JavaScript.
 
-The CMS returns whatever your block function returns, so it works with both. Each framework guide uses one:
+Deco CMS returns whatever your block function returns, so it works with both. Each framework guide uses one:
 
 | Guide | Block returns | Streaming | Ships to the browser |
 |---|---|---|---|
@@ -21,7 +23,7 @@ The CMS returns whatever your block function returns, so it works with both. Eac
 | [TanStack Start](/next/tanstack-start-descriptors) | Serializable descriptors | Deferred promises with `Await` | The view registry and its components |
 | [TanStack Start + RSC](/next/tanstack-start-rsc) | JSX | RSC stream (Flight) | Client references and the RSC runtime |
 
-You already render the banner as a plain component: `<PromoBanner title="Free shipping on orders over $50" />`. The same block in both modes:
+You already render the banner as a plain component: `<PromoBanner title="Free shipping over $50" />`. The same block in both modes:
 
 ```tsx title=".deco/index.tsx"
 // RSC (Next.js, TanStack Start + RSC): the block returns a ready element
@@ -41,12 +43,12 @@ Use descriptors when views must render in an ordinary browser React app. Use RSC
 
 In all three guides, block functions run on the server, so data fetching belongs there. In data mode, a block returns a descriptor and a synchronous React view renders its props. With RSC, a block returns JSX that can include Client Components.
 
-Don't put a Client Component (a component from a `"use client"` file) in the [block map](/next/blocks#the-block-map) directly. On the server, importing it gives you a placeholder React can render but your code can't call, and the CMS calls every block function. Wrap it instead: `cart: (input: CartProps) => <CartButton {...input} />`. Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
+Don't put a Client Component (a component from a `"use client"` file) in the [block map](/next/blocks#the-block-map) directly. On the server, importing it gives you a placeholder React can render but your code can't call, and Deco CMS calls every block function. Wrap it instead: `cart: (input: CartProps) => <CartButton {...input} />`. Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
 ## Errors, streaming, and cancellation
 
 - **Start every block first.** Await critical data, such as SEO, only after all of the page's blocks have started, so they fetch in parallel instead of waiting behind the SEO call.
 - **One Suspense boundary per block** lets each block appear as soon as it's ready.
 - **Suspense handles loading, not errors.** Each [`client.resolve(block)`](/next/api-reference#client-resolve-target-options) returns `[value, error]`; render a fallback when `error` is set. Errors thrown later while React renders need an error boundary.
-- **Cancellation is your app's job.** The CMS never sees the request. A block that fetches upstream should take the request's `signal` from wherever your app keeps request state.
+- **Cancellation is your app's job.** Deco CMS never sees the request. A block that fetches upstream should take the request's `signal` from wherever your app keeps request state.
 - **Once streaming starts, the status code is fixed.** The status line and headers are already sent, so a later error can't change them. Decide 404s and redirects (the [`matchRoute`](/next/api-reference#matchroute-url-items) result) before you stream.

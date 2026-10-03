@@ -1,8 +1,9 @@
 ---
 title: Deployment
 nav: Deployment
-group: Production
-order: 16
+group: Delivering content
+order: 14
+kind: docs
 ---
 
 # Deployment
@@ -13,12 +14,12 @@ This page shows how a change ships, how each response stays on one revision, and
 
 ## How a change ships
 
-Your block functions and your content live in your repository (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)), so they ship together:
+Your block functions and your content live in your repository (see [The .deco folder](/next/saved-blocks#the-deco-folder)), so they ship together:
 
 | Step | What happens |
 |---|---|
-| Commit | A developer, an agent, or an editor in [Studio](/next/how-it-works#studio) changes a function, a saved block, or both. Review them in one pull request like any other change. |
-| Build | The [`prebuild` script](/next/cli#run-it-before-dev-and-build) runs `deco schema && deco content && deco check`: it bundles `.deco/blocks` into the build as the [content module](/next/blocks#the-deco-content-command), and fails the build if saved content doesn't fit the code. |
+| Commit | A developer, an agent, or an editor in [Studio](/next/studio) changes a function, a [saved block](/next/saved-blocks), or both. Review them in one pull request like any other change. |
+| Build | The [`prebuild` script](/next/cli#run-it-before-dev-and-build) runs `deco schema && deco content && deco check`: it bundles `.deco/blocks` into the build as the [content module](/next/content#the-content-module), and fails the build if saved content doesn't fit the code (see [Checking content](/next/checking)). |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 
 ## What a revision is
@@ -32,18 +33,18 @@ There's no separate publish step: once a change to `.deco/blocks` is on your pro
 Because content and code share one history, a content change is a commit like any other. That gives you:
 
 - **Review.** A content change is a diff in a pull request, next to the code it needs.
-- **Branches.** A content change can wait on a branch, with its own preview deployment, until it's ready (see [Releases and drafts](/next/releases-and-drafts#on-a-branch)).
+- **Branches.** A content change can wait on a branch, with its own preview deployment, until it's ready (see [On a branch](/next/releases-and-drafts#on-a-branch)).
 - **Rollback.** Undo a change like any other commit (see [Roll back](#roll-back)).
 
 <Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a [release](/next/releases-and-drafts#releases) and reaches running servers within seconds, with no rebuild.</Hosted>
 
 ## Roll back
 
-If Friday's banner breaks the page, redeploy the previous build: its content and code roll back together, so they always fit. To undo only the content, revert the content commit and deploy. Reverting a single code commit doesn't revert content committed after it; see [Backward compatibility](/next/schema#backward-compatibility).
+If Friday's banner breaks the page, redeploy the previous build: its content and code roll back together, so they always fit. To undo only the content, revert the content commit and deploy. Reverting a single code commit doesn't revert content committed after it; see [Backward compatibility](/next/checking#backward-compatibility).
 
 ## One revision per response
 
-Content can change while a server is running: in development, when you edit a file, or with a `content` loader that updates (see [Loaders](/next/api-reference#loaders)). Two reads a few milliseconds apart could then see different revisions; a header from one and a footer from the other make an inconsistent page. A client (what `cms.forRelease()` returns; see [`createCMS`](/next/api-reference#createcms-config)) prevents that: its first call picks a revision, and every later `list` and `resolve` on it, including concurrent ones, uses the same one. So make one client per request.
+Content can change while a server is running: in development, when you edit a file, or with a [loader](/next/content#write-a-loader) that updates. Two reads a few milliseconds apart could then see different revisions; a header from one and a footer from the other make an inconsistent page. A client (what `cms.forRelease()` returns; see [`createCMS`](/next/api-reference#createcms-config)) prevents that: its first call picks a revision, and every later `list` and `resolve` on it, including concurrent ones, uses the same one. So make one client per request.
 
 Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response, or send `client.revision()` with the page and read follow-up requests with `cms.forRevision(revision)`.
 

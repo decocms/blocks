@@ -1,5 +1,6 @@
 ---
 title: Content protocol
+nav: Content protocol
 group: Under the hood
 kind: internals
 order: 5
@@ -8,7 +9,7 @@ description: How Studio reads and writes saved blocks without running your code.
 
 # Content protocol
 
-[Studio](/next/how-it-works#studio) never runs your site's code. It reads and writes content through a small protocol, the **content protocol**, so any storage that implements it can back Studio. This page is for contributors and for anyone writing another backend.
+[Studio](/next/studio) never runs your site's code. It reads and writes content through a small protocol, the **content protocol**, so any storage that implements it can back Studio. This page is for contributors and for anyone writing another backend.
 
 ## What it reads and writes
 
@@ -29,7 +30,7 @@ Two implementations serve the protocol:
 
 | Backend | Edits | Studio checks for changes |
 |---|---|---|
-| **[`deco serve`](/next/cli#deco-serve)**, from the Deco CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
+| **[`deco serve`](/next/studio#edit-on-your-machine)**, from the Deco CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
 | **Studio's GitHub backend**, part of the [hosted Deco CMS](/next/hosted) | Your repository on GitHub, with [draft branches](/next/hosted-studio#drafts-are-branches) and publishing. | About every 30 seconds |
 
 There's no event stream. Studio polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins: if two people edit the same saved block at once, the later save replaces the earlier one.
@@ -140,7 +141,7 @@ Plus the standard JSON-RPC codes (-32700, -32600, -32601, -32602, -32603). The d
 
 ### File names
 
-Studio, `deco serve` and [`deco content`](/next/blocks#the-deco-content-command) import one rule from the protocol package, so an entry Studio edits is the entry your app renders:
+Studio, `deco serve` and [`deco content`](/next/content#the-content-module) import one rule from the protocol package, so an entry Studio edits is the entry your app renders:
 
 - **Name to file:** `encodeURIComponent(name) + ".json"`, directly in `.deco/blocks` (no subfolders). A page named `pages-Home%20Page-6f1e` is stored as `pages-Home%2520Page-6f1e.json`; `collections/blog/posts/abc` as `collections%2Fblog%2Fposts%2Fabc.json`.
 - **File to name:** decode the file name, without `.json`, exactly once. If decoding fails, the raw name is the entry name.
@@ -152,9 +153,9 @@ Studio, `deco serve` and [`deco content`](/next/blocks#the-deco-content-command)
 
 `deco serve` knows nothing about accounts: it prints its local address, inside the connect link, and Studio connects to it.
 
-[`deco serve`](/next/cli#deco-serve) binds 127.0.0.1 unless you pass `--host`, and checks a random token on every request (or one you pass with `--token` or `DECO_SERVE_TOKEN`). The token travels in the connect link's URL fragment, so it never reaches logs or `Referer` headers. Browser requests are accepted only from Studio's origins, plus any `--allow-origin`. The server answers Chrome's local-network preflight, rejects any `Host` header other than its own loopback address (against DNS rebinding) and any `Content-Type` other than JSON (against cross-site form posts; uploads are the one exception, below). Studio stores the endpoint and token per project and asks you to reconnect when the server restarts with a new token.
+[`deco serve`](/next/cli#deco-serve) binds 127.0.0.1 unless you pass `--host`, and checks a random token on every request (or one you pass with `--token` or `DECO_SERVE_TOKEN`). The token travels in the connect link's URL fragment, so it never reaches logs or `Referer` headers. Browser requests are accepted only from Studio's origins, plus any `--allow-origin`. The server answers Chrome's local-network preflight, rejects any `Host` header other than its own loopback address (against DNS rebinding) and any `Content-Type` other than JSON (against cross-site form posts; uploads are the one exception, below). Studio stores the endpoint and token per project and asks you to reconnect when the server restarts with a new token. The flow from the editor's side is in [Edit on your machine](/next/studio#edit-on-your-machine).
 
-Uploads aren't one of the four methods. Studio sends each file to `PUT /assets/<name>` on the same server, with the same token, origin and `Host` checks; on that path the server accepts the file's own image, video, font or PDF content type instead of JSON. It writes the file to the asset folder (`.deco/assets`, or `--assets`), never overwrites an existing file (a taken name gets a short suffix), and answers with the path Studio stores in the field. `describe` reports where uploads go and the largest file it accepts in its `assets` field; with `--read-only`, `assets` is `null` and uploads are refused. Studio's GitHub backend stores uploads in Deco's asset storage instead, so they never become commits.
+Uploads aren't one of the four methods. Studio sends each file to `PUT /assets/<name>` on the same server, with the same token, origin and `Host` checks; on that path the server accepts the file's own image, video, font or PDF content type instead of JSON. It writes the file to the asset folder (`.deco/assets`, or `--assets`), never overwrites an existing file (a taken name gets a short suffix), and answers with the path Studio stores in the field. `describe` reports where uploads go and the largest file it accepts in its `assets` field; with `--read-only`, `assets` is `null` and uploads are refused. Studio's GitHub backend stores uploads in [Deco's asset storage](/next/hosted-studio#uploads) instead, so they never become commits. How to serve local uploads is in [Images and other uploads](/next/studio#images-and-other-uploads).
 
 ### The package
 

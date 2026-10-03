@@ -14,8 +14,11 @@
  *     data-pagefind-body, i.e. doc articles and whatever else opts in) and writes
  *     dist/client/pagefind/. Result URLs are the real routes (/next/quickstart, not
  *     next/quickstart.html); the Pagefind client prepends the base path it's served under.
+ *  4. Redirects: a removed or merged page keeps its old URL working through a small page that
+ *     sends the reader on (GitHub Pages has no server-side redirects). Written last, so the link
+ *     check, size budget and search index never see them; the build fails if a target is missing.
  */
-import { readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import path from 'node:path'
 import * as pagefind from 'pagefind'
@@ -139,3 +142,22 @@ const written = await index.writeFiles({ outputPath: path.join(OUT_DIR, 'pagefin
 if (written.errors.length) throw new Error(`pagefind: ${written.errors.join(', ')}`)
 await pagefind.close()
 console.log(`search: indexed ${indexed} pages -> ${path.relative(process.cwd(), path.join(OUT_DIR, 'pagefind'))}/`)
+
+// ---------------------------------------------------------------- 4. redirects
+// Old path -> new path, both without the base path, in the form pages are served at
+// (`/next/x`, written as next/x.html; a path ending in `/` is written as <path>/index.html).
+const REDIRECTS: Record<string, string> = {
+  '/next/caching-and-observability': '/next/caching',
+}
+for (const [from, to] of Object.entries(REDIRECTS)) {
+  if (!fileFor(to)) throw new Error(`redirect ${from} -> ${to}: no page at ${to}`)
+  if (fileFor(from)) throw new Error(`redirect ${from} -> ${to}: a page still exists at ${from}`)
+  const href = BASE.replace(/\/$/, '') + to
+  const out = from.endsWith('/') ? path.join(OUT_DIR, from, 'index.html') : path.join(OUT_DIR, `${from}.html`)
+  mkdirSync(path.dirname(out), { recursive: true })
+  writeFileSync(
+    out,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Moved</title><link rel="canonical" href="${href}"><meta name="robots" content="noindex"><meta http-equiv="refresh" content="0; url=${href}"><script>location.replace(${JSON.stringify(href)} + location.hash)</script></head><body><p>This page moved to <a href="${href}">${href}</a>.</p></body></html>`,
+  )
+}
+console.log(`redirects: ${Object.keys(REDIRECTS).length} written`)

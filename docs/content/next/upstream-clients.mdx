@@ -2,15 +2,15 @@
 title: Calling APIs
 nav: Calling APIs
 group: Websites
-order: 15
-description: Deco doesn't fetch data. Sites call commerce, search and email platforms through thin, instrumented API clients, and this page shows how to use and write one.
+order: 20
+description: Deco CMS doesn't fetch data. Sites call commerce, search and email platforms through thin, instrumented API clients, and this page shows how to use and write one.
 ---
 
 # Calling APIs
 
-A product shelf on your homepage needs search results from your commerce platform. Deco doesn't fetch them for you: your code calls the API, the same way it would without a CMS.
+A product shelf on your homepage needs search results from your commerce platform. Deco CMS doesn't fetch them for you: your code calls the API, the same way it would without a CMS.
 
-Deco gives you **upstream clients** for that: thin, typed API clients that send every request through the framework's [instrumented fetch](/next/caching-and-observability#measuring-upstream-calls), so every call to a third-party API is measured the same way.
+Deco CMS gives you **upstream clients** for that: thin, typed API clients that send every request through the framework's instrumented fetch, so every call to a third-party API is measured the same way, and the measurements go wherever your [telemetry](/next/telemetry#whats-sent) goes.
 
 This page shows how to call a platform through its client, how to write a client for a service Deco doesn't ship one for, and how retries work.
 
@@ -19,18 +19,18 @@ This page shows how to call a platform through its client, how to write a client
 Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algolia, Resend and others. Each one is:
 
 - **Typed request functions**, one per API operation, with the platform's own request and response types (generated from its API description where it has one).
-- **Built on the instrumented fetch**, [`createInstrumentedFetch`](/next/api-reference#createinstrumentedfetch-options), which times each request.
+- **Built on the instrumented fetch**, [`createInstrumentedFetch`](/next/api-reference#createinstrumentedfetch-options), which times each request and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took.
 - **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it.
 
 Everything else lives in code your site owns:
 
 | Not in a client | Where it lives |
 |---|---|
-| Converters from a platform's types to shared commerce types | [Platform templates](/next/how-it-works#other-terms), the starter sites you copy and then own, and your code |
+| Converters from a platform's types to shared commerce types | [Platform templates](/next/how-it-works#key-terms), the starter sites you copy and then own, and your code |
 | React hooks for the cart, the user and the wishlist | Platform templates |
 | Cart, session and sign-in flows | Platform templates, as your framework's server functions or route handlers |
-| Website features: SEO helpers, sitemaps, redirect logic, analytics scripts | Platform templates and your code. The framework itself ships only the built-in `always`, `never` and `date` [matchers](/next/matchers-and-variants) and `multivariate`. |
-| [Loaders and actions](/v7/loaders) (v7's data functions) that [Studio](/next/how-it-works#studio) ran through `/deco/invoke` | Your code; see [Migrating from v7](/next/renames-and-migrations#loaders-actions-and-invoke). |
+| Website features: SEO helpers, sitemaps, redirect logic | Platform templates and your code. The framework itself ships the built-in `always`, `never` and `date` [matchers](/next/matchers-and-variants#matchers), `multivariate`, and page-view [analytics](/next/analytics). |
+| [Loaders and actions](/v7/loaders) (v7's data functions) that [Studio](/next/studio) ran through `/deco/invoke` | Your code; see [Migrating from v7](/next/renames-and-migrations#loaders-actions-and-invoke). |
 
 The Salesforce client covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
 
@@ -62,13 +62,13 @@ const products = await vtex.search.products({ query: "linen shirt", count: 12 })
 
 The operation names here are illustrative; each client mirrors its platform's API.
 
-Caching upstream responses is the framework binding's job, not the client's; see [Upstream data](/next/caching-and-observability#upstream-data).
+Caching upstream responses is the framework binding's job, not the client's; see [Upstream data](/next/caching#upstream-data).
 
 ## Retries and failures
 
 **Defaults per client.** The VTEX client turns on retries and a circuit breaker, which fails fast for a short time after repeated failures; other clients leave both off.
 
-A retried request is measured once, with the number of retries as a label (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)).
+A retried request is measured once, with the number of retries as a label (see [What's sent](/next/telemetry#whats-sent)).
 
 ## Write a client
 
@@ -148,4 +148,4 @@ A few rules keep clients consistent:
 5. **Never put bodies, tokens or cookies in errors or logs.** Report the operation and the status.
 6. **Accept a `fetch` option** for tests: pass a fake that returns canned responses, and assert on the requests it received.
 
-`createInstrumentedFetch` measures every request and, on its own, sends nothing (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)). Its options are in the [API reference](/next/api-reference#createinstrumentedfetch-options).
+`createInstrumentedFetch` measures every request; the measurements go wherever [telemetry](/next/telemetry#choose-where-telemetry-goes) is configured, and nowhere when it's off (see [What's sent](/next/telemetry#whats-sent)). Its options are in the [API reference](/next/api-reference#createinstrumentedfetch-options).

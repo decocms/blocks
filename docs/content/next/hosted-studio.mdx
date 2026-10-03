@@ -2,7 +2,7 @@
 title: Editing in Studio on GitHub
 nav: Studio on GitHub
 group: Hosted Deco CMS
-order: 23
+order: 28
 description: "With the hosted Deco CMS, Studio edits your GitHub repository directly, with nothing to clone or install: saves are commits on a draft branch, and publishing brings them to production."
 ---
 
@@ -10,13 +10,13 @@ description: "With the hosted Deco CMS, Studio edits your GitHub repository dire
 
 A merchandiser needs to change the homepage hero before tomorrow's sale. They don't have Git, a copy of the code or a dev server, and they shouldn't need one.
 
-On your machine, [Studio](/next/how-it-works#studio) edits your working tree through [`deco serve`](/next/cli#deco-serve), using the [content protocol](/next/content-protocol), and you commit the changes yourself. With the [hosted Deco CMS](/next/hosted), Studio's **GitHub backend** edits your repository itself.
+On your machine, [Studio](/next/studio) edits your working tree through `deco serve`, and you commit the changes yourself (see [Edit on your machine](/next/studio#edit-on-your-machine)). With the [hosted Deco CMS](/next/hosted), Studio's **GitHub backend** edits your repository itself.
 
 This page shows how Studio edits your repository on GitHub, where uploads go, and how publishing and CI work.
 
 ## What changes
 
-Studio's forms, [variants](/next/matchers-and-variants), pages and redirects are the same on both backends: they need only the [schema](/next/schema#from-types-to-forms) and the files. What differs is where a save goes and what happens next.
+Studio's forms, [variants](/next/matchers-and-variants#variants), pages and redirects are the same on both backends: they need only the [schema](/next/schema#from-types-to-forms) and the files. What differs is where a save goes and what happens next.
 
 | | `deco serve` | Studio's GitHub backend |
 |---|---|---|
@@ -32,7 +32,7 @@ Studio's forms, [variants](/next/matchers-and-variants), pages and redirects are
 
 ## Uploads
 
-With the hosted Deco CMS, images and other files editors upload in Studio go to Deco's asset storage, not your repository. Studio saves each file's CDN address in the field, such as `https://assets.decocms.com/…/summer-banner.jpg`, so images are served from a CDN close to your visitors, your app serves nothing for them, and your repository doesn't grow with every image. Without the hosted Deco CMS, uploads are files in your repository (see [Images and other uploads](/next/cli#images-and-other-uploads)).
+With the hosted Deco CMS, images and other files editors upload in Studio go to Deco's asset storage, not your repository. Studio saves each file's CDN address in the field, such as `https://assets.decocms.com/…/summer-banner.jpg`, so images are served from a CDN close to your visitors, your app serves nothing for them, and your repository doesn't grow with every image. Without the hosted Deco CMS, uploads are files in your repository (see [Images and other uploads](/next/studio#images-and-other-uploads)).
 
 Uploads already in your repository keep working: a field holds either kind of address, and your app keeps serving the files it has.
 
@@ -50,7 +50,7 @@ Studio reads the schema committed on the branch it edits, so editors only see th
 
 ## CI on Studio commits
 
-Studio's saves are commits that only change content, and the [check workflow](/next/schema#backward-compatibility) validates them like any other change. Saves always land on a draft branch. When publishing opens a pull request, the check runs on it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so also run the check on pushes to `main`:
+Studio's saves are commits that only change content, and the [check workflow](/next/checking#backward-compatibility) validates them like any other change. Saves always land on a draft branch. When publishing opens a pull request, the check runs on it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so also run the check on pushes to `main`:
 
 ```yaml title=".github/workflows/check.yml (changes)"
 on:

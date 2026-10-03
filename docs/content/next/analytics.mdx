@@ -1,0 +1,77 @@
+---
+title: Analytics
+nav: Analytics
+group: Telemetry & analytics
+order: 22
+description: Page views and your own events from the browser, with no cookies, sent in the One Dollar Stats format to the collector you choose.
+---
+
+# Analytics
+
+Marketing wants to know which landing page the Black Friday banner sends people to, without a cookie banner or a third-party tag manager.
+
+Deco CMS includes a small, open-source analytics component. It counts page views and the events you send, and speaks the [One Dollar Stats](https://onedollarstats.com) format, so it works with their collector or yours. This page shows how to add it, send your own events, and choose where they go.
+
+## Add analytics to your site
+
+Render `<Analytics />` once per page, in your root layout, and pass it a client:
+
+```tsx title="app/layout.tsx"
+import { Analytics } from "@decocms/blocks/analytics";
+import { cms } from "../cms";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        {children}
+        <Analytics client={cms.forRelease()} collector="https://stats.example.com/events" />
+      </body>
+    </html>
+  );
+}
+```
+
+`<Analytics />` renders on the server. Through the `client`, it reads the [`Telemetry` saved block](/next/telemetry#telemetry-settings-are-content) and your CMS's [`telemetry` option](/next/telemetry#choose-where-telemetry-goes), then outputs a small script tag. In the browser, that script sends a page view on every navigation: the path without its query string, the referrer and the hostname.
+
+Rendering the component is all it takes; there's nothing to switch on.
+
+## Send your own events
+
+Call `track` from the same module, with an event name and optional properties:
+
+```tsx
+import { track } from "@decocms/blocks/analytics";
+
+<button onClick={() => { addToCart(sku); track("add_to_cart", { sku }); }}>Add to cart</button>
+```
+
+## Where events go
+
+Pass `collector` with any endpoint that accepts the One Dollar Stats format, as above. Without `collector` and without a hosted collector (below), nothing is sent.
+
+<Hosted to="/next/hosted-telemetry" label="Hosted telemetry">**Analytics with nothing to run.** When your CMS sends telemetry with `telemetry: { site, token }`, leave out `collector`: the hosted Deco CMS collects page views and events and shows them next to your site's telemetry.</Hosted>
+
+## One Dollar Stats
+
+Events use the wire format of the One Dollar Stats tracker, so the two halves mix and match:
+
+- point `<Analytics collector>` at One Dollar Stats' own collector, or
+- use their tracker script on your site and send to a collector that accepts the format.
+
+The format isn't versioned, so Deco CMS tests against a pinned tracker version; the details are in [How telemetry is sent](/next/telemetry-internals#analytics-events).
+
+## Turn it off
+
+To stop sending without a code change, set the `analytics` field of the [`Telemetry` saved block](/next/telemetry#telemetry-settings-are-content) to `false`, in [Studio](/next/studio) or by hand. `enabled: false` switches analytics off along with the rest of telemetry:
+
+```json title=".deco/blocks/Telemetry.json"
+{ "__resolveType": "telemetry", "analytics": false }
+```
+
+Switching it back on is the same one-field commit.
+
+## Privacy
+
+- No cookies, nothing stored in the browser and no fingerprinting: a page view is a path, a referrer and a hostname.
+- Query strings are dropped, so search terms and tracking parameters stay out of your data. Keep personal data out of `track` properties.

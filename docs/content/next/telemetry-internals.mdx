@@ -1,0 +1,45 @@
+---
+title: How telemetry is sent
+nav: Telemetry internals
+group: Under the hood
+kind: internals
+order: 7
+---
+
+# How telemetry is sent
+
+You're contributing to the SDK, or wiring up a collector, and want to know why a collector that's down never slows a page. This page shows the wire format, how metrics are shaped, and how batches leave a server. What's sent and how to configure it is in [Telemetry](/next/telemetry).
+
+## The wire format
+
+Telemetry is OpenTelemetry over OTLP/HTTP, encoded as JSON, posted to the standard paths under the configured endpoint: `/v1/traces`, `/v1/metrics` and `/v1/logs`. JSON keeps a protobuf library out of the edge bundle. Bodies are gzipped. A failed send is retried only on `429`, `502`, `503` and `504`; any other error drops the batch.
+
+## Metrics
+
+Metric names follow the OpenTelemetry semantic conventions: `http.server.request.duration` for the requests your site serves and `http.client.request.duration` for upstream calls. They use **delta temporality**: each batch carries what happened since the last one, because a Cloudflare Workers isolate can disappear at any moment and has no long-lived counter to report. Prometheus-style backends need the collector's `deltatocumulative` processor to turn them into cumulative counters.
+
+Every batch carries these resource attributes:
+
+| Attribute | Value |
+|---|---|
+| `service.name` | Your app's name |
+| `service.version` | The deployed commit |
+| `deployment.environment.name` | The environment, such as `production` or `preview` |
+| `deco.site` | The site ID, when there is one |
+| `deco.release` | The [revision](/next/releases-and-deployment#what-a-revision-is) being served |
+
+## Sending in the background
+
+Measurements are aggregated in memory and sent in batches, never in front of a response. On Cloudflare Workers, which run no timers between requests, a batch goes out after the response, inside `ctx.waitUntil`. Elsewhere, it goes out on a timer that doesn't keep the process alive. A collector that's down or slow loses that one batch; nothing waits for it and nothing piles up.
+
+## Scrubbing
+
+The SDK removes `cookie`, `authorization` and similar headers, tokens and request and response bodies before anything is encoded. Scrubbing happens on the sending side, not in a collector, so a third-party endpoint gets the same guarantee as the hosted Deco CMS.
+
+## Several CMS instances
+
+The [instrumented fetch](/next/api-reference#createinstrumentedfetch-options) reports its measurements to the CMS in the same process, which sends them where its `telemetry` option points. With several CMS instances in one process (several sites in one app, for example), each measurement goes to the CMS whose client is handling the current request.
+
+## Analytics events
+
+[`<Analytics />`](/next/analytics) sends events in the One Dollar Stats tracker's wire format: a JSON object with the page URL and a list of events (type, hostname, referrer, path). When the encoded payload is short, it goes as a `GET` with the JSON, base64-encoded, in the `?data=` parameter; otherwise it's sent with `navigator.sendBeacon` or a `POST`. The format isn't versioned, so compatibility is tested against a pinned version of the tracker.

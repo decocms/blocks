@@ -122,7 +122,7 @@
     }
   ],
   "overview": {
-    "intro": "<p>Deco Blocks is the next major version of Deco's framework, which ships today as the <code>@decocms</code> 7.x packages. The API in these docs is proposed and hasn't shipped yet; this page is the to-do list for releasing it (a release of the framework, not to be confused with content releases). To build it, we checked the proposed API feature by feature against three real sites that will move to it: a <a href=\"#roadmap-storefront\">TanStack storefront</a> on the current packages, a <a href=\"#roadmap-blog\">TanStack blog</a> on an older package, and a <a href=\"#roadmap-faststore\">Next.js storefront</a> on another CMS.</p>\n<p>No site can move using only what these docs describe. Each first needs something missing: Studio support, a way for blocks to read the current request, or SDK functions beyond the CMS. The <a href=\"#roadmap-blockers\">ten release blockers</a> gate the release; the status of every feature the three sites use is under <a href=\"#roadmap--release-readiness\">Release readiness</a>.</p>",
+    "intro": "<p>Deco CMS is the next major version of Deco's framework, which ships today as the <code>@decocms</code> 7.x packages. The API in these docs is proposed and hasn't shipped yet; this page is the to-do list for releasing it (a release of the framework, not to be confused with content releases). To build it, we checked the proposed API feature by feature against three real sites that will move to it: a <a href=\"#roadmap-storefront\">TanStack storefront</a> on the current packages, a <a href=\"#roadmap-blog\">TanStack blog</a> on an older package, and a <a href=\"#roadmap-faststore\">Next.js storefront</a> on another CMS.</p>\n<p>No site can move using only what these docs describe. Each first needs something missing: Studio support, a way for blocks to read the current request, or SDK functions beyond the CMS. The <a href=\"#roadmap-blockers\">ten release blockers</a> gate the release; the status of every feature the three sites use is under <a href=\"#roadmap--release-readiness\">Release readiness</a>.</p>",
     "readiness_lead": "None of the 111 features those sites use is done yet: 11 are still to build, 66 are to finish, 28 are left to site code, and 6 go away with the migration.",
     "fix_docs": "<a class=\"rm-do-t\" href=\"#roadmap-docs\">Fix the docs</a> A few statements in these docs are still loose or wrong. The fixes are the first two docs work items: {{item:roadmap-docs--resolve-contradictions-in-these-docs}} and {{item:roadmap-docs--correct-studio-compatibility}}."
   },
@@ -131,7 +131,7 @@
       "id": "roadmap-blockers--let-studio-talk-to-a-next-major-site",
       "title": "Let Studio talk to a next-major site",
       "today": "Studio reads the schema and content from the running site (<code>/live/_meta</code>, <code>/.decofile</code>) and calls it for previews, <code>/deco/invoke</code> and the secrets encrypt action. A next-major site serves none of these.",
-      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco serve</code> on a developer's machine. Features that need the site's code degrade in this version (see <a href=\"#how-it-works--studio\">Studio</a>).",
+      "plan": "Studio talks to stored content through the content protocol instead, which needs only the committed schema and <code>.deco/blocks</code>: Studio's GitHub backend in production, <code>deco serve</code> on a developer's machine. Features that need the site's code degrade in this version (see <a href=\"#studio--what-works-without-your-code\">What works without your code</a>).",
       "features": [
         "admin-protocol-endpoints",
         "invoke-and-actions",
@@ -801,7 +801,7 @@
       ],
       "docs": [
         "upstream-clients",
-        "caching-and-observability"
+        "caching"
       ]
     },
     {
@@ -1035,13 +1035,13 @@
       "id": "roadmap-api--add-observability-seams",
       "group": "api",
       "title": "Report inbound requests and edge cache hits from the bindings",
-      "plan": "<p>Both bindings report inbound request metrics and edge cache hits into the hosted Deco CMS's telemetry pipeline, outside <code>createDecoWorkerEntry</code> on TanStack and with a meter bootstrap on Node and Next.js. Telemetry is hosted-only: without a site ID and token nothing is sent, and the framework adds no export hook of its own; apps that want their own observability instrument their code with OpenTelemetry as usual.</p>",
+      "plan": "<p>Both bindings report inbound request metrics and edge cache hits into the SDK's open-source telemetry pipeline, outside <code>createDecoWorkerEntry</code> on TanStack and with a meter bootstrap on Node and Next.js. Where it goes is the <code>telemetry</code> option of <code>createCMS</code>: <code>{ endpoint, headers? }</code> sends OpenTelemetry over OTLP/HTTP to any collector, <code>{ site, token }</code> sends to the hosted Deco CMS collector, and <code>false</code> turns it off; when the option is omitted, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is used if set, otherwise nothing is sent. Sending happens in the background (<code>ctx.waitUntil</code> on Workers), so a slow collector never delays a response.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation"
       ],
       "docs": [
-        "hosted-telemetry"
+        "telemetry"
       ],
       "pinned": false
     },
@@ -1055,8 +1055,8 @@
         "upstream-fetch-instrumentation"
       ],
       "docs": [
-        "hosted-releases-internals",
-        "hosted-telemetry"
+        "telemetry-internals",
+        "telemetry"
       ],
       "pinned": false
     },
@@ -1064,7 +1064,7 @@
       "id": "roadmap-api--add-the-telemetry-block-sampling-and-aggregation",
       "group": "api",
       "title": "Add the Telemetry block, sampling and aggregation",
-      "plan": "<p><code>createCMS({ blocks, content, site, token })</code>: the site ID and site token (usually <code>DECO_SITE</code> and <code>DECO_SITE_TOKEN</code>) load hosted content and send telemetry; without both, nothing is sent. Telemetry settings (on or off, sample rates) live in a well-known saved entry, <code>Telemetry</code>, whose schema the framework provides: a committed <code>.deco/blocks/Telemetry.json</code> that <code>deco content</code> scaffolds. Editors change it in Studio, which commits it through its GitHub integration like any content edit; it travels with every release and running servers pick it up with their next content check; without it, the framework's defaults apply. Error logs are sampled; metrics are aggregated in memory before they're sent.</p>",
+      "plan": "<p><code>createCMS({ blocks, content, telemetry })</code>: <code>telemetry</code> is <code>{ endpoint, headers? }</code> for your own OpenTelemetry (OTLP/HTTP) collector, <code>{ site, token }</code> for the hosted Deco CMS collector, or <code>false</code>. The top-level <code>site</code> and <code>token</code> load hosted releases and drafts only; they never turn telemetry on by themselves. Telemetry settings (<code>enabled</code>, <code>metrics</code>, <code>errorSampleRate</code>, <code>traceSampleRate</code>, <code>analytics</code>) live in an optional well-known saved block, <code>Telemetry</code>, of the built-in <code>telemetry</code> type; <code>deco content</code> doesn't scaffold it, and without it the defaults apply. Editors change it in Studio or by hand like any content edit; it travels with every release. Code caps what content can raise with <code>telemetry.limits</code> (<code>errorSampleRate</code>, <code>traceSampleRate</code>), so an editor can't increase what leaves for a third party. Error logs are sampled; metrics are aggregated in memory before they're sent; credentials, cookies and bodies are scrubbed in the SDK.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",
@@ -1072,8 +1072,23 @@
       ],
       "docs": [
         "api-reference",
-        "schema",
-        "hosted-telemetry"
+        "built-in-blocks",
+        "telemetry"
+      ]
+    },
+    {
+      "id": "roadmap-api--add-open-source-analytics",
+      "group": "api",
+      "title": "Add open-source analytics compatible with One Dollar Stats",
+      "plan": "<p>Ship <code>@decocms/blocks/analytics</code>: an <code>&lt;Analytics client collector? /&gt;</code> component for the root layout that renders on the server, reads its settings through the client, and sends page views (path without query string, referrer, hostname) from the browser with no cookies, and <code>track(name, props?)</code> for custom events. Events use the One Dollar Stats tracker's wire format (base64 JSON in <code>GET ?data=</code> when short, otherwise <code>POST</code>/<code>sendBeacon</code>), tested against a pinned tracker version, so a site can point <code>collector</code> at One Dollar Stats' own collector or any endpoint that accepts that format; with <code>telemetry: { site, token }</code> and no <code>collector</code>, the hosted Deco CMS collector receives them. Rendering the component turns it on; the <code>analytics</code> field of the <code>Telemetry</code> saved block (default <code>true</code>) switches it off.</p>",
+      "features": [
+        "analytics-trackers",
+        "ecommerce-analytics-events"
+      ],
+      "docs": [
+        "analytics",
+        "api-reference",
+        "telemetry-internals"
       ]
     },
     {
@@ -1621,7 +1636,7 @@
       "id": "roadmap-platform--build-the-telemetry-collector",
       "group": "studio",
       "title": "Build the telemetry collector",
-      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token. Switching a site's telemetry off needs no special channel: Studio commits the change to the site's <code>.deco/blocks/Telemetry.json</code> through its GitHub integration, like any content edit, and running servers pick it up with their next content check.</p>",
+      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token, for sites that set <code>telemetry: { site, token }</code>; it also receives analytics events in the One Dollar Stats format. Switching a site's telemetry off needs no special channel: it's a commit to the site's <code>Telemetry</code> saved block, from Studio or by hand, like any content edit.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",
@@ -1790,7 +1805,7 @@
       "id": "roadmap-docs--write-an-operations-page",
       "group": "docs",
       "title": "Finish the operations page",
-      "plan": "<p><a href=\"#hosted-telemetry\">Telemetry</a> now covers what's sent and sampling, and <a href=\"#hosted\">The hosted Deco CMS</a> covers connecting a site. Still to add: (1) the DECO_SITE and DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without them; (2) a per-host table of how the SDK schedules its once-a-minute check on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
+      "plan": "<p><a href=\"#telemetry\">Telemetry</a> now covers what's sent and sampling, and <a href=\"#hosted\">The hosted Deco CMS</a> covers connecting a site. Still to add: (1) the DECO_SITE and DECO_SITE_TOKEN lifecycle (issue, rotate, scope) and a one-time warning when createCMS runs in production without them; (2) a per-host table of how the SDK schedules its once-a-minute check on Workers, Node and Vercel; (3) default bounds for every in-isolate cache and how to change them; (4) the 7.x → next env and binding table. Plus a CI job that resolves one block per app package in a Workers production build, to catch dynamic-import failures.</p>",
       "features": [
         "env-vars-and-secrets",
         "hosting-and-deploy-config",
@@ -1801,7 +1816,7 @@
         "shopify-autoconfig-workaround"
       ],
       "docs": [
-        "caching-and-observability",
+        "telemetry",
         "hosted",
         "hosted-telemetry"
       ],
@@ -1853,7 +1868,7 @@
       ],
       "docs": [
         "matchers-and-variants",
-        "hosted-telemetry"
+        "analytics"
       ]
     },
     {
@@ -2514,7 +2529,7 @@
       "summary": "Saved entries with references cover the two TanStack sites, but FastStore's global singletons have no equivalent. A layout and its page can get two clients on different revisions, and Lazy-wrapped headers and footers lose their deferral.",
       "docs": [
         "blocks",
-        "caching-and-observability",
+        "caching",
         "nextjs",
         "releases-and-deployment",
         "rendering",
@@ -2887,7 +2902,7 @@
         "tanstack-start-descriptors",
         "rendering",
         "renames-and-migrations",
-        "caching-and-observability",
+        "caching",
         "api-reference",
         "studio-compatibility",
         "design-decisions"
@@ -3046,7 +3061,7 @@
         "tanstack-start-descriptors",
         "nextjs",
         "routing",
-        "caching-and-observability",
+        "caching",
         "studio-compatibility",
         "renames-and-migrations"
       ],
@@ -3137,7 +3152,7 @@
       "docs": [
         "blocks",
         "tanstack-start-descriptors",
-        "caching-and-observability",
+        "caching",
         "routing"
       ],
       "confidence": "high",
@@ -3158,7 +3173,7 @@
       "docs": [
         "studio-compatibility",
         "internals",
-        "caching-and-observability",
+        "caching",
         "api-reference",
         "tanstack-start-descriptors",
         "upstream-clients",
@@ -3181,7 +3196,7 @@
       "docs": [
         "routing",
         "blocks",
-        "caching-and-observability",
+        "caching",
         "nextjs"
       ],
       "confidence": "high",
@@ -3287,7 +3302,7 @@
       "docs": [
         "rendering",
         "blocks",
-        "caching-and-observability"
+        "caching"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -3305,7 +3320,7 @@
       "summary": "A server endpoint plus a client hook, but apps-vtex has no persisted-query client for `/_v/public/graphql/v1`, so the site's IO client still needs porting, and it's unclear what the app should cache with.",
       "docs": [
         "blocks",
-        "caching-and-observability",
+        "caching",
         "matchers-and-variants",
         "routing",
         "api-reference"
@@ -3371,7 +3386,7 @@
       ],
       "summary": "The four cart server functions touch neither the CMS nor `/deco/invoke`. They break at import time, though, if apps-shopify's `@decocms/blocks/sdk` imports and its `@decocms/tanstack` dependency don't survive.",
       "docs": [
-        "caching-and-observability",
+        "caching",
         "tanstack-start-descriptors",
         "blocks"
       ],
@@ -3390,7 +3405,7 @@
       ],
       "summary": "The hooks and their SSR prefetch stay app code.",
       "docs": [
-        "caching-and-observability",
+        "caching",
         "blocks",
         "rendering",
         "tanstack-start-descriptors"
@@ -3412,7 +3427,7 @@
       "summary": "The proposed API has no cart; the Next guide's CartButton is a counter demo. The invoke-based cart is TanStack-only, the VTEX checkout proxy lives in `createDecoWorkerEntry`, and FastStore's cart rules must be rebuilt by hand.",
       "docs": [
         "rendering",
-        "caching-and-observability",
+        "caching",
         "routing"
       ],
       "confidence": "medium",
@@ -3432,7 +3447,7 @@
       "docs": [
         "blocks",
         "matchers-and-variants",
-        "caching-and-observability",
+        "caching",
         "routing"
       ],
       "confidence": "medium",
@@ -3471,7 +3486,7 @@
         "api-reference",
         "design-decisions",
         "rendering",
-        "caching-and-observability"
+        "caching"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3489,7 +3504,7 @@
       ],
       "summary": "A form plus a server function or Server Action is a few lines. The content drift (flat fields where Props read nested `notices` and `form`) means editors' copy is ignored today, and the public POST needs rate limiting.",
       "docs": [
-        "caching-and-observability",
+        "caching",
         "matchers-and-variants",
         "blocks",
         "tanstack-start-descriptors",
@@ -3512,7 +3527,7 @@
       "docs": [
         "rendering",
         "blocks",
-        "caching-and-observability",
+        "caching",
         "schema"
       ],
       "confidence": "medium",
@@ -3531,7 +3546,7 @@
       ],
       "summary": "It becomes a server function around an existing apps-vtex call. Every `invoke.*` call site needs rewriting, and without `RequestContext` no segment cookie is forwarded, so regional SLAs can differ.",
       "docs": [
-        "caching-and-observability",
+        "caching",
         "tanstack-start-descriptors",
         "blocks"
       ],
@@ -3551,7 +3566,7 @@
       ],
       "summary": "These are placeholders; each becomes a server function in a few lines. The site's demo wishlist code uses `RequestContext`.",
       "docs": [
-        "caching-and-observability",
+        "caching",
         "tanstack-start-descriptors",
         "blocks"
       ],
@@ -3665,7 +3680,7 @@
         "blocks",
         "rendering",
         "routing",
-        "caching-and-observability",
+        "caching",
         "renames-and-migrations",
         "router-internals"
       ],
@@ -3770,7 +3785,7 @@
       ],
       "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, and there's no revision to key by. The planned once-a-minute check makes content consistent within seconds.",
       "docs": [
-        "caching-and-observability",
+        "caching",
         "releases-and-deployment",
         "api-reference",
         "hosted-releases-internals",
@@ -3797,7 +3812,7 @@
       ],
       "summary": "Cross-request caching is 'your policy', and upstream caching moves to the framework bindings and isn't designed yet. Draft caches are unbounded, input-keyed caches miss request state, and Studio's bypass flag is ignored.",
       "docs": [
-        "caching-and-observability",
+        "caching",
         "api-reference",
         "troubleshooting",
         "blocks"
@@ -3824,7 +3839,7 @@
         "tanstack-start-descriptors",
         "nextjs",
         "rendering",
-        "caching-and-observability"
+        "caching"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3846,7 +3861,7 @@
         "internals",
         "schema",
         "blocks",
-        "caching-and-observability",
+        "caching",
         "content-protocol"
       ],
       "confidence": "high",
@@ -3896,7 +3911,7 @@
         "blocks",
         "quickstart",
         "routing",
-        "caching-and-observability"
+        "caching"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -4055,7 +4070,7 @@
         "nextjs",
         "releases-and-drafts",
         "releases-and-deployment",
-        "caching-and-observability"
+        "caching"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -4119,7 +4134,7 @@
         "api-reference",
         "releases-and-drafts",
         "nextjs",
-        "caching-and-observability",
+        "caching",
         "studio-compatibility",
         "internals"
       ],
@@ -4427,7 +4442,7 @@
         "tanstack-start-descriptors",
         "releases-and-drafts",
         "api-reference",
-        "caching-and-observability"
+        "caching"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -4552,7 +4567,7 @@
       "docs": [
         "blocks",
         "renames-and-migrations",
-        "caching-and-observability",
+        "caching",
         "studio-compatibility",
         "internals"
       ],
@@ -4598,7 +4613,7 @@
       "docs": [
         "blocks",
         "matchers-and-variants",
-        "caching-and-observability",
+        "caching",
         "nextjs"
       ],
       "confidence": "high",
@@ -4616,9 +4631,9 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Sites trace with their own OpenTelemetry setup; inbound-request and edge-cache metrics go only to the hosted telemetry pipeline. Still open: `remoteLoader` fails silently, and spans around JSX blocks miss the upstream fetches.",
+      "summary": "Sites trace with their own OpenTelemetry setup; inbound-request and edge-cache metrics go wherever the `telemetry` option of `createCMS` points (your own OTLP collector or the hosted Deco CMS). Still open: `remoteLoader` fails silently, and spans around JSX blocks miss the upstream fetches.",
       "docs": [
-        "caching-and-observability",
+        "telemetry",
         "api-reference",
         "hosted-releases-internals",
         "releases-and-drafts",
@@ -4644,7 +4659,7 @@
       ],
       "summary": "The storefront calls `createInstrumentedFetch(\"shopify\")` with no onComplete, so upstream metrics are dark today. The chokepoint rule is never stated, and there's no meter on Next or Node.",
       "docs": [
-        "caching-and-observability",
+        "telemetry",
         "blocks",
         "rendering",
         "internals",
@@ -4667,7 +4682,7 @@
       ],
       "summary": "Trackers carry over, but the DECO.events bootstrap is private and copied three times, and experiment results break: Studio keys them on the random matcher's saved-entry name, which a pure block function never sees.",
       "docs": [
-        "caching-and-observability",
+        "analytics",
         "nextjs",
         "matchers-and-variants",
         "design-decisions",
@@ -4696,7 +4711,7 @@
         "rendering",
         "nextjs",
         "internals",
-        "caching-and-observability"
+        "analytics"
       ],
       "confidence": "high",
       "first_rated": null,

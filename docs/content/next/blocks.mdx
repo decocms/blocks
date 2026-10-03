@@ -1,18 +1,33 @@
 ---
 title: Blocks
-group: Core concepts
-order: 3
+nav: Blocks
+group: Blocks
+kind: docs
+order: 4
+description: A block is a function call written as JSON. The function is code; the call is data, so editors, agents and tools can change it without touching code.
 ---
 
 # Blocks
 
-A block is a function call written as JSON: it names one of your functions and lists the inputs to call it with. When your app resolves a block, Deco calls the function with those inputs and hands you back the result. Blocks are what editors and agents change instead of your code; [How it works](/next/how-it-works) has the big picture.
+Here's the free-shipping bar at the top of a store, with its headline written straight into the page:
 
-This page covers what a block looks like, how blocks nest and get reused, the block map that decides which functions they can call, and how saved blocks live in your repository.
+```tsx
+<PromoBanner title="Free shipping over $50" href="/summer" />
+// which is the call
+PromoBanner({ title: "Free shipping over $50", href: "/summer" });
+```
+
+Blocks is a way to write that same call as JSON, so the headline can change without a code change:
+
+```json
+{ "__resolveType": "promo-banner", "title": "Free shipping over $50", "href": "/summer" }
+```
+
+The function is code; the call is data. Everything else in [Deco CMS](/next/how-it-works#what-deco-cms-is), the forms, the checks, [Studio](/next/studio), variants and releases, reads and writes this format. This page shows what a block looks like, how blocks nest, the block map that decides which functions they can call, and the rule that finds the function for a name.
 
 ## Functions as blocks
 
-Here's the free-shipping bar at the top of a store, an ordinary React component:
+`PromoBanner` is an ordinary React component:
 
 ```tsx title="src/promo-banner.tsx"
 export interface PromoBannerProps {
@@ -25,7 +40,7 @@ export function PromoBanner({ title, href }: PromoBannerProps) {
 }
 ```
 
-And here's a block that calls it. `"promo-banner"` is the name your site gives `PromoBanner`; [The block map](#the-block-map) shows where names come from.
+And here's a block that calls it. `"promo-banner"` is the name your site gives `PromoBanner`; [The block map](#the-block-map) shows where names come from. These docs show every block in two parts: **Stored as JSON** is what's saved, and **Means** is the TypeScript call it stands for.
 
 ```jsonc
 // Stored as JSON
@@ -39,17 +54,17 @@ And here's a block that calls it. `"promo-banner"` is the name your site gives `
 PromoBanner({ title: "Free shipping over $50", href: "/summer" });
 ```
 
-The function is code; the call is data. Changing the headline or the link touches no code, and the same works for anything your site needs: UI, product data, SEO, navigation, campaign settings.
+Changing the headline or the link touches no code, and the same works for anything your site needs: UI, product data, SEO, navigation, campaign settings.
 
 What a block can contain:
 
 - **`__resolveType`**, a string: the name of the function to call. It's a reserved key; the underscores keep it from clashing with your props.
 - **Any JSON value as an argument**: strings, numbers, booleans, `null`, arrays and objects. Anything JSON can't hold, such as a function or a `Date`, can't be an argument.
-- **Other blocks**, anywhere inside an argument. That's the next section.
+- **Other blocks**, anywhere inside an argument. That's [Composing blocks](#composing-blocks).
 
 ### Reading the request
 
-A block function gets only its inputs: no request, no context object. When it needs the current request, a cookie or a route parameter, it reads it the way the rest of your app does, through your framework's request-scoped storage (`next/headers`, TanStack Start's `getRequest()`, or Node's `AsyncLocalStorage`). That keeps block functions pure, so you can call them in a test.
+A block function gets only its arguments: no request, no context object. When it needs the current request, a cookie or a route parameter, it reads it the way the rest of your app does, through your framework's request-scoped storage (`next/headers`, TanStack Start's `getRequest()`, or Node's `AsyncLocalStorage`). That keeps block functions pure, so you can call them in a test.
 
 ## Composing blocks
 
@@ -70,11 +85,11 @@ productCard({
 });
 ```
 
-Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives the resolved `Product`, never a pending call. If a function is `async`, its result is awaited first. Every argument resolves this way, before the function runs, with one exception: a [lazy block](#lazy-blocks).
+Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives the resolved `Product`, never a pending call. If a function is `async`, its result is awaited first. Every argument resolves this way, before the function runs, with one exception: a [lazy block](/next/lazy-blocks), which runs only when the function asks for it.
 
-So type the prop as what the function receives, `product: Product`, not as a block. [Schema](/next/schema#from-types-to-forms) shows how [Studio](/next/how-it-works#studio) then offers the functions that return a `Product`, such as `catalogProduct`.
+So type the prop as what the function receives, `product: Product`, not as a block. [Forms from types](/next/schema#interchangeable-blocks) shows how editors then get to pick any function that returns a `Product`, such as `catalogProduct`.
 
-To resolve a block from your code, pass it to [`client.resolve`](/next/api-reference#client-resolve-target-options). Get a client with `cms.forRelease()`, where `cms` is the object your app creates once with [`createCMS`](/next/api-reference#createcms-config) (set up in [The `deco content` command](#the-deco-content-command)), one client per request ([why](/next/releases-and-deployment#one-revision-per-response)):
+To resolve a block from your code, pass it to [`client.resolve`](/next/api-reference#client-resolve-target-options). Get a client with `cms.forRelease()`, where `cms` is the object your app creates once (see [Create the CMS](/next/content#create-the-cms)), one client per request ([why](/next/releases-and-deployment#one-revision-per-response)):
 
 ```tsx
 import { cms } from "./cms";
@@ -90,85 +105,9 @@ const [card, error] = await client.resolve({
 
 `resolve` never throws: it returns `[value, null]`, or `[null, error]` if something failed. It accepts any JSON value, not only a block: blocks anywhere inside are resolved, and everything else comes back as it is. Pass an array of blocks and you get an array of results.
 
-<Callout>**Reading without running.** `client.resolve(target, { run: false })` returns the JSON that would be called, with nothing run. It's most useful with saved blocks ([next section](#reusing-blocks)), which it writes in place, and handy for previews, tooling and debugging. Code that handles this saved JSON types it as `Block`, `{ __resolveType: string; …inputs }`; props never do. See [`client.resolve`](/next/api-reference#client-resolve-target-options).</Callout>
+## The block map
 
-### Lazy blocks
-
-Sometimes a function only needs an argument if something else is true. A **lazy block** is the one block that doesn't resolve first. `lazy` wraps a `value` (any block or JSON), and the function receives a function instead of the value. Calling it resolves `value`:
-
-```jsonc
-// Stored as JSON
-{
-  "__resolveType": "product-card",
-  "title": "Summer collection",
-  "showProduct": false,
-  "product": {
-    "__resolveType": "lazy",
-    "value": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
-  }
-}
-
-// Means
-productCard({
-  title: "Summer collection",
-  showProduct: false,
-  product: () => catalogProduct({ slug: "summer-shirt" }),
-});
-```
-
-`catalogProduct` runs only if `productCard` calls `product()`, and at most once: a second call returns the same result. To ask for this, type the prop as `Lazy<T>`, which is `() => Promise<T>`:
-
-```tsx title="src/product-card.tsx"
-import type { Lazy } from "@decocms/blocks";
-
-export async function productCard({ title, showProduct, product }: { title: string; showProduct: boolean; product: Lazy<Product> }) {
-  if (!showProduct) return <Title text={title} />;   // catalogProduct never runs
-  const item = await product();                       // catalogProduct runs here
-  return <Card title={title} product={item} />;
-}
-```
-
-Editors never see the wrapper: Studio shows a `Product` field and writes the `lazy` block around what they pick (see [Schema](/next/schema#from-types-to-forms)). The built-in [`multivariate`](/next/matchers-and-variants) uses this, so only the chosen variant runs. See [`Lazy<T>`](/next/api-reference#types).
-
-## Reusing blocks
-
-In code, you'd give a call you use often a name. A **saved block** is a block with a name. Here's the card from the previous section, saved as `SummerCard`:
-
-```jsonc
-// Saved as SummerCard
-{
-  "__resolveType": "product-card",
-  "title": "Summer collection",
-  "product": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
-}
-```
-
-Resolve it by name. A string passed to `resolve` is always the name of a saved block:
-
-```tsx
-const [card, error] = await client.resolve("SummerCard");
-```
-
-Other blocks can use it too. `{ "__resolveType": "SummerCard" }` means whatever is saved under `SummerCard`, written in place, so a home page and a campaign page can show the same card, and changing the saved block changes both.
-
-What's saved is the call, not its result, so a reference can override some of its arguments for one use:
-
-```jsonc
-// Saved as SummerSEO
-{ "__resolveType": "seo", "title": "Sunny!", "description": "Light layers for long days." }
-
-// A reference to it, anywhere in your content
-{ "__resolveType": "SummerSEO", "title": "Summer sale" }
-
-// Means
-seo({ title: "Summer sale", description: "Light layers for long days." });
-```
-
-Overrides are shallow. The merge is `{ ...saved, ...arguments }`, so an override replaces a whole top-level property, and the saved block itself doesn't change.
-
-### The block map
-
-So far, names like `"product-card"` simply worked. They come from your **block map**: the object you pass to [`createCMS`](/next/api-reference#createcms-config) that decides which functions blocks can call. Each key is a **block type**, the name a block's `__resolveType` uses; each value is a function:
+So far, names like `"product-card"` simply worked. They come from your **block map**: the object that decides which functions blocks can call. Each key is a **block type**, the name a block's `__resolveType` uses; each value is a function:
 
 ```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
@@ -183,86 +122,30 @@ export default {
 } satisfies Blocks;
 ```
 
-The block map lives in `.deco/index.ts` (or `.deco/index.tsx`), next to your content, and imports your components from `../src/`. Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. `satisfies Blocks` checks the map's shape while keeping each function's exact input and return types (see [`Blocks`](/next/api-reference#types)).
+The block map is the default export of `.deco/index.ts` (or `.deco/index.tsx`), next to your content, and imports your components from `../src/`. You pass it to [`createCMS`](/next/content#create-the-cms) as `blocks`.
 
-### Built-in blocks
+Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. `satisfies Blocks` checks the map's shape while keeping each function's exact argument and return types (see [`Blocks`](/next/api-reference#types)).
 
-The framework adds eight functions to your block map for you. They're always in the schema and the registry, and you don't import or list them:
+You don't list pages, redirects or the if/else blocks: eight [built-in blocks](/next/built-in-blocks) are added for you.
 
-**Pages and redirects**
+## The lookup rule
 
-- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. Its [type](/next/api-reference#types) is `interface Page extends Route { seo: Seo; sections: ReactNode[] }`. [Pages and routing](/next/routing) shows how to find the page for a URL.
-- **`redirect`** takes `from`, `to` and `permanent` (`true` for a 301, `false` for a 302), and returns them as saved. [Pages and routing](/next/routing) turns redirects into responses.
+Every `__resolveType` is looked up in one registry, where later keys win. `savedBlocks` are named calls stored as files (see [Saved blocks](/next/saved-blocks)):
 
-**Telemetry**
-
-- **`telemetry`** holds settings read by the [hosted Deco CMS](/next/hosted-telemetry); it does nothing otherwise.
-
-**Matchers and variants** (see [Matchers and variants](/next/matchers-and-variants))
-
-- **`always`** returns `true`, so the variant paired with it is the fallback.
-- **`never`** returns `false`, so the variant paired with it is never picked (that is how Studio hides a block).
-- **`date`** takes `start` and `end`, and returns `true` from `start` until `end`.
-- **`multivariate`** takes `variants`, a list of entries that each pair a rule with a variant, and returns the first variant whose rule is `true`. Only that variant runs.
-
-**Laziness**
-
-- **`lazy`** takes `value` and returns a function that resolves it when called (see [Lazy blocks](#lazy-blocks)).
-
-**Changing a built-in.** Declare `page` in your block map to replace it, for example to wrap every page in your layout. To only change the fields editors see, see [Override a built-in](/next/schema#override-a-built-in).
-
-### The lookup rule
-
-Every `__resolveType` is looked up in one registry, `{ ...savedBlocks, ...builtIns, ...blocks }`, where later keys win. A function is called with its arguments, after they're resolved. A saved block is replaced by its contents, merged with your overrides, and that result is looked up the same way. Any other name fails with [`UNKNOWN_BLOCK`](/next/api-reference#errors). Give saved blocks and functions different names; if they clash, the function wins and you'll get a warning. What happens when a block fails, or when saved blocks refer to each other in a loop, is in [The rule in full](/next/how-resolution-works#the-rule-in-full).
-
-## Blocks in your repository
-
-Everything Deco lives in one folder, `.deco/`, in your app root (the folder with your app's `package.json`). Saved blocks are files there: one JSON file per saved block in `.deco/blocks`, and the file name without `.json` is its name.
-
-```text
-.deco/
-├── index.ts           your block map
-├── blocks/            your saved blocks
-│   ├── HomePage.json
-│   ├── PromoBanner.json
-│   └── SummerCard.json
-├── schema.gen.json    generated by deco schema, committed
-└── blocks.gen.ts      generated by deco content, gitignored
+```ts
+{ ...savedBlocks, ...builtIns, ...blocks }
 ```
 
-Don't edit `schema.gen.json` or `blocks.gen.ts`; `index.ts` and `blocks/` are yours. The `.gen.` in a name marks a generated file. `blocks.gen.ts` is built from `blocks/`: it's your saved blocks as a module. The [CLI](/next/cli) page has a table of which file is which.
+- **A function** (from your block map or a built-in) is called with its arguments, after they're resolved.
+- **A [saved block](/next/saved-blocks)** is replaced by its contents, merged with any arguments the reference adds, and that result is looked up the same way.
+- **Any other name** fails with [`UNKNOWN_BLOCK`](/next/api-reference#errors).
 
-Edit saved blocks as files, with an AI agent, or in Studio (see [Edit on your machine](/next/cli#edit-on-your-machine)). Because they're files in Git, every edit is a commit you can review and revert, and publishing is pushing to your production branch: your next deploy serves it (see [Deployment](/next/releases-and-deployment#publishing)).
+Saved blocks and functions need different names (see [Names](/next/saved-blocks#names)). What happens when a block fails, or when saved blocks refer to each other in a loop, is in [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
-### The `deco content` command
+## What's built on this
 
-The `deco` CLI, which comes with `@decocms/blocks`, turns `.deco/blocks` into a module your app imports, so the SDK never touches the filesystem and runs anywhere: Node, Cloudflare Workers, Deno, Bun or a browser.
-
-```bash
-npx @decocms/blocks content
-```
-
-It writes `.deco/blocks.gen.ts`: one JSON import per file, exported together, so your bundler packs your content into the build like any other module:
-
-```ts title=".deco/blocks.gen.ts (excerpt)"
-// Generated by deco content; don't edit.
-import HomePage from "./blocks/HomePage.json" with { type: "json" };
-import PromoBanner from "./blocks/PromoBanner.json" with { type: "json" };
-// … one import per file, exported together
-```
-
-Pass it to `createCMS`, next to your block map:
-
-```ts title="cms.ts"
-import { createCMS } from "@decocms/blocks";
-import blocks from "./.deco";
-import content from "./.deco/blocks.gen";
-
-export const cms = createCMS({ blocks, content });
-```
-
-The generated file belongs in `.gitignore`, like TanStack Router's `routeTree.gen.ts`. Run it before your dev server and your build, after [`deco schema`](/next/schema#from-types-to-forms) (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)).
-
-Editing a file reloads through your framework's hot module replacement (HMR), with no rerun. Adding or removing a file needs the command again: rerun `npx @decocms/blocks content`, or leave `npx @decocms/blocks content --watch` running beside your dev server.
-
-It reads only the JSON files in `.deco/blocks`, never your block map. Like every command, it finds `.deco/` by walking up from the current folder, or takes `--root`. Every option is in the [CLI reference](/next/cli#deco-schema-and-deco-content).
+- [Saved blocks](/next/saved-blocks): give a call a name and reuse it.
+- [Lazy blocks](/next/lazy-blocks): the one argument that runs only when it's asked for.
+- [Built-in blocks](/next/built-in-blocks): pages, redirects, matchers and the rest, added to every block map.
+- [Forms from types](/next/schema): your functions' types become the forms editors fill in.
+- [Matchers and variants](/next/matchers-and-variants): if/else and scheduled campaigns, written as calls.

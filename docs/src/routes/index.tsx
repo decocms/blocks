@@ -18,11 +18,11 @@ export const Route = createFileRoute('/')({
   staticData: { chrome: { layout: 'landing', tab: 'home', version: ROOT_VERSION } },
   head: () => ({
     meta: [
-      { title: 'Deco Blocks — Sections in code, pages in Studio' },
+      { title: 'Deco CMS — Sections in code, pages in Studio' },
       {
         name: 'description',
         content:
-          'Deco Blocks is the framework behind Deco sites and storefronts: React sections in TypeScript, pages composed in Deco Studio, served from TanStack Start on Cloudflare Workers or from Next.js.',
+          'Deco CMS is the framework behind Deco sites and storefronts: React sections in TypeScript, pages composed in Deco Studio, served from TanStack Start on Cloudflare Workers or from Next.js.',
       },
     ],
   }),
@@ -35,7 +35,7 @@ function HomeRoute() {
     <LandingShell nav={sidebarFor(ROOT_VERSION, 'docs')}>
       <section className="min-h-[60vh] bg-forest pt-40 pb-20 text-band-fg">
         <div className="mx-auto w-full max-w-landing px-10 max-sm:px-4">
-          <h1 className="text-hero leading-[1.05] font-normal tracking-display">Deco Blocks</h1>
+          <h1 className="text-hero leading-[1.05] font-normal tracking-display">Deco CMS</h1>
           <p className="text-band-muted">The home page is being ported (components/home/).</p>
         </div>
       </section>

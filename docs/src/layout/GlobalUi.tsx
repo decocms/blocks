@@ -61,7 +61,7 @@ export function GlobalUi() {
             h1.focus({ preventScroll: true })
           }
         }
-        announce(document.title.replace(/ — Deco Blocks$/, ''))
+        announce(document.title.replace(/ — Deco CMS$/, ''))
       })
     })
     window.addEventListener(TOAST_EVENT, onToast)

@@ -15,7 +15,7 @@ const STEPS = [
   },
   {
     title: 'It becomes editable',
-    text: "One command turns the function's types into a form. With the hosted Deco CMS, that's the form editors use in Deco Studio, so marketing can change copy, images and campaigns whenever they need to.",
+    text: "One command turns the function's types into a form, the form editors use in Deco Studio, so marketing can change copy, images and campaigns whenever they need to.",
   },
   {
     title: 'Ship from Git',
@@ -221,7 +221,7 @@ export function Stepper() {
       lede="No rewrite and no new runtime. Name the function in a block map, generate a form from its types, and connect your app to your content with one call."
       steps={STEPS}
       fileTabs={FILE_TABS}
-      windowTitle="Deco Blocks · my-store — setup"
+      windowTitle="my-store — setup"
       panes={[
         <>
           <Code html={STEP1_HTML} />
@@ -271,7 +271,7 @@ export function Stepper() {
           <Code html={STEP3_HTML} />
           <Result>
             <span>
-              With the hosted Deco CMS (the site and token above), a commit is live everywhere within seconds, no deploy. Without it, content ships
+              With the hosted Deco CMS (the site and token above), a commit reaches your servers within seconds, no deploy. Without it, content ships
               with each deploy.
             </span>
           </Result>

@@ -1,18 +1,20 @@
 ---
-title: Schema
-group: Core concepts
-order: 5
+title: Forms from types
+nav: Forms from types
+group: Built on Blocks
+kind: docs
+order: 7
 ---
 
-# Schema
+# Forms from types
 
-When an editor opens a block in [Studio](/next/how-it-works#studio), they see a form: a text box for the headline, an image picker, a calendar for the end date, a rich-text editor for the description. You never build that form. It comes from the types of your function's inputs, through the schema, and it only accepts values your function can take.
+You already describe your banner's inputs in TypeScript: `title: string`, `image: string`, `endsOn?: string`. Normally you'd also build an admin form by hand, with a text box, an image picker and a date picker, and keep it in step with the type forever. With Deco CMS, `deco schema` reads the type and writes the form description for you, `.deco/schema.gen.json`, and [Studio](/next/studio) shows editors that form. It only accepts values your function can take.
 
-This page shows how types become fields, how to pick widgets, how to declare data-only blocks, how to override a built-in block, and how the CLI keeps saved content working when your types change.
+This page shows how types become fields, how blocks that return the same type become interchangeable, how to pick widgets with JSDoc tags, and how to declare data-only blocks.
 
 ## From types to forms
 
-`deco schema` reads the default export of `.deco/index.ts` (or `.deco/index.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (see [`deco schema`](/next/cli#deco-schema-and-deco-content)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
+`deco schema` reads the default export of `.deco/index.ts` (or `.deco/index.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (flags in [CLI](/next/cli#deco-schema-and-deco-content)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
 
 ```bash
 npx @decocms/blocks schema
@@ -48,17 +50,18 @@ interface ProductCardProps {
 - **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a [matcher](/next/matchers-and-variants) (a function that returns a `boolean`) never shows up as a section.
 - **Simple types** (`string`, `number`, `boolean`, a union of literals) get a plain input only. A function that returns a `string` isn't offered for `title: string`, and matchers aren't offered for `permanent: boolean`.
 
-Three things work on top of this. Any field can have [variants](/next/matchers-and-variants), alternate values picked per request (by date, or by any rule you write): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. Each `rule` in `variants` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher). And a `Lazy<T>` field (a [lazy block](/next/blocks#lazy-blocks)) gets the form of `T`: `deco schema` makes it a `lazy` block whose `value` is a `T`, editors fill in a `T`, and Studio writes the `lazy` block around it. Each variant, the `value` next to a rule, is one of these. [`deco check`](/next/cli#deco-check) fails if a `Lazy<T>` field holds something other than a `lazy` block, or a `lazy` block sits in a field that isn't `Lazy<T>`.
+Two things work on top of this. Any field can have [variants](/next/matchers-and-variants#variants), alternate content picked per request (by date, or by any rule you write): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. Each `rule` in `variants` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher). And a [`Lazy<T>` field](/next/lazy-blocks#lazyt-props) gets the form of `T`: `deco schema` makes it a `lazy` block whose `value` is a `T`, editors fill in a `T`, and Studio writes the `lazy` block around it.
 
 Never type a prop as a block. `Block` is only the shape of saved JSON (see [Composing blocks](/next/blocks#composing-blocks)).
 
 A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells Studio which input to show (see [Widgets](#widgets)).
+
 ### Interchangeable blocks
 
-Any block whose function returns the field's type can fill it, so editors can swap one for another without touching code. (This is polymorphism: Studio matches functions by their return type, the way TypeScript does.) For such a field, Studio offers two kinds of choices:
+Any block whose function returns the field's type can fill it, so editors can swap one for another without touching code. This is polymorphism, and it comes from the schema: `deco schema` records each function's return type, so the schema already lists which functions fit which field, the way TypeScript would match them. Studio just shows the choices. For such a field, there are two kinds:
 
 - **A new block**: pick one of the functions that fit, and fill in its form right there.
-- **A saved block**: Studio lists the saved blocks in `.deco/blocks` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reusing blocks](/next/blocks#reusing-blocks)).
+- **A [saved block](/next/saved-blocks)**: Studio lists the saved blocks in `.deco/blocks` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reuse a block](/next/saved-blocks#reuse-a-block)).
 
 ## Widgets
 
@@ -101,7 +104,7 @@ export interface PromoBannerProps {
 
 becomes a form with a *Headline* text box limited to 60 characters, an *Image* picker, a *Link* field and an optional *Ends on* date picker.
 
-**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so Studio shows a select without asking your site for the options. A picker whose options come from a function shows a text field, since Studio never runs your code (see [Studio](/next/how-it-works#studio)).
+**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so Studio shows a select without asking your site for the options. A picker whose options come from a function shows a text field, since Studio never runs your code (see [What works without your code](/next/studio#what-works-without-your-code)).
 
 ## Data-only blocks
 
@@ -120,57 +123,10 @@ export default { seo, hero, post } satisfies Blocks;     // page, redirect and t
 
 A `post` is now a block like any other. Your app reads posts by type with [`client.list("post")`](/next/api-reference#client-list-type-options) or by URL with [`matchRoute`](/next/api-reference#matchroute-url-items) (see [Pages and routing](/next/routing)), and [`client.resolve`](/next/api-reference#client-resolve-target-options) works on a saved post too. Blocks inside a post still resolve, because a block's inputs resolve before its function runs. And like any block, it can fill a field of its return type: a block with a `featured: Post` field lets editors pick a saved post (see [Interchangeable blocks](#interchangeable-blocks)).
 
-### Override a built-in
+To add fields to a built-in such as `page`, see [Change a built-in](/next/built-in-blocks#change-a-built-in).
 
-The schema and the runtime always include the [built-in blocks](/next/blocks#built-in-blocks): `page`, `redirect`, `telemetry`, `always`, `never`, `date`, `multivariate` and `lazy`. To change a built-in's form, declare the same key in the default export. [`Page`](/next/api-reference#types) is exported from `@decocms/blocks`; extend it to add fields:
+A saved block can't share a name with a block type, a built-in or an alias; see [Names](/next/saved-blocks#names).
 
-```ts title=".deco/index.ts"
-import type { Blocks, Page } from "@decocms/blocks";
-// …the other imports from above
+## When your types change
 
-interface StorePage extends Page { theme: "light" | "dark" }
-
-const page = (props: StorePage) => props;
-
-export default { seo, hero, post, page } satisfies Blocks;   // seo, hero and post as above
-```
-
-Nothing is lost: inputs resolve before the function runs, so returning `props` gives the same resolved page as the built-in, `seo` and `sections` included, plus `theme`. You read it in the result of `client.resolve`, as `page.theme`.
-
-### Names must not clash
-
-A saved block in `.deco/blocks` can't have the name of a block type, built-ins included (no saved block can be called `page`, `redirect`, `telemetry`, `always`, `never`, `date`, `multivariate` or `lazy`), or of an alias (a second name for a block type, used when you rename one; see [Migrating from v7](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); [`deco check`](/next/cli#deco-check) makes it an error so you catch it before you deploy.
-
-## Backward compatibility
-
-Saved content must keep working when your code changes, and content must only use the block types and fields your code has. `deco check` makes sure of both: it validates every saved block against the schema your code generates, whichever of the two changed.
-
-Run it on every pull request, and make the job a required check so content that doesn't fit can't merge:
-
-```yaml title=".github/workflows/check.yml"
-name: Check
-on: pull_request
-
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npx @decocms/blocks schema && npx @decocms/blocks check
-      - run: git diff --exit-code -- .deco/schema.gen.json
-```
-
-The second step fails if the committed `schema.gen.json` is out of date, which matters because Studio reads the committed file.
-
-In a monorepo, pass `--root` to both commands (`npx @decocms/blocks schema --root apps/storefront && npx @decocms/blocks check --root apps/storefront`) and diff `apps/storefront/.deco/schema.gen.json`.
-
-The build runs `deco check` too (in the [`prebuild` script](/next/cli#run-it-before-dev-and-build)), so a broken mix of code and content fails the build and never deploys: the live site keeps serving the previous deploy. Optionally, turn on "Require branches to be up to date before merging" in your branch protection (or use a merge queue) to catch it at pull-request time instead of at build time: two pull requests can each pass on their own and break together.
-
-To rename a block type, keep the old name as an alias (see [Migrating from v7](/next/renames-and-migrations#rename-a-type-with-an-alias)). To rename a field, add the new one, move the content over, then remove the old one.
-
-<Hosted to="/next/hosted-publishing#keep-running-code-compatible" label="Keep running code compatible">**Publishing without a deploy adds a direction.** With the hosted Deco CMS, content goes live on code that's already running, so that code must also render content published after it shipped.</Hosted>
+Saved content must keep working when you change a type, and `deco check` makes sure it does, on every pull request and before every build. See [Backward compatibility](/next/checking#backward-compatibility).

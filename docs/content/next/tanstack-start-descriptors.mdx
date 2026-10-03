@@ -2,16 +2,17 @@
 title: TanStack Start
 nav: TanStack Start
 group: Websites
-order: 13
+order: 18
+description: Render Deco CMS pages with TanStack Start on Cloudflare Workers, streaming each block as a descriptor.
 ---
 
 # TanStack Start
 
-Editors choose page URLs in [Studio](/next/how-it-works#studio), so one catch-all route serves every URL with [`matchRoute`](/next/api-reference#matchroute-url-items). Start sends loader data to the browser as serialized data, and JSX can't make that trip, so here [blocks](/next/blocks) return descriptors (plain objects such as `{ component: "product-hero", props }`; see [Rendering](/next/rendering)).
+Editors choose page URLs in [Studio](/next/studio), so one catch-all route serves every URL with [`matchRoute`](/next/api-reference#matchroute-url-items). Start sends loader data to the browser as serialized data, and JSX can't make that trip, so here [blocks](/next/blocks) return descriptors (plain objects such as `{ component: "product-hero", props }`; see [Rendering](/next/rendering)).
 
 This page shows how to render Deco pages with TanStack Start on Cloudflare Workers, streaming each block as a descriptor. To render blocks as Server Components instead, see [Which mode to use](/next/rendering#which-mode-to-use) and the experimental [TanStack Start + RSC guide](/next/tanstack-start-rsc).
 
-**Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); the [example project](/next/routing#the-example-project); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the [content module](/next/blocks#the-deco-content-command).
+**Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); the [example project](/next/routing#the-example-project); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the [content module](/next/content#the-content-module).
 
 ## 1. Return descriptors from blocks
 
@@ -27,7 +28,7 @@ export default {
 } satisfies Blocks;
 ```
 
-These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-types-to-forms) the built-in page's `sections: ReactNode[]`. The `page` key [overrides the built-in page](/next/schema#override-a-built-in) with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in `redirect` block is added for you. Run `deco schema` and `deco content` before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
+These blocks return descriptors, not JSX, so they don't [fit](/next/schema#interchangeable-blocks) the built-in page's `sections: ReactNode[]`. The `page` key [replaces the built-in page](/next/built-in-blocks#change-a-built-in) with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in [`redirect`](/next/built-in-blocks#pages-and-redirects) block is added for you. Run `deco schema` and `deco content` before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
 
 ```json title="package.json"
 {
@@ -38,7 +39,7 @@ These blocks return descriptors, not JSX, so they don't [fit](/next/schema#from-
 }
 ```
 
-Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either (see [The `deco content` command](/next/blocks#the-deco-content-command)).
+Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either (see [The content module](/next/content#the-content-module)).
 
 ## 2. Create the CMS
 
@@ -56,6 +57,8 @@ export const client = (_request: Request) => cms.forRelease();
 ```
 
 `cms.forRelease()` returns the client your code calls `list` and `resolve` on, one per request (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `client` takes the request even though this guide doesn't read it (hence the `_` that keeps unused-parameter lint rules quiet); [hosted drafts](/next/hosted-drafts#tanstack-start) read it, and the steps below stay the same.
+
+Telemetry is one more `createCMS` option, off until you say where it goes, such as `telemetry: { endpoint: env.OTLP_ENDPOINT }` for your own OpenTelemetry collector (see [Telemetry](/next/telemetry#choose-where-telemetry-goes)). On Workers it's sent after the response, inside `ctx.waitUntil`, so it never slows a page (see [How telemetry is sent](/next/telemetry-internals)).
 
 
 ## 3. Match the URL to a page
@@ -205,7 +208,7 @@ export default defineConfig({
 
 ## Edit in Studio
 
-To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/cli#edit-on-your-machine)).
+To edit this app's content in [Studio](/next/studio) while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/studio#edit-on-your-machine)).
 
 <Hosted to="/next/hosted#cloudflare-workers" label="Connect a Worker">**Publish and preview without a deploy.** A site ID and a Wrangler secret connect this Worker to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>
 

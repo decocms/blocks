@@ -123,7 +123,7 @@ export function ContentModel() {
             <span className={cardNum}>01</span>
             <h3 className={cardH3}>Headless for developers</h3>
             <p className={cardP}>
-              Write a function, type its inputs, and add it to your block map. Content can now call it. Deco Blocks stays out of your stack:
+              Write a function, type its inputs, and add it to your block map. Content can now call it. Deco CMS stays out of your stack:
               no database and no content API to run, just JSON files in your repository and a small SDK that works with Next.js, TanStack
               Start, or any JavaScript server.
             </p>
@@ -161,7 +161,7 @@ export function ContentModel() {
             <span className={cardNum}>02</span>
             <h3 className={cardH3}>Editable for humans</h3>
             <p className={cardP}>
-              With the hosted Deco CMS, Studio turns your types into forms and live previews. Developers build the
+              One command turns your types into forms, and Studio puts them in front of editors, on your machine or hosted. Developers build the
               blocks once, editors use them to change pages, campaigns, and settings, and every change is a commit you can review and roll back.
             </p>
           </div>
@@ -371,9 +371,9 @@ export function Publishing() {
             Publish in seconds, <Dim>not on the next deploy.</Dim>
           </H2>
           <Lede className={reveal} style={d('120ms')}>
-            The hosted Deco CMS adds Studio and publishing without a redeploy: each change reaches every visitor in
-            seconds, and editors preview drafts on your real pages first. Without it, developers and agents edit the files, and content goes
-            live with your next deploy.
+            The hosted Deco CMS adds Studio on GitHub and publishing without a redeploy: each change reaches your servers within
+            seconds, and editors preview drafts on your real pages first. Without it, people and agents edit the files, by hand or in Studio on
+            your machine, and content goes live with your next deploy.
           </Lede>
         </div>
         <div className={`${winPaper} rounded-2xl ${reveal}`} style={d('160ms')} aria-hidden="true" data-pagefind-ignore="">
@@ -495,10 +495,10 @@ const HOOD_LINKS: { href: string; title: string; text: string; read: string }[] 
     read: 'Read: How resolution works',
   },
   {
-    href: '/next/blocks#blocks-in-your-repository',
+    href: '/next/releases-and-deployment#publishing',
     title: 'Publish by committing',
-    text: 'Every change is a commit in your repository, with its history and a one-step revert. Add the hosted Deco CMS and a published commit reaches visitors in seconds, with no redeploy.',
-    read: 'Read: Blocks in your repository',
+    text: 'Every change is a commit in your repository, with its history and a one-step revert. Add the hosted Deco CMS and a published commit reaches your servers within seconds, with no redeploy.',
+    read: 'Read: Publishing is committing',
   },
   {
     href: '/next/design-decisions',
@@ -512,7 +512,8 @@ const OWN: [string, string, 'yours' | 'opt'][] = [
   ['Content', 'Your Git repository', 'yours'],
   ['Code', 'Your Git repository', 'yours'],
   ['Hosting', 'Any JavaScript runtime you choose: Node, Cloudflare Workers, Deno, Bun or a React Native app', 'yours'],
-  ['Visual editor & publishing without a redeploy', 'Hosted Deco CMS', 'opt'],
+  ['Telemetry & analytics', 'Your OpenTelemetry collector, or the hosted Deco CMS', 'yours'],
+  ['Studio on GitHub & publishing without a redeploy', 'Hosted Deco CMS', 'opt'],
 ]
 
 export const tag = 'h-6 inline-flex items-center px-[11px] rounded-full text-12 leading-4 font-medium whitespace-nowrap'
@@ -527,7 +528,7 @@ export function SmallOnPurpose() {
             Small on purpose. <Dim>Nothing hidden.</Dim>
           </H2>
           <Lede className={reveal} style={d('120ms')}>
-            Deco Blocks is a small library and a folder of files in your own repository, not a platform you move into. You can read how the
+            Deco CMS is a small library and a folder of files in your own repository, not a platform you move into. You can read how the
             library works, swap any piece of it, and keep all of your content whatever you decide next.
           </Lede>
           <div className={`mt-10 ${reveal}`} style={d('160ms')}>

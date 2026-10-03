@@ -204,7 +204,7 @@ export function Journey() {
       >
         <div className={winBarDark}>
           <Dots hidden />
-          <span className={`${winTitle} max-sm:left-16 max-sm:right-4 max-sm:text-right`}>Deco Blocks · my-store — Experiments</span>
+          <span className={`${winTitle} max-sm:left-16 max-sm:right-4 max-sm:text-right`}>my-store — Experiments</span>
         </div>
         <div
           className="relative grid grid-cols-4 gap-2.5 p-2.5 max-rail:grid-cols-2 max-md:grid-cols-none max-md:grid-flow-col max-md:auto-cols-[86%] max-md:overflow-x-auto max-md:snap-x max-md:snap-mandatory max-md:scroll-px-2.5 max-md:overscroll-x-contain max-md:scrollbar-none"

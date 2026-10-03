@@ -16,7 +16,7 @@ const homeModules = import.meta.glob<{ default: ComponentType<{ version: string 
 const Home = Object.values(homeModules)[0]?.default
 
 const HOME_TITLES: Record<string, string> = {
-  next: 'Deco Blocks next major — The AI-native headless CMS',
+  next: 'Deco CMS next major — The open-source, AI-native headless CMS',
 }
 
 export const Route = createFileRoute('/$version/')({
@@ -25,7 +25,7 @@ export const Route = createFileRoute('/$version/')({
     // No reference to Home here: the loader stays in the entry chunk, the component is split out.
     if (isVersion(version) && hasHomeAtIndex(version)) {
       const chrome: Chrome = { layout: 'landing', tab: 'home', version }
-      return { home: true as const, version, chrome, title: HOME_TITLES[version] ?? `Deco Blocks ${version}` }
+      return { home: true as const, version, chrome, title: HOME_TITLES[version] ?? `Deco CMS ${version}` }
     }
     if (!isVersion(version)) throw notFound()
     return { home: false as const, ...(await loadDocRoute(version, '')) }

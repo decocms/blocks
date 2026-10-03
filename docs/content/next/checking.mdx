@@ -1,0 +1,85 @@
+---
+title: Checking content
+nav: Checking content
+group: Built on Blocks
+kind: docs
+order: 9
+---
+
+# Checking content
+
+A developer renames the banner's `title` prop to `headline`. TypeScript is happy, the tests pass, and three saved pages in `.deco/blocks` still say `title`. TypeScript can't see JSON files, so nothing fails until a visitor opens one of those pages. `deco check` closes that gap: it type-checks every saved call against your functions' [schema](/next/schema), the same way TypeScript checks a call in code.
+
+This page shows what `deco check` checks, how to run it before every build, and how it keeps code and content compatible when either one changes.
+
+## What deco check checks
+
+`deco check` reads `.deco/schema.gen.json` and the [saved blocks](/next/saved-blocks) in `.deco/blocks` as they are, writes nothing, and validates every saved block against that schema:
+
+- Each saved block's props match its block type's schema: required fields are present, and values respect enums and limits.
+- Every `__resolveType` (the key that names the function a block calls; see [Functions as blocks](/next/blocks#functions-as-blocks)) names a block type, [built-ins](/next/built-in-blocks) and [aliases](/next/renames-and-migrations#rename-a-type-with-an-alias) included, or a saved block that exists.
+- A reference in a typed field points to a block that returns that type (see [Interchangeable blocks](/next/schema#interchangeable-blocks)).
+- A [`Lazy<T>` field](/next/lazy-blocks#lazyt-props) holds a `lazy` block, and a `lazy` block appears only in a `Lazy<T>` field.
+- No saved block has the name of a block type, a built-in or an alias (see [Names](/next/saved-blocks#names)).
+- No two entries can match the same URL (see [Match order](/next/routing#path-templates-and-match-order)).
+
+It doesn't generate the schema or load your TypeScript. Run `deco schema` first, so the schema matches your code:
+
+```bash
+npx @decocms/blocks schema && npx @decocms/blocks check
+```
+
+Because it checks the content itself, it catches both directions: a code change that breaks saved content, and content that uses a block type or field your code doesn't have. It runs on content-only changes too (from you, an AI agent or [Studio](/next/studio)), and works the same on your machine as in CI.
+
+When everything fits, it exits with 0. Otherwise it lists the problems per file and exits with 1:
+
+```text
+.deco/blocks/HomePage.json
+  sections[2].title: required
+.deco/blocks/Promo.json
+  unknown block type "promo-banner"
+```
+
+Flags, such as `--root` for a monorepo, are in the [CLI reference](/next/cli#deco-check).
+
+## Run it before every build
+
+Add `deco check` to your `prebuild` script, after `deco schema` and `deco content` (which builds the [content module](/next/content#the-content-module)); the scripts are in [Run it before dev and build](/next/cli#run-it-before-dev-and-build). A broken mix of code and content then fails the build and never deploys: the live site keeps serving the previous deploy. Dev skips the check, so a content error doesn't stop your dev server.
+
+## Backward compatibility
+
+Code and content merge independently: a developer's pull request changes a type while an editor's pull request changes a saved block. Saved content must keep working when your code changes, and content must only use the block types and fields your code has. `deco check` makes sure of both, whichever of the two changed.
+
+Run it on every pull request, and make the job a required check so content that doesn't fit can't merge:
+
+```yaml title=".github/workflows/check.yml"
+name: Check
+on: pull_request
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx @decocms/blocks schema && npx @decocms/blocks check
+      - run: git diff --exit-code -- .deco/schema.gen.json
+```
+
+The last step fails if the committed `schema.gen.json` is out of date, which matters because Studio reads the schema committed on the branch it edits.
+
+In a monorepo, pass `--root` to both commands (`npx @decocms/blocks schema --root apps/storefront && npx @decocms/blocks check --root apps/storefront`) and diff `apps/storefront/.deco/schema.gen.json`.
+
+Two pull requests can each pass on their own and break together. To catch that at pull-request time instead of at build time, turn on "Require branches to be up to date before merging" in your branch protection, or use a merge queue.
+
+To rename a field, add the new one, move the content over, then remove the old one.
+
+<Hosted to="/next/hosted-publishing#keep-running-code-compatible" label="Keep running code compatible">**Publishing without a deploy adds a direction.** With the hosted Deco CMS, new content reaches code that's already running within seconds, so that code must also accept content published after it shipped.</Hosted>
+
+## Renaming a type
+
+To rename a block type, keep the old name as an alias, so saved content that uses it still resolves; see [Rename a type with an alias](/next/renames-and-migrations#rename-a-type-with-an-alias).

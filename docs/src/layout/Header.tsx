@@ -183,7 +183,7 @@ export function Header() {
               'h-full max-w-shell px-6 max-nav:pr-4 max-nav:pl-5 max-sm:pr-2 max-sm:pl-4 max-2xs:pr-1.5 max-2xs:pl-3',
         )}
       >
-        <Link className={cx('group inline-flex h-10 flex-none items-center gap-2 rounded-lg no-underline', landing ? 'text-white/86' : 'text-fg')} to="/" aria-label="Deco Blocks home">
+        <Link className={cx('group inline-flex h-10 flex-none items-center gap-2 rounded-lg no-underline', landing ? 'text-white/86' : 'text-fg')} to="/" aria-label="Deco CMS home">
           <Wordmark
             className="h-[22px] w-auto transition-opacity duration-300 group-hover:opacity-80"
             light={landing ? 'hidden' : 'inline-block dark:hidden'}
@@ -226,7 +226,7 @@ export function Header() {
             )}
             href={GITHUB_URL}
             rel="noopener"
-            aria-label="Deco Blocks on GitHub"
+            aria-label="Deco CMS on GitHub"
           >
             <Icon name="github" className={cx('size-[18px]', landing && 'nav:hidden')} />
             <span className={landing ? 'hidden nav:inline' : 'hidden'} aria-hidden="true">

@@ -66,10 +66,10 @@ export const SECTION_NAV: Record<SectionId, string> = {
   'roadmap-features': 'Every feature',
 }
 
-/** "Release blockers — Deco Blocks"; the overview is "Roadmap — Deco Blocks". */
+/** "Release blockers — Deco CMS"; the overview is "Roadmap — Deco CMS". */
 export function roadmapDocumentTitle(id: SectionId): string {
   const nav = SECTION_NAV[id]
-  return `${nav === 'Overview' ? 'Roadmap' : nav} — Deco Blocks`
+  return `${nav === 'Overview' ? 'Roadmap' : nav} — Deco CMS`
 }
 
 export const ROADMAP_ROOT = '/roadmap/'

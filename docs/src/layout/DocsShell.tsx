@@ -56,7 +56,7 @@ export function DocsShell({ nav, crumbs, pager, rail, children }: DocsShellProps
           {children}
           <Pager {...pager} />
           <footer className="mt-12 flex items-center justify-between gap-4 text-13 leading-5 text-muted-fg print:hidden">
-            <span>Deco Blocks</span>
+            <span>Deco CMS</span>
             <button
               type="button"
               className="inline-flex items-center gap-1.5 border-0 bg-transparent px-0 py-1 text-13 text-muted-fg transition-colors hover:text-fg"

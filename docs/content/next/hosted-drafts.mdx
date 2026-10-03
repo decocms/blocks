@@ -2,13 +2,13 @@
 title: Previewing drafts
 nav: Previewing drafts
 group: Hosted Deco CMS
-order: 24
+order: 29
 description: With the hosted Deco CMS, Studio opens your real site with a ?__draft= link and the draft renders in place, with no preview deploy.
 ---
 
 # Previewing drafts
 
-An editor changes the summer banner and wants to see it on the real product page before publishing. With the [hosted Deco CMS](/next/hosted), [Studio](/next/how-it-works#studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
+An editor changes the summer banner and wants to see it on the real product page before publishing. With the [hosted Deco CMS](/next/hosted), [Studio](/next/studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
 
 This page shows the `?__draft=` link, the few lines that wire it into your app, and who may preview.
 
@@ -22,7 +22,7 @@ https://store.example.com/summer?__draft=api.deco.example/drafts/acme/feat-summe
 
 The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the [Deco API](/next/hosted#terms)'s address for this site's `feat-summer` branch, plus a token signed by Studio. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
 
-The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#createcms-config) gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole [revision](/next/releases-and-deployment) (one version of all your content), deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client serves what a normal request would get, never a mix of draft and published entries.
+The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole [revision](/next/releases-and-deployment#what-a-revision-is) (one version of all your content), deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client serves what a normal request would get, never a mix of draft and published entries.
 
 ## Wire drafts into your app
 
@@ -45,7 +45,7 @@ export async function handle(request: Request) {
 
 Studio ends a preview by opening the site with an empty `?__draft=`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
 
-Without a [site ID and token](/next/hosted#connect-your-site) (in development, for example), the CMS reads the [content module](/next/blocks#the-deco-content-command), which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere.
+Without a [site ID and token](/next/hosted#connect-your-site) (in development, for example), the CMS reads the [content module](/next/content#the-content-module), which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere. A draft is just another set of calls run by the same code; to serve drafts from somewhere other than the hosted Deco CMS, see [Write a loader](/next/content#write-a-loader).
 
 ### Next.js
 
@@ -140,4 +140,4 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 ## Studio's canvas
 
-Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and token and the wiring above. With [`deco serve`](/next/cli#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.
+Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and token and the wiring above. With [`deco serve`](/next/studio#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.

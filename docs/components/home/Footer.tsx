@@ -60,6 +60,7 @@ export const NEXT_COLUMNS: FooterColumn[] = [
       ['/next/tanstack-start-descriptors', 'TanStack Start'],
       ['/next/routing', 'Pages & routing'],
       ['/next/releases-and-deployment', 'Deployment'],
+      ['/next/telemetry', 'Telemetry'],
       ['/next/troubleshooting', 'Troubleshooting'],
     ],
   },
@@ -68,7 +69,7 @@ export const NEXT_COLUMNS: FooterColumn[] = [
     links: [
       ['/next/internals', 'Overview'],
       ['/next/how-resolution-works', 'How resolution works'],
-      ['/next/hosted-releases-internals', 'Loader internals'],
+      ['/next/hosted-releases-internals', 'Hosted releases internals'],
       ['/next/router-internals', 'Router internals'],
       ['/next/content-protocol', 'Content protocol'],
       ['/next/design-decisions', 'Design decisions'],

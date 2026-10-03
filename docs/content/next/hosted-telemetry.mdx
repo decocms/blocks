@@ -1,64 +1,42 @@
 ---
-title: Telemetry
-nav: Telemetry
+title: Hosted telemetry
+nav: Hosted telemetry
 group: Hosted Deco CMS
-order: 26
-description: With a site ID and token, your site sends Deco sampled, aggregated upstream latency and error rates, switched on and off from a Telemetry entry.
+order: 31
+description: Send your site's telemetry and analytics to the hosted Deco CMS collector with a site ID and token, with no collector to run.
 ---
 
-# Telemetry
+# Hosted telemetry
 
-Your search provider gets slow on Black Friday, and shelves start timing out. You want to see upstream latency and error rates for your site without running a collector.
+You want upstream latency, error rates and page views for your site, but you don't want to run a collector or a dashboard. The hosted Deco CMS runs one for you.
 
-With the [hosted Deco CMS](/next/hosted), the measurements your [upstream clients](/next/upstream-clients) already take reach Deco, with no collector to run. Without it, those measurements stay in your process; see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls).
+[Telemetry](/next/telemetry) and [analytics](/next/analytics) are open source and can go to any collector. This page shows how to send them to the hosted Deco CMS instead, and what you get there.
 
-This page shows what your site sends, how it's sampled, and how to switch it off from content.
+## Turn it on
 
-## What it is
+Pass your site's ID and token as the `telemetry` option of [`createCMS`](/next/api-reference#createcms-config):
 
-**Telemetry** is sampled, aggregated measurements of your site's own requests and the third-party APIs it calls. It uses the same site ID and token that load your releases, so once your site is [connected](/next/hosted#connect-your-site) there's nothing else to configure. Without them, nothing is sent: in development, in tests, and on any site that doesn't use the hosted Deco CMS.
+```ts title="cms.ts"
+const { DECO_SITE: site, DECO_SITE_TOKEN: token } = process.env;
 
-## What's sent
-
-| Measurement | Labels | Reported by |
-|---|---|---|
-| Upstream latency: each request to a third-party API, timed until its response headers arrive | `provider`, `operation`, `status_class` (2xx, 4xx, 5xx, error), `cached`, `retries` | The framework's instrumented fetch, `createInstrumentedFetch`, which every [upstream client](/next/upstream-clients) uses |
-| Inbound requests: duration and status of the requests your site serves | route kind, `status_class` | Your [framework binding](/next/how-it-works#other-terms) |
-| Edge cache: hits and misses for rendered pages and upstream responses | cache layer, outcome | Your framework binding |
-| Error logs | error code, block type, provider | The SDK and the bindings |
-
-An app that uses only `@decocms/blocks` sends upstream latency and error telemetry from the instrumented fetch. The framework binding adds cache and inbound request metrics.
-
-A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. Error logs are structured: they carry the error's code, message and where it happened, never upstream response bodies, tokens or cookies.
-
-The instrumented fetch reports to the CMS in the same process; how that works with several instances is [under the hood](/next/hosted-releases-internals#telemetry-with-several-instances).
-
-## Sampling
-
-Telemetry is heavily sampled, so its cost stays flat as traffic grows:
-
-- **Metrics are aggregated** in memory, per server, and sent in batches: counts, sums and latency buckets per combination of labels, not one record per request.
-- **Error logs are sampled** at the rate the telemetry settings give, so a burst of identical errors sends a few examples, not thousands.
-- **Sending never delays a response.** Batches go out in the background (on Cloudflare Workers, after the response, inside `ctx.waitUntil`), and a collector that's down only loses that batch.
-
-## Telemetry settings are content
-
-The settings live in a **Telemetry entry**: a well-known saved block named `Telemetry`, whose type, `telemetry`, the framework provides as a [built-in block](/next/blocks#built-in-blocks), so [`deco schema`](/next/cli#deco-schema-and-deco-content) always includes it and [Studio](/next/how-it-works#studio) shows it as a form:
-
-```json title=".deco/blocks/Telemetry.json"
-{
-  "__resolveType": "telemetry",
-  "enabled": true,
-  "metrics": true,
-  "errorSampleRate": 0.05
-}
+export const cms = createCMS({
+  blocks,
+  content,
+  site,                                               // loads releases and drafts
+  token,
+  telemetry: site && token ? { site, token } : false, // telemetry is separate: site/token above only load releases
+});
 ```
 
-The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it in every repository (without a connected site it's inert, and you can delete it), and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its [GitHub backend](/next/hosted-studio), the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same commit, visible in your Git history. Without the entry, a connected site uses the values the scaffold writes, shown above: telemetry and metrics on, and 5% of error logs sent.
+They're the same values that [connect your site](/next/hosted#connect-your-site) for releases and drafts, but telemetry is passed explicitly: the top-level `site` and `token` alone never send it. The `site && token` check keeps telemetry off where the variables aren't set, such as on your machine. To send analytics there too, render [`<Analytics />`](/next/analytics#where-events-go) without a `collector`.
 
-## Troubleshooting
+## What you get
 
-| Symptom | What to check |
-|---|---|
-| No telemetry reaches Deco | Telemetry needs both `site` and `token` on `createCMS`, and an enabled [Telemetry entry](#telemetry-settings-are-content). Error logs are sampled and metrics are sent in batches, so expect a delay and only a share of errors. |
-| Upstream calls missing | Only requests made through `createInstrumentedFetch` are measured; check that your client uses it (see [Calling APIs](/next/upstream-clients)). |
+The hosted Deco CMS collects and shows, for your site:
+
+- the [measurements](/next/telemetry#whats-sent) your site sends: upstream latency and error rates per provider, inbound requests, cache hits and misses, and sampled error logs;
+- page views and events from [analytics](/next/analytics).
+
+## Settings
+
+What's sent and how often is the same as with any collector: the [`Telemetry` saved block](/next/telemetry#telemetry-settings-are-content) holds the switches and sample rates, and [`limits`](/next/telemetry#sampling) in code cap them.

@@ -2,12 +2,13 @@
 title: Next.js App Router
 nav: Next.js
 group: Websites
-order: 12
+order: 17
+description: Render Deco CMS pages in the Next.js App Router with Server Components, generate metadata from the page's SEO block, and stream each block.
 ---
 
 # Next.js App Router
 
-Editors choose page URLs in [Studio](/next/how-it-works#studio), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks [`matchRoute`](/next/api-reference#matchroute-url-items) which page or redirect owns it, and renders that page's blocks.
+Editors choose page URLs in [Studio](/next/studio), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks [`matchRoute`](/next/api-reference#matchroute-url-items) which page or redirect owns it, and renders that page's blocks.
 
 This page shows how to render Deco pages with Server Components, generate metadata from the page's SEO block, and optionally stream each block.
 
@@ -62,7 +63,7 @@ export default function ProductHero({ name, price, currency, image }: ProductHer
 
 ## 2. Create the CMS
 
-Next renders both blocks as Server Components, and `CartButton` stays a Client Component. The [block map](/next/blocks#the-block-map) lives in `.deco/`, in your app root, next to your content (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)), so it imports your components from `../src/`.
+Next renders both blocks as Server Components, and `CartButton` stays a Client Component. The [block map](/next/blocks#the-block-map) lives in `.deco/`, in your app root, next to your content (see [The `.deco` folder](/next/saved-blocks#the-deco-folder)), so it imports your components from `../src/`.
 
 ```tsx title=".deco/index.tsx"
 import type { Blocks, Seo } from "@decocms/blocks";
@@ -77,9 +78,9 @@ export default {
 } satisfies Blocks;
 ```
 
-`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/blocks#built-in-blocks), so they aren't listed here. Both blocks return JSX, so they [fit the built-in page's](/next/schema#from-types-to-forms) `sections: ReactNode[]`.
+`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/built-in-blocks#pages-and-redirects), so they aren't listed here. Both blocks return JSX, so they [fit the built-in page's](/next/schema#interchangeable-blocks) `sections: ReactNode[]`.
 
-`cms.ts` imports the [content module](/next/blocks#the-deco-content-command), `.deco/blocks.gen.ts`. Step 3 generates it; until it has run once, TypeScript can't find the import.
+`cms.ts` imports the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`. Step 3 generates it; until it has run once, TypeScript can't find the import.
 
 ```ts title="src/cms.ts"
 import { createCMS } from "@decocms/blocks";
@@ -90,7 +91,9 @@ import content from "../.deco/blocks.gen";
 export const cms = createCMS({ blocks, content });
 ```
 
-[`createCMS`](/next/api-reference#createcms-config) combines your block map and your content into the `cms` object; its content options are in [Configuring content](/next/api-reference#configuring-content). Upstream caching comes from the [framework binding](/next/how-it-works#other-terms), which this guide doesn't use (see [Caching and observability](/next/caching-and-observability#upstream-data)).
+[`createCMS`](/next/api-reference#createcms-config) combines your block map and your content into the `cms` object (see [Create the CMS](/next/content#create-the-cms)). Upstream caching comes from the [framework binding](/next/how-it-works#key-terms), which this guide doesn't use (see [Upstream data](/next/caching#upstream-data)).
+
+Telemetry is one more option, and it's off until you say where it goes: for example, `telemetry: { endpoint: process.env.OTLP_ENDPOINT! }` sends it to your own OpenTelemetry collector. See [Telemetry](/next/telemetry#choose-where-telemetry-goes).
 
 ```ts title="src/client.server.ts"
 import "server-only";
@@ -119,7 +122,7 @@ export async function client() {
 }
 ```
 
-Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either. What reloads on its own is in [The `deco content` command](/next/blocks#the-deco-content-command); while you work, you can leave `npx @decocms/blocks content --watch` running beside `next dev`.
+Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either. What reloads on its own is in [The content module](/next/content#the-content-module); while you work, you can leave `npx @decocms/blocks content --watch` running beside `next dev`.
 
 ## 4. Match the URL to a page
 
@@ -340,16 +343,16 @@ These files use the default App Router configuration. [Cache Components](https:/
 
 ### Caching
 
-A page rendered at build time (static rendering or ISR) never switches [variants](/next/matchers-and-variants): its matchers ran once, during the build. Render pages with date-switched variants on each request, with `await connection()` from `next/server` or `export const dynamic = "force-dynamic";`. The other caches a request passes through are in [Caching and observability](/next/caching-and-observability).
+A page rendered at build time (static rendering or ISR) never switches [variants](/next/matchers-and-variants): its matchers ran once, during the build. Render pages with date-switched variants on each request, with `await connection()` from `next/server` or `export const dynamic = "force-dynamic";`. The other caches a request passes through are in [Caching](/next/caching).
 
 ## Edit in Studio
 
-To edit this app's content in Studio while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
+To edit this app's content in [Studio](/next/studio) while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
 
 ```bash
 npx @decocms/blocks serve --app-url http://localhost:3000
 ```
 
-Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/cli#edit-on-your-machine)).
+Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/studio#edit-on-your-machine)).
 
 <Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Publish and preview without a deploy.** Two environment variables connect this app to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>

@@ -2,7 +2,7 @@
 title: Publishing without a deploy
 nav: Publishing without a deploy
 group: Hosted Deco CMS
-order: 25
+order: 30
 description: With the hosted Deco CMS, each commit to your production branch is served as a release and reaches running servers within seconds.
 ---
 
@@ -16,7 +16,7 @@ This page shows how a commit becomes a release, how servers pick it up, and what
 
 Your production branch (usually `main`) moves: someone pushes or merges a commit in `.deco/blocks`, or an editor publishes a draft in [Studio](/next/hosted-studio). Then:
 
-1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its [revision](/next/releases-and-deployment) identifies it.
+1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its [revision](/next/releases-and-deployment#what-a-revision-is) identifies it.
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
 3. **The server swaps the release in whole** and serves it from its next [client](/next/api-reference#createcms-config) on (the object `cms.forRelease()` returns). Requests already in flight keep the revision they started with (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)).
 
@@ -39,17 +39,17 @@ createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DEC
 
 ## Fallback
 
-Until a server has fetched its first release (a new server, or one that has never reached the Deco API), it serves the [content module](/next/blocks#the-deco-content-command) your build shipped with: the content this deploy was tested against, so it's always there and always compatible with the code. If the Deco API becomes unreachable later, the server keeps serving the newest release it already has. Any network or validation error leaves memory as it was; nothing reaches a request.
+Until a server has fetched its first release (a new server, or one that has never reached the Deco API), it serves the [content module](/next/content#the-content-module) your build shipped with: the content this deploy was tested against, so it's always there and always compatible with the code. If the Deco API becomes unreachable later, the server keeps serving the newest release it already has. Any network or validation error leaves memory as it was; nothing reaches a request.
 
 The CMS always switches between whole revisions, never mixing entries from two of them, because a mix can break references or bring back deleted entries.
 
 ## Same revision, no download
 
-[`deco content`](/next/cli#deco-schema-and-deco-content) and the Deco API compute a revision the same way, as a hash of the whole content map, so two copies of the same content get the same revision wherever they're computed. When a server's check finds that the current release has the revision of the content module it was built with, which is the common case right after a deploy, it uses the bundled copy and never downloads it.
+[`deco content`](/next/content#the-content-module) and the Deco API compute a revision the same way, as a hash of the whole content map, so two copies of the same content get the same revision wherever they're computed. When a server's check finds that the current release has the revision of the content module it was built with, which is the common case right after a deploy, it uses the bundled copy and never downloads it.
 
 ## Keep running code compatible
 
-Publishing without a deploy means the code that's already running renders the new content, and nothing at runtime checks that the two fit. On top of the [backward-compatibility rules](/next/schema#backward-compatibility) every site follows, this adds one rule: **deploy the code first, then publish content that uses it.**
+Publishing without a deploy means the code that's already running renders the new content, and nothing at runtime checks that the two fit. On top of the [backward-compatibility rules](/next/checking#backward-compatibility) every site follows, this adds one rule: **deploy the code first, then publish content that uses it.**
 
 Content must only use block types and fields the deployed code has. Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio-compatibility#what-studio-reads-from-the-schema)), so keep that schema in step with what's deployed. An entry that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
 

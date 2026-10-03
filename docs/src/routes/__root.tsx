@@ -18,11 +18,11 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { name: 'color-scheme', content: 'light dark' },
       { name: 'theme-color', content: '#07401A' },
-      { title: 'Deco Blocks — Documentation' },
+      { title: 'Deco CMS — Documentation' },
       {
         name: 'description',
         content:
-          'Deco Blocks: headless for developers, editable for humans, native for AI. Quickstart, blocks, schema generation, preview, SDK reference, routing, and Next.js and TanStack Start guides.',
+          'Deco CMS: headless for developers, editable for humans, native for AI. Quickstart, blocks, schema generation, preview, SDK reference, routing, and Next.js and TanStack Start guides.',
       },
     ],
     links: [
