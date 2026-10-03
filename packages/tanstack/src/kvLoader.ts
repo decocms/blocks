@@ -11,7 +11,7 @@
 import type { Loader, Snapshot } from "@decocms/blocks";
 
 /** The part of a Workers `KVNamespace` the loader uses. */
-export interface KVNamespaceLike {
+interface KVNamespaceLike {
   get(key: string, type: "json"): Promise<unknown>;
 }
 
