@@ -164,7 +164,11 @@ function buildTrie<T>(entries: { path: string; value: T }[], ignoreCase: boolean
   return root;
 }
 
-function insert<T>(root: TrieNode<T>, path: string, value: T, ignoreCase: boolean): void {
+/**
+ * Adds `path` to the trie. Returns the value already holding its leaf (a
+ * conflict: the earlier entry keeps it), else `undefined`.
+ */
+function insert<T>(root: TrieNode<T>, path: string, value: T, ignoreCase: boolean): T | undefined {
   const segments = splitPath(path, false);
   const names: string[] = [];
   let node = root;
@@ -173,9 +177,10 @@ function insert<T>(root: TrieNode<T>, path: string, value: T, ignoreCase: boolea
     const splatName = splatOf(segment);
     if (splatName !== null) {
       // A splat is only meaningful last; anywhere else the path is ignored.
-      if (i !== segments.length - 1) return;
-      node.splat ??= { value, names: [...names, splatName], splatName };
-      return;
+      if (i !== segments.length - 1) return undefined;
+      if (node.splat) return node.splat.value;
+      node.splat = { value, names: [...names, splatName], splatName };
+      return undefined;
     }
     if (segment.startsWith(":") && segment.length > 1) {
       names.push(segment.slice(1));
@@ -192,7 +197,26 @@ function insert<T>(root: TrieNode<T>, path: string, value: T, ignoreCase: boolea
     }
     node = child;
   }
-  node.leaf ??= { value, names };
+  if (node.leaf) return node.leaf.value;
+  node.leaf = { value, names };
+  return undefined;
+}
+
+/**
+ * The entries that reach a leaf an earlier entry already holds: two equal
+ * paths, or two templates of one shape (`/:slug/p` and `/:id/p`). `matchRoute`
+ * serves the earlier one; `deco check` reports each pair.
+ */
+export function findRouteConflicts<T extends { path: string }>(
+  entries: readonly T[],
+): { entry: T; other: T }[] {
+  const root = emptyNode<T>();
+  const conflicts: { entry: T; other: T }[] = [];
+  for (const entry of entries) {
+    const other = insert(root, entry.path, entry, false);
+    if (other !== undefined) conflicts.push({ entry, other });
+  }
+  return conflicts;
 }
 
 /** `*` → `"*"`, `:rest*` → `"rest"`, anything else → `null`. */

@@ -2,30 +2,31 @@
  * `deco serve`: the local server the site editor uses to edit the files on
  * this machine (spec: cli › deco serve; content-protocol › The local server).
  *
- * The HTTP layer owns the security checks; the content protocol itself is
- * `createLocalContentHandler` over the working tree.
+ * The content protocol is `@decocms/blocks/protocol`'s `createContentHandler`
+ * (at `/rpc`) and `createAssetHandler` (at `/assets/<name>`) over the
+ * filesystem storage; they own the bearer token, `Content-Type`, size limits
+ * and upload rules. This file is the Node HTTP layer and the checks that
+ * depend on where it runs:
  *
  * - Listens on 127.0.0.1 unless `--host` says otherwise (with a warning).
- * - Every request carries the bearer token (random per run, or `--token` /
- *   `DECO_SERVE_TOKEN`), except CORS preflights.
  * - Browser requests are accepted only from the site editor's origins and
- *   `--allow-origin`; Chrome's local-network preflight is answered.
- * - Any `Host` other than the server's own address is refused (DNS
- *   rebinding), and so is any `Content-Type` other than JSON on `/rpc`
- *   (cross-site form posts). Uploads, `PUT /assets/<name>`, take the file's
- *   own image, video, font or PDF type instead.
+ *   `--allow-origin`; CORS and Chrome's local-network preflights are answered.
+ * - Any `Host` other than the server's own address is refused (DNS rebinding).
+ * - Every save regenerates `.deco/blocks.gen.ts`.
  */
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import path from "node:path";
-import { gzipSync } from "node:zlib";
-import { writeContent } from "../content";
+import { Readable } from "node:stream";
+import { ErrorCode } from "../../../protocol/errors";
+import { blockNameFromFile } from "../../../protocol/keys";
+import { createAssetHandler, createContentHandler } from "../../../protocol/server";
+import type { ContentStorage } from "../../../protocol/storage";
+import { createFsStorage } from "../../../protocol/storage/fs";
+import { readSavedBlocks, writeContent } from "../content";
 import { consoleReporter, type Reporter } from "../log";
-import { CliError, decoPaths, findDecoRoot, findRepositoryRoot, relativePosix } from "../root";
-import { createLocalContentHandler, ERRORS } from "./handler";
-import { createFsStorage } from "./storage";
+import { CliError, decoPaths, findDecoRoot } from "../root";
 
 /** The site editor's origins: the browser origins allowed by default. */
 const STUDIO_ORIGINS = [
@@ -41,9 +42,6 @@ function studioOrigin(env: NodeJS.ProcessEnv = process.env): string {
 
 const DEFAULT_PORT = 4545;
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_ASSETS = "public/assets";
-const MAX_ASSET_BYTES = 25 * 1024 * 1024;
-const MAX_RPC_BYTES = 8 * 1024 * 1024;
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
@@ -87,74 +85,11 @@ function packageVersion(): string {
   }
 }
 
-/**
- * The uploads the server takes: each content type with the file extensions
- * that match it. The dev app serves uploads from its own origin, so a file
- * whose extension doesn't match its declared type (an `.html` sent as
- * `image/png`) is refused, and so is SVG, an image format that can run
- * script.
- */
-const UPLOAD_TYPES: Record<string, readonly string[]> = {
-  "image/jpeg": [".jpg", ".jpeg"],
-  "image/png": [".png"],
-  "image/gif": [".gif"],
-  "image/webp": [".webp"],
-  "image/avif": [".avif"],
-  "image/x-icon": [".ico"],
-  "image/vnd.microsoft.icon": [".ico"],
-  "video/mp4": [".mp4", ".m4v"],
-  "video/webm": [".webm"],
-  "video/quicktime": [".mov"],
-  "font/woff": [".woff"],
-  "font/woff2": [".woff2"],
-  "font/ttf": [".ttf"],
-  "font/otf": [".otf"],
-  "application/font-woff": [".woff"],
-  "application/font-woff2": [".woff2"],
-  "application/pdf": [".pdf"],
-};
-
-/** Why an upload of `type` named `name` is refused, or null when it's accepted. */
-function uploadProblem(type: string, name: string): string | null {
-  if (type === "image/svg+xml") return "SVG uploads aren't accepted: an SVG file can run script";
-  const extensions = Object.hasOwn(UPLOAD_TYPES, type) ? UPLOAD_TYPES[type] : undefined;
-  if (!extensions) return "uploads take an image, video, font or PDF content type";
-  const ext = path.extname(name).toLowerCase();
-  return extensions.includes(ext)
-    ? null
-    : `a file of type ${type} must be named ${extensions.map((e) => `*${e}`).join(" or ")}`;
-}
-
-/** A file name safe to write: one segment, no traversal, portable characters. */
-export function sanitizeAssetName(raw: string): string | null {
-  let name: string;
-  try {
-    name = decodeURIComponent(raw);
-  } catch {
-    return null;
-  }
-  if (!name || name.includes("/") || name.includes("\\") || name.includes("\0")) return null;
-  name = name
-    .normalize("NFKD")
-    .replace(/[^\w.-]+/g, "-")
-    .replace(/-+/g, "-");
-  name = name.replace(/^[.-]+/, "");
-  if (!name || name === "." || name.includes("..")) return null;
-  return name.slice(-200);
-}
-
-function tokensEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-}
-
 /** Start the server; resolves once it listens. */
 export async function startServer(options: ServeOptions = {}): Promise<RunningServer> {
   const reporter = options.reporter ?? consoleReporter;
   const env = options.env ?? process.env;
   const paths = decoPaths(findDecoRoot(options));
-  const repoRoot = findRepositoryRoot(paths.root);
   const host = options.host ?? DEFAULT_HOST;
   const requestedPort = options.port ?? DEFAULT_PORT;
   const readOnly = options.readOnly ?? false;
@@ -168,7 +103,6 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
   }
   const token = options.token ?? env.DECO_SERVE_TOKEN ?? randomBytes(32).toString("base64url");
   const appUrl = options.appUrl ?? DEFAULT_APP_URL;
-  const assetsDir = path.resolve(paths.root, options.assets ?? DEFAULT_ASSETS);
   const allowedOrigins = new Set(
     [...STUDIO_ORIGINS, studioOrigin(env), ...(options.allowOrigins ?? [])].map((o) =>
       o.replace(/\/+$/, ""),
@@ -184,22 +118,13 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     throw new CliError(`--app-url must be a URL, got ${appUrl}`);
   }
 
-  const storage = createFsStorage(paths);
-  const handler = createLocalContentHandler(storage, {
-    readOnly,
-    root: relativePosix(repoRoot, paths.root),
-    serverVersion: packageVersion(),
-    previewOrigin: new URL(appUrl).origin,
-    assets: { dir: relativePosix(repoRoot, assetsDir), maxBytes: MAX_ASSET_BYTES },
-    secretsPublicKey: () => {
-      try {
-        return fs.readFileSync(paths.secretsPublicKey, "utf8");
-      } catch {
-        return null;
-      }
-    },
-    onApply(result) {
-      const names = Object.keys(result.versions);
+  const fsStorage = createFsStorage({ root: paths.root, readOnly, assetsDir: options.assets });
+  const storage: ContentStorage = {
+    ...fsStorage,
+    async commit(attempt) {
+      const result = await fsStorage.commit(attempt);
+      if (result.status !== "committed") return result;
+      const names = [...Object.keys(attempt.put), ...attempt.delete].map(blockNameFromFile);
       reporter.info(
         `saved ${names.length} block${names.length === 1 ? "" : "s"}: ${names.join(", ")}`,
       );
@@ -207,12 +132,25 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       // changes too (a revision is never reused for different content). An
       // unchanged module isn't rewritten, so this costs nothing when it isn't.
       try {
-        writeContent(paths);
+        await writeContent(paths);
       } catch (error) {
         reporter.warn(`couldn't regenerate .deco/blocks.gen.ts: ${(error as Error).message}`);
       }
+      return result;
     },
+    async putAsset(name, body) {
+      const stored = await fsStorage.putAsset!(name, body);
+      reporter.info(`uploaded /assets/${stored.name}`);
+      return stored;
+    },
+  };
+  const rpc = createContentHandler(storage, {
+    token,
+    server: { name: "deco-cli", version: packageVersion() },
+    preview: { origin: new URL(appUrl).origin },
+    onError: (error) => reporter.warn(String((error as Error)?.message ?? error)),
   });
+  const assets = createAssetHandler(storage, { token });
 
   let port = requestedPort;
   const allowedHosts = () => {
@@ -224,33 +162,20 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
   const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     const cors: Record<string, string> = {};
-    const send = (status: number, body: unknown, extra: Record<string, string> = {}) => {
-      let payload: Buffer = Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-        "cache-control": "no-store",
-        ...cors,
-        ...extra,
-      };
-      if (payload.length > 1024 && /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""))) {
-        payload = gzipSync(payload);
-        headers["content-encoding"] = "gzip";
-      }
-      headers["content-length"] = String(payload.length);
-      res.writeHead(status, headers);
-      res.end(payload);
+    const refuse = (status: number, code: number, message: string) => {
+      res.writeHead(status, { "content-type": "application/json", ...cors });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code, message } }));
     };
-    const rpcError = (status: number, code: number, message: string) =>
-      send(status, { jsonrpc: "2.0", id: null, error: { code, message } });
 
     try {
       // DNS rebinding: only our own address.
       if (!allowedHosts().has(String(req.headers.host ?? "").toLowerCase())) {
-        return rpcError(403, ERRORS.Forbidden, "unexpected Host header");
+        return refuse(403, ErrorCode.Forbidden, "unexpected Host header");
       }
       if (origin !== undefined) {
-        if (!allowedOrigins.has(origin))
-          return rpcError(403, ERRORS.Forbidden, `origin ${origin} isn't allowed`);
+        if (!allowedOrigins.has(origin)) {
+          return refuse(403, ErrorCode.Forbidden, `origin ${origin} isn't allowed`);
+        }
         cors["access-control-allow-origin"] = origin;
         cors.vary = "Origin";
       }
@@ -268,69 +193,16 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
         return res.end();
       }
 
-      const auth = String(req.headers.authorization ?? "");
-      const presented = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
-      if (!presented || !tokensEqual(presented, token)) {
-        return rpcError(401, ERRORS.Unauthorized, "missing or invalid bearer token");
-      }
-
-      const url = new URL(req.url ?? "/", "http://localhost");
-
-      if (url.pathname === "/rpc") {
-        if (req.method !== "POST") return rpcError(405, ERRORS.InvalidRequest, "POST only");
-        const type = String(req.headers["content-type"] ?? "")
-          .split(";")[0]
-          .trim()
-          .toLowerCase();
-        if (type !== "application/json") {
-          return rpcError(415, ERRORS.InvalidRequest, "Content-Type must be application/json");
-        }
-        const body = await readBody(req, MAX_RPC_BYTES);
-        if (body === null) return rpcError(413, ERRORS.LimitExceeded, "request too large");
-        const response = await handler(
-          new Request("http://localhost/rpc", {
-            method: "POST",
-            body: body.toString("utf8"),
-            headers: { "content-type": "application/json" },
-          }),
-        );
-        return send(response.status, await response.text());
-      }
-
-      if (url.pathname.startsWith("/assets/")) {
-        if (req.method !== "PUT") return rpcError(405, ERRORS.InvalidRequest, "PUT only");
-        if (readOnly)
-          return rpcError(403, ERRORS.ReadOnly, "this server is read-only: uploads are off");
-        const type = String(req.headers["content-type"] ?? "")
-          .split(";")[0]
-          .trim()
-          .toLowerCase();
-        const name = sanitizeAssetName(url.pathname.slice("/assets/".length));
-        if (!name) return rpcError(400, ERRORS.InvalidParams, "invalid file name");
-        const problem = uploadProblem(type, name);
-        if (problem) return rpcError(415, ERRORS.InvalidRequest, problem);
-        const declared = Number(req.headers["content-length"] ?? 0);
-        if (declared > MAX_ASSET_BYTES)
-          return rpcError(
-            413,
-            ERRORS.LimitExceeded,
-            `files are limited to ${MAX_ASSET_BYTES} bytes`,
-          );
-        const body = await readBody(req, MAX_ASSET_BYTES);
-        if (body === null)
-          return rpcError(
-            413,
-            ERRORS.LimitExceeded,
-            `files are limited to ${MAX_ASSET_BYTES} bytes`,
-          );
-        const written = writeAsset(assetsDir, name, body);
-        reporter.info(`uploaded /assets/${written}`);
-        return send(201, { path: `/assets/${written}` });
-      }
-
-      return rpcError(404, ERRORS.NotFound, "not found");
+      const { pathname } = new URL(req.url ?? "/", "http://localhost");
+      const handler =
+        pathname === "/rpc" ? rpc : pathname.startsWith("/assets/") ? assets : undefined;
+      if (!handler) return refuse(404, ErrorCode.NotFound, "not found");
+      const response = await handler(toRequest(req));
+      const headers = Object.fromEntries(response.headers);
+      res.writeHead(response.status, { ...headers, "cache-control": "no-store", ...cors });
+      res.end(Buffer.from(await response.arrayBuffer()));
     } catch (error) {
-      return rpcError(500, ERRORS.InternalError, (error as Error).message);
+      refuse(500, ErrorCode.InternalError, (error as Error).message);
     }
   });
 
@@ -360,16 +232,15 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     : fs.existsSync(paths.legacySchema)
       ? ".deco/meta.gen.json"
       : "no schema: run deco schema";
-  const count = storage.readBlocks().versions;
+  const count = Object.keys(readSavedBlocks(paths.blocks).blocks).length;
+  const description = await storage.describe();
   const label = (name: string) => name.padEnd(21);
   reporter.info(`${label("Deco server")}${endpoint}`);
+  reporter.info(`${label("Root")}${description.root}   (${schemaFile}, ${count} blocks)`);
   reporter.info(
-    `${label("Root")}${relativePosix(repoRoot, paths.root)}   (${schemaFile}, ${Object.keys(count).length} blocks)`,
-  );
-  reporter.info(
-    readOnly
-      ? `${label("Assets")}read-only: uploads are off`
-      : `${label("Assets")}${relativePosix(repoRoot, assetsDir)}   (PUT /assets/<name>)`,
+    description.assets
+      ? `${label("Assets")}${description.assets.dir}   (PUT /assets/<name>)`
+      : `${label("Assets")}read-only: uploads are off`,
   );
   reporter.info(`${label("App preview")}${appUrl}`);
   reporter.info(`${label("Site editor")}${connectUrl}`);
@@ -387,40 +258,20 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
   };
 }
 
-function readBody(req: http.IncomingMessage, limit: number): Promise<Buffer | null> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let over = false;
-    req.on("data", (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > limit) {
-        over = true;
-        chunks.length = 0;
-        return;
-      }
-      if (!over) chunks.push(chunk);
-    });
-    req.on("end", () => resolve(over ? null : Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
-
-/** Write an upload without ever replacing a file: a taken name gets a short suffix. */
-function writeAsset(dir: string, name: string, body: Uint8Array): string {
-  fs.mkdirSync(dir, { recursive: true });
-  const ext = path.extname(name);
-  const stem = name.slice(0, name.length - ext.length);
-  for (let attempt = 0; attempt < 16; attempt++) {
-    const candidate = attempt === 0 ? name : `${stem}-${randomBytes(3).toString("hex")}${ext}`;
-    try {
-      fs.writeFileSync(path.join(dir, candidate), body, { flag: "wx" });
-      return candidate;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
+/** A Node request as a fetch `Request`, its body streamed. */
+function toRequest(req: http.IncomingMessage): Request {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) for (const v of value) headers.append(key, v);
+    else if (value !== undefined) headers.set(key, value);
   }
-  throw new Error(`couldn't find a free name for ${name}`);
+  const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  return new Request(new URL(req.url ?? "/", "http://localhost"), {
+    method: req.method,
+    headers,
+    body: hasBody ? (Readable.toWeb(req) as ReadableStream<Uint8Array>) : undefined,
+    duplex: "half",
+  } as RequestInit);
 }
 
 /** `deco serve`: start, then run until interrupted. */

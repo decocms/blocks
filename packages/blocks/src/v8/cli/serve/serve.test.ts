@@ -3,7 +3,9 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { defineConformanceSuite } from "../../../protocol/conformance";
+import { gitBlobHash } from "../../../protocol/storage/fs/hash";
 import {
   createFixture,
   type Fixture,
@@ -13,8 +15,7 @@ import {
 } from "../__tests__/fixture";
 import { decoPaths } from "../root";
 import { type DecoMeta, generateSchema } from "../schema/generate";
-import { DEFAULT_APP_URL, type RunningServer, sanitizeAssetName, startServer } from "./server";
-import { gitBlobHash } from "./storage";
+import { DEFAULT_APP_URL, type RunningServer, startServer } from "./server";
 
 let meta: DecoMeta;
 beforeAll(async () => {
@@ -160,21 +161,6 @@ describe("starting", () => {
 });
 
 describe("the security checks", () => {
-  it("requires the bearer token (401)", async () => {
-    await start();
-    const reply = await request("POST", "/rpc", {
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
-      headers: { "content-type": "application/json" },
-    });
-    expect(reply.status).toBe(401);
-    expect(reply.body.error.code).toBe(-32010);
-    const wrong = await request("POST", "/rpc", {
-      body: "{}",
-      headers: { ...auth, authorization: "Bearer nope" },
-    });
-    expect(wrong.status).toBe(401);
-  });
-
   it("accepts only the site editor's origins and --allow-origin", async () => {
     await start({ allowOrigins: ["http://localhost:8000"] });
     const evil = await request("POST", "/rpc", {
@@ -221,24 +207,6 @@ describe("the security checks", () => {
     });
     expect(localhost.status).toBe(200);
   });
-
-  it("rejects a Content-Type other than JSON (cross-site form posts)", async () => {
-    await start();
-    const reply = await request("POST", "/rpc", {
-      body: "a=1",
-      headers: { ...auth, "content-type": "application/x-www-form-urlencoded" },
-    });
-    expect(reply.status).toBe(415);
-  });
-
-  it("rejects a body over the limit (413)", async () => {
-    await start();
-    const reply = await request("POST", "/rpc", {
-      body: Buffer.alloc(8 * 1024 * 1024 + 10, 32),
-      headers: auth,
-    });
-    expect(reply.status).toBe(413);
-  });
 });
 
 describe("the content protocol", () => {
@@ -255,7 +223,7 @@ describe("the content protocol", () => {
       root: ".",
       schemaFormat: "deco-meta@1",
       refs: null,
-      writes: { idempotency: null, schemaPreconditions: false },
+      writes: { idempotency: null, schemaPreconditions: true },
       pollIntervalMs: 2000,
       limits: { maxOpsPerApply: 500, maxBlockBytes: 1048576, maxRequestBytes: 8388608 },
       preview: { origin: "http://localhost:3000" },
@@ -281,41 +249,6 @@ describe("the content protocol", () => {
     expect(result.root).toBe("apps/storefront");
     expect(result.assets.dir).toBe("apps/storefront/public/assets");
     expect(result.secrets).toBeNull();
-  });
-
-  it("serves the schema, and 'not modified' for the version the client has", async () => {
-    await start();
-    const first = (await rpc("schema.get")).result;
-    expect(first.notModified).toBe(false);
-    expect(first.schema.format).toBe("deco-meta@1");
-    expect(first.version).toBe(gitBlobHash(fixture.read(".deco/schema.gen.json")));
-    expect((await rpc("schema.get", { ifNoneMatch: first.version })).result).toEqual({
-      notModified: true,
-      version: first.version,
-    });
-  });
-
-  it("falls back to meta.gen.json, and reports a missing schema as NotFound", async () => {
-    await start();
-    fs.renameSync(
-      path.join(fixture.root, ".deco/schema.gen.json"),
-      path.join(fixture.root, ".deco/meta.gen.json"),
-    );
-    expect((await rpc("schema.get")).result.schema.format).toBe("deco-meta@1");
-    fs.rmSync(path.join(fixture.root, ".deco/meta.gen.json"));
-    expect((await rpc("schema.get")).error.code).toBe(-32001);
-  });
-
-  it("lists every saved block with one version each and a revision", async () => {
-    await start({}, { ".deco/blocks/Summer.json": hero });
-    const list = (await rpc("blocks.list")).result;
-    expect(list.blocks).toEqual({ Summer: hero });
-    expect(list.versions.Summer).toBe(gitBlobHash(fixture.read(".deco/blocks/Summer.json")));
-    expect((await rpc("blocks.list", { ifNoneMatch: list.revision })).result).toEqual({
-      notModified: true,
-      revision: list.revision,
-      resolvedRef: null,
-    });
   });
 
   it("applies sets and deletes together, writes the file format, and regenerates the content module", async () => {
@@ -345,152 +278,9 @@ describe("the content protocol", () => {
     expect(revisionOf()).toBe(after);
   });
 
-  it("saves, lists and deletes blocks named constructor and toString", async () => {
-    await start();
-    const saved = await rpc("blocks.apply", { set: { constructor: hero, toString: hero } });
-    expect(saved.error).toBeUndefined();
-    expect(fixture.exists(".deco/blocks/constructor.json")).toBe(true);
-    expect(fixture.exists(".deco/blocks/toString.json")).toBe(true);
-    const list = (await rpc("blocks.list")).result;
-    expect(Object.keys(list.blocks).sort()).toEqual(["constructor", "toString"]);
-    const edited = await rpc("blocks.apply", {
-      set: { constructor: { ...hero, title: "x" } },
-      ifMatch: { constructor: list.versions.constructor },
-    });
-    expect(edited.error).toBeUndefined();
-    expect(JSON.parse(fixture.read(".deco/blocks/constructor.json")).title).toBe("x");
-    expect(
-      (await rpc("blocks.apply", { set: { valueOf: hero }, ifMatch: { valueOf: null } })).error,
-    ).toBeUndefined();
-    await rpc("blocks.apply", { delete: ["toString", "hasOwnProperty"] });
-    expect(fixture.exists(".deco/blocks/toString.json")).toBe(false);
-    const refused = await rpc("blocks.apply", {
-      set: JSON.parse('{"__proto__": {"__resolveType": "hero"}}'),
-    });
-    expect(refused.error.code).toBe(-32003);
-  });
-
-  it("lets set win over delete for the same name", async () => {
-    await start({}, { ".deco/blocks/A.json": hero });
-    await rpc("blocks.apply", { set: { A: { ...hero, title: "new" } }, delete: ["A"] });
-    expect(JSON.parse(fixture.read(".deco/blocks/A.json")).title).toBe("new");
-  });
-
-  it("overwrites the winning spelling and deletes the others", async () => {
-    await start(
-      {},
-      {
-        ".deco/blocks/pages-Home%2520Page.json": { ...hero, path: "/" },
-        ".deco/blocks/pages-Home%20Page.json": hero,
-      },
-    );
-    await rpc("blocks.apply", { set: { "pages-Home%20Page": { ...hero, title: "x" } } });
-    expect(fs.readdirSync(path.join(fixture.root, ".deco/blocks"))).toEqual([
-      "pages-Home%2520Page.json",
-    ]);
-  });
-
-  it("writes nothing on a failed ifMatch, and supports create-only with null", async () => {
-    await start({}, { ".deco/blocks/A.json": hero });
-    const conflict = await rpc("blocks.apply", {
-      set: { A: { ...hero, title: "x" } },
-      ifMatch: { A: "stale" },
-    });
-    expect(conflict.error.code).toBe(-32002);
-    expect(conflict.error.data.conflicts).toEqual([
-      { name: "A", expected: "stale", actual: gitBlobHash(fixture.read(".deco/blocks/A.json")) },
-    ]);
-    expect(JSON.parse(fixture.read(".deco/blocks/A.json")).title).toBe("Summer");
-    expect((await rpc("blocks.apply", { set: { A: hero }, ifMatch: { A: null } })).error.code).toBe(
-      -32002,
-    );
-    expect(
-      (await rpc("blocks.apply", { set: { B: hero }, ifMatch: { B: null } })).result,
-    ).toBeDefined();
-  });
-
-  it("validates every operation first and reports all violations at once", async () => {
-    await start({}, { ".deco/blocks/HomePage.json": hero });
-    const reply = await rpc("blocks.apply", {
-      set: {
-        "": hero,
-        "a\\b": hero,
-        homepage: hero,
-        "x.tsx": hero,
-        ok: "not an object",
-        noType: { title: 1 },
-      },
-    });
-    expect(reply.error.code).toBe(-32003);
-    expect(reply.error.data.violations.map((v: any) => v.name)).toEqual([
-      "",
-      "a\\b",
-      "homepage",
-      "x.tsx",
-      "ok",
-      "noType",
-    ]);
-    expect(fs.readdirSync(path.join(fixture.root, ".deco/blocks"))).toEqual(["HomePage.json"]);
-  });
-
-  it("refuses plain text in a Secret field (the secret guard)", async () => {
-    await start();
-    const plain = await rpc("blocks.apply", { set: { A: { ...hero, apiKey: "sk_live" } } });
-    expect(plain.error.code).toBe(-32003);
-    expect(plain.error.data.violations[0]).toMatchObject({ name: "A", path: "apiKey" });
-    const { ciphertext } = await sealSecret("sk_live");
-    const sealed = await rpc("blocks.apply", {
-      set: { A: { ...hero, apiKey: { __resolveType: "secret", ciphertext } } },
-    });
-    expect(sealed.result).toBeDefined();
-  });
-
-  it("rejects unknown parameters, missing ids, unsupported guards and branches", async () => {
-    await start();
-    expect((await rpc("blocks.list", { since: 1 })).error.code).toBe(-32602);
-    expect((await rpc("blocks.list", { ref: "main" })).error.code).toBe(-32006);
-    expect((await rpc("blocks.apply", { requestKey: "k", set: {} })).error.code).toBe(-32006);
-    expect((await rpc("blocks.apply", { ifSchemaMatch: "v", set: {} })).error.code).toBe(-32006);
-    expect((await rpc("nope")).error.code).toBe(-32601);
-    const noId = await request("POST", "/rpc", {
-      body: JSON.stringify({ jsonrpc: "2.0", method: "describe" }),
-      headers: auth,
-    });
-    expect(noId.body.error.code).toBe(-32600);
-    const broken = await request("POST", "/rpc", { body: "{", headers: auth });
-    expect(broken.body.error.code).toBe(-32700);
-  });
-
-  it("runs a batch in order, up to ten calls, and gzips large answers", async () => {
-    await start({}, { ".deco/blocks/A.json": hero });
-    const batch = [
-      { jsonrpc: "2.0", id: 1, method: "schema.get" },
-      { jsonrpc: "2.0", id: 2, method: "blocks.list" },
-    ];
-    const reply = await request("POST", "/rpc", {
-      body: JSON.stringify(batch),
-      headers: { ...auth, "accept-encoding": "gzip" },
-    });
-    expect(reply.headers["content-encoding"]).toBe("gzip");
-    expect(reply.body.map((r: any) => r.id)).toEqual([1, 2]);
-    const tooMany = await request("POST", "/rpc", {
-      body: JSON.stringify(
-        Array.from({ length: 11 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "describe" })),
-      ),
-      headers: auth,
-    });
-    expect(tooMany.body.error.code).toBe(-32007);
-  });
-
-  it("refuses writes and uploads when read-only", async () => {
+  it("says when it's read-only", async () => {
     await start({ readOnly: true });
     expect((await rpc("describe")).result).toMatchObject({ readOnly: true, assets: null });
-    expect((await rpc("blocks.apply", { set: { A: hero } })).error.code).toBe(-32005);
-    const upload = await request("PUT", "/assets/a.png", {
-      body: Buffer.from([1]),
-      headers: { ...auth, "content-type": "image/png" },
-    });
-    expect(upload.status).toBe(403);
     expect(out.text()).toContain("read-only: uploads are off");
   });
 });
@@ -528,37 +318,55 @@ describe("uploads", () => {
     expect(fixture.exists("static/uploads/a.pdf")).toBe(true);
   });
 
-  it("takes only image, video, font and PDF types, and safe names", async () => {
-    await start();
-    expect((await put("a.html", "text/html")).status).toBe(415);
-    expect((await put("..%2F..%2Fescape.png")).status).toBe(400);
-    expect(sanitizeAssetName("Summer Banner (1).png")).toBe("Summer-Banner-1-.png");
-    expect(sanitizeAssetName("..")).toBeNull();
-    expect(sanitizeAssetName(".env")).toBe("env");
-  });
-
   it("refuses a name whose extension doesn't match the declared type, and SVG", async () => {
     await start();
     const html = await put("page.html", "image/png");
     expect(html.status).toBe(415);
-    expect(html.body.error.message).toBe("a file of type image/png must be named *.png");
     expect((await put("photo.png", "image/jpeg")).status).toBe(415);
-    expect((await put("noext", "image/png")).status).toBe(415);
     const svg = await put("logo.svg", "image/svg+xml", Buffer.from("<svg/>"));
     expect(svg.status).toBe(415);
-    expect(svg.body.error.message).toMatch(/SVG/);
     expect(fs.existsSync(path.join(fixture.root, "public/assets"))).toBe(false);
+    // A name without an extension gets its type's.
+    expect((await put("noext", "image/png")).body.path).toBe("/assets/noext.png");
     expect((await put("Photo.JPG", "image/jpeg")).status).toBe(201);
     expect((await put("font.woff2", "font/woff2")).status).toBe(201);
     expect((await put("clip.mp4", "video/mp4")).status).toBe(201);
   });
+});
 
-  it("requires the token, like every request", async () => {
-    await start();
-    const reply = await request("PUT", "/assets/a.png", {
-      body: png,
-      headers: { "content-type": "image/png" },
-    });
-    expect(reply.status).toBe(401);
+describe("the content protocol's conformance suite, against deco serve", () => {
+  let site: Fixture;
+  let running: RunningServer;
+  let readOnly: RunningServer;
+  let publicKeyPem: string;
+  beforeAll(async () => {
+    ({ publicKeyPem } = await sealSecret("x"));
+    site = createFixture({ ".deco/schema.gen.json": meta, ".deco/secrets.pub": publicKeyPem });
+    const options = { cwd: site.root, port: 0, token: TOKEN, reporter: recorder(), env: {} };
+    running = await startServer(options);
+    readOnly = await startServer({ ...options, readOnly: true });
   });
+  afterAll(async () => {
+    await running?.close();
+    await readOnly?.close();
+    site?.remove();
+  });
+
+  const optionsFor = (server: () => RunningServer) => () => ({
+    endpoint: server().endpoint,
+    assetsEndpoint: server().endpoint.replace(/\/rpc$/, "/assets/"),
+    token: TOKEN,
+    secretField: { blockType: "hero", field: "apiKey" },
+    secretsPublicKey: publicKeyPem,
+  });
+  defineConformanceSuite(
+    { describe, it },
+    optionsFor(() => running),
+  );
+  defineConformanceSuite(
+    { describe, it },
+    optionsFor(() => readOnly),
+    "content protocol conformance, read-only",
+    (testCase) => testCase.id.endsWith("/read-only"),
+  );
 });

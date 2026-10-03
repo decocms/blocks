@@ -3,17 +3,18 @@
  * module, `.deco/blocks.gen.ts` (spec: content › The content module). It never
  * reads the block map.
  */
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { LEGACY_ALIASES } from "./builtins";
+import { computeContentRevision } from "../../protocol/canonical";
 import {
-  canonicalName,
-  compareSpellings,
-  fileToName,
-  invalidNameReason,
+  blockNameFromFile,
+  checkBlockName,
+  entryHasPath,
+  isBlockFileName,
+  resolveSpellings,
   type SpellingCandidate,
-} from "./keys";
+} from "../../protocol/keys";
+import { LEGACY_ALIASES } from "./builtins";
 import { consoleReporter, type Reporter } from "./log";
 import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "./root";
 
@@ -56,7 +57,7 @@ export function readSavedBlocks(blocksDir: string): SavedBlocks {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
-  const groups = new Map<string, SpellingCandidate[]>();
+  const candidates: (SpellingCandidate & { entry: Record<string, unknown> })[] = [];
   for (const dirent of dirents.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
     if (dirent.isDirectory()) {
       diagnostics.push({
@@ -66,13 +67,13 @@ export function readSavedBlocks(blocksDir: string): SavedBlocks {
       });
       continue;
     }
-    if (!dirent.name.endsWith(".json")) continue;
-    const invalid = invalidNameReason(fileToName(dirent.name));
+    if (!isBlockFileName(dirent.name)) continue;
+    const [invalid] = checkBlockName(blockNameFromFile(dirent.name));
     if (invalid) {
       diagnostics.push({
         file: dirent.name,
         severity: "error",
-        message: `not a valid entry name (${invalid}); rename the file`,
+        message: `not a valid entry name (${invalid.message}); rename the file`,
       });
       continue;
     }
@@ -96,21 +97,15 @@ export function readSavedBlocks(blocksDir: string): SavedBlocks {
       });
       continue;
     }
-    const key = canonicalName(dirent.name).name;
-    const group = groups.get(key) ?? [];
-    group.push({ file: dirent.name, entry });
-    groups.set(key, group);
+    candidates.push({ file: dirent.name, hasPath: entryHasPath(entry), entry });
   }
 
   const blocks: Record<string, Record<string, unknown>> = Object.create(null);
   const files: Record<string, string> = Object.create(null);
-  for (const group of groups.values()) {
-    group.sort(compareSpellings);
-    const [winner, ...losers] = group;
-    const name = fileToName(winner.file);
-    blocks[name] = winner.entry as Record<string, unknown>;
+  for (const { name, winner, shadowed } of resolveSpellings(candidates).values()) {
+    blocks[name] = winner.entry;
     files[name] = winner.file;
-    for (const loser of losers) {
+    for (const loser of shadowed) {
       diagnostics.push({
         file: loser.file,
         severity: "warning",
@@ -119,29 +114,6 @@ export function readSavedBlocks(blocksDir: string): SavedBlocks {
     }
   }
   return { blocks, files, diagnostics };
-}
-
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (isPlainObject(value)) {
-    const keys = Object.keys(value).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
-/**
- * The revision of a content map: a SHA-256 of the whole map in canonical JSON
- * (keys sorted at every level), so the same content gets the same revision
- * wherever it's built, and any change to any entry gives a new one
- * (spec: internals › Snapshots and revisions).
- *
- * TODO(N-02): the runtime and the hosted release service compute revisions
- * too. Move this into the core when it lands, so there's one definition, and
- * re-export it here.
- */
-export function computeRevision(blocks: Record<string, unknown>): string {
-  return createHash("sha256").update(canonicalJson(blocks)).digest("hex");
 }
 
 const RESERVED = new Set(
@@ -183,9 +155,9 @@ function inlinedFiles(saved: SavedBlocks): string[] {
 }
 
 /** The source of `.deco/blocks.gen.ts` for a set of saved blocks. */
-export function renderContentModule(saved: SavedBlocks): string {
+export async function renderContentModule(saved: SavedBlocks): Promise<string> {
   const names = Object.keys(saved.blocks).sort();
-  const revision = computeRevision(saved.blocks);
+  const revision = await computeContentRevision(saved.blocks);
   const taken = new Set<string>();
   const imports: string[] = [];
   const entries: string[] = [];
@@ -255,18 +227,18 @@ export function writeIfChanged(file: string, content: string): boolean {
 }
 
 /** Generate `.deco/blocks.gen.ts` for a root. Throws on unreadable content. */
-export function writeContent(paths: DecoPaths): ContentResult {
+export async function writeContent(paths: DecoPaths): Promise<ContentResult> {
   const saved = readSavedBlocks(paths.blocks);
   const errors = saved.diagnostics.filter((d) => d.severity === "error");
   if (errors.length > 0) {
     throw new CliError(errors.map((d) => `.deco/blocks/${d.file}: ${d.message}`).join("\n"));
   }
-  const source = renderContentModule(saved);
+  const source = await renderContentModule(saved);
   const changed = writeIfChanged(paths.content, source);
   return {
     root: paths.root,
     file: paths.content,
-    revision: computeRevision(saved.blocks),
+    revision: await computeContentRevision(saved.blocks),
     count: Object.keys(saved.blocks).length,
     changed,
     inlined: inlinedFiles(saved),
@@ -283,10 +255,10 @@ export interface ContentOptions {
 }
 
 /** `deco content`, once. Returns the exit code. */
-export function content(options: ContentOptions = {}): number {
+export async function content(options: ContentOptions = {}): Promise<number> {
   const reporter = options.reporter ?? consoleReporter;
   const paths = decoPaths(findDecoRoot(options));
-  const result = writeContent(paths);
+  const result = await writeContent(paths);
   for (const d of result.diagnostics) reporter.warn(`.deco/blocks/${d.file}: ${d.message}`);
   reporter.info(
     `${result.changed ? "wrote" : "unchanged"} .deco/blocks.gen.ts (${result.count} blocks, revision ${result.revision.slice(0, 12)})`,

@@ -1,31 +1,14 @@
 /**
- * Names the CLI knows without reading any code: the ten built-in blocks and
- * the legacy alias table.
- *
- * TODO(N-02): the runtime's built-in registry (`createCMS`) owns the built-in
- * implementations. These are only their names, which the CLI needs for the
- * schema, `deco check` and the content module's alias table; keep the two
- * lists in step when rebasing on N-02.
+ * Names the CLI knows without reading any code: the built-in blocks (the
+ * core's reserved names) and the legacy alias table.
  */
+import { RESERVED_NAMES } from "../builtins";
 
 /** Spec: built-in-blocks. Every block map gets these, in this order. */
-export const BUILT_IN_BLOCKS = [
-  "lazy",
-  "multivariate",
-  "always",
-  "never",
-  "date",
-  "page",
-  "redirect",
-  "telemetry",
-  "analytics",
-  "secret",
-] as const;
+export const BUILT_IN_BLOCKS: readonly string[] = [...RESERVED_NAMES];
 
-export type BuiltInBlock = (typeof BUILT_IN_BLOCKS)[number];
-
-export function isBuiltIn(name: string): name is BuiltInBlock {
-  return (BUILT_IN_BLOCKS as readonly string[]).includes(name);
+export function isBuiltIn(name: string): boolean {
+  return RESERVED_NAMES.has(name);
 }
 
 /**
@@ -41,7 +24,7 @@ export function isBuiltIn(name: string): name is BuiltInBlock {
  * sections, `site/apps/site.ts`, the device/random/multi matchers) are not
  * aliases: a site keeps them working with a block map entry of its own.
  */
-export const LEGACY_ALIASES: Readonly<Record<string, BuiltInBlock>> = {
+export const LEGACY_ALIASES: Readonly<Record<string, string>> = {
   "website/pages/Page.tsx": "page",
   "$live/pages/LivePage.tsx": "page",
   "website/flags/multivariate.ts": "multivariate",

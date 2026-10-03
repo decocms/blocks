@@ -39,27 +39,6 @@ export function findDecoRoot(options: { root?: string; cwd?: string } = {}): str
   throw new CliError(`no .deco/ found from ${cwd}; run inside your app or pass --root`);
 }
 
-/**
- * The repository root: the nearest folder at or above `root` with a `.git`
- * (a folder, or a file in a worktree). Falls back to `root` itself outside a
- * repository. The content protocol reports paths relative to it.
- */
-export function findRepositoryRoot(root: string): string {
-  let dir = path.resolve(root);
-  for (;;) {
-    if (fs.existsSync(path.join(dir, ".git"))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) return path.resolve(root);
-    dir = parent;
-  }
-}
-
-/** `p` relative to `from`, with forward slashes; "." for the same folder. */
-export function relativePosix(from: string, p: string): string {
-  const rel = path.relative(from, p).split(path.sep).join("/");
-  return rel === "" ? "." : rel;
-}
-
 /** The paths of the files every command reads or writes, inside one root. */
 export function decoPaths(root: string) {
   const deco = path.join(root, ".deco");
@@ -70,7 +49,6 @@ export function decoPaths(root: string) {
     schema: path.join(deco, "schema.gen.json"),
     legacySchema: path.join(deco, "meta.gen.json"),
     content: path.join(deco, "blocks.gen.ts"),
-    secretsPublicKey: path.join(deco, "secrets.pub"),
     blockMapCandidates: [path.join(deco, "index.ts"), path.join(deco, "index.tsx")],
   };
 }

@@ -12,7 +12,7 @@ import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
 import { type DecoMeta, generateSchema } from "../schema/generate";
 import { writeSchema } from "../schema/index";
-import { check, checkContent, formatProblems, type Problem, secretViolations } from "./index";
+import { check, checkContent, formatProblems, type Problem } from "./index";
 
 let store: Fixture;
 let meta: DecoMeta;
@@ -422,26 +422,17 @@ describe("secrets", () => {
         }),
       ),
     ).toEqual([
-      "A.json apiKey.ciphertext: ciphertext must have four dot-separated parts",
+      "A.json apiKey.ciphertext: not a well-formed ciphertext (v1.<wrappedKey>.<iv>.<ciphertext>)",
       "B.json apiKey: plain text in a Secret field: save it as a secret block",
-      'C.json ciphertext: ciphertext must start with "v1."',
+      "C.json ciphertext: not a well-formed ciphertext (v1.<wrappedKey>.<iv>.<ciphertext>)",
     ]);
-  });
-
-  it("exposes the secret guard for the content protocol", () => {
-    const violations = secretViolations(
-      meta,
-      { A: { ...hero, apiKey: "plain" }, B: { ...hero, size: "xl" } },
-      ["A", "B"],
-    );
-    expect(violations.map((v) => [v.file, v.path])).toEqual([["A", "apiKey"]]);
   });
 });
 
 describe("lists of secrets and lazy values", () => {
   const vault = (extra: Record<string, unknown>) => ({ __resolveType: "vault", ...extra });
 
-  it("rejects plain text in a Secret[] item, for check and for the secret guard", async () => {
+  it("rejects plain text in a Secret[] item", async () => {
     const { ciphertext } = await sealSecret("k");
     const blocks = {
       V: vault({ keys: [{ __resolveType: "secret", ciphertext }, "plaintext", null] }),
@@ -449,11 +440,9 @@ describe("lists of secrets and lazy values", () => {
     expect(lines(run(blocks))).toEqual([
       "V.json keys[1]: plain text in a Secret field: save it as a secret block",
     ]);
-    expect(run(blocks)[0].code).toBe("secret");
-    expect(secretViolations(meta, blocks, ["V"]).map((v) => v.path)).toEqual(["keys[1]"]);
   });
 
-  it("tags a saved reference that isn't a secret, in a Secret field, for the secret guard", () => {
+  it("rejects a saved reference that isn't a secret in a Secret field", () => {
     const blocks = {
       Promo: { __resolveType: "catalog-product", slug: "x" },
       A: { ...hero, apiKey: { __resolveType: "Promo" } },
@@ -462,10 +451,6 @@ describe("lists of secrets and lazy values", () => {
     expect(lines(run(blocks))).toEqual([
       'A.json apiKey: saved block "Promo" (a "catalog-product") doesn\'t fit here: this field is a Secret: it takes a secret block',
       'V.json keys[0]: saved block "Promo" (a "catalog-product") doesn\'t fit here: this field is a Secret: it takes a secret block',
-    ]);
-    expect(secretViolations(meta, blocks, ["A", "V"]).map((v) => [v.file, v.path])).toEqual([
-      ["A", "apiKey"],
-      ["V", "keys[0]"],
     ]);
   });
 
@@ -524,7 +509,7 @@ describe("names that are also Object.prototype keys", () => {
       const savedBlocks = readSavedBlocks(`${fixture.root}/.deco/blocks`);
       expect(Object.keys(savedBlocks.blocks)).toEqual(["constructor"]);
       expect(lines(checkContent(meta, savedBlocks))).toEqual([
-        '__proto__.json not a valid entry name (name is "__proto__"); rename the file',
+        '__proto__.json not a valid entry name (the name "__proto__" is reserved); rename the file',
       ]);
     } finally {
       fixture.remove();

@@ -3,12 +3,11 @@
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
-import type { BuiltInBlock } from "../builtins";
 import { lazySchema, resolvableRef, sectionRef, toBase64 } from "./typeToSchema";
 
 export type ManifestGroup = "sections" | "matchers" | "loaders" | "pages" | "redirects" | "content";
 
-export const BUILT_IN_GROUPS: Record<BuiltInBlock, ManifestGroup> = {
+export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   lazy: "loaders",
   multivariate: "loaders",
   always: "matchers",
@@ -21,7 +20,7 @@ export const BUILT_IN_GROUPS: Record<BuiltInBlock, ManifestGroup> = {
   secret: "loaders",
 };
 
-const BUILT_IN_DOCS: Record<BuiltInBlock, { title: string; description: string; icon?: string }> = {
+const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?: string }> = {
   lazy: { title: "Lazy", description: "Resolves its value only when the function calls it" },
   multivariate: {
     title: "Variants",
@@ -90,7 +89,7 @@ function variantsSchema(value: any) {
   };
 }
 
-function builtInProps(name: BuiltInBlock, ctx: BuiltInContext): any {
+function builtInProps(name: string, ctx: BuiltInContext): any {
   switch (name) {
     case "lazy":
       return lazySchema({ title: "Value" });
@@ -214,7 +213,7 @@ function sectionListVariants(names: string[], lazy: boolean) {
   };
 }
 
-export function builtInDefinition(name: BuiltInBlock, ctx: BuiltInContext): any {
+export function builtInDefinition(name: string, ctx: BuiltInContext): any {
   const docs = BUILT_IN_DOCS[name];
   return flatDefinition(name, builtInProps(name, ctx), {
     description: docs.description,

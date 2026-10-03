@@ -12,7 +12,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { BUILT_IN_BLOCKS, type BuiltInBlock, LEGACY_ALIASES } from "../builtins";
+import { SCHEMA_FORMAT } from "../../../protocol/types";
+import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "../builtins";
 import { CliError, type DecoPaths } from "../root";
 import {
   BUILT_IN_GROUPS,
@@ -34,8 +35,6 @@ import {
   toBase64,
   typeToJsonSchema,
 } from "./typeToSchema";
-
-export const SCHEMA_FORMAT = "deco-meta@1";
 
 const MANIFEST_GROUPS: ManifestGroup[] = [
   "sections",
@@ -414,7 +413,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     if (declared.has(alias)) continue; // the block map's own key wins
     const targetDef = definitions[toBase64(target)];
     if (!targetDef) continue;
-    const group = groupOf(target as BuiltInBlock, infos);
+    const group = groupOf(target, infos);
     const aliasDef = structuredClone(targetDef);
     aliasDef.title = alias;
     aliasDef.properties = {
@@ -530,6 +529,6 @@ function legacyRedirectSchema() {
   };
 }
 
-function groupOf(name: BuiltInBlock, infos: BlockInfo[]): ManifestGroup {
+function groupOf(name: string, infos: BlockInfo[]): ManifestGroup {
   return infos.find((i) => i.key === name)?.group ?? BUILT_IN_GROUPS[name];
 }

@@ -8,6 +8,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { generateSecretsKeyPair } from "../../../protocol/__tests__/fixtures";
+import { encryptToCiphertext } from "../../../protocol/ciphertext";
 import type { Reporter } from "../log";
 
 const WORKSPACE_NODE_MODULES = path.resolve(
@@ -197,34 +199,11 @@ export default {
 `,
 };
 
-const b64url = (bytes: ArrayBuffer | Uint8Array) =>
-  Buffer.from(bytes as ArrayBuffer).toString("base64url");
-
-/**
- * Encrypt like `encryptSecret` (spec: built-in-blocks › Secrets): a fresh
- * AES-256-GCM key wrapped with RSA-OAEP/SHA-256, in the v1 ciphertext format.
- */
+/** A `.deco/secrets.pub` key and `value` encrypted to it, by the protocol's `encryptToCiphertext`. */
 export async function sealSecret(
   value: string,
   modulusLength = 2048,
 ): Promise<{ ciphertext: string; publicKeyPem: string }> {
-  const { publicKey } = await crypto.subtle.generateKey(
-    { name: "RSA-OAEP", modulusLength, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-    true,
-    ["encrypt", "decrypt"],
-  );
-  const aes = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt"]);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const sealed = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aes,
-    new TextEncoder().encode(value),
-  );
-  const raw = await crypto.subtle.exportKey("raw", aes);
-  const wrapped = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, raw);
-  const spki = await crypto.subtle.exportKey("spki", publicKey);
-  const pem = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(spki)
-    .toString("base64")
-    .replace(/(.{64})/g, "$1\n")}\n-----END PUBLIC KEY-----\n`;
-  return { ciphertext: `v1.${b64url(wrapped)}.${b64url(iv)}.${b64url(sealed)}`, publicKeyPem: pem };
+  const { publicKeyPem } = await generateSecretsKeyPair(modulusLength);
+  return { ciphertext: await encryptToCiphertext(publicKeyPem, value), publicKeyPem };
 }

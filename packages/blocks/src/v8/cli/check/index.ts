@@ -19,15 +19,15 @@
 
 import fs from "node:fs";
 import Ajv, { type ValidateFunction } from "ajv";
+import { isWellFormedCiphertext } from "../../../protocol/secrets";
+import { findRouteConflicts } from "../../matchRoute";
 import { isBuiltIn, storesPlainVariants } from "../builtins";
 import { readSavedBlocks, type SavedBlocks } from "../content";
 import { consoleReporter, type Reporter } from "../log";
 import { CliError, decoPaths, findDecoRoot } from "../root";
 import type { DecoMeta } from "../schema/generate";
 import { SECTION_REF_KEY, toBase64 } from "../schema/typeToSchema";
-import { ciphertextProblem } from "../secrets";
 import { BLOCK_DEF, joinPath, rewriteErrors } from "./messages";
-import { findConflicts, type RouteEntry } from "./routes";
 
 export interface Problem {
   /** The saved block's file, relative to the root: `.deco/blocks/HomePage.json`. */
@@ -36,8 +36,6 @@ export interface Problem {
   path: string;
   message: string;
   severity: "error" | "warning";
-  /** "secret" for the secret guard: a Secret field without a well-formed secret block. */
-  code?: "secret";
 }
 
 type Json = any;
@@ -249,6 +247,8 @@ function formatsFor(doc: Json): Record<string, true | ((value: string) => boolea
   return formats;
 }
 
+const CIPHERTEXT_PROBLEM = "not a well-formed ciphertext (v1.<wrappedKey>.<iv>.<ciphertext>)";
+
 // ---------------------------------------------------------------------------
 // The checker
 // ---------------------------------------------------------------------------
@@ -375,13 +375,8 @@ class Checker {
     path: string,
     message: string,
     severity: Problem["severity"] = "error",
-    code?: Problem["code"],
   ) {
-    ctx.problems.push({ file: ctx.file, path, message, severity, ...(code ? { code } : {}) });
-  }
-
-  private isSecretField(field: Json | null): boolean {
-    return field !== null && isSecretShape(this.deref(field));
+    ctx.problems.push({ file: ctx.file, path, message, severity });
   }
 
   /** Does a block of type `type` fit `field`? Returns why not, or null. */
@@ -434,13 +429,7 @@ class Checker {
     }
     if (isSecretShape(resolved)) {
       if (value !== undefined && value !== null) {
-        this.report(
-          ctx,
-          path,
-          "plain text in a Secret field: save it as a secret block",
-          "error",
-          "secret",
-        );
+        this.report(ctx, path, "plain text in a Secret field: save it as a secret block");
       }
       return true;
     }
@@ -515,8 +504,6 @@ class Checker {
           ctx,
           path,
           `saved block "${name}" (a "${underlying}") doesn't fit here: ${fit}`,
-          "error",
-          this.isSecretField(field) ? "secret" : undefined,
         );
         return;
       }
@@ -533,15 +520,12 @@ class Checker {
 
     const fit = this.fitProblem(type, field);
     if (fit) {
-      const secretField = this.isSecretField(field);
       this.report(
         ctx,
         path,
         type === "lazy" || fit.startsWith("this field is Lazy")
           ? fit
           : `"${type}" doesn't fit here: ${fit}`,
-        "error",
-        secretField ? "secret" : undefined,
       );
       return;
     }
@@ -558,9 +542,8 @@ class Checker {
       }
       case "secret": {
         this.checkProps(ctx, block, path, false);
-        const problem = ciphertextProblem(block.ciphertext);
-        if (problem && "ciphertext" in block) {
-          this.report(ctx, joinPath(path, "/ciphertext"), problem, "error", "secret");
+        if ("ciphertext" in block && !isWellFormedCiphertext(block.ciphertext)) {
+          this.report(ctx, joinPath(path, "/ciphertext"), CIPHERTEXT_PROBLEM);
         }
         return;
       }
@@ -681,6 +664,7 @@ class Checker {
   }
 
   private routeProblems(): Problem[] {
+    type RouteEntry = { name: string; path: string };
     const routes: RouteEntry[] = [];
     const redirects: RouteEntry[] = [];
     for (const name of Object.keys(this.saved.blocks).sort()) {
@@ -701,40 +685,20 @@ class Checker {
       [routes, "path"],
       [redirects, "from"],
     ] as const) {
-      for (const c of findConflicts(entries)) {
-        const same = c.path === c.otherPath;
+      for (const { entry, other } of findRouteConflicts(entries)) {
         problems.push({
-          file: `.deco/blocks/${this.saved.files[c.name]}`,
+          file: `.deco/blocks/${this.saved.files[entry.name]}`,
           path: what,
           severity: "error",
-          message: same
-            ? `"${c.path}" is also the ${what} of "${c.other}"`
-            : `"${c.path}" matches the same URLs as "${c.otherPath}" in "${c.other}"`,
+          message:
+            entry.path === other.path
+              ? `"${entry.path}" is also the ${what} of "${other.name}"`
+              : `"${entry.path}" matches the same URLs as "${other.path}" in "${other.name}"`,
         });
       }
     }
     return problems;
   }
-}
-
-/**
- * The content protocol's secret guard: problems that put plain text where a
- * `Secret` field needs a `secret` block, in the named entries only.
- */
-export function secretViolations(
-  meta: DecoMeta,
-  blocks: Record<string, Record<string, unknown>>,
-  names: string[],
-): Problem[] {
-  const saved: SavedBlocks = { blocks, files: {}, diagnostics: [] };
-  const checker = new Checker(meta, saved);
-  const problems: Problem[] = [];
-  for (const name of names) {
-    const entry = Object.hasOwn(blocks, name) ? blocks[name] : undefined;
-    if (!isBlock(entry)) continue;
-    checker.checkBlock({ file: name, problems }, entry, "", null);
-  }
-  return problems.filter((p) => p.code === "secret");
 }
 
 /** Check saved blocks against a schema. Pure: no filesystem. */

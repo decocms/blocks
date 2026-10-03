@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SCHEMA_FORMAT } from "../../../protocol/types";
 import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
 import { LEGACY_ALIASES } from "../builtins";
 import { CliError, decoPaths } from "../root";
-import { type DecoMeta, generateSchema, SCHEMA_FORMAT, type SchemaDiagnostic } from "./generate";
+import { type DecoMeta, generateSchema, type SchemaDiagnostic } from "./generate";
 import { schema, writeSchema } from "./index";
 import { toBase64 } from "./typeToSchema";
 

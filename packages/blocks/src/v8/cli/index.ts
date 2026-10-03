@@ -15,7 +15,6 @@ export {
 export {
   type ContentDiagnostic,
   type ContentOptions,
-  computeRevision,
   content,
   readSavedBlocks,
   renderContentModule,
@@ -25,6 +24,6 @@ export {
 export { consoleReporter, type Reporter, silentReporter } from "./log";
 export { CliError, decoPaths, findDecoRoot } from "./root";
 export { runCli, USAGE } from "./run";
-export { type DecoMeta, generateSchema, SCHEMA_FORMAT, type SchemaResult } from "./schema/generate";
+export { type DecoMeta, generateSchema, type SchemaResult } from "./schema/generate";
 export { type SchemaOptions, schema, writeSchema } from "./schema/index";
 export { type RunningServer, type ServeOptions, serve, startServer } from "./serve/server";

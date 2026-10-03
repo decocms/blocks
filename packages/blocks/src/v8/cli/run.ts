@@ -173,13 +173,13 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
         return 0;
       }
       case "content": {
-        if (!flags.watch) return content(base);
+        if (!flags.watch) return await content(base);
         const paths = decoPaths(findDecoRoot(base));
-        const once = () => {
-          const result = writeContent(paths);
+        const once = async () => {
+          const result = await writeContent(paths);
           if (result.changed) reporter.info(`wrote .deco/blocks.gen.ts (${result.count} blocks)`);
         };
-        content({ ...base, watching: true });
+        await content({ ...base, watching: true });
         await watchLoop(
           paths.blocks,
           (rel) => rel.endsWith(".json"),

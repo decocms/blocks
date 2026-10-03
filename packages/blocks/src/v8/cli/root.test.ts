@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createFixture, type Fixture } from "./__tests__/fixture";
-import { CliError, findDecoRoot, findRepositoryRoot, relativePosix } from "./root";
+import { CliError, findDecoRoot } from "./root";
 
 let fixture: Fixture;
 afterEach(() => fixture?.remove());
@@ -42,18 +42,5 @@ describe("finding the .deco folder", () => {
   it("fails when --root has no .deco/", () => {
     fixture = createFixture();
     expect(() => findDecoRoot({ cwd: fixture.root, root: "src" })).toThrow(/no \.deco\/ in .*src/);
-  });
-});
-
-describe("the repository root", () => {
-  it("is the nearest folder with a .git, or the root itself", () => {
-    fixture = createFixture();
-    const app = path.join(fixture.root, "apps/storefront");
-    fs.mkdirSync(app, { recursive: true });
-    expect(findRepositoryRoot(app)).not.toBe(fixture.root);
-    fs.mkdirSync(path.join(fixture.root, ".git"));
-    expect(findRepositoryRoot(app)).toBe(fixture.root);
-    expect(relativePosix(fixture.root, app)).toBe("apps/storefront");
-    expect(relativePosix(fixture.root, fixture.root)).toBe(".");
   });
 });
