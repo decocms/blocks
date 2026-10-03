@@ -1,18 +1,20 @@
 ---
 title: Publishing without a deploy
-nav: Publishing
+nav: Publishing without a deploy
 group: Hosted Deco CMS
-order: 24
+order: 25
 description: With the hosted Deco CMS, each commit to your production branch is served as a release and reaches running servers within seconds.
 ---
 
 # Publishing without a deploy
 
-Without the [hosted Deco CMS](/next/hosted), publishing is committing and a deploy ships it (see [Releases and deployment](/next/releases-and-deployment#publishing)). With it, publishing is still committing, but the commit doesn't wait for a deploy: the [Deco API](/next/hosted#terms) serves it as a [release](/next/releases-and-drafts#releases), and the servers already running your app pick it up on their own.
+A price on the homepage is wrong in the middle of a sale. Without the [hosted Deco CMS](/next/hosted), publishing is committing and the fix waits for a deploy (see [Deployment](/next/releases-and-deployment#publishing)). With it, there's no rebuild: the [Deco API](/next/hosted#terms) serves the commit as a [release](/next/releases-and-drafts#releases), and the servers already running your app pick it up within seconds.
+
+This page shows how a commit becomes a release, how servers pick it up, and what keeps running code compatible with new content.
 
 ## How a commit becomes a release
 
-Publishing is the same event with or without the hosted Deco CMS: your production branch (usually `main`) moves. A developer or an agent commits a file in `.deco/blocks` and pushes, or merges a pull request; an editor publishes a [draft](/next/releases-and-drafts#drafts) in [Studio](/next/how-it-works#studio), which brings its commits to that branch (see [Editing in Studio on GitHub](/next/hosted-studio)).
+Your production branch (usually `main`) moves: someone pushes or merges a commit in `.deco/blocks`, or an editor publishes a draft in [Studio](/next/hosted-studio). Then:
 
 1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its [revision](/next/releases-and-deployment) identifies it.
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
@@ -24,7 +26,7 @@ On Cloudflare Workers, which run no timers between requests, the SDK runs a due 
 
 Calling `cms.update()`, for example from a webhook or an admin "refresh now" button, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check. It never throws.
 
-How the SDK does this is [under the hood](/next/hosted-releases-internals).
+The request path, the idle scheduling on each runtime and the swap are described step by step [under the hood](/next/hosted-releases-internals).
 
 ## Check interval
 
@@ -47,10 +49,11 @@ The CMS always switches between whole revisions, never mixing entries from two o
 
 ## Keep running code compatible
 
-Publishing without a deploy means the code that's already running renders the new content. Nothing at runtime checks that the two fit: the Deco API serves each commit as it lands, and the CMS doesn't compare [schemas](/next/schema#from-types-to-forms). On top of the backward-compatibility rules every site follows ([Backward compatibility](/next/schema#backward-compatibility)), this adds a direction:
+Publishing without a deploy means the code that's already running renders the new content, and nothing at runtime checks that the two fit. On top of the [backward-compatibility rules](/next/schema#backward-compatibility) every site follows, this adds one rule: **deploy the code first, then publish content that uses it.**
 
-- **Forward: already-deployed code renders new content.** This holds as long as content only uses block types and fields that the deployed code has. With Studio's GitHub backend, Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio-compatibility#what-studio-reads-from-the-schema)). Keep that schema in step with what's deployed, and **deploy the code first, then publish content that uses it**. An entry written by hand or by an agent that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
-- **Rolling code back is the exception.** Content that already uses the newer types or fields fails on the older code until you redeploy or revert that content, so check what's published before you roll back.
+Content must only use block types and fields the deployed code has. Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio-compatibility#what-studio-reads-from-the-schema)), so keep that schema in step with what's deployed. An entry that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
+
+Rolling code back is the exception: content already published with newer types or fields fails on the older code until you redeploy or revert it, so check what's published before you roll back.
 
 ## Large content on Workers
 
@@ -74,10 +77,6 @@ console.log((await loader.load()).revision);
 
 | Symptom | What to check |
 |---|---|
-| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow a few seconds after publishing. Check that both `site` and `token` are set in production. |
+| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow a few seconds after publishing, or call `cms.update()`. Check that both `site` and `token` are set in production. |
 | `UNKNOWN_BLOCK` right after publishing | The content uses a block type the deployed code doesn't have, usually because the content went out before the code that defines the type, or the code was rolled back to a version without it. Deploy the code, or revert the content commit. See [Keep running code compatible](#keep-running-code-compatible). |
 | Warning that `interval` was raised | The minimum is 60 000 ms (one minute); lower values, from `interval` or `DECO_CONTENT_INTERVAL`, are raised to it. |
-
-## Under the hood
-
-The request path, the idle scheduling on each runtime and the swap are described step by step [under the hood](/next/hosted-releases-internals).

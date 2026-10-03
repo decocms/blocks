@@ -1,19 +1,21 @@
 ---
 title: TanStack Start with React Server Components
-nav: TanStack Start · RSC
-group: Framework guides
-order: 17
+nav: TanStack Start + RSC
+group: Websites
+order: 14
 ---
 
 # TanStack Start with React Server Components
 
 <Callout type="warning">**Experimental.** TanStack Start's RSC support is experimental and needs the extra Vite plugin configured in step 4.</Callout>
 
-This guide reuses the [data guide](/next/tanstack-start-descriptors)'s content, CMS and `openPage`, but the blocks return JSX instead of descriptors. The server renders them as React Server Components and streams the result in React's wire format (Flight). Because the browser receives rendered output, it needs no view registry, and view code used only on the server never ships.
+You want view code that only the server needs to stay off the client, and you'd rather not keep a view registry in sync with your blocks. With React Server Components, blocks return JSX, the server renders it and streams the result in React's wire format (Flight), and only Client Components ship JavaScript.
+
+This page shows the four changes from the [TanStack Start guide](/next/tanstack-start-descriptors) that switch it to Server Components. It reuses that guide's content, CMS and `openPage`.
 
 ## 1. Swap the block map
 
-Replace `.deco/index.ts` with the [Next.js guide](/next/nextjs)'s `.deco/index.tsx`. It doesn't override `page`, because its blocks return JSX, which the built-in page already takes. Keep `src/cms.ts` and `src/open-page.server.ts` from the data guide as they are. `deco schema` reads `.deco/index.tsx` as well as `.deco/index.ts`, so the scripts don't change.
+Replace `.deco/index.ts` with the [Next.js guide](/next/nextjs)'s `.deco/index.tsx`. It doesn't override `page`, because its blocks return JSX, which the built-in page already takes. Keep `src/cms.ts` and `src/open-page.server.ts` from the TanStack Start guide as they are. `deco schema` reads `.deco/index.tsx` as well as `.deco/index.ts`, so the scripts don't change.
 
 ## 2. Render blocks on the server
 
@@ -71,7 +73,7 @@ export const Route = createFileRoute("/$")({
 
 ## 4. Configure Cloudflare Workers
 
-Server Components build as a separate Vite environment named `rsc`. Listing it under `childEnvironments` bundles it into the same Worker as server rendering, so one deploy serves both. Keep `wrangler.jsonc` from the data guide.
+Server Components build as a separate Vite environment named `rsc`. Listing it under `childEnvironments` bundles it into the same Worker as server rendering, so one deploy serves both. Keep `wrangler.jsonc` from the TanStack Start guide.
 
 ```ts title="vite.config.ts"
 import { defineConfig } from "vite";
@@ -93,4 +95,4 @@ export default defineConfig({
 });
 ```
 
-<Small>Also requires `@vitejs/plugin-rsc` 0.5.30 and `react-server-dom-webpack` 19.2.7. If one repository builds both the data and the RSC version, give each its own Vite config: the RSC plugins change how every component is bundled.</Small>
+<Small>Also requires `@vitejs/plugin-rsc` 0.5.30 and `react-server-dom-webpack` 19.2.7. If one repository builds both the descriptor and the RSC version, give each its own Vite config: the RSC plugins change how every component is bundled.</Small>

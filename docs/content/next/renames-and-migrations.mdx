@@ -1,19 +1,21 @@
 ---
-title: Renaming and migrating
-nav: Renames & migrations
+title: Migrating from v7
+nav: Migrating from v7
 group: Production
-order: 21
+order: 18
 ---
 
-# Renaming and migrating
+# Migrating from v7
 
-Saved content refers to your code by name: every block stores a type name in [`__resolveType`](/next/blocks#functions-as-blocks), references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content. Renaming a type or removing an input affects every block that uses it, and renaming a saved block breaks every reference to it ([`NOT_FOUND`](/next/api-reference#errors)).
+Your v7 store's saved pages refer to blocks like `site/sections/Product.tsx`, and its product shelf calls a VTEX loader from the [apps](/v7/apps). You want the new code without rewriting all that content.
 
-This page covers renaming safely, and bringing in content from a site built on Deco's earlier framework, where type names were file paths such as `site/sections/Product.tsx`. Moving source files is free; only names matter.
+Saved content refers to your code by name: every block stores a type name in [`__resolveType`](/next/blocks#functions-as-blocks), references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content.
 
-## Rename a type with an alias
+This page shows how to keep old names working with aliases, what to do with v7 loaders and actions, and a [checklist for moving content](#checklist-for-migrating-existing-content).
 
-An alias is another key in the [block map](/next/blocks#the-block-map) pointing at the same function. Content that stores the old name keeps working, and routing is unaffected because [`matchRoute`](/next/api-reference#matchroute-url-items) looks at each entry's `path` field (see [Routes and redirects](/next/routes-and-redirects)), not its type name:
+<h2 id="rename-a-type-with-an-alias">Rename a block type</h2>
+
+Aliases work for any rename, not only a v7 migration. An alias is another key in the [block map](/next/blocks#the-block-map) pointing at the same function. Content that stores the old name keeps working, and routing is unaffected because [`matchRoute`](/next/api-reference#matchroute-url-items) looks at each entry's `path` field (see [Pages and routing](/next/routing)), not its type name:
 
 ```ts title=".deco/index.ts"
 import type { Blocks } from "@decocms/blocks";
@@ -41,9 +43,11 @@ export default {
 
 [`deco check`](/next/cli#deco-check) rejects an alias that collides with a saved block's name.
 
-## Loaders and actions from the apps
+<h2 id="loaders-actions-and-invoke">Loaders, actions and invoke</h2>
 
-On [v7](/v7/loaders), saved content often calls loaders and actions that ship in Deco's [apps](/v7/apps), such as a VTEX product loader. In the next major the apps are thin [upstream clients](/next/upstream-clients) and ship no loaders, so the migration copies (vendors) the ones your site actually uses into your own code, rewritten over the clients, and registers each under its old type name as an alias. Content keeps resolving, and the copied code is yours to change from then on.
+On [v7](/v7/loaders), saved content often calls loaders and actions that ship in Deco's [apps](/v7/apps), such as a VTEX product loader. In the next major the apps are thin [upstream clients](/next/upstream-clients) and ship no loaders, so the migration copies (vendors) the ones your site actually uses into your own code, rewritten over the clients, and registers each under its old type name as an [alias](#rename-a-type-with-an-alias). Content keeps resolving, and the copied code is yours to change from then on.
+
+v7's `/deco/invoke` endpoint (which ran loaders and actions over HTTP for Studio and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) are gone. Call upstream clients from your framework's server functions or route handlers instead; upstream caching lives in the framework binding (see [Upstream data](/next/caching-and-observability#upstream-data)).
 
 ## Checklist for migrating existing content
 

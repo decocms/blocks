@@ -1,18 +1,20 @@
 ---
 title: API reference
 group: Reference
-order: 13
+order: 20
 ---
 
 # API reference
 
-Everything on this page is exported from `@decocms/blocks`. The [built-in blocks](/next/blocks#built-in-blocks), such as the [matchers](/next/matchers-and-variants), `multivariate` and `lazy`, need no import. The instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is) is in `@decocms/blocks/fetch`.
+You're writing the request handler and need the exact signature of `list` or `matchRoute`. This page lists everything `@decocms/blocks` exports.
+
+Everything here is imported from `@decocms/blocks`. The [built-in blocks](/next/blocks#built-in-blocks), such as the [matchers](/next/matchers-and-variants), `multivariate` and `lazy`, need no import. The instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is) is in `@decocms/blocks/fetch`.
 
 ## `createCMS(config)`
 
 `createCMS` returns a **CMS**: your [block map](/next/blocks#the-block-map) plus your content. Create it once, at module scope, and ask it for a client per request: `forRelease()` for visitors, who see the current [release](/next/releases-and-drafts#releases), and `forDraft(pointer)` for [drafts](/next/releases-and-drafts#drafts), where the pointer names the draft (see [Draft pointers](#draft-pointers)).
 
-- **One revision per client.** A client loads one [revision](/next/releases-and-deployment) (one fixed copy of the content) on first use and reads only that revision afterwards, so everything in one response agrees. Every later call, `list` or `resolve`, reuses that content, so a page's blocks can stream as separate calls. The next request's client sees the next revision, so don't share a client across requests. `client.revision()` tells you which revision a client reads, and `cms.forRevision(revision)` returns a client pinned to it.
+- **One revision per client.** A client loads one [revision](/next/releases-and-deployment) on first use and reads only that revision afterwards; every later `list` or `resolve` reuses it. Create one client per request (why: [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `client.revision()` tells you which revision a client reads, and `cms.forRevision(revision)` returns a client pinned to it.
 - **Results are memoized per client and per block-map object**: build the map at module scope. An entry referenced three times runs its function once per client. Results are kept per function of the map you passed, so a map rebuilt inside your handler starts with an empty cache.
 - **Clients are cheap**: the content cache lives in the CMS, shared by every client.
 - **Same config, same instance**: see [One instance per process](#one-instance-per-process).
@@ -86,7 +88,7 @@ function resetForTests(): void;   // clears every stored instance
 
 ## Draft pointers
 
-A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Releases and drafts](/next/releases-and-drafts#drafts)). With the hosted Deco CMS, Studio makes them ([Drafts on your site](/next/hosted-drafts)). Two helpers cover everything in between:
+A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Releases and drafts](/next/releases-and-drafts#drafts)). With the hosted Deco CMS, Studio makes them ([Previewing drafts](/next/hosted-drafts)). Two helpers cover everything in between:
 
 ```ts
 interface DraftPointer {
@@ -101,7 +103,7 @@ function formatDraftPointer(pointer: DraftPointer): string;
 
 `parseDraftPointer` is strict and returns `null` on anything unexpected: a scheme, a stray `@`, an unrooted path, an odd character in the host or version. It's what `forDraft` calls, so an app only needs it to look inside a pointer, for example to show which version is being previewed, to key a cache on `version`, or to reject a pointer before storing it in a cookie. `formatDraftPointer` is the inverse, for building one from parts, as a mobile app might from a deep link.
 
-For websites, two more helpers carry a pointer from a URL into a cookie, so the parameter and cookie names never appear in app code. The hosted draft flow uses them; see [Keep the draft across navigation](/next/hosted-drafts#keep-the-draft-across-navigation):
+For websites, two more helpers carry a pointer from a URL into a cookie, so the parameter and cookie names never appear in app code. The hosted draft flow uses them; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app):
 
 ```ts
 function draftPointer(request: Request | { url: string; headers: Headers }): string | null;
@@ -166,7 +168,7 @@ Filters run in memory over the loaded content map, the cost of content arriving 
 
 ## `matchRoute(url, items)`
 
-A pure function. Given a URL and the entries you want to route, it returns the one that matches. The CMS doesn't know about URLs; this is the companion that does. See [Routing](/next/routing).
+A pure function. Given a URL and the entries you want to route, it returns the one that matches. The CMS doesn't know about URLs; this is the companion that does. See [Pages and routing](/next/routing).
 
 ```ts
 function matchRoute<T extends Route>(
@@ -198,10 +200,6 @@ function createInstrumentedFetch(options: {
 Each request is measured with `provider`, `operation`, `status_class`, `cached` and `retries` labels. It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/upstream-clients#write-a-client).
 
 <Hosted to="/next/hosted-telemetry">**Telemetry without a collector.** When the CMS in the same process has a site ID and token, these measurements reach Deco as sampled upstream latency and error rates.</Hosted>
-
-## Not in the SDK
-
-v7's `/deco/invoke` endpoint (which runs loaders and actions over HTTP for Studio and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) aren't part of the next major. Call [upstream clients](/next/upstream-clients) from your framework's server functions or route handlers. Upstream caching belongs to the [framework binding](/next/how-it-works#other-terms) (see [Caching](/next/upstream-clients#caching)).
 
 ## Types
 

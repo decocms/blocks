@@ -1,14 +1,16 @@
 ---
-title: Drafts on your site
-nav: Drafts
+title: Previewing drafts
+nav: Previewing drafts
 group: Hosted Deco CMS
-order: 25
+order: 24
 description: With the hosted Deco CMS, Studio opens your real site with a ?__draft= link and the draft renders in place, with no preview deploy.
 ---
 
-# Drafts on your site
+# Previewing drafts
 
-Without the [hosted Deco CMS](/next/hosted), you check a content change in your dev app or on your host's preview deployment of a branch (see [Releases and drafts](/next/releases-and-drafts#checking-changes-without-a-draft-loader)). With it, [Studio](/next/how-it-works#studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
+An editor changes the summer banner and wants to see it on the real product page before publishing. With the [hosted Deco CMS](/next/hosted), [Studio](/next/how-it-works#studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
+
+This page shows the `?__draft=` link, the few lines that wire it into your app, and who may preview.
 
 ## The `?__draft=` link
 
@@ -24,34 +26,16 @@ The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/ne
 
 ## Wire drafts into your app
 
-Your app serves visitors with `cms.forRelease()`. Drafts take one more line, the same pattern as [Preview](/next/releases-and-drafts#preview): [`draftPointer(request)`](/next/api-reference#draft-pointers) reads the pointer, from `?__draft=` or from the cookie described below, and returns `null` on an ordinary request. Everything after it is the same code that serves visitors:
+Picking the client from [`draftPointer(request)`](/next/api-reference#draft-pointers) is the two-line pattern in [Preview](/next/releases-and-drafts#preview). The hosted flow adds a cookie: the pointer is only in the URL of the first page Studio opens, so that response sets a cookie and every link the editor clicks stays in preview. `draftCookie(request)` returns the `Set-Cookie` value for that response, and `null` on every other request; `draftPointer` reads the query parameter or the cookie:
 
 ```ts title="A plain request handler"
-import { draftPointer } from "@decocms/blocks";
-import { cms } from "./cms";
-
-export async function handle(request: Request) {
-  const pointer = draftPointer(request);               // null on an ordinary request
-  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
-
-  return render(client, request);                      // your own function: list, matchRoute and resolve as usual
-}
-```
-
-Without a [site ID and token](/next/hosted#connect-your-site) (in development, for example), the CMS reads the [content module](/next/blocks#the-deco-content-command), which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere.
-
-## Keep the draft across navigation
-
-The pointer is only in the URL of the first page Studio opens. `draftCookie(request)` gives you the `Set-Cookie` value that response needs, and `null` on every other request. Append it, and `draftPointer` reads the cookie from then on, so every link the editor clicks stays in preview:
-
-```ts title="Query parameter first, cookie afterwards"
 import { draftPointer, draftCookie } from "@decocms/blocks";
 import { cms } from "./cms";
 
 export async function handle(request: Request) {
-  const pointer = draftPointer(request);
+  const pointer = draftPointer(request);               // from ?__draft= or the cookie; null on an ordinary request
   const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
-  const response = await render(client, request);
+  const response = await render(client, request);      // your own function: list, matchRoute and resolve as usual
 
   const cookie = draftCookie(request);
   if (cookie) response.headers.append("Set-Cookie", cookie);
@@ -59,11 +43,13 @@ export async function handle(request: Request) {
 }
 ```
 
-Studio ends a preview by opening the site with an empty `?__draft=`; `draftCookie` returns an expiring cookie for that, so the same two lines cover leaving preview. The parameter and cookie names never appear in your code.
+Studio ends a preview by opening the site with an empty `?__draft=`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
+
+Without a [site ID and token](/next/hosted#connect-your-site) (in development, for example), the CMS reads the [content module](/next/blocks#the-deco-content-command), which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere.
 
 ### Next.js
 
-In the [Next.js guide](/next/nextjs), the two steps split across two files. `proxy.ts` (Next.js 16's name for `middleware.ts`) runs before every request and appends the cookie:
+In the [Next.js guide](/next/nextjs), the cookie and the client split across two files. `proxy.ts` (Next.js 16's name for `middleware.ts`) runs before every request and appends the cookie:
 
 ```ts title="src/proxy.ts"
 import { NextResponse, type NextRequest } from "next/server";

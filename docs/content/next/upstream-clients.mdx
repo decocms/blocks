@@ -1,14 +1,18 @@
 ---
-title: Upstream API clients
-nav: Upstream clients
-group: Production
-order: 20
-description: Deco doesn't fetch data. Sites call commerce, search and email platforms through thin, instrumented API clients, and this page shows how to write one.
+title: Calling APIs
+nav: Calling APIs
+group: Websites
+order: 15
+description: Deco doesn't fetch data. Sites call commerce, search and email platforms through thin, instrumented API clients, and this page shows how to use and write one.
 ---
 
-# Upstream API clients
+# Calling APIs
 
-Deco doesn't fetch data. Your site calls commerce platforms, search services and email providers itself, through **upstream clients**: thin, typed API clients that send every request through the framework's [instrumented fetch](/next/caching-and-observability#measuring-upstream-calls), so every call to a third-party API is measured the same way.
+A product shelf on your homepage needs search results from your commerce platform. Deco doesn't fetch them for you: your code calls the API, the same way it would without a CMS.
+
+Deco gives you **upstream clients** for that: thin, typed API clients that send every request through the framework's [instrumented fetch](/next/caching-and-observability#measuring-upstream-calls), so every call to a third-party API is measured the same way.
+
+This page shows how to call a platform through its client, how to write a client for a service Deco doesn't ship one for, and how retries work.
 
 ## What a client is
 
@@ -26,13 +30,20 @@ Everything else lives in code your site owns:
 | React hooks for the cart, the user and the wishlist | Platform templates |
 | Cart, session and sign-in flows | Platform templates, as your framework's server functions or route handlers |
 | Website features: SEO helpers, sitemaps, redirect logic, analytics scripts | Platform templates and your code. The framework itself ships only the built-in `always`, `never` and `date` [matchers](/next/matchers-and-variants) and `multivariate`. |
-| [Loaders and actions](/v7/loaders) (v7's data functions) that [Studio](/next/how-it-works#studio) ran through `/deco/invoke` | Your code. The SDK has no invoke endpoint and no `cachedLoader`. |
+| [Loaders and actions](/v7/loaders) (v7's data functions) that [Studio](/next/how-it-works#studio) ran through `/deco/invoke` | Your code; see [Migrating from v7](/next/renames-and-migrations#loaders-actions-and-invoke). |
 
 The Salesforce client covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
 
 ## Call a client
 
-Create a client once, at module scope, and call it from wherever your app fetches data: a route loader, a server function, a route handler. A block function can call one too, since it's ordinary code; it gets its inputs from content and fetches what it needs.
+Without a client, you'd write the request by hand:
+
+```ts
+const response = await fetch(`https://${account}.vtexcommercestable.com.br/api/catalog_system/pub/products/search?ft=linen+shirt`);
+const products = await response.json();
+```
+
+A client gives you the same call, typed and measured. Create it once, at module scope, and call it from wherever your app fetches data: a route loader, a server function, a route handler. A block function can call one too, since it's ordinary code; it gets its inputs from content and fetches what it needs.
 
 Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
 
@@ -51,11 +62,7 @@ const products = await vtex.search.products({ query: "linen shirt", count: 12 })
 
 The operation names here are illustrative; each client mirrors its platform's API.
 
-## Caching
-
-Where a response can be cached depends on where your site runs, so caching lives in the [framework binding](/next/how-it-works#other-terms), not in the clients: on Cloudflare Workers, `@decocms/tanstack` caches upstream responses with the Cloudflare Cache API; on Next.js, requests go through Next's data cache. Hosted drafts bypass the cache (see [Drafts on your site](/next/hosted-drafts)). The instrumented fetch reports whether each response came from the cache (the `cached` label), so cache hit rates show up in its measurements.
-
-Include everything a response depends on in its cache key (tenant, locale, currency, region) and never cache a shopper's private data as public. See [Caching and observability](/next/caching-and-observability) for the other caches a request passes through.
+Caching upstream responses is the framework binding's job, not the client's; see [Upstream data](/next/caching-and-observability#upstream-data).
 
 ## Retries and failures
 
@@ -142,7 +149,3 @@ A few rules keep clients consistent:
 6. **Accept a `fetch` option** for tests: pass a fake that returns canned responses, and assert on the requests it received.
 
 `createInstrumentedFetch` measures every request and, on its own, sends nothing (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)). Its options are in the [API reference](/next/api-reference#createinstrumentedfetch-options).
-
-## Moving an existing site
-
-Sites on [v7](/v7/loaders) call loaders and actions that live in the [apps](/v7/apps). The migration copies (vendors) the ones a site actually uses into the site's own code, rewritten over the clients, and keeps their old type names as [aliases](/next/renames-and-migrations#rename-a-type-with-an-alias), so saved content that refers to them still resolves. After that, the code is yours to change.

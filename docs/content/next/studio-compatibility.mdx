@@ -71,7 +71,7 @@ The Fresh and Deno framework, and v7, name every block type by the path of the f
 
 Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so Studio's screens find your types under the names they expect. Content Studio saves under an old name resolves too: [`deco content`](/next/blocks#the-deco-content-command) writes the alias table into the content module, and [`createCMS`](/next/api-reference#createcms-config) reads it from there. Under `website/flags/multivariate.ts`, variants are saved as plain values; the alias bridge wraps each one in a `lazy` block, so they run only when chosen, like new ones.
 
-One difference remains: redirects created in Studio are saved in the old nested shape, not the flat one from [Routes and redirects](/next/routes-and-redirects):
+One difference remains: redirects created in Studio are saved in the old nested shape, not the flat one from [Pages and routing](/next/routing):
 
 ```json
 // Saved by Studio's legacy redirect screen

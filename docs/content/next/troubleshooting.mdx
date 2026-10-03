@@ -1,35 +1,63 @@
 ---
 title: Troubleshooting
 group: Production
-order: 22
+order: 19
 ---
 
 # Troubleshooting
 
+A page shows old content after a deploy, or a block comes back as an error instead of rendering. This page lists common symptoms and what to check.
+
+## First checks
+
 Most problems come down to three facts: which [revision](/next/releases-and-deployment) this server is serving, which entry was asked for, and which block type it names. Log [`await client.revision()`](/next/api-reference#createcms-config): that's the revision this server serves. The content module, `.deco/blocks.gen.ts`, holds the same value, so you can compare it with a fresh [`deco content`](/next/blocks#the-deco-content-command) run on the commit you expect. To see an entry with references expanded but no function run, call [`client.resolve(target, { run: false })`](/next/api-reference#client-resolve-target-options). To see it exactly as stored, open `.deco/blocks/<name>.json`.
+
+## Symptoms
+
+### Errors
 
 | Symptom | What to check |
 |---|---|
-| [`UNKNOWN_BLOCK`](/next/api-reference#errors) | A [`__resolveType`](/next/blocks#functions-as-blocks) names something that is in neither the [block map](/next/blocks#the-block-map) nor the saved blocks. [Built-in blocks](/next/blocks#built-in-blocks) never cause it. Compare `__resolveType` with your block map's keys, including case. Add an [alias](/next/renames-and-migrations) for renamed types. If the function does a dynamic `import()`, confirm the imported module has a default export. |
+| [`UNKNOWN_BLOCK`](/next/api-reference#errors) | A [`__resolveType`](/next/blocks#functions-as-blocks) names something that is in neither the [block map](/next/blocks#the-block-map) nor the saved blocks. [Built-in blocks](/next/blocks#built-in-blocks) never cause it. Compare `__resolveType` with your block map's keys, including case. Add an [alias](/next/renames-and-migrations#rename-a-type-with-an-alias) for renamed types. If the function does a dynamic `import()`, confirm the imported module has a default export. |
 | `NOT_FOUND` | A string target is always a saved block's name, never a block type. Confirm the entry exists in the served revision, that [`createCMS`](/next/api-reference#createcms-config)'s `content` is the content you expect, and that `deco content` ran after the file was added (see [Configuring content](/next/api-reference#configuring-content)). To run a type directly, pass an inline block: `client.resolve({ __resolveType: "seo", … })`. |
 | `CYCLE` | Follow the references in `error.path` and remove the one that leads back to an entry already being expanded (see [The rule in full](/next/how-resolution-works#the-rule-in-full)). |
+| `UNKNOWN_BLOCK` right after a content change | The content uses a block type its code doesn't have yet, or no longer has. Ship the code in the same change, or revert the content commit. See [Backward compatibility](/next/schema#backward-compatibility). |
+| Warning about an instance with different options | `createCMS` ran twice with the same content but different options. The first instance is kept. Create the CMS once, at module scope (see [One instance per process](/next/api-reference#one-instance-per-process)). |
+
+### Content and deploys
+
+| Symptom | What to check |
+|---|---|
 | My saved block is ignored | A block type probably has the same name, and the function wins. Run [`npx @decocms/blocks check`](/next/cli#deco-check), which reports the collision, and rename the entry. |
 | Blocks come back as JSON instead of running | You called [`client.list`](/next/api-reference#client-list-type-options) without `{ run: true }` (it returns saved blocks by default), or you passed `{ run: false }` to `resolve`. To run listed entries, pass `run: true`, or resolve each listed entry with `client.resolve(entry)` (a page comes back fully resolved). |
 | A function runs more than once per request | A client runs each block once and reuses the result, but only within that client and for that block map object. Make one client per request, not per component, and create the block map at module level, not inside your handler. |
-| Wrong fields in the editor | Regenerate the schema from the right `.deco/index.ts` (check [`--root`](/next/cli#finding-the-deco-folder) in a monorepo). Check the first parameter's type and its property JSDoc (see [Schema](/next/schema)). |
+| Content changes mid-response | Use one client for the whole response; a client never changes revision. If you pass a custom `content` object, check that it never returns different content under an existing revision. |
+| Old content after a deploy | Compare the revision your server logs (see above) with the one in `.deco/blocks.gen.ts` after running `npx @decocms/blocks content` on your latest commit. If they differ, the build didn't rerun `deco content`: check that [`prebuild`](/next/cli#run-it-before-dev-and-build) runs `deco schema && deco content` and that the build checked out the commit you expect. See [Deployment](/next/releases-and-deployment). |
+| A scheduled campaign went live late, or still shows after it ended | A cached or statically rendered page keeps its variant. See [Pages with variants](/next/caching-and-observability#pages-with-variants) and the [Next.js caching note](/next/nextjs#caching). |
+| A new content file isn't found in development | Run `npx @decocms/blocks content`, or keep `npx @decocms/blocks content --watch` running beside your dev server. Only adding or removing a file needs it; edits to an existing file hot-reload. |
+
+### Rendering
+
+| Symptom | What to check |
+|---|---|
+| Serialization error when sending a block's result to the browser | JSON can't carry functions or React elements. Return descriptors, or render on the server with RSC (see [Rendering](/next/rendering)). |
+| Hydration mismatch (React's browser render doesn't match the server's HTML) | Look for time-dependent or random rendering, and for request context the server and browser see differently. If the browser fetches data after the page loads, it may get a newer revision; render data that must match the HTML in the same response. |
+
+### CLI
+
+| Symptom | What to check |
+|---|---|
 | `no .deco/ found` when running a `deco` command | The command walks up from the current folder and found no `.deco/`. Run it inside your app, or pass `--root <dir>` (see [Finding the `.deco` folder](/next/cli#finding-the-deco-folder)). |
 | Type errors in `.deco/index.ts` aren't reported | TypeScript's `include` patterns skip folders whose names start with a dot, so `.deco/index.ts` is only checked when an included file imports it (usually your `cms.ts`). To always check it, add `".deco"` to `include` in `tsconfig.json`. |
-| Serialization error when sending a block's result to the browser | JSON can't carry functions or React elements. Return plain data (descriptors, see [Rendering](/next/rendering)), or use an integration that renders on the server, like [TanStack RSC](/next/tanstack-start-rsc) or [Next.js](/next/nextjs). |
-| Hydration mismatch (React's browser render doesn't match the server's HTML) | Look for time-dependent or random rendering, and for request context the server and browser see differently. If the browser fetches data after the page loads, it may get a newer revision; render data that must match the HTML in the same response. |
-| Content changes mid-response | Use one client for the whole response; a client never changes revision. If you pass a custom `content` object, check that it never returns different content under an existing revision. |
-| Old content after a deploy | Compare the revision your server logs (see above) with the one in `.deco/blocks.gen.ts` after running `npx @decocms/blocks content` on your latest commit. If they differ, the build didn't rerun `deco content`: check that [`prebuild`](/next/cli#run-it-before-dev-and-build) runs `deco schema && deco content` and that the build checked out the commit you expect. See [Releases and deployment](/next/releases-and-deployment). |
-| A scheduled campaign went live late, or still shows after it ended | A [matcher](/next/matchers-and-variants) runs only when a page is rendered, so a cached page keeps the variant it was rendered with, up to one cache lifetime past the switch. Around a switch, keep cache lifetimes shorter than the delay you can accept, or don't cache pages with variants switched by date. A page rendered at build time (Next.js static rendering or ISR) never switches: render it on each request with `await connection()` from `next/server`, or `export const dynamic = "force-dynamic";`. See [Caching](/next/caching-and-observability). |
-| `UNKNOWN_BLOCK` right after a content change | The content uses a block type its code doesn't have, usually because it was committed before the code that defines the type, or the code was rolled back to a version without it. Ship the code in the same change, or revert the content commit. See [Backward compatibility](/next/schema#backward-compatibility). |
-| `deco check` fails | It lists each problem under the file it's in. A missing required field or an out-of-range value: fix the saved block, or make the field optional in your type. `unknown block type`: add the type to your block map, add an [alias](/next/renames-and-migrations) if you renamed it, or fix the `__resolveType`. `deco check` validates against `.deco/schema.gen.json` as it is, so run `npx @decocms/blocks schema` first; if CI's `git diff` step fails, commit the regenerated `schema.gen.json`. See [`deco check`](/next/cli#deco-check). |
-| A new content file isn't found in development | Run `npx @decocms/blocks content`, or keep `npx @decocms/blocks content --watch` running beside your dev server. Only adding or removing a file needs it; edits to an existing file hot-reload. |
+| `deco check` fails | It lists each problem under the file it's in. A missing required field or an out-of-range value: fix the saved block, or make the field optional in your type. `unknown block type`: add the type to your block map, add an [alias](/next/renames-and-migrations#rename-a-type-with-an-alias) if you renamed it, or fix the `__resolveType`. Run `npx @decocms/blocks schema` first, since it validates against `schema.gen.json` as it is. See [`deco check`](/next/cli#deco-check) and [Backward compatibility](/next/schema#backward-compatibility). |
 | `deco: command not found` | In a terminal, run `npx @decocms/blocks <command>`. The short name `deco` works inside `package.json` scripts once `@decocms/blocks` is installed; if a script can't find it, run `npm install` (see [CLI](/next/cli)). |
 | `Cannot find package 'typescript'` when running a `deco` command | The CLI uses your project's TypeScript. npm and Bun install it with `@decocms/blocks`; with another package manager, run `npm install -D typescript` (or its equivalent). |
-| Warning about an instance with different options | `createCMS` ran twice with the same content but different options. The first instance is kept. Create the CMS once, at module scope (see [One instance per process](/next/api-reference#one-instance-per-process)). |
+
+### Studio
+
+| Symptom | What to check |
+|---|---|
+| Wrong fields in the editor | Regenerate the schema from the right `.deco/index.ts` (check [`--root`](/next/cli#finding-the-deco-folder) in a monorepo). Check the first parameter's type and its property JSDoc (see [Schema](/next/schema)). |
 | [Studio](/next/how-it-works#studio) can't reach `deco serve` | Check that the server is still running and that you opened the link from this run: a restart prints a new token, and Studio asks you to reconnect. Allow the browser's prompt to let Studio reach your machine (Local Network Access). If you use another browser origin than Studio's, pass it with `--allow-origin`. See [Edit on your machine](/next/cli#edit-on-your-machine). |
 | A form field in Studio is a text box instead of a picker | Studio never runs your code, so options that would come from a function aren't available. Give the field a string-literal union, an enum or an `@options` list, and run `npx @decocms/blocks schema` (see [Widgets](/next/schema#widgets)). |
 

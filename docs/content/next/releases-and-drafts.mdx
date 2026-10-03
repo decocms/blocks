@@ -12,7 +12,7 @@ Your app always renders one version of your content. Usually that's the release.
 
 ## Releases
 
-A **release** is the content everyone sees right now. In the open-source setup, it's the content module in your build: the `.deco/blocks` files of the commit you deployed (see [The `deco content` command](/next/blocks#the-deco-content-command)). A new release goes out with your next deploy (see [Releases and deployment](/next/releases-and-deployment)).
+A **release** is the content everyone sees right now. In the open-source setup, it's the content module in your build: the `.deco/blocks` files of the commit you deployed (see [The `deco content` command](/next/blocks#the-deco-content-command)). A new release goes out with your next deploy (see [Deployment](/next/releases-and-deployment)).
 
 `cms.forRelease()` gives you a client, the object you read content with, over the release. `cms` is the object your app creates once with [`createCMS`](/next/api-reference#createcms-config) (see the [Quickstart](/next/quickstart#5-read-the-content-from-your-code)).
 
@@ -20,7 +20,7 @@ A **release** is the content everyone sees right now. In the open-source setup, 
 
 ## Drafts
 
-A **draft** is another version of your content, not live yet. Your content [loader](/next/api-reference#loaders) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Drafts on your site](/next/hosted-drafts)).
+A **draft** is another version of your content, not live yet. Your content [loader](/next/api-reference#loaders) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Previewing drafts](/next/hosted-drafts)).
 
 The loader is what you pass to `createCMS` as its [`content`](/next/api-reference#configuring-content) option:
 
@@ -45,7 +45,7 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 Everything after these two lines is the code that serves visitors. It's safe to add even when your content has no drafts: you get the release.
 
-<Hosted to="/next/hosted-drafts" label="Drafts on your site">**Drafts on your real site.** With the hosted Deco CMS, Studio opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by Studio reach unpublished drafts.</Hosted>
+<Hosted to="/next/hosted-drafts" label="Previewing drafts">**Drafts on your real site.** With the hosted Deco CMS, Studio opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by Studio reach unpublished drafts.</Hosted>
 
 ## Checking changes without a draft loader
 

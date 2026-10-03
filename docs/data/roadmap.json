@@ -2301,7 +2301,6 @@
       "summary": "Paths take only literal segments and single-segment params, so the storefront's `/*` Category page never matches. One Studio commit can make `matchRoute` throw on every request, and `Page.seo` is required while stored content holds `seo: null`.",
       "docs": [
         "routing",
-        "routes-and-redirects",
         "router-internals",
         "renames-and-migrations",
         "api-reference",
@@ -2429,8 +2428,7 @@
       ],
       "summary": "Static assets are served before the CMS catch-all and `/offline` is an ordinary Route entry; registering `sw.js` and the web manifest takes about 3 lines. Any CSP must allow the Workbox import, and `/offline` must never be a draft render.",
       "docs": [
-        "routing",
-        "routes-and-redirects"
+        "routing"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -2448,7 +2446,6 @@
       ],
       "summary": "`/old/*` globs are impossible with single-segment params, Studio's 307 has no counterpart (only 301 or 302), and query, case and duplicate-`from` handling are unspecified. A naive legacy alias doesn't match the nested shape Studio stores.",
       "docs": [
-        "routes-and-redirects",
         "routing",
         "router-internals",
         "nextjs",
@@ -2473,8 +2470,7 @@
       "docs": [
         "routing",
         "router-internals",
-        "api-reference",
-        "routes-and-redirects"
+        "api-reference"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -2606,7 +2602,7 @@
       ],
       "summary": "Only `@format rich-text` is documented; `html`, `rich-text-inline`, `textarea`, `markdown`, alias-name detection and sanitization aren't, and FastStore's Lexical fields need converting.",
       "docs": [
-        "routes-and-redirects",
+        "routing",
         "schema",
         "rendering"
       ],
@@ -2645,7 +2641,6 @@
       "summary": "Block functions get no access to the content they're resolved against, so apps-blog's loaders, which read the global `loadBlocks()`, must be rewritten around a client the app provides.",
       "docs": [
         "api-reference",
-        "routes-and-redirects",
         "schema",
         "blocks",
         "routing"
@@ -2702,7 +2697,7 @@
       ],
       "summary": "A page's `sections: ReactNode[]` takes every block function that returns JSX; limiting a page type to some of them isn't designed yet. Studio's add-section catalog (its legacy name) is the union of all UI blocks anyway.",
       "docs": [
-        "routes-and-redirects",
+        "routing",
         "api-reference",
         "schema",
         "studio-compatibility"
@@ -2722,7 +2717,6 @@
       ],
       "summary": "Studio edits only a page's name, path, SEO and block list, so typed page settings get no form. Only one page type can carry the `website/pages/Page.tsx` alias.",
       "docs": [
-        "routes-and-redirects",
         "routing",
         "schema",
         "studio-compatibility"
@@ -2745,7 +2739,7 @@
       "summary": "Navigation is a data-only block, so a block can reference a saved menu entry. Nothing says whether `deco schema` handles the intersections and recursion in `SiteNavigationElement`.",
       "docs": [
         "blocks",
-        "routes-and-redirects",
+        "routing",
         "schema"
       ],
       "confidence": "medium",
@@ -2784,7 +2778,7 @@
       "summary": "Image and HTML fields depend on type-alias names these docs never mention. If `deco schema` drops alias detection, all 22 image pickers and the HTML editors become plain text inputs, and the widget vocabulary isn't listed.",
       "docs": [
         "quickstart",
-        "routes-and-redirects",
+        "routing",
         "schema"
       ],
       "confidence": "medium",
@@ -2803,7 +2797,7 @@
       "summary": "Union-to-enum, `@format` passthrough and widget tags aren't documented, so icon and image fields may degrade to text, and enum display labels can't be expressed. The content must first be exported from VTEX.",
       "docs": [
         "quickstart",
-        "routes-and-redirects",
+        "routing",
         "blocks",
         "studio-compatibility",
         "renames-and-migrations"
@@ -2917,7 +2911,7 @@
       "docs": [
         "studio-compatibility",
         "schema",
-        "routes-and-redirects",
+        "routing",
         "api-reference",
         "renames-and-migrations",
         "design-decisions"
@@ -2961,7 +2955,7 @@
         "design-decisions",
         "api-reference",
         "studio-compatibility",
-        "routes-and-redirects"
+        "routing"
       ],
       "confidence": "high",
       "first_rated": null,
@@ -3003,7 +2997,7 @@
         "blocks",
         "schema",
         "rendering",
-        "routes-and-redirects",
+        "routing",
         "studio-compatibility"
       ],
       "confidence": "medium",
@@ -3206,8 +3200,7 @@
       "summary": "Routing and looking entries up by name is allowed, but the provider data moves from FastStore fragments to schema.org types. Server block functions can't read client React context, so sharing one fetch needs React cache or an app-owned AsyncLocalStorage.",
       "docs": [
         "routing",
-        "nextjs",
-        "routes-and-redirects"
+        "nextjs"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -3314,7 +3307,7 @@
         "blocks",
         "caching-and-observability",
         "matchers-and-variants",
-        "routes-and-redirects",
+        "routing",
         "api-reference"
       ],
       "confidence": "medium",
@@ -3420,8 +3413,7 @@
       "docs": [
         "rendering",
         "caching-and-observability",
-        "routing",
-        "routes-and-redirects"
+        "routing"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -3441,7 +3433,7 @@
         "blocks",
         "matchers-and-variants",
         "caching-and-observability",
-        "routes-and-redirects"
+        "routing"
       ],
       "confidence": "medium",
       "first_rated": null,
@@ -3458,7 +3450,7 @@
       ],
       "summary": "Neither these docs nor apps-vtex have it: the Intelligent Search loaders carry no delivery-promise parameters, and the FastStore hooks and region slider it uses don't survive. It also depends on session regionalization.",
       "docs": [
-        "routes-and-redirects",
+        "routing",
         "blocks"
       ],
       "confidence": "medium",
@@ -3623,7 +3615,6 @@
       ],
       "summary": "`page.seo` resolves, but the guides map only title and description, so canonical, robots, OG and page JSON-LD have no owner. The blog's SEO blocks need cross-entry lookups, and `throw seoError` turns an upstream failure into a full-page error.",
       "docs": [
-        "routes-and-redirects",
         "routing",
         "rendering",
         "nextjs",
@@ -3671,7 +3662,6 @@
       ],
       "summary": "The target, `page.seo`, is documented; what's missing is the SEO-hoist codemod and the per-client memo-key rule. The problem is live today: storefront PDP and PLP heads carry only the site title.",
       "docs": [
-        "routes-and-redirects",
         "blocks",
         "rendering",
         "routing",
@@ -3740,7 +3730,6 @@
       "docs": [
         "routing",
         "api-reference",
-        "routes-and-redirects",
         "router-internals",
         "releases-and-deployment"
       ],
@@ -3906,7 +3895,7 @@
         "renames-and-migrations",
         "blocks",
         "quickstart",
-        "routes-and-redirects",
+        "routing",
         "caching-and-observability"
       ],
       "confidence": "high",
@@ -4012,7 +4001,7 @@
       ],
       "summary": "Today the binding resolves the site's theme, globals and page blocks into every page. In the next major, SEO-default merging and global-block injection move to app code, there's no singleton concept, and `site/apps/site.ts` isn't in the alias bridge.",
       "docs": [
-        "routes-and-redirects",
+        "routing",
         "schema",
         "blocks",
         "api-reference",
@@ -4084,7 +4073,7 @@
       "summary": "A workaround for a current-framework bug, with nothing to port. Half its call sites are server-side, so the site needs a small AsyncLocalStorage hand-off, and the snapshot's defect (edits never reach draft preview) goes away.",
       "docs": [
         "blocks",
-        "routes-and-redirects",
+        "routing",
         "tanstack-start-descriptors",
         "releases-and-deployment",
         "releases-and-drafts"
@@ -4106,7 +4095,7 @@
       "docs": [
         "schema",
         "quickstart",
-        "routes-and-redirects",
+        "routing",
         "studio-compatibility"
       ],
       "confidence": "medium",
@@ -4373,7 +4362,7 @@
       "docs": [
         "api-reference",
         "matchers-and-variants",
-        "routes-and-redirects",
+        "routing",
         "blocks",
         "schema",
         "internals",
@@ -4587,7 +4576,7 @@
         "api-reference",
         "internals",
         "design-decisions",
-        "routes-and-redirects",
+        "routing",
         "schema"
       ],
       "confidence": "high",

@@ -118,7 +118,7 @@ const post = (props: Post) => props;                     // data only: returns w
 export default { seo, hero, post } satisfies Blocks;     // page, redirect and the other built-in blocks need no entry
 ```
 
-A `post` is now a block like any other. Your app reads posts by type with [`client.list("post")`](/next/api-reference#client-list-type-options) or by URL with [`matchRoute`](/next/api-reference#matchroute-url-items) (see [Routing](/next/routing)), and [`client.resolve`](/next/api-reference#client-resolve-target-options) works on a saved post too. Blocks inside a post still resolve, because a block's inputs resolve before its function runs. And like any block, it can fill a field of its return type: a block with a `featured: Post` field lets editors pick a saved post (see [Interchangeable blocks](#interchangeable-blocks)).
+A `post` is now a block like any other. Your app reads posts by type with [`client.list("post")`](/next/api-reference#client-list-type-options) or by URL with [`matchRoute`](/next/api-reference#matchroute-url-items) (see [Pages and routing](/next/routing)), and [`client.resolve`](/next/api-reference#client-resolve-target-options) works on a saved post too. Blocks inside a post still resolve, because a block's inputs resolve before its function runs. And like any block, it can fill a field of its return type: a block with a `featured: Post` field lets editors pick a saved post (see [Interchangeable blocks](#interchangeable-blocks)).
 
 ### Override a built-in
 
@@ -139,7 +139,7 @@ Nothing is lost: inputs resolve before the function runs, so returning `props` g
 
 ### Names must not clash
 
-A saved block in `.deco/blocks` can't have the name of a block type, built-ins included (no saved block can be called `page`, `redirect`, `telemetry`, `always`, `never`, `date`, `multivariate` or `lazy`), or of an alias (a second name for a block type, used when you rename one; see [Renaming and migrating](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); [`deco check`](/next/cli#deco-check) makes it an error so you catch it before you deploy.
+A saved block in `.deco/blocks` can't have the name of a block type, built-ins included (no saved block can be called `page`, `redirect`, `telemetry`, `always`, `never`, `date`, `multivariate` or `lazy`), or of an alias (a second name for a block type, used when you rename one; see [Migrating from v7](/next/renames-and-migrations)). At runtime the function wins and you get a warning (see [The lookup rule](/next/blocks#the-lookup-rule)); [`deco check`](/next/cli#deco-check) makes it an error so you catch it before you deploy.
 
 ## Backward compatibility
 
@@ -171,6 +171,6 @@ In a monorepo, pass `--root` to both commands (`npx @decocms/blocks schema --roo
 
 The build runs `deco check` too (in the [`prebuild` script](/next/cli#run-it-before-dev-and-build)), so a broken mix of code and content fails the build and never deploys: the live site keeps serving the previous deploy. Optionally, turn on "Require branches to be up to date before merging" in your branch protection (or use a merge queue) to catch it at pull-request time instead of at build time: two pull requests can each pass on their own and break together.
 
-To rename a block type, keep the old name as an alias (see [Renaming and migrating](/next/renames-and-migrations#rename-a-type-with-an-alias)). To rename a field, add the new one, move the content over, then remove the old one.
+To rename a block type, keep the old name as an alias (see [Migrating from v7](/next/renames-and-migrations#rename-a-type-with-an-alias)). To rename a field, add the new one, move the content over, then remove the old one.
 
 <Hosted to="/next/hosted-publishing#keep-running-code-compatible" label="Keep running code compatible">**Publishing without a deploy adds a direction.** With the hosted Deco CMS, content goes live on code that's already running, so that code must also render content published after it shipped.</Hosted>

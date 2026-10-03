@@ -1,10 +1,12 @@
 ---
 title: CLI
 group: Reference
-order: 14
+order: 21
 ---
 
 # CLI
+
+You changed a block's props and Studio still shows the old form: the schema needs regenerating. This page lists every `deco` command and its flags.
 
 The Deco CLI is the `deco` command. It ships inside `@decocms/blocks`, so there's nothing extra to install, and it always matches your runtime version. Run it once with `npx` (`bunx` works the same):
 
@@ -108,7 +110,7 @@ deco check [--root <dir>]
 - A reference in a typed field points to a block that returns that type.
 - A `Lazy<T>` field holds a [`lazy` block](/next/blocks#lazy-blocks), and a `lazy` block appears only in a `Lazy<T>` field.
 - No saved block has the name of a block type, a built-in or an alias (see [Names must not clash](/next/schema#names-must-not-clash)).
-- No two entries can match the same URL (see [Path templates and match order](/next/routing#path-templates-and-match-order)).
+- No two entries can match the same URL (see [Match order](/next/routing#path-templates-and-match-order)).
 
 It doesn't generate the schema or load your TypeScript. Run `deco schema` first, so the schema matches your code: `deco schema && deco check`.
 

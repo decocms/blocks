@@ -191,8 +191,8 @@ The framework adds eight functions to your block map for you. They're always in 
 
 **Pages and redirects**
 
-- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. Its [type](/next/api-reference#types) is `interface Page extends Route { seo: Seo; sections: ReactNode[] }`. [Routes and redirects](/next/routes-and-redirects) shows how to find the page for a URL.
-- **`redirect`** takes `from`, `to` and `permanent` (`true` for a 301, `false` for a 302), and returns them as saved. [Routing](/next/routing) turns redirects into responses.
+- **`page`** takes `name`, `path`, `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. Its [type](/next/api-reference#types) is `interface Page extends Route { seo: Seo; sections: ReactNode[] }`. [Pages and routing](/next/routing) shows how to find the page for a URL.
+- **`redirect`** takes `from`, `to` and `permanent` (`true` for a 301, `false` for a 302), and returns them as saved. [Pages and routing](/next/routing) turns redirects into responses.
 
 **Telemetry**
 
@@ -232,7 +232,7 @@ Everything Deco lives in one folder, `.deco/`, in your app root (the folder with
 
 Don't edit `schema.gen.json` or `blocks.gen.ts`; `index.ts` and `blocks/` are yours. The `.gen.` in a name marks a generated file. `blocks.gen.ts` is built from `blocks/`: it's your saved blocks as a module. The [CLI](/next/cli) page has a table of which file is which.
 
-Edit saved blocks as files, with an AI agent, or in Studio (see [Edit on your machine](/next/cli#edit-on-your-machine)). Because they're files in Git, every edit is a commit you can review and revert, and publishing is pushing to your production branch: your next deploy serves it (see [Releases and deployment](/next/releases-and-deployment#publishing)).
+Edit saved blocks as files, with an AI agent, or in Studio (see [Edit on your machine](/next/cli#edit-on-your-machine)). Because they're files in Git, every edit is a commit you can review and revert, and publishing is pushing to your production branch: your next deploy serves it (see [Deployment](/next/releases-and-deployment#publishing)).
 
 ### The `deco content` command
 

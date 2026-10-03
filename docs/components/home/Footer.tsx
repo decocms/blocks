@@ -58,8 +58,8 @@ export const NEXT_COLUMNS: FooterColumn[] = [
     links: [
       ['/next/nextjs', 'Next.js App Router'],
       ['/next/tanstack-start-descriptors', 'TanStack Start'],
-      ['/next/routing', 'Routing'],
-      ['/next/releases-and-deployment', 'Releases & deployment'],
+      ['/next/routing', 'Pages & routing'],
+      ['/next/releases-and-deployment', 'Deployment'],
       ['/next/troubleshooting', 'Troubleshooting'],
     ],
   },
@@ -79,7 +79,7 @@ export const NEXT_COLUMNS: FooterColumn[] = [
     links: [
       ['https://github.com/decocms/blocks', 'GitHub'],
       ['/next/internals#contributing', 'Contributing'],
-      ['/next/renames-and-migrations', 'Renames & migrations'],
+      ['/next/renames-and-migrations', 'Migrating from v7'],
       ['/roadmap', 'Roadmap'],
     ],
   },

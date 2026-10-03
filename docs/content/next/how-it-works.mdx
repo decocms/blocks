@@ -36,7 +36,7 @@ The banner's text lives in a saved block: a JSON file in your repository, `.deco
 
 ### 4. The change ships
 
-Your usual CI builds and deploys the app, and the new text goes live with it, the same way a code change does. See [Releases and deployment](/next/releases-and-deployment).
+Your usual CI builds and deploys the app, and the new text goes live with it, the same way a code change does. See [Deployment](/next/releases-and-deployment).
 
 <Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**No deploy needed.** With the hosted Deco CMS, a published change reaches visitors within seconds, with no new build or deploy.</Hosted>
 
@@ -53,7 +53,7 @@ Each step above has one owner. Deco provides one package, `@decocms/blocks`, and
 | **SDK** (`@decocms/blocks`) | 5. Your app renders it | [API reference](/next/api-reference) |
 | **CLI** (`deco`, in `@decocms/blocks`) | 2. The types become a form | [CLI](/next/cli) |
 | **Studio** | 3. Someone changes the content | [Studio](#studio) |
-| **Hosting** | 4. The change ships | [Releases and deployment](/next/releases-and-deployment) |
+| **Hosting** | 4. The change ships | [Deployment](/next/releases-and-deployment) |
 
 The SDK and CLI are open source and run without a Deco account.
 
@@ -68,7 +68,7 @@ Studio never runs your code: it needs only `.deco/blocks` and the schema, which 
 - **Block previews:** clicking a block's preview opens your dev app at that page. Gallery cards show the block's name, `@title`, description and `@image`.
 - **Pickers whose options come from your code** show the options written into the schema, otherwise a text field (see [Widgets](/next/schema#widgets)).
 - **Secret and password fields** are read-only. Keep credentials in environment variables.
-- **Running a data loader or action (Studio's Run button), and installing apps,** are unavailable. These are code that fetches data, not [content loaders](/next/api-reference#loaders). Add platform clients in code (see [Upstream API clients](/next/upstream-clients)).
+- **Running a data loader or action (Studio's Run button), and installing apps,** are unavailable. These are code that fetches data, not [content loaders](/next/api-reference#loaders). Add platform clients in code (see [Calling APIs](/next/upstream-clients)).
 
 Deco also hosts Studio, with a few add-ons on top of the same files:
 
@@ -84,7 +84,7 @@ Deco also hosts Studio, with a few add-ons on top of the same files:
 
 - **Content is plain JSON.** Read it, diff it, or generate it with a script. There's no database to host.
 - **Block functions are plain functions.** You can call any of them directly in a test.
-- **Data fetching is your code.** See [Upstream API clients](/next/upstream-clients).
+- **Data fetching is your code.** See [Calling APIs](/next/upstream-clients).
 - **Nothing is hidden.** The formats are documented in [Blocks](/next/blocks) and [Internals](/next/internals).
 
 ## Coming from v7
@@ -98,7 +98,7 @@ Deco also hosts Studio, with a few add-ons on top of the same files:
 | `/deco/invoke` | Your server functions or route handlers |
 | `meta.gen.json` | `.deco/schema.gen.json` (same format) |
 
-For the full move, see [Renaming and migrating](/next/renames-and-migrations).
+For the full move, see [Migrating from v7](/next/renames-and-migrations).
 
 ## Key terms
 

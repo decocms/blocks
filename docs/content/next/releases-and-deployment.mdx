@@ -1,13 +1,19 @@
 ---
-title: Releases and deployment
-nav: Releases & deployment
+title: Deployment
+nav: Deployment
 group: Production
-order: 18
+order: 16
 ---
 
-# Releases and deployment
+# Deployment
 
-Your block functions and your content ship together. Both live in your repository: the functions as TypeScript, the content as JSON files in `.deco/blocks` (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)). Upgrading a block means changing its function, its content, or both, in commits; your normal deploy pipeline ships them. This page covers how a change reaches visitors, how each response stays consistent, and how to roll back. What a release and a draft are is in [Releases and drafts](/next/releases-and-drafts).
+On Thursday night an editor fixes a typo in Friday's sale banner. How does that fix reach visitors, and if it breaks the page, how do you undo it?
+
+This page shows how a change ships, how each response stays on one revision, and how to roll back. What a release, a draft and a preview are is in [Releases and drafts](/next/releases-and-drafts).
+
+## How a change ships
+
+Your block functions and your content live in your repository (see [Blocks in your repository](/next/blocks#blocks-in-your-repository)), so they ship together:
 
 | Step | What happens |
 |---|---|
@@ -15,19 +21,25 @@ Your block functions and your content ship together. Both live in your repositor
 | Build | The [`prebuild` script](/next/cli#run-it-before-dev-and-build) runs `deco schema && deco content && deco check`: it bundles `.deco/blocks` into the build as the [content module](/next/blocks#the-deco-content-command), and fails the build if saved content doesn't fit the code. |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 
+## What a revision is
+
 A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any saved block and you get a new revision. That makes a revision a safe cache key everywhere.
 
 <h2 id="publishing">Publishing is committing</h2>
 
 There's no separate publish step: once a change to `.deco/blocks` is on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
 
-Because content and code share one history, a deploy and a content change are the same kind of event: a commit. That gives you, for free:
+Because content and code share one history, a content change is a commit like any other. That gives you:
 
 - **Review.** A content change is a diff in a pull request, next to the code it needs.
 - **Branches.** A content change can wait on a branch, with its own preview deployment, until it's ready (see [Releases and drafts](/next/releases-and-drafts#on-a-branch)).
-- **Rollback.** Redeploy the previous build: its content and code roll back together, so they always fit. Reverting a single code commit doesn't revert content committed after it, so check that content first; the rules and a CI check are in [Backward compatibility](/next/schema#backward-compatibility).
+- **Rollback.** Undo a change like any other commit (see [Roll back](#roll-back)).
 
 <Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a [release](/next/releases-and-drafts#releases) and reaches running servers within seconds, with no rebuild.</Hosted>
+
+## Roll back
+
+If Friday's banner breaks the page, redeploy the previous build: its content and code roll back together, so they always fit. To undo only the content, revert the content commit and deploy. Reverting a single code commit doesn't revert content committed after it; see [Backward compatibility](/next/schema#backward-compatibility).
 
 ## One revision per response
 
@@ -36,7 +48,3 @@ Content can change while a server is running: in development, when you edit a fi
 Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response, or send `client.revision()` with the page and read follow-up requests with `cms.forRevision(revision)`.
 
 A revision only selects content; it isn't a secret and unlocks nothing.
-
-## Deploying on Workers
-
-Workers need nothing special. The content module is bundled into the Worker like any other import, and the CMS keeps it in memory for the life of the isolate. The [deployment checklist](/next/tanstack-start-descriptors#deployment-checklist) in the TanStack Start guide lists every step.

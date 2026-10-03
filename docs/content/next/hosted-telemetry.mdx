@@ -1,28 +1,22 @@
 ---
 title: Telemetry
+nav: Telemetry
 group: Hosted Deco CMS
-order: 27
+order: 26
 description: With a site ID and token, your site sends Deco sampled, aggregated upstream latency and error rates, switched on and off from a Telemetry entry.
 ---
 
 # Telemetry
 
-Telemetry is a hosted feature. The framework doesn't send telemetry on its own: without the [hosted Deco CMS](/next/hosted), the [instrumented fetch](/next/api-reference#createinstrumentedfetch-options) your [upstream clients](/next/upstream-clients) use measures every request but sends nothing, and the [Telemetry entry](#telemetry-settings-are-content) is inert. Teams that want their own observability instrument their own code with OpenTelemetry as usual (see [Your own tracing](/next/caching-and-observability#your-own-tracing)). With a connected site, those measurements reach Deco with no collector to run.
+Your search provider gets slow on Black Friday, and shelves start timing out. You want to see upstream latency and error rates for your site without running a collector.
+
+With the [hosted Deco CMS](/next/hosted), the measurements your [upstream clients](/next/upstream-clients) already take reach Deco, with no collector to run. Without it, those measurements stay in your process; see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls).
+
+This page shows what your site sends, how it's sampled, and how to switch it off from content.
 
 ## What it is
 
-**Telemetry** is sampled, aggregated measurements of your site's own requests and the third-party APIs it calls, so Deco can show you upstream latency and error rates for your site and spot regressions. It uses the same [site ID and site token](/next/hosted#connect-your-site) that load your [releases](/next/hosted-publishing), passed to [`createCMS`](/next/api-reference#createcms-config), so there's nothing else to configure:
-
-```ts title="cms.ts"
-export const cms = createCMS({
-  blocks,
-  content,
-  site: process.env.DECO_SITE,          // your site's ID in the hosted Deco CMS
-  token: process.env.DECO_SITE_TOKEN,   // your site token (secret)
-});
-```
-
-Without a site and a token, nothing is sent: in development, in tests, and on any site that doesn't use the hosted Deco CMS. See [Connect your site](/next/hosted#connect-your-site).
+**Telemetry** is sampled, aggregated measurements of your site's own requests and the third-party APIs it calls. It uses the same site ID and token that load your releases, so once your site is [connected](/next/hosted#connect-your-site) there's nothing else to configure. Without them, nothing is sent: in development, in tests, and on any site that doesn't use the hosted Deco CMS.
 
 ## What's sent
 
@@ -62,13 +56,9 @@ The settings live in a **Telemetry entry**: a well-known saved block named `Tele
 
 The entry is an ordinary file in `.deco/blocks`: `deco content` scaffolds it in every repository (without a connected site it's inert, and you can delete it), and it travels with every release. To switch telemetry off, set `enabled` to `false`, in Studio or in a commit. Changing it in Studio works like any other content edit: Studio commits the change to your site's repository through its [GitHub backend](/next/hosted-studio), the Deco API serves that commit as the current release within seconds, and running servers pick it up with their next content check. There's no separate channel: a remote switch-off, during an incident for example, is that same commit, visible in your Git history. Without the entry, a connected site uses the values the scaffold writes, shown above: telemetry and metrics on, and 5% of error logs sent.
 
-## Real-user monitoring
-
-Real-user monitoring (RUM) measures what visitors experience in their browsers: a customer-facing alternative to Google Analytics, linked to A/B tests through variant exposure events.
-
 ## Troubleshooting
 
 | Symptom | What to check |
 |---|---|
 | No telemetry reaches Deco | Telemetry needs both `site` and `token` on `createCMS`, and an enabled [Telemetry entry](#telemetry-settings-are-content). Error logs are sampled and metrics are sent in batches, so expect a delay and only a share of errors. |
-| Upstream calls missing | Only requests made through `createInstrumentedFetch` are measured; check that your client uses it (see [Upstream API clients](/next/upstream-clients)). |
+| Upstream calls missing | Only requests made through `createInstrumentedFetch` are measured; check that your client uses it (see [Calling APIs](/next/upstream-clients)). |

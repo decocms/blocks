@@ -461,7 +461,7 @@ export function Publishing() {
         <MdxLink className={`${devLink} text-link ${reveal}`} href="/next/releases-and-deployment">
           <span className="font-normal text-muted-fg">For developers:</span> publishing and{' '}
           <span className="whitespace-nowrap">
-            releases
+            rollback
             <Icon name="arrow-right" className={devLinkIcon} />
           </span>
         </MdxLink>

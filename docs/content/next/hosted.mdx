@@ -2,28 +2,31 @@
 title: The hosted Deco CMS
 nav: Overview
 group: Hosted Deco CMS
-order: 23
+order: 22
 description: What the hosted Deco CMS adds on top of the open-source framework, and how to connect a site to it with a site ID and token.
 ---
 
 # The hosted Deco CMS
 
-The Deco SDK and CLI are complete without a Deco account: your functions, your content files and your deploys are all you need. The hosted Deco CMS is an optional service Deco runs on top of the same files. It changes how fast content reaches visitors and where editors work, not how your code is written.
+Your editors want a fix live within seconds, without waiting for a build, and they want to edit without cloning the repository. That's what the hosted Deco CMS is for: an optional service Deco runs on top of the same files. It changes how fast content reaches visitors and where editors work, not how your code is written.
+
+The Deco SDK and CLI are complete without it: your functions, your content files and your deploys are all you need. This page shows what the hosted Deco CMS adds and how to connect your site.
 
 ## What it adds
 
-Deco runs three services for a connected site:
+Deco runs these services for a connected site:
 
 | Service | What it changes | Without it |
 |---|---|---|
-| **The Deco API** | Serves each commit to your production branch as a **release**, so content is live within seconds without a deploy, and serves drafts to your real site for preview. See [Publishing without a deploy](/next/hosted-publishing) and [Drafts on your site](/next/hosted-drafts). | Content ships with your next deploy ([Releases and deployment](/next/releases-and-deployment#publishing)); drafts are branches you preview with your own preview deploys ([Releases and drafts](/next/releases-and-drafts#on-a-branch)). |
-| **Studio's GitHub backend** | Editors use [Studio](/next/how-it-works#studio) on your GitHub repository, with nothing to clone or install: each save is a commit on a draft branch, and publishing brings it to production. Uploads go to Deco's asset storage and are served from a CDN. See [Editing in Studio on GitHub](/next/hosted-studio). | Studio on your machine through [`deco serve`](/next/cli#deco-serve), and you commit the changes ([Edit on your machine](/next/cli#edit-on-your-machine)); uploads are files in `.deco/assets/` or the folder you pass with `--assets` ([Images and other uploads](/next/cli#images-and-other-uploads)). |
-| **Telemetry** | Sampled upstream latency and error rates for your site, collected by Deco, switched on and off from a content entry. See [Telemetry](/next/hosted-telemetry). | Nothing is sent: the framework doesn't send telemetry on its own, and the Telemetry entry is inert. For your own observability, instrument your code with OpenTelemetry as usual ([Your own tracing](/next/caching-and-observability#your-own-tracing)). |
+| **Studio on GitHub** | Editors use [Studio](/next/how-it-works#studio) on your GitHub repository, with nothing to clone or install: each save is a commit on a draft branch, and publishing brings it to production. Uploads go to Deco's asset storage and are served from a CDN. See [Editing in Studio on GitHub](/next/hosted-studio). | Studio on your machine through [`deco serve`](/next/cli#deco-serve), and you commit the changes ([Edit on your machine](/next/cli#edit-on-your-machine)); uploads are files in `.deco/assets/` or the folder you pass with `--assets` ([Images and other uploads](/next/cli#images-and-other-uploads)). |
+| **Drafts** | The Deco API serves an editor's draft to your real site, so Studio previews it in place. See [Previewing drafts](/next/hosted-drafts). | Drafts are branches you preview with your own preview deploys ([Releases and drafts](/next/releases-and-drafts#on-a-branch)). |
+| **Publishing** | The Deco API serves each commit to your production branch as a **release**, so content is live within seconds without a deploy. See [Publishing without a deploy](/next/hosted-publishing). | Content ships with your next deploy ([Deployment](/next/releases-and-deployment#publishing)). |
+| **Telemetry** | Sampled upstream latency and error rates for your site, collected by Deco, switched on and off from a content entry. See [Telemetry](/next/hosted-telemetry). | Nothing is sent, and the Telemetry entry is inert (see [Measuring upstream calls](/next/caching-and-observability#measuring-upstream-calls)). |
 
 ## What stays the same
 
 - **Your repository is the source of truth.** Content is still the JSON files in `.deco/blocks`, and every edit is still a commit.
-- **Your code doesn't change.** Block functions, the [block map](/next/blocks#the-block-map), [`resolve`](/next/api-reference#client-resolve-target-options), [`list`](/next/api-reference#client-list-type-options) and routing work the same way. The same [`createCMS`](/next/api-reference#createcms-config) call takes two more options, `site` and `token`.
+- **Your code doesn't change.** Block functions, the [block map](/next/blocks#the-block-map), [`resolve`](/next/api-reference#client-resolve-target-options), [`list`](/next/api-reference#client-list-type-options) and [routing](/next/routing) work the same way. The same [`createCMS`](/next/api-reference#createcms-config) call takes two more options, `site` and `token`.
 - **The content module stays.** Your build still bundles [`.deco/blocks.gen.ts`](/next/blocks#the-deco-content-command). It's what a server serves before it has fetched its first release, and what it keeps serving if the Deco API is unreachable.
 
 ## Connect your site
@@ -77,14 +80,14 @@ Release checks on Workers run after the response, inside `ctx.waitUntil`, on the
 <Terms>
   <Term name="Site ID and site token">The two values that connect your app to the hosted Deco CMS, usually the `DECO_SITE` and `DECO_SITE_TOKEN` environment variables, passed to `createCMS` as `site` and `token`. They load releases and drafts and send telemetry. Only the token is secret.</Term>
   <Term name="Deco API">The HTTP service that serves your site's releases and drafts, and receives its telemetry.</Term>
-  <Term name="Release">With the hosted Deco CMS, the content of one commit to your production branch, served by the Deco API. A release never changes, and its [revision](/next/releases-and-deployment), the same hash [`deco content`](/next/cli#deco-schema-and-deco-content) computes, identifies it. See [Publishing without a deploy](/next/hosted-publishing).</Term>
-  <Term name="Draft pointer">The string Studio puts in a `?__draft=` link: where a draft lives on the Deco API, with a token Studio signed, and which version. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) reads it. See [Drafts on your site](/next/hosted-drafts).</Term>
+  <Term name="Release">A [release](/next/releases-and-drafts#releases) as the Deco API serves it: the content of one commit to your production branch, live without a deploy. See [Publishing without a deploy](/next/hosted-publishing).</Term>
+  <Term name="Draft pointer">The string Studio puts in a `?__draft=` link: where a draft lives on the Deco API, with a token Studio signed, and which version. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) reads it. See [Previewing drafts](/next/hosted-drafts).</Term>
   <Term name="Draft branch">The branch Studio's GitHub backend commits an editor's saves to, created on the first save. Publishing brings it to your production branch. See [Editing in Studio on GitHub](/next/hosted-studio).</Term>
 </Terms>
 
 ## On these pages
 
+- [Studio on GitHub](/next/hosted-studio): draft branches, uploads in hosted storage, publishing, and CI on Studio's commits.
+- [Previewing drafts](/next/hosted-drafts): the `?__draft=` link, wiring drafts into your app, and who may preview.
 - [Publishing without a deploy](/next/hosted-publishing): how a commit becomes a release, how servers pick it up, the fallback, and keeping running code compatible with new content.
-- [Drafts on your site](/next/hosted-drafts): the `?__draft=` link, wiring drafts into your app, and who may preview.
-- [Editing in Studio on GitHub](/next/hosted-studio): draft branches, uploads in hosted storage, publishing, and CI on Studio's commits.
 - [Telemetry](/next/hosted-telemetry): what's sent, sampling, and switching it off from content.
