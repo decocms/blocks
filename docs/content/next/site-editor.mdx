@@ -36,7 +36,7 @@ You can use the site editor on the app running on your machine, with or without 
 3. Open the link.
 4. The first time, Chrome asks whether the site editor may reach a server on your machine (Local Network Access). Allow it.
 
-Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) when a save adds or removes a file, and after every save on Next.js, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)). Its flags, such as `--port` and `--app-url`, are in the [CLI reference](/next/cli#deco-serve).
+Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) after every save, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)). Its flags, such as `--port` and `--app-url`, are in the [CLI reference](/next/cli#deco-serve).
 
 ## Images and other uploads
 

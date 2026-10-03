@@ -36,7 +36,7 @@ interface Route {
   /** @title Name */
   name: string;
   /** @title Path */
-  path: string;        // "/summer", or a template like "/:slug/p"
+  path: string;        // "/summer", or a template like "/:slug/p" or "/docs/*"
 }
 
 /** The built-in `page` block: a route with SEO and a list of blocks. */
@@ -114,17 +114,18 @@ switch (match.kind) {
     return new Response("Not found", { status: 404 });
   case "redirect":
     return Response.redirect(new URL(match.location, request.url), match.status);
-  case "match":
-    switch (match.entry.__resolveType) {
-      case "page": {
-        const [page] = await client.resolve<ResolvedPage<ReactNode>>(match.entry);   // seo and sections resolved
-        return render(page.seo, page.sections);
-      }
-      case "post":
-        return renderPost(match.entry);                                        // already the saved post
+  case "match": {
+    const entry = match.entry;
+    if ("__resolveType" in entry && entry.__resolveType === "post") {
+      return renderPost(entry as Post);                                        // already the saved post
     }
+    const [page] = await client.resolve<ResolvedPage<ReactNode>>(entry);       // seo and sections resolved
+    return render(page.seo, page.sections);
+  }
 }
 ```
+
+`Route` types describe what an editor fills in, so they don't declare `__resolveType`. The saved entry still has it, so check it with `in` before comparing.
 
 Mount this handler as your app's catch-all route, the one that runs when no other route matches. To send each block as soon as it's ready instead of resolving the whole page, see [Stream each block](/next/nextjs#7-stream-each-block-optional). `matchRoute` reads redirects as listed, so routing never resolves them.
 
@@ -144,8 +145,10 @@ Matching is a lookup, not a scan: a lookup costs the URL's depth, not the number
 
 A route's `path` and a redirect's `from` accept literal segments and named parameters. A route at `/:slug/p` matches `/summer/p` with `params.slug = "summer"`.
 
+A path can also end with `/*`, a **splat**, to match whatever comes after it, one or more segments. A redirect from `/old-blog/*` to `/blog/*` sends `/old-blog/2024/hello` to `/blog/2024/hello`, and a route at `/docs/*` gets the rest of the path in `params["*"]` (`"guides/setup"` for `/docs/guides/setup`). A splat never matches zero segments, so `/docs` needs its own entry. In a redirect's `to`, the captured segments stay percent-encoded, so a crafted URL can't turn the redirect into a jump to another site.
+
 - Redirects are checked before routes, so a redirect overrides a route at the same path.
-- Within each group, exact paths win over templates.
+- Within each group, exact paths win over parameters, and parameters win over a splat: `/docs/setup` beats `/docs/:page`, which beats `/docs/*`.
 - Two entries with the same path, or two templates that can match the same URL, are a conflict. [`deco check`](/next/checking#what-deco-check-checks) reports it; at request time `matchRoute` picks the one earlier in the array instead of throwing.
 
 Serve framework endpoints, API routes and static assets from their own routes, so they never reach this catch-all.

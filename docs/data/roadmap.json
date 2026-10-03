@@ -922,7 +922,7 @@
       "id": "roadmap-api--add-a-splat-to-matchroute-and-stop-request-time-throws",
       "group": "api",
       "title": "Add a splat to <code>matchRoute</code> and stop request-time throws",
-      "plan": "<p>A trailing <code>/*</code> or <code>/:rest*</code> at lowest precedence (also for <code>Redirect.from</code>, with substitution), a deterministic tie-break (the entry earlier in the array wins, so <code>matchRoute</code> never throws), and case-insensitive matching as an option. The built-in <code>redirect</code> also takes an optional <code>status</code> (301, 302, 307 or 308) and <code>discardQueryParameters</code>, so legacy redirects keep their exact behaviour.</p>",
+      "plan": "<p>A trailing <code>/*</code> that matches one or more segments, at lowest precedence (also for <code>Redirect.from</code>, with substitution that keeps segments percent-encoded), and a deterministic tie-break (the entry earlier in the array wins, so <code>matchRoute</code> never throws). The built-in <code>redirect</code> also takes an optional <code>status</code> (301, 302, 307 or 308) and <code>discardQueryParameters</code>, so legacy redirects keep their exact behaviour.</p>",
       "features": [
         "cms-page-routing",
         "redirects",
@@ -1019,8 +1019,8 @@
     {
       "id": "roadmap-api--add-observability-seams",
       "group": "api",
-      "title": "Report inbound requests and edge cache hits from the bindings",
-      "plan": "<p>Both bindings report inbound request metrics and edge cache hits into the SDK's open-source telemetry pipeline, outside <code>createDecoWorkerEntry</code> on TanStack and with a meter bootstrap on Node and Next.js. Where it goes is the <code>telemetry</code> option of <code>createCMS</code>: <code>{ endpoint, headers? }</code> sends OpenTelemetry over OTLP/HTTP to any collector, <code>{ site, token }</code> sends to the hosted Deco CMS collector, and <code>false</code> turns it off; when the option is omitted, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is used if set, otherwise nothing is sent. Sending happens in the background (<code>ctx.waitUntil</code> on Workers), so a slow collector never delays a response.</p>",
+      "title": "Send the SDK's measurements to any collector",
+      "plan": "<p>The SDK reports what it sees: resolution, upstream fetches through <code>createInstrumentedFetch</code>, and errors. Inbound requests and page caches come from the framework's own OpenTelemetry setup, not from the bindings. Where the SDK's measurements go is the <code>telemetry</code> option of <code>createCMS</code>: <code>{ endpoint, headers? }</code> sends OpenTelemetry over OTLP/HTTP to any collector, <code>{ site, token }</code> sends to the hosted Deco CMS collector, and <code>false</code> turns it off; when the option is omitted, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is used if set, otherwise nothing is sent. Sending happens in the background (<code>ctx.waitUntil</code> on Workers), so a slow collector never delays a response.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation"
@@ -4643,7 +4643,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Sites trace with their own OpenTelemetry setup; inbound-request and edge-cache metrics go wherever the `telemetry` option of `createCMS` points (your own OTLP collector or the hosted Deco CMS). Still open: `remoteLoader` fails silently, and spans around JSX blocks miss the upstream fetches.",
+      "summary": "Sites trace inbound requests and page caches with their framework's own OpenTelemetry setup; the SDK's resolution, upstream and error measurements go wherever the `telemetry` option of `createCMS` points (your own OTLP collector or the hosted Deco CMS). Still open: `remoteLoader` fails silently, and spans around JSX blocks miss the upstream fetches.",
       "docs": [
         "telemetry",
         "api-reference",

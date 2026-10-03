@@ -16,17 +16,19 @@ Telemetry is OpenTelemetry over OTLP/HTTP, encoded as JSON, posted to the standa
 
 ## Metrics
 
-Metric names follow the OpenTelemetry semantic conventions: `http.server.request.duration` for the requests your site serves and `http.client.request.duration` for upstream calls. They use **delta temporality**: each batch carries what happened since the last one, because a Cloudflare Workers isolate can disappear at any moment and has no long-lived counter to report. Prometheus-style backends need the collector's `deltatocumulative` processor to turn them into cumulative counters.
+Metric names follow the OpenTelemetry semantic conventions, such as `http.client.request.duration` for upstream calls. The SDK records no `http.server.*` metrics: the requests your site serves are your framework's to measure. Metrics use **delta temporality**: each batch carries what happened since the last one, because a Cloudflare Workers isolate can disappear at any moment and has no long-lived counter to report. Prometheus-style backends need the collector's `deltatocumulative` processor to turn them into cumulative counters.
 
 Every batch carries these resource attributes:
 
 | Attribute | Value |
 |---|---|
-| `service.name` | Your app's name |
-| `service.version` | The deployed commit |
-| `deployment.environment.name` | The environment, such as `production` or `preview` |
+| `service.name` | `OTEL_SERVICE_NAME`, else the site ID, else `decocms-site` |
+| `service.version` | The deployed commit, read from the first variable your host sets (`DECO_COMMIT_SHA`, `WORKERS_CI_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, `VERCEL_GIT_COMMIT_SHA`, `GITHUB_SHA`, `RENDER_GIT_COMMIT`, `SOURCE_VERSION`, `COMMIT_SHA`), else `unknown` |
+| `deployment.environment.name` | `VERCEL_ENV` when set, else `development` when `NODE_ENV` is `development`, else `production` |
 | `deco.site` | The site ID, when there is one |
 | `deco.release` | The [revision](/next/releases-and-deployment#what-a-revision-is) being served |
+
+The standard `OTEL_RESOURCE_ATTRIBUTES` variable overrides any of them, for example `deployment.environment.name=preview`.
 
 ## Sending in the background
 
@@ -38,8 +40,8 @@ The SDK removes `cookie`, `authorization` and similar headers, tokens and reques
 
 ## Several CMS instances
 
-The [instrumented fetch](/next/api-reference#createinstrumentedfetch-options) reports its measurements to the CMS in the same process, which sends them where its `telemetry` option points. With several CMS instances in one process (several sites in one app, for example), each measurement goes to the CMS whose client is handling the current request.
+The [instrumented fetch](/next/api-reference#createinstrumentedfetch-options) reports its measurements to the CMS in the same process, which sends them where its `telemetry` option points. The instrumented fetch reports to the most recently created CMS with telemetry; several sites in one process share one destination.
 
 ## Analytics events
 
-[Analytics](/next/analytics) is separate from telemetry: it doesn't use the `telemetry` option or the OTLP path above. The script `AnalyticsScript` renders sends page views in the One Dollar Stats tracker's wire format: a JSON object with the page URL and a list of events (type, hostname, referrer, path). When the encoded payload is short, it goes as a `GET` with the JSON, base64-encoded, in the `?data=` parameter; otherwise it's sent with `navigator.sendBeacon` or a `POST`. The format isn't versioned, so compatibility is tested against a pinned version of the tracker.
+[Analytics](/next/analytics) is separate from telemetry: it doesn't use the `telemetry` option or the OTLP path above. The script `AnalyticsScript` renders sends page views in the One Dollar Stats tracker's wire format: a JSON object with the page URL (without query string) and a list of events, each with its type, the referrer when it's from another site, and its properties. When the encoded payload is short, it goes as a `GET` with the JSON, base64-encoded, in the `?data=` parameter; otherwise it's sent with `navigator.sendBeacon` or a `POST`.

@@ -12,7 +12,30 @@ Your v7 store's saved pages refer to blocks like `site/sections/Product.tsx`, an
 
 Saved content refers to your code by name: every block stores a type name in [`__resolveType`](/next/blocks#functions-as-blocks), references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content.
 
-This page shows how to keep old names working with aliases, what to do with v7 loaders and actions, what replaces v7's telemetry and analytics, how secrets move over, and a [checklist for moving content](#checklist-for-migrating-existing-content).
+This page shows how to run the migration, how to keep old names working with aliases, what to do with v7 loaders and actions, what replaces v7's telemetry and analytics, how secrets move over, and a [checklist for moving content](#checklist-for-migrating-existing-content).
+
+## Run the migration
+
+The migration is a one-time command, `blocks-migrate`, from the `@decocms/blocks-migrate` package. Run it once, on a clean working tree, from your app root:
+
+```bash
+DECO_CRYPTO_KEY=… npx @decocms/blocks-migrate
+```
+
+| Flag | What it does |
+|---|---|
+| `--root <dir>` | The app root, the folder with your site's `package.json`. Default: the current folder. |
+| `--decofile <file>` | Content to split into `.deco/blocks` when the site has none yet: the JSON your v7 site serves at `/.decofile`. |
+
+It changes your files in place and prints a report of what it did and what's left for you. It writes a block map that keeps your old type names as [aliases](#rename-a-type-with-an-alias), copies the [loaders](#loaders-actions-and-invoke) your content uses, re-encrypts [secrets](#secrets), and lists what it can't move by itself, such as [tag IDs](#telemetry-and-analytics). Review the diff and commit it like any other change.
+
+Seven v7 type names have no alias in the next major, so the migration rewrites them in your saved content to a name that resolves the same way, with the same props:
+
+| v7 name | Saved as |
+|---|---|
+| `website/flags/multivariate/image.ts`, `website/flags/multivariate/message.ts`, `website/flags/multivariate/page.ts`, `$live/flags/multivariate.ts` | `website/flags/multivariate.ts` |
+| `$live/matchers/MatchAlways.ts` | `website/matchers/always.ts` |
+| `website/matchers/date.ts`, `$live/matchers/MatchDate.ts` | `date` |
 
 <h2 id="rename-a-type-with-an-alias">Rename a block type</h2>
 
@@ -59,7 +82,7 @@ v7 configured telemetry with environment variables and shipped its analytics as 
 | The OpenTelemetry export, switched on with `DECO_OTEL` and the `DECO_OTEL_*` endpoint and header variables (see [v7 observability](/v7/observability)) | The [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) of `createCMS`: `{ endpoint, headers? }` for your own collector, or the standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` variables. Sampling moves to the [Telemetry saved block](/next/telemetry#telemetry-settings-are-content). |
 | Metrics Deco collected for your site in its own backend | `telemetry: { site, token }`, set explicitly (see [Hosted telemetry](/next/hosted-telemetry)) |
 | The `Stats` and `OneDollarStats` components, and the `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` variables | A saved block of the built-in [`analytics`](/next/analytics) type, which speaks the [One Dollar Stats](/next/analytics#one-dollar-stats) format. Rendering `AnalyticsScript` with it turns it on; its `enabled` field switches it off. |
-| The `Analytics` section with Google Tag Manager and GA4 tags | A tag manager block from your [platform template](/next/how-it-works#key-terms), owned by your site; the migration moves the tag IDs into it. The built-in `analytics` block only counts page views, so it doesn't take them. |
+| The `Analytics` section with Google Tag Manager and GA4 tags | A tag manager block from your [platform template](/next/how-it-works#key-terms), owned by your site; the migration lists the tag IDs in its report. The built-in `analytics` block only counts page views, so it doesn't take them. |
 | Experiment results keyed on the random matcher's saved-block name | The `experiment` ID of the [A/B test](/next/matchers-and-variants#run-an-a-b-test); the migration copies the old name into it, so results carry over. |
 
 <h2 id="secrets">Secrets</h2>

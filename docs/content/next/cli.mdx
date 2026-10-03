@@ -27,6 +27,8 @@ It has four commands, and each does one job:
 - **`deco check`** makes sure your [saved blocks](/next/saved-blocks) fit your code, and fails if one doesn't. It writes nothing. See [Checking content](/next/checking).
 - **`deco serve`** is the local server [the site editor](/next/site-editor) uses to edit the files on your machine. See [Edit on your machine](/next/site-editor#edit-on-your-machine).
 
+There's no `deco publish`: publishing is committing. Running it prints that and exits with code 1 (see [Design decisions](/next/design-decisions#delivery-and-telemetry)).
+
 ## Run it before dev and build
 
 There's no separate dev command: run `deco schema` and `deco content` before your dev server and your build. The build also runs `deco check`, so content that doesn't fit the code fails the deploy instead of shipping; dev skips it, so a content error doesn't stop your dev server.

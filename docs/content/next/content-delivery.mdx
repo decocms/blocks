@@ -89,7 +89,7 @@ Rollback uses the same propagation path as publishing. An active process sees it
 
 ## Exact draft previews
 
-Materialize draft commits into private immutable assets as well. A signed preview grant scopes access to the site, draft revision and expiry. The preview endpoint fetches the exact requested revision, never substitutes the current branch head under an old version, and never calls GitHub to fill a cache miss. An unavailable revision follows the SDK's documented fallback to published content.
+Materialize draft commits into private immutable assets as well. A signed preview grant scopes access to the site, draft revision and expiry. The preview endpoint fetches the exact requested revision, never substitutes the current branch head under an old version, and never calls GitHub to fill a cache miss. An unavailable revision is an error: the client returns `LOADER_FAILED` and never substitutes published content.
 
 Saving and preview readiness are separate. A save returns after the Git commit; the editor can show "preparing preview" until materialization finishes. Publishing, rollback, preview grants and draft lifecycle remain control-plane routes outside the [content protocol](/next/content-protocol).
 

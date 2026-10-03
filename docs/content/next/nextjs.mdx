@@ -205,7 +205,7 @@ import type { Post } from "./post";
   const match = matchRoute(pathname, { routes: [...pages, ...posts], redirects });
   // … not-found and redirect handling as before …
 
-  if (match.entry.__resolveType === "post") return { post: match.entry as Post, page: null };
+  if ("__resolveType" in match.entry && match.entry.__resolveType === "post") return { post: match.entry as Post, page: null };
   const [page, error] = await c.resolve<ResolvedPage<ReactNode>>(match.entry);
   if (error) throw error;
   return { post: null, page };
@@ -321,7 +321,7 @@ export default async function Page({ params }: Props) {
 If you added posts in step 6, list them and pass them to `matchRoute` as before, return the post before resolving any block, and add `post: null` to the page's return value:
 
 ```ts title="src/open-page.server.ts (posts)"
-  if (match.entry.__resolveType === "post") {
+  if ("__resolveType" in match.entry && match.entry.__resolveType === "post") {
     return { post: match.entry as Post, blocks: [], seo: null };
   }
   // … build blocks and seo as above, then:

@@ -10,7 +10,7 @@ description: Send errors, metrics and traces from your servers to your own OpenT
 
 Your search provider gets slow on Black Friday, and shelves start timing out. You want upstream latency and error rates in your own Grafana, or somewhere you can look at them without running a collector at all.
 
-Deco CMS measures the requests your site serves and the APIs it calls, and sends those measurements as OpenTelemetry to wherever you point it. It's open source, and it works with any collector. This page shows how to choose where telemetry goes, what's sent, and how editors and code share control of how much.
+Deco CMS measures what it sees, resolving content and calling APIs, and sends those measurements as OpenTelemetry to wherever you point it. It's open source, and it works with any collector. This page shows how to choose where telemetry goes, what's sent, and how editors and code share control of how much.
 
 ## Choose where telemetry goes
 
@@ -48,12 +48,10 @@ The top-level `site` and `token` options load [hosted releases and drafts](/next
 | Measurement | Labels | Reported by |
 |---|---|---|
 | Upstream latency: each request to a third-party API, timed until its response headers arrive (`http.client.request.duration`) | `provider`, `operation`, `status_class` (2xx, 4xx, 5xx, error), `cached`, `retries` | The instrumented fetch, `createInstrumentedFetch`, which every [upstream client](/next/upstream-clients#what-a-client-is) uses |
-| Inbound requests: duration and status of the requests your site serves (`http.server.request.duration`) | route pattern, `status_class` | Your framework binding (`@decocms/nextjs`, `@decocms/tanstack`) |
-| Edge cache: hits and misses for rendered pages and upstream responses | cache layer, outcome | Your framework binding |
-| Error logs | error code, block type, provider | The SDK and the bindings |
-| Traces (off by default) | request, block resolution and upstream spans | The binding and the SDK, at `traceSampleRate` |
+| Error logs | error code, block type, provider | The SDK |
+| Traces (off by default) | block resolution and upstream spans | The SDK, at `traceSampleRate` |
 
-An app that uses only `@decocms/blocks` sends upstream latency and error logs from the instrumented fetch. A framework binding adds inbound request and cache metrics.
+That's everything: the framework bindings add no measurements of their own. The requests your site serves and its page cache belong to your web framework, so measure them with its OpenTelemetry setup (Next.js has [`instrumentation.ts`](https://nextjs.org/docs/app/guides/open-telemetry); on Cloudflare Workers, turn on Workers observability). Point it at the same collector and both show up side by side.
 
 A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. The `cached` label tells you whether a response came from a [cache](/next/caching#upstream-data), so hit rates show up next to latency. Page views from the browser aren't telemetry: they're [analytics](/next/analytics), a separate built-in block.
 
@@ -74,7 +72,7 @@ How much is sent is a setting editors can see and change. It lives in a well-kno
 | Field | Default | What it does |
 |---|---|---|
 | `enabled` | `true` | Switches all telemetry off when `false`. |
-| `metrics` | `true` | Sends request, upstream and cache metrics. |
+| `metrics` | `true` | Sends upstream metrics. |
 | `errorSampleRate` | `0.05` | The share of error logs sent (5%). |
 | `traceSampleRate` | `0` | The share of requests traced. |
 

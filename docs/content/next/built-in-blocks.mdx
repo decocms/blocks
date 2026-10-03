@@ -106,10 +106,10 @@ To rotate keys by hand, create a new pair, replace `.deco/secrets.pub`, save eac
 
 ### Guardrails
 
-- **Server only.** A `secret` block fails if it's resolved in the browser, and its value fails if it's passed to a Client Component, so it never ends up in a page.
+- **Server only.** A `secret` block fails if it's resolved in the browser, so its value only exists where your server code runs. It's a plain string there: use it in server code, and don't pass it to a Client Component as a prop, or it ends up in the page.
 - **Reads stay encrypted.** [`{ run: false }`](/next/api-reference#client-resolve-target-options) and `client.list` return the block as saved, with its `ciphertext`.
 - **No plain text in content.** The [content protocol](/next/content-protocol#errors-and-limits) refuses a plain string in a `Secret` field, so the site editor and agents can't save one by mistake.
-- **A missing key fails one block.** Without a key, or with the wrong one, a `secret` block fails with [`BLOCK_FAILED`](/next/api-reference#errors); the rest of the page still resolves.
+- **A missing key fails that block.** Without a key, or with the wrong one, a `secret` block fails with [`BLOCK_FAILED`](/next/api-reference#errors). Resolve the page's blocks one by one (see [Errors, streaming, and cancellation](/next/rendering#errors-streaming-and-cancellation)) and the rest of the page still renders.
 - **Telemetry redacts.** Decrypted values never appear in spans or logs.
 - **`deco check` needs no key.** It checks that each `ciphertext` is well formed, but can't decrypt it.
 
