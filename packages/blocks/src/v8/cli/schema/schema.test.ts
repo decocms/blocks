@@ -184,6 +184,16 @@ describe("types to fields", () => {
     });
   });
 
+  it("makes a render-descriptor field a choice of sections, as JSX is", () => {
+    const p = propsOf("shelf").properties;
+    expect(p.heading).toEqual({ $ref: "#/definitions/__SECTION_REF__", title: "Heading" });
+    expect(p.rows).toEqual({
+      type: "array",
+      items: { $ref: "#/definitions/__SECTION_REF__" },
+      title: "Rows",
+    });
+  });
+
   it("makes Secret a write-only secret block", () => {
     expect(heroProps().properties.apiKey).toMatchObject({
       format: "secret",

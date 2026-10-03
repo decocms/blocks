@@ -8,7 +8,6 @@ export {
   SectionRenderer,
   StableOutlet,
 } from "./hooks";
-export { kvLoader } from "./kvLoader";
 export {
   CmsPage,
   cmsHomeRouteConfig,

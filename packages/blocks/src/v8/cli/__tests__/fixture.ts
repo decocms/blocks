@@ -158,6 +158,8 @@ export const productCard = (props: { title: string; product: Product; related?: 
 export const weekday = (props: { days: ("Sat" | "Sun")[] }) => props.days.length > 0;
 export const greeting = (props: { name: string }) => "hello " + props.name;
 export const descriptor = (props: { title: string }) => ({ component: "promo", props });
+export interface Rendered { component: string; props: unknown }
+export const shelf = (props: { heading: Rendered; rows: Rendered[] }) => <div>{props.rows.length}</div>;
 export const post = (props: Post) => props;
 export const menu = (props: Menu) => props;
 export const footer = (props: { menu: Menu; enabled: boolean; label: string }) => <footer />;
@@ -180,7 +182,7 @@ export const vault = (props: VaultProps) => <div>{props.label}</div>;
 import type { Blocks } from "../src/deco";
 import Hero from "../src/hero";
 import { vault } from "../src/vault";
-import { catalogProduct, productList, productCard, weekday, greeting, descriptor, post, menu, footer } from "../src/blocks";
+import { catalogProduct, productList, productCard, weekday, greeting, descriptor, shelf, post, menu, footer } from "../src/blocks";
 
 export default {
   hero: Hero,
@@ -190,6 +192,7 @@ export default {
   weekday,
   greeting,
   descriptor,
+  shelf,
   post,
   menu,
   footer,
