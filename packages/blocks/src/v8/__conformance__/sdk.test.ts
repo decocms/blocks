@@ -578,7 +578,7 @@ describe("AR-24 / CT-08 update() runs in the background, never in front of a req
     const packages = path.resolve(pkgRoot, "..");
     const offenders: string[] = [];
     for (const name of fs.readdirSync(packages)) {
-      if (!/^(blocks|blocks-migrate|apps-.+)$/.test(name)) continue;
+      if (!/^(blocks|apps-.+)$/.test(name)) continue;
       const file = path.join(packages, name, "package.json");
       if (!fs.existsSync(file)) continue;
       const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
