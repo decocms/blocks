@@ -14,8 +14,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 // Shell out to the esbuild binary: its JS API trips over Vitest's realm isolation.
 const esbuildBin = join(here, "../../../../node_modules/.bin/esbuild");
 
-function bundle(args: string[]): string {
-  return execFileSync(esbuildBin, [join(here, "index.ts"), "--bundle", "--format=esm", ...args], {
+function bundle(args: string[], entry = "index.ts"): string {
+  return execFileSync(esbuildBin, [join(here, entry), "--bundle", "--format=esm", ...args], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -33,7 +33,14 @@ describe("v8 core bundle", () => {
     expect(output).not.toMatch(/node:|require\(/);
   });
 
-  it("imports nothing at runtime but its own modules and the ciphertext format (no React, no v7 code)", () => {
+  it("@decocms/blocks/fetch bundles for a browser and a workerd target with no Node built-ins", () => {
+    expect(bundle(["--platform=browser"], "fetch.ts")).not.toMatch(/node:|require\(/);
+    expect(
+      bundle(["--platform=neutral", "--conditions=workerd,worker,browser"], "fetch.ts"),
+    ).not.toMatch(/node:|require\(/);
+  });
+
+  it("imports nothing at runtime but its own modules, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
     const output = bundle([
       "--platform=neutral",
       "--metafile=/dev/stdout",
@@ -42,7 +49,8 @@ describe("v8 core bundle", () => {
     ]);
     const inputs = Object.keys(JSON.parse(output.slice(output.indexOf("{"))).inputs);
     expect(inputs.length).toBeGreaterThan(0);
-    for (const input of inputs)
-      expect(input, input).toMatch(/(^|\/)src\/(v8\/|protocol\/ciphertext\.ts$)/);
+    for (const input of inputs) {
+      expect(input, input).toMatch(/(^|\/)src\/(v8\/|protocol\/(canonical|ciphertext)\.ts$)/);
+    }
   });
 });

@@ -14,6 +14,7 @@ export {
   type RequestLike,
 } from "./draft";
 export { type MatchRouteOptions, matchRoute } from "./matchRoute";
+export { remoteLoader } from "./remoteLoader";
 export type {
   Analytics,
   Block,

@@ -1,17 +1,4 @@
 export {
-  cmsHomeRouteConfig,
-  cmsRouteConfig,
-  CmsPage,
-  decoInvokeRouteConfig,
-  decoMetaRouteConfig,
-  decoRenderRouteConfig,
-  loadCmsHomePage,
-  loadCmsPage,
-  loadDeferredSection,
-  NotFoundPage,
-  withSiteGlobals,
-} from "./routes";
-export {
   DecoPageRenderer,
   DecoRootLayout,
   DraftPreviewIndicator,
@@ -21,23 +8,37 @@ export {
   SectionRenderer,
   StableOutlet,
 } from "./hooks";
-export { createDecoWorkerEntry } from "./sdk/workerEntry";
-export { setupTanstackFastDeploy } from "./setupFastDeploy";
+export { kvLoader } from "./kvLoader";
+export {
+  CmsPage,
+  cmsHomeRouteConfig,
+  cmsRouteConfig,
+  decoInvokeRouteConfig,
+  decoMetaRouteConfig,
+  decoRenderRouteConfig,
+  loadCmsHomePage,
+  loadCmsPage,
+  loadDeferredSection,
+  NotFoundPage,
+  withSiteGlobals,
+} from "./routes";
+export type { CreateDecoRouterOptions } from "./sdk/router";
 export {
   createDecoRouter,
   decoParseSearch,
   decoStringifySearch,
 } from "./sdk/router";
-export type { CreateDecoRouterOptions } from "./sdk/router";
-export {
-  buildSpeculationRules,
-  DEFAULT_EXCLUDED_HREF_MATCHES,
-} from "./sdk/speculationRules";
 export type {
   SpeculationAction,
   SpeculationEagerness,
   SpeculationRulesConfig,
 } from "./sdk/speculationRules";
+export {
+  buildSpeculationRules,
+  DEFAULT_EXCLUDED_HREF_MATCHES,
+} from "./sdk/speculationRules";
+export { createDecoWorkerEntry } from "./sdk/workerEntry";
+export { setupTanstackFastDeploy } from "./setupFastDeploy";
 // createInvokeFn is intentionally NOT re-exported from this root barrel.
 // Its body contains a `createServerFn(...).handler(...)` call that is not a
 // top-level variable declarator (it's returned from a factory function) --

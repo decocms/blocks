@@ -13,6 +13,7 @@ describe("@decocms/blocks root", () => {
     expect(root.createCMS).toBe(v8.createCMS);
     expect(root.resetForTests).toBe(v8.resetForTests);
     expect(root.matchRoute).toBe(v8.matchRoute);
+    expect(root.remoteLoader).toBe(v8.remoteLoader);
     expect(root.draftPointer).toBe(v8.draftPointer);
     expect(root.draftCookie).toBe(v8.draftCookie);
     expect(root.DRAFT_COOKIE).toBe(v8.DRAFT_COOKIE);

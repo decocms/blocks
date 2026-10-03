@@ -31,6 +31,8 @@ interface ResolverOptions {
   builtIns: Readonly<Blocks>;
   /** Called once per name a saved block shares with a function. */
   onCollision?: (name: string) => void;
+  /** Called after each block function runs (telemetry: spans and failures). */
+  onBlock?: (type: string, start: number, end: number, error?: unknown) => void;
 }
 
 export class Resolver {
@@ -38,14 +40,16 @@ export class Resolver {
   readonly #blocks: Blocks;
   readonly #builtIns: Readonly<Blocks>;
   readonly #onCollision?: (name: string) => void;
+  readonly #onBlock?: ResolverOptions["onBlock"];
   readonly #memo = new WeakMap<BlockFunction, Map<string, Promise<unknown>>>();
   readonly #keys = new WeakMap<object, string | null>();
 
-  constructor({ snapshot, blocks, builtIns, onCollision }: ResolverOptions) {
+  constructor({ snapshot, blocks, builtIns, onCollision, onBlock }: ResolverOptions) {
     this.#snapshot = snapshot;
     this.#blocks = blocks;
     this.#builtIns = builtIns;
     this.#onCollision = onCollision;
+    this.#onBlock = onBlock;
   }
 
   /** The saved entry with this name, or `undefined`. */
@@ -222,9 +226,13 @@ export class Resolver {
     // Inputs are always fresh objects: a function may mutate its props freely.
     const { __resolveType: _type, ...inputs } = node;
     const resolved = await this.#resolveFields(inputs, path, chain, true);
+    const start = Date.now();
     try {
-      return await fn(resolved);
+      const value = await fn(resolved);
+      this.#onBlock?.(type, start, Date.now());
+      return value;
     } catch (error) {
+      this.#onBlock?.(type, start, Date.now(), error);
       // A lazy block's failure escaping its caller keeps its own code and path.
       if (isResolutionError(error)) throw error;
       throw errors.blockFailed(type, path, error);
