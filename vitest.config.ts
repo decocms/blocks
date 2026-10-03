@@ -12,6 +12,7 @@ export default defineConfig({
     include: [
       "packages/*/src/**/*.test.{ts,tsx,js}",
       "packages/blocks-cli/scripts/**/*.test.ts",
+      "tests/**/*.test.ts",
     ],
     globals: true,
   },

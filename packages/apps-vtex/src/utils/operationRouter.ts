@@ -1,7 +1,7 @@
 /**
  * URL-derived operation name router for VTEX API calls.
  *
- * Plugged into `@decocms/start`'s `createInstrumentedFetch` via the
+ * Plugged into `createInstrumentedFetch` (`@decocms/blocks/fetch`) via the
  * `resolveOperation(url, method)` option. The resolved string becomes the
  * span suffix (`vtex.<operation>`) and the `fetch.operation` span +
  * histogram label, so it must be:
@@ -118,7 +118,17 @@ const MATCHERS: ReadonlyArray<Matcher> = [
  * });
  * ```
  */
-import { extractPathname } from "@decocms/blocks/sdk/urlUtils";
+/** The URL's pathname; tolerates relative or malformed URLs by stripping `?`/`#`. */
+function extractPathname(url: string): string {
+	try {
+		return new URL(url).pathname;
+	} catch {
+		const qs = url.indexOf("?");
+		const hash = url.indexOf("#");
+		const end = [qs, hash].filter((i) => i >= 0).sort((a, b) => a - b)[0];
+		return end === undefined ? url : url.slice(0, end);
+	}
+}
 
 export function vtexOperationRouter(url: string, method: string): string | undefined {
 	const pathname = extractPathname(url);

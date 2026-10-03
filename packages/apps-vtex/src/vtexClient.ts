@@ -18,7 +18,7 @@
  * per-shopper input (cookies, region) as arguments, and never reads the
  * incoming request, caches, or converts. Converters, hooks, cart/session/sign-in
  * flows and loaders live in the VTEX platform template and site code; upstream
- * caching lives in the framework binding (/next/caching#upstream-data), keyed
+ * caching lives in the site (/next/caching#upstream-data), keyed
  * by everything a response depends on, such as `regionId`.
  *
  * Retries and a circuit breaker are ON by default for VTEX (and only for

@@ -1,6 +1,5 @@
 /**
- * GraphQL document helpers shared by the v8 client (`../wakeClient.ts`) and
- * the v7 GraphQL client (`./graphql.ts`). Pure: no I/O, no framework imports.
+ * GraphQL document helpers used by the client (`../wakeClient.ts`). Pure: no I/O, no framework imports.
  */
 
 /**

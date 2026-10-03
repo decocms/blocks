@@ -5,7 +5,7 @@
  * Every request goes through `createInstrumentedFetch` with provider
  * `sfmc-personalization`. No retries or circuit breaker. Reading the
  * shopper's cookie, converting products to commerce types and caching belong
- * to the site (platform templates and the framework binding).
+ * to the site (platform templates and site code).
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
 import type { PersonalizationEvent, PersonalizationResponse } from "./types";

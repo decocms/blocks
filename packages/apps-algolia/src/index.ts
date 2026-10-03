@@ -5,11 +5,7 @@
  * It calls the REST API directly rather than through the `algoliasearch`
  * SDK, so every request goes through `createInstrumentedFetch` (provider
  * `algolia`) like every other client. No retries or circuit breaker, and no
- * response cache: caching upstream data is the framework binding's job.
- *
- * The v7 SDK wiring (`configureAlgolia`, `getAlgoliaClient`,
- * `initAlgoliaFromBlocks`) stays on the `./client` and `./loaders/client`
- * subpaths for v7 sites; it needs the optional `algoliasearch` peer.
+ * response cache: caching upstream data is the site's job.
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
 

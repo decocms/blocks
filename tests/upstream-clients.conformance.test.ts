@@ -1,8 +1,7 @@
 // @vitest-environment node
 /**
- * Conformance: upstream-clients.mdx (Calling APIs) against the next-major
- * client packages. Only the v8 client modules are checked; the v7 app
- * surfaces that still ship beside them are out of scope until v7 is removed.
+ * Conformance: upstream-clients.mdx (Calling APIs) against the client
+ * packages (`packages/apps-*`).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,12 +10,12 @@ import { createAlgoliaClient } from "@decocms/apps-algolia";
 import { createVtexClient } from "@decocms/apps-vtex";
 import { describe, expect, it, vi } from "vitest";
 
-const PACKAGES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const PACKAGES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../packages");
 
-/** The next-major client module of each platform package. */
+/** The client module(s) of each platform package; the first builds the requests. */
 const V8_CLIENTS: Record<string, string[]> = {
   "apps-vtex": ["src/vtexClient.ts"],
-  "apps-shopify": ["src/v8/client.ts", "src/v8/graphqlOperationName.ts"],
+  "apps-shopify": ["src/client.ts", "src/graphqlOperationName.ts"],
   "apps-wake": ["src/wakeClient.ts"],
   "apps-magento": ["src/magentoClient.ts"],
   "apps-algolia": ["src/index.ts"],
