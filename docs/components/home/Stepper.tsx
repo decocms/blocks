@@ -1,5 +1,5 @@
 /**
- * "Three steps, no ticket" (#home-how): a vertical tablist (arrows/Home/End move and select) that
+ * "Three steps" (#home-how): a vertical tablist (arrows/Home/End move and select) that
  * switches the setup window's panes; the window's file tabs select too.
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -15,7 +15,7 @@ const STEPS = [
   },
   {
     title: 'It becomes editable',
-    text: "One command turns the function's types into a form. With the hosted Deco CMS, that's the form editors use in Deco Studio, so marketing can change copy, images and campaigns without waiting on a developer.",
+    text: "One command turns the function's types into a form. With the hosted Deco CMS, that's the form editors use in Deco Studio, so marketing can change copy, images and campaigns whenever they need to.",
   },
   {
     title: 'Ship from Git',
@@ -212,7 +212,7 @@ export function StepperShell({
 export function Stepper() {
   return (
     <StepperShell
-      kicker="Three steps, no ticket"
+      kicker="Three steps"
       title={
         <>
           Your function stays. <Dim>Its inputs move into a file.</Dim>

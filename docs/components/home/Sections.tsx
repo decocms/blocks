@@ -161,8 +161,8 @@ export function ContentModel() {
             <span className={cardNum}>02</span>
             <h3 className={cardH3}>Editable for humans</h3>
             <p className={cardP}>
-              With the hosted Deco CMS, Studio turns your types into forms and live previews. Marketers and editors
-              change pages, campaigns, and settings without a developer, and every change is a commit you can review and roll back.
+              With the hosted Deco CMS, Studio turns your types into forms and live previews. Developers build the
+              blocks once, editors use them to change pages, campaigns, and settings, and every change is a commit you can review and roll back.
             </p>
           </div>
           <div className={card}>
