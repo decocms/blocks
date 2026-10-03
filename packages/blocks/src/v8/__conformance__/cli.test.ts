@@ -619,8 +619,8 @@ describe("cli.mdx", () => {
         "1",
         "--host",
         "127.0.0.1",
-        "--app-url",
-        "http://x",
+        "--preview",
+        "localhost:8001",
         "--token",
         "t",
         "--allow-origin",
@@ -635,7 +635,7 @@ describe("cli.mdx", () => {
       root: ".",
       port: "1",
       host: "127.0.0.1",
-      "app-url": "http://x",
+      preview: "localhost:8001",
       token: "t",
       "allow-origin": ["https://a", "https://b"],
       assets: "static",
@@ -676,21 +676,21 @@ describe("cli.mdx", () => {
     expect(warns.join("\n")).toMatch(/other machines can reach this server/);
   });
 
-  it("cli-16: --app-url defaults to the Vite config's port, else http://localhost:5173", async () => {
+  it("cli-16: --preview defaults to the Vite config's port, else http://localhost:5173", async () => {
     const plain = fixture();
     const s1 = await serveFixture(plain.root);
-    expect(s1.log.text()).toMatch(/App preview\s+http:\/\/localhost:5173/);
+    expect(s1.log.text()).toMatch(/Preview\s+http:\/\/localhost:5173/);
     expect((await call(s1, "describe")).result.preview).toEqual({
-      origin: "http://localhost:5173",
+      url: "http://localhost:5173",
     });
 
     const vite = fixture({
       "vite.config.ts": `import { defineConfig } from "vite";\nexport default defineConfig({ server: { port: 3000 } });\n`,
     });
     const s2 = await serveFixture(vite.root);
-    expect(s2.log.text()).toMatch(/App preview\s+http:\/\/localhost:3000/);
+    expect(s2.log.text()).toMatch(/Preview\s+http:\/\/localhost:3000/);
     expect((await call(s2, "describe")).result.preview).toEqual({
-      origin: "http://localhost:3000",
+      url: "http://localhost:3000",
     });
   });
 
@@ -775,7 +775,7 @@ describe("cli.mdx", () => {
     fs.writeFileSync(path.join(appRoot, ".deco/schema.gen.json"), "{}\n");
     const s = await serveFixture(repo, {
       root: "apps/storefront",
-      appUrl: "http://localhost:3001",
+      preview: "http://localhost:3001",
     });
     const d = (await call(s, "describe")).result;
     expect(d.root).toBe("apps/storefront");
@@ -784,7 +784,7 @@ describe("cli.mdx", () => {
     expect(d.refs).toBeNull();
     expect(d.pollIntervalMs).toBe(2000);
     expect(d.assets.dir).toBe("apps/storefront/public/assets");
-    expect(d.preview).toEqual({ origin: "http://localhost:3001" });
+    expect(d.preview).toEqual({ url: "http://localhost:3001" });
     await call(s, "blocks.apply", { set: { A: { __resolveType: "page", name: "A", path: "/a" } } });
     expect(fs.existsSync(path.join(appRoot, ".deco/blocks/A.json"))).toBe(true);
   });
@@ -1257,7 +1257,7 @@ describe("site-editor.mdx", () => {
       `Deco server          http://127.0.0.1:${port}/rpc`,
       "Root                 apps/storefront   (.deco/schema.gen.json, 2 blocks)",
       "Assets               apps/storefront/public/assets   (PUT /assets/<name>)",
-      "App preview          http://localhost:5173",
+      "Preview              http://localhost:5173",
       `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${port}/rpc`)}&token=secret-token`,
     ]);
     const url = new URL(s.siteEditorUrl);

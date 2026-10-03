@@ -365,15 +365,15 @@ async function serve(
 
 describe("serve flags", () => {
   it(
-    "nx-26/ts-12: the canvas defaults to Vite's port; --app-url points it elsewhere",
+    "nx-26/ts-12: the canvas defaults to Vite's port; --preview points it elsewhere",
     async () => {
       const p = project();
       fs.mkdirSync(path.join(p.root, ".git"));
       p.write(".deco/schema.gen.json", {});
       const def = await serveWith(p, ["--port", "0"]);
-      expect(def).toMatch(/App preview\s+http:\/\/localhost:5173/);
-      const next = await serveWith(p, ["--port", "0", "--app-url", "http://localhost:3000"]);
-      expect(next).toMatch(/App preview\s+http:\/\/localhost:3000/);
+      expect(def).toMatch(/Preview\s+http:\/\/localhost:5173/);
+      const next = await serveWith(p, ["--port", "0", "--preview", "localhost:3000"]);
+      expect(next).toMatch(/Preview\s+http:\/\/localhost:3000/);
     },
     T,
   );

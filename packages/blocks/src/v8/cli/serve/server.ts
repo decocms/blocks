@@ -50,7 +50,8 @@ export interface ServeOptions {
   cwd?: string;
   port?: number;
   host?: string;
-  appUrl?: string;
+  /** The local app the site editor previews: `localhost:8001` or a full loopback URL. */
+  preview?: string;
   token?: string;
   allowOrigins?: string[];
   /** The upload folder, relative to the folder that contains `.deco`. */
@@ -69,16 +70,16 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-/** The dev app the canvas opens when `--app-url` isn't given and no Vite port is set. */
-export const DEFAULT_APP_URL = "http://localhost:5173";
+/** The app the site editor previews when `--preview` isn't given and no Vite port is set. */
+export const DEFAULT_PREVIEW_URL = "http://localhost:5173";
 
 const VITE_CONFIGS = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"];
 
 /**
  * `http://localhost:<server.port>` from the app's Vite config, read as text
- * (the config is never executed), or `DEFAULT_APP_URL`.
+ * (the config is never executed), or `DEFAULT_PREVIEW_URL`.
  */
-function defaultAppUrl(root: string): string {
+function defaultPreviewUrl(root: string): string {
   for (const name of VITE_CONFIGS) {
     let source: string;
     try {
@@ -87,9 +88,24 @@ function defaultAppUrl(root: string): string {
       continue;
     }
     const port = /\bserver\s*:\s*\{[^}]*?\bport\s*:\s*(\d{2,5})\b/.exec(source)?.[1];
-    return port ? `http://localhost:${port}` : DEFAULT_APP_URL;
+    return port ? `http://localhost:${port}` : DEFAULT_PREVIEW_URL;
   }
-  return DEFAULT_APP_URL;
+  return DEFAULT_PREVIEW_URL;
+}
+
+/**
+ * `--preview` as a URL: a bare `host:port` gets `http://`; only http(s) on a
+ * loopback host, since the site editor loads it in an iframe.
+ */
+function previewUrl(input: string): string {
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(input) ? input : `http://${input}`;
+  const url = URL.canParse(withScheme) ? new URL(withScheme) : null;
+  if (!url || !/^https?:$/.test(url.protocol) || !LOOPBACK.has(url.hostname)) {
+    throw new CliError(
+      `--preview must be a local address such as localhost:5173 or http://127.0.0.1:3000, got ${input}`,
+    );
+  }
+  return url.pathname === "/" && !url.search && !url.hash ? url.origin : url.href;
 }
 
 /** Start the server; resolves once it listens. */
@@ -109,18 +125,13 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     );
   }
   const token = options.token ?? env.DECO_SERVE_TOKEN ?? randomBytes(32).toString("base64url");
-  const appUrl = options.appUrl ?? defaultAppUrl(paths.root);
+  const preview = previewUrl(options.preview ?? defaultPreviewUrl(paths.root));
   const allowedOrigins = new Set(
     [...STUDIO_ORIGINS, ...(options.allowOrigins ?? [])].map((o) => o.replace(/\/+$/, "")),
   );
 
   if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65535) {
     throw new CliError(`--port must be a port number, got ${requestedPort}`);
-  }
-  try {
-    new URL(appUrl);
-  } catch {
-    throw new CliError(`--app-url must be a URL, got ${appUrl}`);
   }
 
   const fsStorage = createFsStorage({ root: paths.root, readOnly, assetsDir: options.assets });
@@ -152,7 +163,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
   const rpc = createContentHandler(storage, {
     token,
     server: { name: "deco-cli", version: packageVersion() },
-    preview: { origin: new URL(appUrl).origin },
+    preview: { url: preview },
     onError: (error) => reporter.warn(String((error as Error)?.message ?? error)),
   });
   const assets = createAssetHandler(storage, { token });
@@ -247,7 +258,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       ? `${label("Assets")}${description.assets.dir}   (PUT /assets/<name>)`
       : `${label("Assets")}read-only: uploads are off`,
   );
-  reporter.info(`${label("App preview")}${appUrl}`);
+  reporter.info(`${label("Preview")}${preview}`);
   reporter.info(`${label("Site editor")}${siteEditorUrl}`);
 
   return {

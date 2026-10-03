@@ -358,7 +358,7 @@ describe("describe", () => {
     const handler = createContentHandler(storage, {
       server: { name: "deco-cli", version: "8.0.0" },
       limits: { maxBlockBytes: 2048, maxListBytes: DEFAULT_LIMITS.maxListBytes * 2 },
-      preview: { origin: "http://localhost:5173" },
+      preview: { url: "http://localhost:5173" },
     });
     const { result } = (await call(handler, rpc(1, "describe"))).body;
     expect(result).toEqual({
@@ -373,7 +373,7 @@ describe("describe", () => {
       writes: { idempotency: { retentionMs: 86_400_000 }, schemaPreconditions: true },
       pollIntervalMs: 2000,
       limits: { ...DEFAULT_LIMITS, maxOpsPerApply: 100, maxBlockBytes: 2048 },
-      preview: { origin: "http://localhost:5173" },
+      preview: { url: "http://localhost:5173" },
       assets: { dir: "public/assets", urlPrefix: "/assets/", maxBytes: 25 * 1024 * 1024 },
       secrets: { publicKey: PUBLIC_KEY },
     });

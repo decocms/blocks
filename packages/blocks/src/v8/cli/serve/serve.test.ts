@@ -15,7 +15,7 @@ import {
 } from "../__tests__/fixture";
 import { decoPaths } from "../root";
 import { type DecoMeta, generateSchema } from "../schema/generate";
-import { DEFAULT_APP_URL, type RunningServer, startServer } from "./server";
+import { DEFAULT_PREVIEW_URL, type RunningServer, startServer } from "./server";
 
 let meta: DecoMeta;
 beforeAll(async () => {
@@ -120,12 +120,12 @@ async function rpc(method: string, params?: unknown, headers: Record<string, str
 
 describe("starting", () => {
   it("prints the address, root, assets, app and site editor link", async () => {
-    await start({ appUrl: "http://localhost:3001" });
+    await start({ preview: "http://localhost:3001" });
     const text = out.text();
     expect(text).toContain(`Deco server          http://127.0.0.1:${server!.port}/rpc`);
     expect(text).toContain("Root                 .   (.deco/schema.gen.json, 0 blocks)");
     expect(text).toContain("Assets               public/assets   (PUT /assets/<name>)");
-    expect(text).toContain("App preview          http://localhost:3001");
+    expect(text).toContain("Preview              http://localhost:3001");
     expect(server!.siteEditorUrl).toBe(
       `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(server!.endpoint)}&token=${TOKEN}`,
     );
@@ -148,8 +148,24 @@ describe("starting", () => {
 
   it("defaults the app to the Vite config's port, read as text, else 5173", async () => {
     await start({}, { "vite.config.ts": "export default { server: { port: 3999 } };" });
-    expect(DEFAULT_APP_URL).toBe("http://localhost:5173");
-    expect(out.text()).toContain("App preview          http://localhost:3999");
+    expect(DEFAULT_PREVIEW_URL).toBe("http://localhost:5173");
+    expect(out.text()).toContain("Preview              http://localhost:3999");
+  });
+
+  it("takes --preview as host:port or a loopback URL, and reports it in describe", async () => {
+    await start({ preview: "localhost:8001" });
+    expect(out.text()).toContain("Preview              http://localhost:8001");
+    expect((await rpc("describe")).result.preview).toEqual({ url: "http://localhost:8001" });
+    await server!.close();
+    server = undefined;
+    await start({ preview: "http://127.0.0.1:3000/en/" });
+    expect((await rpc("describe")).result.preview).toEqual({ url: "http://127.0.0.1:3000/en/" });
+  });
+
+  it("refuses a --preview that isn't a local http(s) address", async () => {
+    for (const bad of ["https://example.com", "file:///etc/passwd", "evil.test:80", "http://"]) {
+      await expect(start({ preview: bad })).rejects.toThrow(/--preview must be a local address/);
+    }
   });
 
   it("refuses an empty token", async () => {
@@ -212,7 +228,7 @@ describe("the security checks", () => {
 describe("the content protocol", () => {
   it("describes the endpoint: working tree, root, limits, assets and the secrets key", async () => {
     const { publicKeyPem } = await sealSecret("x");
-    await start({ appUrl: "http://localhost:3000/" }, { ".deco/secrets.pub": publicKeyPem });
+    await start({ preview: "http://localhost:3000/" }, { ".deco/secrets.pub": publicKeyPem });
     const { result } = await rpc("describe");
     expect(result).toMatchObject({
       protocol: "deco-content",
@@ -226,7 +242,7 @@ describe("the content protocol", () => {
       writes: { idempotency: null, schemaPreconditions: true },
       pollIntervalMs: 2000,
       limits: { maxOpsPerApply: 500, maxBlockBytes: 1048576, maxRequestBytes: 8388608 },
-      preview: { origin: "http://localhost:3000" },
+      preview: { url: "http://localhost:3000" },
       assets: { dir: "public/assets", urlPrefix: "/assets/", maxBytes: 25 * 1024 * 1024 },
       secrets: { publicKey: publicKeyPem },
     });
