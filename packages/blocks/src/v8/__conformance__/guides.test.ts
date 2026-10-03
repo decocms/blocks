@@ -522,6 +522,8 @@ describe("tanstack-start guide", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(waitUntil).toHaveBeenCalledTimes(1);
     vi.doUnmock("cloudflare:workers");
+    // The core installed the Workers hook on this isolate's globalThis.
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for("decocms.blocks.background")];
   });
 });
 
