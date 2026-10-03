@@ -117,13 +117,13 @@ All packages are versioned and released in lockstep.
 | Package | Integration |
 | --- | --- |
 | [`@decocms/apps-commerce`](./packages/apps-commerce) | Shared commerce types, registry, SDK, and portable utilities. |
-| [`@decocms/apps-website`](./packages/apps-website) | SEO, analytics, themes, fonts, and generic website capabilities. |
+| [`@decocms/apps-website`](./packages/apps-website) | v7 only: SEO, analytics, themes, fonts, and generic website capabilities. Next major: platform templates and built-ins. |
 | [`@decocms/apps-vtex`](./packages/apps-vtex) | VTEX Commerce. |
 | [`@decocms/apps-shopify`](./packages/apps-shopify) | Shopify. |
 | [`@decocms/apps-magento`](./packages/apps-magento) | Magento. |
 | [`@decocms/apps-salesforce`](./packages/apps-salesforce) | Salesforce Commerce Cloud. |
 | [`@decocms/apps-algolia`](./packages/apps-algolia) | Algolia search. |
-| [`@decocms/apps-blog`](./packages/apps-blog) | Blog content and CMS integration. |
+| [`@decocms/apps-blog`](./packages/apps-blog) | v7 only: blog content and CMS integration. Next major: data-only blocks and `client.list` in the blog template. |
 | [`@decocms/apps-resend`](./packages/apps-resend) | Resend transactional email. |
 
 ## Getting started

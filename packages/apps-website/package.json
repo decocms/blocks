@@ -2,7 +2,7 @@
   "name": "@decocms/apps-website",
   "version": "0.0.0",
   "type": "module",
-  "description": "Deco generic-site app: SEO, analytics, theme, and content utilities shared across every commerce backend",
+  "description": "v7 only: Deco website app. The next major ships no website package; website features live in the platform templates.",
   "repository": {
     "type": "git",
     "url": "https://github.com/decocms/blocks.git",
