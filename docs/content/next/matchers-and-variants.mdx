@@ -25,10 +25,9 @@ const title = now >= start && now < end ? "Black Friday: 40% off everything" : "
 
 It works, but the dates and the titles live in your code. Changing them is a code change and a deploy, and marketing can't do it themselves.
 
-Deco lets you write that same `if`/`else` as content, which editors can change:
+As blocks, the code above is analogous to this content, which editors can change:
 
 ```jsonc
-// Stored as JSON
 {
   "__resolveType": "promo-banner",
   "title": {
@@ -46,14 +45,6 @@ Deco lets you write that same `if`/`else` as content, which editors can change:
   },
   "href": "/deals"
 }
-
-// Analogous to
-const now = new Date();
-const start = new Date("2026-11-27T00:00:00-05:00");
-const end = new Date("2026-12-01T00:00:00-05:00");
-const title = now >= start && now < end ? "Black Friday: 40% off everything" : "Free shipping over $50";
-
-<PromoBanner title={title} href="/deals" />;
 ```
 
 `multivariate` is a [built-in block](/next/blocks#built-in-blocks). It evaluates each variant's `rule` in order and returns the `value` of the first one that's `true`. Each rule is a **matcher**: a block function that returns `true` or `false`, such as the built-in `date` and `always`. Each piece of the code version has a block:
