@@ -5,6 +5,7 @@
 import { errors, isResolutionError, ResolutionError } from "./errors";
 import { isBlock } from "./json";
 import { Resolver } from "./resolver";
+import type { ClientTelemetry } from "./telemetry";
 import type {
   Block,
   Blocks,
@@ -23,12 +24,14 @@ interface ClientOptions {
   /** The built-ins, with this CMS's `secret`. */
   builtIns: Readonly<Blocks>;
   onCollision?: (name: string) => void;
+  telemetry?: ClientTelemetry;
 }
 
 type Loaded = { resolver: Resolver; snapshot: Snapshot } | { error: CMSError };
 
 export class CMSClient implements Client {
   readonly #options: ClientOptions;
+  readonly #reported = new WeakSet<CMSError>();
   #loaded: Promise<Loaded> | undefined;
 
   constructor(options: ClientOptions) {
@@ -37,12 +40,12 @@ export class CMSClient implements Client {
 
   async resolve<T = unknown>(target: unknown, options: ResolveOptions = {}): Promise<Result<T>> {
     const loaded = await this.#load();
-    if ("error" in loaded) return [null, loaded.error];
+    if ("error" in loaded) return this.#fail(loaded.error);
     const { resolver } = loaded;
     const run = options.run !== false;
     try {
       if (typeof target === "string") {
-        if (resolver.entry(target) === undefined) return [null, errors.notFound(target)];
+        if (resolver.entry(target) === undefined) return this.#fail(errors.notFound(target));
         const value = run ? await resolver.resolveEntry(target) : resolver.expandEntry(target);
         return [value as T, null];
       }
@@ -51,13 +54,13 @@ export class CMSClient implements Client {
         : resolver.expand(target, [], [], false);
       return [value as T, null];
     } catch (error) {
-      return [null, asCMSError(error)];
+      return this.#fail(asCMSError(error));
     }
   }
 
   async list<T = Block>(type: string, options: ListOptions<T> = {}): Promise<Result<T[]>> {
     const loaded = await this.#load();
-    if ("error" in loaded) return [null, loaded.error];
+    if ("error" in loaded) return this.#fail(loaded.error);
     const { resolver, snapshot } = loaded;
     const wanted = resolver.canonicalType(type);
     const names = Object.keys(snapshot.blocks)
@@ -80,7 +83,7 @@ export class CMSClient implements Client {
       );
       entries = values.filter((value) => value !== undefined) as T[];
     } catch (error) {
-      return [null, asCMSError(error)];
+      return this.#fail(asCMSError(error));
     }
 
     if (options.where) entries = entries.filter(options.where);
@@ -106,6 +109,7 @@ export class CMSClient implements Client {
           blocks: this.#options.blocks,
           builtIns: this.#options.builtIns,
           onCollision: this.#options.onCollision,
+          onBlock: this.#options.telemetry?.block,
         }),
       }),
       (error): Loaded => ({
@@ -115,6 +119,15 @@ export class CMSClient implements Client {
       }),
     );
     return this.#loaded;
+  }
+
+  /** Returns the error result, reporting each error to telemetry once per client. */
+  #fail(error: CMSError): [null, CMSError] {
+    if (this.#options.telemetry && !this.#reported.has(error)) {
+      this.#reported.add(error);
+      this.#options.telemetry.error(error);
+    }
+    return [null, error];
   }
 }
 

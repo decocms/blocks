@@ -33,6 +33,13 @@ describe("v8 core bundle", () => {
     expect(output).not.toMatch(/node:|require\(/);
   });
 
+  it("@decocms/blocks/fetch bundles for a browser and a workerd target with no Node built-ins", () => {
+    expect(bundle(["--platform=browser"], "fetch.ts")).not.toMatch(/node:|require\(/);
+    expect(
+      bundle(["--platform=neutral", "--conditions=workerd,worker,browser"], "fetch.ts"),
+    ).not.toMatch(/node:|require\(/);
+  });
+
   it("imports nothing at runtime but its own modules, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
     const output = bundle([
       "--platform=neutral",

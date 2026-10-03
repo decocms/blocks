@@ -13,6 +13,7 @@ import { CMSClient } from "./client";
 import { ContentStore, isLoader, isSnapshot } from "./content";
 import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity";
 import { LOADER_INTERVAL, remoteLoader, resetRemoteLoaders } from "./remoteLoader";
+import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry";
 import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
@@ -35,6 +36,7 @@ class CMSInstance implements CMS {
   readonly #warned = new Set<string>();
   /** The built-ins with a `secret` that holds this instance's key (the first call's). */
   readonly #builtIns: Readonly<Blocks>;
+  readonly #telemetry: TelemetryPipeline | undefined;
   #blocks: Blocks;
   /**
    * When the next check is due. The first is on the first `forRelease()`, not
@@ -49,11 +51,23 @@ class CMSInstance implements CMS {
     this.#interval = interval;
     this.#store = new ContentStore(contentOf(config));
     this.fingerprint = fingerprintOf(config, interval);
+    const destination = resolveDestination(config.telemetry, config.site);
+    if (destination !== null) {
+      this.#telemetry = new TelemetryPipeline(destination);
+      setCurrentTelemetry(this.#telemetry);
+    }
   }
 
   forRelease(): Client {
     this.#scheduleUpdate();
-    return this.#client(() => this.#store.release());
+    const telemetry = this.#telemetry;
+    if (telemetry === undefined) return this.#client(() => this.#store.release());
+    return this.#client(() =>
+      this.#store.release().then((snapshot) => {
+        telemetry.useRelease(snapshot);
+        return snapshot;
+      }),
+    );
   }
 
   forDraft(pointer: string): Client {
@@ -81,6 +95,7 @@ class CMSInstance implements CMS {
       blocks: this.#blocks,
       builtIns: this.#builtIns,
       onCollision: (name) => this.#warnCollision(name),
+      telemetry: this.#telemetry?.forClient(),
     });
   }
 
@@ -135,6 +150,7 @@ export function createCMS(config: CMSConfig): CMS {
 export function resetForTests(): void {
   clearGlobals(INSTANCE_PREFIX);
   resetRemoteLoaders();
+  setCurrentTelemetry(undefined);
 }
 
 /** With `site` and `token`, the content is the fallback of hosted releases and drafts. */

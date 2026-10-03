@@ -28,6 +28,7 @@
 		"./cms/client": "./src/cms/client.ts",
 		"./cms/loadDecofileDirectory": "./src/cms/loadDecofileDirectory.ts",
 		"./cli": "./src/v8/cli/index.ts",
+		"./fetch": "./src/v8/fetch.ts",
 		"./hooks": "./src/hooks/index.ts",
 		"./preview": "./src/preview/index.ts",
 		"./protocol": "./src/protocol/index.ts",
