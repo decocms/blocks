@@ -128,7 +128,7 @@ export async function productCard({ title, showProduct, product }: { title: stri
 }
 ```
 
-Editors never see the wrapper: Studio shows a `Product` field and writes the `lazy` block around what they pick (see [Schema](/next/schema#from-types-to-forms)). The built-in [`multivariate`](/next/matchers-and-variants) uses this, so only the chosen variant's value runs. See [`Lazy<T>`](/next/api-reference#types).
+Editors never see the wrapper: Studio shows a `Product` field and writes the `lazy` block around what they pick (see [Schema](/next/schema#from-types-to-forms)). The built-in [`multivariate`](/next/matchers-and-variants) uses this, so only the chosen variant runs. See [`Lazy<T>`](/next/api-reference#types).
 
 ## Reusing blocks
 
@@ -200,10 +200,10 @@ The framework adds eight functions to your block map for you. They're always in 
 
 **Matchers and variants** (see [Matchers and variants](/next/matchers-and-variants))
 
-- **`always`** returns `true`, so its variant is the fallback.
-- **`never`** returns `false`, so its variant is never picked (that is how Studio hides a block).
+- **`always`** returns `true`, so the variant paired with it is the fallback.
+- **`never`** returns `false`, so the variant paired with it is never picked (that is how Studio hides a block).
 - **`date`** takes `start` and `end`, and returns `true` from `start` until `end`.
-- **`multivariate`** takes `variants` and returns the value of the first one whose rule is `true`. Only that variant's value runs.
+- **`multivariate`** takes `variants`, a list of entries that each pair a rule with a variant, and returns the first variant whose rule is `true`. Only that variant runs.
 
 **Laziness**
 

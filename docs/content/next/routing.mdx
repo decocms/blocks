@@ -28,14 +28,14 @@ export type BlockDescriptor =
 // A saved page, as client.list returns it by default (nothing run): seo and sections are still JSON.
 export interface StoredPage extends Route {
   seo: Seo | Block;
-  sections: Block[] | Block;   // a list of blocks, or one variant block that picks a whole list
+  sections: Block[] | Block;   // a list of blocks, or one multivariate block that picks a whole list
 }
 
 // What client.resolve returns for a page: seo and every block in sections resolved.
 export interface ResolvedPage<T> extends Route { seo: Seo; sections: T[] }
 ```
 
-`Seo` is the built-in page's SEO type, exported from `@decocms/blocks`. `Block` is the type of a block as stored, `{ "__resolveType": "…", …inputs }`. `StoredPage` needs it because [`client.list`](/next/api-reference#client-list-type-options) returns pages before anything runs, which lets the optional [streaming step](/next/nextjs#7-stream-each-block-optional) resolve each block separately. Its `sections` is usually a list, but an editor can wrap the whole list in a [variant](/next/matchers-and-variants), which makes it one block. Block inputs never use `Block` ([they're resolved values](/next/schema#from-types-to-forms)): the JSX guides keep the built-in `Page`, and the [descriptor guide](/next/tanstack-start-descriptors) overrides it with `ResolvedPage<BlockDescriptor>`.
+`Seo` is the built-in page's SEO type, exported from `@decocms/blocks`. `Block` is the type of a block as stored, `{ "__resolveType": "…", …inputs }`. `StoredPage` needs it because [`client.list`](/next/api-reference#client-list-type-options) returns pages before anything runs, which lets the optional [streaming step](/next/nextjs#7-stream-each-block-optional) resolve each block separately. Its `sections` is usually a list, but an editor can give the whole list [variants](/next/matchers-and-variants), which makes it one `multivariate` block. Block inputs never use `Block` ([they're resolved values](/next/schema#from-types-to-forms)): the JSX guides keep the built-in `Page`, and the [descriptor guide](/next/tanstack-start-descriptors) overrides it with `ResolvedPage<BlockDescriptor>`.
 
 ```json title=".deco/blocks/ShirtPage.json"
 {

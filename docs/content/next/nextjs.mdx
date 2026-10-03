@@ -234,7 +234,7 @@ export default async function BlogIndex() {
 
 So far the page renders once every block is ready, so one slow block holds up the whole page. To send each block as soon as it's ready, resolve the blocks one by one instead of resolving the page, and give each its own Suspense boundary. A failing block then shows a fallback instead of failing the page.
 
-`c.list("page")` already returns each page as saved, with its blocks not yet run (the same as `c.resolve(entry, { run: false })`; see [Reading without running](/next/api-reference#client-resolve-target-options)). So `openPage` starts resolving `seo` and every block in `sections` with separate calls, without waiting for any, and returns the promises. If an editor wrapped the whole list in a [variant](/next/matchers-and-variants), `sections` is one block instead of a list; `openPage` then resolves it as one, and React renders the list it returns in one Suspense boundary. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate. These files replace steps 4 and 5; if you added posts in step 6, see the changes right after them:
+`c.list("page")` already returns each page as saved, with its blocks not yet run (the same as `c.resolve(entry, { run: false })`; see [Reading without running](/next/api-reference#client-resolve-target-options)). So `openPage` starts resolving `seo` and every block in `sections` with separate calls, without waiting for any, and returns the promises. If an editor gave the whole list [variants](/next/matchers-and-variants), `sections` is one `multivariate` block instead of a list; `openPage` then resolves it as one, and React renders the list it returns in one Suspense boundary. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate. These files replace steps 4 and 5; if you added posts in step 6, see the changes right after them:
 
 ```ts title="src/open-page.server.ts"
 import "server-only";
@@ -259,7 +259,7 @@ export const openPage = cache(async (pathname: string) => {
   }
 
   const page = match.entry;   // as saved: seo and sections are still blocks
-  // A variant around the whole list is one block: it resolves to the chosen list and streams as one.
+  // Variants of the whole list are one multivariate block: it resolves to the chosen list and streams as one.
   const sections = Array.isArray(page.sections) ? page.sections : [page.sections];
   return {
     blocks: sections.map((block, index) => ({

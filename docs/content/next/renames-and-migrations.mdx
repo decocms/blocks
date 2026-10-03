@@ -25,7 +25,7 @@ export default {
 } satisfies Blocks;
 ```
 
-Legacy page names such as `website/pages/Page.tsx` need no entry: the [CLI](/next/cli)'s alias table maps them to the [built-in `page`](/next/blocks#built-in-blocks) (see [Studio compatibility](/next/studio-compatibility)). Legacy variants, `website/flags/multivariate.ts`, map to the built-in `multivariate`, and the alias bridge wraps each plain `value` in a [`lazy` block](/next/blocks#lazy-blocks) on the way.
+Legacy page names such as `website/pages/Page.tsx` need no entry: the [CLI](/next/cli)'s alias table maps them to the [built-in `page`](/next/blocks#built-in-blocks) (see [Studio compatibility](/next/studio-compatibility)). Legacy `website/flags/multivariate.ts` blocks map to the built-in `multivariate`, and the alias bridge wraps each variant, a plain `value`, in a [`lazy` block](/next/blocks#lazy-blocks) on the way.
 
 An alias only works while both names take the same inputs. If the old shape differs, register a function under the old name that converts the old inputs and calls the new function, or migrate the content first. Here the old content called the title `name`:
 

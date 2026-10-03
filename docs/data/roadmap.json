@@ -245,7 +245,7 @@
       "id": "roadmap-blockers--stop-resolving-everything-eagerly",
       "title": "Stop resolving everything eagerly",
       "today": "The one registry rule resolves inputs bottom-up. Lazy defers nothing (43 wrappers on the storefront), hidden variants still run their loaders, and <code>Resolved&lt;T&gt;</code> can't be expressed.",
-      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;BlockList&gt;</code> renders lazily. Add the built-in <code>lazy</code> block, so multivariate runs only the chosen variant's value.",
+      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;BlockList&gt;</code> renders lazily. Add the built-in <code>lazy</code> block, so multivariate runs only the chosen variant.",
       "features": [
         "lazy-deferred-sections",
         "matchers-and-variants",
@@ -1281,7 +1281,7 @@
       "id": "roadmap-cli--define-the-loader-picker-rule",
       "group": "cli",
       "title": "Match fields to block functions by return type",
-      "plan": "<p>A field's type is the value the function receives. <code>deco schema</code> reads each block function's awaited return type, so an object field of type T accepts a plain T or any block whose function returns <code>T</code> or <code>Promise&lt;T&gt;</code> (anyOf $refs), and Studio's block picker offers those functions plus the saved blocks that resolve through them. <code>ReactNode</code> and <code>ReactNode[]</code> fields take only functions that return JSX (a React element, or a promise of one; Studio's legacy <code>__SECTION_REF__</code>): <code>ReactNode</code> also includes strings, numbers and booleans, but functions returning those are left out, so matchers never fit <code>sections</code>. Simple types (<code>string</code>, <code>number</code>, <code>boolean</code>, literal unions) stay plain inputs. The generic <code>multivariate&lt;T&gt;</code> fits any field, with T taken from the field and its <code>undefined</code> (no rule matched) allowed, and functions that return <code>boolean</code> fill a variant's rule. The CLI follows imported app maps with last-key-wins and warns on <code>any</code>.</p>",
+      "plan": "<p>A field's type is the value the function receives. <code>deco schema</code> reads each block function's awaited return type, so an object field of type T accepts a plain T or any block whose function returns <code>T</code> or <code>Promise&lt;T&gt;</code> (anyOf $refs), and Studio's block picker offers those functions plus the saved blocks that resolve through them. <code>ReactNode</code> and <code>ReactNode[]</code> fields take only functions that return JSX (a React element, or a promise of one; Studio's legacy <code>__SECTION_REF__</code>): <code>ReactNode</code> also includes strings, numbers and booleans, but functions returning those are left out, so matchers never fit <code>sections</code>. Simple types (<code>string</code>, <code>number</code>, <code>boolean</code>, literal unions) stay plain inputs. The generic <code>multivariate&lt;T&gt;</code> fits any field, with T taken from the field and its <code>undefined</code> (no rule matched) allowed, and functions that return <code>boolean</code> fill each rule in <code>variants</code>. The CLI follows imported app maps with last-key-wins and warns on <code>any</code>.</p>",
       "features": [
         "inline-loader-props",
         "saved-loader-blocks",

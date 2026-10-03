@@ -47,24 +47,24 @@ As blocks, the code above is analogous to this content, which editors can change
 }
 ```
 
-`multivariate` is a [built-in block](/next/blocks#built-in-blocks). It evaluates each variant's `rule` in order and returns the `value` of the first one that's `true`. Each rule is a block that returns `true` or `false`, such as the built-in `date` and `always`. Each piece of the code version has a block:
+`multivariate` is a [built-in block](/next/blocks#built-in-blocks). Each entry in `variants` pairs a `rule` with a variant, the `value` it shows. `multivariate` evaluates the rules in order and returns the first variant whose rule is `true`. Each rule is a block that returns `true` or `false`, such as the built-in `date` and `always`. Each piece of the code version has a block:
 
 | In code | As blocks |
 | --- | --- |
-| The ternary, or a chain of `if`/`else if` | `multivariate` with a list of variants; the first whose rule is `true` wins. |
+| The ternary, or a chain of `if`/`else if` | `multivariate` with a list of rules and their variants; the first variant whose rule is `true` wins. |
 | The date condition | The built-in `date` matcher. |
-| The final `else` | A last variant whose rule is `always`. |
+| The final `else` | A last entry whose rule is `always`; its variant is the fallback. |
 | The constants | Saved values that editors change in [Studio](/next/how-it-works#studio). |
 
-`end` takes the campaign down too, so there's nothing to do on Monday. `PromoBanner` gets a plain string: it never knows a variant was involved.
+`end` takes the campaign down too, so there's nothing to do on Monday. `PromoBanner` gets a plain string: it never knows there were variants.
 
-Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
+Any field can have variants: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
 
 ### Lazy evaluation
 
-There's a catch in the version above. Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)): every argument is computed before the function that receives it runs. So every variant's `value` is computed before `multivariate` picks one, as if an `if` ran both of its branches. For a title, that costs nothing. But if each value were a hero section that fetches products, every hero would fetch, and all but one result would be thrown away.
+There's a catch in the version above. Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)): every argument is computed before the function that receives it runs. So every variant is computed before `multivariate` picks one, as if an `if` ran both of its branches. For a title, that costs nothing. But if each variant were a hero section that fetches products, every hero would fetch, and all but one result would be thrown away.
 
-The fix is a [lazy block](/next/blocks#lazy-blocks). Wrapped in `lazy`, a value isn't computed until `multivariate` chooses it, so only the winning branch runs, like `cond ? a() : b()`:
+The fix is a [lazy block](/next/blocks#lazy-blocks). Wrapped in `lazy`, a variant isn't computed until `multivariate` chooses it, so only the winning branch runs, like `cond ? a() : b()`:
 
 ```jsonc
 {
@@ -73,11 +73,11 @@ The fix is a [lazy block](/next/blocks#lazy-blocks). Wrapped in `lazy`, a value 
 }
 ```
 
-That's why `multivariate` takes lazy values, and why saved variants always carry the wrapper (`deco check` flags a value without it). Editors never see it: Studio adds it for them. Rules stay eager: they're cheap booleans.
+That's why `multivariate` takes lazy values, and why saved variants always carry the wrapper (`deco check` flags a variant without it). Editors never see it: Studio adds it for them. Rules stay eager: they're cheap booleans.
 
 ## Matchers
 
-A block function that returns `true` or `false` is a **matcher**. Matchers are what make variants usable without code: Studio lists every matcher in your block map in each variant's rule picker, so the marketing team builds conditions by picking from a list and filling a short form. `date` is one; you can add your own (see [Write your own matcher](#write-your-own-matcher)), such as:
+A block function that returns `true` or `false` is a **matcher**. Matchers are what make variants usable without code: Studio lists every matcher in your block map in the rule picker next to each variant, so the marketing team builds conditions by picking from a list and filling a short form. `date` is one; you can add your own (see [Write your own matcher](#write-your-own-matcher)), such as:
 
 - **Temperature**: `true` when it's above a given temperature where the visitor is, to promote cold drinks on hot days.
 - **Birthday**: `true` during a signed-in customer's birthday week, to show a gift.
@@ -152,16 +152,16 @@ A few more things you can do:
 - **Match on the request.** To match on a cookie, a header or a country, read the request the way the rest of your app does (see [Reading the request](/next/blocks#reading-the-request)).
 - **Combine rules.** `and`, `or` and `not` are one-line matchers, like `export const not = ({ rule }: { rule: boolean }) => !rule;`.
 - **Skip an expensive rule.** Rules always run. A matcher can take an inner rule as [`Lazy<boolean>`](/next/blocks#lazy-blocks) and call it only when needed, like `export const and = async ({ a, b }: { a: boolean; b: Lazy<boolean> }) => a && (await b());`, where `b` runs only if `a` is `true`.
-- **Pick variants your way.** Declare your own `multivariate` in your [block map](/next/blocks#the-block-map); it replaces the built-in. Type each value as `Lazy<T>` to keep running only the chosen one.
+- **Pick variants your way.** Declare your own `multivariate` in your [block map](/next/blocks#the-block-map); it replaces the built-in. Type each `value` as `Lazy<T>` to keep running only the chosen variant.
 
-<Callout type="warning">**A variant is not access control.** Only the chosen value runs, but that's an optimization, not a guard: choose between values that are all fine to show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
+<Callout type="warning">**Variants are not access control.** Only the chosen variant runs, but that's an optimization, not a guard: choose between variants that are all fine to show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
 
-## Check it before it starts
+## Schedule with confidence
 
 A scheduled campaign is a change to content files, so it's checked like any other change, days before it goes live:
 
 - **Review it in a pull request.** Reviewers read the dates and the campaign value in the diff of `.deco/blocks`, and [`deco check`](/next/cli#deco-check) makes sure every block fits your code (see [On a branch](/next/releases-and-drafts#on-a-branch)).
 - **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight.
-- **Keep `always()` last.** The first match wins, so the `always()` variant is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends.
+- **Keep `always()` last.** The first match wins, so the variant paired with the `always()` rule is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends.
 
 If a cached page still shows the old title after the switch, see [Troubleshooting](/next/troubleshooting).

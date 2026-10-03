@@ -236,7 +236,7 @@ interface Seo { title: string; description: string }
 interface Page extends Route { seo: Seo; sections: ReactNode[] }   // resolved types (see Schema)
 interface Redirect { from: string; to: string; permanent: boolean }
 type Lazy<T> = () => Promise<T>;                    // a prop the built-in lazy block fills; resolves its value when called, at most once
-interface Variant<T> { rule: boolean; value: Lazy<T> }   // built-in multivariate takes { variants: Variant<T>[] }, runs the first value whose rule is true, and returns Promise<T | undefined>
+interface Variant<T> { rule: boolean; value: Lazy<T> }   // one entry of variants: a rule and the variant it shows. Built-in multivariate takes { variants: Variant<T>[] }, runs the first variant whose rule is true, and returns Promise<T | undefined>
 
 // The Telemetry entry's type (built in, always in the schema; read by the hosted Deco CMS, inert without it).
 interface Telemetry { enabled: boolean; metrics: boolean; errorSampleRate: number }
