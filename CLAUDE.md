@@ -118,6 +118,15 @@ Fixed via conditional package exports on `@decocms/blocks/sdk/requestContextStor
 
 There's a permanent regression test for a related-but-distinct historical bug at `packages/blocks/src/cms/layoutCacheRace.test.ts`: `resolveDecoPage`'s layout-section cache (Header/Footer) returns a shared object to every concurrent caller, and mutating `.index` on it in place (rather than cloning first) let one request's flat position overwrite another's — this shipped in `@decocms/start@6.12.1` and caused a same-day production rollback on two live sites before being fixed in 6.12.2. If you ever see this test fail, do not "fix" it by relaxing the assertion — it's asserting exactly the invariant that broke production once already.
 
+## Next major (v8) core — `packages/blocks/src/v8/`
+
+The v8 SDK the next-major docs specify (`/next/api-reference`) lives in `packages/blocks/src/v8/`, beside the v7 code it will replace; both ship until the v7 modules are deleted. The package root re-exports it, so `import { createCMS, matchRoute, draftPointer } from "@decocms/blocks"` works as documented. Where a name clashes (`DraftPointer`, `parseDraftPointer`), the root's explicit re-export of the v8 symbol shadows v7's `export *`; v7's stays at `@decocms/blocks/cms`.
+
+- **Self-contained and runtime-neutral.** v8 modules import only each other (no v7 code, no React at runtime, no Node built-ins); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. Don't import v7 helpers into it.
+- **`createCMS` instances are `globalThis` singletons** under `Symbol.for("decocms.blocks.cms:<content identity>[|site|token-hash]")`, so two copies of the package share one content cache (`dualInstance.test.ts`). Never key on the revision, and never put a raw token in a symbol.
+- **`lazy` is the resolver's only special case**; everything else is an ordinary block function. Values from the snapshot are always copied while walked, so callers and block functions can't mutate shared content.
+- **No request scope in the core.** Block functions read the request through the framework's own storage, per template; don't add a `requestScope()` here.
+
 ## Known gaps in package exports (documented, not yet fixed)
 
 A few symbols have real, intended-for-external-use implementations that aren't reachable from any package's public barrel or `exports` map. Sites currently work around this with local shim files rather than patching the package (tracked, not yet resolved):
