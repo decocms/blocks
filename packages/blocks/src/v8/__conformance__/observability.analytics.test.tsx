@@ -4,14 +4,15 @@
  * upstream-clients.mdx, and telemetry-internals.mdx › Analytics events.
  * Each `it` names the claim it checks (ana-*, htel-04, tin-10, up-04).
  */
+
+import * as analyticsModule from "@decocms/blocks/analytics";
+import { AnalyticsScript, track } from "@decocms/blocks/analytics";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as analyticsModule from "@decocms/blocks/analytics";
-import { AnalyticsScript, track } from "@decocms/blocks/analytics";
+import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
 import { builtIns } from "../builtins/index";
 import { createCMS, resetForTests } from "../cms";
-import { HOSTED_ANALYTICS_COLLECTOR } from "../index";
 import type { Analytics } from "../types";
 
 const COLLECTOR = "https://stats.example.com/events";
@@ -113,7 +114,7 @@ describe("the analytics block (analytics.mdx)", () => {
     expect(typeof analyticsModule.track).toBe("function");
   });
 
-  it("ana-04: resolve(\"Analytics\") returns a tuple whose first element spreads into <AnalyticsScript />", async () => {
+  it('ana-04: resolve("Analytics") returns a tuple whose first element spreads into <AnalyticsScript />', async () => {
     const cms = createCMS({
       blocks: {},
       content: { revision: "r", blocks: { Analytics: { __resolveType: "analytics" } } },
@@ -144,11 +145,17 @@ describe("the analytics block (analytics.mdx)", () => {
             variants: [
               {
                 rule: { __resolveType: "never" },
-                value: { __resolveType: "lazy", value: { __resolveType: "analytics", collector: "https://a.example" } },
+                value: {
+                  __resolveType: "lazy",
+                  value: { __resolveType: "analytics", collector: "https://a.example" },
+                },
               },
               {
                 rule: { __resolveType: "always" },
-                value: { __resolveType: "lazy", value: { __resolveType: "analytics", enabled: false } },
+                value: {
+                  __resolveType: "lazy",
+                  value: { __resolveType: "analytics", enabled: false },
+                },
               },
             ],
           },

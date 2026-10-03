@@ -7,8 +7,7 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnalyticsScript, track } from "./analytics";
-import { analytics } from "./builtins/data";
-import { HOSTED_ANALYTICS_COLLECTOR } from "./index";
+import { analytics, HOSTED_ANALYTICS_COLLECTOR } from "./builtins/data";
 
 const COLLECTOR = "https://stats.example.com/events";
 

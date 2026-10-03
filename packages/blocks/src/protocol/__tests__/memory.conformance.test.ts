@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { conformanceCases, defineConformanceSuite, runConformance } from "../conformance";
-import { createAssetHandler, createContentHandler } from "../server";
+import { createContentHandler } from "../server";
+import { createAssetHandler } from "../server/assets";
 import { createMemoryStorage, type MemoryStorage } from "../storage/memory";
 import {
   generateSecretsKeyPair,

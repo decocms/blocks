@@ -11,7 +11,7 @@
  */
 import { currentTelemetry, describe, newTraceId } from "./telemetry";
 
-export interface InstrumentedFetchOptions {
+interface InstrumentedFetchOptions {
   /** The provider label, e.g. "vtex", "acme-search". */
   provider: string;
   /** The fetch underneath; defaults to `globalThis.fetch`. */
@@ -22,7 +22,7 @@ export interface InstrumentedFetchOptions {
   circuitBreaker?: { failures: number; cooldownMs: number };
 }
 
-export type InstrumentedFetch = (
+type InstrumentedFetch = (
   input: string | URL | Request,
   init?: RequestInit & { operation?: string },
 ) => Promise<Response>;

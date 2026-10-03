@@ -21,7 +21,8 @@ import type { AddressInfo } from "node:net";
 import { Readable } from "node:stream";
 import { ErrorCode } from "../../../protocol/errors";
 import { blockNameFromFile } from "../../../protocol/keys";
-import { createAssetHandler, createContentHandler } from "../../../protocol/server";
+import { createContentHandler } from "../../../protocol/server";
+import { createAssetHandler } from "../../../protocol/server/assets";
 import type { ContentStorage } from "../../../protocol/storage";
 import { createFsStorage } from "../../../protocol/storage/fs";
 import { readSavedBlocks, writeContent } from "../content";
@@ -35,10 +36,8 @@ const STUDIO_ORIGINS = [
   "https://admin.deco.cx",
 ];
 
-/** Where the connect link points. `DECO_STUDIO_ORIGIN` overrides it (staging, local Studio). */
-function studioOrigin(env: NodeJS.ProcessEnv = process.env): string {
-  return env.DECO_STUDIO_ORIGIN?.replace(/\/+$/, "") || STUDIO_ORIGINS[0];
-}
+/** Where the connect link points. */
+const STUDIO_ORIGIN = STUDIO_ORIGINS[0];
 
 const DEFAULT_PORT = 4545;
 const DEFAULT_HOST = "127.0.0.1";
@@ -104,9 +103,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
   const token = options.token ?? env.DECO_SERVE_TOKEN ?? randomBytes(32).toString("base64url");
   const appUrl = options.appUrl ?? DEFAULT_APP_URL;
   const allowedOrigins = new Set(
-    [...STUDIO_ORIGINS, studioOrigin(env), ...(options.allowOrigins ?? [])].map((o) =>
-      o.replace(/\/+$/, ""),
-    ),
+    [...STUDIO_ORIGINS, ...(options.allowOrigins ?? [])].map((o) => o.replace(/\/+$/, "")),
   );
 
   if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65535) {
@@ -220,7 +217,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
 
   const displayHost = host.includes(":") ? `[${host}]` : host;
   const endpoint = `http://${displayHost}:${port}/rpc`;
-  const connectUrl = `${studioOrigin(env)}/connect#endpoint=${encodeURIComponent(endpoint)}&token=${encodeURIComponent(token)}`;
+  const connectUrl = `${STUDIO_ORIGIN}/connect#endpoint=${encodeURIComponent(endpoint)}&token=${encodeURIComponent(token)}`;
 
   if (!LOOPBACK.has(host)) {
     reporter.warn(

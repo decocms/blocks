@@ -14,7 +14,7 @@ import { gunzipSync } from "node:zlib";
 import type {
   Block,
   Blocks,
-  CMSErrorCode,
+  CMSError,
   Lazy,
   Page,
   Result,
@@ -28,8 +28,8 @@ import { encryptSecret } from "@decocms/blocks/secrets";
 import { isValidElement, type ReactElement } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { checkSecrets } from "../../protocol/secrets";
-import { builtIns } from "../builtins/index";
 import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
+import { builtIns } from "../builtins/index";
 import {
   and,
   blockMap,
@@ -44,7 +44,7 @@ import {
   split,
   storeBlockMap,
   visitor,
-  weekday,
+  type weekday,
   weekdayBlockMap,
 } from "./syntaxExamples";
 
@@ -519,9 +519,9 @@ describe("how resolution works", () => {
   });
 
   it("res-10: error codes NOT_FOUND, UNKNOWN_BLOCK, CYCLE and BLOCK_FAILED, with code/message/path/cause", async () => {
-    expectTypeOf<
-      "NOT_FOUND" | "UNKNOWN_BLOCK" | "CYCLE" | "BLOCK_FAILED"
-    >().toMatchTypeOf<CMSErrorCode>();
+    expectTypeOf<"NOT_FOUND" | "UNKNOWN_BLOCK" | "CYCLE" | "BLOCK_FAILED">().toMatchTypeOf<
+      CMSError["code"]
+    >();
     const [, error] = await clientWith({
       f: () => {
         throw new Error("x");

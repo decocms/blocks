@@ -17,7 +17,10 @@
 		"src",
 		"!src/**/*.test.ts",
 		"!src/**/*.test.tsx",
-		"!src/**/__tests__"
+		"!src/**/__tests__",
+		"!src/**/__fixtures__",
+		"!src/**/__conformance__",
+		"!src/v8/testFixtures.ts"
 	],
 	"bin": {
 		"deco": "./bin/deco.js"
@@ -39,7 +42,6 @@
 			"node": "./src/protocol/storage/fs/index.ts",
 			"default": "./src/protocol/storage/fs/unsupported.ts"
 		},
-		"./protocol/storage/memory": "./src/protocol/storage/memory.ts",
 		"./protocol/conformance": "./src/protocol/conformance/index.ts",
 		"./secrets": "./src/v8/secrets.ts",
 		"./types": "./src/types/index.ts",

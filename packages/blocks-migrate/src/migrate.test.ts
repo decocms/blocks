@@ -11,7 +11,6 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createCMS, resetForTests } from "@decocms/blocks";
 import { check, content, type Reporter, schema } from "@decocms/blocks/cli";
-import { publicKeyPemFromDer } from "@decocms/blocks/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "./migrate";
 import type { Report } from "./report";
@@ -65,7 +64,7 @@ async function keyPair() {
     "base64",
   );
   return {
-    publicKeyPem: publicKeyPemFromDer(spki),
+    publicKeyPem: `-----BEGIN PUBLIC KEY-----\n${Buffer.from(spki).toString("base64")}\n-----END PUBLIC KEY-----\n`,
     privateKeyPem: `-----BEGIN PRIVATE KEY-----\n${pkcs8}\n-----END PRIVATE KEY-----\n`,
   };
 }
