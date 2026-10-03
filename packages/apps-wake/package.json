@@ -14,6 +14,8 @@
     ".": "./src/index.ts",
     "./mod": "./src/mod.ts",
     "./client": "./src/client.ts",
+    "./storefront": "./src/storefront.ts",
+    "./storefront/types": "./src/storefrontTypes.ts",
     "./commerceLoaders": "./src/commerceLoaders.ts",
     "./loaders/*": "./src/loaders/*.ts",
     "./actions/*": "./src/actions/*.ts",

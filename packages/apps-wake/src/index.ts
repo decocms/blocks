@@ -1,3 +1,16 @@
+// v8: the thin Wake client (see /next/upstream-clients). Operations are in
+// `@decocms/apps-wake/storefront`, their types in `.../storefront/types`.
+
+export type { UserAuthenticate } from "./utils/client";
+export {
+  createWakeClient,
+  type WakeClient,
+  type WakeClientConfig,
+  type WakeClientOptions,
+  WakeError,
+} from "./wakeClient";
+
+// v7 (kept for v7 consumers until the v7 modules are dropped)
 // App contract
 
 // Cart actions

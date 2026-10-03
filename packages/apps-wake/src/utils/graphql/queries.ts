@@ -1,4 +1,4 @@
-import { gql } from "../graphql";
+import { gql } from "../gql";
 
 const Checkout = gql`
 fragment Checkout on Checkout {
