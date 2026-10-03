@@ -24,6 +24,18 @@ describe("kvLoader", () => {
     expect(loader.update).toBeUndefined();
   });
 
+  it("shares one in-flight read between concurrent loads", async () => {
+    let release!: (value: unknown) => void;
+    const namespace = { get: vi.fn(() => new Promise((resolve) => (release = resolve))) };
+    const loader = kvLoader(namespace, { key: "content" });
+    const first = loader.load();
+    const second = loader.load();
+    release(snapshot);
+    expect(await first).toEqual(snapshot);
+    expect(await second).toEqual(snapshot);
+    expect(namespace.get).toHaveBeenCalledTimes(1);
+  });
+
   it("fails on a missing key and reads KV again on the next call", async () => {
     const values: Record<string, unknown> = {};
     const namespace = kv(values);
@@ -47,6 +59,15 @@ describe("kvLoader", () => {
 
   it("surfaces a missing key as LOADER_FAILED", async () => {
     const cms = createCMS({ blocks: {}, content: kvLoader(kv({}), { key: "content" }) });
+    const [, error] = await cms.forRelease().list("page");
+    expect(error?.code).toBe("LOADER_FAILED");
+  });
+
+  it("surfaces a value that isn't a snapshot as LOADER_FAILED", async () => {
+    const cms = createCMS({
+      blocks: {},
+      content: kvLoader(kv({ content: {} }), { key: "content" }),
+    });
     const [, error] = await cms.forRelease().list("page");
     expect(error?.code).toBe("LOADER_FAILED");
   });

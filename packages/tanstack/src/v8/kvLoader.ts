@@ -15,6 +15,10 @@ export interface KVNamespaceLike {
  * draft pointers and has no `update()`: the deploy writes the key before the
  * Worker takes traffic, and it doesn't change while the Worker runs. A missing
  * key or a failed read isn't kept, so the next request reads KV again.
+ *
+ * The kept read is a promise shared across requests, so the Worker needs the
+ * `no_handle_cross_request_promise_resolution` compatibility flag, as the CMS
+ * itself does (see /next/tanstack-start-descriptors).
  */
 export function kvLoader(namespace: KVNamespaceLike, options: { key: string }): Loader {
   const { key } = options;
