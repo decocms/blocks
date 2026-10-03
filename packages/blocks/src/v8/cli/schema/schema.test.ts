@@ -6,7 +6,7 @@ import { LEGACY_ALIASES } from "../builtins";
 import { CliError, decoPaths } from "../root";
 import { type DecoMeta, generateSchema, type SchemaDiagnostic } from "./generate";
 import { schema, writeSchema } from "./index";
-import { toBase64 } from "./typeToSchema";
+import { stableFileId, toBase64 } from "./typeToSchema";
 
 const b64 = toBase64;
 const ref = (key: string) => ({ $ref: `#/definitions/${b64(key)}` });
@@ -479,4 +479,32 @@ describe("errors and warnings", () => {
     expect(JSON.parse(store.read(".deco/schema.gen.json")).format).toBe("deco-meta@1");
     expect(out.text()).toMatch(/schema\.gen\.json from index\.ts \(\d+ sections/);
   }, 30_000);
+});
+
+describe("stableFileId", () => {
+  it("names a package's compiled .d.ts after its source, so dist and the source condition agree", () => {
+    const f = createFixture();
+    try {
+      const pkg = "node_modules/@acme/kit";
+      f.write(`${pkg}/package.json`, { name: "@acme/kit" });
+      f.write(`${pkg}/dist/v8/types.d.ts`, "export interface Seo { title: string }\n");
+      f.write(
+        `${pkg}/dist/v8/types.d.ts.map`,
+        JSON.stringify({ version: 3, file: "types.d.ts", sources: ["../../src/v8/types.ts"] }),
+      );
+      f.write(`${pkg}/dist/v8/plain.d.ts`, "export {};\n");
+      expect(stableFileId(`${f.root}/${pkg}/dist/v8/types.d.ts`, f.root)).toBe(
+        "@acme/kit/src/v8/types.ts",
+      );
+      expect(stableFileId(`${f.root}/${pkg}/src/v8/types.ts`, f.root)).toBe(
+        "@acme/kit/src/v8/types.ts",
+      );
+      // No declaration map: the file keeps its own name.
+      expect(stableFileId(`${f.root}/${pkg}/dist/v8/plain.d.ts`, f.root)).toBe(
+        "@acme/kit/dist/v8/plain.d.ts",
+      );
+    } finally {
+      f.remove();
+    }
+  });
 });

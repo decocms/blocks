@@ -1,18 +1,24 @@
 /**
  * The shared state of one content handler: its storage, options and caches.
  */
-import { ContentProtocolError, invalidBlock, notFound, unavailable, unsupported } from "../errors";
-import { blockNameFromFile } from "../keys";
+import {
+  ContentProtocolError,
+  invalidBlock,
+  notFound,
+  unavailable,
+  unsupported,
+} from "../errors.ts";
+import { blockNameFromFile } from "../keys.ts";
 import {
   type ContentStorage,
   type StorageDescription,
   StorageInvalidFileError,
   StorageNotFoundError,
   StorageUnavailableError,
-} from "../storage";
-import { DEFAULT_LIMITS, type DecoMeta, type Limits } from "../types";
-import type { AuthOptions } from "./auth";
-import { BodyCache } from "./bodyCache";
+} from "../storage.ts";
+import { DEFAULT_LIMITS, type DecoMeta, type Limits } from "../types.ts";
+import type { AuthOptions } from "./auth.ts";
+import { BodyCache } from "./bodyCache.ts";
 
 export interface ContentHandlerOptions extends AuthOptions {
   /** Reported by `describe`, such as `{ name: "deco-cli", version: "8.0.0" }`. */

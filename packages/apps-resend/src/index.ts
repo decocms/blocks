@@ -8,5 +8,5 @@ export {
   type ResendClientConfig,
   ResendError,
   type SendEmailOptions,
-} from "./emails";
-export type { CreateEmailOptions, CreateEmailResponseSuccess } from "./types";
+} from "./emails.ts";
+export type { CreateEmailOptions, CreateEmailResponseSuccess } from "./types.ts";

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.build.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/__tests__/**",
+    "src/**/__fixtures__/**",
+    "src/**/__conformance__/**",
+    "src/v8/testFixtures.ts"
+  ]
+}

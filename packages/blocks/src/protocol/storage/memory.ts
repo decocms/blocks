@@ -6,9 +6,9 @@
  * for tests: its state can be dumped and restored to simulate a restart, and
  * hooks let a test change files between a snapshot and a commit. Browser-safe.
  */
-import { suffixedAssetName } from "../assets";
-import { sha256Hex } from "../canonical";
-import { isBlockFileName } from "../keys";
+import { suffixedAssetName } from "../assets.ts";
+import { sha256Hex } from "../canonical.ts";
+import { isBlockFileName } from "../keys.ts";
 import {
   type CommitAttempt,
   type CommitResult,
@@ -20,7 +20,7 @@ import {
   type StoredFileBody,
   type StoredReceipt,
   type StoredSchema,
-} from "../storage";
+} from "../storage.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

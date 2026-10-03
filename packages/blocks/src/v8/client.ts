@@ -2,10 +2,10 @@
  * A client: one revision, loaded on first use and read for the rest of its
  * life, plus a memo of block results. Create one per request.
  */
-import { errors, isResolutionError, ResolutionError } from "./errors";
-import { isBlock } from "./json";
-import { Resolver } from "./resolver";
-import type { ClientTelemetry } from "./telemetry";
+import { errors, isResolutionError, ResolutionError } from "./errors.ts";
+import { isBlock } from "./json.ts";
+import { Resolver } from "./resolver.ts";
+import type { ClientTelemetry } from "./telemetry.ts";
 import type {
   Block,
   Blocks,
@@ -15,7 +15,7 @@ import type {
   ResolveOptions,
   Result,
   Snapshot,
-} from "./types";
+} from "./types.ts";
 
 interface ClientOptions {
   /** Loads this client's snapshot; called at most once. */

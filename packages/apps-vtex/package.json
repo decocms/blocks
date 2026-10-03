@@ -9,24 +9,28 @@
     "directory": "packages/apps-vtex"
   },
   "files": [
+    "dist",
     "src",
     "!src/**/*.test.ts",
     "!src/**/__tests__"
   ],
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+    "prepack": "npm run build",
     "test": "vitest run --root ../.. packages/apps-vtex/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.0"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

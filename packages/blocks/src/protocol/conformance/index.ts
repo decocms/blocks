@@ -19,17 +19,17 @@
  * don't apply to an endpoint (a read-only one, one without request keys)
  * skip themselves. Browser-safe: it only needs `fetch`.
  */
-import { assetCases } from "./cases/assets";
-import { guardCases } from "./cases/guards";
-import { readCases } from "./cases/reads";
-import type { ConformanceCase } from "./cases/types";
-import { wireCases } from "./cases/wire";
-import { writeCases } from "./cases/writes";
-import { ConformanceContext, type ConformanceOptions, SkipCase } from "./context";
+import { assetCases } from "./cases/assets.ts";
+import { guardCases } from "./cases/guards.ts";
+import { readCases } from "./cases/reads.ts";
+import type { ConformanceCase } from "./cases/types.ts";
+import { wireCases } from "./cases/wire.ts";
+import { writeCases } from "./cases/writes.ts";
+import { ConformanceContext, type ConformanceOptions, SkipCase } from "./context.ts";
 
-export type { ConformanceCase } from "./cases/types";
-export { type ContentHashFixture, contentHashFixtures } from "./contentHashFixtures";
-export type { ConformanceOptions } from "./context";
+export type { ConformanceCase } from "./cases/types.ts";
+export { type ContentHashFixture, contentHashFixtures } from "./contentHashFixtures.ts";
+export type { ConformanceOptions } from "./context.ts";
 
 /** Every conformance case, in the order they run. */
 export const conformanceCases: readonly ConformanceCase[] = [

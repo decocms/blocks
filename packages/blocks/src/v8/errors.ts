@@ -1,4 +1,4 @@
-import type { CMSError, CMSErrorCode } from "./types";
+import type { CMSError, CMSErrorCode } from "./types.ts";
 
 /**
  * The concrete {@link CMSError}. It extends `Error` so a lazy block can reject

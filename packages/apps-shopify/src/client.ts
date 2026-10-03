@@ -11,7 +11,7 @@
  * is the site's job.
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
-import { extractGraphqlOperationName } from "./graphqlOperationName";
+import { extractGraphqlOperationName } from "./graphqlOperationName.ts";
 
 export interface ShopifyClientConfig {
   /** The store's subdomain: "acme" for acme.myshopify.com. */

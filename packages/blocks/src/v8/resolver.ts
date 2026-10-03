@@ -16,12 +16,12 @@
  * are read-only (see `Client` in ./types): mutating one in place would change
  * the others, the class of bug behind the v7 layout-cache race.
  */
-import { RESERVED_NAMES } from "./builtins/index";
-import { isLazyBuiltin } from "./builtins/lazy";
-import { LEGACY_ALIASES, wrapLegacyVariants } from "./builtins/legacy";
-import { errors, isResolutionError } from "./errors";
-import { canonicalKey, isPlainObject, type JsonObject, own } from "./json";
-import type { BlockFunction, Blocks, Lazy, Snapshot } from "./types";
+import { RESERVED_NAMES } from "./builtins/index.ts";
+import { isLazyBuiltin } from "./builtins/lazy.ts";
+import { LEGACY_ALIASES, wrapLegacyVariants } from "./builtins/legacy.ts";
+import { errors, isResolutionError } from "./errors.ts";
+import { canonicalKey, isPlainObject, type JsonObject, own } from "./json.ts";
+import type { BlockFunction, Blocks, Lazy, Snapshot } from "./types.ts";
 
 type Path = (string | number)[];
 

@@ -9,7 +9,7 @@
  * has no telemetry destination. Nothing about a request's body, headers or
  * query string is recorded.
  */
-import { currentTelemetry, describe, newTraceId } from "./telemetry";
+import { currentTelemetry, describe, newTraceId } from "./telemetry.ts";
 
 interface InstrumentedFetchOptions {
   /** The provider label, e.g. "vtex", "acme-search". */

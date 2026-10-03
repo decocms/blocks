@@ -3,16 +3,16 @@
  * `matchRoute` and the draft helpers. Re-exported from the package root, where
  * these names are the documented ones; see /next/api-reference.
  */
-export { createCMS, resetForTests } from "./cms";
+export { createCMS, resetForTests } from "./cms.ts";
 export {
   DRAFT_COOKIE,
   draftCookie,
   draftPointer,
   formatDraftPointer,
   parseDraftPointer,
-} from "./draft";
-export { matchRoute } from "./matchRoute";
-export { remoteLoader } from "./remoteLoader";
+} from "./draft.ts";
+export { matchRoute } from "./matchRoute.ts";
+export { remoteLoader } from "./remoteLoader.ts";
 export type {
   Analytics,
   Block,
@@ -36,4 +36,4 @@ export type {
   Telemetry,
   TelemetryConfig,
   Variant,
-} from "./types";
+} from "./types.ts";

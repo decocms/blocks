@@ -7,4 +7,4 @@ export {
   type ShopifyClient,
   type ShopifyClientConfig,
   ShopifyError,
-} from "./client";
+} from "./client.ts";

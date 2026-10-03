@@ -10,7 +10,7 @@
  *
  * Browser-safe: types and small error classes only.
  */
-import type { Limits, StorageKind } from "./types";
+import type { Limits, StorageKind } from "./types.ts";
 
 /** What a storage tells `describe`. */
 export interface StorageDescription {

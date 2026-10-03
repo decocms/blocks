@@ -256,7 +256,7 @@ describe("the codemod's list of the root's next-major exports", () => {
       path.resolve(__dirname, "../../../../packages/blocks/src/index.ts"),
       "utf8",
     );
-    const block = /export \{([^}]*)\} from "\.\/v8\/index";/.exec(index)?.[1] ?? "";
+    const block = /export \{([^}]*)\} from "\.\/v8\/index\.ts";/.exec(index)?.[1] ?? "";
     const names = block
       .split(",")
       .map((n) => n.trim().replace(/^type\s+/, ""))

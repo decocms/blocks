@@ -7,10 +7,10 @@
  * revision string a client may hand back, so it must only ever reach published
  * content, never a draft someone loaded with a pointer.
  */
-import { formatDraftPointer, parseDraftPointer } from "./draft";
-import { errors, isResolutionError } from "./errors";
-import { isPlainObject } from "./json";
-import type { Loader, Snapshot } from "./types";
+import { formatDraftPointer, parseDraftPointer } from "./draft.ts";
+import { errors, isResolutionError } from "./errors.ts";
+import { isPlainObject } from "./json.ts";
+import type { Loader, Snapshot } from "./types.ts";
 
 const SERVED_REVISIONS = 16;
 const CACHED_DRAFTS = 32;

@@ -7,8 +7,8 @@
  * parsed copy of a record would turn an own `__proto__` key into a prototype.
  */
 import { z } from "zod";
-import { invalidParams } from "./errors";
-import type { BlocksApplyParams, MethodName, ReadParams } from "./types";
+import { invalidParams } from "./errors.ts";
+import type { BlocksApplyParams, MethodName, ReadParams } from "./types.ts";
 
 const opaque = z.string().min(1).max(1024);
 

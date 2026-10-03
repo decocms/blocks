@@ -11,7 +11,7 @@
  * reach the same leaf are a conflict `deco check` reports; here the earlier
  * one keeps it, so a lookup never throws. No regex, no sorting.
  */
-import type { LegacyRedirect, Match, Redirect, RedirectStatus, Route } from "./types";
+import type { LegacyRedirect, Match, Redirect, RedirectStatus, Route } from "./types.ts";
 
 /** A leaf holds the entry and its parameter names, in path order; `splat` is a trailing `*`'s leaf. */
 type Leaf<T> = { value: T; names: string[] };

@@ -23,7 +23,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { TsSymbol as MorphSymbol, TsType as Type } from "./tsProgram";
+import type { TsSymbol as MorphSymbol, TsType as Type } from "./tsProgram.ts";
 
 export const RESOLVABLE_KEY = "Resolvable";
 export const SECTION_REF_KEY = "__SECTION_REF__";
@@ -662,9 +662,14 @@ export function typeToJsonSchema(
  * A machine-independent id for a source file: relative to the app root, or
  * `<package name>/<path in package>` for a file in a dependency (including a
  * workspace package the checker reached through a symlink).
+ *
+ * A declaration file with a declaration map (`x.d.ts` + `x.d.ts.map`, as
+ * `tsc` emits into a package's dist/) is named after the source it was
+ * compiled from, so a type keeps one id whether the checker read the
+ * package's compiled `.d.ts` or its `.ts` source (the "source" condition).
  */
 export function stableFileId(filePath: string, root: string): string {
-  const file = filePath.replace(/^file:\/+/, "/");
+  const file = sourceOfDeclaration(filePath.replace(/^file:\/+/, "/"));
   const nm = file.lastIndexOf("/node_modules/");
   if (nm >= 0) return file.slice(nm + "/node_modules/".length);
   const rel = path.relative(root, file).split(path.sep).join("/");
@@ -685,5 +690,22 @@ export function stableFileId(filePath: string, root: string): string {
     const parent = path.dirname(dir);
     if (parent === dir) return path.basename(file);
     dir = parent;
+  }
+}
+
+/** The `.ts` file a `.d.ts` was emitted from, per its declaration map; else the file itself. */
+function sourceOfDeclaration(file: string): string {
+  if (!/\.d\.[cm]?ts$/.test(file)) return file;
+  try {
+    const map = JSON.parse(fs.readFileSync(`${file}.map`, "utf8")) as {
+      sources?: unknown;
+      sourceRoot?: unknown;
+    };
+    const source = Array.isArray(map.sources) ? map.sources[0] : undefined;
+    if (typeof source !== "string") return file;
+    const sourceRoot = typeof map.sourceRoot === "string" ? map.sourceRoot : "";
+    return path.resolve(path.dirname(file), sourceRoot, source);
+  } catch {
+    return file;
   }
 }

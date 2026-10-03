@@ -3,7 +3,7 @@
  * keys go into the global symbol registry, so they're derived from the
  * configuration and never carry a secret.
  */
-import type { Loader, Snapshot } from "./types";
+import type { Loader, Snapshot } from "./types.ts";
 
 const OBJECT_IDS = Symbol.for("decocms.blocks.cms-loader-ids");
 

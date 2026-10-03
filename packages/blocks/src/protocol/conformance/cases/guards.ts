@@ -1,16 +1,16 @@
 /**
  * Limits, the secret guard and request-key idempotency.
  */
-import { encryptToCiphertext, publicKeyPemFromDer } from "../../ciphertext";
-import { ErrorCode, type InvalidBlockData } from "../../errors";
+import { encryptToCiphertext, publicKeyPemFromDer } from "../../ciphertext.ts";
+import { ErrorCode, type InvalidBlockData } from "../../errors.ts";
 import {
   assert,
   assertEqual,
   type ConformanceContext,
   expectError,
   rawErrorCode,
-} from "../context";
-import type { ConformanceCase } from "./types";
+} from "../context.ts";
+import type { ConformanceCase } from "./types.ts";
 
 async function writable(ctx: ConformanceContext) {
   const d = await ctx.describe();

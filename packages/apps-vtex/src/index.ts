@@ -11,4 +11,4 @@ export {
   type VtexRequestOptions,
   type VtexResponse,
   type VtexSearchArgs,
-} from "./vtexClient";
+} from "./vtexClient.ts";

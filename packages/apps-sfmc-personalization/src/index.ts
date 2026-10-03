@@ -8,7 +8,7 @@
  * to the site (platform templates and site code).
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
-import type { PersonalizationEvent, PersonalizationResponse } from "./types";
+import type { PersonalizationEvent, PersonalizationResponse } from "./types.ts";
 
 export type {
   CampaignResponse,
@@ -16,7 +16,7 @@ export type {
   PersonalizationLineItem,
   PersonalizationProduct,
   PersonalizationResponse,
-} from "./types";
+} from "./types.ts";
 
 export interface SfmcPersonalizationConfig {
   /** The account's API origin, e.g. `https://<account>.<instance>.evergage.com`. */

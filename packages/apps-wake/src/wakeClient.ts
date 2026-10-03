@@ -8,9 +8,9 @@
  * proxying belong to the site (platform templates), not here.
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
-import type { UserAuthenticate } from "./utils/client";
-import { buildQuery, type QueryDefinition } from "./utils/gql";
-import { extractGraphqlOperationName } from "./utils/graphqlOperationName";
+import type { UserAuthenticate } from "./utils/client.ts";
+import { buildQuery, type QueryDefinition } from "./utils/gql.ts";
+import { extractGraphqlOperationName } from "./utils/graphqlOperationName.ts";
 
 const WAKE_STOREFRONT_ENDPOINT = "https://storefront-api.fbits.net/graphql";
 

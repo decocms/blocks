@@ -20,15 +20,15 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { ErrorCode } from "../../../protocol/errors";
-import { blockNameFromFile } from "../../../protocol/keys";
-import { createContentHandler } from "../../../protocol/server";
-import { createAssetHandler } from "../../../protocol/server/assets";
-import type { ContentStorage } from "../../../protocol/storage";
-import { createFsStorage } from "../../../protocol/storage/fs";
-import { readSavedBlocks, writeContent } from "../content";
-import { consoleReporter, type Reporter } from "../log";
-import { CliError, decoPaths, findDecoRoot, packageVersion } from "../root";
+import { ErrorCode } from "../../../protocol/errors.ts";
+import { blockNameFromFile } from "../../../protocol/keys.ts";
+import { createAssetHandler } from "../../../protocol/server/assets.ts";
+import { createContentHandler } from "../../../protocol/server/index.ts";
+import { createFsStorage } from "../../../protocol/storage/fs/index.ts";
+import type { ContentStorage } from "../../../protocol/storage.ts";
+import { readSavedBlocks, writeContent } from "../content.ts";
+import { consoleReporter, type Reporter } from "../log.ts";
+import { CliError, decoPaths, findDecoRoot, packageVersion } from "../root.ts";
 
 /** The site editor's origins: the browser origins allowed by default. */
 const STUDIO_ORIGINS = [

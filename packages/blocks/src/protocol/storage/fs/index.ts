@@ -21,8 +21,8 @@
  */
 import { lstat, mkdir, open, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { suffixedAssetName } from "../../assets";
-import { isBlockFileName } from "../../keys";
+import { suffixedAssetName } from "../../assets.ts";
+import { isBlockFileName } from "../../keys.ts";
 import {
   type CommitResult,
   type ContentStorage,
@@ -34,11 +34,11 @@ import {
   StorageUnavailableError,
   type StoredFileBody,
   type StoredSchema,
-} from "../../storage";
-import type { Limits } from "../../types";
-import { gitBlobHash, revisionOf } from "./hash";
-import { withCommitLock } from "./lock";
-import { applyFileChange, sweepStaleTransactions } from "./transaction";
+} from "../../storage.ts";
+import type { Limits } from "../../types.ts";
+import { gitBlobHash, revisionOf } from "./hash.ts";
+import { withCommitLock } from "./lock.ts";
+import { applyFileChange, sweepStaleTransactions } from "./transaction.ts";
 
 export interface FsStorageOptions {
   /** The app root: the folder that contains `.deco/`. */

@@ -22,12 +22,12 @@
  *
  * Instances are process-wide singletons, like `createCMS`'s.
  */
-import { computeContentRevision } from "./canonical";
-import { isSnapshot } from "./content";
-import { parseDraftPointer } from "./draft";
-import { clearGlobals, contentIdentity, fnv1a } from "./identity";
-import { isPlainObject } from "./json";
-import type { Loader, Snapshot } from "./types";
+import { computeContentRevision } from "./canonical.ts";
+import { isSnapshot } from "./content.ts";
+import { parseDraftPointer } from "./draft.ts";
+import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
+import { isPlainObject } from "./json.ts";
+import type { Loader, Snapshot } from "./types.ts";
 
 /** The hosted delivery origin: channel manifests, release assets and drafts. */
 const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
