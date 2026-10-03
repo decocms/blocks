@@ -10,25 +10,13 @@ order: 1
 
 <Callout>**Status.** The next version of Deco is being designed in the open: the API on these pages is proposed and not released yet. The [Roadmap](/roadmap) lists what's left.</Callout>
 
-Most of what changes on a website isn't code. It's the values the code is called with: a headline, a banner image, the share of visitors who see the new checkout. **Deco CMS** is a full suite of open-source libraries, CLIs and services that let you write your code so that marketers can tweak and evolve those values in a rich site editor. Deco CMS is powered by a syntax called [Blocks](/next/blocks). Blocks lets you serialize function calls as JSON, so the way your code calls its functions becomes editable.
+Most of what changes on a website isn't code. It's the values the code is called with: a headline, a banner image, the share of visitors who see the new checkout. **Deco CMS** is a full suite of open-source libraries, CLIs and services that let you write your code so that marketers can tweak and evolve those values in a rich site editor.
 
-For example, the call `PromoBanner({ title: "Free shipping over $50" })` is saved as `{ "__resolveType": "promo-banner", "title": "Free shipping over $50" }`, where `promo-banner` is the name your site gives `PromoBanner`.
+Deco CMS is Git-based by default, and it takes an opinionated approach to [releases and drafts](/next/releases-and-drafts), [campaign scheduling](/next/matchers-and-variants), [telemetry](/next/telemetry) and [analytics](/next/analytics). A [CLI](/next/cli) supports each of them, and [Studio](/next/studio), the site editor, has them built in, whether you run it on your machine or use the [hosted Deco CMS](/next/hosted).
+
+Deco CMS is powered by a syntax called [Blocks](/next/blocks). Blocks serializes function calls as JSON, so the way your code calls its functions becomes editable. For example, the call `PromoBanner({ title: "Free shipping over $50" })` is saved as `{ "__resolveType": "promo-banner", "title": "Free shipping over $50" }`, where `promo-banner` is the name your site gives `PromoBanner`.
 
 This page follows one change, marketing switching the summer banner from "Free shipping over $75" to "Free shipping over $50", from the first line of code to a visitor's screen.
-
-## Git-based, batteries included
-
-Content is JSON files in your repository. Every edit is a commit, and content ships with your deploys, like code (see [Releases and drafts](/next/releases-and-drafts) and [Deployment](/next/releases-and-deployment)). You install one package, `@decocms/blocks`, and it comes with the pieces a site needs:
-
-- **[The CLI](/next/cli)**: turns your types into [forms](/next/schema) and [checks your content](/next/checking) with `deco check`.
-- **[Studio](/next/studio)**: the editor, those forms plus a live preview, for people who don't write code.
-- **[Matchers and variants](/next/matchers-and-variants)**: if/else, scheduled campaigns and A/B tests, written as blocks.
-- **[Telemetry](/next/telemetry)**: errors, metrics and traces from your servers, sent over OpenTelemetry.
-- **[Analytics](/next/analytics)**: privacy-friendly page views, compatible with One Dollar Stats.
-
-Everything is open source and runs without a Deco account, wherever your app runs today.
-
-<Hosted to="/next/hosted" label="The hosted Deco CMS">**Optional extras, on the same files.** The hosted Deco CMS adds publishing within seconds without a deploy, drafts on your real site, Studio on GitHub, asset storage, and hosted telemetry and analytics.</Hosted>
 
 ## The life of a change
 
@@ -85,7 +73,7 @@ For the full move, see [Migrating from v7](/next/renames-and-migrations).
 ## Key terms
 
 <Terms>
-  <Term name="Deco CMS">The whole system: Blocks plus the libraries, CLIs and services built on it (forms, checks, Studio, matchers and variants, content and releases, telemetry and analytics). See [Git-based, batteries included](#git-based-batteries-included).</Term>
+  <Term name="Deco CMS">The whole system: Blocks plus the libraries, CLIs and services built on it (forms, checks, Studio, matchers and variants, content and releases, telemetry and analytics).</Term>
   <Term name="Blocks">The syntax for writing a function call as JSON. It's a format, not a product. See [Blocks](/next/blocks).</Term>
   <Term name="Block">One function call written as JSON: `__resolveType` names the function, the other keys are its arguments. See [Functions as blocks](/next/blocks#functions-as-blocks).</Term>
   <Term name="Block function">One of your functions with a typed first parameter, such as `PromoBanner`. See [Functions as blocks](/next/blocks#functions-as-blocks).</Term>
