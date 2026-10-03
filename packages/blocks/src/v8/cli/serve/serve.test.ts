@@ -146,10 +146,10 @@ describe("starting", () => {
     ).toBe(true);
   });
 
-  it("defaults the app to 5173 without reading any framework config", async () => {
+  it("defaults the app to the Vite config's port, read as text, else 5173", async () => {
     await start({}, { "vite.config.ts": "export default { server: { port: 3999 } };" });
     expect(DEFAULT_APP_URL).toBe("http://localhost:5173");
-    expect(out.text()).toContain("App preview          http://localhost:5173");
+    expect(out.text()).toContain("App preview          http://localhost:3999");
   });
 
   it("refuses an empty token", async () => {

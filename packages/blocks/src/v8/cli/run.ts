@@ -121,6 +121,14 @@ async function watchLoop(
   await running;
 }
 
+/**
+ * What `deco publish` prints. It isn't one of the four commands and isn't in
+ * the usage: publishing is committing (/next/design-decisions).
+ */
+const PUBLISH_SIGNPOST = `There is no publish command: Git is the source of truth for content, so publishing is committing.
+Commit the changes in .deco/blocks (and push them). A deploy ships the commit; with the hosted
+Deco CMS, a commit becomes a release without a deploy.`;
+
 /** Run one `deco` invocation; returns the exit code. */
 export async function runCli(argv: string[], options: RunOptions = {}): Promise<number> {
   const reporter = options.reporter ?? consoleReporter;
@@ -128,6 +136,11 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
   if (!command || command === "help" || command === "--help" || command === "-h") {
     reporter.info(USAGE);
     return command ? 0 : 1;
+  }
+  if (command === "publish") {
+    // Not a command: a signpost for agents that look for one (design-decisions).
+    reporter.error(PUBLISH_SIGNPOST);
+    return 1;
   }
   if (!Object.hasOwn(COMMANDS, command)) {
     reporter.error(`unknown command "${command}"\n\n${USAGE}`);

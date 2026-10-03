@@ -18,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { ErrorCode } from "../../../protocol/errors";
 import { blockNameFromFile } from "../../../protocol/keys";
@@ -68,12 +69,28 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-/**
- * The dev app the canvas opens when `--app-url` isn't given. The CLI doesn't
- * read framework config to guess it: knowing a framework's dev port belongs
- * to that framework's binding, which can pass `appUrl` to `startServer`.
- */
+/** The dev app the canvas opens when `--app-url` isn't given and no Vite port is set. */
 export const DEFAULT_APP_URL = "http://localhost:5173";
+
+const VITE_CONFIGS = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"];
+
+/**
+ * `http://localhost:<server.port>` from the app's Vite config, read as text
+ * (the config is never executed), or `DEFAULT_APP_URL`.
+ */
+function defaultAppUrl(root: string): string {
+  for (const name of VITE_CONFIGS) {
+    let source: string;
+    try {
+      source = fs.readFileSync(path.join(root, name), "utf8");
+    } catch {
+      continue;
+    }
+    const port = /\bserver\s*:\s*\{[^}]*?\bport\s*:\s*(\d{2,5})\b/.exec(source)?.[1];
+    return port ? `http://localhost:${port}` : DEFAULT_APP_URL;
+  }
+  return DEFAULT_APP_URL;
+}
 
 function packageVersion(): string {
   try {
@@ -101,7 +118,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     );
   }
   const token = options.token ?? env.DECO_SERVE_TOKEN ?? randomBytes(32).toString("base64url");
-  const appUrl = options.appUrl ?? DEFAULT_APP_URL;
+  const appUrl = options.appUrl ?? defaultAppUrl(paths.root);
   const allowedOrigins = new Set(
     [...STUDIO_ORIGINS, ...(options.allowOrigins ?? [])].map((o) => o.replace(/\/+$/, "")),
   );
