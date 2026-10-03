@@ -21,6 +21,7 @@ export {
   SectionRenderer,
   StableOutlet,
 } from "./hooks";
+export { type KVNamespaceLike, kvLoader } from "./kvLoader";
 export { createDecoWorkerEntry } from "./sdk/workerEntry";
 export { setupTanstackFastDeploy } from "./setupFastDeploy";
 export {
