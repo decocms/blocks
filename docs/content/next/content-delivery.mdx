@@ -15,11 +15,11 @@ This is the proposed hosted delivery architecture for the next major. The [roadm
 
 ## Two separate paths
 
-The **control plane** owns editing, GitHub access, validation, release preparation and promotion. The **data plane** serves already prepared content. Production servers never call GitHub, including on a cache miss, a cold start or an error.
+The **control plane** owns editing, GitHub access, release preparation and promotion. The **data plane** serves already prepared content. Production servers never call GitHub, including on a cache miss, a cold start or an error.
 
 <Flow label="Preparing a release">
   <FlowNode title="Git commit">An editor publishes, or a developer pushes to production</FlowNode>
-  <FlowNode title="Durable ingestion job">Read GitHub, validate, build and hash the snapshot</FlowNode>
+  <FlowNode title="Durable ingestion job">Read GitHub, build and hash the snapshot</FlowNode>
   <FlowNode title="Object storage">Upload the immutable JSON asset, then promote its manifest</FlowNode>
 </Flow>
 
@@ -60,8 +60,8 @@ Give immutable assets a long cache lifetime. Give channel manifests an explicit,
 ## Prepare before promoting
 
 1. Accept and authenticate a GitHub push event, durably enqueue it and deduplicate deliveries. Also reconcile repository heads periodically: an event can be missed.
-2. Resolve the production commit, assemble its content and run the release checks, including route ambiguity and content shape. Schema compatibility with deployed code remains a CI and rollout responsibility; ingestion does not run site code.
-3. Upload the snapshot, verify its bytes and record the release as ready. Preserve its source commit and validation result in release history.
+2. Resolve the production commit and assemble its content. Preparation doesn't check content: route conflicts and fit with the schema are [`deco check`](/next/checking)'s job in CI, and ingestion does not run site code.
+3. Upload the snapshot, verify its bytes and record the release as ready. Preserve its source commit in release history.
 4. Only then update the channel manifest. A failed preparation leaves the previous release live; it never points readers at an unfinished object.
 
 Use one durable promotion coordinator per site and channel. Every publish and rollback goes through it, with an expected generation. Jobs carry the generation against which they were requested; an older job cannot overwrite a newer promotion. Serialize the actual manifest writes too: checking a database generation and then independently uploading a manifest is not an atomic operation. Recover an interrupted write by reconciling the manifest against the coordinator's durable desired state.
@@ -72,7 +72,7 @@ Expose preparation and promotion as separate statuses. "Saved" means committed; 
 
 ## Fast rollback
 
-Rollback selects a retained, previously validated revision that fits the deployed code. The coordinator advances the generation while pointing at the older immutable asset:
+Rollback selects a retained, previously prepared revision that fits the deployed code. The coordinator advances the generation while pointing at the older immutable asset:
 
 ```text
 publish:  generation 184 → revision B

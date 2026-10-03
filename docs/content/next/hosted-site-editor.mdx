@@ -25,7 +25,7 @@ The site editor's forms, [variants](/next/matchers-and-variants#variants), pages
 | A save | Writes the file; your app hot-reloads | One commit on the draft's branch, with all the files of that save |
 | Committing | You review the diff and commit | Each save is already a commit |
 | Drafts and publishing | Not shown: your branch is the draft, and you merge it | A draft branch per draft; publishing brings it to production |
-| Uploads | Files in `.deco/assets/` (or the folder you pass with `--assets`) in your working tree, which you commit | Deco's asset storage, served from a CDN |
+| Uploads | Files in `public/assets/` (or the folder you pass with `--assets`) in your working tree, which you commit | Deco's asset storage, served from a CDN |
 | Preview canvas | Your dev app | Your site, with a [`?__draft=` link](/next/hosted-drafts) |
 | The site editor checks for changes | About every 2 seconds | When you return to the tab, and about every 30 seconds |
 | Needs | A copy of the repository on your machine and a running CLI | A [connected site](/next/hosted#connect-your-site) |

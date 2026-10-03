@@ -20,7 +20,7 @@ Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algoli
 
 - **Typed request functions**, one per API operation, with the platform's own request and response types (generated from its API description where it has one).
 - **Built on the instrumented fetch**, [`createInstrumentedFetch`](/next/api-reference#createinstrumentedfetch-options), which times each request and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took.
-- **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it.
+- **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it, or from a [`secret` block](/next/built-in-blocks#secrets) when editors should set a key without a deploy.
 
 Everything else lives in code your site owns:
 
@@ -32,7 +32,7 @@ Everything else lives in code your site owns:
 | Website features: SEO helpers, sitemaps, redirect logic | Platform templates and your code. The framework itself ships the built-in `always`, `never` and `date` [matchers](/next/matchers-and-variants#matchers), `multivariate`, and the [`analytics`](/next/analytics) block for page views. |
 | [Loaders and actions](/v7/loaders) (v7's data functions) that [the site editor](/next/site-editor) ran through `/deco/invoke` | Your code; see [Migrating from v7](/next/renames-and-migrations#loaders-actions-and-invoke). |
 
-The Salesforce client covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
+The Salesforce client, `@decocms/apps-sfmc-personalization`, covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
 
 ## Call a client
 

@@ -50,5 +50,6 @@ Don't put a Client Component (a component from a `"use client"` file) in the [bl
 - **Start every block first.** Await critical data, such as SEO, only after all of the page's blocks have started, so they fetch in parallel instead of waiting behind the SEO call.
 - **One Suspense boundary per block** lets each block appear as soon as it's ready.
 - **Suspense handles loading, not errors.** Each [`client.resolve(block)`](/next/api-reference#client-resolve-target-options) returns `[value, error]`; render a fallback when `error` is set. Errors thrown later while React renders need an error boundary.
+- **A hidden block is not an error.** A block an editor [hid](/next/matchers-and-variants#hide-a-block) resolves to `undefined`, with no error: render nothing for it. Blocks never renders anything itself, so what to show is always your app's choice.
 - **Cancellation is your app's job.** Deco CMS never sees the request. A block that fetches upstream should take the request's `signal` from wherever your app keeps request state.
 - **Once streaming starts, the status code is fixed.** The status line and headers are already sent, so a later error can't change them. Decide 404s and redirects (the [`matchRoute`](/next/api-reference#matchroute-url-items) result) before you stream.

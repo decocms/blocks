@@ -16,9 +16,11 @@ This page shows how a commit becomes a release, how servers pick it up, and what
 
 Your production branch (usually `main`) moves: someone pushes or merges a commit in `.deco/blocks`, or an editor publishes a draft in [the site editor](/next/hosted-site-editor). Then:
 
-1. **The control plane prepares the commit** as a complete, validated JSON snapshot in object storage. Only after the asset is ready does it promote the production channel manifest. A release never changes; its [revision](/next/releases-and-deployment#what-a-revision-is) identifies it. Production servers read storage/CDN assets and never GitHub.
+1. **The control plane prepares the commit** as a complete JSON snapshot in object storage. Only after the asset is ready does it promote the production channel manifest. A release never changes; its [revision](/next/releases-and-deployment#what-a-revision-is) identifies it. Production servers read storage/CDN assets and never GitHub.
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
 3. **The server swaps the release in whole** and serves it from its next [client](/next/api-reference#createcms-config) on (the object `cms.forRelease()` returns). Requests already in flight keep the revision they started with (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)).
+
+A publish doesn't check content against your schema: [`deco check`](/next/checking) in CI does that (see [CI on site editor commits](/next/hosted-site-editor#ci-on-site-editor-commits)), and at request time content that doesn't fit fails only its own block, while two routes for one URL resolve to the earlier one.
 
 A publish needs no application rebuild. Propagation depends on preparation time, the manifest cache lifetime, each server's check interval and rendered-page caching; it is not an immediate global switch. Different servers can briefly serve different releases, by design.
 
@@ -30,7 +32,7 @@ The request path, the idle scheduling on each runtime and the swap are described
 
 ## Fast content rollback
 
-Choose a retained, validated release compatible with the deployed code. Rollback advances the production channel's generation while pointing it to that older snapshot. It needs no rebuild, code deploy or GitHub read. Servers follow it through the same refresh path as a publish, and rendered-page caches must also observe the promotion.
+Choose a retained release compatible with the deployed code. Rollback advances the production channel's generation while pointing it to that older snapshot. It needs no rebuild, code deploy or GitHub read. Servers follow it through the same refresh path as a publish, and rendered-page caches must also observe the promotion.
 
 Rollback pauses automatic promotion until explicitly resumed, so delayed jobs and new commits cannot silently undo it. It does not change the repository: a Git revert can reconcile that later. Code rollback is a separate operation; select compatible content for the older build. Retention, publication ordering and recovery are described in [Production delivery and rollback](/next/content-delivery#fast-rollback).
 
@@ -45,7 +47,7 @@ createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DEC
 
 ## Fallback
 
-Until a server has fetched its first release (a new server, or one that has never reached the Deco API), it serves the [content module](/next/content#the-content-module) your build shipped with: the content this deploy was tested against, so it's always there and always compatible with the code. If the Deco API becomes unreachable later, the server keeps serving the newest release it already has. Any network or validation error leaves memory as it was; nothing reaches a request.
+Until a server has fetched its first release (a new server, or one that has never reached the Deco API), it serves the [content module](/next/content#the-content-module) your build shipped with: the content this deploy was tested against, so it's always there and always compatible with the code. If the Deco API becomes unreachable later, the server keeps serving the newest release it already has. Any network error, or a snapshot that doesn't parse, leaves memory as it was; nothing reaches a request.
 
 The CMS always switches between whole revisions, never mixing entries from two of them, because a mix can break references or bring back deleted entries.
 

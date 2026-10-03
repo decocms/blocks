@@ -79,6 +79,8 @@ import { track } from "@decocms/blocks/analytics";
 
 `track` sends through the script `AnalyticsScript` renders. On a page without it, `track` does nothing.
 
+Ecommerce events, such as a product view or a purchase, belong to your [platform template](/next/how-it-works#key-terms): it calls `track` next to its own tag manager push, so Deco CMS itself knows nothing about carts or orders.
+
 ## Turn it off
 
 Set `enabled` to `false`, in the site editor or by hand:

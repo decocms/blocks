@@ -12,7 +12,12 @@ order: 6
 
 ## What the site editor reads from the schema
 
-Everything the site editor knows about the shape of your content comes from the schema, so it's all inferred from your types. The site editor reads the schema committed on the branch it edits, falling back to your default branch when that branch has none. The file follows the site editor's format, `deco-meta@1`:
+Everything the site editor knows about the shape of your content comes from the schema, so it's all inferred from your types. Where it reads the schema depends on what it edits:
+
+- **Your machine**, through [`deco serve`](/next/site-editor#edit-on-your-machine) on localhost: the schema in your working tree, so a type you just added shows up as soon as `deco schema` writes it.
+- **A draft on GitHub**, with the hosted Deco CMS: the `schema.gen.json` committed on the draft's branch, falling back to your default branch when that branch has none.
+
+The file follows the site editor's format, `deco-meta@1`:
 
 - **`manifest`**: every key of your [block map](/next/blocks#the-block-map), plus the [built-ins](/next/built-in-blocks), grouped by kind (table below).
 - **`schema.definitions`**: one JSON Schema per type, the form the site editor shows, keyed by the padded-base64 type name.
@@ -53,7 +58,7 @@ Three conventions follow from this:
 
 - A key is a **block type if it's in the manifest and a saved block if it isn't**, so short names like `hero` are fine, as long as no saved block uses the same name (see [the lookup rule](/next/blocks#the-lookup-rule)).
 - A field with variants is `{ "variants": [{ "rule": …, "value": … }, …] }`: each entry pairs a rule with a variant, and each `value` is a [`lazy` block](/next/lazy-blocks#write-a-lazy-block) that the site editor writes around what the editor fills in. The first variant whose rule is true wins, so the default, with the `always` rule, goes last.
-- A redirect is a flat `{ from, to, permanent }` entry.
+- A redirect is a flat `{ from, to, permanent }` entry, plus the optional `status` and `discardQueryParameters` (see [Pages and redirects](/next/built-in-blocks#pages-and-redirects)).
 
 Saved blocks aren't in the schema: the site editor builds its pickers of saved blocks from the map `blocks.list` returns. Schema strings, such as titles and `@image` templates, are untrusted input to the site editor, which escapes them.
 
@@ -67,7 +72,7 @@ The Fresh and Deno framework, and v7, name every block type by the path of the f
 | Variants (`multivariate`) | `website/flags/multivariate.ts`, `website/flags/multivariate/section.ts` |
 | Always and never rules (the default variant; hiding a block) | `website/matchers/always.ts`, `website/matchers/never.ts` |
 | Redirect | `website/loaders/redirect.ts` |
-| Secret | `website/loaders/secret.ts` |
+| Secret | `website/loaders/secret.ts` (v7 secrets are re-encrypted once when the site migrates; see [Secrets](/next/renames-and-migrations#secrets)) |
 
 Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so the site editor's screens find your types under the names they expect. Content the site editor saves under an old name resolves too: [`deco content`](/next/content#the-content-module) writes the alias table into the content module, and [`createCMS`](/next/api-reference#createcms-config) reads it from there. Under `website/flags/multivariate.ts`, variants are saved as plain values; the alias bridge wraps each one in a `lazy` block, so they run only when chosen, like new ones.
 
@@ -76,13 +81,13 @@ One difference remains: redirects created in the site editor are saved in the ol
 ```json
 // Saved by the site editor's legacy redirect screen
 { "__resolveType": "website/loaders/redirect.ts",
-  "redirect": { "from": "/campaigns/summer", "to": "/summer", "type": "permanent" } }
+  "redirect": { "from": "/campaigns/summer", "to": "/summer", "type": "temporary", "discardQueryParameters": true } }
 
 // The shape these docs use
-{ "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": true }
+{ "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": false, "status": 307, "discardQueryParameters": true }
 ```
 
-[`matchRoute`](/next/api-reference#matchroute-url-items) accepts both. The site editor decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
+[`matchRoute`](/next/api-reference#matchroute-url-items) accepts both. A legacy `"type": "permanent"` is a 301 and `"temporary"` a 307, as before, and `discardQueryParameters` carries over, so no live redirect changes its status code or query handling. The site editor decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
 
 ## Legacy endpoints
 
@@ -96,4 +101,4 @@ Sites on Fresh and Deno are edited the legacy way: the site editor reads from th
 | `/deco/invoke` | Running a loader or action: dynamic pickers and the Run button |
 | `/live/invoke` | Encrypting secret fields through the site's encrypt action |
 
-Next-major sites serve none of them, and the SDK has no invoke endpoint. The site editor picks the protocol for a project that has a committed schema in its app root (`<root>/.deco/schema.gen.json` or `<root>/.deco/meta.gen.json`), and the legacy path otherwise; a project setting in the site editor overrides the choice. v7 sites commit `meta.gen.json`, so they qualify for either.
+Next-major sites serve none of them, and the SDK has no invoke endpoint. The site editor picks the protocol for any project that has a committed schema in its app root (`<root>/.deco/schema.gen.json` or `<root>/.deco/meta.gen.json`), and the legacy path otherwise. v7 sites commit `meta.gen.json`, so they move to the protocol automatically, without what it leaves out: block previews, Run, dynamic pickers and editing v7 secrets.

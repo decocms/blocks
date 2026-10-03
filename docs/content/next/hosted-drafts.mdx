@@ -22,7 +22,7 @@ https://store.example.com/summer?__draft=api.deco.example/drafts/acme/feat-summe
 
 The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the [Deco API](/next/hosted#terms)'s address for this site's `feat-summer` branch, plus a token signed by the site editor. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
 
-The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole [revision](/next/releases-and-deployment#what-a-revision-is) (one version of all your content), deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client serves what a normal request would get, never a mix of draft and published entries.
+The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole [revision](/next/releases-and-deployment#what-a-revision-is) (one version of all your content), deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client's calls return an error instead of published content, so an editor never mistakes the release for their draft (see [A failed draft is an error](/next/content#write-a-loader)).
 
 ## Wire drafts into your app
 
@@ -43,9 +43,9 @@ export async function handle(request: Request) {
 }
 ```
 
-The site editor ends a preview by opening the site with an empty `?__draft=`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
+The site editor ends a preview by opening the site with `?__draft=off`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
 
-Without a [site ID and token](/next/hosted#connect-your-site) (in development, for example), the CMS reads the [content module](/next/content#the-content-module), which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere. A draft is just another set of calls run by the same code; to serve drafts from somewhere other than the hosted Deco CMS, see [Write a loader](/next/content#write-a-loader).
+Without a [site ID and token](/next/hosted#connect-your-site), the CMS reads the [content module](/next/content#the-content-module), which has no drafts, so it ignores the pointer: you're already looking at your files. With them, your dev server still serves your local files to ordinary requests, and a `?__draft=` link loads the draft from the Deco API (see [Local files win in development](/next/hosted#connect-your-site)). That's why the same code serves previews and visitors everywhere. A draft is just another set of calls run by the same code; to serve drafts from somewhere other than the hosted Deco CMS, see [Write a loader](/next/content#write-a-loader).
 
 ### Next.js
 
@@ -124,7 +124,7 @@ A script passes it as an argument. To look inside a pointer, or build one from p
 
 ## Who may preview
 
-Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs code in your app. First, the pointer must name your site's own Deco API host, which the CMS looks up from your site ID and token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by the site editor, which the Deco API checks before serving the draft.
+Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs code in your app. First, the pointer must name your site's own Deco API host, which the CMS looks up from your site ID and token. A pointer to any other host is refused (the client returns an error), so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by the site editor, which the Deco API checks before serving the draft.
 
 A revision on its own selects content but unlocks nothing; only a signed pointer reaches unpublished drafts.
 
@@ -136,7 +136,7 @@ const pointer = host === "preview.store.example.com" ? draftPointer(request) : n
 const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 ```
 
-<Callout type="warning">**The token is the only secret.** The site ID isn't secret, and the site holds no other Deco credential. Invalid or unexpected pointers are ignored and the request falls back to published content, never to an error page.</Callout>
+<Callout type="warning">**The token is the only Deco credential.** The site ID isn't secret, and the site holds no other credential for Deco (the private key for [secrets](/next/built-in-blocks#secrets) is your own). An invalid or unexpected pointer never loads anything: the client returns an error, and your app decides what to show.</Callout>
 
 ## The site editor's canvas
 

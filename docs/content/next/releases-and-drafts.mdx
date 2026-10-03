@@ -50,6 +50,8 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 Everything after these two lines is the code that serves visitors. It's safe to add even when your content has no drafts: you get the release.
 
+If a draft can't load, the draft client's `resolve` and `list` return an error instead of published content, so nobody mistakes the release for their draft. What to show is your app's choice, such as a short "this draft couldn't be loaded" page (see [A failed draft is an error](/next/content#write-a-loader)).
+
 <Hosted to="/next/hosted-drafts" label="Previewing drafts">**Drafts on your real site.** With the hosted Deco CMS, the site editor opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by the site editor reach unpublished drafts.</Hosted>
 
 ## Checking changes without a draft loader

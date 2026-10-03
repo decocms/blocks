@@ -30,8 +30,10 @@ import { renderServerComponent } from "@tanstack/react-start/rsc";
 import { z } from "zod";
 import { openPage } from "./open-page.server";
 
-async function BlockSlot({ value }: { value: Promise<ReactNode | null> }) {
-  return (await value) ?? <p role="status">This content is temporarily unavailable.</p>;
+async function BlockSlot({ value }: { value: Promise<{ value?: ReactNode; failed: boolean }> }) {
+  const { value: node, failed } = await value;
+  if (failed) return <p role="status">This content is temporarily unavailable.</p>;
+  return node ?? null;   // undefined when an editor hid the block: render nothing
 }
 
 export const loadPage = createServerFn({ method: "GET" })
@@ -60,7 +62,7 @@ import { loadPage } from "../page.functions";
 export const Route = createFileRoute("/$")({
   loader: ({ location }) => loadPage({ data: { href: location.pathname + location.searchStr } }),
   head: ({ loaderData }) => ({
-    meta: loaderData
+    meta: loaderData?.seo   // without seo, the root route's defaults apply
       ? [{ title: loaderData.seo.title }, { name: "description", content: loaderData.seo.description }]
       : [],
   }),

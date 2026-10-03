@@ -28,7 +28,7 @@ You can use the site editor on the app running on your machine, with or without 
    ```text
    Deco server          http://127.0.0.1:4545/rpc
    Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
-   Assets               apps/storefront/.deco/assets   (PUT /assets/<name>)
+   Assets               apps/storefront/public/assets   (PUT /assets/<name>)
    App preview          http://localhost:5173
    Site editor          https://<studio-origin>/connect#endpoint=…&token=…
    ```
@@ -40,15 +40,9 @@ Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates
 
 ## Images and other uploads
 
-When an editor uploads an image or another file in the site editor, `deco serve` writes it into your repository, in `.deco/assets/`, and the field stores the file's path, such as `/assets/summer-banner.jpg`. Uploads are ordinary files: you review them and commit them with the rest of your content.
+When an editor uploads an image or another file in the site editor, `deco serve` writes it into your repository, in `public/assets/`, and the field stores the file's path, such as `/assets/summer-banner.jpg`. Uploads are ordinary files: you review them and commit them with the rest of your content.
 
-The field always stores `/assets/<name>`, whatever folder the files are written to, so your app has to serve that folder at `/assets/`. Nothing serves `.deco/assets` by default. The simplest way is to write uploads into the folder your app already serves. Vite, TanStack Start and Next.js all serve `public/` at the site root, so with
-
-```bash
-npx @decocms/blocks serve --assets public/assets
-```
-
-uploads land in `public/assets/` and are served at `/assets/`, in development and in production, with no other configuration. The folder is relative to the folder that contains `.deco`, so in a monorepo it's your app's own `public/`. If you keep the default `.deco/assets`, you have to serve it at `/assets/` yourself and ship it with your build.
+Vite, TanStack Start and Next.js all serve `public/` at the site root, so uploads are served at `/assets/`, in development and in production, with no configuration. The folder is relative to the folder that contains `.deco`, so in a monorepo it's your app's own `public/`. To write uploads somewhere else, pass `--assets <dir>`; the field still stores `/assets/<name>`, so your app has to serve that folder at `/assets/`.
 
 With Vite, `public/assets/` ends up in the same `dist/assets/` folder as the build's hashed JavaScript and CSS. That's safe: the server never reuses a file name, so hosts that cache `/assets/*` for a long time serve it correctly.
 
@@ -62,7 +56,7 @@ Because the site editor never runs your code, a few things that depend on it wor
 
 - **Block previews:** clicking a block's preview opens your dev app at that page. Gallery cards show the block's name, plus the `@title`, description and `@image` set in its JSDoc (see [Widgets](/next/schema#widgets)).
 - **Pickers whose options come from your code** show the options written into the schema, otherwise a text field (see [Widgets](/next/schema#widgets)).
-- **Secret and password fields** are read-only. Keep credentials in environment variables.
+- **Secret fields** are write-only: the site editor encrypts what an editor types with your public key, `.deco/secrets.pub`, and never shows the saved value (see [Secrets](/next/built-in-blocks#secrets)).
 - **Fetching data and installing apps from the site editor:** older Deco sites could run data loaders and install commerce apps from the site editor; here those live in your code. Add platform clients in code (see [Calling APIs](/next/upstream-clients)). These are different from [content loaders](/next/content#write-a-loader), which deliver your saved blocks.
 
 ## Saved blocks and variants in the site editor

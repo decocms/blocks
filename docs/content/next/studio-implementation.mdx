@@ -1,0 +1,218 @@
+---
+title: Studio implementation handoff
+nav: Studio implementation
+group: Under the hood
+kind: internals
+order: 11
+description: Where to implement managed drafts, automatic synchronization, immutable delivery and fast rollback in Studio, with contracts and acceptance scenarios.
+---
+
+# Studio implementation handoff
+
+This is the proposed engineering handoff for the hosted site editor, written so implementation does not depend on the original discussion. It extends Studio's existing Fast Preview rather than introducing a second editing backend. The contracts below are proposed implementation defaults, not claims about released behavior.
+
+Read [Content protocol](/next/content-protocol), [Keeping drafts current](/next/draft-synchronization) and [Production delivery and rollback](/next/content-delivery) for the shared semantics. This page maps those decisions onto Studio, supplies operation sequences, and names the checks that demonstrate completion.
+
+## Decisions to preserve
+
+- Business users work with drafts. Studio creates and maintains internal Git branches; creating branches and rebasing are never editor tasks.
+- Successful autosave means durable Git content. GitHub failure prevents new saves, but cannot prevent serving an already prepared release.
+- Production updates flow into active drafts automatically. Distinct JSON property changes combine; competing values and deletions favor the draft. Arrays are atomic. Oversized conflicts reuse the draft's entire Git blob.
+- Production and versioned preview delivery read only prepared object-store assets. Neither a cache miss nor recovery contacts GitHub, Studio's editing API or its database.
+- A release asset is immutable. A channel manifest selects the current release. Rollback increases the channel generation while selecting an older revision; it does not decrease the generation or require a build.
+- Editing, synchronization, publication and preparation are TypeScript control-plane work. The data plane is object storage/CDN with a minimal authorization layer when needed, independently deployable from Studio.
+- The portable protocol has four methods. Draft lifecycle, synchronization, publication, rollback and preview grants are separate Studio routes.
+
+## Existing Studio integration points
+
+These are relative paths in the public [Studio repository](https://github.com/decocms/studio), not paths to add to Blocks. Recheck their current interfaces before implementation; the responsibilities below are the stable part of the map.
+
+| Existing module | Reuse | Change or extend |
+|---|---|---|
+| `apps/api/src/api/routes/decofile.ts` | Organization/project authorization, saved-content scope, schema reads and Fast Preview routes | Adapt reads and writes to the protocol core; delegate draft and publication lifecycle to durable services |
+| `apps/api/src/decofile/commit-coalescer.ts` | Autosave batching, awaiting committed results, retrying head races | Preserve per-request guards and receipts, normalize protocol set precedence, coordinate with synchronization |
+| `apps/api/src/decofile/read-decofile.ts` | Scoped tree traversal, blob hashes, bounded blob reads and single-flight resolution | Use for control-plane ingestion; do not use it as the production data-plane reader |
+| `apps/api/src/decofile/disk-cache.ts` | Bounded immutable blob cache | Treat it as an optimization, never as the durable release store |
+| `apps/api/src/decofile/git-compat.ts` | Git comparison and content-path replay machinery | Introduce a content-only three-way merge; retain append-only history for managed drafts |
+| `apps/api/src/git-providers/content.ts` and `github/content.ts` | Provider abstraction, existing-blob references, Git tree/commit/ref operations | Add explicit multi-parent commits and a non-forced draft-head update; support recovering uncertain writes |
+| `apps/api/src/api/routes/github-webhook.ts` | Existing signed GitHub event intake | Durably enqueue push processing, deduplicate deliveries, trigger release preparation and draft invalidation |
+| `apps/api/src/decofile/draft-token.ts` | Signing and verification machinery | Bind new grants to site, draft identity, exact asset revision and expiry rather than only a moving branch |
+| `apps/web/src/components/sections-editor/decofile-api.ts` | Editor read/write state | Use the protocol client, stable draft IDs, guarded saves and retry keys |
+| `apps/web/src/components/sections-editor/use-fast-preview-draft-url.ts` | One source of preview URLs | Wait for the exact saved revision's asset, then mint its grant; surface preparing/unavailable states |
+| `apps/web/src/components/thread/github/publish-flow.ts` | Publish progress and review UI | Use the hosted publication operation for content drafts; retain the existing coding-session flow |
+
+Mount organization routes through Studio's existing org-scoped middleware and emit updates through its existing SSE delivery. Reuse durable workflow infrastructure for jobs and database-backed coordination. An in-process mutex or workflow-local map is not cross-replica serialization. Keep GitHub rate-limit handling and bounded fetch utilities.
+
+Fast Preview can share a branch with a coding session today. Do not apply the content-draft policy blindly to that branch: new managed drafts have their own internal branches. Preserve coding-session behavior and offer explicit migration of content changes, rather than silently dropping code edits during synchronization.
+
+The protocol now lives under `@decocms/blocks/protocol`, with shared keys, server, filesystem storage and conformance subpaths. The hosted storage adapter belongs in Studio; the SDK must not import the editing protocol at runtime.
+
+## Persisted state
+
+Store these records through Studio's existing storage adapters and migrations. IDs are opaque; repository, organization and app-root scope are checked on every access. A repository can host several sites.
+
+| Record | Minimum persisted fields |
+|---|---|
+| Draft | `id`, organization/project/site IDs, repo identity, app root, internal branch, repository production ref, `headCommit`, `incorporatedProductionCommit`, lifecycle state, last editor activity, latest preview asset revision |
+| Draft operation | operation ID, draft ID, kind, request digest, expected head, status, candidate commit and result, lease/fencing version, attempt and retry timing |
+| Save receipt | principal/project/draft scope, `requestKey`, canonical request digest, committed result, commit SHA, expiry; recoverable from committed metadata |
+| Repository observation | repo/ref scope, latest reconciled head, observed time; webhook delivery IDs recorded separately for deduplication |
+| Release | site ID, source repo/app root/commit, content revision, format, asset key, byte size and integrity digest, preparation state and timestamps |
+| Channel | site/environment, monotonic generation, revision, `automatic` or `held` mode, desired manifest, last confirmed manifest generation |
+| Promotion operation | request key and digest, expected generation, source intent, target revision, durable result and storage-write recovery state |
+| Audit event | actor, operation, before/after identifiers, resolution counts, fallback reasons, timestamp; no tokens or raw secret content |
+
+Draft lifecycle is `open → published` or `open → discarded`; synchronization has its own `idle / queued / running / failed` state. A failed synchronization does not close a draft. Release preparation is `queued → preparing → ready` or `failed`. A channel promotes only `ready` assets.
+
+Commit SHA, per-block blob version, content revision and channel generation are different identifiers. Never use a commit SHA as publication order, or an asset revision as authorization. Record the incorporated production SHA explicitly instead of inferring it from a squash-rewritten branch.
+
+## Hosted operation contracts
+
+These routes are a proposed Studio surface under `/api/:org/sites/:siteId`. Keep project/root authorization explicit. Use the existing protocol errors for protocol calls; lifecycle routes return ordinary HTTP errors and typed bodies.
+
+| Operation | Request | Result |
+|---|---|---|
+| `POST /drafts` | request key, optional display name | Stable draft ID; reuse the default open draft where appropriate; no branch needed yet |
+| `GET /drafts/:id` | editor session | Lifecycle/sync state, incorporated production commit, current head, preview readiness and bounded resolution summary |
+| `POST /drafts/:id/sync` | request key | Durable operation ID; an internal service schedules the same operation automatically |
+| `POST /drafts/:id/rpc` | The four-method JSON-RPC protocol | Endpoint bound to the draft; reject an explicit `ref` that attempts to escape its internal target |
+| `POST /drafts/:id/publish` | request key, expected draft head, expected channel generation | Durable operation ID; states distinguish awaiting checks, Git committed, preparing and promoted |
+| `POST /drafts/:id/discard` | request key, expected draft head | Terminal draft state; coordinated with in-flight saves |
+| `POST /drafts/:id/preview` | exact saved commit or prepared content revision | Preparing status, or signed pointer to the exact prepared asset with expiry |
+| `POST /channels/:channel/rollback` | request key, expected generation, retained target revision, reason | New generation and held channel state; no GitHub work in this operation |
+| `POST /channels/:channel/resume` | request key, expected generation | Explicitly resume automatic mode and reconcile latest desired production; never resume merely because an event arrived |
+| `GET /operations/:id` | editor session | Durable status/result or bounded error with retry timing |
+
+Identical retries return the same operation/result; a reused request key with a different body is rejected. A stale expected head or generation is a conflict, not a silent overwrite. The UI preserves unsaved form state on conflict and shows newer stored content. Keep branch names out of the business-user flow.
+
+Event notifications invalidate editor reads; they do not replace durable status or the portable polling fallback. Never log signed preview pointers. The lifecycle response and SSE event report synchronization summaries, not the entire content map.
+
+## Save and synchronization sequence
+
+Use one durable operation lane per draft. All API replicas submit into that lane. A worker owns its lease and checks its fencing version before side effects; a replacement reconciles uncertain operations before starting another mutation.
+
+```text
+save(draft, params):
+  authorize; resolve an identical completed request receipt first
+  claim draft lane; reject closed drafts; reconcile pending Git operation
+  observe current draft head and current repository production head
+  synchronize if production differs from incorporatedProductionCommit
+  reread the head used for the save
+  recheck entry ifMatch and optional ifSchemaMatch on that snapshot
+  normalize set/delete (set wins); enforce input and secret guards
+  create tree + commit containing result and recoverable request metadata
+  update draft ref without force; on head race rebuild and recheck guards
+  persist result and emit editor invalidation
+  enqueue exact-commit preview materialization; return committed result
+```
+
+A request with an existing receipt must not synchronize and apply its old mutation again. Batch/coalescer logic retains each caller's identity, key and guards. Coalescing cannot cause one failed apply to partially write, or report another caller's unrelated mutation as its own result.
+
+For synchronization, pin base B, draft D and production M to commit SHAs, not branch names that can move while reading. Build the tree from M, replacing only owned content paths with the three-way merged result. This adopts production code and schemas and preserves other production repository paths. Refuse managed-draft code changes rather than silently treating them as content overrides.
+
+Use Git blob equality to select unchanged files without reading their contents. For genuine conflicts, apply the [merge rules](/next/draft-synchronization#three-way-content-merge). If any input exceeds the merge budget, reuse D's blob or deletion. A streamed read that crosses the budget aborts parsing and takes that same fallback; malformed small JSON returns an operation error and leaves the draft intact. The fallback does not bypass ordinary content-store size/format policy during later preparation.
+
+Create a merge commit with parents D and M, using the computed tree and metadata identifying M as the incorporated production commit. Update the draft ref non-forced. A competing ordinary append makes this fail; rerun against the fresh head with bounded retries. GitHub's ref update is not a general compare-and-swap with an expected-SHA argument: restrict managed branches to append-only Studio mutations, reconcile unexpected ref resets, and stop on divergent history rather than force it.
+
+If the ref update succeeds but Studio crashes before updating its database, recover the incorporated base and receipts from the reachable commit metadata. If a provider response is lost, first check whether that candidate commit is the head or an ancestor of the current head. Never repeat a mutation solely because an HTTP request timed out.
+
+The primitive `commitFiles` currently creates a single-parent commit; do not assume its existing rewrite mode supplies these merge semantics. Extend the provider contract and its tests before replacing automatic synchronization. Keep the old coding-session rebase flow isolated.
+
+## Publication and materialization sequence
+
+Publication freezes the head the editor confirmed, reconciles it with current production and applies only its content diff to production. If another editor saves meanwhile, preserve that later work as a subsequent draft; do not claim it was included in the confirmed publication. Follow branch protection and required checks, using a PR when needed.
+
+Schema compatibility and route diagnostics belong in `deco check` in CI. The current proposal does not add a second publish-time schema or route-ambiguity validator. Input syntax, operation limits, authorization, secret guards and snapshot integrity are still enforced. Successful preparation does not certify compatibility with every deployed build; code-first rollout and selecting a compatible rollback target remain operational requirements.
+
+```text
+prepare(site, commit):
+  pin commit; reuse cached Git trees/blobs where available
+  stream normalized entries into a canonical snapshot with byte limits
+  compute revision; upload immutable asset and verify integrity
+  record ready release and enqueue promotion intent
+  never update a channel from the ingestion worker itself
+```
+
+Webhook receipt acknowledges only after durable enqueue. Deduplicate by provider delivery ID, and deduplicate preparation by site/app root/commit/format. A slow reconciliation sweep finds missed commits. Use the latest reconciled production head, not webhook arrival order; when several commits arrive, preparing only the newest is acceptable. Studio-initiated commits can enqueue directly, with webhook deduplication handling the later duplicate.
+
+Define canonical content hashing once in Blocks and import it in the CLI and materializer: recursively sorted object keys, preserved array order, compact UTF-8 JSON with no trailing newline, and SHA-256 over the canonical `blocks` map. The format is versioned, and the snapshot envelope's revision is excluded from its own hash. Incremental materialization must produce the same bytes as the reference serializer; ship shared golden fixtures before allowing promotion. Reject values JSON cannot represent. Protocol request digests use a separate domain prefix and canonical request body.
+
+Use configured R2 storage and CDN as the initial deployment target; keep the asset contract portable. The control plane writes assets. The delivery gateway has only read access and locally verifies scoped credentials using deployed verification keys. It does not query Studio's database per request. Token rotation/revocation must have a documented bounded propagation policy; if revocation state is consulted, serve that state from the isolated storage plane too. Private caching always happens behind authorization and is scoped to site and format/revision.
+
+## Promotion, rollback and recovery
+
+Use a durable per-channel lane with expected generations and stored desired manifests. It owns the only credential allowed to write channel objects. Preparation workers cannot promote directly. Every deliberate publish/resume/rollback gets a new ordered intent; superseded preparation may finish and retain its asset but cannot promote.
+
+For an immutable ready target, store the next generation and desired manifest durably, then write the channel object and confirm it. The data plane considers the object authoritative. A lost storage-write response is reconciled by rereading the stored manifest. A retry of the same operation returns the same generation, rather than allocating another.
+
+Only one writer may perform channel writes at a time. A database lease alone cannot fence an expired worker's outstanding object-store upload. Use provider-supported conditional writes against the observed object ETag, or retain exclusive ownership until outstanding writes are settled. Confirm this behavior with the chosen storage API before implementation; do not ship a check-then-unconditional-put sequence. Stop promotion on an unresolved write instead of allowing two writers to race.
+
+Rollback uses this same lane with a retained ready target and sets mode to `held`. Recovery, webhook replay and periodic reconciliation must respect the hold. Explicit resume creates a new intent against the latest production observation. Record the delivery/Git mismatch and offer a separate Git revert; GitHub downtime does not block rollback.
+
+The SDK retains the greatest observed channel generation, discards stale asynchronous fetch completions, and accepts an older revision selected by a newer generation. In-flight page clients keep their original snapshot. Emit the cache-invalidation callback on generation changes even when content hashes repeat. Never silently substitute a branch head for a requested immutable preview revision.
+
+## Proposed initial defaults
+
+Keep these values in versioned configuration and expose protocol limits through `describe`. They are starting defaults for implementation and load testing, not a guarantee that raw JSON byte size equals heap usage. Changing a public limit requires updating this table and its acceptance tests.
+
+| Setting | Initial default |
+|---|---|
+| Property-merge input budget | 256 KiB for each of B/D/M; exceeding any one keeps the draft blob |
+| Conflicting files processed concurrently | 1 per job |
+| Synchronization jobs concurrently | 1 per worker process; scale worker replicas with a global job cap |
+| Worker memory / accumulated conflict-read budget | 512 MiB container; 32 MiB input bytes per attempt, then checkpoint and yield; monitor actual heap and RSS |
+| Protocol writes | 500 names, 1 MiB per entry, 8 MiB per request, 10 calls per batch |
+| Schema / block-list / aggregate batch response | 16 MiB / 16 MiB / 32 MiB uncompressed; error instead of truncation |
+| Prepared production snapshot | 8 MiB canonical block-map bytes; oversized historical sites need an explicit profiled tier before onboarding |
+| Save and lifecycle request receipts | 24 hours; uncertain requests older than that require reread/reconciliation |
+| External Git head-race retries | 3 attempts, jittered backoff; rate-limit responses wait for provider retry timing |
+| Editor activity heartbeat / active window | 30 seconds / 2 minutes; closed drafts stop background synchronization |
+| Hosted editor conditional fallback poll | 30 seconds and on focus; local protocol remains 2 seconds |
+| Repository reconciliation | Every 5 minutes for connected sites; bounded concurrency and provider-budget-aware backoff |
+| Channel manifest cache | At most 5 seconds; generation-based ETag, no negative caching |
+| Immutable revision cache | 1 year with immutable keys; authorize private access before using shared byte caches |
+| SDK release poll | 60 seconds with up to 10 seconds jitter, subject to the existing idle/Worker scheduling |
+| Rollback retention | 30 days minimum; always retain live channel targets and explicit pins |
+| Preview grants / discarded-draft cleanup | 1 hour grants; assets retained beyond every unexpired grant before cleanup |
+
+Track readiness lag, promotion lag, provider calls per active draft, merge fallback counts, job RSS, head retries and held channels. Test the 8 MiB runtime limit with fallback, old/new revisions and concurrent pinned readers on the target hosts before rollout. A parser or serializer can still have high allocation overhead below the byte limit; lower concurrency or limits based on measurements.
+
+The active-server propagation target at these defaults is preparation time plus up to roughly 75 seconds for manifest caching and polling/jitter, followed by any HTML cache delay. Scheduling and outages can extend it. Idle Workers have no elapsed-time guarantee until a request schedules refresh; their first response can serve the bundled fallback. Rollback follows the same rule.
+
+## Acceptance scenarios
+
+| Scenario | Required evidence |
+|---|---|
+| Editor opens a new project and saves | Internal branch created without branch UI; receipt returned only after committed files exist |
+| Main changes footer while draft changes title | Both edits appear; recorded base advances to the incorporated production commit |
+| Both change one title, array or deletion | Deterministic draft-wins result; audit identifies the automatic resolution |
+| Large conflicting block | Reuse draft blob without parsing it; unchanged blobs require no body downloads |
+| Missing size metadata or a stream crosses the limit | Read is bounded and switches to whole-draft-blob fallback, without partial writes |
+| Autosave races with synchronization on different replicas | Durable coordination plus head retry preserves edits; stale guards return conflict |
+| Save response lost, worker restarted | Same request key returns original commit/result; no duplicate mutation |
+| Git ref advanced, database update interrupted | Recover receipts and incorporated base from reachable commit metadata |
+| Managed branch was externally reset | Stop/reconcile explicitly; no force-push overwrite |
+| Webhook duplicated, missed or delivered out of order | Idempotent preparation and reconciliation; older events cannot regress production |
+| GitHub unavailable | Saving/preparation pause; prepared production assets and rollback continue serving |
+| Asset upload fails or is incomplete | Previous manifest stays live; missing reads never fetch GitHub |
+| Old job completes after rollback | Channel remains at the rollback generation in held mode |
+| Manifest write succeeds but response is lost | Retry reconciles the same generation; an expired writer cannot overwrite a newer one |
+| SDK revision B fetch finishes after rollback to A | The higher-generation A remains selected; in-flight pages may finish on their pinned B |
+| Old preview link used after another save | Exact old asset or documented unavailable fallback, never newer branch content |
+| Private asset requested without a valid grant | No shared-cache bypass; tenant scope checked before bytes are served |
+| Publish confirmed, then another save arrives | Confirmed content publishes; later save remains unpublished |
+| GC runs during rollback or preview use | Channel targets, pins, referenced uploads and unexpired grants survive |
+| Max-sized snapshot and simultaneous readers | Measured peak memory stays within the runtime budget; preparation cannot OOM the API |
+
+Run portable protocol conformance against the filesystem and GitHub adapters. Add focused integration tests for provider head races, durable recovery and object-store fencing, and E2E tests extending Fast Preview's existing Git-sync and decofile suites. Include SDK generation/cache tests; a happy-path editor demo alone does not establish these guarantees.
+
+## Rollout order
+
+1. Ship the shared protocol subpaths and golden hashing fixtures. Adapt existing Fast Preview reads/writes while keeping legacy routes during migration.
+2. Add durable draft IDs, operation lanes and recoverable receipts. Put automatic synchronization behind a dedicated default-off flag, then enable property merging and oversized fallback for managed content drafts.
+3. Add immutable production/draft materialization and a shadow delivery channel. Compare outputs with current control-plane reads without changing production traffic.
+4. Enable the isolated data plane for selected sites after cold-read, outage and memory tests. Keep the bundled last-good fallback; no data-plane GitHub fallback is allowed during rollout.
+5. Enable channel promotion, rollback/hold/resume and retention after race/recovery tests pass. Make save, preview-ready, Git-committed and promoted status visible in the editor.
+6. Remove migrated readers' dependence on the legacy branch-head endpoint; retain coding-session behavior and document rollback of the rollout itself.
+
+Track these phases in the [Studio and Deco API roadmap](/roadmap/platform). Implementation is complete when the acceptance scenarios pass, the deployed data plane cannot access GitHub, and operators can restore a retained release while GitHub and Studio's editing API are unavailable.

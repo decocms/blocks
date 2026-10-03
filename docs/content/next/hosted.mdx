@@ -61,6 +61,8 @@ export const cms = createCMS({
 
 The site ID isn't a secret; the token is, so keep it out of the repository. When either value is undefined, in development or in tests for example, the CMS reads `content` only, exactly like `createCMS({ blocks, content })`. So the same lines work everywhere, and a site keeps working if you disconnect it.
 
+**Local files win in development.** In your dev server, even with both values set (in `.env.local` or `.dev.vars`), ordinary requests read your local `.deco/blocks`, not the published release, so your edits and the site editor's saves through [`deco serve`](/next/site-editor#edit-on-your-machine) show up right away. A `?__draft=` link still loads that draft from the Deco API.
+
 `site` and `token` load releases and drafts, nothing else. Telemetry is separate and opt-in: it goes only where the [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) points, so pass the same two values there to use the hosted collector, or point it at your own collector instead. Drafts need a few lines of wiring in your app; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app). How often servers check for a release is the `interval` option of `createCMS`; see [Check interval](/next/hosted-publishing#check-interval).
 
 ### Next.js

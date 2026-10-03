@@ -84,7 +84,7 @@ The options:
 deco check [--root <dir>]
 ```
 
-`deco check` reads `.deco/schema.gen.json` and `.deco/blocks` as they are, writes nothing, and validates every saved block against that schema. It doesn't generate the schema or load your TypeScript, so run `deco schema` first: `deco schema && deco check`. It exits with 0 when everything fits, and with 1 otherwise, listing the problems per file. What it checks, and how to run it on every pull request, is in [Checking content](/next/checking).
+`deco check` reads `.deco/schema.gen.json` and `.deco/blocks` as they are, writes nothing, and validates every saved block against that schema. It doesn't generate the schema or load your TypeScript, so run `deco schema` first: `deco schema && deco check`. It exits with 0 when everything fits, and with 1 otherwise, listing the problems per file. Warnings are listed but don't change the exit code. What it checks, and how to run it on every pull request, is in [Checking content](/next/checking).
 
 ## `deco serve`
 
@@ -92,7 +92,7 @@ deco check [--root <dir>]
 deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--token <t>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]
 ```
 
-`deco serve` is the local server the site editor uses to edit the files on your machine, over the [content protocol](/next/content-protocol): it reads and writes `.deco/blocks`, reads `.deco/schema.gen.json`, and accepts uploads into `.deco/assets/` (or `--assets`). It tells the site editor which root it serves through the content protocol's `describe`. The flow is in [Edit on your machine](/next/site-editor#edit-on-your-machine). It takes:
+`deco serve` is the local server the site editor uses to edit the files on your machine, over the [content protocol](/next/content-protocol): it reads and writes `.deco/blocks`, reads `.deco/schema.gen.json`, and accepts uploads into `public/assets/` (or `--assets`). It tells the site editor which root it serves through the content protocol's `describe`. The flow is in [Edit on your machine](/next/site-editor#edit-on-your-machine). It takes:
 
 - `--root <dir>`: the folder that contains `.deco/`, such as `apps/storefront` in a monorepo. By default, it walks up from the current folder to the first folder with a `.deco/`, like every command.
 - `--port <n>`: the port to listen on (default 4545).
@@ -100,5 +100,5 @@ deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--toke
 - `--app-url <url>`: your dev app, which the site editor's canvas opens. By default, the port from your Vite config, else `http://localhost:5173`.
 - `--token <t>`: a fixed token instead of a random one per run (or `DECO_SERVE_TOKEN`).
 - `--allow-origin <origin>`: another browser origin allowed to call the server, besides the site editor's (repeatable).
-- `--assets <dir>`: the folder the site editor's uploads are written to, relative to the folder that contains `.deco` (default `.deco/assets`). The field always stores `/assets/<name>`, whatever this folder is, so point it at a folder your app serves at `/assets/`, such as `public/assets`; see [Images and other uploads](/next/site-editor#images-and-other-uploads).
+- `--assets <dir>`: the folder the site editor's uploads are written to, relative to the folder that contains `.deco` (default `public/assets`). The field always stores `/assets/<name>`, whatever this folder is, so a folder you pass must be served at `/assets/`; see [Images and other uploads](/next/site-editor#images-and-other-uploads).
 - `--read-only`: serve the content without accepting writes or uploads.

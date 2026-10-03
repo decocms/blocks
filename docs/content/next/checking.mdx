@@ -22,6 +22,9 @@ This page shows what `deco check` checks, how to run it before every build, and 
 - A [`Lazy<T>` field](/next/lazy-blocks#lazyt-props) holds a `lazy` block, and a `lazy` block appears only in a `Lazy<T>` field.
 - No saved block has the name of a block type, a built-in or an alias (see [Names](/next/saved-blocks#names)).
 - No two entries can match the same URL (see [Match order](/next/routing#path-templates-and-match-order)).
+- Each [`secret` block](/next/built-in-blocks#secrets) holds a well-formed `ciphertext`. It can't decrypt it, so it needs no key.
+
+It also warns about content that works but is probably a mistake: a [variant](/next/matchers-and-variants#variants) after an `always` rule, which can never be picked. Warnings are listed but don't fail the check.
 
 It doesn't generate the schema or load your TypeScript. Run `deco schema` first, so the schema matches your code:
 
@@ -31,7 +34,7 @@ npx @decocms/blocks schema && npx @decocms/blocks check
 
 Because it checks the content itself, it catches both directions: a code change that breaks saved content, and content that uses a block type or field your code doesn't have. It runs on content-only changes too (from you, an AI agent or [the site editor](/next/site-editor)), and works the same on your machine as in CI.
 
-When everything fits, it exits with 0. Otherwise it lists the problems per file and exits with 1:
+When everything fits (warnings aside), it exits with 0. Otherwise it lists the problems per file and exits with 1:
 
 ```text
 .deco/blocks/HomePage.json
@@ -70,13 +73,13 @@ jobs:
       - run: git diff --exit-code -- .deco/schema.gen.json
 ```
 
-The last step fails if the committed `schema.gen.json` is out of date, which matters because the site editor reads the schema committed on the branch it edits.
+The last step fails if the committed `schema.gen.json` is out of date, which matters because the site editor reads the schema committed on the branch it edits when it edits a draft on GitHub.
 
 In a monorepo, pass `--root` to both commands (`npx @decocms/blocks schema --root apps/storefront && npx @decocms/blocks check --root apps/storefront`) and diff `apps/storefront/.deco/schema.gen.json`.
 
 Two pull requests can each pass on their own and break together. To catch that at pull-request time instead of at build time, turn on "Require branches to be up to date before merging" in your branch protection, or use a merge queue.
 
-To rename a field, add the new one, move the content over, then remove the old one.
+To rename a field, add the new one, move the content over, then remove the old one. The site editor keeps only the fields the schema has, so saving a block drops any field your types no longer declare.
 
 <Hosted to="/next/hosted-publishing#keep-running-code-compatible" label="Keep running code compatible">**Publishing without a deploy adds a direction.** With the hosted Deco CMS, new content reaches code that's already running without an application deploy, so that code must also accept content published after it shipped.</Hosted>
 

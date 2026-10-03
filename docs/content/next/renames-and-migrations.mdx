@@ -12,7 +12,7 @@ Your v7 store's saved pages refer to blocks like `site/sections/Product.tsx`, an
 
 Saved content refers to your code by name: every block stores a type name in [`__resolveType`](/next/blocks#functions-as-blocks), references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content.
 
-This page shows how to keep old names working with aliases, what to do with v7 loaders and actions, what replaces v7's telemetry and analytics, and a [checklist for moving content](#checklist-for-migrating-existing-content).
+This page shows how to keep old names working with aliases, what to do with v7 loaders and actions, what replaces v7's telemetry and analytics, how secrets move over, and a [checklist for moving content](#checklist-for-migrating-existing-content).
 
 <h2 id="rename-a-type-with-an-alias">Rename a block type</h2>
 
@@ -59,6 +59,16 @@ v7 configured telemetry with environment variables and shipped its analytics as 
 | The OpenTelemetry export, switched on with `DECO_OTEL` and the `DECO_OTEL_*` endpoint and header variables (see [v7 observability](/v7/observability)) | The [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) of `createCMS`: `{ endpoint, headers? }` for your own collector, or the standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` variables. Sampling moves to the [Telemetry saved block](/next/telemetry#telemetry-settings-are-content). |
 | Metrics Deco collected for your site in its own backend | `telemetry: { site, token }`, set explicitly (see [Hosted telemetry](/next/hosted-telemetry)) |
 | The `Stats` and `OneDollarStats` components, and the `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` variables | A saved block of the built-in [`analytics`](/next/analytics) type, which speaks the [One Dollar Stats](/next/analytics#one-dollar-stats) format. Rendering `AnalyticsScript` with it turns it on; its `enabled` field switches it off. |
+| The `Analytics` section with Google Tag Manager and GA4 tags | A tag manager block from your [platform template](/next/how-it-works#key-terms), owned by your site; the migration moves the tag IDs into it. The built-in `analytics` block only counts page views, so it doesn't take them. |
+| Experiment results keyed on the random matcher's saved-block name | The `experiment` ID of the [A/B test](/next/matchers-and-variants#run-an-a-b-test); the migration copies the old name into it, so results carry over. |
+
+<h2 id="secrets">Secrets</h2>
+
+v7 saved credentials as `website/loaders/secret.ts` blocks, encrypted with the `DECO_CRYPTO_KEY` environment variable. The next major uses a key pair instead (see [Secrets](/next/built-in-blocks#secrets)), so the migration re-encrypts each secret once:
+
+1. [Create the key pair](/next/built-in-blocks#create-the-keys) and commit `.deco/secrets.pub`.
+2. Run the migration with `DECO_CRYPTO_KEY` set. It decrypts each v7 secret and saves it as a `secret` block encrypted with your public key, in the same commit as the rest of the content.
+3. Deploy with `DECO_SECRETS_KEY` set, then remove `DECO_CRYPTO_KEY`.
 
 ## Checklist for migrating existing content
 

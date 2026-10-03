@@ -60,7 +60,7 @@ Coordinate saves, synchronization, discard and publication using durable per-dra
 
 This policy is separate from two editors saving the same block. The first version may keep last-writer-wins autosave; clients that send `ifMatch` get an explicit conflict if synchronization or another editor changed the block. Preserve unsaved form state and show that newer stored content is available instead of silently replacing what the editor is typing.
 
-Validate the merged content before committing. Automatic conflict resolution is not proof that references and routes are valid. A failed synchronization leaves the draft intact and blocks publishing with a useful error.
+Parse the merged content before committing: every file must still be valid JSON. Synchronization doesn't check content against the schema, and neither does publishing; references and routes are checked by `deco check` in CI. A failed synchronization leaves the draft intact and blocks publishing with a useful error.
 
 ## What the editor sees
 

@@ -41,7 +41,7 @@ interface Route {
 
 /** The built-in `page` block: a route with SEO and a list of blocks. */
 interface Page extends Route {
-  seo: Seo;
+  seo?: Seo;           // optional: without it, your site's SEO defaults apply
   sections: ReactNode[];
 }
 
@@ -50,10 +50,12 @@ interface Redirect {
   from: string;        // literal or template
   to: string;
   permanent: boolean;  // 301 or 302
+  status?: 301 | 302 | 307 | 308;     // wins over permanent
+  discardQueryParameters?: boolean;   // drop the request's query string instead of carrying it over
 }
 ```
 
-A page's fields are typed as what it receives, already resolved: a `Seo` object and a list of rendered blocks ([how the site editor fills them](/next/schema#from-types-to-forms)). In the saved JSON, `seo` is a block and `sections` is a list of blocks:
+A page's fields are typed as what it receives, already resolved: a `Seo` object and a list of rendered blocks. A page saved without `seo` gets `undefined` there, and your app falls back to its site-wide title and description ([how the site editor fills them](/next/schema#from-types-to-forms)). In the saved JSON, `seo` is a block and `sections` is a list of blocks:
 
 ```json title=".deco/blocks/SummerPage.json"
 {
@@ -129,7 +131,7 @@ Mount this handler as your app's catch-all route, the one that runs when no othe
 | `kind` | Fields |
 |---|---|
 | `"match"` | `entry` (the stored route you passed in) and `params` from the path template. |
-| `"redirect"` | `location` with parameters filled in, and `status` (`301` or `302`). |
+| `"redirect"` | `location` with parameters filled in and the request's query string carried over (unless the redirect sets `discardQueryParameters`), and `status`: the redirect's `status`, else `301` or `302` from `permanent`. |
 | `"not-found"` | None |
 
 <Callout>**`matchRoute` is a helper, not a requirement.** Deco CMS has no idea what a URL is. If your framework already routes, or you'd rather open a page by name (`client.resolve("SummerPage")` returns it ready to render), skip it. It exists because "an editor typed a path and that page is now live" is the common case, and getting precedence and parameters right by hand is tedious.</Callout>
@@ -209,12 +211,12 @@ export type BlockDescriptor =
 
 // A saved page, as client.list returns it by default (nothing run): seo and sections are still JSON.
 export interface StoredPage extends Route {
-  seo: Seo | Block;
+  seo?: Seo | Block;
   sections: Block[] | Block;   // a list of blocks, or one multivariate block that picks a whole list
 }
 
 // What client.resolve returns for a page: seo and every block in sections resolved.
-export interface ResolvedPage<T> extends Route { seo: Seo; sections: T[]; }
+export interface ResolvedPage<T> extends Route { seo?: Seo; sections: T[]; }
 ```
 
 - `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)).

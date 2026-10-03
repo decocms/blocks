@@ -63,7 +63,7 @@ Telemetry is one more `createCMS` option, off until you say where it goes, such 
 
 ## 3. Match the URL to a page
 
-This helper is shared by both TanStack guides. It resolves each block separately rather than calling [`c.resolve(page)`](/next/api-reference#client-resolve-target-options), so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to the value, or to `null` if the block failed, so no internal error details reach the browser. If an editor gave the whole `sections` list [variants](/next/matchers-and-variants), it's one `multivariate` block that resolves to a list (`T[]`), so it streams as one.
+This helper is shared by both TanStack guides. It resolves each block separately rather than calling [`c.resolve(page)`](/next/api-reference#client-resolve-target-options), so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to `{ value, failed }`: `failed` is `true` if the block failed, so no internal error details reach the browser, and `value` is `undefined` for a [hidden](/next/matchers-and-variants#hide-a-block) block. If an editor gave the whole `sections` list [variants](/next/matchers-and-variants), it's one `multivariate` block that resolves to a list (`T[]`), so it streams as one.
 
 ```ts title="src/open-page.server.ts"
 import { notFound, redirect } from "@tanstack/react-router";
@@ -87,14 +87,14 @@ export async function openPage<T>(href: string, request: Request) {
   const sections = Array.isArray(page.sections) ? page.sections : [page.sections];
   const blocks = sections.map((block, index) => ({
     key: `${href}:${index}`,
-    value: c.resolve<T | T[]>(block).then(([value, blockError]) => {
+    value: c.resolve<T | T[] | undefined>(block).then(([value, blockError]) => {
       if (blockError) console.error(blockError);
-      return value;
+      return { value: value ?? undefined, failed: blockError !== null };
     }),
   }));
 
   // Every block has started before SEO is awaited.
-  const [seo, seoError] = await c.resolve<Seo>(page.seo);
+  const [seo, seoError] = await c.resolve<Seo | undefined>(page.seo);   // undefined when the page has no seo
   if (seoError) throw seoError;
   return { seo, blocks };
 }
@@ -140,7 +140,7 @@ function View({ block }: { block: BlockDescriptor | BlockDescriptor[] }) {
 export const Route = createFileRoute("/$")({
   loader: ({ location }) => loadPage({ data: { href: location.pathname + location.searchStr } }),
   head: ({ loaderData }) => ({
-    meta: loaderData
+    meta: loaderData?.seo   // without seo, the root route's defaults apply
       ? [{ title: loaderData.seo.title }, { name: "description", content: loaderData.seo.description }]
       : [],
   }),
@@ -156,9 +156,9 @@ function Page() {
       {page.blocks.map((block) => (
         <Suspense key={block.key} fallback={<p>Loading…</p>}>
           <Await promise={block.value}>
-            {(data) => {
-              if (!data) return <p role="status">This content is temporarily unavailable.</p>;
-              return <View block={data} />;
+            {({ value, failed }) => {
+              if (failed) return <p role="status">This content is temporarily unavailable.</p>;
+              return value ? <View block={value} /> : null;   // undefined when an editor hid the block
             }}
           </Await>
         </Suspense>

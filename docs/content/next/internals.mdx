@@ -54,15 +54,14 @@ The check is only as accurate as the schema, so `deco schema`'s translation of t
 
 ## Contributing
 
-The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Five core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. One of the five, `@decocms/blocks-protocol`, holds the [content protocol](/next/content-protocol); it depends on no other Deco package, and the `cli` subpath of `@decocms/blocks` uses it (the runtime never imports it). The core packages depend on each other in one direction only:
+The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). Four core packages make up the framework; the other folders under `packages/`, such as `apps-*`, are [upstream clients](/next/upstream-clients) for commerce and other services, built on top of them. The [content protocol](/next/content-protocol) lives inside `@decocms/blocks`, as its `protocol` subpath; the `cli` subpath uses it, and the runtime never imports it. The core packages depend on each other in one direction only:
 
 ```text
 packages/
 ├── blocks/          @decocms/blocks           the SDK: loaders, client, resolution, router,
-│                                              plus the deco CLI (the cli subpath).
-│                                              The runtime depends on no other @decocms package;
-│                                              the cli subpath depends on: @decocms/blocks-protocol
-├── blocks-protocol/ @decocms/blocks-protocol  the content protocol the site editor and deco serve speak.
+│                                              plus the deco CLI (the cli subpath) and the content
+│                                              protocol the site editor and deco serve speak
+│                                              (the protocol subpath).
 │                                              depends on no other @decocms package
 ├── blocks-admin/    @decocms/blocks-admin     the legacy HTTP endpoints the site editor calls on 7.x sites.
 │                                              depends on: @decocms/blocks

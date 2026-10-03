@@ -103,7 +103,7 @@ const [card, error] = await client.resolve({
 // card = <ProductCard title="Summer collection" product={{ name: "Summer shirt", … }} />
 ```
 
-`resolve` never throws: it returns `[value, null]`, or `[null, error]` if something failed. It accepts any JSON value, not only a block: blocks anywhere inside are resolved, and everything else comes back as it is. Pass an array of blocks and you get an array of results.
+`resolve` never throws: it returns `[value, null]`, or `[null, error]` if something failed. It accepts any JSON value, not only a block: blocks anywhere inside are resolved, and everything else comes back as it is. Pass an array of blocks and you get an array of results. A block that resolves to `undefined`, such as one an editor [hid](/next/matchers-and-variants#hide-a-block), is left out of the array.
 
 ## The block map
 
@@ -126,7 +126,7 @@ The block map is the default export of `.deco/index.ts` (or `.deco/index.tsx`), 
 
 Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. `satisfies Blocks` checks the map's shape while keeping each function's exact argument and return types (see [`Blocks`](/next/api-reference#types)).
 
-You don't list pages, redirects or the if/else blocks: nine [built-in blocks](/next/built-in-blocks) are added for you.
+You don't list pages, redirects or the if/else blocks: ten [built-in blocks](/next/built-in-blocks) are added for you.
 
 ## The lookup rule
 
