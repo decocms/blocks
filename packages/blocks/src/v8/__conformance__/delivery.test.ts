@@ -12,13 +12,13 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as root from "../../index";
 import { computeContentRevision } from "../../protocol/canonical";
+import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
 import {
   createCMS,
   DRAFT_COOKIE,
   draftCookie,
   draftPointer,
   formatDraftPointer,
-  HOSTED_ANALYTICS_COLLECTOR,
   matchRoute,
   parseDraftPointer,
   remoteLoader,
@@ -181,7 +181,8 @@ describe("content-delivery", () => {
     const cli = fs.readFileSync(path.join(HERE, "../cli/content.ts"), "utf8");
     const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
     const shared =
-      /import \{[^}]*\bcomputeContentRevision\b[^}]*\} from "[./]+protocol\/canonical"/;
+      // remoteLoader imports the SDK's leaf module; the CLI may go through the protocol's re-export.
+      /import \{[^}]*\bcomputeContentRevision\b[^}]*\} from "[./]+(protocol\/)?canonical"/;
     expect(cli).toMatch(shared);
     expect(sdk).toMatch(shared);
   });

@@ -13,7 +13,7 @@
  * message ever includes the key or a decrypted value. `{ run: false }` and
  * `client.list` never run functions, so they return the ciphertext as saved.
  */
-import { parseCiphertext } from "../../protocol/ciphertext";
+import { parseCiphertext } from "../ciphertext";
 import type { BlockFunction } from "../types";
 
 /** True in a browser, where a secret must never be decrypted. */

@@ -5,7 +5,7 @@
  * background check follows the channel manifest, drafts are fetched exactly.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { computeContentRevision } from "../protocol/canonical";
+import { computeContentRevision } from "./canonical";
 import { createCMS, resetForTests } from "./cms";
 import { remoteLoader } from "./remoteLoader";
 import { docsBlocks, docsSnapshot } from "./testFixtures";

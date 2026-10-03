@@ -1882,18 +1882,27 @@ describe("content-protocol.mdx", () => {
       /from "[./]*protocol\//.test(fs.readFileSync(path.join(PKG, "src/v8", f), "utf8")),
     );
     expect(offenders).toEqual([]);
+    const SHARED_LEAVES = ["canonical", "ciphertext"].map((m) => path.join(PKG, "src/v8", m));
+    for (const leaf of SHARED_LEAVES) {
+      expect(fs.readFileSync(`${leaf}.ts`, "utf8"), leaf).not.toMatch(/^import /m);
+    }
     const protocolFiles = fs
       .readdirSync(path.join(PKG, "src/protocol"), { recursive: true, encoding: "utf8" })
       .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes("__tests__"));
     for (const f of protocolFiles) {
-      const src = fs.readFileSync(path.join(PKG, "src/protocol", f), "utf8");
-      for (const m of src.matchAll(/(?:from|import\()\s*"([^"]+)"/g)) {
-        const spec = m[1];
+      // Code only: doc comments show consumers' imports (vitest, the subpath).
+      const src = fs
+        .readFileSync(path.join(PKG, "src/protocol", f), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const m of src.matchAll(/(?:^|[\s}])from\s+"([^"]+)"|import\(\s*"([^"]+)"/gm)) {
+        const spec = m[1] ?? m[2];
         if (spec.startsWith(".")) {
-          expect(
-            path.resolve(path.dirname(path.join(PKG, "src/protocol", f)), spec),
-            `${f}: ${spec}`,
-          ).toContain(path.join(PKG, "src/protocol"));
+          const target = path.resolve(path.dirname(path.join(PKG, "src/protocol", f)), spec);
+          // The canonical hash and the ciphertext format are the SDK's own
+          // dependency-free leaf modules (no imports at all); the protocol
+          // re-exports them rather than keep a second copy.
+          if (SHARED_LEAVES.includes(target)) continue;
+          expect(target, `${f}: ${spec}`).toContain(path.join(PKG, "src/protocol"));
           continue;
         }
         const ok = spec === "zod" || (spec.startsWith("node:") && f.startsWith("storage/fs/"));

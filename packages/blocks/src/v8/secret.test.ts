@@ -1,8 +1,8 @@
 // @vitest-environment node
 /** The built-in `secret` block and `encryptSecret` (built-in-blocks.mdx#secrets, api-reference#secrets). */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { publicKeyPemFromDer } from "../protocol/ciphertext";
 import { isSecretBlock } from "../protocol/secrets";
+import { publicKeyPemFromDer } from "./ciphertext";
 import { createCMS, resetForTests } from "./cms";
 import { encryptSecret } from "./secrets";
 import type { Block, Blocks, Snapshot } from "./types";

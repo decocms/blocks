@@ -18,7 +18,7 @@
  *
  * Instances are process-wide singletons, like `createCMS`'s.
  */
-import { computeContentRevision } from "../protocol/canonical";
+import { computeContentRevision } from "./canonical";
 import { isSnapshot } from "./content";
 import { parseDraftPointer } from "./draft";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity";
