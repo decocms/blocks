@@ -241,7 +241,7 @@ export function vendorModule(
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.writeFileSync(
         dest,
-        `// Vendored from ${app.packageName} (${origin}) by @decocms/blocks-migrate. It's your code now.\n${text}`,
+        `// Vendored from ${app.packageName} (${origin}) by the deco-v7-to-v8-migration skill. It's your code now.\n${text}`,
       );
     }
   }

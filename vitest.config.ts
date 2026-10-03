@@ -13,6 +13,7 @@ export default defineConfig({
       "packages/*/src/**/*.test.{ts,tsx,js}",
       "packages/blocks-cli/scripts/**/*.test.ts",
       "tests/**/*.test.ts",
+      ".agents/skills/*/scripts/**/*.test.ts",
     ],
     globals: true,
   },

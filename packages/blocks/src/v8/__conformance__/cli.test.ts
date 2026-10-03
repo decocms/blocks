@@ -2188,8 +2188,8 @@ export default { page } satisfies Blocks;
     expect(ran).toEqual(["chosen"]);
   });
 
-  it("sc-17: blocks-migrate re-encrypts v7 secrets", () => {
-    const dir = path.join(REPO, "packages/blocks-migrate/src");
+  it("sc-17: the v7-to-v8 migration re-encrypts v7 secrets", () => {
+    const dir = path.join(REPO, ".agents/skills/deco-v7-to-v8-migration/scripts");
     const all = fs
       .readdirSync(dir, { recursive: true, encoding: "utf8" })
       .filter((f) => /\.ts$/.test(f) && !/\.test\./.test(f))

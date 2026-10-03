@@ -252,7 +252,7 @@ describe("imports", () => {
 
 describe("the codemod's list of the root's next-major exports", () => {
   it("matches what @decocms/blocks exports from its next-major core", () => {
-    const index = fs.readFileSync(path.resolve(__dirname, "../../blocks/src/index.ts"), "utf8");
+    const index = fs.readFileSync(path.resolve(__dirname, "../../../../packages/blocks/src/index.ts"), "utf8");
     const block = /export \{([^}]*)\} from "\.\/v8\/index";/.exec(index)?.[1] ?? "";
     const names = block
       .split(",")

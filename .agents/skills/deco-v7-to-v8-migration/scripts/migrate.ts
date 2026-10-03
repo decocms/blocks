@@ -1,5 +1,5 @@
 /**
- * `blocks-migrate`: moves a v7 site to the next major in one pass (spec:
+ * `migrate`: moves a v7 site to the next major in one pass (spec:
  * renames-and-migrations › Migrating from v7). The steps, in order:
  *
  * 1. content: saved blocks in `.deco/blocks`, v7 generated files removed,

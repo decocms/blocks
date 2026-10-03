@@ -1,9 +1,9 @@
-/** The `blocks-migrate` bin's entry. */
+/** The migration's command line: `bun scripts/main.ts` (or `npx tsx scripts/main.ts`). */
 import { parseArgs } from "node:util";
 import { migrate } from "./migrate";
 import { formatReport } from "./report";
 
-const USAGE = `Usage: blocks-migrate [--root <dir>] [--decofile <file>]
+const USAGE = `Usage: bun scripts/main.ts [--root <dir>] [--decofile <file>]
 
 Migrates a v7 Deco site to the next major, in place, and prints what is left
 to do. Run it on a clean working tree with DECO_CRYPTO_KEY set and

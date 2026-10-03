@@ -25,7 +25,7 @@ import { isPlainObject, type JsonObject } from "../json";
  * (/next/studio-compatibility#well-known-types-and-the-alias-table); other
  * legacy names (`$live/…`, the per-kind multivariate files, the date
  * matcher) are rewritten to these by the one-time migration
- * (`@decocms/blocks-migrate`), and types with no built-in counterpart are
+ * (the `deco-v7-to-v8-migration` skill), and types with no built-in counterpart are
  * left to the site's block map.
  */
 export const LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
