@@ -19,6 +19,7 @@
 		"./cms/loadDecofileDirectory": "./src/cms/loadDecofileDirectory.ts",
 		"./hooks": "./src/hooks/index.ts",
 		"./preview": "./src/preview/index.ts",
+		"./protocol/keys": "./src/protocol/keys.ts",
 		"./types": "./src/types/index.ts",
 		"./types/widgets": "./src/types/widgets.ts",
 		"./setup": "./src/setup.ts",
