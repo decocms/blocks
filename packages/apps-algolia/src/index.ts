@@ -19,14 +19,11 @@ export interface AlgoliaClientConfig {
   apiKey: string;
 }
 
-/** Search parameters, as the REST API names them (`query`, `hitsPerPage`, `filters`, ...). */
-export interface AlgoliaSearchParams {
+/** One query: the index plus search parameters as the REST API names them (`query`, `hitsPerPage`, `filters`, ...). */
+export interface AlgoliaSearchRequest {
+  indexName: string;
   query?: string;
   [param: string]: unknown;
-}
-
-export interface AlgoliaSearchRequest extends AlgoliaSearchParams {
-  indexName: string;
 }
 
 export type AlgoliaHit<T> = T & { objectID: string; [field: string]: unknown };
@@ -59,6 +56,9 @@ export function createAlgoliaClient(
   config: AlgoliaClientConfig,
   options: { fetch?: typeof fetch } = {},
 ) {
+  // The id becomes part of the host; reject anything that could redirect the API key elsewhere.
+  if (!/^[A-Za-z0-9]+$/.test(config.applicationId))
+    throw new Error("algolia: invalid applicationId");
   const request = createInstrumentedFetch({ provider: "algolia", fetch: options.fetch });
   const host = `https://${config.applicationId}-dsn.algolia.net`;
 
@@ -83,14 +83,6 @@ export function createAlgoliaClient(
       requests: AlgoliaSearchRequest[],
     ): Promise<{ results: AlgoliaSearchResponse<T>[] }> {
       return post("search", "/1/indexes/*/queries", { requests });
-    },
-
-    /** Runs one query on one index. */
-    searchSingleIndex<T = Record<string, unknown>>(
-      indexName: string,
-      params: AlgoliaSearchParams = {},
-    ): Promise<AlgoliaSearchResponse<T>> {
-      return post("searchSingleIndex", `/1/indexes/${encodeURIComponent(indexName)}/query`, params);
     },
   };
 }

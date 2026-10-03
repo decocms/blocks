@@ -36,27 +36,20 @@ describe("createAlgoliaClient", () => {
     });
   });
 
-  it("searchSingleIndex posts the params to the index's query endpoint", async () => {
-    const fetch = fakeFetch(200, { hits: [], nbHits: 0 });
-    const algolia = createAlgoliaClient(config, { fetch });
-
-    await algolia.searchSingleIndex("products price/asc", { query: "shirt" });
-
-    const [url, init] = fetch.mock.calls[0];
-    expect(String(url)).toBe(
-      "https://APPID-dsn.algolia.net/1/indexes/products%20price%2Fasc/query",
-    );
-    expect(JSON.parse(String(init?.body))).toEqual({ query: "shirt" });
+  it("rejects an applicationId that would change the host the key is sent to", () => {
+    expect(() =>
+      createAlgoliaClient({ applicationId: "evil.example/#", apiKey: "search-key" }),
+    ).toThrow("invalid applicationId");
   });
 
   it("throws the operation and status, never the body or the key", async () => {
     const fetch = fakeFetch(403, { message: "Invalid API key search-key" });
     const algolia = createAlgoliaClient(config, { fetch });
 
-    const error = await algolia.searchSingleIndex("products").catch((e: unknown) => e);
+    const error = await algolia.search([{ indexName: "products" }]).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(AlgoliaError);
-    expect(error).toMatchObject({ operation: "searchSingleIndex", status: 403 });
+    expect(error).toMatchObject({ operation: "search", status: 403 });
     expect((error as Error).message).not.toContain("search-key");
   });
 
