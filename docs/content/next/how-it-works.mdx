@@ -10,9 +10,9 @@ order: 1
 
 <Callout>**Status.** The next version of Deco is being designed in the open: the API on these pages is proposed and not released yet. The [Roadmap](/roadmap) lists what's left.</Callout>
 
-Most of what changes on a website isn't code. It's the values the code is called with: a headline, a banner image, the share of visitors who see the new checkout. **Deco CMS** is a full suite of open-source libraries, CLIs and services that let you write your code so that marketers can tweak and evolve those values in a rich site editor.
+Most of what changes on a website isn't code. It's the values the code is called with: a headline, a banner image, the share of visitors who see the new checkout. **Deco CMS** is a Git-based CMS with a full suite of open-source libraries, CLIs and services that let you write your code so that marketers can tweak and evolve those values in a rich site editor.
 
-Deco CMS is Git-based by default, and it takes an opinionated approach to [releases and drafts](/next/releases-and-drafts), [campaign scheduling](/next/matchers-and-variants), [telemetry](/next/telemetry) and [analytics](/next/analytics). A [CLI](/next/cli) supports each of them, and [Studio](/next/studio), the site editor, has them built in, whether you run it on your machine or use the [hosted Deco CMS](/next/hosted).
+Deco CMS has opinions on how [releases and drafts](/next/releases-and-drafts), [campaign scheduling](/next/matchers-and-variants), [telemetry](/next/telemetry) and [analytics](/next/analytics) should work. A [CLI](/next/cli) supports each of them, and [Studio](/next/studio), the site editor, has them built in, whether you run it on your machine or use the [hosted Deco CMS](/next/hosted).
 
 Deco CMS is powered by a syntax called [Blocks](/next/blocks). Blocks serializes function calls as JSON, so the way your code calls its functions becomes editable. For example, the call `PromoBanner({ title: "Free shipping over $50" })` is saved as `{ "__resolveType": "promo-banner", "title": "Free shipping over $50" }`, where `promo-banner` is the name your site gives `PromoBanner`.
 
