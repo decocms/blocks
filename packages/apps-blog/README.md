@@ -13,7 +13,7 @@ In the next major a blog is content plus code the site owns:
 | `createBlogLoaders` and the `blog/loaders/*.ts` keys | Data-only blocks (`const post = (props: Post) => props`) in the template's block map. The `blog/loaders/*.ts` names stored by v7 content are registered as aliases, or as converter functions where the old shape differs, and loaders the site used are vendored under their old keys by the migration. |
 | `blog/sections/blocks/*.tsx` (post body blocks) | Data-only blocks plus a renderer in the template. |
 | `sections/Seo/SeoBlogPost*.tsx` | SEO helpers in the template. |
-| Ratings, reviews and view-count actions | Site code: server functions or route handlers. |
+| Ratings, reviews and view-count actions, and the `loaders/extensions/*` ratings/reviews loaders | Site code (see *Migrating from v7*, loaders and actions). |
 
 See the next-major docs: *Data-only blocks* (schema), `client.list` (API
 reference), *Pages and routing*, and *Migrating from v7*.
