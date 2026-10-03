@@ -47,7 +47,7 @@ As blocks, the code above is analogous to this content, which editors can change
 }
 ```
 
-`multivariate` is a [built-in block](/next/blocks#built-in-blocks). It evaluates each variant's `rule` in order and returns the `value` of the first one that's `true`. Each rule is a **matcher**: a block function that returns `true` or `false`, such as the built-in `date` and `always`. Each piece of the code version has a block:
+`multivariate` is a [built-in block](/next/blocks#built-in-blocks). It evaluates each variant's `rule` in order and returns the `value` of the first one that's `true`. Each rule is a block that returns `true` or `false`, such as the built-in `date` and `always`. Each piece of the code version has a block:
 
 | In code | As blocks |
 | --- | --- |
@@ -73,9 +73,16 @@ The fix is a [lazy block](/next/blocks#lazy-blocks). Wrapped in `lazy`, a value 
 
 That's why `multivariate` takes lazy values, and why saved variants always carry the wrapper (`deco check` flags a value without it). Rules stay eager: they're cheap booleans.
 
-### In Studio
+### Matchers: conditions for the marketing team
 
-Each variant is a tab. An editor schedules the same campaign there: add a variant, pick `date` as its rule, fill in `start` and `end`, type the campaign title as its value, and keep the `always` tab last. Editors just type the value; Studio writes the `lazy` block around it.
+A block function that returns `true` or `false` is a **matcher**. Matchers are what make variants usable without code: Studio lists every matcher in your block map in each variant's rule picker, so the marketing team builds conditions by picking from a list and filling a short form. `date` is one; you can add your own, such as:
+
+- **Temperature**: `true` when it's above a given temperature where the visitor is, to promote cold drinks on hot days.
+- **Birthday**: `true` during a signed-in customer's birthday week, to show a gift.
+- **Cart value**: `true` when the cart is over an amount, to offer free shipping.
+- **Loyalty tier**: `true` for gold members, to show early access.
+
+In Studio, each variant is a tab. An editor schedules the Black Friday campaign by adding a variant, picking `date` as its rule, filling in `start` and `end`, typing the campaign title as its value, and keeping the `always` tab last. Editors just type the value; Studio writes the `lazy` block around it. [Write your own matcher](#write-your-own-matcher) shows how to add one.
 
 Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
 
@@ -107,7 +114,7 @@ A scheduled campaign is a change to content files, so it's checked like any othe
 
 ## Write your own matcher
 
-In code, a weekend title would be one more condition, like `today === "Sat" || today === "Sun"`. As a block, you move that condition into a function. Any block function that returns a `boolean` is a matcher. This one is `true` on the days of the week you pick, in your store's time zone:
+In code, a weekend title would be one more condition, like `today === "Sat" || today === "Sun"`. As a matcher, that condition moves into a function that returns a `boolean`. This one is `true` on the days of the week you pick, in your store's time zone:
 
 ```ts title="src/matchers.ts"
 type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
