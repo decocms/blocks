@@ -7,7 +7,6 @@
     "dev": "vite dev",
     "prebuild": "deco schema && deco content && deco check",
     "build": "vite build",
-    "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
