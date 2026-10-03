@@ -1,5 +1,9 @@
 {
   "branches": [
+    {
+      "name": "7.x",
+      "range": "7.x"
+    },
     "main"
   ],
   "tagFormat": "blocks-v${version}",
@@ -57,7 +61,7 @@
       "@semantic-release/exec",
       {
         "prepareCmd": "VERSION=${nextRelease.version} node scripts/sync-versions.mjs",
-        "publishCmd": "if [ \"$DRY_RUN\" = \"true\" ]; then echo \"[dry-run] would publish version ${nextRelease.version} for: $(ls -d packages/*/)\"; else failed=0; for dir in packages/*/; do (cd \"$dir\" && npm publish --access public --tag latest) || { echo \"::error::npm publish failed for $dir\"; failed=1; }; done; exit \"$failed\"; fi"
+        "publishCmd": "PACKAGES=\"blocks apps-algolia apps-magento apps-resend apps-sfmc-personalization apps-shopify apps-vtex apps-wake\"; if [ \"$DRY_RUN\" = \"true\" ]; then echo \"[dry-run] would publish version ${nextRelease.version} for: $PACKAGES\"; else failed=0; for name in $PACKAGES; do (cd \"packages/$name\" && npm publish --access public --tag latest) || { echo \"::error::npm publish failed for packages/$name\"; failed=1; }; done; exit \"$failed\"; fi"
       }
     ],
     "@semantic-release/github"

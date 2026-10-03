@@ -1,5 +1,43 @@
 {
-  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts"],
-  "ignoreBinaries": ["semantic-release"],
-  "ignore": ["src/admin/setup.ts"]
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.mjs",
+        ".agents/skills/*/scripts/main.ts",
+        "tests/**/*.test.ts",
+        ".agents/skills/*/scripts/**/*.test.ts"
+      ],
+      "project": [
+        "scripts/*.mjs",
+        "tests/**/*.ts",
+        ".agents/skills/*/scripts/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@decocms/blocks",
+        "@decocms/apps-algolia",
+        "@decocms/apps-vtex"
+      ]
+    },
+    "packages/*": {
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ]
+    },
+    "examples/*": {
+      "ignore": [
+        "**"
+      ]
+    },
+    "packages/blocks": {
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "bin/*.js"
+      ],
+      "ignoreDependencies": [
+        "esbuild"
+      ]
+    }
+  },
+  "ignoreExportsUsedInFile": true
 }

@@ -36,22 +36,6 @@
           "$ref": "#/definitions/d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvc2VjdGlvbi50cw==",
           "namespace": "website"
         },
-        "website/flags/multivariate/image.ts": {
-          "$ref": "#/definitions/d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvaW1hZ2UudHM=",
-          "namespace": "website"
-        },
-        "website/flags/multivariate/message.ts": {
-          "$ref": "#/definitions/d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvbWVzc2FnZS50cw==",
-          "namespace": "website"
-        },
-        "website/flags/multivariate/page.ts": {
-          "$ref": "#/definitions/d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvcGFnZS50cw==",
-          "namespace": "website"
-        },
-        "$live/flags/multivariate.ts": {
-          "$ref": "#/definitions/JGxpdmUvZmxhZ3MvbXVsdGl2YXJpYXRlLnRz",
-          "namespace": "website"
-        },
         "website/loaders/secret.ts": {
           "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3NlY3JldC50cw==",
           "namespace": "website"
@@ -74,20 +58,8 @@
           "$ref": "#/definitions/d2Vic2l0ZS9tYXRjaGVycy9hbHdheXMudHM=",
           "namespace": "website"
         },
-        "$live/matchers/MatchAlways.ts": {
-          "$ref": "#/definitions/JGxpdmUvbWF0Y2hlcnMvTWF0Y2hBbHdheXMudHM=",
-          "namespace": "website"
-        },
         "website/matchers/never.ts": {
           "$ref": "#/definitions/d2Vic2l0ZS9tYXRjaGVycy9uZXZlci50cw==",
-          "namespace": "website"
-        },
-        "website/matchers/date.ts": {
-          "$ref": "#/definitions/d2Vic2l0ZS9tYXRjaGVycy9kYXRlLnRz",
-          "namespace": "website"
-        },
-        "$live/matchers/MatchDate.ts": {
-          "$ref": "#/definitions/JGxpdmUvbWF0Y2hlcnMvTWF0Y2hEYXRlLnRz",
           "namespace": "website"
         }
       },
@@ -132,9 +104,7 @@
           "$ref": "#/definitions/YW5hbHl0aWNz",
           "namespace": "deco"
         }
-      },
-      "apps": {},
-      "actions": {}
+      }
     }
   },
   "schema": {
@@ -1127,186 +1097,6 @@
           }
         }
       },
-      "d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvaW1hZ2UudHM=": {
-        "title": "website/flags/multivariate/image.ts",
-        "description": "Picks the first variant whose rule is true",
-        "icon": "arrow-split",
-        "type": "object",
-        "required": [
-          "__resolveType",
-          "variants"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "website/flags/multivariate/image.ts"
-            ],
-            "default": "website/flags/multivariate/image.ts"
-          },
-          "variants": {
-            "type": "array",
-            "title": "Variants",
-            "items": {
-              "type": "object",
-              "required": [
-                "rule",
-                "value"
-              ],
-              "properties": {
-                "rule": {
-                  "title": "Rule",
-                  "$ref": "#/root/matchers"
-                },
-                "value": {
-                  "type": "string",
-                  "format": "image-uri",
-                  "title": "Image"
-                }
-              }
-            }
-          },
-          "experiment": {
-            "type": "string",
-            "title": "Experiment",
-            "description": "The stable ID of an A/B test"
-          }
-        }
-      },
-      "d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvbWVzc2FnZS50cw==": {
-        "title": "website/flags/multivariate/message.ts",
-        "description": "Picks the first variant whose rule is true",
-        "icon": "arrow-split",
-        "type": "object",
-        "required": [
-          "__resolveType",
-          "variants"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "website/flags/multivariate/message.ts"
-            ],
-            "default": "website/flags/multivariate/message.ts"
-          },
-          "variants": {
-            "type": "array",
-            "title": "Variants",
-            "items": {
-              "type": "object",
-              "required": [
-                "rule",
-                "value"
-              ],
-              "properties": {
-                "rule": {
-                  "title": "Rule",
-                  "$ref": "#/root/matchers"
-                },
-                "value": {
-                  "type": "string",
-                  "title": "Message"
-                }
-              }
-            }
-          },
-          "experiment": {
-            "type": "string",
-            "title": "Experiment",
-            "description": "The stable ID of an A/B test"
-          }
-        }
-      },
-      "d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvcGFnZS50cw==": {
-        "title": "website/flags/multivariate/page.ts",
-        "description": "Picks the first variant whose rule is true",
-        "icon": "arrow-split",
-        "type": "object",
-        "required": [
-          "__resolveType",
-          "variants"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "website/flags/multivariate/page.ts"
-            ],
-            "default": "website/flags/multivariate/page.ts"
-          },
-          "variants": {
-            "type": "array",
-            "title": "Variants",
-            "items": {
-              "type": "object",
-              "required": [
-                "rule",
-                "value"
-              ],
-              "properties": {
-                "rule": {
-                  "title": "Rule",
-                  "$ref": "#/root/matchers"
-                },
-                "value": {
-                  "$ref": "#/definitions/cGFnZQ==",
-                  "title": "Page"
-                }
-              }
-            }
-          },
-          "experiment": {
-            "type": "string",
-            "title": "Experiment",
-            "description": "The stable ID of an A/B test"
-          }
-        }
-      },
-      "JGxpdmUvZmxhZ3MvbXVsdGl2YXJpYXRlLnRz": {
-        "title": "$live/flags/multivariate.ts",
-        "description": "Picks the first variant whose rule is true",
-        "icon": "arrow-split",
-        "type": "object",
-        "required": [
-          "__resolveType",
-          "variants"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "$live/flags/multivariate.ts"
-            ],
-            "default": "$live/flags/multivariate.ts"
-          },
-          "variants": {
-            "type": "array",
-            "title": "Variants",
-            "items": {
-              "type": "object",
-              "required": [
-                "rule",
-                "value"
-              ],
-              "properties": {
-                "rule": {
-                  "title": "Rule",
-                  "$ref": "#/root/matchers"
-                },
-                "value": {
-                  "title": "Value"
-                }
-              }
-            }
-          },
-          "experiment": {
-            "type": "string",
-            "title": "Experiment",
-            "description": "The stable ID of an A/B test"
-          }
-        }
-      },
       "d2Vic2l0ZS9tYXRjaGVycy9hbHdheXMudHM=": {
         "title": "website/matchers/always.ts",
         "description": "Always true: the fallback variant",
@@ -1325,24 +1115,6 @@
           }
         }
       },
-      "JGxpdmUvbWF0Y2hlcnMvTWF0Y2hBbHdheXMudHM=": {
-        "title": "$live/matchers/MatchAlways.ts",
-        "description": "Always true: the fallback variant",
-        "icon": "eye",
-        "type": "object",
-        "required": [
-          "__resolveType"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "$live/matchers/MatchAlways.ts"
-            ],
-            "default": "$live/matchers/MatchAlways.ts"
-          }
-        }
-      },
       "d2Vic2l0ZS9tYXRjaGVycy9uZXZlci50cw==": {
         "title": "website/matchers/never.ts",
         "description": "Always false: hides a block",
@@ -1358,62 +1130,6 @@
               "website/matchers/never.ts"
             ],
             "default": "website/matchers/never.ts"
-          }
-        }
-      },
-      "d2Vic2l0ZS9tYXRjaGVycy9kYXRlLnRz": {
-        "title": "website/matchers/date.ts",
-        "description": "True from start until end",
-        "icon": "calendar-event",
-        "type": "object",
-        "required": [
-          "__resolveType"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "website/matchers/date.ts"
-            ],
-            "default": "website/matchers/date.ts"
-          },
-          "start": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Start"
-          },
-          "end": {
-            "type": "string",
-            "format": "date-time",
-            "title": "End"
-          }
-        }
-      },
-      "JGxpdmUvbWF0Y2hlcnMvTWF0Y2hEYXRlLnRz": {
-        "title": "$live/matchers/MatchDate.ts",
-        "description": "True from start until end",
-        "icon": "calendar-event",
-        "type": "object",
-        "required": [
-          "__resolveType"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "$live/matchers/MatchDate.ts"
-            ],
-            "default": "$live/matchers/MatchDate.ts"
-          },
-          "start": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Start"
-          },
-          "end": {
-            "type": "string",
-            "format": "date-time",
-            "title": "End"
           }
         }
       },
@@ -1591,21 +1307,6 @@
             "$ref": "#/definitions/YW5hbHl0aWNz"
           }
         ]
-      },
-      "actions": {
-        "anyOf": []
-      },
-      "handlers": {
-        "anyOf": []
-      },
-      "flags": {
-        "anyOf": []
-      },
-      "functions": {
-        "anyOf": []
-      },
-      "apps": {
-        "anyOf": []
       }
     }
   },
@@ -1616,15 +1317,8 @@
     "$live/pages/LivePage.tsx": "page",
     "website/flags/multivariate.ts": "multivariate",
     "website/flags/multivariate/section.ts": "multivariate",
-    "website/flags/multivariate/image.ts": "multivariate",
-    "website/flags/multivariate/message.ts": "multivariate",
-    "website/flags/multivariate/page.ts": "multivariate",
-    "$live/flags/multivariate.ts": "multivariate",
     "website/matchers/always.ts": "always",
-    "$live/matchers/MatchAlways.ts": "always",
     "website/matchers/never.ts": "never",
-    "website/matchers/date.ts": "date",
-    "$live/matchers/MatchDate.ts": "date",
     "website/loaders/redirect.ts": "redirect",
     "website/loaders/secret.ts": "secret"
   }

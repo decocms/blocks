@@ -15,8 +15,8 @@ import { generateSecretsKeyPair } from "../../protocol/__tests__/fixtures";
 import { encryptToCiphertext } from "../../protocol/ciphertext";
 import { createFixture, type Fixture, recorder } from "../cli/__tests__/fixture";
 import { runCli } from "../cli/run";
-import { startServer } from "../cli/serve/server";
 import { toBase64 } from "../cli/schema/typeToSchema";
+import { startServer } from "../cli/serve/server";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE = path.resolve(here, "../../..");

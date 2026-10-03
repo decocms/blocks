@@ -43,8 +43,7 @@
 	"scripts": {
 		"build": "tsc",
 		"test": "vitest run --root ../.. packages/blocks/",
-		"typecheck": "tsc --noEmit",
-		"lint:unused": "knip"
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"ajv": "^8.20.0",
@@ -59,7 +58,6 @@
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"esbuild": "^0.27.3",
-		"knip": "^5.86.0",
 		"react-dom": "^19.0.0",
 		"typescript": "^5.9.0"
 	},

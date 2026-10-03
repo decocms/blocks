@@ -3,8 +3,8 @@
  * See /next/upstream-clients.
  */
 export {
-	createShopifyClient,
-	type ShopifyClient,
-	type ShopifyClientConfig,
-	ShopifyError,
+  createShopifyClient,
+  type ShopifyClient,
+  type ShopifyClientConfig,
+  ShopifyError,
 } from "./client";

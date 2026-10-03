@@ -36,7 +36,7 @@ export class SfmcPersonalizationError extends Error {
 
 export function createSfmcPersonalizationClient(
   config: SfmcPersonalizationConfig,
-  options: { fetch?: typeof fetch } = {},
+  options: { fetch?: typeof globalThis.fetch } = {},
 ) {
   const request = createInstrumentedFetch({
     provider: "sfmc-personalization",

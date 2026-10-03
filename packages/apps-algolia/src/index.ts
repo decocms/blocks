@@ -50,7 +50,7 @@ export class AlgoliaError extends Error {
 
 export function createAlgoliaClient(
   config: AlgoliaClientConfig,
-  options: { fetch?: typeof fetch } = {},
+  options: { fetch?: typeof globalThis.fetch } = {},
 ) {
   // The id becomes part of the host; reject anything that could redirect the API key elsewhere.
   if (!/^[A-Za-z0-9]+$/.test(config.applicationId))

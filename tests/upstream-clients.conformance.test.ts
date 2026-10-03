@@ -37,7 +37,9 @@ describe("what a client is (upstream-clients.mdx)", () => {
       expect(fs.existsSync(path.join(PACKAGES, pkg, "package.json"))).toBe(true);
       expect([pkg, code(pkg, files[0]!)]).toEqual([
         pkg,
-        expect.stringMatching(/import \{[^}]*createInstrumentedFetch[^}]*\} from "@decocms\/blocks\/fetch"/),
+        expect.stringMatching(
+          /import \{[^}]*createInstrumentedFetch[^}]*\} from "@decocms\/blocks\/fetch"/,
+        ),
       ]);
     }
   });
@@ -45,9 +47,11 @@ describe("what a client is (upstream-clients.mdx)", () => {
   it("up-02: clients take settings as arguments: no environment reads inside a client", () => {
     for (const [pkg, files] of Object.entries(V8_CLIENTS)) {
       for (const file of files) {
-        expect([pkg, file, /process\.env|import\.meta\.env|Deno\.env/.test(code(pkg, file))]).toEqual(
-          [pkg, file, false],
-        );
+        expect([
+          pkg,
+          file,
+          /process\.env|import\.meta\.env|Deno\.env/.test(code(pkg, file)),
+        ]).toEqual([pkg, file, false]);
       }
     }
   });
@@ -76,7 +80,9 @@ describe("what a client is (upstream-clients.mdx)", () => {
     const names = fs
       .readdirSync(PACKAGES)
       .filter((dir) => fs.existsSync(path.join(PACKAGES, dir, "package.json")))
-      .map((dir) => JSON.parse(fs.readFileSync(path.join(PACKAGES, dir, "package.json"), "utf8")).name);
+      .map(
+        (dir) => JSON.parse(fs.readFileSync(path.join(PACKAGES, dir, "package.json"), "utf8")).name,
+      );
     expect(names).not.toContain("@decocms/apps-salesforce");
   });
 
@@ -120,9 +126,7 @@ describe("call a client (upstream-clients.mdx)", () => {
 describe("retries and failures (upstream-clients.mdx)", () => {
   it("up-08: the VTEX client retries by default", async () => {
     const statuses = [503, 200];
-    const fetch = vi.fn(
-      async () => new Response("{}", { status: statuses.shift() ?? 200 }),
-    );
+    const fetch = vi.fn(async () => new Response("{}", { status: statuses.shift() ?? 200 }));
     const vtex = createVtexClient({
       account: "mystore",
       fetch: fetch as unknown as typeof globalThis.fetch,
@@ -137,7 +141,8 @@ describe("retries and failures (upstream-clients.mdx)", () => {
       account: "mystore",
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
-    for (let i = 0; i < 5; i++) await expect(vtex.search.products({ query: "shirt" })).rejects.toThrow();
+    for (let i = 0; i < 5; i++)
+      await expect(vtex.search.products({ query: "shirt" })).rejects.toThrow();
     const before = fetch.mock.calls.length;
     await expect(vtex.search.products({ query: "shirt" })).rejects.toThrow();
     expect(fetch.mock.calls.length).toBe(before);
@@ -149,9 +154,9 @@ describe("retries and failures (upstream-clients.mdx)", () => {
       { applicationId: "APP123", apiKey: "k" },
       { fetch: fetch as unknown as typeof globalThis.fetch },
     );
-    await expect(algolia.search([{ indexName: "products", query: "shirt" }] as never)).rejects.toThrow(
-      "algolia search failed with HTTP 503",
-    );
+    await expect(
+      algolia.search([{ indexName: "products", query: "shirt" }] as never),
+    ).rejects.toThrow("algolia search failed with HTTP 503");
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

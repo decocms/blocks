@@ -16,7 +16,10 @@ import { migrate } from "./migrate";
 import type { Report } from "./report";
 
 // This skill lives at <repo>/.agents/skills/deco-v7-to-v8-migration/scripts.
-const BLOCKS_PACKAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../packages/blocks");
+const BLOCKS_PACKAGE = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../../packages/blocks",
+);
 
 const quiet: Reporter & { text: string[] } = {
   text: [],

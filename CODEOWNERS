@@ -1,6 +1,6 @@
 # CODEOWNERS for decocms/blocks
 #
-# Release-critical paths: these decide how the 14 lockstep packages are
+# Release-critical paths: these decide how the 8 lockstep packages are
 # built, versioned, and published (and what blocks regeneration sites can
 # trigger). Only the owners below approve changes.
 .github/workflows/                   @vibe-dex @tlgimenes
