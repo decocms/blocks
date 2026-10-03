@@ -1145,7 +1145,7 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
   const seenLoaderRefs = new Set<string>(loaders.loaderAnyOf.map((r: any) => r.$ref));
   const loaderUnion = [
     ...loaders.loaderAnyOf,
-    ...siteLoaderRefs.filter((r) => !seenLoaderRefs.has(r.$ref)),
+    ...siteLoaderRefs.filter((r: { $ref: string }) => !seenLoaderRefs.has(r.$ref)),
   ];
 
   const fwSections = buildFrameworkSections(siteAnyOf, loaderUnion);
