@@ -17,6 +17,7 @@ import type { MigrationContext } from "./types";
 function makeCtx(sourceDir: string): MigrationContext {
   return {
     sourceDir,
+    layout: "classic",
     siteName: "test-site",
     platform: "custom",
     vtexAccount: null,
@@ -25,6 +26,18 @@ function makeCtx(sourceDir: string): MigrationContext {
     discoveredNpmDeps: {},
     themeColors: {},
     fontFamily: null,
+    googleFonts: { preconnects: [], stylesheets: [] },
+    tailwindConfig: {
+      colors: {},
+      fontFamily: {},
+      screens: {},
+      animations: {},
+      keyframes: {},
+      safelist: [],
+      safelistPatterns: [],
+      plugins: [],
+      reviewItems: [],
+    },
     files: [],
     sectionMetas: [],
     islandClassifications: [],

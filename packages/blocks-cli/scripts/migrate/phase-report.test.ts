@@ -22,6 +22,8 @@ describe("report — CSS Migration section", () => {
       colors: { perola: "#F5F0E8", "brand-500": "#B10200" },
       fontFamily: { "bebas-neue": "Bebas Neue, sans-serif" },
       screens: {},
+      animations: {},
+      keyframes: {},
       safelist: ["bg-red-500"],
       safelistPatterns: [],
       plugins: [],
