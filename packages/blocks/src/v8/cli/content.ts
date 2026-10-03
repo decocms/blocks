@@ -14,6 +14,7 @@ import {
   resolveSpellings,
   type SpellingCandidate,
 } from "../../protocol/keys";
+import { isPlainObject } from "../json";
 import { LEGACY_ALIASES } from "./builtins";
 import { consoleReporter, type Reporter } from "./log";
 import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "./root";
@@ -36,10 +37,6 @@ export interface SavedBlocks {
   /** The file that holds each entry (the winning spelling). */
   files: Record<string, string>;
   diagnostics: ContentDiagnostic[];
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

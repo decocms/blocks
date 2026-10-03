@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "@decocms/blocks/cli";
 import type { Report } from "./report";
-import { locateAppModule, vendorModule } from "./vendor";
+import { firstFile, locateAppModule, vendorModule } from "./vendor";
 import { forEachBlock, readContent } from "./walk";
 
 type Kind = "section" | "function";
@@ -94,10 +94,6 @@ function camel(name: string): string {
   const ident = name.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
   if (/^[0-9]/.test(ident)) return `_${ident}`;
   return RESERVED_WORDS.has(ident) ? `${ident}Block` : ident;
-}
-
-function firstFile(candidates: string[]): string | undefined {
-  return candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile());
 }
 
 function moduleFile(base: string): string | undefined {

@@ -54,3 +54,13 @@ export function decoPaths(root: string) {
 }
 
 export type DecoPaths = ReturnType<typeof decoPaths>;
+
+/** This package's version, for `deco-meta@1` and `describe`. */
+export function packageVersion(): string {
+  try {
+    const manifest = new URL("../../../package.json", import.meta.url);
+    return JSON.parse(fs.readFileSync(manifest, "utf8")).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}

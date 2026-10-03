@@ -5,7 +5,7 @@ import { readSavedBlocks, type SavedBlocks } from "@decocms/blocks/cli";
 
 export type JsonObject = Record<string, unknown>;
 
-function isPlainObject(value: unknown): value is JsonObject {
+export function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

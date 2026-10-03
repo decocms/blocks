@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import type { Report } from "./report";
-import { resolvePackageFile } from "./vendor";
+import { relativeSpecifier, resolvePackageFile } from "./vendor";
 
 /** The next major's documented API (/next/api-reference): imports of these stay. */
 export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
@@ -224,12 +224,6 @@ interface Edit {
   start: number;
   end: number;
   text: string;
-}
-
-function relativeSpecifier(fromFile: string, toFile: string): string {
-  let rel = path.relative(path.dirname(fromFile), toFile).split(path.sep).join("/");
-  rel = rel.replace(/(\/index)?\.tsx?$/, "");
-  return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
 /**

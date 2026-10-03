@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { SCHEMA_FORMAT } from "../../../protocol/types";
 import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "../builtins";
-import { CliError, type DecoPaths } from "../root";
+import { CliError, type DecoPaths, packageVersion } from "../root";
 import {
   BUILT_IN_GROUPS,
   builtInDefinition,
@@ -104,14 +104,6 @@ export interface Route { name: string; path: string }
 `;
 
 /** The package version, written into the schema's `version`. */
-function packageVersion(): string {
-  try {
-    const manifest = new URL("../../../../package.json", import.meta.url);
-    return JSON.parse(fs.readFileSync(manifest, "utf8")).version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
 
 function siteName(root: string): string {
   try {

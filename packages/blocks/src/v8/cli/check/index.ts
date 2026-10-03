@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import Ajv, { type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets";
+import { isBlock, own } from "../../json";
 import { findRouteConflicts } from "../../matchRoute";
 import { isBuiltIn, storesPlainVariants } from "../builtins";
 import { readSavedBlocks, type SavedBlocks } from "../content";
@@ -41,17 +42,9 @@ export interface Problem {
 type Json = any;
 const DOC_ID = "deco";
 
+/** JSON-parsed objects only, so any non-array object is a plain one. */
 function isObject(value: unknown): value is Record<string, Json> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isBlock(value: unknown): value is { __resolveType: string } & Record<string, Json> {
-  return isObject(value) && typeof value.__resolveType === "string";
-}
-
-/** `map[key]` when `key` is the map's own: names like `constructor` or `__proto__` are just names. */
-function own<T>(map: Record<string, T> | undefined, key: string): T | undefined {
-  return map !== undefined && Object.hasOwn(map, key) ? map[key] : undefined;
 }
 
 function resolveTypeEnum(schema: Json): string[] | null {
@@ -674,7 +667,8 @@ class Checker {
       if (type === null) continue;
       const group = this.groupOf.get(type);
       if (group === "redirects") {
-        const from = typeof entry.from === "string" ? entry.from : entry.redirect?.from;
+        const legacy = isObject(entry.redirect) ? entry.redirect.from : undefined;
+        const from = typeof entry.from === "string" ? entry.from : legacy;
         if (typeof from === "string") redirects.push({ name, path: from });
       } else if (group === "pages" && typeof entry.path === "string") {
         routes.push({ name, path: entry.path });

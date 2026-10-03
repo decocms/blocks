@@ -35,7 +35,8 @@ function isFile(file: string): boolean {
   }
 }
 
-function firstFile(candidates: string[]): string | undefined {
+/** The first candidate that is a file. */
+export function firstFile(candidates: string[]): string | undefined {
   return candidates.find(isFile);
 }
 
@@ -159,7 +160,8 @@ function isInside(dir: string, file: string): boolean {
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
-function relativeSpecifier(fromFile: string, toFile: string): string {
+/** An import specifier from one file to another, without extension or `/index`. */
+export function relativeSpecifier(fromFile: string, toFile: string): string {
   let rel = path.relative(path.dirname(fromFile), toFile).split(path.sep).join("/");
   rel = rel.replace(/(\/index)?\.tsx?$/, "");
   return rel.startsWith(".") ? rel : `./${rel}`;

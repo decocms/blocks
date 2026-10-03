@@ -28,7 +28,7 @@ import type { ContentStorage } from "../../../protocol/storage";
 import { createFsStorage } from "../../../protocol/storage/fs";
 import { readSavedBlocks, writeContent } from "../content";
 import { consoleReporter, type Reporter } from "../log";
-import { CliError, decoPaths, findDecoRoot } from "../root";
+import { CliError, decoPaths, findDecoRoot, packageVersion } from "../root";
 
 /** The site editor's origins: the browser origins allowed by default. */
 const STUDIO_ORIGINS = [
@@ -90,15 +90,6 @@ function defaultAppUrl(root: string): string {
     return port ? `http://localhost:${port}` : DEFAULT_APP_URL;
   }
   return DEFAULT_APP_URL;
-}
-
-function packageVersion(): string {
-  try {
-    return JSON.parse(fs.readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"))
-      .version;
-  } catch {
-    return "0.0.0";
-  }
 }
 
 /** Start the server; resolves once it listens. */
