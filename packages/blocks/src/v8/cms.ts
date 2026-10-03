@@ -11,7 +11,7 @@ import { ContentStore, isLoader, isSnapshot } from "./content";
 import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
-const LOADER_IDS = Symbol.for("decocms.blocks.cms-loader-ids");
+const OBJECT_IDS = Symbol.for("decocms.blocks.cms-loader-ids");
 const MIN_INTERVAL = 60_000;
 
 /** Options that must agree between two `createCMS` calls sharing an instance. */
@@ -28,7 +28,12 @@ class CMSInstance implements CMS {
   readonly #interval: number;
   readonly #warned = new Set<string>();
   #blocks: Blocks;
-  #lastCheck = Date.now();
+  /**
+   * When the source was last checked. It starts on the first `forRelease()`,
+   * not at construction: Workers read `Date.now()` as 0 at module scope, which
+   * would make the first request start a check straight away.
+   */
+  #lastCheck: number | undefined;
 
   constructor(config: CMSConfig, interval: number) {
     this.config = config;
@@ -72,8 +77,14 @@ class CMSInstance implements CMS {
 
   /** Checks a content source with `update()` every `interval`, never in front of a request. */
   #scheduleUpdate(): void {
-    if (!this.#store.updatable || Date.now() - this.#lastCheck < this.#interval) return;
-    this.#lastCheck = Date.now();
+    if (!this.#store.updatable) return;
+    const now = Date.now();
+    if (this.#lastCheck === undefined) {
+      this.#lastCheck = now;
+      return;
+    }
+    if (now - this.#lastCheck < this.#interval) return;
+    this.#lastCheck = now;
     void Promise.resolve().then(() => this.#store.update());
   }
 
@@ -147,33 +158,40 @@ function readEnv(name: string): string | undefined {
  * The instance key: the content's identity (never its revision, so a hot
  * reload keeps the instance) and, with the hosted Deco CMS, the site and a
  * hash of the token, which never appears in the global symbol registry.
+ *
+ * A content module is identified by the `.deco` folder it was generated from
+ * (its `root`). One without a `root` is identified by the object itself, so
+ * two such modules never share an instance; a hot reload of one then gets a
+ * new instance instead of updating the old.
  */
 function identityOf(config: CMSConfig): string {
   const content = isLoader(config.content)
-    ? `loader#${loaderId(config.content)}`
-    : `module:${contentRoot(config.content)}`;
+    ? `loader#${objectId(config.content)}`
+    : contentIdentity(config.content);
   if (!config.site || !config.token) return content;
   return `${content}|site:${config.site}|token:${fnv1a(config.token)}`;
 }
 
-/** The `.deco` folder a content module was generated from, when it says so. */
-function contentRoot(snapshot: Snapshot): string {
-  const root = (snapshot as Snapshot & { root?: unknown }).root;
-  return typeof root === "string" && root.length > 0 ? root : ".deco";
+/** `module:<root>` for a module that names its `.deco` folder, `module#<id>` otherwise. */
+function contentIdentity(snapshot: Snapshot): string {
+  const root: unknown = snapshot.root;
+  return typeof root === "string" && root.length > 0
+    ? `module:${root}`
+    : `module#${objectId(snapshot)}`;
 }
 
-/** A process-wide id per loader object, shared by every copy of this module. */
-function loaderId(loader: Loader): number {
+/** A process-wide id per object (a loader, a root-less module), shared by every copy of this module. */
+function objectId(object: Loader | Snapshot): number {
   const store = globalThis as unknown as Record<
     symbol,
     { ids: WeakMap<object, number>; next: number }
   >;
-  store[LOADER_IDS] ??= { ids: new WeakMap(), next: 1 };
-  const registry = store[LOADER_IDS];
-  let id = registry.ids.get(loader);
+  store[OBJECT_IDS] ??= { ids: new WeakMap(), next: 1 };
+  const registry = store[OBJECT_IDS];
+  let id = registry.ids.get(object);
   if (id === undefined) {
     id = registry.next++;
-    registry.ids.set(loader, id);
+    registry.ids.set(object, id);
   }
   return id;
 }

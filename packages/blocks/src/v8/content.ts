@@ -1,7 +1,11 @@
 /**
  * The content side of a CMS: one source (the content module or a `Loader`),
- * the caches every client shares, and the revisions this process has served.
- * Clients only ever see whole `{ revision, blocks }` snapshots.
+ * the caches every client shares, and the release revisions this process has
+ * served. Clients only ever see whole `{ revision, blocks }` snapshots.
+ *
+ * Drafts are never recorded as served: `forRevision(revision)` takes a
+ * revision string a client may hand back, so it must only ever reach published
+ * content, never a draft someone loaded with a pointer.
  */
 import { formatDraftPointer, parseDraftPointer } from "./draft";
 import { errors, isResolutionError } from "./errors";
@@ -52,9 +56,9 @@ export class ContentStore {
   release(): Promise<Snapshot> {
     const source = this.#source;
     if (!isLoader(source)) return Promise.resolve(this.#serve(source));
-    if (!this.updatable) return this.#load(source, null);
+    if (!this.updatable) return this.#load(source, null).then((snapshot) => this.#serve(snapshot));
     if (this.#release === undefined) {
-      const pending = this.#load(source, null);
+      const pending = this.#load(source, null).then((snapshot) => this.#serve(snapshot));
       this.#release = pending;
       // A failed load isn't cached: the next client tries again.
       pending.catch(() => {
@@ -85,7 +89,7 @@ export class ContentStore {
     return pending;
   }
 
-  /** A revision this store has served, or the release when it's unknown. */
+  /** A release revision this store has served, or the release when it's unknown (drafts included). */
   revision(revision: string): Promise<Snapshot> {
     const served = this.#served.get(revision);
     return served === undefined ? this.release() : Promise.resolve(served);
@@ -101,7 +105,12 @@ export class ContentStore {
       try {
         const result = await source.update?.();
         const updated = result?.updated === true;
-        if (updated) this.#release = undefined;
+        if (updated) {
+          this.#release = undefined;
+          // A loader that ignores the pointer hands back the release as the
+          // draft; that copy is as stale as the release now.
+          this.#drafts.clear();
+        }
         return { updated };
       } catch {
         return { updated: false };
@@ -114,13 +123,14 @@ export class ContentStore {
 
   /**
    * Swaps the content in place, for a hot reload that hands the same CMS a new
-   * content module. Same revision, nothing to do.
+   * content module. Any new object swaps, even with the same `revision`: an
+   * edited JSON file reloads without rerunning `deco content`, so the new
+   * module carries new `blocks` under the old revision.
    */
   replace(source: Snapshot | Loader): void {
-    if (source === this.#source) return;
-    if (isSnapshot(source) && isSnapshot(this.#source)) {
-      if (source.revision === this.#source.revision) return;
-    }
+    const previous = this.#source;
+    if (source === previous) return;
+    if (isSnapshot(previous)) this.#served.delete(previous.revision);
     this.#source = source;
     this.#release = undefined;
     this.#drafts.clear();
@@ -140,7 +150,7 @@ export class ContentStore {
     if (!isSnapshot(snapshot)) {
       throw errors.loaderFailed("the content loader returned something other than a snapshot");
     }
-    return this.#serve(snapshot);
+    return snapshot;
   }
 
   #serve(snapshot: Snapshot): Snapshot {

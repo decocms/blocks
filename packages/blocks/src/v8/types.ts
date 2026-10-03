@@ -28,6 +28,13 @@ export type Snapshot = {
   blocks: Record<string, unknown>;
   /** The alias table `deco content` writes: old type name → your type. */
   aliases?: Record<string, string>;
+  /**
+   * The `.deco` folder this module was generated from, relative to the app.
+   * `createCMS` keys its instance on it, so a hot-reloaded module keeps its
+   * instance and two sites in one app get two. Without it, each module object
+   * is its own instance.
+   */
+  root?: string;
 };
 
 /** A source of content. `load()` is the release; `load(pointer)` is a draft. */

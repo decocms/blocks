@@ -204,6 +204,28 @@ describe("loaders", () => {
     expect(update).toHaveBeenCalledTimes(1);
   });
 
+  it("an update drops cached drafts, so a loader that ignores the pointer can't serve a stale release", async () => {
+    let revision = "r1";
+    const load = vi.fn(async () => ({ revision, blocks: { Name: revision } }));
+    const cms = createCMS({
+      blocks: {},
+      content: { load, update: async () => ({ updated: true }) },
+    });
+    expect(await cms.forDraft(POINTER).resolve("Name")).toEqual(["r1", null]);
+    revision = "r2";
+    await cms.update();
+    expect(await cms.forDraft(POINTER).resolve("Name")).toEqual(["r2", null]);
+  });
+
+  it("an update that finds nothing new keeps cached drafts", async () => {
+    const { loader, calls } = draftLoader({ update: async () => ({ updated: false }) });
+    const cms = createCMS({ blocks: docsBlocks(), content: loader });
+    await cms.forDraft(POINTER).resolve("SummerSEO");
+    await cms.update();
+    await cms.forDraft(POINTER).resolve("SummerSEO");
+    expect(calls).toEqual([POINTER]);
+  });
+
   it("drafts are cached per pointer (the version is immutable)", async () => {
     const { loader, calls } = draftLoader();
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
@@ -250,6 +272,18 @@ describe("one revision per client", () => {
     expect(await cms.forRevision("never-served").revision()).toBe("r2");
   });
 
+  it("forRevision never reaches a draft: a draft revision behaves like the release", async () => {
+    const { loader } = draftLoader();
+    const cms = createCMS({ blocks: docsBlocks(), content: loader });
+    expect(await cms.forDraft(POINTER).revision()).toBe("draft-9f3c1a");
+    const client = cms.forRevision("draft-9f3c1a");
+    expect(await client.revision()).toBe("rev-1");
+    expect(await client.resolve("SummerSEO")).toEqual([
+      { title: "Sunny!", description: "Light layers for long days." },
+      null,
+    ]);
+  });
+
   it("a client loads its content once, lazily, on first use", async () => {
     const load = vi.fn(async () => docsSnapshot());
     const cms = createCMS({ blocks: docsBlocks(), content: { load } });
@@ -294,7 +328,30 @@ describe("update() checks on an interval", () => {
       content: { load: async () => docsSnapshot(), update },
       interval: 1_000,
     });
+    cms.forRelease();
     vi.setSystemTime(new Date("2026-10-03T00:00:30Z"));
+    cms.forRelease();
+    await Promise.resolve();
+    expect(update).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date("2026-10-03T00:01:00Z"));
+    cms.forRelease();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the clock on the first forRelease, not at module scope (Workers read Date.now() as 0 there)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(0);
+    const update = vi.fn(async () => ({ updated: false }));
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: { load: async () => docsSnapshot(), update },
+    });
+    vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
+    cms.forRelease();
+    await Promise.resolve();
+    expect(update).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date("2026-10-03T00:00:59Z"));
     cms.forRelease();
     await Promise.resolve();
     expect(update).not.toHaveBeenCalled();
@@ -313,6 +370,7 @@ describe("update() checks on an interval", () => {
       blocks: docsBlocks(),
       content: { load: async () => docsSnapshot(), update },
     });
+    cms.forRelease();
     vi.setSystemTime(new Date("2026-10-03T00:04:59Z"));
     cms.forRelease();
     await Promise.resolve();
@@ -332,8 +390,11 @@ describe("one instance per process", () => {
   });
 
   it("is keyed by the content's identity, never its revision (a hot reload keeps the instance and serves the new content)", async () => {
-    const first = createCMS({ blocks: docsBlocks(), content: docsSnapshot("rev-1") });
-    const next = docsSnapshot("rev-2");
+    const first = createCMS({
+      blocks: docsBlocks(),
+      content: { ...docsSnapshot("rev-1"), root: ".deco" },
+    });
+    const next: Snapshot = { ...docsSnapshot("rev-2"), root: ".deco" };
     (next.blocks.SummerSEO as Record<string, unknown>).title = "Reloaded";
     const second = createCMS({ blocks: docsBlocks(), content: next });
     expect(second).toBe(first);
@@ -353,6 +414,34 @@ describe("one instance per process", () => {
       content: { ...docsSnapshot(), root: "sites/b/.deco" } as Snapshot,
     });
     expect(a).not.toBe(b);
+  });
+
+  it("two content modules without a root never share an instance", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const modA: Snapshot = { revision: "same", blocks: { Home: "A" } };
+    const modB: Snapshot = { revision: "same", blocks: { Home: "B" } };
+    const a = createCMS({ blocks: {}, content: modA });
+    const b = createCMS({ blocks: {}, content: modB });
+    expect(a).not.toBe(b);
+    expect(await a.forRelease().resolve("Home")).toEqual(["A", null]);
+    expect(await b.forRelease().resolve("Home")).toEqual(["B", null]);
+    expect(createCMS({ blocks: {}, content: modA })).toBe(a);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("a hot reload with the same revision still serves the edited content", async () => {
+    // An edited JSON file reloads without rerunning `deco content`: new blocks, old revision.
+    const cms = createCMS({
+      blocks: {},
+      content: { revision: "r1", root: ".deco", blocks: { Home: "before" } },
+    });
+    expect(await cms.forRelease().resolve("Home")).toEqual(["before", null]);
+    createCMS({
+      blocks: {},
+      content: { revision: "r1", root: ".deco", blocks: { Home: "after" } },
+    });
+    expect(await cms.forRelease().resolve("Home")).toEqual(["after", null]);
+    expect(await cms.forRevision("r1").resolve("Home")).toEqual(["after", null]);
   });
 
   it("a loader you write is identified by the loader object", () => {
