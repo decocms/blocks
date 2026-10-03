@@ -190,7 +190,7 @@
       "id": "roadmap-blockers--make-draft-preview-work-inside-studio-s-iframe",
       "title": "Make draft preview work inside the site editor's iframe",
       "today": "The SameSite=Lax cookie is rejected cross-site, the TanStack guide never sets it, and <code>?__draft=off</code> is ignored. There's no no-store rule, and no StudioBridge or <code>data-manifest-key</code>, so click-to-select is lost.",
-      "plan": "Ship <code>withDeco()</code>/<code>decoProxy()</code>, which set the cookie as <code>Secure; SameSite=None; Partitioned</code>, treat <code>?__draft=off</code> as exit and mark drafts private/no-store. Add <code>&lt;StudioBridge/&gt;</code>, and have <code>&lt;BlockList&gt;</code> emit the site editor's <code>section[data-manifest-key]</code> marker.",
+      "plan": "Ship <code>withDeco()</code>/<code>decoProxy()</code>, which set the cookie as <code>Secure; SameSite=None; Partitioned</code>, treat <code>?__draft=off</code> as exit and mark drafts private/no-store. Add <code>&lt;StudioBridge/&gt;</code>, and have the bindings wrap each rendered block in the site editor's <code>section[data-manifest-key]</code> marker.",
       "features": [
         "studio-preview",
         "worker-server-entry",
@@ -199,8 +199,7 @@
       ],
       "delivered_by": [
         "roadmap-api--ship-the-withdeco-and-decoproxy-entry-wrappers",
-        "roadmap-api--add-a-studio-bridge",
-        "roadmap-api--add-a-section-renderer-and-a-deferral-api"
+        "roadmap-api--add-a-studio-bridge"
       ]
     },
     {
@@ -245,15 +244,15 @@
       "id": "roadmap-blockers--stop-resolving-everything-eagerly",
       "title": "Stop resolving everything eagerly",
       "today": "The one registry rule resolves inputs bottom-up. Lazy defers nothing (43 wrappers on the storefront), hidden variants still run their loaders, and <code>Resolved&lt;T&gt;</code> can't be expressed.",
-      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;BlockList&gt;</code> renders lazily. Add the built-in <code>lazy</code> block, so multivariate runs only the chosen variant.",
+      "plan": "Add the built-in <code>lazy</code> block, so multivariate runs only the chosen variant. The alias bridge unwraps the legacy Lazy/SingleDeferred/Deferred block wrappers: the wrapped block renders normally, with no client-side deferral.",
       "features": [
         "lazy-deferred-sections",
         "matchers-and-variants",
         "site-search-and-autocomplete"
       ],
       "delivered_by": [
-        "roadmap-api--add-a-section-renderer-and-a-deferral-api",
-        "roadmap-api--add-the-lazy-block"
+        "roadmap-api--add-the-lazy-block",
+        "roadmap-cli--widen-the-legacy-alias-bridge"
       ]
     },
     {
@@ -378,8 +377,7 @@
         "interactive-ui-widgets"
       ],
       "delivered_by": [
-        "roadmap-api--add-a-studio-bridge",
-        "roadmap-api--add-a-section-renderer-and-a-deferral-api"
+        "roadmap-api--add-a-studio-bridge"
       ]
     },
     {
@@ -681,29 +679,6 @@
         "schema",
         "studio-compatibility"
       ],
-      "pinned": false
-    },
-    {
-      "id": "roadmap-api--add-a-section-renderer-and-a-deferral-api",
-      "group": "api",
-      "title": "Add a block renderer and a deferral API",
-      "plan": "<p><code>&lt;BlockList&gt;</code> per binding: per-block Suspense, error boundary, clientOnly, sized fallbacks, eager above the fold, SEO routing, and the site editor's <code>section[data-manifest-key]</code> frame on every block. One deferral API: a <code>Deferred&lt;T&gt;</code> input type passes a ref bound to the client's revision instead of resolving it. <code>&lt;BlockList&gt;</code> renders the ref lazily.</p>",
-      "features": [
-        "section-registration-conventions",
-        "lazy-deferred-sections",
-        "core-patches",
-        "theming-and-styling",
-        "orphan-and-dangling-blocks",
-        "site-search-and-autocomplete",
-        "matchers-and-variants",
-        "tabbed-shelf-partial",
-        "global-layout-sections",
-        "inline-loader-props",
-        "root-document-layout",
-        "interactive-ui-widgets",
-        "section-catalog"
-      ],
-      "docs": [],
       "pinned": false
     },
     {
@@ -1191,7 +1166,7 @@
       "id": "roadmap-cli--widen-the-legacy-alias-bridge",
       "group": "cli",
       "title": "Widen the legacy alias bridge",
-      "plan": "<p>Alias Lazy/SingleDeferred/Deferred (the site editor's legacy <code>Lazy</code> section wrapper maps to <code>Deferred&lt;T&gt;</code>; it is unrelated to the new <code>lazy</code> block), Seo*, <code>site/apps/site.ts</code>, <code>resolved</code>, requestToParam, secret (after the one-time re-encryption by the migration), redirect (nested shape flattened, <code>temporary</code> kept as status 307 and <code>discardQueryParameters</code> kept), the device and random matchers (a random variant's saved entry name is copied into its experiment id), the <code>multi</code> matcher (<code>website/matchers/multi.ts</code> and <code>$live/matchers/MatchMulti.ts</code>, whose and/or combinators keep the <code>{ op, matchers }</code> shape that the site editor's variant calendar and rule labels read) and Theme, and list exactly which paths. Legacy Analytics (GTM/GA) isn't aliased to the built-in <code>analytics</code> block, which stays One Dollar Stats only: the migration moves it into a site-owned tag-manager block from the template.</p>",
+      "plan": "<p>Unwrap Lazy/SingleDeferred/Deferred (the site editor's legacy <code>Lazy</code> section wrapper: the wrapped block renders normally, with no client-side deferral; it is unrelated to the new <code>lazy</code> block), Seo*, <code>site/apps/site.ts</code>, <code>resolved</code>, requestToParam, secret (after the one-time re-encryption by the migration), redirect (nested shape flattened, <code>temporary</code> kept as status 307 and <code>discardQueryParameters</code> kept), the device and random matchers (a random variant's saved entry name is copied into its experiment id), the <code>multi</code> matcher (<code>website/matchers/multi.ts</code> and <code>$live/matchers/MatchMulti.ts</code>, whose and/or combinators keep the <code>{ op, matchers }</code> shape that the site editor's variant calendar and rule labels read) and Theme, and list exactly which paths. Legacy Analytics (GTM/GA) isn't aliased to the built-in <code>analytics</code> block, which stays One Dollar Stats only: the migration moves it into a site-owned tag-manager block from the template.</p>",
       "features": [
         "block-type-discriminator",
         "section-catalog",
@@ -1863,7 +1838,7 @@
       "id": "roadmap-docs--add-notes-to-the-rendering-section",
       "group": "docs",
       "title": "Add notes to the Rendering page",
-      "plan": "<p>Add four statements to <a href=\"#rendering\">Rendering</a>. Inline <code>&lt;script&gt;</code> in a streamed boundary runs on parse, before the boundary is revealed, so use effects. <code>&lt;BlockList&gt;</code> keeps above-the-fold blocks eager, with sized skeletons below. UI stores (drawers, minicart) are app code, created per request. Request-scope values are read during resolve and passed as props, because AsyncLocalStorage is gone by the time a streamed boundary renders.</p>",
+      "plan": "<p>Add four statements to <a href=\"#rendering\">Rendering</a>. Inline <code>&lt;script&gt;</code> in a streamed boundary runs on parse, before the boundary is revealed, so use effects. A legacy Lazy wrapper is unwrapped, so its block renders normally, with no client-side deferral. UI stores (drawers, minicart) are app code, created per request. Request-scope values are read during resolve and passed as props, because AsyncLocalStorage is gone by the time a streamed boundary renders.</p>",
       "features": [
         "interactive-ui-widgets",
         "core-patches",
@@ -2051,10 +2026,10 @@
           "no_action": false
         },
         {
-          "id": "roadmap-storefront--restore-deferral-and-stop-duplicate-loads",
+          "id": "roadmap-storefront--unwrap-lazy-wrappers-and-stop-duplicate-loads",
           "kind": "content",
-          "title": "Restore deferral and stop duplicate loads",
-          "text": "Its 43 Lazy wrappers (21 with inline loaders) lose deferral until <code>Deferred&lt;T&gt;</code> exists. 'PLP Loader' is referenced twice per page and needs the per-client memo.",
+          "title": "Unwrap Lazy wrappers and stop duplicate loads",
+          "text": "The alias bridge unwraps its 43 Lazy wrappers (21 with inline loaders): each wrapped block renders normally, with no client-side deferral. 'PLP Loader' is referenced twice per page and needs the per-client memo.",
           "features": [
             "lazy-deferred-sections",
             "inline-loader-props",
@@ -2563,7 +2538,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "Saved entries with references cover the two TanStack sites, but FastStore's global singletons have no equivalent. A layout and its page can get two clients on different revisions, and Lazy-wrapped headers and footers lose their deferral.",
+      "summary": "Saved entries with references cover the two TanStack sites, but FastStore's global singletons have no equivalent. A layout and its page can get two clients on different revisions, and Lazy-wrapped headers and footers are unwrapped and render with no client-side deferral.",
       "docs": [
         "blocks",
         "caching",
@@ -3067,7 +3042,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "A legacy Lazy wrapper's `section` input resolves fully before Lazy runs, so Lazy defers nothing (43 wrappers on the storefront). Viewport-gated second hops need a revision the client doesn't expose, and today's per-prop deferral has no counterpart.",
+      "summary": "A legacy Lazy wrapper's `section` input resolves fully before Lazy runs, so Lazy defers nothing (43 wrappers on the storefront). The alias bridge unwraps legacy Lazy/SingleDeferred/Deferred wrappers, so the wrapped block renders normally, with no client-side deferral; today's per-prop deferral has no counterpart, and none is planned. Viewport-gated second hops need a revision the client doesn't expose.",
       "docs": [
         "blocks",
         "rendering",
