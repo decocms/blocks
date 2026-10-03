@@ -25,7 +25,6 @@
  * ```
  */
 
-import { draftPointer } from "@decocms/blocks";
 import {
   getRevision,
   getSectionOptions,
@@ -93,8 +92,6 @@ import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
-import { installUpstreamCache } from "../v8/binding";
-import { installBackgroundHook, runBackgroundTasks } from "./backgroundTasks";
 import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
   applyDraftCookieAndHeaders,
@@ -1290,8 +1287,6 @@ export function createDecoWorkerEntry(
     // `?__draft=` param OR the navigation cookie (SPA nav after entry), gated
     // on an allowed preview host — see requestCarriesDraft.
     if (requestCarriesDraft(request, url)) return false;
-    // A next-major draft (`?__draft=` or the `deco-draft` cookie): same rule.
-    if (draftPointer(request) !== null) return false;
     if (url.searchParams.has("__deco_preview")) return false;
     if (url.searchParams.has("pathTemplate")) return false;
     // Forced matcher results must never be served from (or stored in) the
@@ -2174,21 +2169,6 @@ export function createDecoWorkerEntry(
   // `DECO_OTEL_*_ENDPOINT` env vars are configured, telemetry flows
   // without any change to the site's worker-entry. When the env vars are
   // absent the wrap is a no-op (no exporters created, no flush calls).
-  // `@decocms/blocks` background work (release checks, telemetry batches)
-  // queued during a request runs after its response, inside ctx.waitUntil.
-  installBackgroundHook();
-  // Next major: upstream GETs made with createInstrumentedFetch are cached
-  // with the Cache API (see ../v8/binding.ts).
-  installUpstreamCache();
-  const respond = handler.fetch;
-  handler.fetch = async (request, env, ctx) => {
-    try {
-      return await respond(request, env, ctx);
-    } finally {
-      runBackgroundTasks(ctx);
-    }
-  };
-
   return observabilityOpt === false
     ? handler
     : instrumentWorker(handler, (observabilityOpt as OtelOptions | undefined) ?? {});

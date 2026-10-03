@@ -89,7 +89,7 @@ class RemoteLoader implements Loader {
     const manifest = await this.#manifest();
     if (manifest.generation < this.#generation) return { updated: false };
 
-    // Best effort: a fallback that can't load (a missing kvLoader key) is
+    // Best effort: a fallback that can't load (a KV key the deploy never wrote) is
     // fixed by downloading the release, not by failing the check.
     const fallbackRevision = await this.#fallbackRevisionNow().catch(() => undefined);
     const served = this.#current !== undefined ? this.#current.revision : fallbackRevision;

@@ -4,7 +4,7 @@
  * /next/telemetry-internals#sending-in-the-background).
  *
  * Where it runs, in order:
- * - a host hook a framework binding installs under {@link BACKGROUND_HOOK};
+ * - a hook the host installs under {@link BACKGROUND_HOOK};
  * - on Cloudflare Workers, which run no timers between requests, the
  *   platform's `waitUntil` (from `cloudflare:workers`), so the task runs
  *   after the response with no binding and no user code: the core installs
@@ -17,7 +17,7 @@
  * A task never throws into its caller: errors and rejections are swallowed.
  */
 
-/** Where a binding installs `(task) => void` to run background work its own way. */
+/** Where a host installs `(task) => void` to run background work its own way. */
 const BACKGROUND_HOOK = Symbol.for("decocms.blocks.background");
 
 type Task = () => unknown;
@@ -101,7 +101,7 @@ export function later(ms: number, callback: () => void): void {
   timer?.unref?.();
 }
 
-/** Whether a binding installed a background hook (then batches go out after each response). */
+/** Whether a host installed a background hook (then batches go out after each response). */
 export function hasBackgroundHook(): boolean {
   return typeof (globalThis as BackgroundGlobals)[BACKGROUND_HOOK] === "function";
 }

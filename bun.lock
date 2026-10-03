@@ -131,7 +131,6 @@
       "dependencies": {
         "@decocms/apps-commerce": "workspace:*",
         "@decocms/blocks": "workspace:*",
-        "@decocms/tanstack": "workspace:*",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -179,7 +178,6 @@
       "dependencies": {
         "@decocms/apps-commerce": "workspace:*",
         "@decocms/blocks": "workspace:*",
-        "@decocms/tanstack": "workspace:*",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -199,9 +197,9 @@
         "@decocms/apps-commerce": "workspace:*",
         "@decocms/apps-website": "workspace:*",
         "@decocms/blocks": "workspace:*",
-        "@decocms/tanstack": "workspace:*",
       },
       "devDependencies": {
+        "@decocms/tanstack": "workspace:*",
         "@tanstack/react-query": "^5.96.0",
         "@types/react": "^19.0.0",
         "@types/react-dom": "^19.0.0",
@@ -209,11 +207,13 @@
         "typescript": "^5.9.0",
       },
       "peerDependencies": {
+        "@decocms/tanstack": "workspace:*",
         "@tanstack/react-query": ">=5.0.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
       },
       "optionalPeers": [
+        "@decocms/tanstack",
         "@tanstack/react-query",
       ],
     },
@@ -223,7 +223,6 @@
       "dependencies": {
         "@decocms/apps-commerce": "workspace:*",
         "@decocms/blocks": "workspace:*",
-        "@decocms/tanstack": "workspace:*",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",

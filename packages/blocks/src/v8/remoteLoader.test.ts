@@ -126,7 +126,7 @@ describe("remoteLoader: releases", () => {
     expect(await loader.load()).toEqual(release);
   });
 
-  it("a fallback that can't load (a missing kvLoader key) is fixed by a release check", async () => {
+  it("a fallback that can't load (a KV key the deploy never wrote) is fixed by a release check", async () => {
     const api = deliveryApi();
     const release = await hashed("Published");
     api.publish(1, release);

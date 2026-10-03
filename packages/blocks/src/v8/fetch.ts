@@ -14,7 +14,11 @@ import { currentTelemetry, describe, newTraceId } from "./telemetry";
 interface InstrumentedFetchOptions {
   /** The provider label, e.g. "vtex", "acme-search". */
   provider: string;
-  /** The fetch underneath; defaults to `globalThis.fetch`. */
+  /**
+   * The fetch underneath; defaults to `globalThis.fetch`. An upstream cache
+   * goes here (see /next/caching#upstream-data); a response it serves from
+   * the cache carries `x-cache: HIT` and is measured with `cached=true`.
+   */
   fetch?: typeof fetch;
   /** Off unless set. `attempts` is how many times a failed request is retried; a retried request is measured once. */
   retry?: { attempts: number; backoffMs?: number };
@@ -26,19 +30,6 @@ type InstrumentedFetch = (
   input: string | URL | Request,
   init?: RequestInit & { operation?: string },
 ) => Promise<Response>;
-
-/**
- * Where a framework binding installs its upstream cache (on Workers,
- * `@decocms/tanstack` installs one over the Cache API). GETs go through it,
- * and it reports whether the response came from the cache.
- */
-const UPSTREAM_CACHE = Symbol.for("decocms.blocks.upstreamCache");
-
-type UpstreamCache = (
-  input: string | URL | Request,
-  init: RequestInit,
-  fetch: typeof globalThis.fetch,
-) => Promise<{ response: Response; cached: boolean }>;
 
 /** Statuses worth retrying: rate limits and gateway errors. */
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
@@ -55,17 +46,7 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
     const method = (
       requestInit.method ?? (input instanceof Request ? input.method : "GET")
     ).toUpperCase();
-    const origin = options.fetch ?? globalThis.fetch;
-    const cache = (globalThis as Record<symbol, UpstreamCache | undefined>)[UPSTREAM_CACHE];
-    let cached = false;
-    const doFetch: typeof globalThis.fetch =
-      typeof cache === "function" && method === "GET"
-        ? async (request, requestInit = {}) => {
-            const hit = await cache(request as string | URL | Request, requestInit, origin);
-            cached = hit.cached;
-            return hit.response;
-          }
-        : origin;
+    const doFetch = options.fetch ?? globalThis.fetch;
     const maxRetries =
       retry && IDEMPOTENT.has(method) ? Math.max(0, Math.floor(retry.attempts)) : 0;
     const startedAt = Date.now();
@@ -112,8 +93,8 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
         provider,
         operation,
         status_class: response ? `${Math.floor(response.status / 100)}xx` : "error",
-        // Upstream caching lives in the binding, under this fetch.
-        cached,
+        // An upstream cache is the site's own `fetch` option; it marks a hit `x-cache: HIT`.
+        cached: response?.headers.get("x-cache") === "HIT",
         retries,
       };
       telemetry.histogram(

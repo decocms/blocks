@@ -50,20 +50,24 @@
   "dependencies": {
     "@decocms/blocks": "workspace:*",
     "@decocms/apps-commerce": "workspace:*",
-    "@decocms/apps-website": "workspace:*",
-    "@decocms/tanstack": "workspace:*"
+    "@decocms/apps-website": "workspace:*"
   },
   "peerDependencies": {
+    "@decocms/tanstack": "workspace:*",
     "@tanstack/react-query": ">=5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "peerDependenciesMeta": {
+    "@decocms/tanstack": {
+      "optional": true
+    },
     "@tanstack/react-query": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@decocms/tanstack": "workspace:*",
     "@tanstack/react-query": "^5.96.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

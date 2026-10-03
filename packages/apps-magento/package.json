@@ -23,8 +23,7 @@
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*",
-    "@decocms/apps-commerce": "workspace:*",
-    "@decocms/tanstack": "workspace:*"
+    "@decocms/apps-commerce": "workspace:*"
   },
   "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" },
   "devDependencies": {

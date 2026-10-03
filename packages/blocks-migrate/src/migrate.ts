@@ -67,7 +67,7 @@ function addScripts(root: string, report: Report): void {
     step: "scripts",
     subject: "package.json",
     message:
-      "depend on the next major of @decocms/blocks, drop the v7 codegen from build and the @decocms/blocks-admin and @decocms/blocks-cli dependencies once nothing imports them",
+      "depend on the next major of @decocms/blocks, drop the v7 codegen from build and the @decocms/blocks-admin, @decocms/blocks-cli, @decocms/tanstack and @decocms/nextjs dependencies once nothing imports them (the next major has no framework binding)",
   });
 }
 

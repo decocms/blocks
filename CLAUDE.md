@@ -126,6 +126,7 @@ The v8 SDK the next-major docs specify (`/next/api-reference`) lives in `package
 - **Self-contained and runtime-neutral.** v8 modules import only each other (no v7 code, no React at runtime, no Node built-ins); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. Don't import v7 helpers into it.
 - **`createCMS` instances are `globalThis` singletons** under `Symbol.for("decocms.blocks.cms:<content identity>[|site|token-hash]")`, so two copies of the package share one content cache (`dualInstance.test.ts`). Never key on the revision, and never put a raw token in a symbol.
 - **`lazy` is the resolver's only special case**; everything else is an ordinary block function. Values from the snapshot are always copied while walked, so callers and block functions can't mutate shared content.
+- **No framework binding.** v8 sites depend on `@decocms/blocks` (plus upstream clients) only; `@decocms/tanstack` and `@decocms/nextjs` are v7-only. Platform specifics (a Workers KV `Loader`, a Cache API upstream cache passed as `createInstrumentedFetch`'s `fetch`) are template code shown as docs recipes, not package exports. No v8 package (`blocks`, `apps-*`, `blocks-migrate`) may depend on a binding (`src/v8/__conformance__/sdk.test.ts` checks).
 - **No request scope in the core.** Block functions read the request through the framework's own storage, per template; don't add a `requestScope()` here.
 
 ## Known gaps in package exports (documented, not yet fixed)

@@ -59,7 +59,6 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   "@decocms/blocks/analytics": "*",
   "@decocms/blocks/secrets": "*",
   "@decocms/blocks/cli": "*",
-  "@decocms/tanstack": new Set(["kvLoader"]),
 };
 
 /** Where each v7 import's replacement lives, first match wins. */
@@ -67,7 +66,7 @@ const HINTS: [RegExp, string][] = [
   [/^@decocms\/start(\/|$)/, "a 6.x import: upgrade the site to 7.x first"],
   [
     /^@decocms\/blocks\/sdk\/cachedLoader$/,
-    "cachedLoader is gone: upstream caching lives in the framework binding (/next/caching#upstream-data)",
+    "cachedLoader is gone: an upstream cache is your own fetch, passed to createInstrumentedFetch (/next/caching#upstream-data)",
   ],
   [
     /(^|\/)(invoke|createInvoke)$|\/sdk\/invoke/,
@@ -119,7 +118,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/(tanstack|nextjs)(\/|$)/,
-    "the v7 binding: follow your framework's guide (/next/tanstack-start-descriptors, /next/nextjs)",
+    "the v7 framework binding: the next major has none, so drop the dependency and follow your framework's guide (/next/tanstack-start-descriptors, /next/nextjs)",
   ],
 ];
 const DEFAULT_HINT = "no v8 equivalent";

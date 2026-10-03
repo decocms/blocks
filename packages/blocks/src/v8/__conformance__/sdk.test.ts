@@ -572,13 +572,25 @@ describe("AR-24 / CT-08 update() runs in the background, never in front of a req
     expect(tasks).toHaveLength(0);
   });
 
-  it("the TanStack worker entry runs due checks after the response inside ctx.waitUntil", () => {
-    const workerEntry = fs.readFileSync(
-      path.resolve(pkgRoot, "../tanstack/src/sdk/workerEntry.ts"),
-      "utf8",
-    );
-    expect(workerEntry).toContain("installBackgroundHook()");
-    expect(workerEntry).toContain("runBackgroundTasks(ctx)");
+  it("no framework binding: no v8 package depends on @decocms/tanstack or @decocms/nextjs", () => {
+    // v8 sites depend on @decocms/blocks (and upstream clients) alone; on
+    // Workers the core hands background work to waitUntil itself (ts-04).
+    const packages = path.resolve(pkgRoot, "..");
+    const offenders: string[] = [];
+    for (const name of fs.readdirSync(packages)) {
+      if (!/^(blocks|blocks-migrate|apps-.+)$/.test(name)) continue;
+      const file = path.join(packages, name, "package.json");
+      if (!fs.existsSync(file)) continue;
+      const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+      const optional = manifest.peerDependenciesMeta ?? {};
+      for (const binding of ["@decocms/tanstack", "@decocms/nextjs"]) {
+        if (manifest.dependencies?.[binding]) offenders.push(`${name}: ${binding}`);
+        if (manifest.peerDependencies?.[binding] && !optional[binding]?.optional) {
+          offenders.push(`${name}: ${binding} (peer)`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

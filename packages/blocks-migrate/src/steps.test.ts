@@ -233,6 +233,21 @@ describe("imports", () => {
       "@decocms/blocks {logger}: no v8 equivalent; in src/b.tsx:1",
     ]);
   });
+
+  it("reports every framework-binding import, kvLoader included: the next major has no binding", () => {
+    site({
+      "src/a.ts":
+        'import { kvLoader } from "@decocms/tanstack";\nimport { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";\n',
+    });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    const notes = report.manual.map((n) => `${n.subject}: ${n.message}`);
+    expect(notes.map((n) => n.split(":")[0])).toEqual([
+      "@decocms/nextjs/routeHandlers {createDecoRouteHandlers}",
+      "@decocms/tanstack {kvLoader}",
+    ]);
+    for (const note of notes) expect(note).toContain("drop the dependency");
+  });
 });
 
 describe("the codemod's list of the root's next-major exports", () => {
