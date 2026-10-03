@@ -513,6 +513,21 @@ describe("shared content is never mutated", () => {
     listed?.[0]?.items.push("caller mutation");
     expect(JSON.stringify(content.blocks)).toBe(frozen);
   });
+
+  it("results are read-only: one block twice in a request shares one result; requests never share", async () => {
+    const card = vi.fn((props: { id: number }) => ({ ...props, tags: [] as string[] }));
+    const cms = createCMS({ blocks: { card }, content: { revision: "r", blocks: {} } });
+    const target = {
+      a: { __resolveType: "card", id: 1 },
+      b: { __resolveType: "card", id: 1 },
+    };
+    const first = cms.forRelease();
+    const [value] = await first.resolve<{ a: { tags: string[] }; b: { tags: string[] } }>(target);
+    expect(card).toHaveBeenCalledTimes(1);
+    expect(value?.a).toBe(value?.b);
+    const [other] = await cms.forRelease().resolve<{ a: { tags: string[] } }>(target);
+    expect(other?.a).not.toBe(value?.a);
+  });
 });
 
 describe("aliases — the snapshot's alias table", () => {

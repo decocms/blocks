@@ -208,10 +208,23 @@ export interface ListOptions<T> {
   run?: boolean;
 }
 
+/**
+ * Reads one revision for one request.
+ *
+ * Results are read-only. A client runs each block function once per distinct
+ * input, so the same block at two places in a request hands both places the
+ * same object; mutating it in place changes the other occurrence too. Copy a
+ * result before changing it. (The memo belongs to one client, so nothing is
+ * shared across requests.)
+ */
 export interface Client {
   resolve<T = unknown>(target: unknown, options?: ResolveOptions): Promise<Result<T>>;
   list<T = Block>(type: string, options?: ListOptions<T>): Promise<Result<T[]>>;
-  /** The revision this client reads (loads it on first use). */
+  /**
+   * The revision this client reads (loads it on first use). Unlike `resolve`
+   * and `list`, it rejects with the `LOADER_FAILED` error when the content
+   * can't load, since there is no revision to report.
+   */
   revision(): Promise<string>;
 }
 

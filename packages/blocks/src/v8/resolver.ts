@@ -8,7 +8,10 @@
  * the one special case: its `value` is not resolved first.
  *
  * A `Resolver` belongs to one client, so its memo (results per block function
- * and canonical inputs) never outlives a request.
+ * and canonical inputs) never outlives a request. Within the request the memo
+ * hands every occurrence of the same block the same result object, so results
+ * are read-only (see `Client` in ./types): mutating one in place would change
+ * the others, the class of bug behind the v7 layout-cache race.
  */
 import { builtIns, RESERVED_NAMES } from "./builtins/index";
 import { isLazyBuiltin } from "./builtins/lazy";
