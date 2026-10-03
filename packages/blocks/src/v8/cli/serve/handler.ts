@@ -262,10 +262,11 @@ export function createLocalContentHandler(storage: ContentStorage, options: Hand
           meta = null;
         }
         if (meta?.schema?.definitions) {
-          const blocks = {
-            ...snapshot.blocks,
-            ...(set as Record<string, Record<string, unknown>>),
-          };
+          const blocks: Record<string, Record<string, unknown>> = Object.assign(
+            Object.create(null),
+            snapshot.blocks,
+            set,
+          );
           for (const p of secretViolations(meta, blocks, Object.keys(set))) {
             violations.push({ name: p.file, path: p.path, message: p.message });
           }
@@ -283,7 +284,7 @@ export function createLocalContentHandler(storage: ContentStorage, options: Hand
 
       const conflicts: { name: string; expected: string | null; actual: string | null }[] = [];
       for (const [name, expected] of Object.entries(ifMatch as Record<string, string | null>)) {
-        const actual = snapshot.versions[name] ?? null;
+        const actual = Object.hasOwn(snapshot.versions, name) ? snapshot.versions[name] : null;
         if (actual !== expected) conflicts.push({ name, expected, actual });
       }
       if (conflicts.length > 0) {

@@ -4,10 +4,16 @@ import http from "node:http";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  createFixture,
+  type Fixture,
+  recorder,
+  STORE_FILES,
+  sealSecret,
+} from "../__tests__/fixture";
 import { decoPaths } from "../root";
 import { type DecoMeta, generateSchema } from "../schema/generate";
-import { createFixture, type Fixture, recorder, STORE_FILES, sealSecret } from "../__tests__/fixture";
-import { defaultAppUrl, type RunningServer, sanitizeAssetName, startServer } from "./server";
+import { DEFAULT_APP_URL, type RunningServer, sanitizeAssetName, startServer } from "./server";
 import { gitBlobHash } from "./storage";
 
 let meta: DecoMeta;
@@ -113,7 +119,7 @@ async function rpc(method: string, params?: unknown, headers: Record<string, str
 
 describe("starting", () => {
   it("prints the address, root, assets, app and connect link", async () => {
-    await start({}, { "vite.config.ts": "export default { server: { port: 3001 } };" });
+    await start({ appUrl: "http://localhost:3001" });
     const text = out.text();
     expect(text).toContain(`Deco server          http://127.0.0.1:${server!.port}/rpc`);
     expect(text).toContain("Root                 .   (.deco/schema.gen.json, 0 blocks)");
@@ -139,13 +145,17 @@ describe("starting", () => {
     ).toBe(true);
   });
 
-  it("defaults the app to the Vite port, else 5173", () => {
-    const f = createFixture();
-    try {
-      expect(defaultAppUrl(f.root)).toBe("http://localhost:5173");
-    } finally {
-      f.remove();
-    }
+  it("defaults the app to 5173 without reading any framework config", async () => {
+    await start({}, { "vite.config.ts": "export default { server: { port: 3999 } };" });
+    expect(DEFAULT_APP_URL).toBe("http://localhost:5173");
+    expect(out.text()).toContain("App preview          http://localhost:5173");
+  });
+
+  it("refuses an empty token", async () => {
+    await expect(start({ token: "" })).rejects.toThrow(/--token can't be empty/);
+    await expect(start({ token: undefined, env: { DECO_SERVE_TOKEN: "  " } })).rejects.toThrow(
+      /DECO_SERVE_TOKEN can't be empty/,
+    );
   });
 });
 
@@ -321,6 +331,45 @@ describe("the content protocol", () => {
     expect(fixture.read(".deco/blocks.gen.ts")).toContain('"a/b":');
   });
 
+  it("regenerates the content module after editing an existing block, with a new revision", async () => {
+    await start({}, { ".deco/blocks/HomePage.json": hero });
+    await rpc("blocks.apply", { set: { HomePage: hero } });
+    const revisionOf = () => fixture.read(".deco/blocks.gen.ts").match(/revision: "(\w+)"/)?.[1];
+    const before = revisionOf();
+    expect(before).toMatch(/^[0-9a-f]{64}$/);
+    await rpc("blocks.apply", { set: { HomePage: { ...hero, title: "Winter" } } });
+    const after = revisionOf();
+    expect(after).not.toBe(before);
+    // Saving the same content again keeps the revision (and the file).
+    await rpc("blocks.apply", { set: { HomePage: { ...hero, title: "Winter" } } });
+    expect(revisionOf()).toBe(after);
+  });
+
+  it("saves, lists and deletes blocks named constructor and toString", async () => {
+    await start();
+    const saved = await rpc("blocks.apply", { set: { constructor: hero, toString: hero } });
+    expect(saved.error).toBeUndefined();
+    expect(fixture.exists(".deco/blocks/constructor.json")).toBe(true);
+    expect(fixture.exists(".deco/blocks/toString.json")).toBe(true);
+    const list = (await rpc("blocks.list")).result;
+    expect(Object.keys(list.blocks).sort()).toEqual(["constructor", "toString"]);
+    const edited = await rpc("blocks.apply", {
+      set: { constructor: { ...hero, title: "x" } },
+      ifMatch: { constructor: list.versions.constructor },
+    });
+    expect(edited.error).toBeUndefined();
+    expect(JSON.parse(fixture.read(".deco/blocks/constructor.json")).title).toBe("x");
+    expect(
+      (await rpc("blocks.apply", { set: { valueOf: hero }, ifMatch: { valueOf: null } })).error,
+    ).toBeUndefined();
+    await rpc("blocks.apply", { delete: ["toString", "hasOwnProperty"] });
+    expect(fixture.exists(".deco/blocks/toString.json")).toBe(false);
+    const refused = await rpc("blocks.apply", {
+      set: JSON.parse('{"__proto__": {"__resolveType": "hero"}}'),
+    });
+    expect(refused.error.code).toBe(-32003);
+  });
+
   it("lets set win over delete for the same name", async () => {
     await start({}, { ".deco/blocks/A.json": hero });
     await rpc("blocks.apply", { set: { A: { ...hero, title: "new" } }, delete: ["A"] });
@@ -486,6 +535,22 @@ describe("uploads", () => {
     expect(sanitizeAssetName("Summer Banner (1).png")).toBe("Summer-Banner-1-.png");
     expect(sanitizeAssetName("..")).toBeNull();
     expect(sanitizeAssetName(".env")).toBe("env");
+  });
+
+  it("refuses a name whose extension doesn't match the declared type, and SVG", async () => {
+    await start();
+    const html = await put("page.html", "image/png");
+    expect(html.status).toBe(415);
+    expect(html.body.error.message).toBe("a file of type image/png must be named *.png");
+    expect((await put("photo.png", "image/jpeg")).status).toBe(415);
+    expect((await put("noext", "image/png")).status).toBe(415);
+    const svg = await put("logo.svg", "image/svg+xml", Buffer.from("<svg/>"));
+    expect(svg.status).toBe(415);
+    expect(svg.body.error.message).toMatch(/SVG/);
+    expect(fs.existsSync(path.join(fixture.root, "public/assets"))).toBe(false);
+    expect((await put("Photo.JPG", "image/jpeg")).status).toBe(201);
+    expect((await put("font.woff2", "font/woff2")).status).toBe(201);
+    expect((await put("clip.mp4", "video/mp4")).status).toBe(201);
   });
 
   it("requires the token, like every request", async () => {

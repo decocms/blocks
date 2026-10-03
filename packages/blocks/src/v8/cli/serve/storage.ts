@@ -29,6 +29,11 @@ function revisionOf(versions: Record<string, string>): string {
   return createHash("sha1").update(lines).digest("hex");
 }
 
+/**
+ * Entry names are any strings, `constructor` and `__proto__`-like ones
+ * included, so every map here has no prototype and every lookup is an
+ * `Object.hasOwn` check.
+ */
 export interface BlocksSnapshot {
   revision: string;
   blocks: Record<string, Record<string, unknown>>;
@@ -53,9 +58,6 @@ export interface ApplyOperations {
 export interface ApplyResult {
   revision: string;
   versions: Record<string, string | null>;
-  /** Names that didn't exist before / no longer exist: the content module's imports changed. */
-  added: string[];
-  removed: string[];
 }
 
 export interface ContentStorage {
@@ -77,12 +79,12 @@ export function serializeEntry(entry: unknown): string {
 export function createFsStorage(paths: DecoPaths): ContentStorage {
   const readBlocks = (): BlocksSnapshot => {
     const saved = readSavedBlocks(paths.blocks);
-    const versions: Record<string, string> = {};
+    const versions: Record<string, string> = Object.create(null);
     for (const [name, file] of Object.entries(saved.files)) {
       versions[name] = gitBlobHash(fs.readFileSync(path.join(paths.blocks, file)));
     }
     // Every spelling of each name, so a write can delete the losers.
-    const spellings: Record<string, string[]> = {};
+    const spellings: Record<string, string[]> = Object.create(null);
     let entries: string[] = [];
     try {
       entries = fs.readdirSync(paths.blocks).filter((f) => f.endsWith(".json"));
@@ -133,12 +135,14 @@ export function createFsStorage(paths: DecoPaths): ContentStorage {
       const suffix = `.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
       const writes: { tmp: string; target: string }[] = [];
       const removals = new Set<string>();
-      const versions: Record<string, string | null> = {};
+      const versions: Record<string, string | null> = Object.create(null);
+      const own = <T>(map: Record<string, T>, name: string): T | undefined =>
+        Object.hasOwn(map, name) ? map[name] : undefined;
       try {
         // Stage every write first; nothing is visible until all of them exist.
         for (const [name, entry] of Object.entries(ops.set)) {
           const text = serializeEntry(entry);
-          const target = before.files[name] ?? nameToFile(name);
+          const target = own(before.files, name) ?? nameToFile(name);
           const tmp = path.join(paths.blocks, `${target}${suffix}`);
           fs.writeFileSync(tmp, text);
           const fd = fs.openSync(tmp, "r");
@@ -147,13 +151,13 @@ export function createFsStorage(paths: DecoPaths): ContentStorage {
           writes.push({ tmp, target: path.join(paths.blocks, target) });
           versions[name] = gitBlobHash(text);
           // A write overwrites the winning spelling and deletes the others.
-          for (const other of before.spellings[name] ?? []) {
+          for (const other of own(before.spellings, name) ?? []) {
             if (other !== target) removals.add(path.join(paths.blocks, other));
           }
         }
         for (const name of ops.delete) {
-          if (name in ops.set) continue; // set wins
-          for (const file of before.spellings[name] ?? [])
+          if (Object.hasOwn(ops.set, name)) continue; // set wins
+          for (const file of own(before.spellings, name) ?? [])
             removals.add(path.join(paths.blocks, file));
           versions[name] = null;
         }
@@ -164,10 +168,7 @@ export function createFsStorage(paths: DecoPaths): ContentStorage {
       for (const w of writes) fs.renameSync(w.tmp, w.target);
       for (const file of removals) fs.rmSync(file, { force: true });
 
-      const after = readBlocks();
-      const added = Object.keys(after.versions).filter((n) => !(n in before.versions));
-      const removed = Object.keys(before.versions).filter((n) => !(n in after.versions));
-      return { revision: after.revision, versions, added, removed };
+      return { revision: readBlocks().revision, versions };
     },
   };
 }

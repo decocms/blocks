@@ -71,29 +71,12 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-/** The dev app the canvas opens: `--app-url`, else the Vite config's port, else 5173. */
-export function defaultAppUrl(root: string): string {
-  for (const name of ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"]) {
-    let text: string;
-    try {
-      text = fs.readFileSync(path.join(root, name), "utf8");
-    } catch {
-      continue;
-    }
-    const server = text.match(/server\s*:\s*\{[^}]*?\bport\s*:\s*(\d{2,5})/s);
-    if (server) return `http://localhost:${server[1]}`;
-  }
-  return "http://localhost:5173";
-}
-
-function isNextApp(root: string): boolean {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-    return Boolean(pkg.dependencies?.next ?? pkg.devDependencies?.next);
-  } catch {
-    return false;
-  }
-}
+/**
+ * The dev app the canvas opens when `--app-url` isn't given. The CLI doesn't
+ * read framework config to guess it: knowing a framework's dev port belongs
+ * to that framework's binding, which can pass `appUrl` to `startServer`.
+ */
+export const DEFAULT_APP_URL = "http://localhost:5173";
 
 function packageVersion(): string {
   try {
@@ -104,8 +87,43 @@ function packageVersion(): string {
   }
 }
 
-const UPLOAD_TYPES =
-  /^(image\/[\w.+-]+|video\/[\w.+-]+|font\/[\w.+-]+|application\/pdf|application\/font-woff2?|application\/x-font-[\w.+-]+)$/;
+/**
+ * The uploads the server takes: each content type with the file extensions
+ * that match it. The dev app serves uploads from its own origin, so a file
+ * whose extension doesn't match its declared type (an `.html` sent as
+ * `image/png`) is refused, and so is SVG, an image format that can run
+ * script.
+ */
+const UPLOAD_TYPES: Record<string, readonly string[]> = {
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/png": [".png"],
+  "image/gif": [".gif"],
+  "image/webp": [".webp"],
+  "image/avif": [".avif"],
+  "image/x-icon": [".ico"],
+  "image/vnd.microsoft.icon": [".ico"],
+  "video/mp4": [".mp4", ".m4v"],
+  "video/webm": [".webm"],
+  "video/quicktime": [".mov"],
+  "font/woff": [".woff"],
+  "font/woff2": [".woff2"],
+  "font/ttf": [".ttf"],
+  "font/otf": [".otf"],
+  "application/font-woff": [".woff"],
+  "application/font-woff2": [".woff2"],
+  "application/pdf": [".pdf"],
+};
+
+/** Why an upload of `type` named `name` is refused, or null when it's accepted. */
+function uploadProblem(type: string, name: string): string | null {
+  if (type === "image/svg+xml") return "SVG uploads aren't accepted: an SVG file can run script";
+  const extensions = Object.hasOwn(UPLOAD_TYPES, type) ? UPLOAD_TYPES[type] : undefined;
+  if (!extensions) return "uploads take an image, video, font or PDF content type";
+  const ext = path.extname(name).toLowerCase();
+  return extensions.includes(ext)
+    ? null
+    : `a file of type ${type} must be named ${extensions.map((e) => `*${e}`).join(" or ")}`;
+}
 
 /** A file name safe to write: one segment, no traversal, portable characters. */
 export function sanitizeAssetName(raw: string): string | null {
@@ -140,15 +158,22 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
   const host = options.host ?? DEFAULT_HOST;
   const requestedPort = options.port ?? DEFAULT_PORT;
   const readOnly = options.readOnly ?? false;
+  if (options.token !== undefined && options.token.trim() === "") {
+    throw new CliError("--token can't be empty: pass a token, or leave it out for a random one");
+  }
+  if (options.token === undefined && env.DECO_SERVE_TOKEN?.trim() === "") {
+    throw new CliError(
+      "DECO_SERVE_TOKEN can't be empty: set a token, or unset it for a random one",
+    );
+  }
   const token = options.token ?? env.DECO_SERVE_TOKEN ?? randomBytes(32).toString("base64url");
-  const appUrl = options.appUrl ?? defaultAppUrl(paths.root);
+  const appUrl = options.appUrl ?? DEFAULT_APP_URL;
   const assetsDir = path.resolve(paths.root, options.assets ?? DEFAULT_ASSETS);
   const allowedOrigins = new Set(
     [...STUDIO_ORIGINS, studioOrigin(env), ...(options.allowOrigins ?? [])].map((o) =>
       o.replace(/\/+$/, ""),
     ),
   );
-  const next = isNextApp(paths.root);
 
   if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65535) {
     throw new CliError(`--port must be a port number, got ${requestedPort}`);
@@ -174,19 +199,17 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       }
     },
     onApply(result) {
-      const changed = result.added.length + result.removed.length > 0;
       const names = Object.keys(result.versions);
       reporter.info(
         `saved ${names.length} block${names.length === 1 ? "" : "s"}: ${names.join(", ")}`,
       );
-      // A new or removed file changes the content module's imports; Next.js
-      // also needs it rewritten after every save to pick up edits.
-      if (changed || next) {
-        try {
-          writeContent(paths);
-        } catch (error) {
-          reporter.warn(`couldn't regenerate .deco/blocks.gen.ts: ${(error as Error).message}`);
-        }
+      // Every save changes the content, so the content module's revision
+      // changes too (a revision is never reused for different content). An
+      // unchanged module isn't rewritten, so this costs nothing when it isn't.
+      try {
+        writeContent(paths);
+      } catch (error) {
+        reporter.warn(`couldn't regenerate .deco/blocks.gen.ts: ${(error as Error).message}`);
       }
     },
   });
@@ -282,15 +305,10 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
           .split(";")[0]
           .trim()
           .toLowerCase();
-        if (!UPLOAD_TYPES.test(type)) {
-          return rpcError(
-            415,
-            ERRORS.InvalidRequest,
-            "uploads take an image, video, font or PDF content type",
-          );
-        }
         const name = sanitizeAssetName(url.pathname.slice("/assets/".length));
         if (!name) return rpcError(400, ERRORS.InvalidParams, "invalid file name");
+        const problem = uploadProblem(type, name);
+        if (problem) return rpcError(415, ERRORS.InvalidRequest, problem);
         const declared = Number(req.headers["content-length"] ?? 0);
         if (declared > MAX_ASSET_BYTES)
           return rpcError(
