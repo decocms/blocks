@@ -368,7 +368,23 @@
                   "$ref": "#/root/matchers"
                 },
                 "value": {
-                  "title": "Value"
+                  "type": "object",
+                  "required": [
+                    "__resolveType",
+                    "value"
+                  ],
+                  "properties": {
+                    "__resolveType": {
+                      "type": "string",
+                      "enum": [
+                        "lazy"
+                      ],
+                      "default": "lazy"
+                    },
+                    "value": {
+                      "title": "Value"
+                    }
+                  }
                 }
               }
             }
@@ -502,7 +518,61 @@
                   "__resolveType": {
                     "type": "string",
                     "enum": [
-                      "multivariate",
+                      "multivariate"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "object",
+                          "required": [
+                            "__resolveType",
+                            "value"
+                          ],
+                          "properties": {
+                            "__resolveType": {
+                              "type": "string",
+                              "enum": [
+                                "lazy"
+                              ],
+                              "default": "lazy"
+                            },
+                            "value": {
+                              "type": "array",
+                              "title": "Sections",
+                              "items": {
+                                "$ref": "#/definitions/__SECTION_REF__"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants (legacy)",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
                       "website/flags/multivariate.ts",
                       "website/flags/multivariate/section.ts"
                     ]
@@ -732,7 +802,61 @@
                   "__resolveType": {
                     "type": "string",
                     "enum": [
-                      "multivariate",
+                      "multivariate"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "object",
+                          "required": [
+                            "__resolveType",
+                            "value"
+                          ],
+                          "properties": {
+                            "__resolveType": {
+                              "type": "string",
+                              "enum": [
+                                "lazy"
+                              ],
+                              "default": "lazy"
+                            },
+                            "value": {
+                              "type": "array",
+                              "title": "Sections",
+                              "items": {
+                                "$ref": "#/definitions/__SECTION_REF__"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants (legacy)",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
                       "website/flags/multivariate.ts",
                       "website/flags/multivariate/section.ts"
                     ]
@@ -825,7 +949,61 @@
                   "__resolveType": {
                     "type": "string",
                     "enum": [
-                      "multivariate",
+                      "multivariate"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "object",
+                          "required": [
+                            "__resolveType",
+                            "value"
+                          ],
+                          "properties": {
+                            "__resolveType": {
+                              "type": "string",
+                              "enum": [
+                                "lazy"
+                              ],
+                              "default": "lazy"
+                            },
+                            "value": {
+                              "type": "array",
+                              "title": "Sections",
+                              "items": {
+                                "$ref": "#/definitions/__SECTION_REF__"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants (legacy)",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
                       "website/flags/multivariate.ts",
                       "website/flags/multivariate/section.ts"
                     ]
