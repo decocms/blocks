@@ -21,6 +21,8 @@
 		"./preview": "./src/preview/index.ts",
 		"./protocol": "./src/protocol/index.ts",
 		"./protocol/keys": "./src/protocol/keys.ts",
+		"./protocol/server": "./src/protocol/server/index.ts",
+		"./protocol/storage/memory": "./src/protocol/storage/memory.ts",
 		"./types": "./src/types/index.ts",
 		"./types/widgets": "./src/types/widgets.ts",
 		"./setup": "./src/setup.ts",
