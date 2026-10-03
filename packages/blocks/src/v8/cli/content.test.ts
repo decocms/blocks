@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { createFixture, type Fixture, recorder } from "./__tests__/fixture";
 import { LEGACY_ALIASES } from "./builtins";
 import {
   computeRevision,
@@ -12,7 +13,6 @@ import {
   writeContent,
 } from "./content";
 import { decoPaths } from "./root";
-import { createFixture, type Fixture, recorder } from "./__tests__/fixture";
 
 let fixture: Fixture;
 afterEach(() => fixture?.remove());
@@ -30,6 +30,42 @@ describe("reading .deco/blocks", () => {
     expect(Object.keys(saved.blocks).sort()).toEqual(["HomePage", "collections/blog/posts/abc"]);
     expect(saved.files["collections/blog/posts/abc"]).toBe("collections%2Fblog%2Fposts%2Fabc.json");
     expect(saved.diagnostics).toEqual([]);
+  });
+
+  it("keeps names like constructor and toString as plain entries, and reports __proto__.json", () => {
+    fixture = createFixture({
+      ".deco/blocks/constructor.json": home,
+      ".deco/blocks/toString.json": { __resolveType: "x" },
+      ".deco/blocks/__proto__.json": { __resolveType: "x" },
+      ".deco/blocks/con.json": { __resolveType: "x" },
+    });
+    const saved = readSavedBlocks(decoPaths(fixture.root).blocks);
+    expect(Object.keys(saved.blocks).sort()).toEqual(["constructor", "toString"]);
+    expect(Object.hasOwn(saved.blocks, "hasOwnProperty")).toBe(false);
+    expect(saved.diagnostics).toEqual([
+      {
+        file: "__proto__.json",
+        severity: "error",
+        message: 'not a valid entry name (name is "__proto__"); rename the file',
+      },
+      {
+        file: "con.json",
+        severity: "error",
+        message: "not a valid entry name (name is a Windows device name); rename the file",
+      },
+    ]);
+    expect(() => writeContent(decoPaths(fixture.root))).toThrow(/__proto__\.json: not a valid/);
+  });
+
+  it("writes constructor and toString into the module like any other name", async () => {
+    fixture = createFixture({
+      ".deco/blocks/constructor.json": home,
+      ".deco/blocks/toString.json": home,
+    });
+    const result = writeContent(decoPaths(fixture.root));
+    const mod = await import(/* @vite-ignore */ pathToFileURL(result.file).href);
+    expect(Object.keys(mod.default.blocks).sort()).toEqual(["constructor", "toString"]);
+    expect(mod.default.blocks.constructor).toEqual(home);
   });
 
   it("is empty without a blocks folder", () => {
@@ -123,6 +159,22 @@ describe("the content module", () => {
     // Reserved words and leading digits get safe identifiers.
     expect(source).toContain('import _default from "./blocks/default.json"');
     expect(source).toContain('import _1st from "./blocks/1st.json"');
+  });
+
+  it("says which files it inlined, and that hand edits to them need a rerun", () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/blocks/pages-Home%2520Page.json": home,
+    });
+    expect(writeContent(decoPaths(fixture.root)).inlined).toEqual(["pages-Home%2520Page.json"]);
+    const out = recorder();
+    content({ cwd: fixture.root, reporter: out });
+    expect(out.lines.at(-1)?.message).toBe(
+      "1 file with % in the name is inlined, not imported: after editing one by hand, run deco content again (or keep deco content --watch running)",
+    );
+    const watching = recorder();
+    content({ cwd: fixture.root, reporter: watching, watching: true });
+    expect(watching.text()).not.toContain("inlined");
   });
 
   it("loads in a real module system with the same content and revision", async () => {

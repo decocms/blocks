@@ -7,7 +7,13 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { LEGACY_ALIASES } from "./builtins";
-import { canonicalName, compareSpellings, fileToName, type SpellingCandidate } from "./keys";
+import {
+  canonicalName,
+  compareSpellings,
+  fileToName,
+  invalidNameReason,
+  type SpellingCandidate,
+} from "./keys";
 import { consoleReporter, type Reporter } from "./log";
 import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "./root";
 
@@ -20,7 +26,11 @@ export interface ContentDiagnostic {
 }
 
 export interface SavedBlocks {
-  /** Every saved block, by entry name, as parsed from disk. */
+  /**
+   * Every saved block, by entry name, as parsed from disk. Both maps have no
+   * prototype, so a block named `constructor` or `toString` is just a name:
+   * look names up with `Object.hasOwn`, never `in` or a bare index.
+   */
   blocks: Record<string, Record<string, unknown>>;
   /** The file that holds each entry (the winning spelling). */
   files: Record<string, string>;
@@ -33,7 +43,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * Read `.deco/blocks` by the file-name rule. A missing folder is an empty
- * map. Files that aren't JSON objects, and losing spellings of one name, are
+ * map. Files that aren't JSON objects, files whose name the rule rejects
+ * (`__proto__.json`, `con.json`, …) and losing spellings of one name are
  * reported as diagnostics instead of entries.
  */
 export function readSavedBlocks(blocksDir: string): SavedBlocks {
@@ -56,6 +67,15 @@ export function readSavedBlocks(blocksDir: string): SavedBlocks {
       continue;
     }
     if (!dirent.name.endsWith(".json")) continue;
+    const invalid = invalidNameReason(fileToName(dirent.name));
+    if (invalid) {
+      diagnostics.push({
+        file: dirent.name,
+        severity: "error",
+        message: `not a valid entry name (${invalid}); rename the file`,
+      });
+      continue;
+    }
     const text = fs.readFileSync(path.join(blocksDir, dirent.name), "utf8");
     let entry: unknown;
     try {
@@ -82,8 +102,8 @@ export function readSavedBlocks(blocksDir: string): SavedBlocks {
     groups.set(key, group);
   }
 
-  const blocks: Record<string, Record<string, unknown>> = {};
-  const files: Record<string, string> = {};
+  const blocks: Record<string, Record<string, unknown>> = Object.create(null);
+  const files: Record<string, string> = Object.create(null);
   for (const group of groups.values()) {
     group.sort(compareSpellings);
     const [winner, ...losers] = group;
@@ -142,12 +162,25 @@ function identifierFor(name: string, taken: Set<string>): string {
 }
 
 /**
- * File names a bundler can import verbatim. Anything else (a `%`, a space,
- * non-ASCII) is inlined: bundlers disagree on whether an import specifier is
- * a path or a URL, so `pages-Home%2520Page.json` resolves to different files
- * in different tools.
+ * File names a bundler can import verbatim. Anything else is inlined, a
+ * deliberate departure from "one import per file": every name with a space,
+ * `/` or non-ASCII character is stored percent-encoded (`pages-Home%20Page`),
+ * and tools disagree on what a `%` in an import specifier means. Vite and
+ * esbuild read `./blocks/a%20b.json` as that file and fail on `a%2520b.json`;
+ * Node reads it as a URL and loads `a b.json` instead. No spelling of the
+ * specifier names the same file everywhere, so those entries are written into
+ * the module, and hand edits to them need `deco content` again (`--watch`
+ * does it; `deco serve` regenerates after every save).
  */
 const IMPORTABLE_FILE = /^[A-Za-z0-9_][A-Za-z0-9._-]*\.json$/;
+
+/** The files `renderContentModule` inlines instead of importing. */
+function inlinedFiles(saved: SavedBlocks): string[] {
+  return Object.keys(saved.blocks)
+    .sort()
+    .map((name) => saved.files[name])
+    .filter((file) => !IMPORTABLE_FILE.test(file));
+}
 
 /** The source of `.deco/blocks.gen.ts` for a set of saved blocks. */
 export function renderContentModule(saved: SavedBlocks): string {
@@ -202,6 +235,8 @@ export interface ContentResult {
   count: number;
   /** False when the file already had this content. */
   changed: boolean;
+  /** Files written into the module instead of imported (see `inlinedFiles`). */
+  inlined: string[];
   diagnostics: ContentDiagnostic[];
 }
 
@@ -234,6 +269,7 @@ export function writeContent(paths: DecoPaths): ContentResult {
     revision: computeRevision(saved.blocks),
     count: Object.keys(saved.blocks).length,
     changed,
+    inlined: inlinedFiles(saved),
     diagnostics: saved.diagnostics,
   };
 }
@@ -242,6 +278,8 @@ export interface ContentOptions {
   root?: string;
   cwd?: string;
   reporter?: Reporter;
+  /** Set by `--watch`: inlined files are kept up to date, so no hint about them. */
+  watching?: boolean;
 }
 
 /** `deco content`, once. Returns the exit code. */
@@ -253,5 +291,12 @@ export function content(options: ContentOptions = {}): number {
   reporter.info(
     `${result.changed ? "wrote" : "unchanged"} .deco/blocks.gen.ts (${result.count} blocks, revision ${result.revision.slice(0, 12)})`,
   );
+  const inlined = result.inlined.length;
+  if (inlined > 0 && !options.watching) {
+    reporter.info(
+      `${inlined} file${inlined === 1 ? "" : "s"} with % in the name ${inlined === 1 ? "is" : "are"} inlined, not imported: ` +
+        "after editing one by hand, run deco content again (or keep deco content --watch running)",
+    );
+  }
   return 0;
 }
