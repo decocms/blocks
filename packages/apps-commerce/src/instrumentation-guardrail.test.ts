@@ -85,7 +85,9 @@ describe("next-major upstream clients instrumentation guardrail", () => {
       expect(src, `${app} must create its fetch with createInstrumentedFetch`).toMatch(
         /createInstrumentedFetch\(\s*\{[^}]*provider:/,
       );
-      expect(src, `${app} must not call fetch directly`).not.toMatch(
+      // Comments may mention "fetch (`@decocms/blocks/fetch`)"; only code counts.
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+      expect(code, `${app} must not call fetch directly`).not.toMatch(
         /(?<![\w.])(globalThis\.)?fetch\s*\(/,
       );
     });
