@@ -122,7 +122,7 @@ export default { weekday, "promo-banner": PromoBanner } satisfies Blocks;   // a
 Studio's rule picker now lists `weekday` next to the built-in `date` (see [what Studio reads](/next/studio-compatibility#what-studio-reads-from-the-schema)). An editor can give weekends their own title:
 
 ```jsonc
-// Stored as JSON, the title field of the promo banner
+// The title field of the promo banner
 {
   "__resolveType": "multivariate",
   "variants": [
@@ -136,14 +136,6 @@ Studio's rule picker now lists `weekday` next to the built-in `date` (see [what 
     }
   ]
 }
-
-// Means
-multivariate({
-  variants: [
-    { rule: weekday({ days: ["Sat", "Sun"] }), value: async () => "Weekend: free shipping on everything" },
-    { rule: always(), value: async () => "Free shipping over $50" },
-  ],
-});
 ```
 
 A few more things you can do:
