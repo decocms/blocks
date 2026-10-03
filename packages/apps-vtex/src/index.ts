@@ -6,7 +6,6 @@
  * the v7 app surface, kept exported for v7 consumers until v7 is dropped.
  *
  * v7: re-exports client config + initializer + app contract.
- * Re-exports client config + initializer + app contract.
  *
  * For actions/loaders/utils, use sub-path imports:
  *   import { addItemsToCart } from "@decocms/apps/vtex/actions/checkout"
@@ -23,8 +22,6 @@ export { type CreateVtexFetchOptions, createVtexFetch } from "./utils/instrument
 export { vtexOperationRouter } from "./utils/operationRouter";
 export {
 	createVtexClient,
-	VTEX_DEFAULT_CIRCUIT_BREAKER,
-	VTEX_DEFAULT_RETRY,
 	type VtexCatalogSearchArgs,
 	type VtexClient,
 	type VtexClientConfig,

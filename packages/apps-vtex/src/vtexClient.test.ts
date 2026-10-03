@@ -27,7 +27,7 @@ vi.mock("@decocms/blocks/fetch", async (importActual) => {
 	};
 });
 
-import { createVtexClient, VTEX_DEFAULT_CIRCUIT_BREAKER, VTEX_DEFAULT_RETRY, VtexError } from ".";
+import { createVtexClient, VtexError } from ".";
 
 type Call = { url: string; init: RequestInit };
 
@@ -57,8 +57,8 @@ describe("createVtexClient", () => {
 		createVtexClient({ account: "store" });
 		expect(instrumented.options[0]).toMatchObject({
 			provider: "vtex",
-			retry: VTEX_DEFAULT_RETRY,
-			circuitBreaker: VTEX_DEFAULT_CIRCUIT_BREAKER,
+			retry: { attempts: 2, backoffMs: 150 },
+			circuitBreaker: { failures: 5, cooldownMs: 5000 },
 		});
 	});
 
@@ -149,12 +149,16 @@ describe("createVtexClient", () => {
 		const { calls, fetch } = upstream([], {
 			"set-cookie": ["checkout.vtex.com=__ofid=of1; Domain=store.vtexcommercestable.com.br; Path=/"],
 		});
-		const vtex = createVtexClient({ account: "store", fetch });
+		const vtex = createVtexClient({ account: "store", appKey: "key", appToken: "token", fetch });
 		const result = await vtex.checkout.orderForm({
 			cookie: "checkout.vtex.com=__ofid=of1; tag=cateçoria",
 		});
 		expect(header(calls[0], "cookie")).toBe("checkout.vtex.com=__ofid=of1");
 		expect(calls[0]?.init.method).toBe("POST");
+		// Every orderForm section, and no app credentials next to a shopper's cookie.
+		expect(calls[0]?.init.body).toBe("{}");
+		expect(header(calls[0], "x-vtex-api-appkey")).toBeNull();
+		expect(header(calls[0], "x-vtex-api-apptoken")).toBeNull();
 		expect(result.setCookies).toEqual([
 			"checkout.vtex.com=__ofid=of1; Domain=store.vtexcommercestable.com.br; Path=/",
 		]);
@@ -170,12 +174,31 @@ describe("createVtexClient", () => {
 		expect((error as Error).message).toBe("vtex intelligent-search.product_search failed with HTTP 400");
 	});
 
-	it("keeps the app key and token on the account host", async () => {
+	it("narrows the orderForm sections only when asked", async () => {
+		const { calls, fetch } = upstream();
+		const vtex = createVtexClient({ account: "store", fetch });
+		await vtex.checkout.orderForm({ sections: ["items", "totalizers"] });
+		expect(calls[0]?.init.body).toBe('{"expectedOrderFormSections":["items","totalizers"]}');
+	});
+
+	it("keeps caller paths inside their endpoint", async () => {
 		const { calls, fetch } = upstream();
 		const vtex = createVtexClient({ account: "store", appKey: "key", appToken: "token", fetch });
-		await vtex.request("/api/catalog_system/pub/brand/list");
-		expect(instrumented.operations).toEqual(["catalog.brand"]);
-		expect(() => vtex.request("https://attacker.example/steal")).toThrow();
-		expect(calls).toHaveLength(1);
+		for (const path of [
+			"../../api/dataentities/CL/search",
+			"/shirts/%2e%2e/%2E%2E/api/dataentities/CL/search",
+			"shirts/./linen",
+		]) {
+			await expect(vtex.catalog.pageType(path)).rejects.toThrow(/invalid path segment/);
+		}
+		await expect(vtex.catalog.products({ term: "a/../../../api/x" })).rejects.toThrow(
+			/invalid path segment/,
+		);
+		expect(calls).toHaveLength(0);
+
+		await vtex.catalog.pageType("/shirts/linen?_where=x#y");
+		const url = new URL(calls[0]!.url);
+		expect(url.pathname).toBe("/api/catalog_system/pub/portal/pagetype/shirts/linen%3F_where%3Dx%23y");
+		expect(url.search).toBe("");
 	});
 });

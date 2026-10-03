@@ -65,18 +65,18 @@ export interface VtexClientConfig {
 	locale?: string;
 	/** The fetch underneath; for tests. Defaults to `globalThis.fetch`. */
 	fetch?: typeof fetch;
-	/** On by default ({@link VTEX_DEFAULT_RETRY}); idempotent requests only. `false` turns it off. */
+	/** On by default (2 retries, 150ms backoff); idempotent requests only. `false` turns it off. */
 	retry?: { attempts: number; backoffMs?: number } | false;
-	/** On by default ({@link VTEX_DEFAULT_CIRCUIT_BREAKER}). `false` turns it off. */
+	/** On by default (opens after 5 failures, for 5s). `false` turns it off. */
 	circuitBreaker?: { failures: number; cooldownMs: number } | false;
 }
 
-export const VTEX_DEFAULT_RETRY = {
+const VTEX_DEFAULT_RETRY = {
 	attempts: DEFAULT_RESILIENCE_CONFIG.maxRetries,
 	backoffMs: DEFAULT_RESILIENCE_CONFIG.backoffBaseMs,
 } as const;
 
-export const VTEX_DEFAULT_CIRCUIT_BREAKER = {
+const VTEX_DEFAULT_CIRCUIT_BREAKER = {
 	failures: DEFAULT_RESILIENCE_CONFIG.breakerConsecutiveFailures,
 	cooldownMs: DEFAULT_RESILIENCE_CONFIG.breakerOpenCooldownMs,
 } as const;
@@ -144,7 +144,22 @@ interface CallInit extends VtexRequestOptions {
 	method?: string;
 	body?: unknown;
 	headers?: Record<string, string>;
-	operation?: string;
+}
+
+/**
+ * Encodes a caller-supplied path (e.g. the shopper's URL path) segment by
+ * segment, so it can't climb out of its endpoint (`..`, `%2e%2e`) or inject a
+ * query (`?`, `#`) while the app credentials are attached.
+ */
+function pathSegments(path: string): string {
+	return path
+		.split("/")
+		.filter((segment) => segment !== "")
+		.map((segment) => {
+			if (/^(\.|%2e){1,2}$/i.test(segment)) throw new Error("vtex: invalid path segment");
+			return encodeURIComponent(segment);
+		})
+		.join("/");
 }
 
 export function createVtexClient(config: VtexClientConfig) {
@@ -162,10 +177,12 @@ export function createVtexClient(config: VtexClientConfig) {
 
 	async function call(url: string | URL, init: CallInit = {}): Promise<Response> {
 		const method = (init.method ?? "GET").toUpperCase();
-		const operation = init.operation ?? vtexOperationRouter(String(url), method) ?? "unknown";
+		const operation = vtexOperationRouter(String(url), method) ?? "unknown";
 		const headers = new Headers({ accept: "application/json", ...init.headers });
 		if (init.body !== undefined) headers.set("content-type", "application/json");
-		if (config.appKey && config.appToken) {
+		// Shopper-scoped calls go out as the shopper only: with app credentials
+		// VTEX would answer an orderForm with the profile data unmasked.
+		if (config.appKey && config.appToken && !init.cookie) {
 			headers.set("x-vtex-api-appkey", config.appKey);
 			headers.set("x-vtex-api-apptoken", config.appToken);
 		}
@@ -250,14 +267,11 @@ export function createVtexClient(config: VtexClientConfig) {
 
 		/** Legacy Catalog API. */
 		catalog: {
-			pageType: (path: string, options?: VtexRequestOptions) =>
-				json<PageType>(
-					url(`/api/catalog_system/pub/portal/pagetype/${path.replace(/^\/+/, "")}`),
-					options,
-				),
-			products: (args: VtexCatalogSearchArgs = {}) => {
+			pageType: async (path: string, options?: VtexRequestOptions) =>
+				json<PageType>(url(`/api/catalog_system/pub/portal/pagetype/${pathSegments(path)}`), options),
+			products: async (args: VtexCatalogSearchArgs = {}) => {
 				const target = url(
-					`/api/catalog_system/pub/products/search/${args.term?.replace(/^\/+/, "") ?? ""}`,
+					`/api/catalog_system/pub/products/search/${pathSegments(args.term ?? "")}`,
 					{
 						ft: args.ft,
 						_from: args.from,
@@ -282,12 +296,15 @@ export function createVtexClient(config: VtexClientConfig) {
 
 		/** Checkout API. Cart calls are shopper-scoped and return VTEX's `Set-Cookie` values. */
 		checkout: {
-			/** Gets the shopper's cart from their `checkout.vtex.com` cookie, or creates one. */
-			orderForm: (options?: VtexRequestOptions) =>
+			/**
+			 * Gets the shopper's cart from their `checkout.vtex.com` cookie, or creates one.
+			 * Every section by default; `sections` narrows it (`expectedOrderFormSections`).
+			 */
+			orderForm: (options: VtexRequestOptions & { sections?: string[] } = {}) =>
 				withCookies<OrderForm>(url("/api/checkout/pub/orderForm"), {
-					...options,
+					...pick(options),
 					method: "POST",
-					body: { expectedOrderFormSections: ["items"] },
+					body: options.sections ? { expectedOrderFormSections: options.sections } : {},
 				}),
 			addItems: (orderFormId: string, orderItems: OrderFormItemInput[], options?: VtexRequestOptions) =>
 				withCookies<OrderForm>(url(orderFormPath(orderFormId, "/items")), {
@@ -409,18 +426,6 @@ export function createVtexClient(config: VtexClientConfig) {
 					url(`/api/dataentities/${encodeURIComponent(entity)}/documents`),
 					{ ...options, method: "POST", body: document },
 				),
-		},
-
-		/**
-		 * Any other VTEX endpoint, through the same instrumented, authenticated
-		 * fetch. `path` is relative to the account host; the operation label
-		 * defaults to the URL's known VTEX operation.
-		 */
-		request: (path: string, init: CallInit = {}) => {
-			const target = new URL(path, base);
-			// The app key and token only ever go to the account's own host.
-			if (target.origin !== base) throw new Error("vtex request: path must be relative to the account host");
-			return call(target, init);
 		},
 	};
 }
