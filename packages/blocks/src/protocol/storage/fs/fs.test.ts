@@ -8,7 +8,7 @@ import { createContentClient } from "../../client";
 import { ErrorCode } from "../../errors";
 import { serializeBlock } from "../../keys";
 import { createContentHandler } from "../../server";
-import { StorageNotFoundError } from "../../storage";
+import { StorageInvalidFileError, StorageNotFoundError } from "../../storage";
 import { gitBlobHash } from "./hash";
 import { createFsStorage } from "./index";
 import { createFsStorage as createUnsupported } from "./unsupported";
@@ -176,14 +176,104 @@ describe("commits", () => {
     expect(await list()).toEqual(["index.json"]);
   });
 
-  it("refuse file names that would escape the folder", async () => {
+  it("refuse file names that would escape the folder or be hidden, with a typed error", async () => {
     const storage = createFsStorage({ root });
     const base = await storage.snapshot({});
-    for (const file of ["../x.json", "a/b.json", ".lock.json"]) {
+    for (const file of ["../x.json", "a/b.json", ".lock.json", "..json"]) {
       await expect(
         storage.commit({ base, put: { [file]: "{}" }, delete: [], expected: {} }),
-      ).rejects.toThrow();
+      ).rejects.toBeInstanceOf(StorageInvalidFileError);
+      await expect(
+        storage.commit({ base, put: {}, delete: [], expected: { [file]: null } }),
+      ).rejects.toBeInstanceOf(StorageInvalidFileError);
     }
+  });
+
+  it("refuse leading-dot names as InvalidBlock, never an internal error", async () => {
+    const client = clientFor();
+    for (const name of [".env", "."]) {
+      await expect(client.blocksApply({ set: { [name]: {} } })).rejects.toMatchObject({
+        code: ErrorCode.InvalidBlock,
+      });
+    }
+    // A guard on such a name can't match a file, so it doesn't reach the storage.
+    await client.blocksApply({ set: { a: {} }, ifMatch: { ".env": null } });
+    expect(await list()).toEqual(["a.json"]);
+  });
+
+  it("are stale when the schema changed since the core read it", async () => {
+    await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":1}');
+    const storage = createFsStorage({ root });
+    const base = await storage.snapshot({});
+    const schema = await storage.readSchema({});
+    await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":2}');
+    const attempt = { base, put: { "a.json": "{}\n" }, delete: [], expected: {} };
+    expect(await storage.commit({ ...attempt, expectedSchemaVersion: schema!.version })).toEqual({
+      status: "stale",
+    });
+    expect(await storage.commit({ ...attempt, expectedSchemaVersion: null })).toEqual({
+      status: "stale",
+    });
+    expect(await list()).toEqual([]);
+    const current = await storage.readSchema({});
+    expect(
+      (await storage.commit({ ...attempt, expectedSchemaVersion: current!.version })).status,
+    ).toBe("committed");
+  });
+
+  it("compare the meta.gen.json fallback when there's no schema.gen.json", async () => {
+    await writeFile(join(root, ".deco", "meta.gen.json"), '{"v":1}');
+    const storage = createFsStorage({ root });
+    const base = await storage.snapshot({});
+    const legacy = await storage.readSchema({});
+    await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":2}');
+    const result = await storage.commit({
+      base,
+      put: { "a.json": "{}\n" },
+      delete: [],
+      expected: {},
+      expectedSchemaVersion: legacy!.version,
+    });
+    expect(result).toEqual({ status: "stale" });
+  });
+
+  it("read bodies with the version of the bytes actually read", async () => {
+    const storage = createFsStorage({ root });
+    await writeFile(join(blocksDir(), "a.json"), "{}\n");
+    const snapshot = await storage.snapshot({});
+    await writeFile(join(blocksDir(), "a.json"), '{"edited":true}\n');
+    const bodies = await storage.readFiles(snapshot, ["a.json", "gone.json"]);
+    expect(bodies).toEqual({
+      "a.json": { text: '{"edited":true}\n', version: gitBlobHash('{"edited":true}\n') },
+    });
+    expect(bodies["a.json"].version).not.toBe(snapshot.files[0].version);
+  });
+
+  it("sweep transaction folders a crashed commit left behind", async () => {
+    await mkdir(join(root, ".deco", ".tx-crashed", "old"), { recursive: true });
+    await writeFile(join(root, ".deco", ".tx-crashed", "old", "0"), "stale");
+    await clientFor().blocksApply({ set: { a: {} } });
+    expect((await readdir(join(root, ".deco"))).sort()).toEqual(["blocks"]);
+  });
+
+  it("save an entry whose file uses a lowercase escape, whatever the filesystem's case rules", async () => {
+    // A hand-made file: "%2f" decodes like "%2F", so it lists as "foo/bar".
+    await writeFile(join(blocksDir(), "foo%2fbar.json"), '{"v":1}');
+    const client = clientFor();
+    const before = await client.blocksList();
+    expect(!before.notModified && before.blocks).toEqual({ "foo/bar": { v: 1 } });
+    const result = await client.blocksApply({ set: { "foo/bar": { v: 2 } } });
+    expect(result.versions["foo/bar"]).toEqual(expect.any(String));
+    const after = await client.blocksList();
+    expect(!after.notModified && after.blocks).toEqual({ "foo/bar": { v: 2 } });
+    expect(!after.notModified && after.diagnostics).toEqual([]);
+    const files = await list();
+    expect(files).toHaveLength(1);
+    expect(files[0].toLowerCase()).toBe("foo%2fbar.json");
+    // Updating it again works too (the case-insensitive rename must not unlink the new file).
+    await client.blocksApply({ set: { "foo/bar": { v: 3 } } });
+    const last = await client.blocksList();
+    expect(!last.notModified && last.blocks).toEqual({ "foo/bar": { v: 3 } });
   });
 
   it("are stale when an expected version changed, and write nothing", async () => {

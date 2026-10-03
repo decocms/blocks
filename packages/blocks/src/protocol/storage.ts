@@ -52,6 +52,17 @@ export interface StorageSnapshot {
   files: StorageFile[];
 }
 
+/** A file body as read, with the version of the bytes actually read. */
+export interface StoredFileBody {
+  /** The file's UTF-8 content. */
+  text: string;
+  /**
+   * The version of exactly these bytes, computed the way snapshots compute
+   * versions. It differs from the snapshot's when the file changed in between.
+   */
+  version: string;
+}
+
 /** The schema file, as stored. */
 export interface StoredSchema {
   /** An opaque version of the schema bytes. */
@@ -69,6 +80,8 @@ export interface StoredReceipt {
   revision: string;
   /** The versions of the files that commit wrote. */
   versions: Record<string, string>;
+  /** The files that commit deleted (`attempt.delete`), so a replay reports the same names. */
+  deleted?: string[];
 }
 
 /** One atomic commit attempt. */
@@ -86,7 +99,20 @@ export interface CommitAttempt {
    * changed, and MAY reject it when anything else changed since `base`.
    */
   expected: Record<string, string | null>;
-  /** Persist this receipt atomically with the mutation (only when idempotency is advertised). */
+  /**
+   * The schema version the core validated against (`null` = no schema), when
+   * the write depends on it (`ifSchemaMatch`, or the secret guard). When set,
+   * a storage MUST reject the attempt as stale if the schema's version at
+   * commit time differs, checked atomically with `expected`.
+   */
+  expectedSchemaVersion?: string | null;
+  /**
+   * Persist this receipt atomically with the mutation (only when idempotency
+   * is advertised). The key also reserves the request: a storage MUST reject
+   * the attempt as stale when a receipt for `receipt.key` already exists,
+   * including one written concurrently by another replica, so two requests
+   * with the same key never both commit.
+   */
   receipt?: { key: string; digest: string };
 }
 
@@ -106,8 +132,13 @@ export interface ContentStorage {
    * `.deco` folder at all, or the ref can't be read.
    */
   snapshot(options: { ref?: string }): Promise<StorageSnapshot>;
-  /** Reads file bodies (UTF-8 text) from a snapshot. A file that vanished is left out. */
-  readFiles(snapshot: StorageSnapshot, files: string[]): Promise<Record<string, string>>;
+  /**
+   * Reads file bodies (UTF-8 text) from a snapshot, each with the version of
+   * the bytes read. A file that vanished is left out. A storage that can't
+   * read at the snapshot (a working tree) returns current bytes; the core
+   * compares versions to notice.
+   */
+  readFiles(snapshot: StorageSnapshot, files: string[]): Promise<Record<string, StoredFileBody>>;
   /** Reads `schema.gen.json`, falling back to `meta.gen.json`; `null` when neither exists. */
   readSchema(options: { ref?: string }): Promise<StoredSchema | null>;
   /** Reads `<root>/.deco/secrets.pub`; `null` without one. */
@@ -125,6 +156,17 @@ export class StorageNotFoundError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "StorageNotFoundError";
+  }
+}
+
+/**
+ * Thrown by a storage asked to touch a file that can't be a saved block (a
+ * dotfile, a path). The core refuses those names first; this is the backstop.
+ */
+export class StorageInvalidFileError extends Error {
+  constructor(readonly file: string) {
+    super(`not a saved-block file name: ${JSON.stringify(file)}`);
+    this.name = "StorageInvalidFileError";
   }
 }
 

@@ -8,13 +8,16 @@
  */
 import { suffixedAssetName } from "../assets";
 import { sha256Hex } from "../canonical";
+import { isBlockFileName } from "../keys";
 import {
   type CommitAttempt,
   type CommitResult,
   type ContentStorage,
   type StorageDescription,
+  StorageInvalidFileError,
   StorageNotFoundError,
   type StorageSnapshot,
+  type StoredFileBody,
   type StoredReceipt,
   type StoredSchema,
 } from "../storage";
@@ -42,6 +45,8 @@ export interface MemoryStorageOptions {
   description?: Partial<StorageDescription>;
   /** Clock for receipt retention (default `Date.now`). */
   now?: () => number;
+  /** Runs after each file body is read; a test can change files here, mid-read. */
+  afterRead?: (file: string, storage: MemoryStorage) => void | Promise<void>;
   /** Runs before each commit attempt's checks; a test can change files here. */
   beforeCommit?: (attempt: CommitAttempt, storage: MemoryStorage) => void | Promise<void>;
 }
@@ -91,9 +96,59 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     return new Map(entries);
   }
 
+  async function schemaVersion(): Promise<string | null> {
+    const text = state.schema ?? state.legacySchema ?? null;
+    return text === null ? null : version(text);
+  }
+
   async function revisionOf(versions: Map<string, string>): Promise<string> {
     const listing = [...versions].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     return sha256Hex(listing.map(([file, v]) => `${file}\0${v}`).join("\n"));
+  }
+
+  let commitQueue: Promise<unknown> = Promise.resolve();
+
+  async function commitNow(attempt: CommitAttempt): Promise<CommitResult> {
+    await options.beforeCommit?.(attempt, storage);
+    for (const file of [
+      ...Object.keys(attempt.put),
+      ...attempt.delete,
+      ...Object.keys(attempt.expected),
+    ]) {
+      if (!isBlockFileName(file)) throw new StorageInvalidFileError(file);
+    }
+    if (!state.hasDecoFolder) throw new StorageNotFoundError("no .deco folder");
+    if (attempt.receipt && state.receipts[attempt.receipt.key]) return { status: "stale" };
+    if (
+      attempt.expectedSchemaVersion !== undefined &&
+      (await schemaVersion()) !== attempt.expectedSchemaVersion
+    ) {
+      return { status: "stale" };
+    }
+    const versions = await currentVersions();
+    for (const [file, expected] of Object.entries(attempt.expected)) {
+      if ((versions.get(file) ?? null) !== expected) return { status: "stale" };
+    }
+    // Validate everything before mutating, so the commit is all or nothing.
+    const written: Record<string, string> = {};
+    for (const [file, content] of Object.entries(attempt.put))
+      written[file] = await version(content);
+    for (const file of attempt.delete) delete state.files[file];
+    for (const [file, content] of Object.entries(attempt.put)) state.files[file] = content;
+    for (const [file, v] of Object.entries(written)) versions.set(file, v);
+    for (const file of attempt.delete) if (!(file in attempt.put)) versions.delete(file);
+    const revision = await revisionOf(versions);
+    if (attempt.receipt) {
+      state.receipts[attempt.receipt.key] = {
+        digest: attempt.receipt.digest,
+        revision,
+        versions: written,
+        deleted: [...attempt.delete],
+        createdAt: now(),
+      };
+    }
+    commits++;
+    return { status: "committed", revision, versions: written };
   }
 
   const storage: MemoryStorage = {
@@ -118,8 +173,13 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     },
 
     async readFiles(_snapshot, files) {
-      const out: Record<string, string> = Object.create(null);
-      for (const file of files) if (file in state.files) out[file] = state.files[file];
+      const out: Record<string, StoredFileBody> = Object.create(null);
+      for (const file of files) {
+        if (!(file in state.files)) continue;
+        const text = state.files[file];
+        out[file] = { text, version: await version(text) };
+        await options.afterRead?.(file, storage);
+      }
       return out;
     },
 
@@ -134,33 +194,11 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
       return state.secretsPublicKey;
     },
 
-    async commit(attempt): Promise<CommitResult> {
-      await options.beforeCommit?.(attempt, storage);
-      if (!state.hasDecoFolder) throw new StorageNotFoundError("no .deco folder");
-      if (attempt.receipt && state.receipts[attempt.receipt.key]) return { status: "stale" };
-      const versions = await currentVersions();
-      for (const [file, expected] of Object.entries(attempt.expected)) {
-        if ((versions.get(file) ?? null) !== expected) return { status: "stale" };
-      }
-      // Validate everything before mutating, so the commit is all or nothing.
-      const written: Record<string, string> = {};
-      for (const [file, content] of Object.entries(attempt.put))
-        written[file] = await version(content);
-      for (const file of attempt.delete) delete state.files[file];
-      for (const [file, content] of Object.entries(attempt.put)) state.files[file] = content;
-      for (const [file, v] of Object.entries(written)) versions.set(file, v);
-      for (const file of attempt.delete) if (!(file in attempt.put)) versions.delete(file);
-      const revision = await revisionOf(versions);
-      if (attempt.receipt) {
-        state.receipts[attempt.receipt.key] = {
-          digest: attempt.receipt.digest,
-          revision,
-          versions: written,
-          createdAt: now(),
-        };
-      }
-      commits++;
-      return { status: "committed", revision, versions: written };
+    commit(attempt): Promise<CommitResult> {
+      // Serialized, so a commit's checks and its mutation are one atomic step.
+      const run = commitQueue.then(() => commitNow(attempt));
+      commitQueue = run.catch(() => {});
+      return run;
     },
 
     async getReceipt(key) {

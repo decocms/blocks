@@ -11,7 +11,13 @@
  *
  * A file's version is its git blob hash, as `git hash-object` prints it.
  * Commits are serialized per `.deco` folder (in process and across processes)
- * and applied with staged files and atomic renames, rolled back on failure.
+ * and applied with staged files and atomic renames, rolled back on failure,
+ * with the folder fsynced before a commit returns.
+ *
+ * While committing it uses `.deco/.blocks.lock` and `.deco/.tx-*` folders;
+ * add both to `.gitignore`. A crashed process can leave them behind: a lock
+ * older than 30 s is taken over, and leftover `.tx-*` folders are removed by
+ * the next commit.
  */
 import { lstat, mkdir, open, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -22,15 +28,17 @@ import {
   type ContentStorage,
   type StorageDescription,
   type StorageFile,
+  StorageInvalidFileError,
   StorageNotFoundError,
   type StorageSnapshot,
   StorageUnavailableError,
+  type StoredFileBody,
   type StoredSchema,
 } from "../../storage";
 import type { Limits } from "../../types";
 import { gitBlobHash, revisionOf } from "./hash";
 import { withCommitLock } from "./lock";
-import { applyFileChange } from "./transaction";
+import { applyFileChange, sweepStaleTransactions } from "./transaction";
 
 export interface FsStorageOptions {
   /** The app root: the folder that contains `.deco/`. */
@@ -97,14 +105,25 @@ async function readTextOrNull(path: string): Promise<string | null> {
   }
 }
 
-function assertBlockFile(file: string) {
-  if (!isBlockFileName(file) || file.startsWith(".")) {
-    throw new Error(`not a saved-block file name: ${JSON.stringify(file)}`);
+async function readBytesOrNull(path: string): Promise<Uint8Array | null> {
+  try {
+    return await readFile(path);
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
   }
 }
 
+function assertBlockFile(file: string) {
+  if (!isBlockFileName(file)) throw new StorageInvalidFileError(file);
+}
+
 function wrapIoError(error: unknown): never {
-  if (error instanceof StorageUnavailableError || error instanceof StorageNotFoundError)
+  if (
+    error instanceof StorageUnavailableError ||
+    error instanceof StorageNotFoundError ||
+    error instanceof StorageInvalidFileError
+  )
     throw error;
   throw new StorageUnavailableError(`filesystem error: ${(error as Error).message}`);
 }
@@ -117,6 +136,7 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
   const readOnly = options.readOnly ?? false;
   const lockOptions = { timeoutMs: options.lockTimeoutMs ?? 10_000, staleMs: 30_000 };
   let repoRoot: Promise<string> | undefined;
+  let swept = false;
 
   /** file -> stat fingerprint and its hash, so a poll only rehashes changed files. */
   const hashCache = new Map<string, { fingerprint: string; version: string }>();
@@ -158,6 +178,20 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
     }
   }
 
+  async function readSchema(): Promise<StoredSchema | null> {
+    for (const name of ["schema.gen.json", "meta.gen.json"]) {
+      const bytes = await readBytesOrNull(join(decoDir, name));
+      if (bytes !== null) {
+        return {
+          version: gitBlobHash(bytes),
+          text: new TextDecoder().decode(bytes),
+          resolvedRef: null,
+        };
+      }
+    }
+    return null;
+  }
+
   async function snapshot(): Promise<StorageSnapshot> {
     if (!(await exists(decoDir))) {
       throw new StorageNotFoundError(`no .deco folder in ${root}`);
@@ -165,9 +199,7 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
     let names: string[];
     try {
       names = (await readdir(blocksDir, { withFileTypes: true }))
-        .filter(
-          (entry) => entry.isFile() && isBlockFileName(entry.name) && !entry.name.startsWith("."),
-        )
+        .filter((entry) => entry.isFile() && isBlockFileName(entry.name))
         .map((entry) => entry.name);
     } catch (error) {
       if (isMissing(error)) names = [];
@@ -217,24 +249,22 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
     },
 
     async readFiles(_snapshot, files) {
-      const out: Record<string, string> = Object.create(null);
+      // A working tree has no past snapshots: read current bytes and report
+      // their version, so the core notices a file that changed meanwhile.
+      const out: Record<string, StoredFileBody> = Object.create(null);
       await Promise.all(
         files.map(async (file) => {
           assertBlockFile(file);
-          const text = await readTextOrNull(join(blocksDir, file));
-          if (text !== null) out[file] = text;
+          const bytes = await readBytesOrNull(join(blocksDir, file));
+          if (bytes !== null) {
+            out[file] = { text: new TextDecoder().decode(bytes), version: gitBlobHash(bytes) };
+          }
         }),
       );
       return out;
     },
 
-    async readSchema(): Promise<StoredSchema | null> {
-      for (const name of ["schema.gen.json", "meta.gen.json"]) {
-        const text = await readTextOrNull(join(decoDir, name));
-        if (text !== null) return { version: gitBlobHash(text), text, resolvedRef: null };
-      }
-      return null;
-    },
+    readSchema,
 
     readSecretsPublicKey: () => readTextOrNull(join(decoDir, "secrets.pub")),
 
@@ -252,6 +282,17 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
       if (!(await exists(decoDir))) throw new StorageNotFoundError(`no .deco folder in ${root}`);
       try {
         return await withCommitLock(decoDir, lockOptions, async () => {
+          // Under the lock, any transaction folder left is from a crashed commit.
+          if (!swept) {
+            await sweepStaleTransactions(decoDir);
+            swept = true;
+          }
+          if (attempt.expectedSchemaVersion !== undefined) {
+            const schema = await readSchema();
+            if ((schema?.version ?? null) !== attempt.expectedSchemaVersion) {
+              return { status: "stale" } as const;
+            }
+          }
           for (const [file, expected] of Object.entries(attempt.expected)) {
             if ((await freshVersion(file)) !== expected) return { status: "stale" } as const;
           }
