@@ -86,7 +86,7 @@ packages/
 ├── eitri/           Eitri schema and decofile generator
 └── apps-*/          Shared capabilities and platform integrations
 examples/
-├── tanstack-smoke/  Minimal TanStack consumer
+├── tanstack-smoke/  Next-major TanStack Start app (the descriptor guide, on Workers)
 └── nextjs-smoke/    Minimal Next.js consumer
 docs/                Architecture, operations, troubleshooting, and guides
 .agents/skills/      Agent-assisted migration playbooks
@@ -154,7 +154,7 @@ createAdminSetup({ meta: () => Promise.resolve({}), css: "" });
 setupTanstackFastDeploy();
 ```
 
-Add `decoVitePlugin()` to Vite and mount `cmsRouteConfig()` in the catch-all route. See the working [`tanstack-smoke`](./examples/tanstack-smoke) application and the [fast deploy guide](./docs/fast-deploy.md) for production wiring.
+Add `decoVitePlugin()` to Vite and mount `cmsRouteConfig()` in the catch-all route. See the [fast deploy guide](./docs/fast-deploy.md) for production wiring. (`examples/tanstack-smoke` now follows the next-major TanStack Start guide instead.)
 
 ### Next.js App Router
 

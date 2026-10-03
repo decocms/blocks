@@ -43,7 +43,7 @@ packages/
 ├── tanstack/   @decocms/tanstack  — TanStack Start + CF Workers binding. depends on: runtime, admin, cli
 └── next/       @decocms/nextjs      — Next.js App Router binding.        depends on: runtime, admin
 examples/
-├── tanstack-smoke/   real TanStack Start app consuming runtime+admin+tanstack
+├── tanstack-smoke/   real TanStack Start app following the next-major descriptor guide (@decocms/blocks only)
 └── next-smoke/       real Next.js app consuming runtime+admin+next
 .agents/skills/
 ├── deco-to-tanstack-migration/   Fresh/Preact/Deno -> TanStack Start (site-code migration)
