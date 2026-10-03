@@ -16,10 +16,10 @@ This page shows how to run the migration, how to keep old names working with ali
 
 ## Run the migration
 
-The migration is a one-time command, `blocks-migrate`, from the `@decocms/blocks-migrate` package. Run it once, on a clean working tree, from your app root:
+The migration is an agent skill, `deco-v7-to-v8-migration`, in the `decocms/blocks` repository (`.agents/skills/deco-v7-to-v8-migration`). Point your coding agent at it, and it runs the migration script and walks you through what's left; or run the script yourself. Either way, first install the next major in your site (`npm install @decocms/blocks@^8`), and keep your v7 apps installed until the migration has run: it copies the loaders your content calls from them. Then, from your app root and on a clean working tree, run the script once from a checkout of `decocms/blocks`:
 
 ```bash
-DECO_CRYPTO_KEY=… npx @decocms/blocks-migrate
+DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root .
 ```
 
 | Flag | What it does |
