@@ -37,7 +37,7 @@ const STUDIO_ORIGINS = [
   "https://admin.deco.cx",
 ];
 
-/** Where the connect link points. */
+/** Where the site editor link points. */
 const STUDIO_ORIGIN = STUDIO_ORIGINS[0];
 
 const DEFAULT_PORT = 4545;
@@ -64,7 +64,7 @@ export interface RunningServer {
   /** The content protocol endpoint, `http://127.0.0.1:4545/rpc`. */
   endpoint: string;
   token: string;
-  connectUrl: string;
+  siteEditorUrl: string;
   port: number;
   close(): Promise<void>;
 }
@@ -225,7 +225,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
 
   const displayHost = host.includes(":") ? `[${host}]` : host;
   const endpoint = `http://${displayHost}:${port}/rpc`;
-  const connectUrl = `${STUDIO_ORIGIN}/connect#endpoint=${encodeURIComponent(endpoint)}&token=${encodeURIComponent(token)}`;
+  const siteEditorUrl = `${STUDIO_ORIGIN}/site-editor#endpoint=${encodeURIComponent(endpoint)}&token=${encodeURIComponent(token)}`;
 
   if (!LOOPBACK.has(host)) {
     reporter.warn(
@@ -248,12 +248,12 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       : `${label("Assets")}read-only: uploads are off`,
   );
   reporter.info(`${label("App preview")}${appUrl}`);
-  reporter.info(`${label("Site editor")}${connectUrl}`);
+  reporter.info(`${label("Site editor")}${siteEditorUrl}`);
 
   return {
     endpoint,
     token,
-    connectUrl,
+    siteEditorUrl,
     port,
     close: () =>
       new Promise<void>((resolve) => {

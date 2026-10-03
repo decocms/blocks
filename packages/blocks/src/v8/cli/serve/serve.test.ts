@@ -119,15 +119,15 @@ async function rpc(method: string, params?: unknown, headers: Record<string, str
 }
 
 describe("starting", () => {
-  it("prints the address, root, assets, app and connect link", async () => {
+  it("prints the address, root, assets, app and site editor link", async () => {
     await start({ appUrl: "http://localhost:3001" });
     const text = out.text();
     expect(text).toContain(`Deco server          http://127.0.0.1:${server!.port}/rpc`);
     expect(text).toContain("Root                 .   (.deco/schema.gen.json, 0 blocks)");
     expect(text).toContain("Assets               public/assets   (PUT /assets/<name>)");
     expect(text).toContain("App preview          http://localhost:3001");
-    expect(server!.connectUrl).toBe(
-      `https://studio.decocms.com/connect#endpoint=${encodeURIComponent(server!.endpoint)}&token=${TOKEN}`,
+    expect(server!.siteEditorUrl).toBe(
+      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(server!.endpoint)}&token=${TOKEN}`,
     );
   });
 

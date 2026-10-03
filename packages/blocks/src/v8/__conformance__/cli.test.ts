@@ -1239,7 +1239,7 @@ describe("checking.mdx", () => {
 // ===========================================================================
 
 describe("site-editor.mdx", () => {
-  it("se-01: the connect banner", async () => {
+  it("se-01: the site editor banner", async () => {
     const { repo, appRoot } = monorepo({
       ...STORE_FILES,
       ".deco/blocks/A.json": { __resolveType: "page", name: "A", path: "/a" },
@@ -1258,9 +1258,9 @@ describe("site-editor.mdx", () => {
       "Root                 apps/storefront   (.deco/schema.gen.json, 2 blocks)",
       "Assets               apps/storefront/public/assets   (PUT /assets/<name>)",
       "App preview          http://localhost:5173",
-      `Site editor          https://studio.decocms.com/connect#endpoint=${encodeURIComponent(`http://127.0.0.1:${port}/rpc`)}&token=secret-token`,
+      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${port}/rpc`)}&token=secret-token`,
     ]);
-    const url = new URL(s.connectUrl);
+    const url = new URL(s.siteEditorUrl);
     expect(url.search).toBe("");
     expect(url.hash).toContain("token=secret-token");
   });
