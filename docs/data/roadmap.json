@@ -245,14 +245,15 @@
       "id": "roadmap-blockers--stop-resolving-everything-eagerly",
       "title": "Stop resolving everything eagerly",
       "today": "The one registry rule resolves inputs bottom-up. Lazy defers nothing (43 wrappers on the storefront), hidden variants still run their loaders, and <code>Resolved&lt;T&gt;</code> can't be expressed.",
-      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;BlockList&gt;</code> renders lazily. A multivariate over <code>Deferred</code> values resolves only the winner.",
+      "plan": "Add one deferral API: a <code>Deferred&lt;T&gt;</code> input type bound to the client's revision, which <code>&lt;BlockList&gt;</code> renders lazily. Add the built-in <code>lazy</code> block, so multivariate runs only the chosen variant's value.",
       "features": [
         "lazy-deferred-sections",
         "matchers-and-variants",
         "site-search-and-autocomplete"
       ],
       "delivered_by": [
-        "roadmap-api--add-a-section-renderer-and-a-deferral-api"
+        "roadmap-api--add-a-section-renderer-and-a-deferral-api",
+        "roadmap-api--add-the-lazy-block"
       ]
     },
     {
@@ -521,6 +522,7 @@
       ],
       "delivered_by": [
         "roadmap-api--add-a-section-renderer-and-a-deferral-api",
+        "roadmap-api--add-the-lazy-block",
         "roadmap-docs--resolve-contradictions-in-these-docs"
       ]
     },
@@ -677,7 +679,7 @@
       "id": "roadmap-api--add-a-section-renderer-and-a-deferral-api",
       "group": "api",
       "title": "Add a block renderer and a deferral API",
-      "plan": "<p><code>&lt;BlockList&gt;</code> per binding: per-block Suspense, error boundary, clientOnly, sized fallbacks, eager above the fold, SEO routing, and Studio's <code>section[data-manifest-key]</code> frame on every block. One deferral API: a <code>Deferred&lt;T&gt;</code> input type passes a ref bound to the client's revision instead of resolving it. <code>&lt;BlockList&gt;</code> renders the ref lazily, and a multivariate whose values are <code>Deferred&lt;T&gt;</code> resolves only the winning variant.</p>",
+      "plan": "<p><code>&lt;BlockList&gt;</code> per binding: per-block Suspense, error boundary, clientOnly, sized fallbacks, eager above the fold, SEO routing, and Studio's <code>section[data-manifest-key]</code> frame on every block. One deferral API: a <code>Deferred&lt;T&gt;</code> input type passes a ref bound to the client's revision instead of resolving it. <code>&lt;BlockList&gt;</code> renders the ref lazily.</p>",
       "features": [
         "section-registration-conventions",
         "lazy-deferred-sections",
@@ -694,6 +696,23 @@
         "section-catalog"
       ],
       "docs": [],
+      "pinned": false
+    },
+    {
+      "id": "roadmap-api--add-the-lazy-block",
+      "group": "api",
+      "title": "Add the <code>lazy</code> block and <code>Lazy&lt;T&gt;</code>",
+      "plan": "<p>The resolver's one special case: <code>{ \"__resolveType\": \"lazy\", \"value\": … }</code> resolves to <code>() =&gt; Promise&lt;T&gt;</code>, which resolves <code>value</code> on the first call and returns the same result after that. Export <code>type Lazy&lt;T&gt; = () =&gt; Promise&lt;T&gt;</code>. The built-in <code>multivariate</code> takes <code>{ rule: boolean; value: Lazy&lt;T&gt; }[]</code> and calls only the first value whose rule is true. <code>deco schema</code> turns a <code>Lazy&lt;T&gt;</code> field into a lazy block whose value is <code>T</code>; Studio shows the <code>T</code> form and writes the wrapper; <code>deco check</code> flags a <code>Lazy&lt;T&gt;</code> field without a lazy block and a lazy block in a field that isn't <code>Lazy&lt;T&gt;</code>. The alias bridge wraps the values of legacy <code>website/flags/multivariate.ts</code> content.</p>",
+      "features": [
+        "matchers-and-variants",
+        "lazy-deferred-sections",
+        "studio-schema-generation"
+      ],
+      "docs": [
+        "blocks",
+        "matchers-and-variants",
+        "schema"
+      ],
       "pinned": false
     },
     {
@@ -1146,7 +1165,7 @@
       "id": "roadmap-cli--widen-the-legacy-alias-bridge",
       "group": "cli",
       "title": "Widen the legacy alias bridge",
-      "plan": "<p>Alias Lazy/SingleDeferred/Deferred, Seo*, <code>site/apps/site.ts</code>, <code>resolved</code>, requestToParam, secret, redirect (with shape mapping), the device and random matchers, the <code>multi</code> matcher (<code>website/matchers/multi.ts</code> and <code>$live/matchers/MatchMulti.ts</code>, whose and/or combinators keep the <code>{ op, matchers }</code> shape that Studio's variant calendar and rule labels read), Analytics and Theme, and list exactly which paths.</p>",
+      "plan": "<p>Alias Lazy/SingleDeferred/Deferred (Studio's legacy <code>Lazy</code> section wrapper maps to <code>Deferred&lt;T&gt;</code>; it is unrelated to the new <code>lazy</code> block), Seo*, <code>site/apps/site.ts</code>, <code>resolved</code>, requestToParam, secret, redirect (with shape mapping), the device and random matchers, the <code>multi</code> matcher (<code>website/matchers/multi.ts</code> and <code>$live/matchers/MatchMulti.ts</code>, whose and/or combinators keep the <code>{ op, matchers }</code> shape that Studio's variant calendar and rule labels read), Analytics and Theme, and list exactly which paths.</p>",
       "features": [
         "block-type-discriminator",
         "section-catalog",

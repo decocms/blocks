@@ -106,6 +106,7 @@ deco check [--root <dir>]
 - Each saved block's props match its block type's schema: required fields are present, and values respect enums and limits.
 - Every `__resolveType` (the field that names what a saved block calls; see [Functions as blocks](/next/blocks#functions-as-blocks)) names a block type ([built-ins](/next/blocks#built-in-blocks) and [aliases](/next/renames-and-migrations#rename-a-type-with-an-alias) included) or a saved block that exists.
 - A reference in a typed field points to a block that returns that type.
+- A `Lazy<T>` field holds a [`lazy` block](/next/blocks#lazy-blocks), and a `lazy` block appears only in a `Lazy<T>` field.
 - No saved block has the name of a block type, a built-in or an alias (see [Names must not clash](/next/schema#names-must-not-clash)).
 - No two entries can match the same URL (see [Path templates and match order](/next/routing#path-templates-and-match-order)).
 

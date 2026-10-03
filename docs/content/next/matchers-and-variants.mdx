@@ -26,10 +26,11 @@ Three matchers are [built-in blocks](/next/blocks#built-in-blocks), because they
 
 `start` and `end` are ISO 8601 strings. Write them with the offset your store's time zone has on that date, like `"2026-11-27T00:00:00-05:00"` for New York in November, so the campaign starts at midnight on your clock. Daylight saving time changes the offset (New York is `-04:00` in summer), so check it for each date. A date without a time, like `"2026-11-27"`, means midnight UTC. `end` itself doesn't match, so a campaign that ends at midnight uses that midnight as its `end`.
 
-`multivariate` is built in too. It picks the value of the first variant whose rule is `true`:
+`multivariate` is built in too. It returns the value of the first variant whose rule is `true`, and only that value is computed, like `cond ? a() : b()` or a chain of else-ifs:
 
 ```ts
-// multivariate({ variants }) => variants.find((v) => v.rule)?.value
+// multivariate<T>({ variants }: { variants: { rule: boolean; value: Lazy<T> }[] }) => Promise<T | undefined>
+// for (const v of variants) if (v.rule) return v.value();
 ```
 
 Now the promo banner's title can switch for Black Friday weekend and switch back after Cyber Monday (`__resolveType` names the block function to run; see [Functions as blocks](/next/blocks#functions-as-blocks)):
@@ -41,8 +42,14 @@ Now the promo banner's title can switch for Black Friday weekend and switch back
   "title": {
     "__resolveType": "multivariate",
     "variants": [
-      { "rule": { "__resolveType": "date", "start": "2026-11-27T00:00:00-05:00", "end": "2026-12-01T00:00:00-05:00" }, "value": "Black Friday: 40% off everything" },
-      { "rule": { "__resolveType": "always" }, "value": "Free shipping over $50" }
+      {
+        "rule": { "__resolveType": "date", "start": "2026-11-27T00:00:00-05:00", "end": "2026-12-01T00:00:00-05:00" },
+        "value": { "__resolveType": "lazy", "value": "Black Friday: 40% off everything" }
+      },
+      {
+        "rule": { "__resolveType": "always" },
+        "value": { "__resolveType": "lazy", "value": "Free shipping over $50" }
+      }
     ]
   },
   "href": "/deals"
@@ -52,21 +59,21 @@ Now the promo banner's title can switch for Black Friday weekend and switch back
 PromoBanner({
   title: multivariate({
     variants: [
-      { rule: date({ start: "2026-11-27T00:00:00-05:00", end: "2026-12-01T00:00:00-05:00" }), value: "Black Friday: 40% off everything" },
-      { rule: always(), value: "Free shipping over $50" },
+      { rule: date({ start: "2026-11-27T00:00:00-05:00", end: "2026-12-01T00:00:00-05:00" }), value: async () => "Black Friday: 40% off everything" },
+      { rule: always(), value: async () => "Free shipping over $50" },
     ],
   }),
   href: "/deals",
 });
 ```
 
-Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so `multivariate` sees only booleans, and `PromoBanner` gets a plain string. It never knows a variant was involved. `end` takes the campaign down too, so there's nothing to do on Monday.
+Each value is wrapped in a [lazy block](/next/blocks#lazy-blocks), so it only runs if its variant is chosen. The wrapper is always there because the field is `Lazy<T>`; for plain text it costs nothing, and Studio adds it for you.
 
-Every rule runs, and every variant's `value` resolves, before `multivariate` picks one. For a title that's free; for two heroes that each fetch products, it costs both fetches, so make the values the names of [saved blocks](/next/blocks#reusing-blocks) and resolve only the picked one with [`client.resolve`](/next/api-reference#client-resolve-target-options).
+Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so the rules resolve first and `multivariate` sees each one as a boolean. The values stay lazy: `multivariate` calls only the chosen one, and `PromoBanner` gets a plain string. It never knows a variant was involved. Every rule runs, but only the chosen variant's value runs. That matters when values do work: if each variant's value is a hero section that fetches products, only the chosen hero fetches. `end` takes the campaign down too, so there's nothing to do on Monday.
 
 Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
 
-In Studio, each variant is a tab. An editor schedules the same campaign there: add a variant, pick `date` as its rule, fill in `start` and `end`, type the campaign title as its value, and keep the `always` tab last.
+In Studio, each variant is a tab. An editor schedules the same campaign there: add a variant, pick `date` as its rule, fill in `start` and `end`, type the campaign title as its value, and keep the `always` tab last. Editors just type the value; Studio writes the `lazy` block around it.
 
 ## Why it goes live on time
 
@@ -102,7 +109,7 @@ import type { Blocks } from "@decocms/blocks";
 import { weekday } from "../src/matchers";
 import { PromoBanner } from "../src/promo-banner";
 
-export default { weekday, "promo-banner": PromoBanner } satisfies Blocks;   // always, never, date and multivariate are built in
+export default { weekday, "promo-banner": PromoBanner } satisfies Blocks;   // always, never, date, multivariate and lazy are built in
 ```
 
 Studio's rule picker now lists `weekday` next to the built-in `date` (see [what Studio reads](/next/studio-compatibility#what-studio-reads-from-the-schema)). An editor can give weekends their own title:
@@ -112,16 +119,22 @@ Studio's rule picker now lists `weekday` next to the built-in `date` (see [what 
 {
   "__resolveType": "multivariate",
   "variants": [
-    { "rule": { "__resolveType": "weekday", "days": ["Sat", "Sun"] }, "value": "Weekend: free shipping on everything" },
-    { "rule": { "__resolveType": "always" }, "value": "Free shipping over $50" }
+    {
+      "rule": { "__resolveType": "weekday", "days": ["Sat", "Sun"] },
+      "value": { "__resolveType": "lazy", "value": "Weekend: free shipping on everything" }
+    },
+    {
+      "rule": { "__resolveType": "always" },
+      "value": { "__resolveType": "lazy", "value": "Free shipping over $50" }
+    }
   ]
 }
 
 // Means
 multivariate({
   variants: [
-    { rule: weekday({ days: ["Sat", "Sun"] }), value: "Weekend: free shipping on everything" },
-    { rule: always(), value: "Free shipping over $50" },
+    { rule: weekday({ days: ["Sat", "Sun"] }), value: async () => "Weekend: free shipping on everything" },
+    { rule: always(), value: async () => "Free shipping over $50" },
   ],
 });
 ```
@@ -131,6 +144,7 @@ A few more things you can do:
 - **Make it `async`.** `multivariate` waits for it.
 - **Match on the request.** To match on a cookie, a header or a country, read the request the way the rest of your app does (see [Reading the request](/next/blocks#reading-the-request)).
 - **Combine rules.** `and`, `or` and `not` are one-line matchers, like `export const not = ({ rule }: { rule: boolean }) => !rule;`.
-- **Pick variants your way.** Declare your own `multivariate` in your [block map](/next/blocks#the-block-map); it replaces the built-in.
+- **Skip an expensive rule.** Rules always run. A matcher can take an inner rule as [`Lazy<boolean>`](/next/blocks#lazy-blocks) and call it only when needed, like `export const and = async ({ a, b }: { a: boolean; b: Lazy<boolean> }) => a && (await b());`, where `b` runs only if `a` is `true`.
+- **Pick variants your way.** Declare your own `multivariate` in your [block map](/next/blocks#the-block-map); it replaces the built-in. Type each value as `Lazy<T>` to keep running only the chosen one.
 
-<Callout type="warning">**A variant is not access control.** It chooses between values that are all fine to compute and show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
+<Callout type="warning">**A variant is not access control.** Only the chosen value runs, but that's an optimization, not a guard: choose between values that are all fine to show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>

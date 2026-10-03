@@ -70,7 +70,7 @@ productCard({
 });
 ```
 
-Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives the resolved `Product`, never a pending call. If a function is `async`, its result is awaited first.
+Resolving a block evaluates it from the inside out, like the TypeScript you'd write. `catalog-product` has plain arguments, so it runs first. Its result becomes the `product` argument of `product-card`, so `productCard` receives the resolved `Product`, never a pending call. If a function is `async`, its result is awaited first. Every argument resolves this way, before the function runs, with one exception: a [lazy block](#lazy-blocks).
 
 So type the prop as what the function receives, `product: Product`, not as a block. [Schema](/next/schema#from-types-to-forms) shows how [Studio](/next/how-it-works#studio) then offers the functions that return a `Product`, such as `catalogProduct`.
 
@@ -91,6 +91,44 @@ const [card, error] = await client.resolve({
 `resolve` never throws: it returns `[value, null]`, or `[null, error]` if something failed. It accepts any JSON value, not only a block: blocks anywhere inside are resolved, and everything else comes back as it is. Pass an array of blocks and you get an array of results.
 
 <Callout>**Reading without running.** `client.resolve(target, { run: false })` returns the JSON that would be called, with nothing run. It's most useful with saved blocks ([next section](#reusing-blocks)), which it writes in place, and handy for previews, tooling and debugging. Code that handles this saved JSON types it as `Block`, `{ __resolveType: string; …inputs }`; props never do. See [`client.resolve`](/next/api-reference#client-resolve-target-options).</Callout>
+
+### Lazy blocks
+
+Sometimes a function only needs an argument if something else is true. A **lazy block** is the one block that doesn't resolve first. `lazy` wraps a `value` (any block or JSON), and the function receives a function instead of the value. Calling it resolves `value`:
+
+```jsonc
+// Stored as JSON
+{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "showProduct": false,
+  "product": {
+    "__resolveType": "lazy",
+    "value": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
+  }
+}
+
+// Means
+productCard({
+  title: "Summer collection",
+  showProduct: false,
+  product: () => catalogProduct({ slug: "summer-shirt" }),
+});
+```
+
+`catalogProduct` runs only if `productCard` calls `product()`, and at most once: a second call returns the same result. To ask for this, type the prop as `Lazy<T>`, which is `() => Promise<T>`:
+
+```tsx title="src/product-card.tsx"
+import type { Lazy } from "@decocms/blocks";
+
+export async function productCard({ title, showProduct, product }: { title: string; showProduct: boolean; product: Lazy<Product> }) {
+  if (!showProduct) return <Title text={title} />;   // catalogProduct never runs
+  const item = await product();                       // catalogProduct runs here
+  return <Card title={title} product={item} />;
+}
+```
+
+Editors never see the wrapper: Studio shows a `Product` field and writes the `lazy` block around what they pick (see [Schema](/next/schema#from-types-to-forms)). The built-in [`multivariate`](/next/matchers-and-variants) uses this, so only the chosen variant's value runs. See [`Lazy<T>`](/next/api-reference#types).
 
 ## Reusing blocks
 
@@ -149,7 +187,7 @@ The block map lives in `.deco/index.ts` (or `.deco/index.tsx`), next to your con
 
 ### Built-in blocks
 
-The framework adds seven functions to your block map for you. They're always in the schema and the registry, and you don't import or list them:
+The framework adds eight functions to your block map for you. They're always in the schema and the registry, and you don't import or list them:
 
 **Pages and redirects**
 
@@ -165,7 +203,11 @@ The framework adds seven functions to your block map for you. They're always in 
 - **`always`** returns `true`, so its variant is the fallback.
 - **`never`** returns `false`, so its variant is never picked (that is how Studio hides a block).
 - **`date`** takes `start` and `end`, and returns `true` from `start` until `end`.
-- **`multivariate`** takes `variants` and returns the value of the first one whose rule is `true`.
+- **`multivariate`** takes `variants` and returns the value of the first one whose rule is `true`. Only that variant's value runs.
+
+**Laziness**
+
+- **`lazy`** takes `value` and returns a function that resolves it when called (see [Lazy blocks](#lazy-blocks)).
 
 **Changing a built-in.** Declare `page` in your block map to replace it, for example to wrap every page in your layout. To only change the fields editors see, see [Override a built-in](/next/schema#override-a-built-in).
 
