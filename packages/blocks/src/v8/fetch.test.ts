@@ -24,11 +24,11 @@ function recorder() {
 }
 
 /** An upstream answering with `statuses` in order (a thrown error for "throw"). */
-function upstream(statuses: (number | "throw")[], headers: Record<string, string> = {}) {
+function upstream(statuses: (number | "throw")[]) {
   return vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
     const next = statuses.shift() ?? 200;
     if (next === "throw") throw new TypeError("connection reset");
-    return new Response("{}", { status: next, headers });
+    return new Response("{}", { status: next });
   });
 }
 
@@ -58,16 +58,6 @@ describe("createInstrumentedFetch", () => {
         },
       },
     ]);
-  });
-
-  it("labels responses a cache served", async () => {
-    const { histograms } = recorder();
-    const request = createInstrumentedFetch({
-      provider: "vtex",
-      fetch: upstream([200], { "cf-cache-status": "HIT" }),
-    });
-    await request("https://x.example");
-    expect(histograms[0]?.labels.cached).toBe(true);
   });
 
   it("works with no telemetry configured, measuring nothing", async () => {

@@ -19,10 +19,15 @@ const BACKGROUND_HOOK = Symbol.for("decocms.blocks.background");
 
 /** Background tasks a binding would run after the response; the test runs them on demand. */
 let tasks: (() => Promise<void>)[] = [];
+/** Milliseconds added to Date.now(): batches leave only once they're 10 s old. */
+let clock = 0;
 
 beforeEach(() => {
   resetForTests();
   tasks = [];
+  clock = 0;
+  const now = Date.now.bind(Date);
+  vi.spyOn(Date, "now").mockImplementation(() => now() + clock);
   (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK] = (task: () => Promise<void>) =>
     tasks.push(task);
 });
@@ -33,8 +38,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Runs the queued tasks as the next responses would, each pass one batch window (10 s) later. */
 async function runBackground(): Promise<void> {
-  while (tasks.length > 0) await Promise.all(tasks.splice(0).map((task) => task()));
+  while (tasks.length > 0) {
+    clock += 10_000;
+    await Promise.all(tasks.splice(0).map((task) => task()));
+  }
 }
 
 interface Sent {
@@ -258,6 +267,35 @@ describe("error logs", () => {
     expect(records.map((r: any) => attrs(r.attributes)["error.code"])).toEqual(["UNKNOWN_BLOCK"]);
   });
 
+  it("a failed loader logs a fixed message, never the draft pointer it was given", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const { sent } = collector();
+    vi.stubGlobal(
+      "fetch",
+      (() => {
+        const send = globalThis.fetch;
+        return (input: string | URL | Request, init?: RequestInit) =>
+          String(input).startsWith(ENDPOINT)
+            ? send(input, init)
+            : Promise.reject(new Error("down"));
+      })(),
+    );
+    const pointer = "not-a-pointer-secret-abc123";
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: "acme",
+      token: "tok",
+      telemetry: { endpoint: ENDPOINT },
+    });
+    const [, error] = await cms.forDraft(pointer).resolve("SummerSEO");
+    expect(error?.code).toBe("LOADER_FAILED");
+    await runBackground();
+    const records = sent.flatMap((s) => s.body.resourceLogs?.[0].scopeLogs[0].logRecords ?? []);
+    expect(records.map((r: any) => r.body.stringValue)).toEqual(["content loader failed"]);
+    expect(JSON.stringify(sent)).not.toContain(pointer);
+  });
+
   it("samples at the Telemetry block's errorSampleRate, capped by limits (default 0.1)", async () => {
     const { fetch } = collector();
     const cms = createCMS({
@@ -352,6 +390,45 @@ describe("sending", () => {
     createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
     await upstream("https://search.example/q");
     await expect(runBackground()).resolves.toBeUndefined();
+  });
+
+  it("with a binding's hook, a batch leaves once it's 10 s old, not after every request", async () => {
+    const { sent } = collector();
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
+    clock += 10_000; // the first batch window is already open
+    await upstream("https://search.example/q");
+    await Promise.all(tasks.splice(0).map((task) => task()));
+    expect(sent).toHaveLength(1);
+
+    await upstream("https://search.example/q"); // the next request, same window
+    await Promise.all(tasks.splice(0).map((task) => task()));
+    await upstream("https://search.example/q");
+    await Promise.all(tasks.splice(0).map((task) => task()));
+    expect(sent).toHaveLength(1);
+
+    clock += 10_000;
+    await upstream("https://search.example/q");
+    await Promise.all(tasks.splice(0).map((task) => task()));
+    expect(sent).toHaveLength(2);
+    const point =
+      sent[1]?.body.resourceMetrics[0].scopeMetrics[0].metrics[0].histogram.dataPoints[0];
+    expect(point.count).toBe("3");
+  });
+
+  it("OTEL_RESOURCE_ATTRIBUTES sets service.version and the environment", async () => {
+    vi.stubEnv(
+      "OTEL_RESOURCE_ATTRIBUTES",
+      "service.version=abc123,deployment.environment.name=preview",
+    );
+    const { sent } = collector();
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
+    await upstream("https://search.example/q");
+    await runBackground();
+    expect(attrs(sent[0]?.body.resourceMetrics[0].resource.attributes)).toMatchObject({
+      "service.name": "decocms-site",
+      "service.version": "abc123",
+      "deployment.environment.name": "preview",
+    });
   });
 
   it("without a binding's hook, batches go out on a timer, not per measurement", async () => {

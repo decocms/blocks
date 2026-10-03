@@ -89,7 +89,9 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
         provider,
         operation,
         status_class: response ? `${Math.floor(response.status / 100)}xx` : "error",
-        cached: response !== undefined && isCached(response),
+        // Upstream caching lives in the binding, under this fetch; until it
+        // reports hits, nothing here is a cache hit.
+        cached: false,
         retries,
       };
       telemetry.histogram(
@@ -125,10 +127,4 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
 function isAbort(error: unknown): boolean {
   const name = (error as { name?: unknown } | null)?.name;
   return name === "AbortError" || name === "TimeoutError";
-}
-
-/** A response a cache in front of the upstream served (Cloudflare's or a CDN's `x-cache`). */
-function isCached(response: Response): boolean {
-  const status = response.headers.get("cf-cache-status") ?? response.headers.get("x-cache") ?? "";
-  return /^hit/i.test(status);
 }

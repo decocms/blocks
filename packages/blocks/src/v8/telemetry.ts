@@ -204,7 +204,9 @@ export class TelemetryPipeline {
       error: (error) => {
         // Block failures arrive through block(); a missing name is ordinary.
         if (error.code === "NOT_FOUND" || error.code === "BLOCK_FAILED") return;
-        this.error(error.message, { "error.code": error.code, "deco.path": error.path.join(".") });
+        // A loader's message can quote a draft pointer (and its token): never send it.
+        const message = error.code === "LOADER_FAILED" ? "content loader failed" : error.message;
+        this.error(message, { "error.code": error.code, "deco.path": error.path.join(".") });
       },
     };
   }
@@ -332,24 +334,31 @@ export class TelemetryPipeline {
   #schedule(): void {
     if (this.#scheduled) return;
     this.#scheduled = true;
-    const run = () => {
+    if (!hasBackgroundHook()) {
+      later(FLUSH_MS, () => {
+        this.#scheduled = false;
+        void this.flush();
+      });
+      return;
+    }
+    // With a binding's hook (Workers: after the response, in ctx.waitUntil),
+    // a batch goes out once it's FLUSH_MS old; a younger one stays pending
+    // and a later request's measurement schedules it again.
+    runInBackground(() => {
       this.#scheduled = false;
+      if (Date.now() - this.#windowStart < FLUSH_MS) return;
       return this.flush();
-    };
-    // On Workers a binding's hook sends after the response; elsewhere, a timer batches.
-    if (hasBackgroundHook()) runInBackground(run);
-    else later(FLUSH_MS, () => void run());
+    });
   }
 
   #resource(): Attributes {
-    const environment = readEnv("NODE_ENV");
     const site = this.#destination.site;
     return {
-      "service.name": readEnv("OTEL_SERVICE_NAME") ?? site ?? "decocms-site",
-      ...(environment ? { "deployment.environment.name": environment } : {}),
+      "service.name": site ?? "decocms-site",
       ...(site ? { "deco.site": site } : {}),
       ...(this.#release ? { "deco.release": this.#release } : {}),
-      // Standard OTel overrides, e.g. service.version=<commit>.
+      // The standard OTel override: service.version=<commit>,
+      // deployment.environment.name=preview, service.name=…
       ...parseKeyValues(readEnv("OTEL_RESOURCE_ATTRIBUTES")),
     };
   }
