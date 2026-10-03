@@ -22,6 +22,10 @@
 		"./protocol": "./src/protocol/index.ts",
 		"./protocol/keys": "./src/protocol/keys.ts",
 		"./protocol/server": "./src/protocol/server/index.ts",
+		"./protocol/storage/fs": {
+			"node": "./src/protocol/storage/fs/index.ts",
+			"default": "./src/protocol/storage/fs/unsupported.ts"
+		},
 		"./protocol/storage/memory": "./src/protocol/storage/memory.ts",
 		"./types": "./src/types/index.ts",
 		"./types/widgets": "./src/types/widgets.ts",
