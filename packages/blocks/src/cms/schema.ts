@@ -1139,7 +1139,7 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
   // gap; only loaders are merged here (commerce SEO scope). Generalize if a
   // matcher/action picker ever needs baked options.
   const loaders = buildLoaderDefinitions();
-  const siteLoaderRefs = (siteMeta.schema?.root?.loaders?.anyOf ?? []).filter(
+  const siteLoaderRefs: { $ref: string }[] = (siteMeta.schema?.root?.loaders?.anyOf ?? []).filter(
     (ref: any): ref is { $ref: string } => Boolean(ref) && typeof ref.$ref === "string",
   );
   const seenLoaderRefs = new Set<string>(loaders.loaderAnyOf.map((r: any) => r.$ref));
