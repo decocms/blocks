@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "@decocms/blocks/cli";
 import type { Report } from "./report";
-import { locateAppModule, vendorModule } from "./vendor";
+import { firstFile, locateAppModule, vendorModule } from "./vendor";
 import { forEachBlock, readContent } from "./walk";
 
 type Kind = "section" | "function";
@@ -36,6 +36,8 @@ interface Entry {
   short: string;
   ident: string;
 }
+
+const ANALYTICS_SECTION = /^website\/sections\/Analytics\//;
 
 /** Where to look for a type without a v8 equivalent. */
 const HINTS: [RegExp, string][] = [
@@ -52,7 +54,7 @@ const HINTS: [RegExp, string][] = [
     "an SEO section: register your platform template's SEO block under this name (/next/renames-and-migrations#rename-a-type-with-an-alias)",
   ],
   [
-    /^website\/sections\/Analytics\//,
+    ANALYTICS_SECTION,
     "v7's Analytics section: move its tag IDs into your template's tag-manager block (/next/renames-and-migrations#telemetry-and-analytics)",
   ],
   [
@@ -92,10 +94,6 @@ function camel(name: string): string {
   const ident = name.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
   if (/^[0-9]/.test(ident)) return `_${ident}`;
   return RESERVED_WORDS.has(ident) ? `${ident}Block` : ident;
-}
-
-function firstFile(candidates: string[]): string | undefined {
-  return candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile());
 }
 
 function moduleFile(base: string): string | undefined {
@@ -144,10 +142,20 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
 
   const { blocks, files } = readContent(root);
   const used = new Map<string, Set<string>>();
+  /** v7 Analytics sections' GTM/GA4 IDs, so the report carries them over. */
+  const tagIds = new Map<string, Set<string>>();
   for (const [entry, block] of Object.entries(blocks)) {
-    forEachBlock(block, ({ __resolveType: type }) => {
+    forEachBlock(block, (node) => {
+      const type = node.__resolveType;
       if (!used.has(type)) used.set(type, new Set());
       used.get(type)!.add(files[entry]);
+      if (!ANALYTICS_SECTION.test(type)) return;
+      for (const field of ["trackingIds", "googleAnalyticsIds"]) {
+        const ids = node[field];
+        if (!Array.isArray(ids)) continue;
+        if (!tagIds.has(type)) tagIds.set(type, new Set());
+        for (const id of ids) if (typeof id === "string" && id) tagIds.get(type)!.add(id);
+      }
     });
   }
   const builtIn = new Set(BUILT_IN_BLOCKS);
@@ -163,7 +171,9 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
 
   const byFile = new Map<string, Entry>();
   const vendored = new Map<string, string>();
-  const leave = (type: string, message: string) => {
+  const leave = (type: string, hint: string) => {
+    const ids = [...(tagIds.get(type) ?? [])];
+    const message = ids.length > 0 ? `${hint}; its tag IDs: ${ids.join(", ")}` : hint;
     const where = [...(used.get(type) ?? [])];
     const usedIn =
       where.length > 0

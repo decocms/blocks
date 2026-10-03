@@ -12,7 +12,7 @@
  *   Workers, on an unref'd timer elsewhere); a send that fails is retried
  *   once on 429/502/503/504 and otherwise dropped.
  * - Everything is scrubbed before encoding: no query strings, tokens,
- *   cookies or authorization values.
+ *   cookies or authorization values, and no value a secret block decrypted.
  */
 import { hasBackgroundHook, later, runInBackground } from "./background";
 import { isResolutionError } from "./errors";
@@ -27,6 +27,7 @@ const SINK = Symbol.for("decocms.blocks.telemetry");
 const FLUSH_MS = 10_000;
 const MAX_LOGS = 200;
 const MAX_SPANS = 1_000;
+const MAX_SECRETS = 1_000;
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
 /** OpenTelemetry's recommended `http.*.request.duration` buckets, in seconds. */
 const BOUNDS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10];
@@ -118,10 +119,17 @@ export class TelemetryPipeline {
   #spans: (SpanInput & { spanId: string })[] = [];
   #windowStart = Date.now();
   #scheduled = false;
+  /** Values secret blocks decrypted, replaced with `[redacted]` wherever they'd be sent. */
+  readonly #secrets = new Set<string>();
 
   constructor(destination: Destination) {
     this.#destination = destination;
     this.#apply(undefined);
+  }
+
+  /** Never send `value`: it's replaced with `[redacted]` in every log, span and label. */
+  redact(value: string): void {
+    if (value.length > 0 && this.#secrets.size < MAX_SECRETS) this.#secrets.add(value);
   }
 
   /** The release being served: its revision labels batches and its `Telemetry` block sets the rates. */
@@ -177,11 +185,20 @@ export class TelemetryPipeline {
     this.#schedule();
   }
 
-  /** The hooks one client reports through; the trace decision is made once per client. */
+  /**
+   * The hooks one client reports through. The trace decision is made once per
+   * client, on its first block, after its release is loaded, so the first
+   * client of a release already uses that release's `Telemetry` block.
+   */
   forClient(): ClientTelemetry {
-    const traceId = this.sampleTrace() ? newTraceId() : undefined;
+    let decided = false;
+    let traceId: string | undefined;
     return {
       block: (type, start, end, error) => {
+        if (!decided) {
+          decided = true;
+          traceId = this.sampleTrace() ? newTraceId() : undefined;
+        }
         if (traceId !== undefined) {
           this.span({
             name: type,
@@ -222,6 +239,8 @@ export class TelemetryPipeline {
     this.#histograms = new Map();
     this.#logs = [];
     this.#spans = [];
+    const scrub = (text: string) => this.#scrub(text);
+    const encode = (attributes: Attributes) => encodeAttributes(attributes, scrub);
     const resource = { attributes: encode(this.#resource()) };
     const scope = { name: "@decocms/blocks" };
     const sends: Promise<void>[] = [];
@@ -315,6 +334,12 @@ export class TelemetryPipeline {
     await Promise.all(sends);
   }
 
+  #scrub(text: string): string {
+    let out = text;
+    for (const secret of this.#secrets) out = out.split(secret).join("[redacted]");
+    return scrubText(out);
+  }
+
   #apply(block: Record<string, unknown> | undefined): void {
     const { limits } = this.#destination;
     this.#settings = {
@@ -341,7 +366,7 @@ export class TelemetryPipeline {
       });
       return;
     }
-    // With a binding's hook (Workers: after the response, in ctx.waitUntil),
+    // With a host hook (Workers: after the response, in ctx.waitUntil),
     // a batch goes out once it's FLUSH_MS old; a younger one stays pending
     // and a later request's measurement schedules it again.
     runInBackground(() => {
@@ -354,10 +379,14 @@ export class TelemetryPipeline {
   #resource(): Attributes {
     const site = this.#destination.site;
     return {
-      "service.name": site ?? "decocms-site",
+      "service.name": readEnv("OTEL_SERVICE_NAME") || site || "decocms-site",
+      "service.version": firstEnv(COMMIT_VARIABLES) ?? "unknown",
+      "deployment.environment.name":
+        readEnv("VERCEL_ENV") ||
+        (readEnv("NODE_ENV") === "development" ? "development" : "production"),
       ...(site ? { "deco.site": site } : {}),
       ...(this.#release ? { "deco.release": this.#release } : {}),
-      // The standard OTel override: service.version=<commit>,
+      // The standard OTel override wins: service.version=<commit>,
       // deployment.environment.name=preview, service.name=…
       ...parseKeyValues(readEnv("OTEL_RESOURCE_ATTRIBUTES")),
     };
@@ -402,13 +431,33 @@ export function setCurrentTelemetry(pipeline: TelemetryPipeline | undefined): vo
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Where hosts put the deployed commit, tried in order (`service.version`). */
+const COMMIT_VARIABLES = [
+  "DECO_COMMIT_SHA",
+  "WORKERS_CI_COMMIT_SHA",
+  "CF_PAGES_COMMIT_SHA",
+  "VERCEL_GIT_COMMIT_SHA",
+  "GITHUB_SHA",
+  "RENDER_GIT_COMMIT",
+  "SOURCE_VERSION",
+  "COMMIT_SHA",
+];
+
+function firstEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = readEnv(name);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 const QUERY = /(https?:\/\/[^\s?#"'<>]+)\?[^\s#"'<>]*/gi;
 const CREDENTIAL = /\b(Bearer|Basic)\s+[\w~+/.=-]+/gi;
 const SENSITIVE =
   /\b(authorization|cookie|set-cookie|x-api-key|api[-_]?key|app[-_]?key|app[-_]?token|token|secret|password)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)/gi;
 
 /** Removes query strings, credentials and cookie/token values from text before it's sent. */
-function scrub(text: string): string {
+function scrubText(text: string): string {
   return text
     .replace(QUERY, "$1?[redacted]")
     .replace(CREDENTIAL, "$1 [redacted]")
@@ -457,7 +506,7 @@ function parseKeyValues(raw: string | undefined): Record<string, string> {
   return out;
 }
 
-function encode(attributes: Attributes) {
+function encodeAttributes(attributes: Attributes, scrub: (text: string) => string) {
   return Object.entries(attributes)
     .filter(([, value]) => value !== undefined)
     .map(([key, value]) => ({

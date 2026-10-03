@@ -64,8 +64,11 @@ export interface DescribeResult {
   /** Local: 2000; git: 30000, plus on window focus. */
   pollIntervalMs: number;
   limits: Limits;
-  /** Where "open the real page" points. */
-  preview: null | { origin: string };
+  /**
+   * The app the site editor shows in its Preview tab (and where "open the real
+   * page" points); the local server reports `deco serve --preview`. `null`: no preview.
+   */
+  preview: null | { url: string };
   /** Dir relative to the repository root; `null` when read-only or uploads go to hosted storage. */
   assets: null | { dir: string; urlPrefix: typeof ASSETS_URL_PREFIX; maxBytes: number };
   /** The contents of `<root>/.deco/secrets.pub`; `null` without one. */

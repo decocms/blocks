@@ -8,7 +8,7 @@
  * session flows, caching and feature toggles belong to the site (platform
  * templates), not here.
  */
-import { createInstrumentedFetch, type InstrumentedFetchOptions } from "@decocms/blocks/fetch";
+import { createInstrumentedFetch } from "@decocms/blocks/fetch";
 
 export interface MagentoClientConfig {
   /** The store's origin, e.g. `https://store.example.com`. Every request goes here. */
@@ -21,7 +21,7 @@ export interface MagentoClientConfig {
 
 export interface MagentoClientOptions {
   /** The fetch underneath, e.g. a fake in tests. Defaults to `globalThis.fetch`. */
-  fetch?: InstrumentedFetchOptions["fetch"];
+  fetch?: Parameters<typeof createInstrumentedFetch>[0]["fetch"];
 }
 
 export interface MagentoRequestInit extends RequestInit {

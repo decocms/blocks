@@ -11,10 +11,14 @@
  */
 import { currentTelemetry, describe, newTraceId } from "./telemetry";
 
-export interface InstrumentedFetchOptions {
+interface InstrumentedFetchOptions {
   /** The provider label, e.g. "vtex", "acme-search". */
   provider: string;
-  /** The fetch underneath; defaults to `globalThis.fetch`. */
+  /**
+   * The fetch underneath; defaults to `globalThis.fetch`. An upstream cache
+   * goes here (see /next/caching#upstream-data); a response it serves from
+   * the cache carries `x-cache: HIT` and is measured with `cached=true`.
+   */
   fetch?: typeof fetch;
   /** Off unless set. `attempts` is how many times a failed request is retried; a retried request is measured once. */
   retry?: { attempts: number; backoffMs?: number };
@@ -22,7 +26,7 @@ export interface InstrumentedFetchOptions {
   circuitBreaker?: { failures: number; cooldownMs: number };
 }
 
-export type InstrumentedFetch = (
+type InstrumentedFetch = (
   input: string | URL | Request,
   init?: RequestInit & { operation?: string },
 ) => Promise<Response>;
@@ -39,10 +43,10 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
 
   return async (input, init = {}) => {
     const { operation = "unknown", ...requestInit } = init;
-    const doFetch = options.fetch ?? globalThis.fetch;
     const method = (
       requestInit.method ?? (input instanceof Request ? input.method : "GET")
     ).toUpperCase();
+    const doFetch = options.fetch ?? globalThis.fetch;
     const maxRetries =
       retry && IDEMPOTENT.has(method) ? Math.max(0, Math.floor(retry.attempts)) : 0;
     const startedAt = Date.now();
@@ -89,9 +93,8 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
         provider,
         operation,
         status_class: response ? `${Math.floor(response.status / 100)}xx` : "error",
-        // Upstream caching lives in the binding, under this fetch; until it
-        // reports hits, nothing here is a cache hit.
-        cached: false,
+        // An upstream cache is the site's own `fetch` option; it marks a hit `x-cache: HIT`.
+        cached: response?.headers.get("x-cache") === "HIT",
         retries,
       };
       telemetry.histogram(

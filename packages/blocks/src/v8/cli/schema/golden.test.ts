@@ -31,6 +31,11 @@
  * 5. Sections whose v7 form came from an exported `loader` get their props
  *    definition keyed by block type instead of by file (they're bound to an
  *    inline function in the block map); the form itself is the same.
+ * 6. The v7 generator wrote an intersection inside an array
+ *    (`Array<Leaf & { children?: … }>`, how commerce's SiteNavigationElement
+ *    spells its nesting) as an array of strings; deco schema writes the
+ *    object the type describes. Where v7 has string items and the next major
+ *    an object, the v7 items are taken as the expectation's shape.
  *
  * Everything else, every field's type, title, description, enum, default,
  * format, nullability and required list, and every flat loader definition,
@@ -71,6 +76,18 @@ function withoutInline(node: any): any {
         ? (v as any[]).filter((b) => b?.title !== "Inline data").map(withoutInline)
         : withoutInline(v);
   }
+  return out;
+}
+
+/** Difference 6: v7's string items stand where the next major writes an intersection's object. */
+function withV7StringItems(v8: any, v7: any): any {
+  if (Array.isArray(v8)) return v8.map((n, i) => withV7StringItems(n, v7?.[i]));
+  if (!v8 || typeof v8 !== "object" || !v7 || typeof v7 !== "object") return v8;
+  if (v7.type === "array" && v7.items?.type === "string" && v8.items?.type === "object") {
+    return { ...v8, items: v7.items };
+  }
+  const out: any = {};
+  for (const [k, v] of Object.entries(v8)) out[k] = withV7StringItems(v, v7[k]);
   return out;
 }
 
@@ -156,7 +173,7 @@ describe.skipIf(!available)("schema golden: storefront-tanstack", () => {
       expect(rest8, key).toEqual(rest7);
       const props7 = d7[a7[0].$ref.split("/").pop()];
       const props8 = d8[a8[0].$ref.split("/").pop()];
-      expect(withoutInline(props8), key).toEqual(props7);
+      expect(withV7StringItems(withoutInline(props8), props7), key).toEqual(props7);
     }
   });
 

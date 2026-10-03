@@ -41,15 +41,8 @@ describe("the built-in legacy alias table", () => {
       "$live/pages/LivePage.tsx": "page",
       "website/flags/multivariate.ts": "multivariate",
       "website/flags/multivariate/section.ts": "multivariate",
-      "website/flags/multivariate/image.ts": "multivariate",
-      "website/flags/multivariate/message.ts": "multivariate",
-      "website/flags/multivariate/page.ts": "multivariate",
-      "$live/flags/multivariate.ts": "multivariate",
       "website/matchers/always.ts": "always",
-      "$live/matchers/MatchAlways.ts": "always",
       "website/matchers/never.ts": "never",
-      "website/matchers/date.ts": "date",
-      "$live/matchers/MatchDate.ts": "date",
       "website/loaders/redirect.ts": "redirect",
       "website/loaders/secret.ts": "secret",
     });
@@ -166,7 +159,10 @@ describe("the built-in legacy alias table", () => {
     const [redirects] = await c.list<Redirect | LegacyRedirect>("redirect");
     expect(redirects).toEqual([flat, legacy]);
     expect(
-      matchRoute("https://x.test/campaigns/summer?utm=1", { routes: [], redirects: redirects! }),
+      matchRoute("https://x.test/campaigns/summer?utm=1", {
+        routes: [],
+        redirects: redirects as Redirect[],
+      }),
     ).toEqual({
       kind: "redirect",
       location: "/summer",

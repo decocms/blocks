@@ -7,6 +7,7 @@ import { writeBlockMap } from "./blockMap";
 import { decofileEntries, moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
 import { rewriteImports, V8_API } from "./imports";
+import { renameLegacyTypes } from "./legacyNames";
 import { createReport } from "./report";
 import { reencryptSecrets } from "./secrets";
 import { locateAppModule, vendorModule } from "./vendor";
@@ -57,6 +58,33 @@ describe("content", () => {
     expect(() => moveContent(root, createReport(), { decofile: "live.json" })).toThrow(
       "--decofile given but .deco/blocks already has content",
     );
+  });
+});
+
+describe("legacy type names", () => {
+  it("rewrites names outside the alias table to ones the next major resolves", () => {
+    site({
+      ".deco/blocks/Home.json": {
+        ...home,
+        sections: [
+          {
+            __resolveType: "website/flags/multivariate/image.ts",
+            variants: [
+              { rule: { __resolveType: "$live/matchers/MatchAlways.ts" }, value: "a.png" },
+            ],
+          },
+          { __resolveType: "website/matchers/date.ts", start: "2026-01-01" },
+        ],
+      },
+      ".deco/blocks/Untouched.json": home,
+    });
+    const report = createReport();
+    renameLegacyTypes(root, report);
+    const saved = JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks/Home.json"), "utf8"));
+    expect(saved.sections[0].__resolveType).toBe("website/flags/multivariate.ts");
+    expect(saved.sections[0].variants[0].rule.__resolveType).toBe("website/matchers/always.ts");
+    expect(saved.sections[1].__resolveType).toBe("date");
+    expect(report.done.map((n) => n.subject)).toEqual(["Home.json"]);
   });
 });
 
@@ -204,6 +232,21 @@ describe("imports", () => {
       "@decocms/apps-salesforce {*}: the Salesforce client is @decocms/apps-sfmc-personalization (/next/upstream-clients#what-a-client-is); in src/b.tsx:2",
       "@decocms/blocks {logger}: no v8 equivalent; in src/b.tsx:1",
     ]);
+  });
+
+  it("reports every framework-binding import, kvLoader included: the next major has no binding", () => {
+    site({
+      "src/a.ts":
+        'import { kvLoader } from "@decocms/tanstack";\nimport { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";\n',
+    });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    const notes = report.manual.map((n) => `${n.subject}: ${n.message}`);
+    expect(notes.map((n) => n.split(":")[0])).toEqual([
+      "@decocms/nextjs/routeHandlers {createDecoRouteHandlers}",
+      "@decocms/tanstack {kvLoader}",
+    ]);
+    for (const note of notes) expect(note).toContain("drop the dependency");
   });
 });
 

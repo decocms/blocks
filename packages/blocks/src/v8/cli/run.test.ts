@@ -234,9 +234,10 @@ describe("nothing in app bundles", () => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (full !== here) walk(full);
+          if (full !== here && entry.name !== "__conformance__") walk(full);
         } else if (
           /\.(ts|tsx)$/.test(entry.name) &&
+          !/\.test\.tsx?$/.test(entry.name) &&
           /from\s+["'][^"']*v8\/cli[^"']*["']|@decocms\/blocks\/cli/.test(
             fs.readFileSync(full, "utf8"),
           )

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeContentRevision } from "../../protocol/canonical";
+import { computeContentRevision } from "../canonical";
 import { createFixture, type Fixture, recorder } from "./__tests__/fixture";
 import { LEGACY_ALIASES } from "./builtins";
 import { content, readSavedBlocks, renderContentModule, writeContent } from "./content";

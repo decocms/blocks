@@ -37,7 +37,10 @@ export const readCases: ConformanceCase[] = [
       assert(typeof d.writes.schemaPreconditions === "boolean", "writes.schemaPreconditions");
       assert(d.pollIntervalMs > 0, "pollIntervalMs");
       for (const key of LIMIT_KEYS) assert(d.limits[key] > 0, `limits.${key}`);
-      assert(d.preview === null || typeof d.preview.origin === "string", "preview");
+      assert(
+        d.preview === null || /^https?:\/\//.test(String(d.preview?.url)),
+        "preview is null or { url } with an http(s) URL",
+      );
       if (d.readOnly) assertEqual(d.assets, null, "assets is null when read-only");
       if (d.assets) {
         assertEqual(d.assets.urlPrefix, "/assets/", "assets.urlPrefix");

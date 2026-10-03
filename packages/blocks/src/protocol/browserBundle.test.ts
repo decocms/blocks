@@ -28,7 +28,6 @@ const BROWSER_SAFE = [
   "@decocms/blocks/protocol",
   "@decocms/blocks/protocol/keys",
   "@decocms/blocks/protocol/server",
-  "@decocms/blocks/protocol/storage/memory",
   "@decocms/blocks/protocol/conformance",
 ];
 

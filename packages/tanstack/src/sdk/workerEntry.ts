@@ -92,7 +92,6 @@ import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
-import { installBackgroundHook, runBackgroundTasks } from "./backgroundTasks";
 import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
   applyDraftCookieAndHeaders,
@@ -2170,18 +2169,6 @@ export function createDecoWorkerEntry(
   // `DECO_OTEL_*_ENDPOINT` env vars are configured, telemetry flows
   // without any change to the site's worker-entry. When the env vars are
   // absent the wrap is a no-op (no exporters created, no flush calls).
-  // `@decocms/blocks` background work (release checks, telemetry batches)
-  // queued during a request runs after its response, inside ctx.waitUntil.
-  installBackgroundHook();
-  const respond = handler.fetch;
-  handler.fetch = async (request, env, ctx) => {
-    try {
-      return await respond(request, env, ctx);
-    } finally {
-      runBackgroundTasks(ctx);
-    }
-  };
-
   return observabilityOpt === false
     ? handler
     : instrumentWorker(handler, (observabilityOpt as OtelOptions | undefined) ?? {});

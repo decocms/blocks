@@ -3,8 +3,8 @@
  * `{ "__resolveType": "secret", "ciphertext": "v1.…" }` resolves to the
  * decrypted string, on the server only.
  *
- * The ciphertext format is the protocol's (`../../protocol/ciphertext`, a leaf
- * module with no imports): a fresh AES-256-GCM key per value, wrapped with the
+ * The ciphertext format lives in `../ciphertext` (a leaf module with no
+ * imports, which the protocol re-exports): a fresh AES-256-GCM key per value, wrapped with the
  * site's RSA public key using RSA-OAEP and SHA-256. Decrypting takes the
  * matching PKCS#8 private key, the PEM `createCMS({ secrets: { key } })` gets.
  *
@@ -12,8 +12,12 @@
  * throws, so the resolver reports `BLOCK_FAILED` for that block alone. No
  * message ever includes the key or a decrypted value. `{ run: false }` and
  * `client.list` never run functions, so they return the ciphertext as saved.
+ *
+ * Every decrypted value is handed to `onDecrypt` (the CMS redacts it from
+ * telemetry). A decrypted value stays on the server because it's resolved
+ * there; tainting it (React's taint API) is up to the site's own code.
  */
-import { parseCiphertext } from "../../protocol/ciphertext";
+import { parseCiphertext } from "../ciphertext";
 import type { BlockFunction } from "../types";
 
 /** True in a browser, where a secret must never be decrypted. */
@@ -32,7 +36,7 @@ function privateKeyDer(pem: string): Uint8Array {
  * The `secret` block for one private key. The CMS creates one per instance;
  * the built-in list holds the keyless one, which always fails.
  */
-export function secretBlock(key?: string): BlockFunction {
+export function secretBlock(key?: string, onDecrypt?: (value: string) => void): BlockFunction {
   let imported: Promise<CryptoKey> | undefined;
   return async ({ ciphertext }: { ciphertext?: unknown } = {}): Promise<string> => {
     if (inBrowser()) throw new Error("a secret block resolves on the server only");
@@ -54,6 +58,7 @@ export function secretBlock(key?: string): BlockFunction {
     } catch {
       throw new Error("the secrets key is not an RSA private key in PKCS#8 PEM");
     }
+    let value: string;
     try {
       const raw = await crypto.subtle.decrypt(
         { name: "RSA-OAEP" },
@@ -66,10 +71,12 @@ export function secretBlock(key?: string): BlockFunction {
         aes,
         parts.ciphertext as BufferSource,
       );
-      return new TextDecoder().decode(plain);
+      value = new TextDecoder().decode(plain);
     } catch {
       // Web Crypto's errors say nothing useful, and this one never names the value.
       throw new Error("the secret could not be decrypted with this key");
     }
+    onDecrypt?.(value);
+    return value;
   };
 }

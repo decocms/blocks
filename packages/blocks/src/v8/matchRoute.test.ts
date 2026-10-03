@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** matchRoute (routing.mdx, router-internals.mdx, api-reference#matchroute-url-items; D3 splat). */
+/** matchRoute (routing.mdx, router-internals.mdx, api-reference#matchroute-url-items; ). */
 import { describe, expect, it } from "vitest";
 import { findRouteConflicts, matchRoute } from "./matchRoute";
 import type { LegacyRedirect, Redirect, Route } from "./types";
@@ -85,15 +85,8 @@ describe("routes", () => {
     expect(matchRoute("/café", { routes: [cafe] })).toMatchObject({ entry: cafe });
   });
 
-  it("is case-sensitive by default, with ignoreCase as an option", () => {
+  it("is case-sensitive", () => {
     expect(matchRoute("/SUMMER", { routes })).toEqual({ kind: "not-found" });
-    expect(matchRoute("/SUMMER", { routes }, { ignoreCase: true })).toMatchObject({
-      entry: summer,
-    });
-    expect(matchRoute("/Blog/Hello", { routes }, { ignoreCase: true })).toMatchObject({
-      entry: post,
-      params: { slug: "Hello" },
-    });
   });
 
   it("skips entries without a string path (never throws)", () => {
@@ -182,66 +175,6 @@ describe("findRouteConflicts (what deco check reports)", () => {
 
   it("lets an exact path and a template coexist (exact wins per segment)", () => {
     expect(names([route("A", "/blog/:slug"), route("B", "/blog/archive")])).toEqual([]);
-  });
-
-  it("treats two splats at the same place as a conflict", () => {
-    expect(names([route("A", "/c/*"), route("B", "/c/:rest*")])).toEqual([["B", "A"]]);
-  });
-});
-
-describe("splat (D3)", () => {
-  const catchAll = route("PLP", "/*");
-  const blogRest = route("BlogRest", "/blog/:rest*");
-
-  it("a trailing /* matches any number of remaining segments", () => {
-    expect(matchRoute("/shoes/running/men", { routes: [catchAll] })).toEqual({
-      kind: "match",
-      entry: catchAll,
-      params: { "*": "shoes/running/men" },
-    });
-  });
-
-  it("a trailing /:rest* names the remainder", () => {
-    expect(matchRoute("/blog/2026/10/hello", { routes: [blogRest] })).toEqual({
-      kind: "match",
-      entry: blogRest,
-      params: { rest: "2026/10/hello" },
-    });
-  });
-
-  it("also matches nothing, so /* serves / and /blog/:rest* serves /blog", () => {
-    expect(matchRoute("/", { routes: [catchAll] })).toMatchObject({ params: { "*": "" } });
-    expect(matchRoute("/blog", { routes: [blogRest] })).toMatchObject({ params: { rest: "" } });
-  });
-
-  it("has the lowest precedence: literal, then param, then splat", () => {
-    const all = [catchAll, post, archive, home, blogRest];
-    expect(matchRoute("/", { routes: all })).toMatchObject({ entry: home });
-    expect(matchRoute("/blog/archive", { routes: all })).toMatchObject({ entry: archive });
-    expect(matchRoute("/blog/hello", { routes: all })).toMatchObject({ entry: post });
-    expect(matchRoute("/blog/a/b", { routes: all })).toMatchObject({ entry: blogRest });
-    expect(matchRoute("/shoes/a", { routes: all })).toMatchObject({ entry: catchAll });
-  });
-
-  it("keeps params captured before the splat", () => {
-    const r = route("Cat", "/:dept/*");
-    expect(matchRoute("/shoes/running/men", { routes: [r] })).toMatchObject({
-      params: { dept: "shoes", "*": "running/men" },
-    });
-  });
-
-  it("a splat that isn't the last segment is ignored", () => {
-    const r = route("Bad", "/a/*/b");
-    expect(matchRoute("/a/x/b", { routes: [r] })).toEqual({ kind: "not-found" });
-  });
-
-  it("the earlier splat wins a conflict", () => {
-    const a = route("A", "/*");
-    const b = route("B", "/:all*");
-    expect(matchRoute("/x/y", { routes: [a, b] })).toMatchObject({
-      entry: a,
-      params: { "*": "x/y" },
-    });
   });
 });
 
@@ -350,32 +283,18 @@ describe("redirects", () => {
     expect(matchRoute("/old/x", { routes, redirects })).toMatchObject({ location: "/template/x" });
   });
 
-  it("a splat redirect substitutes the remainder (D3)", () => {
-    const redirects: Redirect[] = [
-      { from: "/old/*", to: "/new/*", permanent: true },
-      { from: "/docs/:rest*", to: "/next/:rest*", permanent: false, status: 308 },
-    ];
-    expect(matchRoute("/old/a/b", { routes, redirects })).toMatchObject({ location: "/new/a/b" });
-    expect(matchRoute("/docs/x/y?q=1", { routes, redirects })).toMatchObject({
-      location: "/next/x/y?q=1",
-      status: 308,
-    });
-  });
-
-  describe("never redirects off-site through a splat", () => {
-    const redirects: Redirect[] = [
-      { from: "/old/*", to: "/*", permanent: true },
-      { from: "/docs/:rest*", to: "/:rest*", permanent: true },
-    ];
+  describe("never redirects off-site through a parameter", () => {
+    const redirects: Redirect[] = [{ from: "/old/:slug", to: "/:slug", permanent: true }];
     const cases: [string, string][] = [
-      ["/old/%2Fevil.com", "/%2Fevil.com"],
-      ["/old/%2F%2Fevil.com", "/%2F%2Fevil.com"],
       ["/old/%5Cevil.com", "/%5Cevil.com"],
-      ["/old/%2Fevil.com/x", "/%2Fevil.com/x"],
-      ["/docs/%2F%2Fevil.com", "/%2F%2Fevil.com"],
-      ["https://shop.example/old/%2Fevil.com", "/%2Fevil.com"],
       ["/old/\\evil.com", "/%5Cevil.com"],
     ];
+
+    it("an encoded slash never fills a parameter", () => {
+      for (const url of ["/old/%2Fevil.com", "/old/%2F%2Fevil.com", "https://s/old/%2Fevil.com"]) {
+        expect(matchRoute(url, { routes, redirects })).toEqual({ kind: "not-found" });
+      }
+    });
     for (const [url, location] of cases) {
       it(`${url} → ${location}`, () => {
         const hit = matchRoute(url, { routes, redirects });
@@ -385,21 +304,12 @@ describe("redirects", () => {
       });
     }
 
-    it("keeps an encoded slash encoded in a splat, and a route splat's params decoded", () => {
-      expect(matchRoute("/old/a%2Fb/c", { routes, redirects: [redirects[0]!] })).toMatchObject({
-        location: "/a%2Fb/c",
-      });
-      expect(matchRoute("/x/a%2Fb", { routes: [route("All", "/x/*")] })).toMatchObject({
-        params: { "*": "a/b" },
-      });
-    });
-
-    it("leaves an absolute or protocol-relative `to` alone", () => {
+    it("leaves an absolute `to` alone", () => {
       const external: Redirect[] = [
-        { from: "/ext/*", to: "https://other.example/*", permanent: false },
+        { from: "/ext/:slug", to: "https://other.example/:slug", permanent: false },
       ];
-      expect(matchRoute("/ext/a/b", { routes, redirects: external })).toMatchObject({
-        location: "https://other.example/a/b",
+      expect(matchRoute("/ext/a", { routes, redirects: external })).toMatchObject({
+        location: "https://other.example/a",
       });
     });
   });
@@ -416,26 +326,23 @@ describe("redirects", () => {
       { redirect: { from: "/t", to: "/temp", type: "temporary" } },
       { redirect: { from: "/d", to: "/drop", type: "temporary", discardQueryParameters: true } },
     ];
-    expect(matchRoute("/p", { routes, redirects: legacy })).toEqual({
+    expect(matchRoute("/p", { routes, redirects: legacy as never })).toEqual({
       kind: "redirect",
       location: "/perm",
       status: 301,
     });
-    expect(matchRoute("/t?x=1", { routes, redirects: legacy })).toEqual({
+    expect(matchRoute("/t?x=1", { routes, redirects: legacy as never })).toEqual({
       kind: "redirect",
       location: "/temp?x=1",
       status: 307,
     });
-    expect(matchRoute("/d?x=1", { routes, redirects: legacy })).toMatchObject({
+    expect(matchRoute("/d?x=1", { routes, redirects: legacy as never })).toMatchObject({
       location: "/drop",
     });
   });
 
   it("mixes both shapes in one list", () => {
-    const mixed = [legacySummer, { redirect: { from: "/old", to: "/new" } }] as (
-      | Redirect
-      | LegacyRedirect
-    )[];
+    const mixed = [legacySummer, { redirect: { from: "/old", to: "/new" } }] as never;
     expect(matchRoute("/old", { routes, redirects: mixed })).toMatchObject({
       location: "/new",
       status: 307,
@@ -459,12 +366,6 @@ describe("redirects", () => {
     });
   });
 
-  it("ignoreCase applies to redirects too", () => {
-    expect(
-      matchRoute("/Campaigns/SUMMER", { routes, redirects: [legacySummer] }, { ignoreCase: true }),
-    ).toMatchObject({ kind: "redirect", location: "/summer" });
-  });
-
   it("the routing.mdx handler: list, match, resolve", () => {
     const pages = [summer, shirt];
     const posts = [{ __resolveType: "post", name: "Hello", path: "/blog/hello-world" }];
@@ -474,5 +375,119 @@ describe("redirects", () => {
       redirects,
     });
     expect(match.kind === "match" && match.entry.__resolveType).toBe("post");
+  });
+});
+
+describe("trailing splat (/*)", () => {
+  const docs = route("DocsSplat", "/docs/*");
+  const docsPage = route("DocsPage", "/docs/:page");
+  const setup = route("DocsSetup", "/docs/setup");
+  const docsRoot = route("DocsRoot", "/docs");
+
+  it("matches one or more remaining segments into params['*']", () => {
+    expect(matchRoute("/docs/guides/setup", { routes: [docs] })).toEqual({
+      kind: "match",
+      entry: docs,
+      params: { "*": "guides/setup" },
+    });
+    expect(matchRoute("/docs/a", { routes: [docs] })).toMatchObject({ params: { "*": "a" } });
+  });
+
+  it("never matches zero segments: /docs needs its own entry", () => {
+    expect(matchRoute("/docs", { routes: [docs] })).toEqual({ kind: "not-found" });
+    expect(matchRoute("/docs/", { routes: [docs, docsRoot] })).toMatchObject({ entry: docsRoot });
+  });
+
+  it("exact beats a parameter, which beats a splat, whatever the array order", () => {
+    const all = [docs, docsPage, setup];
+    expect(matchRoute("/docs/setup", { routes: all })).toMatchObject({ entry: setup });
+    expect(matchRoute("/docs/intro", { routes: all })).toMatchObject({ entry: docsPage });
+    expect(matchRoute("/docs/2024/intro", { routes: all })).toMatchObject({ entry: docs });
+  });
+
+  it("backtracks to a splat when a deeper branch dead-ends", () => {
+    const deep = route("Deep", "/docs/:page/edit");
+    expect(matchRoute("/docs/intro/view", { routes: [deep, docs] })).toMatchObject({
+      entry: docs,
+      params: { "*": "intro/view" },
+    });
+  });
+
+  it("keeps the parameters captured before it", () => {
+    const shop = route("Shop", "/:store/*");
+    expect(matchRoute("/acme/a/b", { routes: [shop] })).toMatchObject({
+      params: { store: "acme", "*": "a/b" },
+    });
+  });
+
+  it("a storefront catch-all at /* serves every path but /, after exact and template routes", () => {
+    const category = route("Category Page", "/*");
+    const all = [category, shirt, summer, home];
+    expect(matchRoute("/", { routes: all })).toMatchObject({ entry: home });
+    expect(matchRoute("/summer", { routes: all })).toMatchObject({ entry: summer });
+    expect(matchRoute("/tenis/p", { routes: all })).toMatchObject({ entry: shirt });
+    expect(matchRoute("/feminino/roupas/vestidos", { routes: all })).toMatchObject({
+      entry: category,
+      params: { "*": "feminino/roupas/vestidos" },
+    });
+    expect(matchRoute("/", { routes: [category] })).toEqual({ kind: "not-found" });
+  });
+
+  it("two splats at the same place: the earlier one wins; deco check reports it", () => {
+    const other = route("Other", "/docs/*");
+    expect(matchRoute("/docs/a", { routes: [docs, other] })).toMatchObject({ entry: docs });
+    expect(findRouteConflicts([docs, other])).toEqual([{ entry: other, other: docs }]);
+    expect(findRouteConflicts([docs, docsPage, setup, docsRoot])).toEqual([]);
+  });
+
+  it("only a trailing * is a splat; elsewhere it's a literal segment", () => {
+    const mid = route("Mid", "/a/*/b");
+    expect(matchRoute("/a/x/b", { routes: [mid] })).toEqual({ kind: "not-found" });
+    expect(matchRoute("/a/*/b", { routes: [mid] })).toMatchObject({ entry: mid });
+  });
+
+  describe("redirects", () => {
+    const moved: Redirect = { from: "/old-blog/*", to: "/blog/*", permanent: true };
+
+    it("copies the segments into to (/old-blog/2024/hello → /blog/2024/hello)", () => {
+      expect(matchRoute("/old-blog/2024/hello?x=1", { routes, redirects: [moved] })).toEqual({
+        kind: "redirect",
+        location: "/blog/2024/hello?x=1",
+        status: 301,
+      });
+    });
+
+    it("an exact redirect wins over a splat redirect", () => {
+      const exact: Redirect = { from: "/old-blog/about", to: "/about", permanent: false };
+      expect(matchRoute("/old-blog/about", { routes, redirects: [moved, exact] })).toMatchObject({
+        location: "/about",
+        status: 302,
+      });
+    });
+
+    it("keeps each segment percent-encoded", () => {
+      expect(matchRoute("/old-blog/a%20b/c%3Fd", { routes, redirects: [moved] })).toMatchObject({
+        location: "/blog/a%20b/c%3Fd",
+      });
+    });
+
+    describe("never redirects off-site", () => {
+      const toRoot: Redirect = { from: "/old/*", to: "/*", permanent: true };
+      const cases: [string, string][] = [
+        ["/old/%2F%2Fevil.example", "/%2F%2Fevil.example"],
+        ["/old//evil.example", "/evil.example"],
+        ["/old/%5Cevil.example", "/%5Cevil.example"],
+        ["/old/%2F/evil.example", "/%2F/evil.example"],
+        ["/old/https:%2F%2Fevil.example", "/https%3A%2F%2Fevil.example"],
+      ];
+      for (const [url, location] of cases) {
+        it(`${url} → ${location}`, () => {
+          const hit = matchRoute(url, { routes, redirects: [toRoot] });
+          expect(hit).toMatchObject({ kind: "redirect", location });
+          const resolved = new URL((hit as { location: string }).location, "https://s.example");
+          expect(resolved.origin).toBe("https://s.example");
+        });
+      }
+    });
   });
 });

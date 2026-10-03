@@ -5,14 +5,14 @@
  * background check follows the channel manifest, drafts are fetched exactly.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { computeContentRevision } from "../protocol/canonical";
+import { computeContentRevision } from "./canonical";
 import { createCMS, resetForTests } from "./cms";
 import { remoteLoader } from "./remoteLoader";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
 import type { Loader, Snapshot } from "./types";
 
 /** With `site` and `token` set, `remoteLoader` returns a loader. */
-const remote = (...args: Parameters<typeof remoteLoader>) => remoteLoader(...args) as Loader;
+const remote = (...args: Parameters<typeof remoteLoader>) => remoteLoader(...args);
 
 const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
 const SITE = "acme";
@@ -126,7 +126,7 @@ describe("remoteLoader: releases", () => {
     expect(await loader.load()).toEqual(release);
   });
 
-  it("a fallback that can't load (a missing kvLoader key) is fixed by a release check", async () => {
+  it("a fallback that can't load (a KV key the deploy never wrote) is fixed by a release check", async () => {
     const api = deliveryApi();
     const release = await hashed("Published");
     api.publish(1, release);
@@ -316,9 +316,14 @@ describe("remoteLoader with createCMS", () => {
     vi.useRealTimers();
   });
 
-  it("returns the fallback unchanged when site or token is unset", () => {
+  it("is a loader over the fallback alone when site or token is unset", async () => {
     const fallback = docsSnapshot();
-    expect(remoteLoader(fallback, { site: "", token: TOKEN })).toBe(fallback);
-    expect(remoteLoader(fallback, { site: SITE, token: undefined as never })).toBe(fallback);
+    for (const loader of [
+      remoteLoader(fallback, { site: "", token: TOKEN }),
+      remoteLoader(fallback, { site: SITE }),
+    ]) {
+      expect(await loader.load()).toBe(fallback);
+      expect(loader.update).toBeUndefined();
+    }
   });
 });

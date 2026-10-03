@@ -60,6 +60,30 @@ describe("createInstrumentedFetch", () => {
     ]);
   });
 
+  it("an upstream cache is the fetch option; a response it marks x-cache: HIT is measured cached", async () => {
+    const { histograms } = recorder();
+    // The Workers recipe (/next/caching#upstream-data), with a Map for the Cache API.
+    const store = new Map<string, Response>();
+    const origin = upstream([200]);
+    const cachedFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const hit = store.get(url);
+      if (hit) {
+        const response = new Response(hit.clone().body, hit);
+        response.headers.set("x-cache", "HIT");
+        return response;
+      }
+      const response = await origin(input, init);
+      store.set(url, response.clone());
+      return response;
+    };
+    const request = createInstrumentedFetch({ provider: "p", fetch: cachedFetch });
+    await request("https://api.example/a");
+    await request("https://api.example/a");
+    expect(origin).toHaveBeenCalledTimes(1);
+    expect(histograms.map((h) => h.labels.cached)).toEqual([false, true]);
+  });
+
   it("works with no telemetry configured, measuring nothing", async () => {
     const request = createInstrumentedFetch({ provider: "p", fetch: upstream([200]) });
     expect((await request("https://x.example")).status).toBe(200);

@@ -28,14 +28,14 @@ export type Snapshot = {
   blocks: Record<string, unknown>;
   /** The alias table `deco content` writes: old type name → your type. */
   aliases?: Record<string, string>;
-  /**
-   * The `.deco` folder this module was generated from, relative to the app.
-   * `createCMS` keys its instance on it, so a hot-reloaded module keeps its
-   * instance and two sites in one app get two. Without it, each module object
-   * is its own instance.
-   */
-  root?: string;
 };
+
+/**
+ * The content module `deco content` writes: a snapshot plus `root`, the
+ * `.deco` folder it was generated from, which `createCMS` keys its instance
+ * on (see /next/api-reference#one-instance-per-process). Not exported.
+ */
+export type ContentModule = Snapshot & { root?: string };
 
 /** A source of content. `load()` is the release; `load(pointer)` is a draft. */
 export interface Loader {
@@ -78,7 +78,7 @@ export interface Page extends Route {
 
 /** The built-in `redirect` block. */
 export interface Redirect {
-  /** Literal path or template. */
+  /** Literal path or template (`:name` segments, an optional trailing `/*`). */
   from: string;
   to: string;
   /** `true` for a 301, `false` for a 302. */
@@ -183,7 +183,7 @@ export interface CMSConfig {
   /** Your block functions; the CMS uses `{ ...builtIns, ...blocks }`. */
   blocks: Blocks;
   /** The content module (`.deco/blocks.gen.ts`), or any {@link Loader}. */
-  content: Snapshot | Loader;
+  content: ContentModule | Loader;
   /** ms between `update()` checks of a content source that has one; minimum 60 000. */
   interval?: number;
   /** Where telemetry goes; see /next/telemetry. */

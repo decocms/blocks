@@ -15,10 +15,14 @@
  *   pointers to the delivery host are fetched; anything else is refused.
  * - In development (`NODE_ENV=development`), releases stay on the fallback so
  *   local files win; drafts still load.
+ * - A release or draft larger than `MAX_SNAPSHOT_BYTES` is refused while it
+ *   downloads, before it's buffered whole (a Worker isolate has 128 MB).
+ * - Without `site` or `token` it's a plain loader over the fallback: no
+ *   releases, no drafts beyond what the fallback serves.
  *
  * Instances are process-wide singletons, like `createCMS`'s.
  */
-import { computeContentRevision } from "../protocol/canonical";
+import { computeContentRevision } from "./canonical";
 import { isSnapshot } from "./content";
 import { parseDraftPointer } from "./draft";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity";
@@ -31,10 +35,12 @@ const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
 const INSTANCE_PREFIX = "decocms.blocks.remote:";
 const MANIFEST_FORMAT = 1;
 const FETCH_TIMEOUT_MS = 10_000;
+/** The largest release or draft accepted, in bytes of JSON. */
+const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 
 interface RemoteLoaderOptions {
-  site: string;
-  token: string;
+  site?: string;
+  token?: string;
   /** ms between release checks, used when `createCMS` has no `interval` of its own. */
   interval?: number;
 }
@@ -55,7 +61,10 @@ class RemoteLoader implements Loader {
   #current: Snapshot | undefined;
   #generation = -1;
 
-  constructor(fallback: Snapshot | Loader, options: RemoteLoaderOptions) {
+  constructor(
+    fallback: Snapshot | Loader,
+    options: { site: string; token: string; interval?: number },
+  ) {
     this.#fallback = fallback;
     this.#site = options.site;
     this.#token = options.token;
@@ -80,13 +89,16 @@ class RemoteLoader implements Loader {
     const manifest = await this.#manifest();
     if (manifest.generation < this.#generation) return { updated: false };
 
-    // Best effort: a fallback that can't load (a missing kvLoader key) is
+    // Best effort: a fallback that can't load (a KV key the deploy never wrote) is
     // fixed by downloading the release, not by failing the check.
     const fallbackRevision = await this.#fallbackRevisionNow().catch(() => undefined);
     const served = this.#current !== undefined ? this.#current.revision : fallbackRevision;
     if (served !== undefined && manifest.revision === served) {
+      // A new generation of the same content (a re-promotion, a rollback to
+      // it) still signals, so caches keyed on the release are invalidated.
+      const changed = this.#generation !== -1 && manifest.generation > this.#generation;
       this.#generation = manifest.generation;
-      return { updated: false };
+      return { updated: changed };
     }
     let next: Snapshot | undefined;
     if (fallbackRevision === undefined || manifest.revision !== fallbackRevision) {
@@ -140,7 +152,7 @@ class RemoteLoader implements Loader {
       this.#auth(),
     );
     if (!response.ok) throw new Error(`release ${manifest.revision}: HTTP ${response.status}`);
-    const snapshot: unknown = await response.json();
+    const snapshot = await readBoundedJson(response, `release ${manifest.revision}`);
     if (
       !isSnapshot(snapshot) ||
       snapshot.revision !== manifest.revision ||
@@ -163,7 +175,7 @@ class RemoteLoader implements Loader {
       "if-match": pointer.version,
     });
     if (!response.ok) throw new Error(`draft: HTTP ${response.status}`);
-    const snapshot: unknown = await response.json();
+    const snapshot = await readBoundedJson(response, "draft");
     if (!isSnapshot(snapshot)) throw new Error("draft: not a snapshot");
     return snapshot;
   }
@@ -173,23 +185,40 @@ class RemoteLoader implements Loader {
   }
 }
 
+/** A loader over the fallback alone: `remoteLoader` without `site` or `token`. */
+class LocalLoader implements Loader {
+  #fallback: Snapshot | Loader;
+
+  constructor(fallback: Snapshot | Loader) {
+    this.#fallback = fallback;
+  }
+
+  adopt(fallback: Snapshot | Loader): void {
+    this.#fallback = fallback;
+  }
+
+  load(pointer?: string | null): Promise<Snapshot> {
+    const fallback = this.#fallback;
+    return isSnapshot(fallback) ? Promise.resolve(fallback) : fallback.load(pointer);
+  }
+}
+
 /**
  * Hosted releases and drafts over a fallback. `createCMS` builds it for you
  * when `site` and `token` are set. With either unset (a dev or test
- * environment without the variables), it returns `fallback` unchanged.
+ * environment without the variables), it's a loader over the fallback alone.
  */
-export function remoteLoader(
-  fallback: Snapshot | Loader,
-  options: RemoteLoaderOptions,
-): Snapshot | Loader {
-  if (!options?.site || !options.token) return fallback;
+export function remoteLoader(fallback: Snapshot | Loader, options: RemoteLoaderOptions): Loader {
+  const { site, token } = options ?? {};
+  const hosted = Boolean(site && token);
   const key = Symbol.for(
-    `${INSTANCE_PREFIX}${contentIdentity(fallback)}|site:${options.site}|token:${fnv1a(options.token)}`,
+    `${INSTANCE_PREFIX}${contentIdentity(fallback)}` +
+      (hosted ? `|site:${site}|token:${fnv1a(token!)}` : "|local"),
   );
-  const store = globalThis as unknown as Record<symbol, RemoteLoader | undefined>;
+  const store = globalThis as unknown as Record<symbol, RemoteLoader | LocalLoader | undefined>;
   const existing = store[key];
   if (existing instanceof Object && typeof existing.adopt === "function") {
-    if (existing.interval !== options.interval) {
+    if (existing instanceof RemoteLoader && existing.interval !== options.interval) {
       console.warn(
         "[decocms/blocks] remoteLoader was called again for the same site with different options " +
           "(interval); keeping the first instance's options.",
@@ -198,13 +227,41 @@ export function remoteLoader(
     existing.adopt(fallback);
     return existing;
   }
-  const instance = new RemoteLoader(fallback, options);
+  const instance = hosted
+    ? new RemoteLoader(fallback, { site: site!, token: token!, interval: options.interval })
+    : new LocalLoader(fallback);
   store[key] = instance;
   return instance;
 }
 
 export function resetRemoteLoaders(): void {
   clearGlobals(INSTANCE_PREFIX);
+}
+
+/** Parses a JSON body, refusing it as soon as it's larger than `MAX_SNAPSHOT_BYTES`. */
+async function readBoundedJson(response: Response, label: string): Promise<unknown> {
+  const tooLarge = () => new Error(`${label}: larger than ${MAX_SNAPSHOT_BYTES} bytes`);
+  if (Number(response.headers.get("content-length")) > MAX_SNAPSHOT_BYTES) {
+    await response.body?.cancel();
+    throw tooLarge();
+  }
+  if (response.body === null) return response.json();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_SNAPSHOT_BYTES) {
+      await reader.cancel();
+      throw tooLarge();
+    }
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+  parts.push(decoder.decode());
+  return JSON.parse(parts.join(""));
 }
 
 function fetchWithTimeout(url: string, headers: Record<string, string>): Promise<Response> {

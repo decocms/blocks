@@ -100,7 +100,7 @@ export const invalidBlock = (violations: BlockViolation[]) =>
   new ContentProtocolError(
     ErrorCode.InvalidBlock,
     violations.length === 1
-      ? `invalid block "${violations[0].name}": ${violations[0].message}`
+      ? `invalid block "${violations[0]!.name}": ${violations[0]!.message}`
       : `${violations.length} invalid blocks`,
     { violations } satisfies InvalidBlockData,
   );

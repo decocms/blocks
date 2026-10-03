@@ -7,7 +7,7 @@
  * it creates the client. Converters, hooks, cart/session flows, caching and
  * proxying belong to the site (platform templates), not here.
  */
-import { createInstrumentedFetch, type InstrumentedFetchOptions } from "@decocms/blocks/fetch";
+import { createInstrumentedFetch } from "@decocms/blocks/fetch";
 import type { UserAuthenticate } from "./utils/client";
 import { buildQuery, type QueryDefinition } from "./utils/gql";
 import { extractGraphqlOperationName } from "./utils/graphqlOperationName";
@@ -25,7 +25,7 @@ export interface WakeClientConfig {
 
 export interface WakeClientOptions {
   /** The fetch underneath, e.g. a fake in tests. Defaults to `globalThis.fetch`. */
-  fetch?: InstrumentedFetchOptions["fetch"];
+  fetch?: Parameters<typeof createInstrumentedFetch>[0]["fetch"];
 }
 
 /** Thrown on a non-2xx response or a GraphQL `errors` payload. Never carries bodies or tokens. */

@@ -14,7 +14,7 @@ import type { Snapshot, TelemetryConfig } from "./types";
 
 const ENDPOINT = "https://otel.example.com";
 const HOSTED_TELEMETRY_ENDPOINT = "https://otel.decocms.com";
-/** Where a framework binding installs its background runner (Workers: ctx.waitUntil). */
+/** Where the host installs its background runner (Workers: ctx.waitUntil). */
 const BACKGROUND_HOOK = Symbol.for("decocms.blocks.background");
 
 /** Background tasks a binding would run after the response; the test runs them on demand. */

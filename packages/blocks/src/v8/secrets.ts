@@ -3,7 +3,7 @@
  * script or an AI agent that writes content (see /next/api-reference#secrets).
  * Web Crypto only, so it runs in browsers, on Workers and on Node.
  */
-import { encryptToCiphertext } from "../protocol/ciphertext";
+import { encryptToCiphertext } from "./ciphertext";
 
 /**
  * Encrypts `value` with your public key (the contents of `.deco/secrets.pub`)

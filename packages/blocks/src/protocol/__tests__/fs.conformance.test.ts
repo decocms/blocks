@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { defineConformanceSuite } from "../conformance";
-import { createAssetHandler, createContentHandler } from "../server";
+import { createContentHandler } from "../server";
+import { createAssetHandler } from "../server/assets";
 import { createFsStorage } from "../storage/fs";
 import {
   generateSecretsKeyPair,

@@ -21,25 +21,20 @@ import { isPlainObject, type JsonObject } from "../json";
 /**
  * Legacy type name → built-in. The one table: the runtime falls back to it,
  * and `deco schema` / `deco content` write it into the schema and the content
- * module. Only names whose target exists in every block map are listed;
- * legacy types with no built-in counterpart (the v7 Lazy/Deferred section
- * wrapper, Seo sections, `site/apps/site.ts`, the device/random/multi
- * matchers) are left to the site's block map.
+ * module. Exactly the names the site editor's special screens look for
+ * (/next/studio-compatibility#well-known-types-and-the-alias-table); other
+ * legacy names (`$live/…`, the per-kind multivariate files, the date
+ * matcher) are rewritten to these by the one-time migration
+ * (`@decocms/blocks-migrate`), and types with no built-in counterpart are
+ * left to the site's block map.
  */
 export const LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   "website/pages/Page.tsx": "page",
   "$live/pages/LivePage.tsx": "page",
   "website/flags/multivariate.ts": "multivariate",
   "website/flags/multivariate/section.ts": "multivariate",
-  "website/flags/multivariate/image.ts": "multivariate",
-  "website/flags/multivariate/message.ts": "multivariate",
-  "website/flags/multivariate/page.ts": "multivariate",
-  "$live/flags/multivariate.ts": "multivariate",
   "website/matchers/always.ts": "always",
-  "$live/matchers/MatchAlways.ts": "always",
   "website/matchers/never.ts": "never",
-  "website/matchers/date.ts": "date",
-  "$live/matchers/MatchDate.ts": "date",
   "website/loaders/redirect.ts": "redirect",
   "website/loaders/secret.ts": "secret",
 });
