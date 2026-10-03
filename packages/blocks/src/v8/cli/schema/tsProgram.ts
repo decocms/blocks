@@ -45,31 +45,30 @@ class Context {
   ) {}
 
   type(t: TS.Type): TsType {
-    let view = this.types.get(t);
-    if (!view) this.types.set(t, (view = new TsType(this, t)));
-    return view;
+    return cached(this.types, t, () => new TsType(this, t));
   }
 
   symbol(s: TS.Symbol): TsSymbol {
-    let view = this.symbols.get(s);
-    if (!view) this.symbols.set(s, (view = new TsSymbol(this, s)));
-    return view;
+    return cached(this.symbols, s, () => new TsSymbol(this, s));
   }
 
   node(n: TS.Node): TsNode {
-    let view = this.nodes.get(n);
-    if (!view) {
-      view = this.ts.isSourceFile(n) ? new TsSourceFile(this, n) : new TsNode(this, n);
-      this.nodes.set(n, view);
-    }
-    return view;
+    return cached(this.nodes, n, () =>
+      this.ts.isSourceFile(n) ? new TsSourceFile(this, n) : new TsNode(this, n),
+    );
   }
 
   signature(s: TS.Signature): TsSignature {
-    let view = this.signatures.get(s);
-    if (!view) this.signatures.set(s, (view = new TsSignature(this, s)));
-    return view;
+    return cached(this.signatures, s, () => new TsSignature(this, s));
   }
+}
+
+function cached<K extends object, V>(map: WeakMap<K, V>, key: K, create: () => V): V {
+  const hit = map.get(key);
+  if (hit !== undefined) return hit;
+  const value = create();
+  map.set(key, value);
+  return value;
 }
 
 export class TsType {
@@ -92,7 +91,10 @@ export class TsType {
     return this.ctx.checker.typeToString(
       this.compilerType,
       undefined,
-      F.UseTypeOfFunction | F.NoTruncation | F.UseFullyQualifiedType | F.WriteTypeArgumentsOfSignature,
+      F.UseTypeOfFunction |
+        F.NoTruncation |
+        F.UseFullyQualifiedType |
+        F.WriteTypeArgumentsOfSignature,
     );
   }
 
@@ -420,6 +422,8 @@ function jsDocView(ts: TypeScript, doc: TS.JSDoc): JsDocView {
 export interface TsProject {
   ts: TypeScript;
   sourceFile(file: string): TsSourceFile;
+  /** Every file the program read from disk (lib files and dependencies included). */
+  fileNames(): string[];
 }
 
 /** Compiler options when the app has no tsconfig.json. */
@@ -482,6 +486,12 @@ export async function createTsProject(
       const sf = program.getSourceFile(file);
       if (!sf) throw new CliError(`couldn't read ${file}`);
       return ctx.node(sf) as TsSourceFile;
+    },
+    fileNames() {
+      return program
+        .getSourceFiles()
+        .map((sf) => sf.fileName)
+        .filter((f) => !virtual.has(path.resolve(f)));
     },
   };
 }

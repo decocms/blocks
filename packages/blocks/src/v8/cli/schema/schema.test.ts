@@ -63,6 +63,11 @@ describe("the deco-meta@1 file", () => {
     const again = await generateSchema(decoPaths(store.root));
     expect(JSON.stringify(again.meta)).toBe(JSON.stringify(meta));
   });
+
+  it("lists no external sources for an app whose code is all under its root", async () => {
+    // react's types come from node_modules, which is never watched.
+    expect((await generateSchema(decoPaths(store.root))).externalSources).toEqual([]);
+  });
 });
 
 describe("groups", () => {

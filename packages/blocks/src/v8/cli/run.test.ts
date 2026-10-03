@@ -4,8 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseFlags, runCli, USAGE } from "./run";
 import { createFixture, type Fixture, recorder, STORE_FILES } from "./__tests__/fixture";
+import { parseFlags, runCli, USAGE } from "./run";
 
 let fixture: Fixture;
 afterEach(() => fixture?.remove());
@@ -54,6 +54,10 @@ describe("runCli", () => {
     expect(await runCli(["deploy"], { reporter: out })).toBe(1);
     expect(out.text()).toContain('unknown command "deploy"');
     expect(await runCli(["check", "--nope"], { reporter: recorder() })).toBe(1);
+    const proto = recorder();
+    expect(await runCli(["constructor"], { reporter: proto })).toBe(1);
+    expect(proto.text()).toContain('unknown command "constructor"');
+    expect(() => parseFlags("check", ["--toString", "x"])).toThrow(/unknown flag --toString/);
   });
 
   it("prints the walk-up error when there's no .deco/", async () => {
@@ -122,6 +126,40 @@ describe("runCli", () => {
     expect(await done).toBe(0);
   }, 60_000);
 
+  it("deco schema --watch also regenerates when a monorepo package the block map imports changes", async () => {
+    fixture = createFixture();
+    fixture.write("apps/store/src/deco.ts", fixture.read("src/deco.ts"));
+    fixture.write(
+      "packages/ui/src/banner.tsx",
+      "export const banner = (props: { title: string }) => <p>{props.title}</p>;",
+    );
+    fixture.write(
+      "apps/store/.deco/index.ts",
+      'import { banner } from "../../../packages/ui/src/banner"; export default { banner };',
+    );
+    let stop!: () => void;
+    const until = new Promise<void>((resolve) => {
+      stop = resolve;
+    });
+    const out = recorder();
+    const done = runCli(["schema", "--watch", "--root", "apps/store"], {
+      cwd: fixture.root,
+      reporter: out,
+      until,
+    });
+    const schemaFile = "apps/store/.deco/schema.gen.json";
+    await waitFor(() => out.text().includes("watching for changes"), 30_000);
+    await settle();
+    expect(fixture.read(schemaFile)).toContain('"Title"');
+    fixture.write(
+      "packages/ui/src/banner.tsx",
+      "export const banner = (props: { headline: string }) => <p>{props.headline}</p>;",
+    );
+    await waitFor(() => fixture.read(schemaFile).includes('"Headline"'), 30_000);
+    stop();
+    expect(await done).toBe(0);
+  }, 60_000);
+
   it("deco serve runs until stopped", async () => {
     fixture = createFixture();
     let stop!: () => void;
@@ -168,7 +206,24 @@ describe("the bin", () => {
     expect(pkg.bin).toEqual({ deco: "./bin/deco.js" });
     expect(pkg.exports["./cli"]).toBe("./src/v8/cli/index.ts");
     expect(pkg.peerDependencies.typescript).toBeDefined();
+    // The compiler is the app's peer, not one bundled into a dependency.
+    expect(pkg.dependencies["ts-morph"]).toBeUndefined();
+    // Tests and their fixtures stay out of the published package.
+    expect(pkg.files).toEqual(
+      expect.arrayContaining(["bin", "src", "!src/**/*.test.ts", "!src/**/__tests__"]),
+    );
   });
+
+  it("runs deco schema under plain Node with the typescript peer", () => {
+    fixture = createFixture(STORE_FILES);
+    const result = spawnSync(process.execPath, [path.join(packageRoot, "bin/deco.js"), "schema"], {
+      cwd: fixture.root,
+      encoding: "utf8",
+    });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/wrote \.deco\/schema\.gen\.json from index\.ts/);
+  }, 60_000);
 });
 
 describe("nothing in app bundles", () => {

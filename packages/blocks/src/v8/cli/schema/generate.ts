@@ -12,7 +12,6 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { createTsProject, type TsNode as Node, type TsType as Type } from "./tsProgram";
 import { BUILT_IN_BLOCKS, type BuiltInBlock, LEGACY_ALIASES } from "../builtins";
 import { CliError, type DecoPaths } from "../root";
 import {
@@ -22,6 +21,7 @@ import {
   legacyMultivariateValue,
   type ManifestGroup,
 } from "./builtinSchemas";
+import { createTsProject, type TsNode as Node, type TsType as Type } from "./tsProgram";
 import {
   awaitedOf,
   getJsDocTags,
@@ -79,6 +79,12 @@ export interface SchemaResult {
   diagnostics: SchemaDiagnostic[];
   /** The block map file that was read. */
   blockMap: string;
+  /**
+   * The source files the schema was read from outside the root and outside
+   * `node_modules`: monorepo packages the block map imports. `--watch`
+   * watches them along with the root.
+   */
+  externalSources: string[];
 }
 
 interface BlockInfo {
@@ -159,6 +165,11 @@ function isDescriptorType(type: Type): boolean {
 
 function sameType(a: Type, b: Type): boolean {
   return a === b || a.compilerType === b.compilerType || a.getText() === b.getText();
+}
+
+function isInside(dir: string, file: string): boolean {
+  const rel = path.relative(dir, file);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
 function findBlockMap(paths: DecoPaths): string {
@@ -449,7 +460,10 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     framework: "deco-cli",
     aliases,
   };
-  return { meta, diagnostics, blockMap };
+  const externalSources = project
+    .fileNames()
+    .filter((f) => !isInside(root, f) && !f.split(/[\\/]/).includes("node_modules"));
+  return { meta, diagnostics, blockMap, externalSources };
 }
 
 /**

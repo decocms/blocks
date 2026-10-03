@@ -8,7 +8,7 @@ import { consoleReporter, type Reporter } from "./log";
 import { CliError, decoPaths, findDecoRoot } from "./root";
 import { reportSchema, schema, writeSchema } from "./schema/index";
 import { serve, startServer } from "./serve/server";
-import { watchTree } from "./watch";
+import { watchFiles, watchTree } from "./watch";
 
 type FlagKind = "string" | "boolean" | "list";
 
@@ -63,7 +63,7 @@ export function parseFlags(command: string, args: string[]): ParsedFlags {
       throw new CliError(`unexpected argument "${arg}"\n${COMMANDS[command].usage}`);
     const eq = arg.indexOf("=");
     const name = arg.slice(2, eq === -1 ? undefined : eq);
-    const kind = spec[name];
+    const kind = Object.hasOwn(spec, name) ? spec[name] : undefined;
     if (!kind) throw new CliError(`unknown flag --${name}\n${COMMANDS[command].usage}`);
     if (kind === "boolean") {
       if (eq !== -1) throw new CliError(`--${name} takes no value`);
@@ -129,7 +129,7 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
     reporter.info(USAGE);
     return command ? 0 : 1;
   }
-  if (!(command in COMMANDS)) {
+  if (!Object.hasOwn(COMMANDS, command)) {
     reporter.error(`unknown command "${command}"\n\n${USAGE}`);
     return 1;
   }
@@ -141,10 +141,20 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
       case "schema": {
         if (!flags.watch) return await schema(base);
         const paths = decoPaths(findDecoRoot(base));
-        const once = async () => {
-          reportSchema(await writeSchema(paths), reporter);
+        // Monorepo packages the block map imports live outside the root:
+        // watch the files the last run read there, too.
+        const external = watchFiles(() => void once());
+        let running = Promise.resolve();
+        const run = async () => {
+          const result = await writeSchema(paths);
+          external.update(result.externalSources);
+          reportSchema(result, reporter);
         };
-        await once();
+        const once = () => {
+          running = running.then(run).catch((error) => reporter.error((error as Error).message));
+          return running;
+        };
+        await run();
         // Regenerate when any source file changes; the schema only depends on code.
         await watchLoop(
           paths.root,
@@ -158,6 +168,8 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
           options.until ?? stopSignal(),
           reporter,
         );
+        external.close();
+        await running;
         return 0;
       }
       case "content": {
@@ -167,7 +179,7 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
           const result = writeContent(paths);
           if (result.changed) reporter.info(`wrote .deco/blocks.gen.ts (${result.count} blocks)`);
         };
-        content(base);
+        content({ ...base, watching: true });
         await watchLoop(
           paths.blocks,
           (rel) => rel.endsWith(".json"),
