@@ -1,8 +1,8 @@
 ---
 title: Releases and drafts
 nav: Releases & drafts
-group: Delivering content
-order: 13
+group: Content and data
+order: 14
 kind: docs
 description: A release is the content everyone sees. A draft is another set of calls your same code runs. Preview is your app rendering a draft.
 ---
@@ -50,7 +50,7 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 Everything after these two lines is the code that serves visitors. It's safe to add even when your content has no drafts: you get the release.
 
-<Hosted to="/next/hosted-drafts" label="Previewing drafts">**Drafts on your real site.** With the hosted Deco CMS, Studio opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by Studio reach unpublished drafts.</Hosted>
+<Hosted to="/next/hosted-drafts" label="Previewing drafts">**Drafts on your real site.** With the hosted Deco CMS, the site editor opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by the site editor reach unpublished drafts.</Hosted>
 
 ## Checking changes without a draft loader
 
@@ -58,7 +58,7 @@ Without a loader that serves drafts, you check a change by running a different b
 
 ### On your machine
 
-Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in Studio through [`deco serve`](/next/studio#edit-on-your-machine). Nothing is committed: review the diff and commit it when the page looks right.
+Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in the site editor through [`deco serve`](/next/site-editor#edit-on-your-machine). Nothing is committed: review the diff and commit it when the page looks right.
 
 ### On a branch
 

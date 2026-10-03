@@ -59,7 +59,7 @@ A retried request counts once, with the number of retries as the `retries` label
 
 ## Telemetry settings are content
 
-How much is sent is a setting editors can see and change. It lives in a well-known [saved block](/next/saved-blocks#save-a-block) named `Telemetry`, whose type is the [built-in `telemetry` block](/next/built-in-blocks#telemetry-and-analytics), so it's always in the schema and [Studio](/next/studio) shows it as a form:
+How much is sent is a setting editors can see and change. It lives in a well-known [saved block](/next/saved-blocks#save-a-block) named `Telemetry`, whose type is the [built-in `telemetry` block](/next/built-in-blocks#telemetry-and-analytics), so it's always in the schema and [the site editor](/next/site-editor) shows it as a form:
 
 ```json title=".deco/blocks/Telemetry.json"
 {
@@ -78,7 +78,7 @@ How much is sent is a setting editors can see and change. It lives in a well-kno
 | `errorSampleRate` | `0.05` | The share of error logs sent (5%). |
 | `traceSampleRate` | `0` | The share of requests traced. |
 
-The block is optional: without it, the defaults above apply. `deco content` doesn't create it; add the file when you want to change something. Switching telemetry off is a commit to this file, made in Studio or by hand, and it ships like any other content. The destination and its credentials never go here: content is edited in Studio and shipped in releases, so secrets stay in code.
+The block is optional: without it, the defaults above apply. `deco content` doesn't create it; add the file when you want to change something. Switching telemetry off is a commit to this file, made in the site editor or by hand, and it ships like any other content. The destination and its credentials never go here: content is edited in the site editor and shipped in releases, so secrets stay in code.
 
 ## Sampling
 

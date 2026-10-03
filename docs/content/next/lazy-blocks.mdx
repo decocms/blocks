@@ -53,7 +53,7 @@ export async function productCard({ title, showProduct, product }: { title: stri
 }
 ```
 
-Editors never see the wrapper. [`deco schema`](/next/schema#from-types-to-forms) gives a `Lazy<Product>` field the form of a `Product`, editors fill in a `Product`, and Studio writes the `lazy` block around it. [`deco check`](/next/checking#what-deco-check-checks) fails if a `Lazy<T>` field holds something other than a `lazy` block, or a `lazy` block sits in a field that isn't `Lazy<T>`. See [`Lazy<T>`](/next/api-reference#types).
+Editors never see the wrapper. [`deco schema`](/next/schema#from-types-to-forms) gives a `Lazy<Product>` field the form of a `Product`, editors fill in a `Product`, and the site editor writes the `lazy` block around it. [`deco check`](/next/checking#what-deco-check-checks) fails if a `Lazy<T>` field holds something other than a `lazy` block, or a `lazy` block sits in a field that isn't `Lazy<T>`. See [`Lazy<T>`](/next/api-reference#types).
 
 ## Where lazy is used
 

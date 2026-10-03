@@ -8,7 +8,7 @@ order: 7
 
 # Forms from types
 
-You already describe your banner's inputs in TypeScript: `title: string`, `image: string`, `endsOn?: string`. Normally you'd also build an admin form by hand, with a text box, an image picker and a date picker, and keep it in step with the type forever. With Deco CMS, `deco schema` reads the type and writes the form description for you, `.deco/schema.gen.json`, and [Studio](/next/studio) shows editors that form. It only accepts values your function can take.
+You already describe your banner's inputs in TypeScript: `title: string`, `image: string`, `endsOn?: string`. Normally you'd also build an admin form by hand, with a text box, an image picker and a date picker, and keep it in step with the type forever. With Deco CMS, `deco schema` reads the type and writes the form description for you, `.deco/schema.gen.json`, and [the site editor](/next/site-editor) shows editors that form. It only accepts values your function can take.
 
 This page shows how types become fields, how blocks that return the same type become interchangeable, how to pick widgets with JSDoc tags, and how to declare data-only blocks.
 
@@ -24,7 +24,7 @@ It finds `.deco/` by walking up from the current folder, or takes `--root` ([how
 
 For each block, `deco schema` reads the type of the function's first parameter. Each property becomes a field:
 
-| TypeScript type | Field in Studio |
+| TypeScript type | Field in the site editor |
 |---|---|
 | `string` | A text box |
 | `number` | A number field |
@@ -35,12 +35,12 @@ For each block, `deco schema` reads the type of the function's first parameter. 
 | An optional property (`endsOn?: string`) | An optional field |
 | `ReactNode` / `ReactNode[]` | A choice of components: one, or a list (see [Interchangeable blocks](#interchangeable-blocks)) |
 
-**Think in functions.** A field's type is the value your function *receives*, already resolved. Studio fills the field with a plain value of that type or, for objects and JSX, with a block whose function returns that type. The return type is awaited, so a function that returns `T` and one that returns `Promise<T>` both fit:
+**Think in functions.** A field's type is the value your function *receives*, already resolved. The site editor fills the field with a plain value of that type or, for objects and JSX, with a block whose function returns that type. The return type is awaited, so a function that returns `T` and one that returns `Promise<T>` both fit:
 
 ```ts
 interface ProductCardProps {
   title: string;
-  product: Product;   // Studio offers any block whose function returns a Product, e.g. catalogProduct
+  product: Product;   // The site editor offers any block whose function returns a Product, e.g. catalogProduct
 }
 ```
 
@@ -50,18 +50,18 @@ interface ProductCardProps {
 - **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a [matcher](/next/matchers-and-variants) (a function that returns a `boolean`) never shows up as a section.
 - **Simple types** (`string`, `number`, `boolean`, a union of literals) get a plain input only. A function that returns a `string` isn't offered for `title: string`, and matchers aren't offered for `permanent: boolean`.
 
-Two things work on top of this. Any field can have [variants](/next/matchers-and-variants#variants), alternate content picked per request (by date, or by any rule you write): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. Each `rule` in `variants` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher). And a [`Lazy<T>` field](/next/lazy-blocks#lazyt-props) gets the form of `T`: `deco schema` makes it a `lazy` block whose `value` is a `T`, editors fill in a `T`, and Studio writes the `lazy` block around it.
+Two things work on top of this. Any field can have [variants](/next/matchers-and-variants#variants), alternate content picked per request (by date, or by any rule you write): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. Each `rule` in `variants` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher). And a [`Lazy<T>` field](/next/lazy-blocks#lazyt-props) gets the form of `T`: `deco schema` makes it a `lazy` block whose `value` is a `T`, editors fill in a `T`, and the site editor writes the `lazy` block around it.
 
 Never type a prop as a block. `Block` is only the shape of saved JSON (see [Composing blocks](/next/blocks#composing-blocks)).
 
-A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells Studio which input to show (see [Widgets](#widgets)).
+A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells the site editor which input to show (see [Widgets](#widgets)).
 
 ### Interchangeable blocks
 
-Any block whose function returns the field's type can fill it, so editors can swap one for another without touching code. This is polymorphism, and it comes from the schema: `deco schema` records each function's return type, so the schema already lists which functions fit which field, the way TypeScript would match them. Studio just shows the choices. For such a field, there are two kinds:
+Any block whose function returns the field's type can fill it, so editors can swap one for another without touching code. This is polymorphism, and it comes from the schema: `deco schema` records each function's return type, so the schema already lists which functions fit which field, the way TypeScript would match them. The site editor just shows the choices. For such a field, there are two kinds:
 
 - **A new block**: pick one of the functions that fit, and fill in its form right there.
-- **A [saved block](/next/saved-blocks)**: Studio lists the saved blocks in `.deco/blocks` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reuse a block](/next/saved-blocks#reuse-a-block)).
+- **A [saved block](/next/saved-blocks)**: the site editor lists the saved blocks in `.deco/blocks` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reuse a block](/next/saved-blocks#reuse-a-block)).
 
 ## Widgets
 
@@ -74,7 +74,7 @@ Each type gets a default widget, such as a text box for a `string`. JSDoc tags o
 | `@default` | The value a new block starts with, parsed as JSON when it can be | `@default 10` |
 | `@minimum` / `@maximum` | The allowed range of a number | `@maximum 100` |
 | `@minLength` / `@maxLength` | The allowed length of a string | `@maxLength 60` |
-| `@format` | A specialized input for a string, such as `date`, `date-time`, `rich-text`, `textarea`, `color` or `image-uri`. `password` marks a credential, which Studio shows read-only, because it never runs your code; keep credentials in environment variables. | `@format rich-text` |
+| `@format` | A specialized input for a string, such as `date`, `date-time`, `rich-text`, `textarea`, `color` or `image-uri`. `password` marks a credential, which the site editor shows read-only, because it never runs your code; keep credentials in environment variables. | `@format rich-text` |
 | `@options` | A select over a `string` field, from a list of allowed values, without narrowing the TypeScript type | `@options ["sm", "md", "lg"]` |
 | `@ignore` | Leaves the field out of the form | `@ignore` |
 
@@ -104,7 +104,7 @@ export interface PromoBannerProps {
 
 becomes a form with a *Headline* text box limited to 60 characters, an *Image* picker, a *Link* field and an optional *Ends on* date picker.
 
-**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so Studio shows a select without asking your site for the options. A picker whose options come from a function shows a text field, since Studio never runs your code (see [What works without your code](/next/studio#what-works-without-your-code)).
+**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so the site editor shows a select without asking your site for the options. A picker whose options come from a function shows a text field, since the site editor never runs your code (see [What works without your code](/next/site-editor#what-works-without-your-code)).
 
 ## Data-only blocks
 

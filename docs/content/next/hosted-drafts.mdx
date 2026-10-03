@@ -3,30 +3,30 @@ title: Previewing drafts
 nav: Previewing drafts
 group: Hosted Deco CMS
 order: 29
-description: With the hosted Deco CMS, Studio opens your real site with a ?__draft= link and the draft renders in place, with no preview deploy.
+description: With the hosted Deco CMS, the site editor opens your real site with a ?__draft= link and the draft renders in place, with no preview deploy.
 ---
 
 # Previewing drafts
 
-An editor changes the summer banner and wants to see it on the real product page before publishing. With the [hosted Deco CMS](/next/hosted), [Studio](/next/studio) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
+An editor changes the summer banner and wants to see it on the real product page before publishing. With the [hosted Deco CMS](/next/hosted), [the site editor](/next/site-editor) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
 
 This page shows the `?__draft=` link, the few lines that wire it into your app, and who may preview.
 
 ## The `?__draft=` link
 
-With the hosted Deco CMS, a [draft](/next/releases-and-drafts#drafts) is an editor's saved changes on their draft branch, not published yet (see [Editing in Studio on GitHub](/next/hosted-studio)). To show it, Studio opens your site with a **draft pointer** in the URL:
+With the hosted Deco CMS, a [draft](/next/releases-and-drafts#drafts) is an editor's saved changes on their draft branch, not published yet (see [Editing in the site editor on GitHub](/next/hosted-site-editor)). To show it, the site editor opens your site with a **draft pointer** in the URL:
 
 ```bash
 https://store.example.com/summer?__draft=api.deco.example/drafts/acme/feat-summer%3Ftoken%3D…@9f3c1a
 ```
 
-The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the [Deco API](/next/hosted#terms)'s address for this site's `feat-summer` branch, plus a token signed by Studio. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
+The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the [Deco API](/next/hosted#terms)'s address for this site's `feat-summer` branch, plus a token signed by the site editor. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
 
 The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole [revision](/next/releases-and-deployment#what-a-revision-is) (one version of all your content), deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client serves what a normal request would get, never a mix of draft and published entries.
 
 ## Wire drafts into your app
 
-Picking the client from [`draftPointer(request)`](/next/api-reference#draft-pointers) is the two-line pattern in [Preview](/next/releases-and-drafts#preview). The hosted flow adds a cookie: the pointer is only in the URL of the first page Studio opens, so that response sets a cookie and every link the editor clicks stays in preview. `draftCookie(request)` returns the `Set-Cookie` value for that response, and `null` on every other request; `draftPointer` reads the query parameter or the cookie:
+Picking the client from [`draftPointer(request)`](/next/api-reference#draft-pointers) is the two-line pattern in [Preview](/next/releases-and-drafts#preview). The hosted flow adds a cookie: the pointer is only in the URL of the first page the site editor opens, so that response sets a cookie and every link the editor clicks stays in preview. `draftCookie(request)` returns the `Set-Cookie` value for that response, and `null` on every other request; `draftPointer` reads the query parameter or the cookie:
 
 ```ts title="A plain request handler"
 import { draftPointer, draftCookie } from "@decocms/blocks";
@@ -43,7 +43,7 @@ export async function handle(request: Request) {
 }
 ```
 
-Studio ends a preview by opening the site with an empty `?__draft=`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
+The site editor ends a preview by opening the site with an empty `?__draft=`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
 
 Without a [site ID and token](/next/hosted#connect-your-site) (in development, for example), the CMS reads the [content module](/next/content#the-content-module), which has no drafts, so it ignores the pointer: you're already looking at your files. That's why the same code serves previews and visitors everywhere. A draft is just another set of calls run by the same code; to serve drafts from somewhere other than the hosted Deco CMS, see [Write a loader](/next/content#write-a-loader).
 
@@ -57,7 +57,7 @@ import { draftCookie } from "@decocms/blocks";
 
 export function proxy(request: NextRequest) {
   const response = NextResponse.next();
-  const cookie = draftCookie(request);          // only set on the request Studio opens; expiring when leaving preview
+  const cookie = draftCookie(request);          // only set on the request the site editor opens; expiring when leaving preview
   if (cookie) response.headers.append("Set-Cookie", cookie);
   return response;
 }
@@ -102,7 +102,7 @@ import { draftCookie } from "@decocms/blocks";
 
 const draftCookieMiddleware = createMiddleware().server(async ({ request, next }) => {
   const result = await next();
-  const cookie = draftCookie(request);   // only set on the request Studio opens; expiring when leaving preview
+  const cookie = draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
   if (cookie) result.response.headers.append("Set-Cookie", cookie);
   return result;
 });
@@ -112,7 +112,7 @@ export const startInstance = createStart(() => ({ requestMiddleware: [draftCooki
 
 ## Not a website
 
-`forDraft` takes the pointer string and nothing else, so nothing here assumes HTTP. A mobile app takes it from the deep link Studio opens, or from a "preview" field on a debug screen, and keeps it in app state:
+`forDraft` takes the pointer string and nothing else, so nothing here assumes HTTP. A mobile app takes it from the deep link the site editor opens, or from a "preview" field on a debug screen, and keeps it in app state:
 
 ```ts
 // React Native, on a deep link like mystore://preview?__draft=...
@@ -124,7 +124,7 @@ A script passes it as an argument. To look inside a pointer, or build one from p
 
 ## Who may preview
 
-Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs code in your app. First, the pointer must name your site's own Deco API host, which the CMS looks up from your site ID and token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by Studio, which the Deco API checks before serving the draft.
+Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs code in your app. First, the pointer must name your site's own Deco API host, which the CMS looks up from your site ID and token. Any other host is ignored, so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by the site editor, which the Deco API checks before serving the draft.
 
 A revision on its own selects content but unlocks nothing; only a signed pointer reaches unpublished drafts.
 
@@ -138,6 +138,6 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 
 <Callout type="warning">**The token is the only secret.** The site ID isn't secret, and the site holds no other Deco credential. Invalid or unexpected pointers are ignored and the request falls back to published content, never to an error page.</Callout>
 
-## Studio's canvas
+## The site editor's canvas
 
-Studio edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and token and the wiring above. With [`deco serve`](/next/studio#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.
+The site editor edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and token and the wiring above. With [`deco serve`](/next/site-editor#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.

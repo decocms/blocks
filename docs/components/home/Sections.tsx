@@ -132,7 +132,7 @@ export function ContentModel() {
             <div className={`${ciWin} bg-surface`} aria-hidden="true" data-pagefind-ignore="">
               <div className={winBarSmall}>
                 <Dots small />
-                <span className={winTitleSmall}>Studio — Summer campaign</span>
+                <span className={winTitleSmall}>Site editor — Summer campaign</span>
               </div>
               <div className="py-1 px-3.5">
                 <div className={mfRow}>
@@ -161,7 +161,7 @@ export function ContentModel() {
             <span className={cardNum}>02</span>
             <h3 className={cardH3}>Editable for humans</h3>
             <p className={cardP}>
-              One command turns your types into forms, and Studio puts them in front of editors, on your machine or hosted. Developers build the
+              One command turns your types into forms, and the site editor puts them in front of editors, on your machine or hosted. Developers build the
               blocks once, editors use them to change pages, campaigns, and settings, and every change is a commit you can review and roll back.
             </p>
           </div>
@@ -371,8 +371,8 @@ export function Publishing() {
             Publish in seconds, <Dim>not on the next deploy.</Dim>
           </H2>
           <Lede className={reveal} style={d('120ms')}>
-            The hosted Deco CMS adds Studio on GitHub and publishing without a redeploy: each change reaches your servers within
-            seconds, and editors preview drafts on your real pages first. Without it, people and agents edit the files, by hand or in Studio on
+            The hosted Deco CMS adds the site editor on GitHub and publishing without a redeploy: each change reaches your servers within
+            seconds, and editors preview drafts on your real pages first. Without it, people and agents edit the files, by hand or in the site editor on
             your machine, and content goes live with your next deploy.
           </Lede>
         </div>
@@ -452,7 +452,7 @@ export function Publishing() {
             Content needs no build and no deploy, so editors publish when a campaign is ready, not when the next code release goes out.
           </PubPoint>
           <PubPoint title="Preview on the real site">
-            Editors open drafts on your actual pages before anything goes live, and only people Studio lets in can see them.
+            Editors open drafts on your actual pages before anything goes live, and only people the site editor lets in can see them.
           </PubPoint>
           <PubPoint title="Undo any change">
             Every publish is saved in your repository's history, with who changed what and when, so going back is one step.
@@ -514,7 +514,7 @@ const OWN: [string, string, 'yours' | 'opt'][] = [
   ['Hosting', 'Any JavaScript runtime you choose: Node, Cloudflare Workers, Deno, Bun or a React Native app', 'yours'],
   ['Telemetry', 'Your OpenTelemetry collector, or the hosted Deco CMS', 'yours'],
   ['Analytics', 'One Dollar Stats, your own collector, or the hosted Deco CMS', 'yours'],
-  ['Studio on GitHub & publishing without a redeploy', 'Hosted Deco CMS', 'opt'],
+  ['Site editor on GitHub & publishing without a redeploy', 'Hosted Deco CMS', 'opt'],
 ]
 
 export const tag = 'h-6 inline-flex items-center px-[11px] rounded-full text-12 leading-4 font-medium whitespace-nowrap'

@@ -1,8 +1,8 @@
 ---
 title: Deployment
 nav: Deployment
-group: Delivering content
-order: 14
+group: Content and data
+order: 15
 kind: docs
 ---
 
@@ -18,7 +18,7 @@ Your block functions and your content live in your repository (see [The .deco fo
 
 | Step | What happens |
 |---|---|
-| Commit | A developer, an agent, or an editor in [Studio](/next/studio) changes a function, a [saved block](/next/saved-blocks), or both. Review them in one pull request like any other change. |
+| Commit | A developer, an agent, or an editor in [the site editor](/next/site-editor) changes a function, a [saved block](/next/saved-blocks), or both. Review them in one pull request like any other change. |
 | Build | The [`prebuild` script](/next/cli#run-it-before-dev-and-build) runs `deco schema && deco content && deco check`: it bundles `.deco/blocks` into the build as the [content module](/next/content#the-content-module), and fails the build if saved content doesn't fit the code (see [Checking content](/next/checking)). |
 | Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
 

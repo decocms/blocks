@@ -64,7 +64,7 @@ interface Client {
 
 ## Loaders
 
-One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module. When and how to write one is in [Write a loader](/next/content#write-a-loader). Here a loader is a source of content; it isn't [Studio](/next/studio)'s "loaders" or a router's route loader.
+One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module. When and how to write one is in [Write a loader](/next/content#write-a-loader). Here a loader is a source of content; it isn't [the site editor](/next/site-editor)'s "loaders" or a router's route loader.
 
 ```ts
 interface Loader {
@@ -98,12 +98,12 @@ function resetForTests(): void;   // clears every stored instance
 
 ## Draft pointers
 
-A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Releases and drafts](/next/releases-and-drafts#drafts)). With the hosted Deco CMS, Studio makes them ([Previewing drafts](/next/hosted-drafts)). Two helpers cover everything in between:
+A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Releases and drafts](/next/releases-and-drafts#drafts)). With the hosted Deco CMS, the site editor makes them ([Previewing drafts](/next/hosted-drafts)). Two helpers cover everything in between:
 
 ```ts
 interface DraftPointer {
   host: string;      // host[:port] of the content source that holds the draft (the Deco API, when hosted), e.g. "api.deco.example"
-  path: string;      // starts with "/"; opaque to your app (hosted drafts put a token signed by Studio in its query)
+  path: string;      // starts with "/"; opaque to your app (hosted drafts put a token signed by the site editor in its query)
   version: string;   // opaque, immutable: the branch head or ETag
 }
 

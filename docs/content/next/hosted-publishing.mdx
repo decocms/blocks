@@ -14,7 +14,7 @@ This page shows how a commit becomes a release, how servers pick it up, and what
 
 ## How a commit becomes a release
 
-Your production branch (usually `main`) moves: someone pushes or merges a commit in `.deco/blocks`, or an editor publishes a draft in [Studio](/next/hosted-studio). Then:
+Your production branch (usually `main`) moves: someone pushes or merges a commit in `.deco/blocks`, or an editor publishes a draft in [the site editor](/next/hosted-site-editor). Then:
 
 1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its [revision](/next/releases-and-deployment#what-a-revision-is) identifies it.
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
@@ -51,7 +51,7 @@ The CMS always switches between whole revisions, never mixing entries from two o
 
 Publishing without a deploy means the code that's already running renders the new content, and nothing at runtime checks that the two fit. On top of the [backward-compatibility rules](/next/checking#backward-compatibility) every site follows, this adds one rule: **deploy the code first, then publish content that uses it.**
 
-Content must only use block types and fields the deployed code has. Studio reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What Studio reads from the schema](/next/studio-compatibility#what-studio-reads-from-the-schema)), so keep that schema in step with what's deployed. An entry that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
+Content must only use block types and fields the deployed code has. The site editor reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What the site editor reads from the schema](/next/studio-compatibility#what-the-site-editor-reads-from-the-schema)), so keep that schema in step with what's deployed. An entry that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
 
 Rolling code back is the exception: content already published with newer types or fields fails on the older code until you redeploy or revert it, so check what's published before you roll back.
 

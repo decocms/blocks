@@ -18,11 +18,11 @@ export const Route = createFileRoute('/')({
   staticData: { chrome: { layout: 'landing', tab: 'home', version: ROOT_VERSION } },
   head: () => ({
     meta: [
-      { title: 'Deco CMS — Sections in code, pages in Studio' },
+      { title: 'Deco CMS — Sections in code, pages in the site editor' },
       {
         name: 'description',
         content:
-          'Deco CMS is the framework behind Deco sites and storefronts: React sections in TypeScript, pages composed in Deco Studio, served from TanStack Start on Cloudflare Workers or from Next.js.',
+          'Deco CMS is the framework behind Deco sites and storefronts: React sections in TypeScript, pages composed in the site editor, served from TanStack Start on Cloudflare Workers or from Next.js.',
       },
     ],
   }),

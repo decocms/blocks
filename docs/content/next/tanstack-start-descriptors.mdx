@@ -2,13 +2,13 @@
 title: TanStack Start
 nav: TanStack Start
 group: Websites
-order: 18
+order: 19
 description: Render Deco CMS pages with TanStack Start on Cloudflare Workers, streaming each block as a descriptor.
 ---
 
 # TanStack Start
 
-Editors choose page URLs in [Studio](/next/studio), so one catch-all route serves every URL with [`matchRoute`](/next/api-reference#matchroute-url-items). Start sends loader data to the browser as serialized data, and JSX can't make that trip, so here [blocks](/next/blocks) return descriptors (plain objects such as `{ component: "product-hero", props }`; see [Rendering](/next/rendering)).
+Editors choose page URLs in [the site editor](/next/site-editor), so one catch-all route serves every URL with [`matchRoute`](/next/api-reference#matchroute-url-items). Start sends loader data to the browser as serialized data, and JSX can't make that trip, so here [blocks](/next/blocks) return descriptors (plain objects such as `{ component: "product-hero", props }`; see [Rendering](/next/rendering)).
 
 This page shows how to render Deco pages with TanStack Start on Cloudflare Workers, streaming each block as a descriptor. To render blocks as Server Components instead, see [Which mode to use](/next/rendering#which-mode-to-use) and the experimental [TanStack Start + RSC guide](/next/tanstack-start-rsc).
 
@@ -206,9 +206,9 @@ export default defineConfig({
 - Workers need nothing special: the content module is bundled like any import and kept in memory per isolate.
 - Keep both compatibility flags from step 6.
 
-## Edit in Studio
+## Edit in the site editor
 
-To edit this app's content in [Studio](/next/studio) while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/studio#edit-on-your-machine)).
+To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).
 
 <Hosted to="/next/hosted#cloudflare-workers" label="Connect a Worker">**Publish and preview without a deploy.** A site ID and a Wrangler secret connect this Worker to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>
 

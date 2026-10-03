@@ -473,10 +473,10 @@ export function overview(rm: Roadmap): SectionView {
           <a href={rm.hrefOf('roadmap-blockers')}>Release blockers</a>: the ten items that gate the release, each with where it stands today, the plan and the work items that deliver it.
         </li>
         <li>
-          <a href={rm.hrefOf('roadmap-studio-new')}>Studio support</a>: what has to work for editors, on a next-major site and with legacy content ({nStudio} items).
+          <a href={rm.hrefOf('roadmap-studio-new')}>Site editor support</a>: what has to work for editors, on a next-major site and with legacy content ({nStudio} items).
         </li>
         <li>
-          <a href={rm.hrefOf('roadmap-api')}>Work items</a>: {nRelease} changes, deduplicated from the {n} per-feature proposals, in four groups: the API, the CLI, Studio and the Deco
+          <a href={rm.hrefOf('roadmap-api')}>Work items</a>: {nRelease} changes, deduplicated from the {n} per-feature proposals, in four groups: the API, the CLI, the site editor and the Deco
           API, and these docs.
         </li>
         <li>
@@ -491,12 +491,12 @@ export function overview(rm: Roadmap): SectionView {
         </li>
       </ul>
       <p>
-        The lists overlap, so their counts don't add up to one total: the release blockers and most Studio items are delivered by work items, and link to them, and several site steps depend on the
+        The lists overlap, so their counts don't add up to one total: the release blockers and most site editor items are delivered by work items, and link to them, and several site steps depend on the
         same work. Nothing is checked off yet; the boxes mark open items and don't track progress.
       </p>
       <Small>
         How this list was made: each site's features were catalogued from its code, with file and line evidence, and grouped into {rm.CATS.length} categories. Each feature was then assessed against
-        these docs, and a second reviewer checked each assessment against Studio's and the framework's code. That check changed {F.filter((f) => f.first_rated).length} statuses, all to “to finish”,
+        these docs, and a second reviewer checked each assessment against the site editor's and the framework's code. That check changed {F.filter((f) => f.first_rated).length} statuses, all to “to finish”,
         and a later review changed {F.filter((f) => f.rated_before_review).length} more. {F.filter((f) => f.confidence !== 'high').length} of the {n} assessments are medium confidence and the rest
         are high, and {F.filter((f) => f.unconfirmed_sub_claim).length} contain a sub-claim the second reviewer couldn't confirm. Feature readiness marks each of these on its row.
       </Small>
@@ -558,9 +558,9 @@ export function blockers(rm: Roadmap): SectionView {
 // ------------------------------------------------------------------------------ 3 · studio support
 const STUDIO_LEDE = {
   'roadmap-studio-new':
-    "What has to work when a migrated site runs against today's Studio. Each item says what happens today and, where a work item's plan covers it, which work items deliver it. The chips link to the features it touches.",
+    "What has to work when a migrated site runs against today's site editor. Each item says what happens today and, where a work item's plan covers it, which work items deliver it. The chips link to the features it touches.",
   'roadmap-studio-legacy':
-    'Content and assumptions Studio already has, which the next major has to handle. Each item says what happens today and, where the plan covers it, which work items or site steps handle it.',
+    'Content and assumptions the site editor already has, which the next major has to handle. Each item says what happens today and, where the plan covers it, which work items or site steps handle it.',
 } as const
 
 export function studio(rm: Roadmap, id: 'roadmap-studio-new' | 'roadmap-studio-legacy'): SectionView {
@@ -604,7 +604,7 @@ export function changes(rm: Roadmap, key: WorkGroup): SectionView {
     ),
     studio: (
       <>
-        {items.length} changes on the Studio side and in the Deco API's release service. {sort}
+        {items.length} changes on the site editor side and in the Deco API's release service. {sort}
       </>
     ),
     docs: (

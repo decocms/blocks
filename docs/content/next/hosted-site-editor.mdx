@@ -1,0 +1,62 @@
+---
+title: Editing in the site editor on GitHub
+nav: Site editor on GitHub
+group: Hosted Deco CMS
+order: 28
+description: "With the hosted Deco CMS, the site editor edits your GitHub repository directly, with nothing to clone or install: saves are commits on a draft branch, and publishing brings them to production."
+---
+
+# Editing in the site editor on GitHub
+
+A merchandiser needs to change the homepage hero before tomorrow's sale. They don't have Git, a copy of the code or a dev server, and they shouldn't need one.
+
+On your machine, [the site editor](/next/site-editor) edits your working tree through `deco serve`, and you commit the changes yourself (see [Edit on your machine](/next/site-editor#edit-on-your-machine)). With the [hosted Deco CMS](/next/hosted), the site editor's **GitHub backend** edits your repository itself.
+
+This page shows how the site editor edits your repository on GitHub, where uploads go, and how publishing and CI work.
+
+## What changes
+
+The site editor's forms, [variants](/next/matchers-and-variants#variants), pages and redirects are the same on both backends: they need only the [schema](/next/schema#from-types-to-forms) and the files. What differs is where a save goes and what happens next.
+
+| | `deco serve` | The site editor's GitHub backend |
+|---|---|---|
+| Edits | The files in your working tree | Your repository on GitHub |
+| Where `.deco/` is | The folder you pass with [`--root`](/next/cli#finding-the-deco-folder), or the nearest one with a `.deco/`; `deco serve` tells the site editor | The site editor's "app root" setting, such as `apps/storefront` in a monorepo |
+| A save | Writes the file; your app hot-reloads | One commit on the draft's branch, with all the files of that save |
+| Committing | You review the diff and commit | Each save is already a commit |
+| Drafts and publishing | Not shown: your branch is the draft, and you merge it | A draft branch per draft; publishing brings it to production |
+| Uploads | Files in `.deco/assets/` (or the folder you pass with `--assets`) in your working tree, which you commit | Deco's asset storage, served from a CDN |
+| Preview canvas | Your dev app | Your site, with a [`?__draft=` link](/next/hosted-drafts) |
+| The site editor checks for changes | About every 2 seconds | When you return to the tab, and about every 30 seconds |
+| Needs | A copy of the repository on your machine and a running CLI | A [connected site](/next/hosted#connect-your-site) |
+
+## Uploads
+
+With the hosted Deco CMS, images and other files editors upload in the site editor go to Deco's asset storage, not your repository. The site editor saves each file's CDN address in the field, such as `https://assets.decocms.com/…/summer-banner.jpg`, so images are served from a CDN close to your visitors, your app serves nothing for them, and your repository doesn't grow with every image. Without the hosted Deco CMS, uploads are files in your repository (see [Images and other uploads](/next/site-editor#images-and-other-uploads)).
+
+Uploads already in your repository keep working: a field holds either kind of address, and your app keeps serving the files it has.
+
+## Drafts are branches
+
+An editor's changes live on a **draft branch** in your repository, created on the first save. Each save is one commit on it, so the draft's history is ordinary Git history: you can review it in a pull request, diff it, or check it out. Saving is last-writer-wins: if two people edit the same entry at once, the later save replaces the earlier one (see [Where edits go](/next/content-protocol#where-edits-go)).
+
+While the draft is unpublished, the site editor previews it on your real site; see [Previewing drafts](/next/hosted-drafts).
+
+## Publishing
+
+Publishing brings the draft's commits to your production branch (usually `main`). From there it's like any other commit: it's served as a release and reaches running servers within seconds (see [Publishing without a deploy](/next/hosted-publishing)).
+
+The site editor reads the schema committed on the branch it edits, so editors only see the block types and fields that branch's code has. Deploy code that adds a type before publishing content that uses it (see [Keep running code compatible](/next/hosted-publishing#keep-running-code-compatible)).
+
+## CI on site editor commits
+
+The site editor's saves are commits that only change content, and the [check workflow](/next/checking#backward-compatibility) validates them like any other change. Saves always land on a draft branch. When publishing opens a pull request, the check runs on it before merge. When publishing brings the draft straight to your production branch, it's live as soon as it lands, so also run the check on pushes to `main`:
+
+```yaml title=".github/workflows/check.yml (changes)"
+on:
+  pull_request:
+  push:
+    branches: [main]
+```
+
+How the site editor reads and writes your files over the protocol is in [Content protocol](/next/content-protocol), and its compatibility details in [Site editor compatibility](/next/studio-compatibility).

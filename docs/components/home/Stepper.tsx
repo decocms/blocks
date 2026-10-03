@@ -15,7 +15,7 @@ const STEPS = [
   },
   {
     title: 'It becomes editable',
-    text: "One command turns the function's types into a form, the form editors use in Deco Studio, so marketing can change copy, images and campaigns whenever they need to.",
+    text: "One command turns the function's types into a form, the form editors use in the site editor, so marketing can change copy, images and campaigns whenever they need to.",
   },
   {
     title: 'Ship from Git',
@@ -241,7 +241,7 @@ export function Stepper() {
           <div
             className="flex-none mt-4 mx-6 mb-[22px] border border-st-border rounded-xl bg-st-bg text-st-fg overflow-hidden max-sm:mt-3 max-sm:mx-4 max-sm:mb-4"
             role="group"
-            aria-label="The form Studio builds from the schema"
+            aria-label="The form the site editor builds from the schema"
           >
             <div className={`flex items-center gap-2 h-10 px-3.5 border-b border-st-border bg-bg-subtle text-13 font-medium ${symbol}`}>
               <BrandSymbol />
@@ -264,7 +264,7 @@ export function Stepper() {
             ))}
           </div>
           <Result>
-            <span>Studio shows each experiment as a number field clamped to 0–100.</span>
+            <span>The site editor shows each experiment as a number field clamped to 0–100.</span>
           </Result>
         </>,
         <>

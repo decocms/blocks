@@ -28,7 +28,7 @@ export default {
 } satisfies Blocks;
 ```
 
-Legacy page names such as `website/pages/Page.tsx` need no entry: the [CLI](/next/cli)'s alias table maps them to the [built-in `page`](/next/built-in-blocks#pages-and-redirects) (see [Studio compatibility](/next/studio-compatibility)). Legacy `website/flags/multivariate.ts` blocks map to the built-in `multivariate`, and the alias bridge wraps each variant, a plain `value`, in a [`lazy` block](/next/lazy-blocks#write-a-lazy-block) on the way.
+Legacy page names such as `website/pages/Page.tsx` need no entry: the [CLI](/next/cli)'s alias table maps them to the [built-in `page`](/next/built-in-blocks#pages-and-redirects) (see [Site editor compatibility](/next/studio-compatibility)). Legacy `website/flags/multivariate.ts` blocks map to the built-in `multivariate`, and the alias bridge wraps each variant, a plain `value`, in a [`lazy` block](/next/lazy-blocks#write-a-lazy-block) on the way.
 
 An alias only works while both names take the same inputs. If the old shape differs, register a function under the old name that converts the old inputs and calls the new function, or migrate the content first. Here the old content called the title `name`:
 
@@ -48,7 +48,7 @@ export default {
 
 On [v7](/v7/loaders), saved content often calls loaders and actions that ship in Deco's [apps](/v7/apps), such as a VTEX product loader. In the next major the apps are thin [upstream clients](/next/upstream-clients) and ship no loaders, so the migration copies (vendors) the ones your site actually uses into your own code, rewritten over the clients, and registers each under its old type name as an [alias](#rename-a-type-with-an-alias). Content keeps resolving, and the copied code is yours to change from then on.
 
-v7's `/deco/invoke` endpoint (which ran loaders and actions over HTTP for Studio and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) are gone. Call upstream clients from your framework's server functions or route handlers instead; upstream caching lives in the framework binding (see [Upstream data](/next/caching#upstream-data)).
+v7's `/deco/invoke` endpoint (which ran loaders and actions over HTTP for the site editor and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) are gone. Call upstream clients from your framework's server functions or route handlers instead; upstream caching lives in the framework binding (see [Upstream data](/next/caching#upstream-data)).
 
 <h2 id="telemetry-and-analytics">Telemetry and analytics</h2>
 

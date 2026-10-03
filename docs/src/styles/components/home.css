@@ -1,6 +1,6 @@
 /* Home (components/home/*): what utilities can't say, or say badly. Everything else is utilities on the components. */
 
-/* The Studio mock's range sliders (Journey.tsx): track, filled part and thumb are vendor
+/* The site editor mock's range sliders (Journey.tsx): track, filled part and thumb are vendor
    pseudo-elements, each needing its own rule (one unsupported selector drops a whole rule).
    --val is the filled percentage, set inline by the component. */
 .home-range { -webkit-appearance: none; appearance: none; }

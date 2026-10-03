@@ -8,7 +8,7 @@ kind: docs
 
 # CLI
 
-You changed a block's props and [Studio](/next/studio) still shows the old form: the schema needs regenerating. This page lists every `deco` command and its flags.
+You changed a block's props and [the site editor](/next/site-editor) still shows the old form: the schema needs regenerating. This page lists every `deco` command and its flags.
 
 The Deco CLI is the `deco` command. It ships inside `@decocms/blocks`, so there's nothing extra to install, and it always matches your runtime version. Run it once with `npx` (`bunx` works the same):
 
@@ -25,7 +25,7 @@ It has four commands, and each does one job:
 - **`deco schema`** turns the types in `.deco/index.ts` into `.deco/schema.gen.json`. Commit this file. See [Forms from types](/next/schema).
 - **`deco content`** turns the files in `.deco/blocks` into the content module, `.deco/blocks.gen.ts`. It's generated, so gitignore it. See [The content module](/next/content#the-content-module).
 - **`deco check`** makes sure your [saved blocks](/next/saved-blocks) fit your code, and fails if one doesn't. It writes nothing. See [Checking content](/next/checking).
-- **`deco serve`** is the local server [Studio](/next/studio) uses to edit the files on your machine. See [Edit on your machine](/next/studio#edit-on-your-machine).
+- **`deco serve`** is the local server [the site editor](/next/site-editor) uses to edit the files on your machine. See [Edit on your machine](/next/site-editor#edit-on-your-machine).
 
 ## Run it before dev and build
 
@@ -57,7 +57,7 @@ deco schema --root apps/storefront
 deco content --root apps/storefront
 ```
 
-[Studio](/next/studio)'s "app root" setting points at that same folder, both on your machine and when Studio reads your repository on GitHub in the [hosted version](/next/hosted-studio).
+[The site editor](/next/site-editor)'s "app root" setting points at that same folder, both on your machine and when the site editor reads your repository on GitHub in the [hosted version](/next/hosted-site-editor).
 
 ## `deco schema` and `deco content`
 
@@ -92,13 +92,13 @@ deco check [--root <dir>]
 deco serve [--root <dir>] [--port <n>] [--host <addr>] [--app-url <url>] [--token <t>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]
 ```
 
-`deco serve` is the local server Studio uses to edit the files on your machine, over the [content protocol](/next/content-protocol): it reads and writes `.deco/blocks`, reads `.deco/schema.gen.json`, and accepts uploads into `.deco/assets/` (or `--assets`). It tells Studio which root it serves through the content protocol's `describe`. The flow is in [Edit on your machine](/next/studio#edit-on-your-machine). It takes:
+`deco serve` is the local server the site editor uses to edit the files on your machine, over the [content protocol](/next/content-protocol): it reads and writes `.deco/blocks`, reads `.deco/schema.gen.json`, and accepts uploads into `.deco/assets/` (or `--assets`). It tells the site editor which root it serves through the content protocol's `describe`. The flow is in [Edit on your machine](/next/site-editor#edit-on-your-machine). It takes:
 
 - `--root <dir>`: the folder that contains `.deco/`, such as `apps/storefront` in a monorepo. By default, it walks up from the current folder to the first folder with a `.deco/`, like every command.
 - `--port <n>`: the port to listen on (default 4545).
 - `--host <addr>`: the address to listen on. The default is 127.0.0.1; any other address prints a warning, because the server would be reachable from other machines.
-- `--app-url <url>`: your dev app, which Studio's canvas opens. By default, the port from your Vite config, else `http://localhost:5173`.
+- `--app-url <url>`: your dev app, which the site editor's canvas opens. By default, the port from your Vite config, else `http://localhost:5173`.
 - `--token <t>`: a fixed token instead of a random one per run (or `DECO_SERVE_TOKEN`).
-- `--allow-origin <origin>`: another browser origin allowed to call the server, besides Studio's (repeatable).
-- `--assets <dir>`: the folder Studio's uploads are written to, relative to the folder that contains `.deco` (default `.deco/assets`). The field always stores `/assets/<name>`, whatever this folder is, so point it at a folder your app serves at `/assets/`, such as `public/assets`; see [Images and other uploads](/next/studio#images-and-other-uploads).
+- `--allow-origin <origin>`: another browser origin allowed to call the server, besides the site editor's (repeatable).
+- `--assets <dir>`: the folder the site editor's uploads are written to, relative to the folder that contains `.deco` (default `.deco/assets`). The field always stores `/assets/<name>`, whatever this folder is, so point it at a folder your app serves at `/assets/`, such as `public/assets`; see [Images and other uploads](/next/site-editor#images-and-other-uploads).
 - `--read-only`: serve the content without accepting writes or uploads.

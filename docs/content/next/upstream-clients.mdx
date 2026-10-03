@@ -1,8 +1,8 @@
 ---
 title: Calling APIs
 nav: Calling APIs
-group: Websites
-order: 20
+group: Content and data
+order: 13
 description: Deco CMS doesn't fetch data. Sites call commerce, search and email platforms through thin, instrumented API clients, and this page shows how to use and write one.
 ---
 
@@ -30,7 +30,7 @@ Everything else lives in code your site owns:
 | React hooks for the cart, the user and the wishlist | Platform templates |
 | Cart, session and sign-in flows | Platform templates, as your framework's server functions or route handlers |
 | Website features: SEO helpers, sitemaps, redirect logic | Platform templates and your code. The framework itself ships the built-in `always`, `never` and `date` [matchers](/next/matchers-and-variants#matchers), `multivariate`, and the [`analytics`](/next/analytics) block for page views. |
-| [Loaders and actions](/v7/loaders) (v7's data functions) that [Studio](/next/studio) ran through `/deco/invoke` | Your code; see [Migrating from v7](/next/renames-and-migrations#loaders-actions-and-invoke). |
+| [Loaders and actions](/v7/loaders) (v7's data functions) that [the site editor](/next/site-editor) ran through `/deco/invoke` | Your code; see [Migrating from v7](/next/renames-and-migrations#loaders-actions-and-invoke). |
 
 The Salesforce client covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
 

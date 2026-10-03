@@ -1,6 +1,6 @@
 /**
  * The hero's product window: the four-pane "Experiments" journey (Type it → Edit it → Commit it →
- * Resolve it). Dragging a Studio slider rewrites the JSON diff, the commit status and the odds in
+ * Resolve it). Dragging a site editor slider rewrites the JSON diff, the commit status and the odds in
  * the last pane (#exp-odds); Save "commits" the change. Below 768px the panes become a
  * scroll-snap carousel driven by (and driving) the step pills under the window.
  */
@@ -26,7 +26,7 @@ const LABELS: Record<Key, string> = {
   stickyHeader: 'sticky header',
   freeShippingBanner: 'free shipping banner',
 }
-/** What's committed on main when the page loads, and what the Studio form shows. */
+/** What's committed on main when the page loads, and what the site editor form shows. */
 const INITIAL_SAVED: Values = { newCheckout: 10, stickyHeader: 50, freeShippingBanner: 0 }
 const INITIAL_VALUES: Values = { newCheckout: 25, stickyHeader: 50, freeShippingBanner: 0 }
 
@@ -182,7 +182,7 @@ export function Journey() {
       void foot.offsetWidth
       foot.classList.add('just')
     }
-    toast('In Studio, Save commits the file to your repository.')
+    toast('In the site editor, Save commits the file to your repository.')
   }
 
   const { journeyRef, step, showPanel } = useJourneyCarousel()
@@ -276,7 +276,7 @@ export function Journey() {
             <div className={head}>
               <span className={stepNum}>02</span>
               <span className={title}>Edit it</span>
-              <span className={meta}>Deco Studio</span>
+              <span className={meta}>Site editor</span>
             </div>
             <div className="flex-1 flex flex-col bg-st-bg text-st-fg rounded-b-[11px]">
               <div className="flex items-center justify-between gap-2 h-[42px] px-3.5 border-b border-st-border">
@@ -345,7 +345,7 @@ export function Journey() {
             <div className="flex flex-wrap items-center gap-1.5 pt-2.5 px-3.5 text-11 leading-4 text-muted-fg">
               <span className={source}>
                 <i className="size-1.5 rounded-full bg-purple" aria-hidden="true" />
-                Saved in Studio
+                Saved in the site editor
               </span>
               <span>or</span>
               <span className={source}>
@@ -487,7 +487,7 @@ export function Journey() {
       <JourneyPills steps={STEPS} step={step} onSelect={showPanel} />
       <div className={`flex items-baseline justify-between gap-6 mt-7 max-md:block max-md:mt-5 ${enter}`} style={{ '--d': '520ms' } as CSSProperties}>
         <p className="m-0 max-w-[78ch] text-14 leading-5.5 text-band-muted">
-          The Quickstart, end to end. Studio saves it, or an agent edits it: either way it's a commit, and the function never changes.{' '}
+          The Quickstart, end to end. The site editor saves it, or an agent edits it: either way it's a commit, and the function never changes.{' '}
           <span className="text-white font-medium">Drag a slider, then Save.</span>
         </p>
         <MdxLink className={`${textLink} text-brand max-md:mt-3.5`} href="/next/quickstart">

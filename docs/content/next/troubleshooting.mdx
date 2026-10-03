@@ -55,13 +55,13 @@ Most problems come down to three facts: which [revision](/next/releases-and-depl
 | `deco: command not found` | In a terminal, run `npx @decocms/blocks <command>`. The short name `deco` works inside `package.json` scripts once `@decocms/blocks` is installed; if a script can't find it, run `npm install` (see [CLI](/next/cli)). |
 | `Cannot find package 'typescript'` when running a `deco` command | The CLI uses your project's TypeScript. npm and Bun install it with `@decocms/blocks`; with another package manager, run `npm install -D typescript` (or its equivalent). |
 
-### Studio
+### Site editor
 
 | Symptom | What to check |
 |---|---|
 | Wrong fields in the editor | Regenerate the schema from the right `.deco/index.ts` (check [`--root`](/next/cli#finding-the-deco-folder) in a monorepo). Check the first parameter's type and its property JSDoc (see [From types to forms](/next/schema#from-types-to-forms)). |
-| [Studio](/next/studio) can't reach `deco serve` | Check that the server is still running and that you opened the link from this run: a restart prints a new token, and Studio asks you to reconnect. Allow the browser's prompt to let Studio reach your machine (Local Network Access). If you use another browser origin than Studio's, pass it with `--allow-origin`. See [Edit on your machine](/next/studio#edit-on-your-machine). |
-| A form field in Studio is a text box instead of a picker | Studio never runs your code (see [What works without your code](/next/studio#what-works-without-your-code)), so options that would come from a function aren't available. Give the field a string-literal union, an enum or an `@options` list, and run `npx @decocms/blocks schema` (see [Widgets](/next/schema#widgets)). |
+| [The site editor](/next/site-editor) can't reach `deco serve` | Check that the server is still running and that you opened the link from this run: a restart prints a new token, and the site editor asks you to reconnect. Allow the browser's prompt to let the site editor reach your machine (Local Network Access). If you use another browser origin than the site editor's, pass it with `--allow-origin`. See [Edit on your machine](/next/site-editor#edit-on-your-machine). |
+| A form field in the site editor is a text box instead of a picker | The site editor never runs your code (see [What works without your code](/next/site-editor#what-works-without-your-code)), so options that would come from a function aren't available. Give the field a string-literal union, an enum or an `@options` list, and run `npx @decocms/blocks schema` (see [Widgets](/next/schema#widgets)). |
 
 ### Telemetry
 

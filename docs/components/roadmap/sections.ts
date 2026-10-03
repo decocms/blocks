@@ -38,7 +38,7 @@ export type SectionId = (typeof SECTION_IDS)[number]
 export const SECTION_GROUPS: readonly { title: string; ids: readonly SectionId[] }[] = [
   { title: 'Overview', ids: ['roadmap'] },
   { title: 'Release blockers', ids: ['roadmap-blockers'] },
-  { title: 'Studio support', ids: ['roadmap-studio-new', 'roadmap-studio-legacy'] },
+  { title: 'Site editor support', ids: ['roadmap-studio-new', 'roadmap-studio-legacy'] },
   { title: 'Work items', ids: ['roadmap-api', 'roadmap-cli', 'roadmap-platform', 'roadmap-docs'] },
   { title: 'After the first release', ids: ['roadmap-later'] },
   { title: 'Site migrations', ids: ['roadmap-storefront', 'roadmap-blog', 'roadmap-faststore'] },
@@ -57,7 +57,7 @@ export const SECTION_NAV: Record<SectionId, string> = {
   'roadmap-studio-legacy': 'With legacy content',
   'roadmap-api': 'API additions',
   'roadmap-cli': 'CLI and manifest',
-  'roadmap-platform': 'Studio and Deco API',
+  'roadmap-platform': 'Site editor and Deco API',
   'roadmap-docs': 'Docs fixes',
   'roadmap-later': 'Follow-ups',
   'roadmap-storefront': 'TanStack storefront',

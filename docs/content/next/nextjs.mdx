@@ -2,13 +2,13 @@
 title: Next.js App Router
 nav: Next.js
 group: Websites
-order: 17
+order: 18
 description: Render Deco CMS pages in the Next.js App Router with Server Components, generate metadata from the page's SEO block, and stream each block.
 ---
 
 # Next.js App Router
 
-Editors choose page URLs in [Studio](/next/studio), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks [`matchRoute`](/next/api-reference#matchroute-url-items) which page or redirect owns it, and renders that page's blocks.
+Editors choose page URLs in [the site editor](/next/site-editor), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks [`matchRoute`](/next/api-reference#matchroute-url-items) which page or redirect owns it, and renders that page's blocks.
 
 This page shows how to render Deco pages with Server Components, generate metadata from the page's SEO block, and optionally stream each block.
 
@@ -111,7 +111,7 @@ export async function client() {
 
 ## 3. Generate the schema and content
 
-`deco schema` and `deco content` generate the files Studio and the app need; run them before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
+`deco schema` and `deco content` generate the files the site editor and the app need; run them before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
 
 ```json title="package.json"
 {
@@ -345,14 +345,14 @@ These files use the default App Router configuration. [Cache Components](https:/
 
 A page rendered at build time (static rendering or ISR) never switches [variants](/next/matchers-and-variants): its matchers ran once, during the build. Render pages with date-switched variants on each request, with `await connection()` from `next/server` or `export const dynamic = "force-dynamic";`. The other caches a request passes through are in [Caching](/next/caching).
 
-## Edit in Studio
+## Edit in the site editor
 
-To edit this app's content in [Studio](/next/studio) while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
+To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
 
 ```bash
 npx @decocms/blocks serve --app-url http://localhost:3000
 ```
 
-Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/studio#edit-on-your-machine)).
+Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).
 
 <Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Publish and preview without a deploy.** Two environment variables connect this app to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>

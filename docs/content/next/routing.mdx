@@ -2,7 +2,7 @@
 title: Pages and routing
 nav: Pages & routing
 group: Websites
-order: 15
+order: 16
 kind: docs
 ---
 
@@ -10,7 +10,7 @@ kind: docs
 
 Marketing wants a summer campaign live at `/summer` today, and the old `/campaigns/summer` link from last year's emails should land there too. In most apps, each of those is a code change and a deploy.
 
-With Deco CMS, an editor saves the page and the redirect in [Studio](/next/studio), and one route you wrote once serves them both.
+With Deco CMS, an editor saves the page and the redirect in [the site editor](/next/site-editor), and one route you wrote once serves them both.
 
 This page shows how pages and redirects are saved, how one catch-all route serves them with `matchRoute`, and how to give your own types a URL.
 
@@ -53,7 +53,7 @@ interface Redirect {
 }
 ```
 
-A page's fields are typed as what it receives, already resolved: a `Seo` object and a list of rendered blocks ([how Studio fills them](/next/schema#from-types-to-forms)). In the saved JSON, `seo` is a block and `sections` is a list of blocks:
+A page's fields are typed as what it receives, already resolved: a `Seo` object and a list of rendered blocks ([how the site editor fills them](/next/schema#from-types-to-forms)). In the saved JSON, `seo` is a block and `sections` is a list of blocks:
 
 ```json title=".deco/blocks/SummerPage.json"
 {

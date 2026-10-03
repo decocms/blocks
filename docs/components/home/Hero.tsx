@@ -79,8 +79,8 @@ export function Hero() {
           <br /> <span className="text-[rgba(255,255,255,.52)]">Native for AI.</span>
         </h1>
         <p className={`mt-5 max-w-[560px] text-15 leading-[1.6] text-band-muted ${enter}`} style={d('120ms')}>
-          Deco CMS is the open-source, AI-native headless CMS. Developers write functions, editors change how they're called in Deco
-          Studio, AI agents edit the same JSON files, and every change lands in Git, with telemetry and analytics built in.
+          Deco CMS is the open-source, AI-native headless CMS. Developers write functions, editors change how they're called in the site
+          editor, AI agents edit the same JSON files, and every change lands in Git, with telemetry and analytics built in.
         </p>
         <div className={`${cta} ${enter}`} style={d('300ms')}>
           <MdxLink className={btnPrimary} href="/next/quickstart">

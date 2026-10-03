@@ -32,7 +32,7 @@ These five are part of how blocks evaluate, so every site gets the same ones:
 - **`lazy`** takes `value` and returns a [`Lazy<T>`](/next/lazy-blocks#lazyt-props) function that resolves it when called, at most once. It's the one block whose argument doesn't resolve first (see [Lazy blocks](/next/lazy-blocks)).
 - **`multivariate`** takes `variants`, a list of entries that each pair a `rule` (a `boolean`) with a `value` (a `Lazy<T>`), and returns the first variant whose rule is `true`, or `undefined` if none is. Only that variant runs.
 - **`always`** returns `true`, so the variant paired with it is the fallback.
-- **`never`** returns `false`, so the variant paired with it is never picked (that's how Studio hides a block).
+- **`never`** returns `false`, so the variant paired with it is never picked (that's how the site editor hides a block).
 - **`date`** takes `start` and `end`, both optional ISO 8601 strings, and returns `true` from `start` until `end`.
 
 [Matchers and variants](/next/matchers-and-variants) shows how they work together, and how to write matchers of your own.

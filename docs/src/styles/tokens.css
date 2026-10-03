@@ -96,7 +96,7 @@
   --del-fg: light-dark(#A3341F, #FFA08C);
   --add-bg: light-dark(#EFF6CC, rgba(208, 236, 26, .12));
 
-  /* Home: product mocks (Studio form, browser windows, chat), stack strip, footer */
+  /* Home: product mocks (site editor form, browser windows, chat), stack strip, footer */
   --st-bg: light-dark(#FFFFFF, #26221F);
   --st-fg: light-dark(#282524, #F4F2EE);
   --st-muted: light-dark(#6E6863, #B9B4AB);

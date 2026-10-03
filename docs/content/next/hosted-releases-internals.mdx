@@ -42,7 +42,7 @@ The rule that matters: **a production request never waits for the network.** `lo
 
 So different servers can briefly serve different releases, by design. A published change reaches each server on its next check, within seconds (or at once on the one server where you call `cms.update()`), and each server sends one tiny request per interval, however much traffic it serves. (This is called eventual consistency.)
 
-[Drafts](/next/hosted-drafts) are the opposite: a preview must show exactly the version [Studio](/next/studio) asked for, so `load(pointer)`, with the [draft pointer](/next/api-reference#draft-pointers) from the preview link, fetches that version and waits for it, cached by version afterwards. If the draft can't be fetched, the client serves what a normal request would get: the newest release in memory, or the build's content if none has been fetched yet. It never mixes draft and published entries.
+[Drafts](/next/hosted-drafts) are the opposite: a preview must show exactly the version [the site editor](/next/site-editor) asked for, so `load(pointer)`, with the [draft pointer](/next/api-reference#draft-pointers) from the preview link, fetches that version and waits for it, cached by version afterwards. If the draft can't be fetched, the client serves what a normal request would get: the newest release in memory, or the build's content if none has been fetched yet. It never mixes draft and published entries.
 
 ## One instance per process
 
