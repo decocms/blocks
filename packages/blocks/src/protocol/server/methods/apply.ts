@@ -10,8 +10,13 @@
  * 5. Preconditions are optional: a failed `ifMatch` (or `ifSchemaMatch`)
  *    writes nothing and returns a Conflict; without them the last writer wins.
  *
- * A commit attempt that finds storage moved is retried against the new
- * snapshot, rechecking every guard, up to `maxCommitAttempts` times.
+ * 6. Two spellings of one name are one entry: a guard compares against the
+ *    entry under any spelling, and the result reports `null` for every other
+ *    spelling the commit deleted.
+ *
+ * A commit attempt that finds storage moved (files, the schema, or a request
+ * key reserved meanwhile) is retried against a new snapshot after a jittered
+ * backoff, rechecking every guard, up to `maxCommitAttempts` times.
  */
 import { applyRequestDigest, canonicalJson } from "../../canonical";
 import {
@@ -27,15 +32,18 @@ import {
 } from "../../errors";
 import {
   blockFileName,
+  blockNameFromFile,
   checkBlockName,
   checkDeletedName,
+  fullyDecodeFileName,
+  isBlockFileName,
   serializeBlock,
   spellingKey,
 } from "../../keys";
 import { checkSecrets } from "../../secrets";
 import type { StorageDescription, StoredReceipt } from "../../storage";
 import type { BlocksApplyParams, BlocksApplyResult, DecoMeta, Limits } from "../../types";
-import { type LoadedContent, loadContent } from "../content";
+import { type LoadedContent, type LoadedEntry, loadCurrentContent } from "../content";
 import type { Core } from "../core";
 import { parseSchema, readSchema } from "./read";
 
@@ -101,12 +109,28 @@ function validateStatic(apply: NormalizedApply, limits: Limits, meta: DecoMeta |
   return { violations, bodies };
 }
 
+/** The existing entries, by spelling key: two spellings of one name are one entry. */
+type EntriesBySpelling = Map<string, { name: string; entry: LoadedEntry }>;
+
+function entriesBySpelling(content: LoadedContent): EntriesBySpelling {
+  const out: EntriesBySpelling = new Map();
+  for (const [name, entry] of content.entries) {
+    out.set(fullyDecodeFileName(entry.file).name, { name, entry });
+  }
+  return out;
+}
+
 /** Checks the rules that depend on the entries that already exist. */
-function validateAgainst(content: LoadedContent, apply: NormalizedApply): BlockViolation[] {
+function validateAgainst(
+  content: LoadedContent,
+  bySpelling: EntriesBySpelling,
+  apply: NormalizedApply,
+): BlockViolation[] {
   const violations: BlockViolation[] = [];
   const existing = [...content.entries.keys()];
   for (const [name] of apply.set) {
-    if (content.entries.has(name)) continue;
+    // Another spelling of an existing entry updates that entry; it isn't a new name.
+    if (bySpelling.has(spellingKey(name))) continue;
     const others = apply.set.filter(([other]) => other !== name).map(([other]) => other);
     for (const v of checkBlockName(name, { existingNames: [...existing, ...others] })) {
       if (v.reason === "case-collision")
@@ -124,12 +148,22 @@ interface Plan {
 
 /**
  * Turns names into file operations: write `encode(name)`, delete every other
- * spelling. Only guarded entries become commit expectations: without
- * `ifMatch`, the last writer wins, so a concurrent save of the same entry must
- * not turn into a retry storm.
+ * spelling. Deleting any spelling of an entry deletes every spelling. Only
+ * guarded entries become commit expectations: without `ifMatch`, the last
+ * writer wins, so a concurrent save of the same entry must not turn into a
+ * retry storm.
  */
-function plan(content: LoadedContent, apply: NormalizedApply, bodies: Map<string, string>): Plan {
-  const versionOf = new Map(content.snapshot.files.map((f) => [f.file, f.version]));
+function plan(
+  content: LoadedContent,
+  bySpelling: EntriesBySpelling,
+  apply: NormalizedApply,
+  bodies: Map<string, string>,
+): Plan {
+  const versionOf = new Map(
+    content.snapshot.files.filter((f) => isBlockFileName(f.file)).map((f) => [f.file, f.version]),
+  );
+  const groupFiles = (name: string) =>
+    (content.groups.get(spellingKey(name)) ?? []).map((f) => f.file);
   const put: Record<string, string> = Object.create(null);
   const deletes = new Set<string>();
   const expected: Record<string, string | null> = Object.create(null);
@@ -137,34 +171,30 @@ function plan(content: LoadedContent, apply: NormalizedApply, bodies: Map<string
   for (const [name] of apply.set) {
     const file = blockFileName(name);
     put[file] = bodies.get(name)!;
-    for (const other of content.groups.get(spellingKey(name)) ?? []) {
-      if (other.file !== file) deletes.add(other.file);
-    }
+    for (const other of groupFiles(name)) if (other !== file) deletes.add(other);
   }
   for (const name of apply.delete) {
     const file = blockFileName(name);
     if (versionOf.has(file)) deletes.add(file);
-    if (content.entries.has(name)) {
-      for (const other of content.groups.get(spellingKey(name)) ?? []) deletes.add(other.file);
-    }
+    if (bySpelling.has(spellingKey(name))) for (const other of groupFiles(name)) deletes.add(other);
   }
   for (const file of Object.keys(put)) deletes.delete(file);
-  // A guarded entry must still be exactly what the guard saw when the commit lands.
+  // A guarded entry must still be exactly what the guard saw when the commit lands:
+  // every spelling of it, so a concurrent save under another spelling is caught too.
   for (const [name] of apply.ifMatch) {
-    const entry = content.entries.get(name);
-    const files = entry
-      ? [entry.file]
-      : [blockFileName(name), ...(content.groups.get(spellingKey(name)) ?? []).map((f) => f.file)];
-    for (const file of files) expected[file] = versionOf.get(file) ?? null;
+    for (const file of [blockFileName(name), ...groupFiles(name)]) {
+      if (isBlockFileName(file)) expected[file] = versionOf.get(file) ?? null;
+    }
   }
   return { put, delete: [...deletes], expected };
 }
 
-function checkIfMatch(content: LoadedContent, apply: NormalizedApply) {
+/** A guard compares against the entry under any spelling: `null` means no spelling exists. */
+function checkIfMatch(bySpelling: EntriesBySpelling, apply: NormalizedApply) {
   const mismatches: Record<string, VersionMismatch> = {};
   let failed = false;
   for (const [name, expected] of apply.ifMatch) {
-    const actual = content.entries.get(name)?.version ?? null;
+    const actual = bySpelling.get(spellingKey(name))?.entry.version ?? null;
     if (actual !== expected) {
       mismatches[name] = { expected, actual };
       failed = true;
@@ -173,19 +203,36 @@ function checkIfMatch(content: LoadedContent, apply: NormalizedApply) {
   return failed ? mismatches : null;
 }
 
+/**
+ * The result's versions: every name written or deleted, plus `null` for each
+ * other spelling the commit deleted, so a client's map never keeps an entry
+ * under a name that's gone.
+ */
 function resultFromVersions(
   apply: NormalizedApply,
   revision: string,
   fileVersions: Record<string, string>,
+  deletedFiles: readonly string[],
 ): BlocksApplyResult {
   const versions: Record<string, string | null> = Object.create(null);
-  for (const [name] of apply.set) versions[name] = fileVersions[blockFileName(name)] ?? null;
-  for (const name of apply.delete) versions[name] = null;
+  const touched = new Set<string>();
+  for (const [name] of apply.set) {
+    versions[name] = fileVersions[blockFileName(name)] ?? null;
+    touched.add(spellingKey(name));
+  }
+  for (const name of apply.delete) {
+    versions[name] = null;
+    touched.add(spellingKey(name));
+  }
+  for (const file of deletedFiles) {
+    const name = blockNameFromFile(file);
+    if (!(name in versions) && touched.has(fullyDecodeFileName(file).name)) versions[name] = null;
+  }
   return { revision, versions };
 }
 
 function receiptResult(apply: NormalizedApply, receipt: StoredReceipt): BlocksApplyResult {
-  return resultFromVersions(apply, receipt.revision, receipt.versions);
+  return resultFromVersions(apply, receipt.revision, receipt.versions, receipt.deleted ?? []);
 }
 
 async function loadSchema(core: Core, params: BlocksApplyParams, limits: Limits) {
@@ -255,33 +302,37 @@ async function applyOnce(
       throw conflict({ schema: { expected: params.ifSchemaMatch, actual: schema.version } });
     }
     const { violations, bodies } = validateStatic(apply, limits, schema.meta);
-    const snapshot = await core.storage.snapshot({ ref: params.ref });
-    const content = await loadContent(core.storage, snapshot, {
+    const { snapshot, content } = await loadCurrentContent(core.storage, params.ref, {
       readAll: false,
       limits,
       cache: core.cache,
     });
-    violations.push(...validateAgainst(content, apply));
+    const bySpelling = entriesBySpelling(content!);
+    violations.push(...validateAgainst(content!, bySpelling, apply));
     if (violations.length > 0) throw invalidBlock(violations);
 
-    const mismatches = checkIfMatch(content, apply);
+    const mismatches = checkIfMatch(bySpelling, apply);
     if (mismatches) throw conflict({ entries: mismatches });
 
-    const { put, delete: deletes, expected } = plan(content, apply, bodies);
+    const { put, delete: deletes, expected } = plan(content!, bySpelling, apply, bodies);
     if (Object.keys(put).length === 0 && deletes.length === 0 && !receipt) {
-      return resultFromVersions(apply, snapshot.revision, {});
+      return resultFromVersions(apply, snapshot.revision, {}, []);
     }
+    // The schema the guards and the secret check used must still be current at commit time.
+    const dependsOnSchema = params.ifSchemaMatch !== undefined || apply.set.length > 0;
     const result = await core.storage.commit({
       ref: params.ref,
       base: snapshot,
       put,
       delete: deletes,
       expected,
+      ...(dependsOnSchema ? { expectedSchemaVersion: schema.version } : {}),
       receipt: receipt ?? undefined,
     });
     if (result.status === "committed") {
-      return resultFromVersions(apply, result.revision, result.versions);
+      return resultFromVersions(apply, result.revision, result.versions, deletes);
     }
+    if (attempt < core.maxCommitAttempts) await core.backoff(attempt);
   }
   throw unavailable(
     `storage kept changing; gave up after ${core.maxCommitAttempts} commit attempts`,

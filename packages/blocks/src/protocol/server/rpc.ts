@@ -6,6 +6,8 @@
  *   and isn't atomic.
  * - The aggregate response is bounded: once it would pass
  *   `maxBatchResponseBytes`, later reads answer LimitExceeded instead.
+ * - A write's response is never replaced, alone or in a batch: the write has
+ *   landed, and answering LimitExceeded would tell the client it hadn't.
  */
 import {
   type ContentProtocolError,
@@ -64,6 +66,12 @@ async function run(core: Core, envelope: Envelope, scope: string): Promise<unkno
   }
 }
 
+/** True for a well-formed `blocks.apply` request. */
+function isWrite(value: unknown): boolean {
+  const envelope = parseEnvelope(value);
+  return !("error" in envelope) && envelope.method === "blocks.apply";
+}
+
 const errorResponse = (id: RpcId | null, error: ContentProtocolError) =>
   JSON.stringify({ jsonrpc: "2.0", id, error: error.toJSON() });
 
@@ -88,7 +96,7 @@ async function call(core: Core, value: unknown, scope: string): Promise<string> 
 export async function dispatch(core: Core, body: unknown, scope: string, maxResponseBytes: number) {
   if (!Array.isArray(body)) {
     const response = await call(core, body, scope);
-    if (utf8.encode(response).byteLength <= maxResponseBytes) return response;
+    if (isWrite(body) || utf8.encode(response).byteLength <= maxResponseBytes) return response;
     return errorResponse(
       parseEnvelope(body).id,
       limitExceeded(`the response is over ${maxResponseBytes} bytes`, {
@@ -116,11 +124,11 @@ export async function dispatch(core: Core, body: unknown, scope: string, maxResp
         }),
       );
     // Writes always run, so a batch never drops a save; reads stop once over budget.
-    const isWrite = !("error" in envelope) && envelope.method === "blocks.apply";
+    const write = !("error" in envelope) && envelope.method === "blocks.apply";
     let response =
-      !isWrite && total > maxResponseBytes ? overBudget() : await call(core, item, scope);
+      !write && total > maxResponseBytes ? overBudget() : await call(core, item, scope);
     const bytes = utf8.encode(response).byteLength + (responses.length ? 1 : 0);
-    if (total + bytes > maxResponseBytes && !isWrite) response = overBudget();
+    if (total + bytes > maxResponseBytes && !write) response = overBudget();
     total += utf8.encode(response).byteLength + (responses.length ? 1 : 0);
     responses.push(response);
   }

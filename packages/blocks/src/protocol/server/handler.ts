@@ -5,7 +5,10 @@
  * `POST <endpoint>` with `Content-Type: application/json` and a body that's
  * one request object or a batch array. Errors come back in the JSON-RPC
  * `error` object with HTTP 200, except a missing or invalid bearer token (401)
- * and a body over the size limit (413), which apply to the whole batch.
+ * and a body over the size limit (413), which apply to the whole batch, and
+ * requests that aren't the protocol at all: a method other than POST (405),
+ * or a body that isn't JSON or uses an unsupported encoding (415). Those carry
+ * a JSON-RPC error body too, with a `null` id.
  * Responses are gzip-compressed when the request accepts it.
  *
  * The handler is path-agnostic: mount it where the endpoint lives (`/rpc` on
@@ -22,7 +25,7 @@ import {
   unauthorized,
 } from "../errors";
 import type { ContentStorage } from "../storage";
-import { authenticate } from "./auth";
+import { assertAuthOptions, authenticate } from "./auth";
 import { type ContentHandlerOptions, Core } from "./core";
 import {
   BodyEncodingError,
@@ -42,6 +45,7 @@ export function createContentHandler(
   storage: ContentStorage,
   options: ContentHandlerOptions = {},
 ): ContentHandler {
+  assertAuthOptions(options);
   const core = new Core(storage, options);
 
   return async (request) => {

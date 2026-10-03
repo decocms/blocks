@@ -3,7 +3,14 @@
  * batches. Uses `fetch`, so it runs in browsers, on Workers and on Node.
  */
 import { ContentProtocolError, ErrorCode, type RpcErrorObject } from "./errors";
-import type { MethodName, Methods, RpcId } from "./types";
+import {
+  type DescribeResult,
+  type MethodName,
+  type Methods,
+  PROTOCOL_NAME,
+  PROTOCOL_VERSION,
+  type RpcId,
+} from "./types";
 
 export interface ContentClientOptions {
   /** The endpoint URL, such as `http://127.0.0.1:4545/rpc`. */
@@ -27,6 +34,7 @@ export type BatchOutcome =
   | { ok: false; error: ContentProtocolError };
 
 export interface ContentClient {
+  /** Throws Unsupported when the endpoint speaks another protocol or major version. */
   describe(): Promise<Methods["describe"]["result"]>;
   schemaGet(params?: Methods["schema.get"]["params"]): Promise<Methods["schema.get"]["result"]>;
   blocksList(params?: Methods["blocks.list"]["params"]): Promise<Methods["blocks.list"]["result"]>;
@@ -59,6 +67,27 @@ export async function readResponseJson(response: Response): Promise<unknown> {
     bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   }
   return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+/**
+ * Refuses an endpoint this client can't speak to: another protocol, or
+ * another major version (minors only add, so any minor is fine).
+ */
+export function assertSupportedEndpoint(description: DescribeResult): DescribeResult {
+  const { protocol, version } = (description ?? {}) as Partial<DescribeResult>;
+  if (protocol !== PROTOCOL_NAME) {
+    throw new ContentProtocolError(
+      ErrorCode.Unsupported,
+      `the endpoint speaks ${JSON.stringify(protocol)}, not ${PROTOCOL_NAME}`,
+    );
+  }
+  if (version?.major !== PROTOCOL_VERSION.major) {
+    throw new ContentProtocolError(
+      ErrorCode.Unsupported,
+      `the endpoint speaks ${PROTOCOL_NAME} ${String(version?.major)}.x; this client speaks ${PROTOCOL_VERSION.major}.x`,
+    );
+  }
+  return description;
 }
 
 export function createContentClient(options: ContentClientOptions): ContentClient {
@@ -109,7 +138,7 @@ export function createContentClient(options: ContentClientOptions): ContentClien
 
   return {
     call,
-    describe: () => call("describe"),
+    describe: async () => assertSupportedEndpoint(await call("describe")),
     schemaGet: (params) => call("schema.get", params),
     blocksList: (params) => call("blocks.list", params),
     blocksApply: (params) => call("blocks.apply", params),

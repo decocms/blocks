@@ -118,3 +118,38 @@ describe("createContentClient", () => {
     expect(!result.notModified && result.schema).toEqual({ pad: "x".repeat(5000) });
   });
 });
+
+describe("protocol versions", () => {
+  const describing = (result: unknown) =>
+    createContentClient({
+      endpoint: "http://h/rpc",
+      fetch: async () => json({ jsonrpc: "2.0", id: 1, result }),
+    });
+
+  it("accepts any minor of the major it speaks", async () => {
+    const result = { protocol: "deco-content", version: { major: 1, minor: 7 } };
+    expect(await describing(result).describe()).toEqual(result);
+  });
+
+  it.each([
+    ["an unknown major", { protocol: "deco-content", version: { major: 2, minor: 0 } }],
+    ["an older major", { protocol: "deco-content", version: { major: 0, minor: 9 } }],
+    ["another protocol", { protocol: "other", version: { major: 1, minor: 0 } }],
+    ["no version", { protocol: "deco-content" }],
+    ["a non-object result", null],
+  ])("refuses %s with Unsupported", async (_label, result) => {
+    const error = await describing(result)
+      .describe()
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(ContentProtocolError);
+    expect(error.code).toBe(ErrorCode.Unsupported);
+  });
+
+  it("speaks to the server in this package", async () => {
+    const client = createContentClient({
+      endpoint: "http://h/rpc",
+      fetch: createContentHandler(createMemoryStorage()),
+    });
+    expect((await client.describe()).version.major).toBe(1);
+  });
+});

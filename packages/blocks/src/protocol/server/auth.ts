@@ -19,6 +19,16 @@ export interface AuthOptions {
   authorize?: (request: Request) => AuthorizeResult | Promise<AuthorizeResult>;
 }
 
+/**
+ * Refuses options that would lock every client out by accident: an empty
+ * token can never be presented, so every request would be 401.
+ */
+export function assertAuthOptions(options: AuthOptions): void {
+  if (options.token !== undefined && (typeof options.token !== "string" || options.token === "")) {
+    throw new TypeError("token must be a non-empty string; omit it to accept requests without one");
+  }
+}
+
 type AuthOutcome =
   | { ok: true; scope: string }
   | { ok: false; reason: "unauthorized" | "forbidden" };

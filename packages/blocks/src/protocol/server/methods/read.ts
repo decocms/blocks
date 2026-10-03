@@ -1,6 +1,7 @@
 /**
  * The three read methods: `describe`, `schema.get` and `blocks.list`.
  */
+import { publicKeyDerFromPem } from "../../ciphertext";
 import { limitExceeded, notFound, unavailable } from "../../errors";
 import {
   ASSETS_URL_PREFIX,
@@ -13,14 +14,35 @@ import {
   SCHEMA_FORMAT,
   type SchemaGetResult,
 } from "../../types";
-import { loadContent } from "../content";
+import { loadCurrentContent } from "../content";
 import type { Core } from "../core";
 
 const DEFAULT_SERVER = { name: "deco-blocks", version: "unknown" };
 
+/** The largest `.deco/secrets.pub` served (a 16384-bit key's PEM is under 3 KiB). */
+const MAX_PUBLIC_KEY_BYTES = 16 * 1024;
+
+/**
+ * The public key `describe` may serve: a single `PUBLIC KEY` PEM block of at
+ * most 16 KiB. Anything else (a private key committed by mistake, two
+ * blocks, stray text) is never broadcast to the site editor.
+ */
+function servablePublicKey(text: string | null): string | null {
+  if (text === null) return null;
+  if (new TextEncoder().encode(text).byteLength > MAX_PUBLIC_KEY_BYTES) return null;
+  if (text.includes("PRIVATE KEY")) return null;
+  return publicKeyDerFromPem(text) === null ? null : text;
+}
+
 export async function describe(core: Core): Promise<DescribeResult> {
   const description = await core.description();
-  const publicKey = await core.storage.readSecretsPublicKey();
+  const stored = await core.storage.readSecretsPublicKey();
+  const publicKey = servablePublicKey(stored);
+  if (stored !== null && publicKey === null) {
+    core.options.onError?.(
+      new Error(".deco/secrets.pub isn't a single PUBLIC KEY PEM block; describe reports no key"),
+    );
+  }
   const readOnly = description.readOnly;
   return {
     protocol: PROTOCOL_NAME,
@@ -106,15 +128,15 @@ export async function blocksList(core: Core, params: ReadParams): Promise<Blocks
   const description = await core.description();
   core.checkRef(description, params.ref);
   const limits = core.limits(description);
-  const snapshot = await core.storage.snapshot({ ref: params.ref });
-  if (params.ifNoneMatch !== undefined && params.ifNoneMatch === snapshot.revision) {
+  const { snapshot, content } = await loadCurrentContent(
+    core.storage,
+    params.ref,
+    { readAll: true, limits, cache: core.cache },
+    (s) => params.ifNoneMatch !== undefined && params.ifNoneMatch === s.revision,
+  );
+  if (content === null) {
     return { notModified: true, revision: snapshot.revision, resolvedRef: snapshot.resolvedRef };
   }
-  const content = await loadContent(core.storage, snapshot, {
-    readAll: true,
-    limits,
-    cache: core.cache,
-  });
   // Null-prototype maps, so an entry named like an Object.prototype key stays an entry.
   const blocks: Record<string, Record<string, unknown>> = Object.create(null);
   const versions: Record<string, string> = Object.create(null);

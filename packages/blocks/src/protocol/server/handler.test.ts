@@ -13,6 +13,8 @@ import { DEFAULT_LIMITS, MAX_BATCH_CALLS } from "../types";
 import { createContentHandler } from "./handler";
 
 const URL_ = "http://test.local/rpc";
+const PUBLIC_KEY =
+  "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n-----END PUBLIC KEY-----\n";
 
 function post(body: unknown, headers: Record<string, string> = {}) {
   return new Request(URL_, {
@@ -346,7 +348,7 @@ describe("storage failures", () => {
 describe("describe", () => {
   it("reports the storage, the effective limits and the features", async () => {
     const storage = createMemoryStorage({
-      state: { secretsPublicKey: "PUBKEY" },
+      state: { secretsPublicKey: PUBLIC_KEY },
       description: {
         kind: "working-tree",
         root: "apps/storefront",
@@ -373,8 +375,40 @@ describe("describe", () => {
       limits: { ...DEFAULT_LIMITS, maxOpsPerApply: 100, maxBlockBytes: 2048 },
       preview: { origin: "http://localhost:5173" },
       assets: { dir: "public/assets", urlPrefix: "/assets/", maxBytes: 25 * 1024 * 1024 },
-      secrets: { publicKey: "PUBKEY" },
+      secrets: { publicKey: PUBLIC_KEY },
     });
+  });
+
+  it.each([
+    ["a private key", PUBLIC_KEY.replace(/PUBLIC/g, "PRIVATE")],
+    [
+      "a public key followed by a private one",
+      `${PUBLIC_KEY}${PUBLIC_KEY.replace(/PUBLIC/g, "PRIVATE")}`,
+    ],
+    [
+      "an RSA private key",
+      "-----BEGIN RSA PRIVATE KEY-----\nQUJD\n-----END RSA PRIVATE KEY-----\n",
+    ],
+    ["two public keys", PUBLIC_KEY + PUBLIC_KEY],
+    ["something that isn't PEM", "ssh-rsa AAAAB3NzaC1yc2E"],
+    [
+      "a file over 16 KiB",
+      `-----BEGIN PUBLIC KEY-----\n${"QUJD".repeat(4200)}\n-----END PUBLIC KEY-----\n`,
+    ],
+  ])("never serves %s as the secrets public key", async (_label, text) => {
+    const onError = vi.fn();
+    const handler = createContentHandler(
+      createMemoryStorage({ state: { secretsPublicKey: text } }),
+      { onError },
+    );
+    const { result } = (await call(handler, rpc(1, "describe"))).body;
+    expect(result.secrets).toBeNull();
+    expect(JSON.stringify(result)).not.toContain("PRIVATE");
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it("refuses an empty token at construction, so it can't lock every client out", () => {
+    expect(() => createContentHandler(createMemoryStorage(), { token: "" })).toThrow(TypeError);
   });
 
   it("polls a git storage every 30 seconds by default", async () => {
