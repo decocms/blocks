@@ -4,12 +4,12 @@ nav: Built-in blocks
 group: Blocks
 kind: docs
 order: 6
-description: Eight functions every block map gets for free (lazy, multivariate, always, never, date, page, redirect and telemetry), and how to replace or change one.
+description: Nine functions every block map gets for free (lazy, multivariate, always, never, date, page, redirect, telemetry and analytics), and how to replace or change one.
 ---
 
 # Built-in blocks
 
-Almost every site needs pages, redirects and an if/else. Instead of writing those functions yourself, Deco CMS adds eight of them to your [block map](/next/blocks#the-block-map). You don't import or list them, and they're always in the schema and the registry, so a built-in never fails with `UNKNOWN_BLOCK`.
+Almost every site needs pages, redirects and an if/else. Instead of writing those functions yourself, Deco CMS adds nine of them to your [block map](/next/blocks#the-block-map). You don't import or list them, and they're always in the schema and the registry, so a built-in never fails with `UNKNOWN_BLOCK`.
 
 This page lists the built-ins, what each one takes and returns, and how to replace one or change the fields editors see. It's a quick list: each built-in is explained on the page where you'll use it, linked in the last column.
 
@@ -23,6 +23,7 @@ This page lists the built-ins, what each one takes and returns, and how to repla
 | `page` | `name`, `path`, `seo`, `sections` | The page, fully resolved | [Pages and routing](/next/routing) |
 | `redirect` | `from`, `to`, `permanent` | Its arguments, as saved | [Pages and routing](/next/routing) |
 | `telemetry` | Telemetry settings | Its arguments, as saved | [Telemetry](/next/telemetry#telemetry-settings-are-content) |
+| `analytics` | `collector`, `site`, `enabled` | The analytics tracking script, as JSX | [Analytics](/next/analytics) |
 
 ## Language built-ins
 
@@ -43,9 +44,12 @@ These five are part of how blocks evaluate, so every site gets the same ones:
 
 [Pages and routing](/next/routing) shows how to find the page for a URL and turn redirects into responses.
 
-## Settings
+## Telemetry and analytics
+
+These two are separate features:
 
 - **`telemetry`** is the type of the well-known `Telemetry` [saved block](/next/saved-blocks), which holds your site's telemetry switches and sample rates. It returns its arguments as saved; [Telemetry settings are content](/next/telemetry#telemetry-settings-are-content) lists the fields.
+- **`analytics`** takes `collector`, `site` and `enabled`, and returns the script that sends page views, as JSX (or `null` when it's off). Save one and render it in your layout or a page's `sections`; see [Analytics](/next/analytics).
 
 ## Change a built-in
 
@@ -67,4 +71,4 @@ export default { seo, hero, page } satisfies Blocks;
 
 Nothing is lost: arguments resolve before the function runs, so returning `props` gives the same resolved page as the built-in, `seo` and `sections` included, plus `theme`. You read it in the result of `client.resolve`, as `page.theme`, and [`deco schema`](/next/schema) gives editors a *theme* select on every page.
 
-No saved block can be called `page`, `redirect`, `telemetry`, `always`, `never`, `date`, `multivariate` or `lazy` (see [Names](/next/saved-blocks#names)).
+No saved block can be called `page`, `redirect`, `telemetry`, `analytics`, `always`, `never`, `date`, `multivariate` or `lazy` (see [Names](/next/saved-blocks#names)).

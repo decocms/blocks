@@ -9,7 +9,7 @@ order: 25
 
 You're writing the request handler and need the exact signature of `list` or `matchRoute`. This page lists everything `@decocms/blocks` exports.
 
-Everything here is imported from `@decocms/blocks`, except the instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is), in `@decocms/blocks/fetch`, and [analytics](#analytics), in `@decocms/blocks/analytics`. The [built-in blocks](/next/built-in-blocks), such as the [matchers](/next/matchers-and-variants#matchers), `multivariate` and `lazy`, need no import. What creating the CMS means for your app is in [Content and loaders](/next/content#create-the-cms).
+Everything here is imported from `@decocms/blocks`, except the instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is), in `@decocms/blocks/fetch`, and [`track` and `AnalyticsScript`](#analytics), in `@decocms/blocks/analytics`. The [built-in blocks](/next/built-in-blocks), such as the [matchers](/next/matchers-and-variants#matchers), `multivariate` and `lazy`, need no import. What creating the CMS means for your app is in [Content and loaders](/next/content#create-the-cms).
 
 ## `createCMS(config)`
 
@@ -211,15 +211,11 @@ Each request is measured with `provider`, `operation`, `status_class`, `cached` 
 
 ## Analytics
 
-From `@decocms/blocks/analytics`. Page views and your own events, in the One Dollar Stats format; see [Analytics](/next/analytics).
+Page views come from the built-in [`analytics` block](/next/analytics), which needs no import; its props are the `Analytics` type in [Types](#types). From `@decocms/blocks/analytics`:
 
 ```ts
-function Analytics(props: {
-  client: Client;       // reads the Telemetry saved block and the CMS's telemetry option through it
-  collector?: string;   // any endpoint that accepts the One Dollar Stats format; omit it to use the hosted Deco CMS collector when telemetry is { site, token }
-}): ReactNode;          // render once per page, on the server; outputs a small script that sends from the browser
-
-function track(name: string, props?: Record<string, string | number | boolean>): void;   // send your own event from the browser
+function track(name: string, props?: Record<string, string | number | boolean>): void;   // send your own event from the browser, through the script the analytics block renders; does nothing without it
+function AnalyticsScript(props: Analytics): ReactNode | null;   // the component the built-in block returns; render it yourself only with TanStack Start descriptors (see /next/analytics#2-render-it)
 ```
 
 ## Types
@@ -259,11 +255,19 @@ interface Variant<T> { rule: boolean; value: Lazy<T> }   // one entry of variant
 
 // The Telemetry saved block's type (built in, always in the schema). See /next/telemetry#telemetry-settings-are-content.
 interface Telemetry {
-  enabled?: boolean;          // default true; false switches telemetry and analytics off
+  enabled?: boolean;          // default true; false switches telemetry off
   metrics?: boolean;          // default true
   errorSampleRate?: number;   // default 0.05, capped by telemetry.limits
   traceSampleRate?: number;   // default 0, capped by telemetry.limits
-  analytics?: boolean;        // default true; false switches <Analytics /> off
+}
+
+// The built-in analytics block's props. Separate from telemetry. See /next/analytics.
+// The block is (props: Analytics) => ReactNode | null: the tracking script as JSX,
+// or null when enabled is false or neither collector nor site is set.
+interface Analytics {
+  collector?: string;   // an endpoint that accepts the One Dollar Stats format
+  site?: string;        // your hosted Deco CMS site ID: sends to the hosted collector; collector wins when both are set
+  enabled?: boolean;    // default true; false renders nothing
 }
 
 type Match<T> =

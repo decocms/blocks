@@ -42,4 +42,4 @@ The [instrumented fetch](/next/api-reference#createinstrumentedfetch-options) re
 
 ## Analytics events
 
-[`<Analytics />`](/next/analytics) sends events in the One Dollar Stats tracker's wire format: a JSON object with the page URL and a list of events (type, hostname, referrer, path). When the encoded payload is short, it goes as a `GET` with the JSON, base64-encoded, in the `?data=` parameter; otherwise it's sent with `navigator.sendBeacon` or a `POST`. The format isn't versioned, so compatibility is tested against a pinned version of the tracker.
+[Analytics](/next/analytics) is separate from telemetry: it doesn't use the `telemetry` option or the OTLP path above. The script the built-in `analytics` block renders sends page views in the One Dollar Stats tracker's wire format: a JSON object with the page URL and a list of events (type, hostname, referrer, path). When the encoded payload is short, it goes as a `GET` with the JSON, base64-encoded, in the `?data=` parameter; otherwise it's sent with `navigator.sendBeacon` or a `POST`. The format isn't versioned, so compatibility is tested against a pinned version of the tracker.

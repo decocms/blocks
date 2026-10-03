@@ -1064,7 +1064,7 @@
       "id": "roadmap-api--add-the-telemetry-block-sampling-and-aggregation",
       "group": "api",
       "title": "Add the Telemetry block, sampling and aggregation",
-      "plan": "<p><code>createCMS({ blocks, content, telemetry })</code>: <code>telemetry</code> is <code>{ endpoint, headers? }</code> for your own OpenTelemetry (OTLP/HTTP) collector, <code>{ site, token }</code> for the hosted Deco CMS collector, or <code>false</code>. The top-level <code>site</code> and <code>token</code> load hosted releases and drafts only; they never turn telemetry on by themselves. Telemetry settings (<code>enabled</code>, <code>metrics</code>, <code>errorSampleRate</code>, <code>traceSampleRate</code>, <code>analytics</code>) live in an optional well-known saved block, <code>Telemetry</code>, of the built-in <code>telemetry</code> type; <code>deco content</code> doesn't scaffold it, and without it the defaults apply. Editors change it in Studio or by hand like any content edit; it travels with every release. Code caps what content can raise with <code>telemetry.limits</code> (<code>errorSampleRate</code>, <code>traceSampleRate</code>), so an editor can't increase what leaves for a third party. Error logs are sampled; metrics are aggregated in memory before they're sent; credentials, cookies and bodies are scrubbed in the SDK.</p>",
+      "plan": "<p><code>createCMS({ blocks, content, telemetry })</code>: <code>telemetry</code> is <code>{ endpoint, headers? }</code> for your own OpenTelemetry (OTLP/HTTP) collector, <code>{ site, token }</code> for the hosted Deco CMS collector, or <code>false</code>. The top-level <code>site</code> and <code>token</code> load hosted releases and drafts only; they never turn telemetry on by themselves. Telemetry settings (<code>enabled</code>, <code>metrics</code>, <code>errorSampleRate</code>, <code>traceSampleRate</code>) live in an optional well-known saved block, <code>Telemetry</code>, of the built-in <code>telemetry</code> type; <code>deco content</code> doesn't scaffold it, and without it the defaults apply. Editors change it in Studio or by hand like any content edit; it travels with every release. Code caps what content can raise with <code>telemetry.limits</code> (<code>errorSampleRate</code>, <code>traceSampleRate</code>), so an editor can't increase what leaves for a third party. Error logs are sampled; metrics are aggregated in memory before they're sent; credentials, cookies and bodies are scrubbed in the SDK.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",
@@ -1080,7 +1080,7 @@
       "id": "roadmap-api--add-open-source-analytics",
       "group": "api",
       "title": "Add open-source analytics compatible with One Dollar Stats",
-      "plan": "<p>Ship <code>@decocms/blocks/analytics</code>: an <code>&lt;Analytics client collector? /&gt;</code> component for the root layout that renders on the server, reads its settings through the client, and sends page views (path without query string, referrer, hostname) from the browser with no cookies, and <code>track(name, props?)</code> for custom events. Events use the One Dollar Stats tracker's wire format (base64 JSON in <code>GET ?data=</code> when short, otherwise <code>POST</code>/<code>sendBeacon</code>), tested against a pinned tracker version, so a site can point <code>collector</code> at One Dollar Stats' own collector or any endpoint that accepts that format; with <code>telemetry: { site, token }</code> and no <code>collector</code>, the hosted Deco CMS collector receives them. Rendering the component turns it on; the <code>analytics</code> field of the <code>Telemetry</code> saved block (default <code>true</code>) switches it off.</p>",
+      "plan": "<p>Ship a built-in <code>analytics</code> block, separate from telemetry (it doesn't read the <code>telemetry</code> option or the <code>Telemetry</code> block). Its props are <code>collector?</code>, <code>site?</code> and <code>enabled?</code> (default <code>true</code>), and it returns the tracking script as JSX (<code>null</code> when off or with neither <code>collector</code> nor <code>site</code>), so a site saves an <code>Analytics</code> block and renders it in its layout or a page's <code>sections</code> like any other block, and editors change or switch it off in Studio. The script sends page views (path without query string, referrer, hostname) from the browser with no cookies; <code>track(name, props?)</code> from <code>@decocms/blocks/analytics</code> sends custom events through it. The block's component, <code>AnalyticsScript</code>, is exported from the same path so TanStack Start descriptor sites can declare <code>analytics</code> as a descriptor and render it themselves. Events use the One Dollar Stats tracker's wire format (base64 JSON in <code>GET ?data=</code> when short, otherwise <code>POST</code>/<code>sendBeacon</code>), tested against a pinned tracker version, so <code>collector</code> can be One Dollar Stats' own collector or any endpoint that accepts that format; with <code>site</code>, the hosted Deco CMS collector receives them.</p>",
       "features": [
         "analytics-trackers",
         "ecommerce-analytics-events"
@@ -1088,6 +1088,7 @@
       "docs": [
         "analytics",
         "api-reference",
+        "built-in-blocks",
         "telemetry-internals"
       ]
     },
@@ -1636,7 +1637,7 @@
       "id": "roadmap-platform--build-the-telemetry-collector",
       "group": "studio",
       "title": "Build the telemetry collector",
-      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token, for sites that set <code>telemetry: { site, token }</code>; it also receives analytics events in the One Dollar Stats format. Switching a site's telemetry off needs no special channel: it's a commit to the site's <code>Telemetry</code> saved block, from Studio or by hand, like any content edit.</p>",
+      "plan": "<p>An endpoint that accepts aggregated metrics and sampled error logs, authenticated by site ID and site token, for sites that set <code>telemetry: { site, token }</code>. Separately, it receives page views in the One Dollar Stats format from <code>analytics</code> blocks that set <code>site</code>. Switching a site's telemetry off needs no special channel: it's a commit to the site's <code>Telemetry</code> saved block, from Studio or by hand, like any content edit.</p>",
       "features": [
         "otel-observability",
         "upstream-fetch-instrumentation",

@@ -10,7 +10,7 @@ description: What the hosted Deco CMS adds on top of the open-source Deco CMS, w
 
 Your editors want a fix live within seconds, without waiting for a build, and they want to edit without cloning the repository. That's what the hosted Deco CMS is for: an optional service Deco runs on top of the same files. It changes how fast content reaches visitors and where editors work, not how your code is written.
 
-[Deco CMS](/next/how-it-works#what-deco-cms-is) is complete without it: your functions, your content files, your deploys and your own telemetry collector are all you need. This page shows what the hosted Deco CMS adds, what it doesn't do, and how to connect your site.
+[Deco CMS](/next/how-it-works#git-based-batteries-included) is complete without it: your functions, your content files, your deploys and your own telemetry collector are all you need. This page shows what the hosted Deco CMS adds, what it doesn't do, and how to connect your site.
 
 ## What it adds
 
@@ -22,7 +22,8 @@ Deco runs these services for a connected site:
 | **Drafts** | The Deco API serves an editor's draft to your real site, so Studio previews it in place. See [Previewing drafts](/next/hosted-drafts). | Drafts are branches you preview with your own preview deploys ([Releases and drafts](/next/releases-and-drafts#on-a-branch)). |
 | **Publishing** | The Deco API serves each commit to your production branch as a **release**, so content is live within seconds without a deploy. See [Publishing without a deploy](/next/hosted-publishing). | Content ships with your next deploy ([Deployment](/next/releases-and-deployment#publishing)). |
 | **Asset storage** | Images and other files editors upload go to Deco's storage and are served from a CDN. See [Uploads](/next/hosted-studio#uploads). | Uploads are files in your repository ([Images and other uploads](/next/studio#images-and-other-uploads)). |
-| **Telemetry collector** | A hosted collector for telemetry and analytics: set `telemetry: { site, token }` and view latency, error rates and page views with nothing to run. See [Hosted telemetry](/next/hosted-telemetry). | Send telemetry to your own OpenTelemetry collector, or nothing ([Telemetry](/next/telemetry)). |
+| **Telemetry collector** | A hosted OpenTelemetry collector: set `telemetry: { site, token }` and view latency, error rates and traces with nothing to run. See [Hosted telemetry](/next/hosted-telemetry). | Send telemetry to your own OpenTelemetry collector, or nothing ([Telemetry](/next/telemetry)). |
+| **Analytics collector** | Set `site` on your [`analytics` block](/next/analytics) and view page views with nothing to run. | Send page views to One Dollar Stats or your own collector ([Analytics](/next/analytics)). |
 
 ## What stays the same
 
@@ -53,7 +54,7 @@ export const cms = createCMS({
   content,
   site,
   token,
-  // Optional: also send telemetry and analytics to the hosted collector
+  // Optional: also send telemetry to the hosted collector
   telemetry: site && token ? { site, token } : false,
 });
 ```
@@ -98,7 +99,7 @@ Release checks on Workers run after the response, inside `ctx.waitUntil`, on the
 <Terms>
   <Term name="Site ID and site token">The two values that connect your app to the hosted Deco CMS, usually the `DECO_SITE` and `DECO_SITE_TOKEN` environment variables, passed to `createCMS` as `site` and `token`. They load releases and drafts. Passed under `telemetry` too, they send telemetry to the hosted collector. Only the token is secret.</Term>
   <Term name="Deco API">The HTTP service that serves your site's releases and drafts.</Term>
-  <Term name="Hosted collector">The hosted Deco CMS's endpoint for telemetry and analytics, used when `telemetry` is `{ site, token }`. See [Hosted telemetry](/next/hosted-telemetry).</Term>
+  <Term name="Hosted collector">The hosted Deco CMS's endpoint for telemetry, used when `telemetry` is `{ site, token }` (see [Hosted telemetry](/next/hosted-telemetry)), and for page views, used when the [`analytics` block](/next/analytics) has a `site`.</Term>
   <Term name="Release">A [release](/next/releases-and-drafts#releases) as the Deco API serves it: the content of one commit to your production branch, live without a deploy. See [Publishing without a deploy](/next/hosted-publishing).</Term>
   <Term name="Draft pointer">The string Studio puts in a `?__draft=` link: where a draft lives on the Deco API, with a token Studio signed, and which version. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) reads it. See [Previewing drafts](/next/hosted-drafts).</Term>
   <Term name="Draft branch">The branch Studio's GitHub backend commits an editor's saves to, created on the first save. Publishing brings it to your production branch. See [Editing in Studio on GitHub](/next/hosted-studio).</Term>
@@ -109,4 +110,4 @@ Release checks on Workers run after the response, inside `ctx.waitUntil`, on the
 - [Studio on GitHub](/next/hosted-studio): draft branches, uploads in hosted storage, publishing, and CI on Studio's commits.
 - [Previewing drafts](/next/hosted-drafts): the `?__draft=` link, wiring drafts into your app, and who may preview.
 - [Publishing without a deploy](/next/hosted-publishing): how a commit becomes a release, how servers pick it up, the fallback, and keeping running code compatible with new content.
-- [Hosted telemetry](/next/hosted-telemetry): turning on the hosted collector for telemetry and analytics.
+- [Hosted telemetry](/next/hosted-telemetry): turning on the hosted collector for telemetry.

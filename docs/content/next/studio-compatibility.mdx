@@ -21,7 +21,7 @@ The group names are Studio's, inherited from the Fresh and Deno framework. The C
 
 | Manifest group | What lands there | Studio uses it for |
 |---|---|---|
-| `sections` (Studio's legacy name) | Block functions that return JSX or a [render descriptor](/next/rendering#which-mode-to-use) | Studio's "add" catalog: the blocks an editor can add to a page |
+| `sections` (Studio's legacy name) | Block functions that return JSX or a [render descriptor](/next/rendering#which-mode-to-use), including the built-in `analytics` (or your descriptor version of it; see [Analytics](/next/analytics#2-render-it)) | Studio's "add" catalog: the blocks an editor can add to a page |
 | `matchers` | Block functions that return `boolean` ([matchers](/next/matchers-and-variants)), including the built-in `always`, `never` and `date` | The rule picker next to each [variant](/next/matchers-and-variants#variants) |
 | `loaders` | Every other block function, such as one that fetches products. Studio calls these loaders, after the Fresh and Deno name for data functions; they have nothing to do with where your content comes from. This includes the built-ins `multivariate` and `lazy`. Studio recognizes `lazy` by name and never offers it as a pick: it only writes it around a value in a `Lazy<T>` field. | Data fields that can point at a function |
 | `pages` | The built-in `page` (or your override of it) and [data-only blocks](/next/schema#data-only-blocks) whose type extends `Route`, like `post` | The page list, "new page", the URL field |

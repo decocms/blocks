@@ -23,7 +23,7 @@ Blocks is a way to write that same call as JSON, so the headline can change with
 { "__resolveType": "promo-banner", "title": "Free shipping over $50", "href": "/summer" }
 ```
 
-The function is code; the call is data. Everything else in [Deco CMS](/next/how-it-works#what-deco-cms-is), the forms, the checks, [Studio](/next/studio), variants and releases, reads and writes this format. This page shows what a block looks like, how blocks nest, the block map that decides which functions they can call, and the rule that finds the function for a name.
+The function is code; the call is data. Everything else in [Deco CMS](/next/how-it-works#git-based-batteries-included), the forms, the checks, [Studio](/next/studio), variants and releases, reads and writes this format. This page shows what a block looks like, how blocks nest, the block map that decides which functions they can call, and the rule that finds the function for a name.
 
 ## Functions as blocks
 
@@ -126,7 +126,7 @@ The block map is the default export of `.deco/index.ts` (or `.deco/index.tsx`), 
 
 Content chooses the arguments; code chooses which functions exist. A block can only call what's in this map. `satisfies Blocks` checks the map's shape while keeping each function's exact argument and return types (see [`Blocks`](/next/api-reference#types)).
 
-You don't list pages, redirects or the if/else blocks: eight [built-in blocks](/next/built-in-blocks) are added for you.
+You don't list pages, redirects or the if/else blocks: nine [built-in blocks](/next/built-in-blocks) are added for you.
 
 ## The lookup rule
 

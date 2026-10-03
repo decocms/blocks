@@ -3,14 +3,14 @@ title: Hosted telemetry
 nav: Hosted telemetry
 group: Hosted Deco CMS
 order: 31
-description: Send your site's telemetry and analytics to the hosted Deco CMS collector with a site ID and token, with no collector to run.
+description: Send your site's telemetry to the hosted Deco CMS collector with a site ID and token, with no collector to run.
 ---
 
 # Hosted telemetry
 
-You want upstream latency, error rates and page views for your site, but you don't want to run a collector or a dashboard. The hosted Deco CMS runs one for you.
+You want upstream latency and error rates for your site, but you don't want to run a collector or a dashboard. The hosted Deco CMS runs one for you.
 
-[Telemetry](/next/telemetry) and [analytics](/next/analytics) are open source and can go to any collector. This page shows how to send them to the hosted Deco CMS instead, and what you get there.
+[Telemetry](/next/telemetry) is open source and can go to any OpenTelemetry collector. This page shows how to send it to the hosted Deco CMS instead, and what you get there. Page views are [analytics](/next/analytics), which is separate: its hosted option is the `site` prop of the `analytics` block.
 
 ## Turn it on
 
@@ -28,14 +28,11 @@ export const cms = createCMS({
 });
 ```
 
-They're the same values that [connect your site](/next/hosted#connect-your-site) for releases and drafts, but telemetry is passed explicitly: the top-level `site` and `token` alone never send it. The `site && token` check keeps telemetry off where the variables aren't set, such as on your machine. To send analytics there too, render [`<Analytics />`](/next/analytics#where-events-go) without a `collector`.
+They're the same values that [connect your site](/next/hosted#connect-your-site) for releases and drafts, but telemetry is passed explicitly: the top-level `site` and `token` alone never send it. The `site && token` check keeps telemetry off where the variables aren't set, such as on your machine.
 
 ## What you get
 
-The hosted Deco CMS collects and shows, for your site:
-
-- the [measurements](/next/telemetry#whats-sent) your site sends: upstream latency and error rates per provider, inbound requests, cache hits and misses, and sampled error logs;
-- page views and events from [analytics](/next/analytics).
+The hosted Deco CMS collects and shows, for your site, the [measurements](/next/telemetry#whats-sent) your site sends: upstream latency and error rates per provider, inbound requests, cache hits and misses, sampled error logs, and traces when you turn them on.
 
 ## Settings
 

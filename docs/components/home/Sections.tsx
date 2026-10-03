@@ -512,7 +512,8 @@ const OWN: [string, string, 'yours' | 'opt'][] = [
   ['Content', 'Your Git repository', 'yours'],
   ['Code', 'Your Git repository', 'yours'],
   ['Hosting', 'Any JavaScript runtime you choose: Node, Cloudflare Workers, Deno, Bun or a React Native app', 'yours'],
-  ['Telemetry & analytics', 'Your OpenTelemetry collector, or the hosted Deco CMS', 'yours'],
+  ['Telemetry', 'Your OpenTelemetry collector, or the hosted Deco CMS', 'yours'],
+  ['Analytics', 'One Dollar Stats, your own collector, or the hosted Deco CMS', 'yours'],
   ['Studio on GitHub & publishing without a redeploy', 'Hosted Deco CMS', 'opt'],
 ]
 

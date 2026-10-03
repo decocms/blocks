@@ -10,11 +10,25 @@ order: 1
 
 <Callout>**Status.** The next version of Deco is being designed in the open: the API on these pages is proposed and not released yet. The [Roadmap](/roadmap) lists what's left.</Callout>
 
-Most of what changes on a website isn't code. It's the values the code is called with: a headline, a banner image, the share of visitors who see the new checkout. You write ordinary functions, and [Blocks](/next/blocks) saves a call to one as JSON: `{ "__resolveType": "promo-banner", "title": "Free shipping over $50" }` means `PromoBanner({ title: "Free shipping over $50" })`, where `promo-banner` is the name your site gives `PromoBanner`.
+Most of what changes on a website isn't code. It's the values the code is called with: a headline, a banner image, the share of visitors who see the new checkout. **Deco CMS** is a full suite of open-source libraries, CLIs and services that let you write your code so that marketers can tweak and evolve those values in a rich site editor. Deco CMS is powered by a syntax called [Blocks](/next/blocks). Blocks lets you serialize function calls as JSON, so the way your code calls its functions becomes editable.
 
-**Deco CMS**, the content management system, is everything built on that: the CLI that turns your types into forms and checks your content, [Studio](/next/studio), matchers and variants, Git-based content and releases, and open-source telemetry and analytics.
+For example, `{ "__resolveType": "promo-banner", "title": "Free shipping over $50" }` means `PromoBanner({ title: "Free shipping over $50" })`, where `promo-banner` is the name your site gives `PromoBanner`.
 
-This page follows one change, marketing switching the summer banner from "Free shipping over $75" to "Free shipping over $50", from the first line of code to a visitor's screen. Then it shows what Deco CMS is made of, and points you to the page that explains each part.
+This page follows one change, marketing switching the summer banner from "Free shipping over $75" to "Free shipping over $50", from the first line of code to a visitor's screen.
+
+## Git-based, batteries included
+
+Content is JSON files in your repository. Every edit is a commit, and content ships with your deploys, like code (see [Releases and drafts](/next/releases-and-drafts) and [Deployment](/next/releases-and-deployment)). You install one package, `@decocms/blocks`, and it comes with the pieces a site needs:
+
+- **[The CLI](/next/cli)**: turns your types into [forms](/next/schema) and [checks your content](/next/checking) with `deco check`.
+- **[Studio](/next/studio)**: the editor, those forms plus a live preview, for people who don't write code.
+- **[Matchers and variants](/next/matchers-and-variants)**: if/else, scheduled campaigns and A/B tests, written as blocks.
+- **[Telemetry](/next/telemetry)**: errors, metrics and traces from your servers, sent over OpenTelemetry.
+- **[Analytics](/next/analytics)**: privacy-friendly page views, compatible with One Dollar Stats.
+
+Everything is open source and runs without a Deco account, wherever your app runs today.
+
+<Hosted to="/next/hosted" label="The hosted Deco CMS">**Optional extras, on the same files.** The hosted Deco CMS adds publishing within seconds without a deploy, drafts on your real site, Studio on GitHub, asset storage, and hosted telemetry and analytics.</Hosted>
 
 ## The life of a change
 
@@ -48,22 +62,6 @@ Your usual CI builds and deploys the app, and the new text goes live with it, th
 
 Your app asks the SDK for `SummerBanner`. It asks through a `client` it gets from `cms.forRelease()`, where `cms` is the object your app creates once with [`createCMS`](/next/content#create-the-cms) (walked through in the [Quickstart](/next/quickstart#5-read-the-content-from-your-code); how content reaches it is in [Content and loaders](/next/content)). The SDK calls `PromoBanner` with the saved props and hands back the result, which you render like any other component. See [Rendering](/next/rendering) for the two ways that result reaches the browser.
 
-## What Deco CMS is
-
-Every part of Deco CMS reads or writes saved function calls. Each item below has one page that explains it:
-
-- **[Blocks](/next/blocks)**: the syntax. A function call written as JSON.
-- **[Forms from types](/next/schema)**: `deco schema` reads your functions' types and writes the forms editors fill in.
-- **[Studio](/next/studio)**: the editor, those forms plus a live preview, for people who don't write code.
-- **[Checking content](/next/checking)**: `deco check` type-checks every saved call against your code.
-- **[Matchers and variants](/next/matchers-and-variants)**: if/else, scheduled campaigns and A/B tests, written as calls.
-- **[Content](/next/content) and [releases](/next/releases-and-drafts)**: calls live as files in Git and reach your app as a module or through a loader. A draft is another set of calls run by the same code.
-- **[Telemetry](/next/telemetry) and [analytics](/next/analytics)**: upstream latency, errors and page views, sent to your own collector or the hosted one.
-
-You install one package, `@decocms/blocks`, which includes the `deco` CLI (see the [API reference](/next/api-reference) and the [CLI](/next/cli)). Your app is built and served wherever it runs today. Everything is open source and runs without a Deco account.
-
-<Hosted to="/next/hosted" label="The hosted Deco CMS">**Optional extras, on the same files.** The hosted Deco CMS adds publishing within seconds without a deploy, drafts on your real site, Studio on GitHub, asset storage and a hosted telemetry collector.</Hosted>
-
 ## Small on purpose
 
 - **Content is plain JSON.** Read it, diff it, or generate it with a script. There's no database to host.
@@ -87,14 +85,14 @@ For the full move, see [Migrating from v7](/next/renames-and-migrations).
 ## Key terms
 
 <Terms>
-  <Term name="Deco CMS">The content management system: Blocks plus everything built on it (forms, checks, Studio, matchers and variants, content and releases, telemetry and analytics). See [What Deco CMS is](#what-deco-cms-is).</Term>
+  <Term name="Deco CMS">The whole system: Blocks plus the libraries, CLIs and services built on it (forms, checks, Studio, matchers and variants, content and releases, telemetry and analytics). See [Git-based, batteries included](#git-based-batteries-included).</Term>
   <Term name="Blocks">The syntax for writing a function call as JSON. It's a format, not a product. See [Blocks](/next/blocks).</Term>
   <Term name="Block">One function call written as JSON: `__resolveType` names the function, the other keys are its arguments. See [Functions as blocks](/next/blocks#functions-as-blocks).</Term>
   <Term name="Block function">One of your functions with a typed first parameter, such as `PromoBanner`. See [Functions as blocks](/next/blocks#functions-as-blocks).</Term>
   <Term name="Block type">A name in the block map, such as `"promo-banner"`, that a block's `__resolveType` uses to call a function. See [The block map](/next/blocks#the-block-map).</Term>
   <Term name="Block map">An object from names to your block functions, such as `{ "promo-banner": PromoBanner }`, in `.deco/index.ts`. See [The block map](/next/blocks#the-block-map).</Term>
   <Term name="Saved block">A block stored under a name, as one JSON file in `.deco/blocks`, such as `SummerBanner.json`. See [Saved blocks](/next/saved-blocks).</Term>
-  <Term name="Built-in block">One of eight functions Deco CMS adds to every block map, such as `page`, `redirect` and `multivariate`. See [Built-in blocks](/next/built-in-blocks).</Term>
+  <Term name="Built-in block">One of nine functions Deco CMS adds to every block map, such as `page`, `redirect` and `multivariate`. See [Built-in blocks](/next/built-in-blocks).</Term>
   <Term name="Lazy block">A `lazy` block: a value that's resolved only when your code asks for it. See [Lazy blocks](/next/lazy-blocks).</Term>
   <Term name="Matcher">A block function that returns a `boolean`, such as `date`, used as the rule that picks a variant. See [Matchers](/next/matchers-and-variants#matchers).</Term>
   <Term name="Variant">The alternate content for a field, the `value` next to a `rule`. See [Variants](/next/matchers-and-variants#variants).</Term>
@@ -104,9 +102,9 @@ For the full move, see [Migrating from v7](/next/renames-and-migrations).
   <Term name="Draft">Another version of the content, read with `cms.forDraft(pointer)`. See [Drafts](/next/releases-and-drafts#drafts).</Term>
   <Term name="Revision">One exact version of the content, such as one commit. See [What a revision is](/next/releases-and-deployment#what-a-revision-is).</Term>
   <Term name="Resolve">What `client.resolve` does: read a saved block and call its function with the saved inputs. See [How resolution works](/next/how-resolution-works).</Term>
-  <Term name="Telemetry">Upstream latency, error rates and other measurements from your servers, sent over OpenTelemetry. See [Telemetry](/next/telemetry).</Term>
-  <Term name="Analytics">Page views and your own events, sent from the browser without cookies. See [Analytics](/next/analytics).</Term>
-  <Term name="The hosted Deco CMS">The optional service Deco runs on the same files: publishing without a deploy, drafts on your real site, Studio on GitHub, asset storage and a telemetry collector. See [The hosted Deco CMS](/next/hosted).</Term>
+  <Term name="Telemetry">Errors, metrics and traces from your servers, sent over OpenTelemetry. See [Telemetry](/next/telemetry).</Term>
+  <Term name="Analytics">Page views from the browser, without cookies, compatible with One Dollar Stats. It's a built-in block you render, separate from telemetry. See [Analytics](/next/analytics).</Term>
+  <Term name="The hosted Deco CMS">The optional service Deco runs on the same files: publishing without a deploy, drafts on your real site, Studio on GitHub, asset storage, and collectors for telemetry and analytics. See [The hosted Deco CMS](/next/hosted).</Term>
 </Terms>
 
 `@decocms` is just the package scope, the company's name on npm.
