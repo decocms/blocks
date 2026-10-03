@@ -14,7 +14,7 @@ History worth knowing: the framework used to be a single tsup-bundled package, `
 
 - Package manager / workspace / test runner: Bun + Vitest (one root `vitest.config.ts`)
 - Runtime targets: any (Cloudflare Workers, Node, Bun, browsers for the client-safe parts); `@decocms/blocks` has no framework binding
-- UI types: React 19 (types only; the runtime does not render)
+- React 19: the root runtime uses React types only; `/analytics` uses `createElement` (react is a required peer)
 - Lint/format: Biome; unused code: knip (run once from the root over all workspaces)
 
 ## Common Commands
@@ -47,7 +47,11 @@ examples/                       tanstack-smoke, tanstack-rsc-smoke, nextjs-smoke
 .agents/skills/
 ├── deco-v7-to-v8-migration/    the v7 → v8 site migration (SKILL.md, reference/, runnable scripts/)
 └── …                           v7 skills; they target v7 sites and the 7.x branch
+.cursor/skills/                 framework-agnostic ops skills (site deployment, CDN performance audit, incident report)
+docs/runbooks/                  alert runbooks; the provisioned alerts' runbook_url links here, so keep the paths stable
 ```
+
+v7-only design docs, plans and Cursor skills live on the `7.x` branch. The docs for users are the docs site (`/next/*`), not this repo.
 
 Nothing else is published from this line: the release allowlist in `.releaserc.json` is `blocks` plus the seven `apps-*`.
 
@@ -66,7 +70,7 @@ Every export maps to a source file; there is no dist indirection.
 
 ### Key boundaries
 
-- **The runtime never imports the protocol or the CLI.** `src/v8` modules import only each other (no Node built-ins, no React at runtime); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. The CLI may import the protocol.
+- **The runtime never imports the protocol or the CLI.** `src/v8` modules import only each other (no Node built-ins, no React at runtime except `/analytics`); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. The CLI may import the protocol.
 - **Clients depend only on `@decocms/blocks`**, with no peers and no framework binding. A client takes settings as arguments (no env reads), never caches, has no hooks, converters or `"use client"` code: those belong in the site's platform template (`tests/upstream-clients.conformance.test.ts`).
 - **Cross-package imports resolve to `.ts` source** (`moduleResolution: bundler`). No `tsconfig.json` `references` anywhere: adding them back reintroduces a TS6305 build-ordering bug.
 - **No compat layers.** If a site needs something a package should export, add the export; don't let sites (or this repo) re-create v7 APIs as shims.

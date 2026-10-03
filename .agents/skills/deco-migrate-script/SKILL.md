@@ -391,7 +391,7 @@ Generates `MIGRATION_REPORT.md` with:
 Runs automatically after all phases (skipped in `--dry-run`):
 1. `bun install`
 2. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts`
-3. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts` — emits `src/server/invoke.gen.ts` (top-level `createServerFn` declarations for every VTEX action, plus the `forwardResponseCookies()` Set-Cookie bridge). Without this step the site falls back to the `/deco/invoke/...` proxy and the cart breaks at `/checkout` after addItemToCart. See `.cursor/skills/deco-server-functions-invoke/troubleshooting.md` ("Cart 'forgets' items between requests") for the failure mode.
+3. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts` — emits `src/server/invoke.gen.ts` (top-level `createServerFn` declarations for every VTEX action, plus the `forwardResponseCookies()` Set-Cookie bridge). Without this step the site falls back to the `/deco/invoke/...` proxy and the cart breaks at `/checkout` after addItemToCart. See `.cursor/skills/deco-server-functions-invoke/troubleshooting.md` on the `7.x` branch ("Cart 'forgets' items between requests") for the failure mode.
 4. `bunx tsr generate`
 
 ### Phase 8: Compile
