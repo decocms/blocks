@@ -12,7 +12,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import type { Node, Project, Type } from "ts-morph";
+import { createTsProject, type TsNode as Node, type TsType as Type } from "./tsProgram";
 import { BUILT_IN_BLOCKS, type BuiltInBlock, LEGACY_ALIASES } from "../builtins";
 import { CliError, type DecoPaths } from "../root";
 import {
@@ -122,8 +122,7 @@ function functionDocs(declaration: Node | undefined): Record<string, string> {
   const tags: Record<string, string> = {};
   let node: Node | undefined = declaration;
   for (let depth = 0; node && depth < 3; depth++, node = node.getParent()) {
-    const docs = typeof (node as any).getJsDocs === "function" ? (node as any).getJsDocs() : [];
-    for (const doc of docs) {
+    for (const doc of node.getJsDocs()) {
       const desc = doc.getDescription().trim();
       if (desc && !tags.description) tags.description = desc;
       for (const tag of doc.getTags()) {
@@ -162,26 +161,6 @@ function sameType(a: Type, b: Type): boolean {
   return a === b || a.compilerType === b.compilerType || a.getText() === b.getText();
 }
 
-/** Create the ts-morph project the schema is read from: the app's tsconfig, if any. */
-async function createProject(root: string): Promise<Project> {
-  const { Project: ProjectClass, ts } = await import("ts-morph");
-  const tsconfig = path.join(root, "tsconfig.json");
-  if (fs.existsSync(tsconfig)) {
-    return new ProjectClass({ tsConfigFilePath: tsconfig, skipAddingFilesFromTsConfig: true });
-  }
-  return new ProjectClass({
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      jsx: ts.JsxEmit.ReactJSX,
-      strict: true,
-      skipLibCheck: true,
-      resolveJsonModule: true,
-    },
-  });
-}
-
 function findBlockMap(paths: DecoPaths): string {
   const file = paths.blockMapCandidates.find((candidate) => fs.existsSync(candidate));
   if (!file) {
@@ -196,15 +175,14 @@ function findBlockMap(paths: DecoPaths): string {
 export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
   const blockMap = findBlockMap(paths);
   const root = paths.root;
-  const project = await createProject(root);
-  const builtInTypes = project.createSourceFile(
-    path.join(paths.deco, "__deco_builtin_types__.ts"),
-    BUILT_IN_TYPES_SOURCE,
-    { overwrite: true },
-  );
-  const seoType = builtInTypes.getInterfaceOrThrow("Seo").getType();
-  const routeType = builtInTypes.getInterfaceOrThrow("Route").getType();
-  const source = project.addSourceFileAtPath(blockMap);
+  const builtInTypesFile = path.join(paths.deco, "__deco_builtin_types__.ts");
+  const project = await createTsProject(root, [blockMap], {
+    [builtInTypesFile]: BUILT_IN_TYPES_SOURCE,
+  });
+  const builtInTypes = project.sourceFile(builtInTypesFile);
+  const seoType = builtInTypes.getInterfaceType("Seo");
+  const routeType = builtInTypes.getInterfaceType("Route");
+  const source = project.sourceFile(blockMap);
   const diagnostics: SchemaDiagnostic[] = [];
   const relMap = path.relative(root, blockMap).split(path.sep).join("/");
 
@@ -276,9 +254,9 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
       const fileDefault = declFile.getDefaultExportSymbol();
       const target = fileDefault?.isAlias() ? fileDefault.getAliasedSymbol() : fileDefault;
       const declNodes = target?.getDeclarations() ?? [];
-      const isDefault = declNodes.some(
-        (n) => n === declaration || n.getDescendants().includes(declaration as Node),
-      );
+      const isDefault = declaration
+        ? declNodes.some((n) => n === declaration || n.contains(declaration))
+        : false;
       if (isDefault) propsKey = `${toBase64(stableFileId(declFile.getFilePath(), root))}@Props`;
     }
 

@@ -17,12 +17,13 @@
  * - `@options` with a literal list becomes an `enum`; a function-backed list
  *   falls back to a text field, since the site editor never runs site code.
  *
- * ts-morph is only imported as types here; `generate.ts` loads it lazily.
+ * The compiler is only imported as types here; `generate.ts` loads the
+ * app's `typescript` when `deco schema` runs.
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import type { Symbol as MorphSymbol, Type } from "ts-morph";
+import type { TsSymbol as MorphSymbol, TsType as Type } from "./tsProgram";
 
 export const RESOLVABLE_KEY = "Resolvable";
 export const SECTION_REF_KEY = "__SECTION_REF__";
@@ -76,8 +77,7 @@ const BOOLEAN_TAGS = new Set(["readOnly", "writeOnly", "deprecated", "uniqueItem
 export function getJsDocTags(symbol: MorphSymbol): Record<string, string> {
   const tags: Record<string, string> = {};
   for (const decl of symbol.getDeclarations()) {
-    const jsDocs = typeof (decl as any).getJsDocs === "function" ? (decl as any).getJsDocs() : [];
-    for (const doc of jsDocs) {
+    for (const doc of decl.getJsDocs()) {
       const desc = doc.getDescription().trim();
       if (desc) tags.description = desc;
       for (const tag of doc.getTags()) {
@@ -213,7 +213,7 @@ function applyWidgetFormat(schema: any, typeHint: string): void {
       if (variant.type === "string") variant.format ??= format;
     }
   } else if (!schema.type && !schema.$ref && !schema.anyOf) {
-    // A widget alias ts-morph couldn't resolve (remote import) came through as
+    // A widget alias the checker couldn't resolve (remote import) came through as
     // `any`; every widget alias is a string, so recover the intended widget.
     schema.type = "string";
     schema.format = format;
@@ -568,7 +568,7 @@ export function typeToJsonSchema(
 
         // The annotation as written (`ImageWidget`, `Section[]`, `Secret`),
         // before the checker resolves aliases away.
-        const typeNode = (decl as any).getTypeNode?.();
+        const typeNode = decl.getTypeNode();
         const typeHint: string = typeNode ? typeNode.getText() : propType.getText();
         const optional = prop.isOptional();
 
