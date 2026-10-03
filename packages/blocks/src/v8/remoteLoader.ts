@@ -32,13 +32,10 @@ const INSTANCE_PREFIX = "decocms.blocks.remote:";
 const MANIFEST_FORMAT = 1;
 const FETCH_TIMEOUT_MS = 10_000;
 
-/** The interval a `remoteLoader` was created with, for `createCMS` to pace it. */
-export const LOADER_INTERVAL = Symbol.for("decocms.blocks.remote-interval");
-
 interface RemoteLoaderOptions {
   site: string;
   token: string;
-  /** ms between release checks; read by `createCMS` when it has no `interval` of its own. */
+  /** ms between release checks, used when `createCMS` has no `interval` of its own. */
   interval?: number;
 }
 
@@ -51,18 +48,18 @@ interface Manifest {
 class RemoteLoader implements Loader {
   readonly #site: string;
   readonly #token: string;
-  readonly [LOADER_INTERVAL]: number | undefined;
+  /** The `interval` this loader was created with; `createCMS` reads it. */
+  readonly interval: number | undefined;
   #fallback: Snapshot | Loader;
   #fallbackRevision: string | undefined;
   #current: Snapshot | undefined;
   #generation = -1;
-  #etag: string | undefined;
 
   constructor(fallback: Snapshot | Loader, options: RemoteLoaderOptions) {
     this.#fallback = fallback;
     this.#site = options.site;
     this.#token = options.token;
-    this[LOADER_INTERVAL] = options.interval;
+    this.interval = options.interval;
   }
 
   /** A hot reload hands the same instance new fallback content. */
@@ -81,15 +78,18 @@ class RemoteLoader implements Loader {
   async update(): Promise<{ updated: boolean }> {
     if (isDevelopment()) return { updated: false };
     const manifest = await this.#manifest();
-    if (manifest === null || manifest.generation < this.#generation) return { updated: false };
+    if (manifest.generation < this.#generation) return { updated: false };
 
-    const served = this.#current?.revision ?? (await this.#fallbackRevisionNow());
-    if (manifest.revision === served) {
+    // Best effort: a fallback that can't load (a missing kvLoader key) is
+    // fixed by downloading the release, not by failing the check.
+    const fallbackRevision = await this.#fallbackRevisionNow().catch(() => undefined);
+    const served = this.#current !== undefined ? this.#current.revision : fallbackRevision;
+    if (served !== undefined && manifest.revision === served) {
       this.#generation = manifest.generation;
       return { updated: false };
     }
     let next: Snapshot | undefined;
-    if (manifest.revision !== (await this.#fallbackRevisionNow())) {
+    if (fallbackRevision === undefined || manifest.revision !== fallbackRevision) {
       next = await this.#release(manifest);
     }
     // A slower, earlier check must not undo a newer publish or rollback.
@@ -110,15 +110,12 @@ class RemoteLoader implements Loader {
     return this.#fallbackRevision ?? (await this.#loadFallback()).revision;
   }
 
-  async #manifest(): Promise<Manifest | null> {
+  async #manifest(): Promise<Manifest> {
     const site = encodeURIComponent(this.#site);
-    const headers: Record<string, string> = this.#auth();
-    if (this.#etag) headers["if-none-match"] = this.#etag;
     const response = await fetchWithTimeout(
       `${HOSTED_DELIVERY_ORIGIN}/sites/${site}/channels/production.json`,
-      headers,
+      this.#auth(),
     );
-    if (response.status === 304) return null;
     if (!response.ok) throw new Error(`channel manifest: HTTP ${response.status}`);
     const body: unknown = await response.json();
     const prefix = `/sites/${site}/revisions/`;
@@ -134,7 +131,6 @@ class RemoteLoader implements Loader {
     ) {
       throw new Error("channel manifest: unexpected format or snapshot path");
     }
-    this.#etag = response.headers.get("etag") ?? undefined;
     return body as unknown as Manifest;
   }
 
@@ -179,19 +175,21 @@ class RemoteLoader implements Loader {
 
 /**
  * Hosted releases and drafts over a fallback. `createCMS` builds it for you
- * when `site` and `token` are set.
+ * when `site` and `token` are set. With either unset (a dev or test
+ * environment without the variables), it returns `fallback` unchanged.
  */
-export function remoteLoader(fallback: Snapshot | Loader, options: RemoteLoaderOptions): Loader {
-  if (!options?.site || !options.token) {
-    throw new TypeError("remoteLoader: `site` and `token` are required");
-  }
+export function remoteLoader(
+  fallback: Snapshot | Loader,
+  options: RemoteLoaderOptions,
+): Snapshot | Loader {
+  if (!options?.site || !options.token) return fallback;
   const key = Symbol.for(
     `${INSTANCE_PREFIX}${contentIdentity(fallback)}|site:${options.site}|token:${fnv1a(options.token)}`,
   );
   const store = globalThis as unknown as Record<symbol, RemoteLoader | undefined>;
   const existing = store[key];
   if (existing instanceof Object && typeof existing.adopt === "function") {
-    if (existing[LOADER_INTERVAL] !== options.interval) {
+    if (existing.interval !== options.interval) {
       console.warn(
         "[decocms/blocks] remoteLoader was called again for the same site with different options " +
           "(interval); keeping the first instance's options.",

@@ -9,7 +9,10 @@ import { computeContentRevision } from "../protocol/canonical";
 import { createCMS, resetForTests } from "./cms";
 import { remoteLoader } from "./remoteLoader";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
-import type { Snapshot } from "./types";
+import type { Loader, Snapshot } from "./types";
+
+/** With `site` and `token` set, `remoteLoader` returns a loader. */
+const remote = (...args: Parameters<typeof remoteLoader>) => remoteLoader(...args) as Loader;
 
 const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
 const SITE = "acme";
@@ -43,10 +46,7 @@ function deliveryApi() {
     requests.push({ url, headers });
     if (url === MANIFEST_URL) {
       if (!manifest) return new Response("missing", { status: 404 });
-      if (headers["if-none-match"] === `"g${manifest.generation}"`) {
-        return new Response(null, { status: 304 });
-      }
-      return Response.json(manifest, { headers: { etag: `"g${manifest.generation}"` } });
+      return Response.json(manifest);
     }
     const path = url.slice(HOSTED_DELIVERY_ORIGIN.length).split("?")[0] ?? "";
     if (assets.has(path)) return Response.json(assets.get(path));
@@ -67,6 +67,9 @@ function deliveryApi() {
     asset(path: string, body: unknown) {
       assets.set(path, body);
     },
+    remove(path: string) {
+      assets.delete(path);
+    },
   };
 }
 
@@ -74,7 +77,7 @@ describe("remoteLoader: releases", () => {
   it("serves the fallback from memory until a release is fetched, with no network on load()", async () => {
     const api = deliveryApi();
     const fallback = docsSnapshot();
-    const loader = remoteLoader(fallback, { site: SITE, token: TOKEN });
+    const loader = remote(fallback, { site: SITE, token: TOKEN });
     expect(await loader.load()).toBe(fallback);
     expect(api.fetch).not.toHaveBeenCalled();
   });
@@ -83,7 +86,7 @@ describe("remoteLoader: releases", () => {
     const api = deliveryApi();
     const release = await hashed("Published");
     api.publish(1, release);
-    const loader = remoteLoader(docsSnapshot(), { site: SITE, token: TOKEN });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
 
     expect(await loader.update?.()).toEqual({ updated: true });
     expect(await loader.load()).toEqual(release);
@@ -100,20 +103,39 @@ describe("remoteLoader: releases", () => {
     const api = deliveryApi();
     const fallback = await hashed("Bundled");
     api.publish(1, fallback);
-    const loader = remoteLoader(fallback, { site: SITE, token: TOKEN });
+    const loader = remote(fallback, { site: SITE, token: TOKEN });
 
     expect(await loader.update?.()).toEqual({ updated: false });
     expect(api.requests.map((r) => r.url)).toEqual([MANIFEST_URL]);
     expect(await loader.load()).toBe(fallback);
   });
 
-  it("sends the manifest ETag and treats 304 as nothing new", async () => {
+  it("retries a release whose download failed on the next check", async () => {
     const api = deliveryApi();
-    api.publish(1, await hashed("Published"));
-    const loader = remoteLoader(docsSnapshot(), { site: SITE, token: TOKEN });
-    await loader.update?.();
-    expect(await loader.update?.()).toEqual({ updated: false });
-    expect(api.requests.at(-1)?.headers["if-none-match"]).toBe('"g1"');
+    const release = await hashed("Published");
+    api.publish(1, release);
+    const path = `/sites/acme/revisions/${release.revision}.json`;
+    api.remove(path);
+    const fallback = docsSnapshot();
+    const loader = remote(fallback, { site: SITE, token: TOKEN });
+
+    await expect(loader.update?.()).rejects.toThrow(/HTTP 404/);
+    expect(await loader.load()).toBe(fallback);
+    api.asset(path, release);
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect(await loader.load()).toEqual(release);
+  });
+
+  it("a fallback that can't load (a missing kvLoader key) is fixed by a release check", async () => {
+    const api = deliveryApi();
+    const release = await hashed("Published");
+    api.publish(1, release);
+    const failing: Loader = { load: () => Promise.reject(new Error("no key")) };
+    const loader = remote(failing, { site: SITE, token: TOKEN });
+
+    await expect(loader.load()).rejects.toThrow("no key");
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect(await loader.load()).toEqual(release);
   });
 
   it("refuses content that doesn't hash to its revision, keeping memory as it was", async () => {
@@ -131,7 +153,7 @@ describe("remoteLoader: releases", () => {
     const api = deliveryApi();
     const release = await hashed("Published");
     api.asset(`/sites/other/revisions/${release.revision}.json`, release);
-    const loader = remoteLoader(docsSnapshot(), { site: SITE, token: TOKEN });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
 
     api.setManifest({
@@ -155,7 +177,7 @@ describe("remoteLoader: releases", () => {
     const api = deliveryApi();
     const a = await hashed("A");
     const b = await hashed("B");
-    const loader = remoteLoader(docsSnapshot(), { site: SITE, token: TOKEN });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
 
     api.publish(184, b);
     await loader.update?.();
@@ -173,7 +195,7 @@ describe("remoteLoader: releases", () => {
   it("rolling back to the fallback's revision serves the fallback again", async () => {
     const api = deliveryApi();
     const fallback = await hashed("Bundled");
-    const loader = remoteLoader(fallback, { site: SITE, token: TOKEN });
+    const loader = remote(fallback, { site: SITE, token: TOKEN });
     api.publish(1, await hashed("Published"));
     await loader.update?.();
     api.publish(2, fallback);
@@ -186,7 +208,7 @@ describe("remoteLoader: releases", () => {
     const api = deliveryApi();
     api.publish(1, await hashed("Published"));
     const fallback = docsSnapshot();
-    const loader = remoteLoader(fallback, { site: SITE, token: TOKEN });
+    const loader = remote(fallback, { site: SITE, token: TOKEN });
     expect(await loader.update?.()).toEqual({ updated: false });
     expect(await loader.load()).toBe(fallback);
     expect(api.fetch).not.toHaveBeenCalled();
@@ -196,7 +218,7 @@ describe("remoteLoader: releases", () => {
     deliveryApi();
     const fallback = await hashed("Bundled");
     const load = vi.fn(async () => fallback);
-    const loader = remoteLoader({ load }, { site: SITE, token: TOKEN });
+    const loader = remote({ load }, { site: SITE, token: TOKEN });
     expect(await loader.load()).toBe(fallback);
     expect(load).toHaveBeenCalledTimes(1);
   });
@@ -207,7 +229,7 @@ describe("remoteLoader: drafts", () => {
     const api = deliveryApi();
     const draft = await hashed("Draft");
     api.asset("/drafts/acme/feat", draft);
-    const loader = remoteLoader(docsSnapshot(), { site: SITE, token: TOKEN });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
 
     expect(await loader.load(`${HOST}/drafts/acme/feat?token=signed@9f3c1a`)).toEqual(draft);
     expect(api.requests[0]).toMatchObject({
@@ -235,7 +257,7 @@ describe("remoteLoader: drafts", () => {
     const api = deliveryApi();
     const draft = await hashed("Draft");
     api.asset("/drafts/acme/feat", draft);
-    const loader = remoteLoader(docsSnapshot(), { site: SITE, token: TOKEN });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
     expect(await loader.load(`${HOST}/drafts/acme/feat@v1`)).toEqual(draft);
   });
 });
@@ -270,11 +292,11 @@ describe("remoteLoader with createCMS", () => {
   it("is one instance per process: the same site, token and fallback share it; another interval warns", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const fallback = docsSnapshot();
-    const first = remoteLoader(fallback, { site: SITE, token: TOKEN });
-    expect(remoteLoader(fallback, { site: SITE, token: TOKEN })).toBe(first);
-    expect(remoteLoader(fallback, { site: SITE, token: TOKEN, interval: 120_000 })).toBe(first);
+    const first = remote(fallback, { site: SITE, token: TOKEN });
+    expect(remote(fallback, { site: SITE, token: TOKEN })).toBe(first);
+    expect(remote(fallback, { site: SITE, token: TOKEN, interval: 120_000 })).toBe(first);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("interval"));
-    expect(remoteLoader(fallback, { site: "other", token: TOKEN })).not.toBe(first);
+    expect(remote(fallback, { site: "other", token: TOKEN })).not.toBe(first);
   });
 
   it("createCMS paces a remoteLoader by its own interval when it has none", async () => {
@@ -282,7 +304,7 @@ describe("remoteLoader with createCMS", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
     deliveryApi();
-    const loader = remoteLoader(docsSnapshot(), { site: SITE, token: TOKEN, interval: 300_000 });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN, interval: 300_000 });
     const update = vi.spyOn(loader, "update" as never);
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     cms.forRelease();
@@ -294,7 +316,9 @@ describe("remoteLoader with createCMS", () => {
     vi.useRealTimers();
   });
 
-  it("requires site and token", () => {
-    expect(() => remoteLoader(docsSnapshot(), { site: "", token: TOKEN })).toThrow(TypeError);
+  it("returns the fallback unchanged when site or token is unset", () => {
+    const fallback = docsSnapshot();
+    expect(remoteLoader(fallback, { site: "", token: TOKEN })).toBe(fallback);
+    expect(remoteLoader(fallback, { site: SITE, token: undefined as never })).toBe(fallback);
   });
 });

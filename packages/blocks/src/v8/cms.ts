@@ -12,7 +12,7 @@ import { secretBlock } from "./builtins/secret";
 import { CMSClient } from "./client";
 import { ContentStore, isLoader, isSnapshot } from "./content";
 import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity";
-import { LOADER_INTERVAL, remoteLoader, resetRemoteLoaders } from "./remoteLoader";
+import { remoteLoader, resetRemoteLoaders } from "./remoteLoader";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry";
 import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types";
 
@@ -130,9 +130,9 @@ class CMSInstance implements CMS {
  */
 export function createCMS(config: CMSConfig): CMS {
   validate(config);
-  const interval = resolveInterval(
-    config.interval ?? (config.content as { [LOADER_INTERVAL]?: number })[LOADER_INTERVAL],
-  );
+  // A remoteLoader passed as `content` carries the `interval` it was created with.
+  const own = (config.content as { interval?: unknown }).interval;
+  const interval = resolveInterval(config.interval ?? (typeof own === "number" ? own : undefined));
   const key = Symbol.for(INSTANCE_PREFIX + identityOf(config));
   const store = globalThis as unknown as Record<symbol, CMSInstance | undefined>;
   const existing = store[key];
@@ -156,11 +156,7 @@ export function resetForTests(): void {
 /** With `site` and `token`, the content is the fallback of hosted releases and drafts. */
 function contentOf(config: CMSConfig): Snapshot | Loader {
   if (!config.site || !config.token) return config.content;
-  return remoteLoader(config.content, {
-    site: config.site,
-    token: config.token,
-    interval: config.interval,
-  });
+  return remoteLoader(config.content, { site: config.site, token: config.token });
 }
 
 function validate(config: CMSConfig): void {
