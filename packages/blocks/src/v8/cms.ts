@@ -6,6 +6,8 @@
  * a package loaded twice (two bundles, a dev reload) still shares one content
  * cache. See /next/api-reference#one-instance-per-process.
  */
+import { builtIns } from "./builtins/index";
+import { secretBlock } from "./builtins/secret";
 import { CMSClient } from "./client";
 import { ContentStore, isLoader, isSnapshot } from "./content";
 import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types";
@@ -27,6 +29,8 @@ class CMSInstance implements CMS {
   readonly #store: ContentStore;
   readonly #interval: number;
   readonly #warned = new Set<string>();
+  /** The built-ins with a `secret` that holds this instance's key (the first call's). */
+  readonly #builtIns: Readonly<Blocks>;
   #blocks: Blocks;
   /**
    * When the source was last checked. It starts on the first `forRelease()`,
@@ -38,6 +42,7 @@ class CMSInstance implements CMS {
   constructor(config: CMSConfig, interval: number) {
     this.config = config;
     this.#blocks = config.blocks;
+    this.#builtIns = Object.freeze({ ...builtIns, secret: secretBlock(config.secrets?.key) });
     this.#interval = interval;
     this.#store = new ContentStore(config.content);
     this.fingerprint = fingerprintOf(config, interval);
@@ -71,6 +76,7 @@ class CMSInstance implements CMS {
     return new CMSClient({
       load,
       blocks: this.#blocks,
+      builtIns: this.#builtIns,
       onCollision: (name) => this.#warnCollision(name),
     });
   }

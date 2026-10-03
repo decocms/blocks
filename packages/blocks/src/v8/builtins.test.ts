@@ -22,7 +22,7 @@ function client(blocks: Blocks = docsBlocks(), content: Snapshot = docsSnapshot(
 const lazyValue = (value: unknown) => ({ __resolveType: "lazy", value });
 
 describe("the built-in list", () => {
-  it("has the documented names (secret joins with the secrets module)", () => {
+  it("has the ten documented names", () => {
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "always",
@@ -33,6 +33,7 @@ describe("the built-in list", () => {
         "never",
         "page",
         "redirect",
+        "secret",
         "telemetry",
       ].sort(),
     );

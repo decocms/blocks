@@ -1,0 +1,30 @@
+{
+  "name": "Autor",
+  "path": "/authors/:email",
+  "sections": [
+    {
+      "__resolveType": "site/sections/Blog/BlogHeader.tsx",
+      "logoAlt": "Blog",
+      "showReadingProgress": false
+    },
+    {
+      "__resolveType": "site/sections/Blog/BlogHome.tsx",
+      "posts": {
+        "__resolveType": "blog/loaders/BlogpostList.ts",
+        "sortBy": "date_desc",
+        "count": 100,
+        "filterBy": "author",
+        "slug": {
+          "__resolveType": "website/functions/requestToParam.ts",
+          "param": "email"
+        }
+      },
+      "perPage": 10,
+      "baseUrl": "/authors/"
+    }
+  ],
+  "__resolveType": "website/pages/Page.tsx",
+  "seo": {
+    "__resolveType": "site/sections/Seo/SeoBlogAuthor.tsx"
+  }
+}

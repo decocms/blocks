@@ -28,6 +28,7 @@
 		},
 		"./protocol/storage/memory": "./src/protocol/storage/memory.ts",
 		"./protocol/conformance": "./src/protocol/conformance/index.ts",
+		"./secrets": "./src/v8/secrets.ts",
 		"./types": "./src/types/index.ts",
 		"./types/widgets": "./src/types/widgets.ts",
 		"./setup": "./src/setup.ts",

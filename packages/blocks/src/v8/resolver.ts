@@ -4,7 +4,9 @@
  * One registry, later keys win: `{ ...savedBlocks, ...builtIns, ...blocks }`.
  * A function runs with its inputs resolved first (inside out, siblings
  * concurrently); a saved block is replaced by `{ ...saved, ...arguments }` and
- * looked up again; anything else is `UNKNOWN_BLOCK`. The built-in `lazy` is
+ * looked up again; a type no key matches is retried once under its alias (the
+ * snapshot's table, then the built-in legacy one in ./builtins/legacy);
+ * anything else is `UNKNOWN_BLOCK`. The built-in `lazy` is
  * the one special case: its `value` is not resolved first.
  *
  * A `Resolver` belongs to one client, so its memo (results per block function
@@ -13,8 +15,9 @@
  * are read-only (see `Client` in ./types): mutating one in place would change
  * the others, the class of bug behind the v7 layout-cache race.
  */
-import { builtIns, RESERVED_NAMES } from "./builtins/index";
+import { RESERVED_NAMES } from "./builtins/index";
 import { isLazyBuiltin } from "./builtins/lazy";
+import { LEGACY_ALIASES, wrapLegacyVariants } from "./builtins/legacy";
 import { errors, isResolutionError } from "./errors";
 import { canonicalKey, isPlainObject, type JsonObject, own } from "./json";
 import type { BlockFunction, Blocks, Lazy, Snapshot } from "./types";
@@ -24,6 +27,8 @@ type Path = (string | number)[];
 interface ResolverOptions {
   snapshot: Snapshot;
   blocks: Blocks;
+  /** The built-ins, with this CMS's `secret`. */
+  builtIns: Readonly<Blocks>;
   /** Called once per name a saved block shares with a function. */
   onCollision?: (name: string) => void;
 }
@@ -31,13 +36,15 @@ interface ResolverOptions {
 export class Resolver {
   readonly #snapshot: Snapshot;
   readonly #blocks: Blocks;
+  readonly #builtIns: Readonly<Blocks>;
   readonly #onCollision?: (name: string) => void;
   readonly #memo = new WeakMap<BlockFunction, Map<string, Promise<unknown>>>();
   readonly #keys = new WeakMap<object, string | null>();
 
-  constructor({ snapshot, blocks, onCollision }: ResolverOptions) {
+  constructor({ snapshot, blocks, builtIns, onCollision }: ResolverOptions) {
     this.#snapshot = snapshot;
     this.#blocks = blocks;
+    this.#builtIns = builtIns;
     this.#onCollision = onCollision;
   }
 
@@ -48,7 +55,12 @@ export class Resolver {
 
   /** The type an alias points at, or the type itself. */
   canonicalType(type: string): string {
-    return own(this.#snapshot.aliases, type) ?? type;
+    return this.#alias(type) ?? type;
+  }
+
+  /** The snapshot's alias table first, then the built-in legacy one. */
+  #alias(type: string): string | undefined {
+    return own(this.#snapshot.aliases, type) ?? own(LEGACY_ALIASES, type);
   }
 
   /** Resolves a saved entry by name (the target is known to exist). */
@@ -155,16 +167,23 @@ export class Resolver {
       return this.resolve(mergeReference(saved, node), path, next, true);
     }
 
-    const alias = viaAlias ? undefined : own(this.#snapshot.aliases, type);
+    const alias = viaAlias ? undefined : this.#alias(type);
     if (alias !== undefined && alias !== type) {
-      return this.#resolveBlock(node, alias, path, chain, fromContent, true);
+      return this.#resolveBlock(
+        wrapLegacyVariants(type, node),
+        alias,
+        path,
+        chain,
+        fromContent,
+        true,
+      );
     }
     return Promise.reject(errors.unknownBlock(type, path));
   }
 
   /** Block map first, then built-ins; a saved block of the same name loses (with a warning). */
   #functionFor(type: string): BlockFunction | undefined {
-    const fn = own(this.#blocks, type) ?? own(builtIns, type);
+    const fn = own(this.#blocks, type) ?? own(this.#builtIns, type);
     if (typeof fn !== "function") return undefined;
     if (this.entry(type) !== undefined) this.#onCollision?.(type);
     return fn;
