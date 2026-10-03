@@ -4,12 +4,20 @@
  * Uploads aren't one of the four methods. The site editor sends each file to
  * `PUT /assets/<name>` with the same token as the protocol; on that path the
  * file's own image, video, font or PDF content type is accepted instead of
- * JSON. The storage writes it to its asset folder, never overwriting an
+ * JSON, and the name's extension must match it (`banner.html` sent as
+ * `image/png` is refused; a name without an extension gets the type's). SVG
+ * is refused unless `allowSvg` is set, since it can carry scripts that would
+ * run on the site's origin. The storage writes it to its asset folder, never overwriting an
  * existing file (a taken name gets a short suffix), and the response carries
  * the path the site editor stores in the field: always `/assets/<name>`.
  */
 
-import { isAcceptedAssetType, sanitizeAssetName } from "../assets";
+import {
+  type AssetTypeOptions,
+  assetNameForType,
+  isAcceptedAssetType,
+  sanitizeAssetName,
+} from "../assets";
 import {
   type ContentProtocolError,
   ErrorCode,
@@ -22,7 +30,7 @@ import {
 } from "../errors";
 import type { ContentStorage } from "../storage";
 import { ASSETS_URL_PREFIX } from "../types";
-import { type AuthOptions, authenticate } from "./auth";
+import { type AuthOptions, assertAuthOptions, authenticate } from "./auth";
 import { BodyEncodingError, BodyTooLargeError, jsonResponse, readBody } from "./http";
 
 const STATUS: Record<number, number> = {
@@ -36,10 +44,13 @@ const STATUS: Record<number, number> = {
 
 export type AssetHandler = (request: Request) => Promise<Response>;
 
+export type AssetHandlerOptions = AuthOptions & AssetTypeOptions;
+
 export function createAssetHandler(
   storage: ContentStorage,
-  options: AuthOptions = {},
+  options: AssetHandlerOptions = {},
 ): AssetHandler {
+  assertAuthOptions(options);
   const fail = (request: Request, error: ContentProtocolError, status?: number) =>
     jsonResponse(
       request,
@@ -67,14 +78,23 @@ export function createAssetHandler(
     if (description.assets === null || !storage.putAsset) {
       return fail(request, unsupported("this endpoint doesn't accept uploads"));
     }
-    if (!isAcceptedAssetType(request.headers.get("content-type"))) {
+    const contentType = request.headers.get("content-type");
+    if (!isAcceptedAssetType(contentType, options)) {
       return fail(request, invalidRequest("uploads must be an image, video, font or PDF"), 415);
     }
     const path = new URL(request.url).pathname;
     const marker = path.lastIndexOf(ASSETS_URL_PREFIX);
-    const name =
+    const sanitized =
       marker === -1 ? null : sanitizeAssetName(path.slice(marker + ASSETS_URL_PREFIX.length));
-    if (!name) return fail(request, invalidRequest("PUT /assets/<name> needs a file name"));
+    if (!sanitized) return fail(request, invalidRequest("PUT /assets/<name> needs a file name"));
+    const name = assetNameForType(sanitized, contentType, options);
+    if (!name) {
+      return fail(
+        request,
+        invalidRequest(`the file name's extension doesn't match its content type (${contentType})`),
+        415,
+      );
+    }
 
     const maxBytes = description.assets.maxBytes;
     let body: Uint8Array;

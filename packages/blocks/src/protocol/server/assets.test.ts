@@ -1,19 +1,24 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { isAcceptedAssetType, sanitizeAssetName, suffixedAssetName } from "../assets";
+import {
+  assetNameForType,
+  isAcceptedAssetType,
+  sanitizeAssetName,
+  suffixedAssetName,
+} from "../assets";
 import { ErrorCode } from "../errors";
 import { createMemoryStorage, type MemoryStorageOptions } from "../storage/memory";
 import { createAssetHandler } from "./assets";
 
-function setup(options: MemoryStorageOptions = {}, token?: string) {
+function setup(options: MemoryStorageOptions = {}, token?: string, allowSvg?: boolean) {
   const storage = createMemoryStorage(options);
-  return { storage, handler: createAssetHandler(storage, { token }) };
+  return { storage, handler: createAssetHandler(storage, { token, allowSvg }) };
 }
 
 const put = (
   name: string,
   body: BodyInit,
-  type = "image/jpeg",
+  type = "image/png",
   headers: Record<string, string> = {},
 ) =>
   new Request(`http://127.0.0.1:4545/assets/${name}`, {
@@ -25,7 +30,9 @@ const put = (
 describe("PUT /assets/<name>", () => {
   it("stores the file and answers with the path the site editor saves: /assets/<name>", async () => {
     const { handler, storage } = setup();
-    const response = await handler(put("summer-banner.jpg", new Uint8Array([1, 2, 3])));
+    const response = await handler(
+      put("summer-banner.jpg", new Uint8Array([1, 2, 3]), "image/jpeg"),
+    );
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ path: "/assets/summer-banner.jpg" });
     expect(Object.keys(storage.dump().assets)).toEqual(["summer-banner.jpg"]);
@@ -41,24 +48,71 @@ describe("PUT /assets/<name>", () => {
   });
 
   it.each([
-    "image/webp",
-    "image/svg+xml",
-    "video/mp4",
-    "font/woff2",
-    "application/pdf",
-  ])("accepts %s", async (type) => {
+    ["image/webp", "f.webp"],
+    ["image/jpeg", "f.jpeg"],
+    ["image/avif", "f.avif"],
+    ["image/gif", "f.gif"],
+    ["video/mp4", "f.mp4"],
+    ["video/webm", "f.webm"],
+    ["font/woff2", "f.woff2"],
+    ["font/ttf", "f.ttf"],
+    ["application/pdf", "f.pdf"],
+  ])("accepts %s as %s", async (type, name) => {
     const { handler } = setup();
-    expect((await handler(put("f.bin", new Uint8Array([1]), type))).status).toBe(201);
+    const response = await handler(put(name, new Uint8Array([1]), type));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ path: `/assets/${name}` });
   });
 
   it.each([
     "application/json",
     "text/html",
+    "application/javascript",
     "application/x-www-form-urlencoded",
+    "image/x-unknown",
     "",
   ])("refuses %j with HTTP 415", async (type) => {
     const { handler } = setup();
-    expect((await handler(put("f.bin", new Uint8Array([1]), type))).status).toBe(415);
+    expect((await handler(put("f.png", new Uint8Array([1]), type))).status).toBe(415);
+  });
+
+  it.each([
+    ["evil.html", "image/png"],
+    ["evil.htm", "image/jpeg"],
+    ["evil.js", "image/png"],
+    ["evil.svg", "image/png"],
+    ["banner.png", "image/jpeg"],
+    ["font.woff2", "application/pdf"],
+  ])("refuses %s sent as %s: the extension must match the type (HTTP 415)", async (name, type) => {
+    const { handler, storage } = setup();
+    const response = await handler(put(name, "<script>alert(1)</script>", type));
+    expect(response.status).toBe(415);
+    expect(((await response.json()) as { error: { code: number } }).error.code).toBe(
+      ErrorCode.InvalidRequest,
+    );
+    expect(storage.dump().assets).toEqual({});
+  });
+
+  it("gives a name without an extension its type's extension, and lowercases it", async () => {
+    const { handler } = setup();
+    expect(await (await handler(put("banner", new Uint8Array([1]), "image/webp"))).json()).toEqual({
+      path: "/assets/banner.webp",
+    });
+    expect(
+      await (await handler(put("Photo.JPG", new Uint8Array([1]), "image/jpeg"))).json(),
+    ).toEqual({ path: "/assets/Photo.jpg" });
+  });
+
+  it("refuses SVG (it can carry scripts) unless allowSvg is set", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    expect((await setup().handler(put("logo.svg", svg, "image/svg+xml"))).status).toBe(415);
+    const allowed = await setup({}, undefined, true).handler(put("logo.svg", svg, "image/svg+xml"));
+    expect(allowed.status).toBe(201);
+    expect(await allowed.json()).toEqual({ path: "/assets/logo.svg" });
+  });
+
+  it("refuses an empty token at construction", () => {
+    expect(() => createAssetHandler(createMemoryStorage(), { token: "" })).toThrow(TypeError);
   });
 
   it("checks the same bearer token as the protocol", async () => {
@@ -136,7 +190,23 @@ describe("asset names", () => {
 
   it("accepts image, video, font and PDF types only", () => {
     expect(isAcceptedAssetType("image/png; charset=binary")).toBe(true);
+    expect(isAcceptedAssetType("IMAGE/PNG")).toBe(true);
     expect(isAcceptedAssetType(null)).toBe(false);
     expect(isAcceptedAssetType("application/javascript")).toBe(false);
+    expect(isAcceptedAssetType("image/svg+xml")).toBe(false);
+    expect(isAcceptedAssetType("image/svg+xml", { allowSvg: true })).toBe(true);
+  });
+
+  it.each([
+    ["a.png", "image/png", "a.png"],
+    ["a.PNG", "image/png", "a.png"],
+    ["a", "image/png", "a.png"],
+    ["a.jpg", "image/jpeg", "a.jpg"],
+    ["a.jpeg", "image/jpeg", "a.jpeg"],
+    ["a.tar.pdf", "application/pdf", "a.tar.pdf"],
+    ["a.html", "image/png", null],
+    ["a.png", "text/html", null],
+  ])("assetNameForType(%j, %j) is %j", (name, type, expected) => {
+    expect(assetNameForType(name, type)).toBe(expected);
   });
 });

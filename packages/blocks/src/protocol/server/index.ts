@@ -6,8 +6,17 @@
  * uploads. Web-standard APIs only, so both run on Node, Bun, Workers and Deno.
  */
 
-export { isAcceptedAssetType, sanitizeAssetName, suffixedAssetName } from "../assets";
-export { type AssetHandler, createAssetHandler } from "./assets";
+export {
+  ASSET_TYPES,
+  type AssetTypeOptions,
+  assetExtensions,
+  assetNameForType,
+  isAcceptedAssetType,
+  SVG_ASSET_TYPE,
+  sanitizeAssetName,
+  suffixedAssetName,
+} from "../assets";
+export { type AssetHandler, type AssetHandlerOptions, createAssetHandler } from "./assets";
 export type { AuthOptions, AuthorizeResult } from "./auth";
 export type { ContentHandlerOptions } from "./core";
 export { type ContentHandler, createContentHandler } from "./handler";

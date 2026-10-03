@@ -3,19 +3,83 @@
  * Browser-safe.
  */
 
-/** Content types the asset endpoint accepts. */
-export function isAcceptedAssetType(contentType: string | null): boolean {
-  if (!contentType) return false;
-  const type = contentType.split(";")[0].trim().toLowerCase();
-  return (
-    /^image\/[a-z0-9.+-]+$/.test(type) ||
-    /^video\/[a-z0-9.+-]+$/.test(type) ||
-    /^font\/[a-z0-9.+-]+$/.test(type) ||
-    type === "application/pdf" ||
-    type === "application/font-woff" ||
-    type === "application/x-font-ttf" ||
-    type === "application/vnd.ms-fontobject"
-  );
+/**
+ * Every content type the asset endpoint accepts, with the file extensions a
+ * file of that type may have (the first is the one appended to a name
+ * without an extension). The stored file's extension decides the type it's
+ * served with, so an upload can never pick one the browser would run, such
+ * as `.html` or `.js`.
+ */
+export const ASSET_TYPES: Readonly<Record<string, readonly string[]>> = {
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/webp": [".webp"],
+  "image/avif": [".avif"],
+  "image/gif": [".gif"],
+  "image/x-icon": [".ico"],
+  "image/vnd.microsoft.icon": [".ico"],
+  "video/mp4": [".mp4"],
+  "video/webm": [".webm"],
+  "font/woff2": [".woff2"],
+  "font/woff": [".woff"],
+  "font/ttf": [".ttf"],
+  "font/otf": [".otf"],
+  "application/font-woff": [".woff"],
+  "application/x-font-ttf": [".ttf"],
+  "application/vnd.ms-fontobject": [".eot"],
+  "application/pdf": [".pdf"],
+};
+
+/**
+ * SVG can carry scripts, so it runs on the site's origin like HTML would.
+ * Accepted only with `allowSvg`.
+ */
+export const SVG_ASSET_TYPE = { "image/svg+xml": [".svg"] } as const;
+
+export interface AssetTypeOptions {
+  /** Accept `image/svg+xml` uploads (default false: SVG can carry scripts). */
+  allowSvg?: boolean;
+}
+
+const mediaType = (contentType: string | null) =>
+  contentType ? contentType.split(";")[0].trim().toLowerCase() : "";
+
+/** The extensions an upload of `contentType` may have; `null` when the type isn't accepted. */
+export function assetExtensions(
+  contentType: string | null,
+  options: AssetTypeOptions = {},
+): readonly string[] | null {
+  const type = mediaType(contentType);
+  if (Object.hasOwn(ASSET_TYPES, type)) return ASSET_TYPES[type];
+  if (options.allowSvg && type === "image/svg+xml") return SVG_ASSET_TYPE[type];
+  return null;
+}
+
+/** True when the asset endpoint accepts `contentType`. */
+export function isAcceptedAssetType(
+  contentType: string | null,
+  options: AssetTypeOptions = {},
+): boolean {
+  return assetExtensions(contentType, options) !== null;
+}
+
+/**
+ * Fits a sanitized file name to its content type: a name without an
+ * extension gets the type's, and the extension is lowercased. Returns `null`
+ * when the name's extension doesn't match the type (`evil.html` sent as
+ * `image/png`), or the type isn't accepted.
+ */
+export function assetNameForType(
+  name: string,
+  contentType: string | null,
+  options: AssetTypeOptions = {},
+): string | null {
+  const extensions = assetExtensions(contentType, options);
+  if (!extensions) return null;
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return `${name}${extensions[0]}`;
+  const extension = name.slice(dot).toLowerCase();
+  return extensions.includes(extension) ? name.slice(0, dot) + extension : null;
 }
 
 /**
