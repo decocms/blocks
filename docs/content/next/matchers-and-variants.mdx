@@ -8,32 +8,28 @@ description: Schedule a campaign days ahead and it goes live on time, with no pu
 
 # Matchers and variants
 
-Black Friday starts at midnight. Someone used to stay up to publish the banner, hope the deploy went through, and do it again on Monday to take it down. With Deco, you schedule it instead: the banner and the date it switches on are saved together, reviewed, merged and deployed days ahead. At midnight nothing is published or deployed. Every server simply starts rendering the new banner, because the rule says so.
+Campaigns run on a schedule. With Deco, you save the content and the date it switches on together, merge it days ahead, and it goes live on time on every server, with nobody publishing at midnight.
 
-The rule is a **matcher**: a [block](/next/blocks) function that returns `true` or `false`. A **variant** is a rule plus a value, and the `multivariate` block picks the value of the first variant whose rule is `true`. You write them in code; editors pick and fill them in [Studio](/next/how-it-works#studio).
+Here's how developers usually approach it: instead of deploying at midnight, they write an `if`/`else` on the date.
 
-This page shows how to schedule a campaign, why it goes live on time, how to check it before it starts, and how to write your own matcher.
+## In code
 
-## Schedule a campaign
+Say the promo banner should show a Black Friday title from Friday to the end of Cyber Monday, and the usual title the rest of the time:
 
-Three matchers are [built-in blocks](/next/blocks#built-in-blocks), because they depend on nothing but the clock. Like every built-in, they need no import:
+```tsx
+const now = new Date();
+const start = new Date("2026-11-27T00:00:00-05:00");
+const end = new Date("2026-12-01T00:00:00-05:00");
+const title = now >= start && now < end ? "Black Friday: 40% off everything" : "Free shipping over $50";
 
-```ts
-// always()                               => true
-// never()                                => false
-// date({ start?: string; end?: string }) => boolean, true from start until end
+<PromoBanner title={title} href="/deals" />;
 ```
 
-`start` and `end` are ISO 8601 strings. Write them with the offset your store's time zone has on that date, like `"2026-11-27T00:00:00-05:00"` for New York in November, so the campaign starts at midnight on your clock. Daylight saving time changes the offset (New York is `-04:00` in summer), so check it for each date. A date without a time, like `"2026-11-27"`, means midnight UTC. `end` itself doesn't match, so a campaign that ends at midnight uses that midnight as its `end`.
+It works, but the dates and the titles live in your code. Changing them is a code change and a deploy, and marketing can't do it themselves.
 
-`multivariate` is built in too. It returns the value of the first variant whose rule is `true`, and only that value is computed, like `cond ? a() : b()` or a chain of else-ifs:
+## As blocks
 
-```ts
-// multivariate<T>({ variants }: { variants: { rule: boolean; value: Lazy<T> }[] }) => Promise<T | undefined>
-// for (const v of variants) if (v.rule) return v.value();
-```
-
-Now the promo banner's title can switch for Black Friday weekend and switch back after Cyber Monday (`__resolveType` names the block function to run; see [Functions as blocks](/next/blocks#functions-as-blocks)):
+Deco lets you write that same `if`/`else` as content, which editors can change (`__resolveType` names the block function to run; see [Functions as blocks](/next/blocks#functions-as-blocks)):
 
 ```jsonc
 // Stored as JSON
@@ -67,13 +63,37 @@ PromoBanner({
 });
 ```
 
-Each value is wrapped in a [lazy block](/next/blocks#lazy-blocks), so it only runs if its variant is chosen. The wrapper is always there because the field is `Lazy<T>`; for plain text it costs nothing, and Studio adds it for you.
+A **variant** is a `rule` plus a `value`; a **matcher** is a [block](/next/blocks) function that returns `true` or `false`. Each piece of the code version has a block:
 
-Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so the rules resolve first and `multivariate` sees each one as a boolean. The values stay lazy: `multivariate` calls only the chosen one, and `PromoBanner` gets a plain string. It never knows a variant was involved. Every rule runs, but only the chosen variant's value runs. That matters when values do work: if each variant's value is a hero section that fetches products, only the chosen hero fetches. `end` takes the campaign down too, so there's nothing to do on Monday.
+| In code | As blocks |
+| --- | --- |
+| The ternary, or a chain of `if`/`else if` | `multivariate` with a list of variants; the first whose rule is `true` wins. |
+| The date condition | The built-in `date` matcher. |
+| The final `else` | A last variant whose rule is `always`. |
+| Only the chosen branch runs, like `cond ? a() : b()` | A [`lazy`](/next/blocks#lazy-blocks) value. |
+| The constants | Saved values that editors change in [Studio](/next/how-it-works#studio). |
+
+Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so every rule runs first and `multivariate` sees each one as a boolean. The values stay lazy, so only the chosen variant's value runs. That matters when values do work: if each variant's value is a hero section that fetches products, only the chosen hero fetches. `PromoBanner` gets a plain string and never knows a variant was involved.
+
+The `lazy` wrapper is always there because the field is `Lazy<T>`; for plain text it costs nothing.
+
+`end` takes the campaign down too, so there's nothing to do on Monday.
 
 Any field can be a variant: a title, one block in a page's `sections`, or the whole list, which is how Studio varies a page. [Schema](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
 
 In Studio, each variant is a tab. An editor schedules the same campaign there: add a variant, pick `date` as its rule, fill in `start` and `end`, type the campaign title as its value, and keep the `always` tab last. Editors just type the value; Studio writes the `lazy` block around it.
+
+## Built-in matchers
+
+Three matchers are [built-in blocks](/next/blocks#built-in-blocks), because they depend on nothing but the clock. Like every built-in, they need no import:
+
+- **`always`** is always `true`. Use it for the fallback.
+- **`never`** is always `false`.
+- **`date`** is `true` from `start` until `end`. Both are optional.
+
+`start` and `end` are ISO 8601 strings. Write them with the offset your store's time zone has on that date, like `"2026-11-27T00:00:00-05:00"` for New York in November, so the campaign starts at midnight on your clock. Daylight saving time changes the offset (New York is `-04:00` in summer), so check it for each date. A date without a time, like `"2026-11-27"`, means midnight UTC. `end` itself doesn't match, so a campaign that ends at midnight uses that midnight as its `end`.
+
+`multivariate` and `lazy` are built in too.
 
 ## Why it goes live on time
 
@@ -91,7 +111,7 @@ A scheduled campaign is a change to content files, so it's checked like any othe
 
 ## Write your own matcher
 
-Any block function that returns a `boolean` is a matcher. This one is `true` on the days of the week you pick, in your store's time zone:
+In code, a weekend title would be one more condition, like `today === "Sat" || today === "Sun"`. As a block, you move that condition into a function. Any block function that returns a `boolean` is a matcher. This one is `true` on the days of the week you pick, in your store's time zone:
 
 ```ts title="src/matchers.ts"
 type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
