@@ -3,12 +3,12 @@ title: Publishing without a deploy
 nav: Publishing without a deploy
 group: Hosted Deco CMS
 order: 30
-description: With the hosted Deco CMS, each commit to your production branch is served as a release and reaches running servers within seconds.
+description: With the hosted Deco CMS, production commits prepare immutable releases; promotion and rollback reach running servers on their next background check.
 ---
 
 # Publishing without a deploy
 
-A price on the homepage is wrong in the middle of a sale. Without the [hosted Deco CMS](/next/hosted), publishing is committing and the fix waits for a deploy (see [Deployment](/next/releases-and-deployment#publishing)). With it, there's no rebuild: the [Deco API](/next/hosted#terms) serves the commit as a [release](/next/releases-and-drafts#releases), and the servers already running your app pick it up within seconds.
+A price on the homepage is wrong in the middle of a sale. Without the [hosted Deco CMS](/next/hosted), publishing is committing and the fix waits for a deploy (see [Deployment](/next/releases-and-deployment#publishing)). With it, there's no rebuild: the [Deco API](/next/hosted#terms) prepares the commit as an immutable [release](/next/releases-and-drafts#releases), and the servers already running your app pick it up after promotion on their next background check.
 
 This page shows how a commit becomes a release, how servers pick it up, and what keeps running code compatible with new content.
 
@@ -16,17 +16,23 @@ This page shows how a commit becomes a release, how servers pick it up, and what
 
 Your production branch (usually `main`) moves: someone pushes or merges a commit in `.deco/blocks`, or an editor publishes a draft in [the site editor](/next/hosted-site-editor). Then:
 
-1. **The Deco API serves the commit** as the current **release**, one published version of all your content, within seconds of it landing. A release never changes; its [revision](/next/releases-and-deployment#what-a-revision-is) identifies it.
+1. **The control plane prepares the commit** as a complete, validated JSON snapshot in object storage. Only after the asset is ready does it promote the production channel manifest. A release never changes; its [revision](/next/releases-and-deployment#what-a-revision-is) identifies it. Production servers read storage/CDN assets and never GitHub.
 2. **Each server checks for a new release** about once a minute, at an idle moment, in the background. A request never waits for it: requests always read from memory.
 3. **The server swaps the release in whole** and serves it from its next [client](/next/api-reference#createcms-config) on (the object `cms.forRelease()` returns). Requests already in flight keep the revision they started with (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)).
 
-So a publish reaches every visitor within seconds, with no build. Different servers can briefly serve different releases, by design.
+A publish needs no application rebuild. Propagation depends on preparation time, the manifest cache lifetime, each server's check interval and rendered-page caching; it is not an immediate global switch. Different servers can briefly serve different releases, by design.
 
 On Cloudflare Workers, which run no timers between requests, the SDK runs a due check after the response, inside `ctx.waitUntil` (`ctx` is the Worker's execution context; `waitUntil` lets work finish after the response is sent). You don't call anything.
 
 Calling `cms.update()`, for example from a webhook or an admin "refresh now" button, checks at once, but only on the server or isolate that receives the call; every other one picks the release up on its next check. It never throws.
 
 The request path, the idle scheduling on each runtime and the swap are described step by step [under the hood](/next/hosted-releases-internals).
+
+## Fast content rollback
+
+Choose a retained, validated release compatible with the deployed code. Rollback advances the production channel's generation while pointing it to that older snapshot. It needs no rebuild, code deploy or GitHub read. Servers follow it through the same refresh path as a publish, and rendered-page caches must also observe the promotion.
+
+Rollback pauses automatic promotion until explicitly resumed, so delayed jobs and new commits cannot silently undo it. It does not change the repository: a Git revert can reconcile that later. Code rollback is a separate operation; select compatible content for the older build. Retention, publication ordering and recovery are described in [Production delivery and rollback](/next/content-delivery#fast-rollback).
 
 ## Check interval
 
@@ -53,7 +59,7 @@ Publishing without a deploy means the code that's already running renders the ne
 
 Content must only use block types and fields the deployed code has. The site editor reads the schema committed on the branch it edits, falling back to your default branch when that branch has none (see [What the site editor reads from the schema](/next/studio-compatibility#what-the-site-editor-reads-from-the-schema)), so keep that schema in step with what's deployed. An entry that uses a type the deployed code lacks fails that block with `UNKNOWN_BLOCK` (see [Errors](/next/api-reference#errors)) until the code ships.
 
-Rolling code back is the exception: content already published with newer types or fields fails on the older code until you redeploy or revert it, so check what's published before you roll back.
+Before rolling code back, select a retained content revision compatible with the older build. Newer content may use types or fields the older code lacks. Content rollback and code rollback are independent; coordinate them explicitly.
 
 ## Large content on Workers
 
@@ -77,6 +83,6 @@ console.log((await loader.load()).revision);
 
 | Symptom | What to check |
 |---|---|
-| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow a few seconds after publishing, or call `cms.update()`. Check that both `site` and `token` are set in production. |
+| Stale or fallback content | Compare the revision your server serves with the revision of the latest release. A server that hasn't fetched a release yet reports its fallback's revision, which matches when the fallback is the content module. If they differ, the server hasn't checked yet: allow preparation time, the manifest cache lifetime and the configured check interval, or call `cms.update()`. An idle Worker checks after a subsequent response. Check that both `site` and `token` are set in production. |
 | `UNKNOWN_BLOCK` right after publishing | The content uses a block type the deployed code doesn't have, usually because the content went out before the code that defines the type, or the code was rolled back to a version without it. Deploy the code, or revert the content commit. See [Keep running code compatible](#keep-running-code-compatible). |
 | Warning that `interval` was raised | The minimum is 60 000 ms (one minute); lower values, from `interval` or `DECO_CONTENT_INTERVAL`, are raised to it. |

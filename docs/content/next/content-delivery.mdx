@@ -1,0 +1,100 @@
+---
+title: Production delivery and rollback
+nav: Delivery and rollback
+group: Under the hood
+kind: internals
+order: 9
+description: Immutable JSON assets, a small channel manifest, and fast content rollback without builds or GitHub reads.
+---
+
+# Production delivery and rollback
+
+Fast publishing needs a fast way back. If a new banner breaks a page, returning to a known-good release should take a channel update, not a rebuild or a GitHub repair.
+
+This is the proposed hosted delivery architecture for the next major. The [roadmap](/roadmap#roadmap-platform--build-the-deco-api-release-service) tracks its implementation. The server-side loader is described in [How hosted releases stay current](/next/hosted-releases-internals).
+
+## Two separate paths
+
+The **control plane** owns editing, GitHub access, validation, release preparation and promotion. The **data plane** serves already prepared content. Production servers never call GitHub, including on a cache miss, a cold start or an error.
+
+<Flow label="Preparing a release">
+  <FlowNode title="Git commit">An editor publishes, or a developer pushes to production</FlowNode>
+  <FlowNode title="Durable ingestion job">Read GitHub, validate, build and hash the snapshot</FlowNode>
+  <FlowNode title="Object storage">Upload the immutable JSON asset, then promote its manifest</FlowNode>
+</Flow>
+
+<Flow label="Delivering content">
+  <FlowNode title="Production SDK">Background check of the channel manifest</FlowNode>
+  <FlowNode title="CDN and object storage">Serve the manifest and the exact revision asset</FlowNode>
+  <FlowNode title="Server memory">Verify and swap; requests keep reading one revision</FlowNode>
+</Flow>
+
+R2 with Cloudflare's CDN, or S3 with CloudFront, can implement this shape. Provider details stay behind a stable, versioned asset contract. An optional small authorization gateway checks site credentials before serving private assets; it reads storage only, has no GitHub credentials, and deploys independently of the editing API. A content hash identifies bytes; it is not permission to read them. Private responses must not enter a shared cache before authorization.
+
+## Immutable snapshots and mutable channels
+
+A revision is the hash of the content map, computed by the same canonical serialization in the CLI, ingestion worker and SDK. Define and version that serialization in shared code; hashing raw files or insertion-order-dependent maps would make identical content produce different revisions. Store each full snapshot under its revision and never overwrite it.
+
+The delivery contract has two resources, scoped to a site:
+
+```text
+/sites/acme/revisions/<revision>.json
+/sites/acme/channels/production.json
+```
+
+A snapshot is the SDK's existing `{ revision, blocks }` shape. The proposed channel manifest is small:
+
+```json
+{
+  "format": 1,
+  "generation": 184,
+  "revision": "sha256-opaque-content-hash",
+  "snapshot": "/sites/acme/revisions/sha256-opaque-content-hash.json"
+}
+```
+
+The snapshot path stays on the configured delivery origin and within the site namespace. The SDK refuses unknown formats and unexpected paths. Other environments get their own channels. The manifest's generation orders promotions; the revision identifies content. Neither a content hash nor a Git commit hash expresses publication order.
+
+Give immutable assets a long cache lifetime. Give channel manifests an explicit, short cache lifetime and an ETag. Configure caching for JSON explicitly, and avoid caching missing revision assets. Object-store consistency does not make CDN caches immediately current. Include the manifest cache lifetime, the SDK's poll interval and any rendered-page cache in the propagation budget.
+
+## Prepare before promoting
+
+1. Accept and authenticate a GitHub push event, durably enqueue it and deduplicate deliveries. Also reconcile repository heads periodically: an event can be missed.
+2. Resolve the production commit, assemble its content and run the release checks, including route ambiguity and content shape. Schema compatibility with deployed code remains a CI and rollout responsibility; ingestion does not run site code.
+3. Upload the snapshot, verify its bytes and record the release as ready. Preserve its source commit and validation result in release history.
+4. Only then update the channel manifest. A failed preparation leaves the previous release live; it never points readers at an unfinished object.
+
+Use one durable promotion coordinator per site and channel. Every publish and rollback goes through it, with an expected generation. Jobs carry the generation against which they were requested; an older job cannot overwrite a newer promotion. Serialize the actual manifest writes too: checking a database generation and then independently uploading a manifest is not an atomic operation. Recover an interrupted write by reconciling the manifest against the coordinator's durable desired state.
+
+GitHub push events may arrive out of order. Reconcile the production head in the control plane rather than treating arrival order as commit order. No reader asks GitHub to rebuild a missing snapshot. A missing or unavailable asset is an error, and the SDK retains its last good content or build fallback.
+
+Expose preparation and promotion as separate statuses. "Saved" means committed; "published" means promoted for delivery. Neither means every server has refreshed yet.
+
+## Fast rollback
+
+Rollback selects a retained, previously validated revision that fits the deployed code. The coordinator advances the generation while pointing at the older immutable asset:
+
+```text
+publish:  generation 184 → revision B
+rollback: generation 185 → revision A
+```
+
+No snapshot rebuild, application deploy or GitHub API request is required for the delivery change. Record who requested it, why, the previous revision and the target. Keep snapshots and their referenced uploads for the documented rollback window; garbage collection must preserve channel targets, pinned revisions and active preview grants.
+
+An older in-flight job cannot undo generation 185. Rollback also places the channel in an explicit hold: new Git commits may prepare releases, but automatic promotion stays paused until an operator resumes it or deliberately publishes. Otherwise a webhook replay or reconciliation could immediately restore the release being rolled back.
+
+The repository still contains its current production content. Offer a separate Git revert to reconcile it later; that operation can wait for GitHub to recover. Draft synchronization continues against repository production, and the editor must show when delivered content differs from Git. A code rollback is separate and must select content compatible with the older build.
+
+Rollback uses the same propagation path as publishing. An active process sees it on its next background check plus the manifest cache delay; an idle Worker checks after a subsequent response. A cold process first serves its build fallback. There is no promise that every visitor changes at once. Notify the rendered-page caching integration on a generation change, including when the content revision is older, so HTML caches cannot hide the rollback indefinitely.
+
+## Exact draft previews
+
+Materialize draft commits into private immutable assets as well. A signed preview grant scopes access to the site, draft revision and expiry. The preview endpoint fetches the exact requested revision, never substitutes the current branch head under an old version, and never calls GitHub to fill a cache miss. An unavailable revision follows the SDK's documented fallback to published content.
+
+Saving and preview readiness are separate. A save returns after the Git commit; the editor can show "preparing preview" until materialization finishes. Publishing, rollback, preview grants and draft lifecycle remain control-plane routes outside the [content protocol](/next/content-protocol).
+
+## Bound preparation memory
+
+Build assets in a worker with bounded concurrency and a memory budget, independently of the editing API. Stream downloads and snapshot output to temporary storage or the object store instead of holding every file body and the final serialized map simultaneously. Enforce per-entry and aggregate limits during reads, including for existing repository files; compressed byte size is not a bound on parsed JSON memory.
+
+The SDK still needs a full parsed snapshot for synchronous resolution. Bound accepted snapshot sizes separately, retain only a bounded set of versions, and account for the old revision, new revision, fallback and in-flight readers during a swap. Streaming preparation does not remove that runtime limit.

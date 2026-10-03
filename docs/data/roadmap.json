@@ -145,7 +145,8 @@
         "roadmap-platform--build-studio-s-github-content-backend",
         "roadmap-platform--move-studio-s-editor-onto-the-protocol-client",
         "roadmap-cli--ship-deco-serve-a-local-server-for-studio",
-        "roadmap-docs--correct-studio-compatibility"
+        "roadmap-docs--correct-studio-compatibility",
+        "roadmap-platform--synchronize-editor-drafts"
       ]
     },
     {
@@ -226,7 +227,7 @@
     {
       "id": "roadmap-blockers--add-a-revision-handle-an-edge-cache-kit-and-an-isr-recipe",
       "title": "Add a revision handle, an edge cache kit and an ISR recipe",
-      "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached. The planned check for a new release runs once a minute, at an idle moment (inside <code>ctx.waitUntil</code> on Workers), so a publish is live everywhere within seconds; a cold isolate serves the content module it was deployed with until its first check.",
+      "today": "Clients expose no revision and there's no <code>forRevision</code>. Degraded pages get cached. The planned check for a new release runs once a minute, at an idle moment (inside <code>ctx.waitUntil</code> on Workers), so propagation depends on the check interval and manifest cache lifetime; a cold isolate serves the content module it was deployed with until its first check.",
       "plan": "Add a revision handle, a way to read and pin the revision a client serves (<code>client.revision()</code>, <code>cms.forRevision()</code>, <code>onUpdate</code>), and <code>markDegraded()</code>. Add an edge cache kit, <code>withEdgeCache()</code> in <code>@decocms/tanstack</code>, for caching rendered pages at the edge, and an ISR (Incremental Static Regeneration: re-rendering cached pages in the background) recipe for Next.js.",
       "features": [
         "edge-html-cache-profiles",
@@ -473,7 +474,7 @@
     {
       "id": "roadmap-studio-new--speed-up-publishes-and-make-failures-visible",
       "title": "Speed up publishes and make failures visible",
-      "today": "The planned once-a-minute check makes a publish live within seconds, but nothing tells the editor when it is live. A failed <code>forDraft</code> silently shows published content.",
+      "today": "The planned once-a-minute check delays propagation, and nothing tells the editor which release is prepared, promoted or served. A failed <code>forDraft</code> silently shows published content.",
       "features": [
         "fast-deploy-kv",
         "otel-observability"
@@ -644,7 +645,7 @@
       "id": "roadmap-api--publish-the-content-protocol-and-its-package",
       "group": "api",
       "title": "Publish the content protocol and its package",
-      "plan": "<p>Write down the protocol between the site editor and stored content: JSON-RPC 2.0 over one HTTP endpoint (<code>POST /rpc</code>, batches allowed) with four methods, <code>describe</code>, <code>schema.get</code>, <code>blocks.list</code> and <code>blocks.apply</code>, plus its errors, limits and conditional reads for polling. Ship it as <code>@decocms/blocks-protocol</code> (proposed name): the types and method definitions, a client, a server core over a <code>ContentStorage</code> interface, a filesystem storage and a black-box conformance suite any implementation runs over HTTP. Its key module holds the one filename rule (decode exactly once) that the site editor, <code>deco serve</code> and <code>deco content</code> all import. See <a href=\"#studio-compatibility\">Site editor compatibility</a>.</p>",
+      "plan": "<p>Write down the protocol between the site editor and stored content: JSON-RPC 2.0 over one HTTP endpoint (<code>POST /rpc</code>, batches allowed) with four methods, <code>describe</code>, <code>schema.get</code>, <code>blocks.list</code> and <code>blocks.apply</code>, plus its errors, limits and conditional reads for polling. Ship it as <code>@decocms/blocks-protocol</code> (proposed name): the types and method definitions, a client, a server core over a <code>ContentStorage</code> interface, a filesystem storage and a black-box conformance suite any implementation runs over HTTP. Its key module holds the one filename rule (decode exactly once) that the site editor, <code>deco serve</code> and <code>deco content</code> all import. See <a href=\"#studio-compatibility\">Site editor compatibility</a>.</p><p>Add advertised durable idempotency receipts and optional schema preconditions, bound uncompressed reads and batch responses, and recheck guards after synchronization and storage retries. Preserve atomic apply semantics through autosave coalescing. Extend conformance for lost responses, restart recovery, racing writes, oversized payloads and tenant isolation. Hosted draft lifecycle, publishing and rollback stay outside the four-method protocol.</p>",
       "features": [
         "admin-protocol-endpoints",
         "dev-studio-content-loop",
@@ -1417,7 +1418,7 @@
       "id": "roadmap-platform--build-studio-s-github-content-backend",
       "group": "studio",
       "title": "Build the site editor's GitHub content backend",
-      "plan": "<p>A <code>ContentStorage</code> inside the site editor's API that reads and writes <code>.deco/blocks</code> through the GitHub API, in the folder the project's \"app root\" setting names (a monorepo subfolder included). Every write is a commit, and all files of one <code>blocks.apply</code> go in one tree and one commit, with file contents inlined in the tree request. Clients poll on window focus and about every 30 seconds with one batched conditional request. Publishing, the draft pointer and <code>?__draft=</code> links stay site editor routes outside the protocol. Drop the requirement for a deployed preview URL, so a project with no deployment can still be edited.</p>",
+      "plan": "<p>A <code>ContentStorage</code> inside the site editor's API that reads and writes <code>.deco/blocks</code> through the GitHub API, in the folder the project's \"app root\" setting names (a monorepo subfolder included). Every write is a commit, and all files of one <code>blocks.apply</code> go in one tree and one commit, with file contents inlined in the tree request. Clients poll on window focus and about every 30 seconds with one batched conditional request. Publishing, the draft pointer and <code>?__draft=</code> links stay site editor routes outside the protocol. Drop the requirement for a deployed preview URL, so a project with no deployment can still be edited.</p><p>Reuse the existing Fast Preview Git-provider and autosave machinery behind this adapter. Bind the editor endpoint to an automatically managed draft, normalize set precedence, preserve conditional guards and durable request receipts, and coordinate saves with synchronization and publication.</p>",
       "features": [
         "admin-protocol-endpoints",
         "content-storage-and-delivery",
@@ -1428,7 +1429,8 @@
       "docs": [
         "content-protocol",
         "studio-compatibility",
-        "hosted-site-editor"
+        "hosted-site-editor",
+        "draft-synchronization"
       ]
     },
     {
@@ -1536,7 +1538,7 @@
       "id": "roadmap-platform--build-the-deco-api-release-service",
       "group": "studio",
       "title": "Build the Deco API release service",
-      "plan": "<p>A release endpoint, site IDs and site tokens (with a DECO_SITE and DECO_SITE_TOKEN lifecycle), rejection of ambiguous-route releases, and per-environment channels. The service serves every commit as it lands and doesn't compare schemas; content is checked against the code in CI by <code>deco check</code>.</p>",
+      "plan": "<p>Separate GitHub ingestion and publication from a stable storage/CDN data plane: production reads, including misses and cold reads, never call GitHub. Materialize immutable, canonically hashed JSON snapshots before promoting small per-environment channel manifests. Keep authorization in a minimal independently deployed gateway when needed. Reconcile missed or out-of-order webhooks in the control plane, reject ambiguous routes, bound materialization memory and retain last-good releases.</p><p>Use a durable per-channel promotion coordinator and monotonic generations. Fast rollback selects a retained compatible snapshot without builds, deploys or GitHub reads, records an audit event and pauses automatic promotion until explicitly resumed. Prevent stale jobs from undoing it, define asset retention and garbage collection, notify rendered-page caches, and document actual propagation delays. Site token lifecycle and CI code/content compatibility remain required.</p>",
       "features": [
         "content-storage-and-delivery",
         "cms-page-routing",
@@ -1549,9 +1551,43 @@
       "docs": [
         "hosted",
         "hosted-publishing",
-        "hosted-drafts"
+        "hosted-drafts",
+        "content-delivery",
+        "hosted-releases-internals"
       ],
       "pinned": false
+    },
+    {
+      "id": "roadmap-platform--synchronize-editor-drafts",
+      "group": "studio",
+      "title": "Keep editor drafts current automatically",
+      "plan": "<p>Manage internal draft branches automatically; editors never create branches or rebase. Extend GitHub push intake and existing Studio event delivery: synchronize open drafts in the background, inactive drafts on reopen, and reconcile before saves and publishing. Coalesce updates and retain a slow reconciliation fallback. Use three-way property-level JSON merging, draft-wins conflicts and deletions, atomic arrays, and whole-draft-blob fallback for oversized conflicting files. Reuse unchanged blobs without downloading them.</p><p>Serialize operations per draft, retry external head races without unconditional force updates, retain append-only history and recoverable incorporated-base metadata, and validate before committing. Bound merge memory and concurrency. Expose synchronization status and audited resolution summaries without overwriting unsaved form state. Publishing produces only the saved-content diff against current production.</p>",
+      "features": [
+        "content-storage-and-delivery",
+        "dev-studio-content-loop",
+        "workspace-packages"
+      ],
+      "docs": [
+        "draft-synchronization",
+        "hosted-site-editor",
+        "content-protocol"
+      ]
+    },
+    {
+      "id": "roadmap-platform--materialize-exact-draft-previews",
+      "group": "studio",
+      "title": "Serve exact draft revisions from stored assets",
+      "plan": "<p>Materialize saved draft commits as private immutable assets with site- and revision-scoped preview grants. Separate committed save status from preview readiness. An old pointer returns its exact revision or the documented unavailable fallback, never a newer branch head. Serving previews reads storage only; receipt recovery and ingestion remain control-plane work. Bound retention and include active grants in asset garbage collection.</p>",
+      "features": [
+        "studio-preview",
+        "content-storage-and-delivery",
+        "env-vars-and-secrets"
+      ],
+      "docs": [
+        "content-delivery",
+        "hosted-drafts",
+        "content-protocol"
+      ]
     },
     {
       "id": "roadmap-platform--align-the-preview-protocol",
@@ -1651,7 +1687,7 @@
       "id": "roadmap-platform--update-the-injected-agent-rules",
       "group": "studio",
       "title": "Update the injected agent rules",
-      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. <code>.deco/index.ts</code> and <code>.deco/blocks</code> are the site's; two files are generated and never edited by hand: <code>.deco/schema.gen.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up releases within seconds, not on save, and with DECO_SITE and DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
+      "plan": "<p>Replace the two wrong rules for next-major sites. Content edits go only in <code>.deco/blocks/&lt;encodeURIComponent(key)&gt;.json</code>. <code>.deco/index.ts</code> and <code>.deco/blocks</code> are the site's; two files are generated and never edited by hand: <code>.deco/schema.gen.json</code>, which <code>deco schema</code> rewrites after any change to a block's types, and <code>.deco/blocks.gen.ts</code>, which <code>deco content</code> writes and git ignores. A new type needs a block-map entry. <code>remoteLoader</code> picks up prepared releases on its next background check, not on save, and with DECO_SITE and DECO_SITE_TOKEN set the dev server serves the API release, not local edits.</p>",
       "features": [
         "ai-agent-instructions"
       ],
@@ -3784,7 +3820,7 @@
         "blog-tanstack",
         "faststore"
       ],
-      "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, and there's no revision to key by. The planned once-a-minute check makes content consistent within seconds.",
+      "summary": "There's no HTTP or edge cache story, and the Next pattern disables static and ISR rendering. Degraded pages get cached, and there's no revision to key by. The planned once-a-minute check is eventually consistent; manifest and page-cache lifetimes also affect propagation.",
       "docs": [
         "caching",
         "releases-and-deployment",

@@ -36,11 +36,13 @@ Because content and code share one history, a content change is a commit like an
 - **Branches.** A content change can wait on a branch, with its own preview deployment, until it's ready (see [On a branch](/next/releases-and-drafts#on-a-branch)).
 - **Rollback.** Undo a change like any other commit (see [Roll back](#roll-back)).
 
-<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a [release](/next/releases-and-drafts#releases) and reaches running servers within seconds, with no rebuild.</Hosted>
+<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a [release](/next/releases-and-drafts#releases) and reaches running servers on their next background check, with no application rebuild.</Hosted>
 
 ## Roll back
 
 If Friday's banner breaks the page, redeploy the previous build: its content and code roll back together, so they always fit. To undo only the content, revert the content commit and deploy. Reverting a single code commit doesn't revert content committed after it; see [Backward compatibility](/next/checking#backward-compatibility).
+
+<Hosted to="/next/hosted-publishing#fast-content-rollback" label="Fast content rollback">**Restore content without a deploy.** With hosted delivery, repoint the production channel to a retained, compatible release. Git reconciliation and code rollback are separate actions.</Hosted>
 
 ## One revision per response
 

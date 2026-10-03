@@ -497,7 +497,7 @@ const HOOD_LINKS: { href: string; title: string; text: string; read: string }[] 
   {
     href: '/next/releases-and-deployment#publishing',
     title: 'Publish by committing',
-    text: 'Every change is a commit in your repository, with its history and a one-step revert. Add the hosted Deco CMS and a published commit reaches your servers within seconds, with no redeploy.',
+    text: 'Every change is a commit in your repository, with its history and a one-step revert. Add the hosted Deco CMS and a prepared release reaches your servers on their next background check, without a redeploy. Restore a retained release without rebuilding.',
     read: 'Read: Publishing is committing',
   },
   {

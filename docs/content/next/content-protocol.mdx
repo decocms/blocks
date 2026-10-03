@@ -33,7 +33,7 @@ Two implementations serve the protocol:
 | **[`deco serve`](/next/site-editor#edit-on-your-machine)**, from the Deco CLI | The files in your working tree. Your app hot-reloads after each save, and you commit when you're ready. | About every 2 seconds |
 | **The site editor's GitHub backend**, part of the [hosted Deco CMS](/next/hosted) | Your repository on GitHub, with [draft branches](/next/hosted-site-editor#drafts-are-branches) and publishing. | About every 30 seconds |
 
-There's no event stream. The site editor polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins: if two people edit the same saved block at once, the later save replaces the earlier one.
+The portable protocol has no event stream. The site editor polls with one batched request, and when nothing changed the answer is a short "not modified". Saving is last-writer-wins: if two people edit the same saved block at once, the later save replaces the earlier one.
 
 <Hosted to="/next/hosted-site-editor" label="Editing in the site editor on GitHub">**Edit without a local copy.** With the hosted Deco CMS, the site editor's GitHub backend commits each save to a draft branch, and publishes by bringing the draft to your production branch, so editors need no copy of the code, dev server or Git.</Hosted>
 
@@ -73,8 +73,9 @@ function describe(): {
   root: string;                                  // the app root: the folder that contains .deco/, relative to the repository root
   schemaFormat: "deco-meta@1";
   refs: null | { default: string; autoCreate: boolean };            // branches; null on the local server
+  writes: { idempotency: null | { retentionMs: number }; schemaPreconditions: boolean };
   pollIntervalMs: number;                        // local: 2000; git: 30000, plus on window focus
-  limits: { maxOpsPerApply: number; maxBlockBytes: number; maxRequestBytes: number };
+  limits: { maxOpsPerApply: number; maxBlockBytes: number; maxRequestBytes: number; maxListBytes: number; maxSchemaBytes: number; maxBatchResponseBytes: number };
   preview: null | { origin: string };            // where "open the real page" points
   assets: null | { dir: string; urlPrefix: "/assets/"; maxBytes: number };   // dir relative to the repository root; null when read-only or uploads go to hosted storage
 };
@@ -92,6 +93,8 @@ function blocksList(params?: { ref?: string; ifNoneMatch?: string }):
 
 function blocksApply(params: {
   ref?: string;
+  requestKey?: string;                           // retry the same logical write; only when advertised
+  ifSchemaMatch?: string;                        // reject if the schema changed; only when advertised
   set?: Record<string, object>;                  // whole-entry replace (create or update)
   delete?: string[];                             // a missing name counts as deleted
   ifMatch?: Record<string, string | null>;       // a version the entry must have; null = must not exist
@@ -108,11 +111,23 @@ Versions and revisions are opaque strings defined by each storage (a git blob ha
 4. **Validated first.** Names, value shapes, sizes and the secret guard are checked before anything is written, and every violation is reported at once.
 5. **Preconditions are optional.** A failed `ifMatch` writes nothing and returns a conflict with each entry's expected and actual version. Without `ifMatch`, the last writer wins, as with the site editor's autosave.
 
-Renaming, duplicating and moving entries are recipes over one `blocks.apply` (a `set` plus a `delete`, with `ifMatch: { [newName]: null }` for create-only), not methods of their own. Publishing, discarding a draft and the [draft pointer](/next/api-reference#draft-pointers) stay site editor routes outside the protocol.
+Renaming, duplicating and moving entries are recipes over one `blocks.apply` (a `set` plus a `delete`, with `ifMatch: { [newName]: null }` for create-only), not methods of their own. Creating and synchronizing hosted drafts, publishing, rollback, discarding a draft and the [draft pointer](/next/api-reference#draft-pointers) stay site editor routes outside the protocol. The hosted editor binds its endpoint to the chosen internal draft; an editor does not need to supply or understand a Git branch. See [Keeping drafts current](/next/draft-synchronization).
+
+### Retry-safe writes and schema changes
+
+A dropped HTTP response does not tell the client whether its save committed. `describe.writes.idempotency` advertises durable request-key receipts and their retention window; hosted Git storage must support them. A client creates one `requestKey` for a logical `blocks.apply` and reuses it only for retries of the identical request. A JSON-RPC `id` only correlates responses and is not an idempotency key.
+
+Scope receipts to the authenticated tenant, principal, app root and resolved write target. Bind each key to a canonical digest of all supplied parameters. Return the original result when the same request is retried within the retention window, even if the branch has since advanced; reject reuse for different parameters with Invalid params (-32602). Recheck authorization before returning a receipt. After that window, the client rereads and reconciles; it must not blindly retry an uncertain old write as new work.
+
+Persist the receipt with the mutation, or recover it from commit metadata. An in-memory map or a database insert after moving a Git ref cannot guarantee deduplication after a crash. Reserve concurrent requests with the same key, reconcile uncertain provider responses before retrying, and keep receipts for deleted entries too. Coalescing autosaves must preserve each request's result and guards; it cannot weaken the atomicity of an individual apply.
+
+When `schemaPreconditions` is advertised, `ifSchemaMatch` guards against the form's schema changing before its save. A mismatch uses the Conflict error, with expected and actual schema versions. Recheck this and every per-entry `ifMatch` on the storage snapshot used for each atomic commit attempt, including after automatic synchronization. Receipts for completed identical requests are resolved before reevaluating those guards. Unsupported guards and request keys are rejected rather than ignored.
+
+`blocks.apply` still replaces whole entries. The JSON property merge used to incorporate production into a hosted draft belongs to the [draft lifecycle](/next/draft-synchronization#three-way-content-merge), not to a new implicit patch behavior in this method. The protocol does not execute site code or claim that shape validation proves compatibility with deployed code.
 
 ### Polling instead of events
 
-There's no event stream. A client polls with one batched request that carries the versions it has; when nothing changed, both answers are a few bytes:
+There's no event stream in the portable protocol. Hosted Studio may invalidate reads through its existing events, but a client must also work by polling. A client polls with one batched request that carries the versions it has; when nothing changed, both answers are a few bytes:
 
 ```json title="A poll when nothing changed"
 → [{"jsonrpc":"2.0","id":4,"method":"schema.get","params":{"ifNoneMatch":"9f2c…"}},
@@ -128,7 +143,7 @@ After its own write, a client adopts the returned revision, so its next poll is 
 | Code | Name | When |
 |---|---|---|
 | -32001 | NotFound | No schema, no `.deco` folder at all (the site editor's "not a Deco site"), or a branch that can't be created |
-| -32002 | Conflict | An `ifMatch` precondition failed |
+| -32002 | Conflict | An `ifMatch` or `ifSchemaMatch` precondition failed |
 | -32003 | InvalidBlock | A name or value breaks the rules below, or a secret entry holds a plain-text value |
 | -32005 | ReadOnly | A write to a read-only endpoint |
 | -32006 | Unsupported | A feature the endpoint doesn't offer, such as branches on the local server |
@@ -137,7 +152,7 @@ After its own write, a client adopts the returned revision, so its next poll is 
 | -32010 | Unauthorized | Missing or invalid bearer token (HTTP 401) |
 | -32011 | Forbidden | Authenticated, but not allowed for this project |
 
-Plus the standard JSON-RPC codes (-32700, -32600, -32601, -32602, -32603). The defaults: at most 500 names per `blocks.apply`, 1 MiB per entry and 8 MiB per request; a storage can lower them, and `describe` reports the values in effect.
+Plus the standard JSON-RPC codes (-32700, -32600, -32601, -32602, -32603). The defaults: at most 500 names per `blocks.apply`, 1 MiB per entry and 8 MiB per request. Reads are bounded too: `describe` reports maximum uncompressed schema, block-list and aggregate batch-response bytes, as well as the write limits. A storage can lower these limits. Existing files and conditional misses count against them; gzip does not bypass them. A list that is too large returns LimitExceeded, never a partial map presented as the whole snapshot. Choose and document hosted read defaults before release, measuring parsed-object memory as well as wire bytes.
 
 ### File names
 
@@ -170,3 +185,7 @@ The protocol ships as one package, `@decocms/blocks-protocol`, with `zod` as its
 ```
 
 A storage implements a small interface: a snapshot of names and versions, reading file bodies, reading the schema, and one atomic commit attempt. The core owns everything else: the JSON-RPC layer, validation, the file-name rule, the secret guard, limits and retries. The site editor's GitHub backend is one storage; the CLI's filesystem storage is another. The conformance suite runs against any endpoint, which is how both are kept to the same contract.
+
+### Conformance for hosted storage
+
+The black-box suite must exercise atomic set/delete, set precedence, stale entry and schema guards, repeat requests after lost responses, simultaneous duplicate requests, receipt recovery after a simulated restart, tenant isolation and oversized reads and writes. A storage retry revalidates against the new head; a rate-limit response carries retry timing rather than triggering a burst of immediate retries. Versioned draft assets are served by the separate [delivery contract](/next/content-delivery#exact-draft-previews), so a moving branch read is never mistaken for an immutable preview read.

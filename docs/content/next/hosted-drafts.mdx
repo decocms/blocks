@@ -141,3 +141,7 @@ const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 ## The site editor's canvas
 
 The site editor edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and token and the wiring above. With [`deco serve`](/next/site-editor#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.
+
+## Preview readiness
+
+A saved commit is durable before its preview asset is necessarily ready. The editor shows preparation status, then opens a signed pointer to the exact immutable revision. Moving the internal draft branch never changes what an older pointer serves. Draft reads use private object storage through the delivery service; a missing revision never triggers a GitHub fetch. See [Exact draft previews](/next/content-delivery#exact-draft-previews).

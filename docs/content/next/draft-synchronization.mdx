@@ -1,0 +1,69 @@
+---
+title: Keeping drafts current
+nav: Draft synchronization
+group: Under the hood
+kind: internals
+order: 10
+description: Automatically incorporate published Git content into editor drafts, with draft-wins JSON merging and bounded memory.
+---
+
+# Keeping drafts current
+
+An editor changes a homepage title while someone else publishes a new footer. Their draft should keep the title and pick up the footer, without asking them to create a branch or rebase.
+
+The hosted site editor manages an internal branch for each draft, created on its first save. Editors work with drafts, previews and publishing; Git remains the durable history. This is the proposed synchronization design, tracked in the [roadmap](/roadmap#roadmap-platform--synchronize-editor-drafts).
+
+## Synchronize active drafts, not every branch
+
+The existing GitHub webhook intake can enqueue production changes. Record the latest repository production commit once, and the production commit each draft last incorporated. Comparing those stored identifiers needs no GitHub request.
+
+- On a production push, mark drafts stale and schedule background synchronization for drafts currently open.
+- When an inactive draft is reopened, synchronize it before returning its current editable snapshot.
+- Before a save or publish, reconcile against the latest production head. Serialize this work with other operations on the same draft.
+- Coalesce several production updates into one synchronization to the newest head. Leave inactive drafts alone until needed.
+
+Keep periodic control-plane reconciliation as a fallback for missed events. Local `deco serve` keeps editing the developer's working tree and does not perform hosted branch synchronization. Production delivery reads only [stored assets](/next/content-delivery), never GitHub.
+
+Synchronizing a draft requires GitHub reads and usually a commit. The cost follows active drafts and actual changes, not visitor traffic. A publication arriving after a synchronization began is incorporated by the next pass; drafts are not promised to match a perpetually moving head instantly.
+
+## Three-way content merge
+
+Compare the previous incorporated production content (**base**), the current **draft**, and the latest **production** content. Equality is structural JSON equality, not formatting. Missing properties and deleted blocks are distinct from JSON `null`.
+
+| Change relative to base | Result |
+|---|---|
+| Only production changed it | Adopt production |
+| Only the draft changed it | Keep the draft |
+| Both made the same change | Keep that value |
+| Both changed different object properties | Merge both changes |
+| Both changed the same value differently | Draft wins |
+| Draft deleted a block or property that production edited | Keep the deletion |
+| Draft edited a block or property that production deleted | Keep the draft value |
+
+Recurse through objects when all three values are compatible objects. Arrays are atomic values in the first version: if both sides changed one, take the draft's entire array. A type change or a competing creation is also atomic. Do not merge array items by position; reordering sections would associate unrelated entries.
+
+After incorporating production, advance the recorded base with the draft commit. Old changes must not remain pending against an old base forever. Retain both inputs in Git history using append-only merge commits; automatic synchronization does not squash or force-push saved history. Store enough metadata on the synchronization commit to recover the incorporated base if the database update is interrupted.
+
+Only retain draft overrides in the app root's saved-content paths. Code and generated schemas follow production; unrelated repository and monorepo paths are preserved. Publishing reconciles again and writes the resulting content-only diff onto current production, respecting branch protection and required checks.
+
+## Reuse blobs before reading JSON
+
+A Git blob hash can settle most files without downloading their bodies. If only one side changed a file, or both sides have the same blob, reference that existing blob in the new Git tree. Only files both sides changed differently need base, draft and production bodies for property-level merging.
+
+For a file over the configured merge-size limit, keep the draft's whole blob by reference. Do the same if any of its three versions exceeds that limit; deleted draft entries stay deleted. Check provider size metadata first and enforce byte limits while streaming, because metadata can be absent or incorrect. This fallback avoids parsing the large file. It can discard production edits to other properties in that file, so report it separately from an ordinary property conflict.
+
+Process conflicting files sequentially or with low bounded concurrency. Persist each merged result and release its parsed objects before starting the next. Track a total job budget too: many small files can exhaust memory or time. Blob caches store immutable content with a bounded size and lifetime. Snapshot assembly has its own [memory bounds](/next/content-delivery#bound-preparation-memory).
+
+## Saves racing with synchronization
+
+Coordinate saves, synchronization, discard and publication using durable per-draft serialization. External Git pushes still race with Studio: a branch update must verify its expected head, and if it moved, rebuild from the new head and recheck every precondition. Never resolve that race with an unconditional force update.
+
+This policy is separate from two editors saving the same block. The first version may keep last-writer-wins autosave; clients that send `ifMatch` get an explicit conflict if synchronization or another editor changed the block. Preserve unsaved form state and show that newer stored content is available instead of silently replacing what the editor is typing.
+
+Validate the merged content before committing. Automatic conflict resolution is not proof that references and routes are valid. A failed synchronization leaves the draft intact and blocks publishing with a useful error.
+
+## What the editor sees
+
+The draft lifecycle routes expose the latest incorporated production commit, synchronization state and a bounded summary of automatic resolutions. For example: "Updated published content; kept your title" or "Kept your whole block because it exceeded the merge limit." Keep the full audit record outside content snapshots.
+
+Emit changes through Studio's existing event delivery for open editors, with a slow fallback poll. The portable [content protocol](/next/content-protocol) remains polling-based and works without events. Branch creation, synchronization and rebasing are never tasks the business user has to perform.

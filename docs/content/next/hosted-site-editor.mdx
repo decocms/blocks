@@ -38,13 +38,15 @@ Uploads already in your repository keep working: a field holds either kind of ad
 
 ## Drafts are branches
 
-An editor's changes live on a **draft branch** in your repository, created on the first save. Each save is one commit on it, so the draft's history is ordinary Git history: you can review it in a pull request, diff it, or check it out. Saving is last-writer-wins: if two people edit the same entry at once, the later save replaces the earlier one (see [Where edits go](/next/content-protocol#where-edits-go)).
+The editor works with a draft; they never need to create a branch, merge or rebase. The backend manages the branch automatically. An editor's changes live on a **draft branch** in your repository, created on the first save. Each save is one commit on it, so the draft's history is ordinary Git history: you can review it in a pull request, diff it, or check it out. Saving is last-writer-wins: if two people edit the same entry at once, the later save replaces the earlier one (see [Where edits go](/next/content-protocol#where-edits-go)).
+
+When new content lands on production, open drafts incorporate it automatically; inactive drafts catch up when reopened. Changes to different JSON properties are combined, and the draft wins competing edits to the same value. Arrays are kept whole. Oversized conflicting files keep the draft's whole file, with an explanation in the synchronization history. The backend also synchronizes before saves and publishing. See [Keeping drafts current](/next/draft-synchronization).
 
 While the draft is unpublished, the site editor previews it on your real site; see [Previewing drafts](/next/hosted-drafts).
 
 ## Publishing
 
-Publishing brings the draft's commits to your production branch (usually `main`). From there it's like any other commit: it's served as a release and reaches running servers within seconds (see [Publishing without a deploy](/next/hosted-publishing)).
+Publishing reconciles the draft with current production and writes its content-only changes to your production branch (usually `main`), respecting required checks. The delivery pipeline prepares an immutable release and promotes it only when ready. Servers adopt it on their next background check (see [Publishing without a deploy](/next/hosted-publishing)); saving, preparing and promoting are separate statuses.
 
 The site editor reads the schema committed on the branch it edits, so editors only see the block types and fields that branch's code has. Deploy code that adds a type before publishing content that uses it (see [Keep running code compatible](/next/hosted-publishing#keep-running-code-compatible)).
 

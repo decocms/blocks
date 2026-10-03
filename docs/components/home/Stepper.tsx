@@ -271,7 +271,7 @@ export function Stepper() {
           <Code html={STEP3_HTML} />
           <Result>
             <span>
-              With the hosted Deco CMS (the site and token above), a commit reaches your servers within seconds, no deploy. Without it, content ships
+              With the hosted Deco CMS (the site and token above), a prepared release reaches your servers on their next background check, no deploy. Without it, content ships
               with each deploy.
             </span>
           </Result>
