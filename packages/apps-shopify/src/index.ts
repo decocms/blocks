@@ -34,7 +34,7 @@ export { default as userLoader } from "./loaders/user";
 export { getCartCookie, setCartCookie } from "./utils/cart";
 // Cookie utils
 export { getCookies, setCookie } from "./utils/cookies";
-export { extractGraphqlOperationName } from "./utils/graphqlOperationName";
+export { extractGraphqlOperationName } from "./v8/graphqlOperationName";
 export {
 	type CreateShopifyFetchOptions,
 	createShopifyFetch,
@@ -46,10 +46,7 @@ export { getUserCookie, setUserCookie } from "./utils/user";
 // the v7 surface, kept for v7 consumers until v7 is dropped.
 export {
 	createShopifyClient,
-	DEFAULT_SHOPIFY_API_VERSION,
 	type ShopifyClient,
 	type ShopifyClientConfig,
 	ShopifyError,
-	type ShopifyGraphQL,
-	type ShopifyRequestOptions,
 } from "./v8/client";

@@ -11,10 +11,7 @@
  * is the framework binding's job.
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
-import { extractGraphqlOperationName } from "../utils/graphqlOperationName";
-
-/** The Shopify API version used when the config names none. */
-export const DEFAULT_SHOPIFY_API_VERSION = "2025-04";
+import { extractGraphqlOperationName } from "./graphqlOperationName";
 
 export interface ShopifyClientConfig {
   /** The store's subdomain: "acme" for acme.myshopify.com. */
@@ -23,18 +20,18 @@ export interface ShopifyClientConfig {
   storefrontAccessToken: string;
   /** Admin API access token; `admin` is only available when it's set. */
   adminAccessToken?: string;
-  /** e.g. "2025-04"; defaults to DEFAULT_SHOPIFY_API_VERSION. */
-  apiVersion?: string;
+  /** The Shopify API version, e.g. "2026-07". The site owns it, so there is no default to go stale. */
+  apiVersion: string;
 }
 
-export interface ShopifyRequestOptions {
+interface ShopifyRequestOptions {
   /** Extra request headers, e.g. `Shopify-Storefront-Buyer-IP`. */
   headers?: Record<string, string>;
   signal?: AbortSignal;
 }
 
 /** One GraphQL endpoint: send a document, get its `data` back. */
-export interface ShopifyGraphQL {
+interface ShopifyGraphQL {
   query<T, V extends Record<string, unknown> = Record<string, unknown>>(
     document: string,
     variables?: V,
@@ -70,7 +67,7 @@ export function createShopifyClient(
 ): ShopifyClient {
   const request = createInstrumentedFetch({ provider: "shopify", fetch: options.fetch });
   const origin = `https://${config.storeName}.myshopify.com`;
-  const version = config.apiVersion ?? DEFAULT_SHOPIFY_API_VERSION;
+  const version = config.apiVersion;
 
   const endpoint = (surface: "storefront" | "admin", url: string, auth: Record<string, string>) =>
     ({
@@ -87,10 +84,16 @@ export function createShopifyClient(
           void response.body?.cancel().catch(() => {});
           throw new ShopifyError(operation, response.status);
         }
-        const body = (await response.json()) as {
-          data?: unknown;
-          errors?: { extensions?: { code?: unknown } }[];
-        };
+        // A non-JSON body (an HTML error page) must not reach the error: the
+        // SyntaxError's message quotes the start of the body.
+        let body: { data?: unknown; errors?: { extensions?: { code?: unknown } }[] };
+        try {
+          body = await response.json();
+        } catch {
+          throw new ShopifyError(operation, response.status, ["INVALID_JSON"]);
+        }
+        // Partial data alongside errors is rejected as a whole, deliberately:
+        // a thin client doesn't guess which fields are still trustworthy.
         if (body.errors?.length || body.data == null) {
           const codes = body.errors?.length
             ? body.errors.map((e) =>

@@ -34,7 +34,7 @@ function upstream(body: unknown, status = 200) {
   );
 }
 
-const config = { storeName: "acme", storefrontAccessToken: "sf-token" };
+const config = { storeName: "acme", storefrontAccessToken: "sf-token", apiVersion: "2026-07" };
 
 beforeEach(() => {
   seen.options.length = 0;
@@ -56,7 +56,7 @@ describe("createShopifyClient", () => {
     expect(seen.options).toEqual([{ provider: "shopify", fetch }]);
     expect(seen.operations).toEqual(["ProductByHandle"]);
     const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(url).toBe("https://acme.myshopify.com/api/2025-04/graphql.json");
+    expect(url).toBe("https://acme.myshopify.com/api/2026-07/graphql.json");
     expect(init?.method).toBe("POST");
     expect(init?.headers).toMatchObject({
       "x-shopify-storefront-access-token": "sf-token",
@@ -103,6 +103,19 @@ describe("createShopifyClient", () => {
     expect(error).toBeInstanceOf(ShopifyError);
     expect(error).toMatchObject({ operation: "Cart", status: 401, codes: [] });
     expect(error.message).toBe("shopify Cart failed with HTTP 401");
+  });
+
+  it("reports a non-JSON body as INVALID_JSON, never quoting the body", async () => {
+    const fetch = vi.fn(async () => new Response("<html>sf-token</html>", { status: 200 }));
+    const shopify = createShopifyClient(config, { fetch });
+    const error = (await shopify.storefront
+      .query("query Cart { cart { id } }")
+      .catch((e: unknown) => e)) as ShopifyError;
+
+    expect(error).toBeInstanceOf(ShopifyError);
+    expect(error).toMatchObject({ operation: "Cart", status: 200, codes: ["INVALID_JSON"] });
+    expect(error.message).not.toContain("sf-token");
+    expect(error.message).not.toContain("<html");
   });
 
   it("reports GraphQL errors by their codes, not their messages", async () => {
