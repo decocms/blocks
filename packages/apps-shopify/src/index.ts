@@ -34,10 +34,19 @@ export { default as userLoader } from "./loaders/user";
 export { getCartCookie, setCartCookie } from "./utils/cart";
 // Cookie utils
 export { getCookies, setCookie } from "./utils/cookies";
-export { extractGraphqlOperationName } from "./utils/graphqlOperationName";
+export { extractGraphqlOperationName } from "./v8/graphqlOperationName";
 export {
 	type CreateShopifyFetchOptions,
 	createShopifyFetch,
 } from "./utils/instrumentedFetch";
 export { shopifyOperationRouter } from "./utils/operationRouter";
 export { getUserCookie, setUserCookie } from "./utils/user";
+
+// The next-major upstream client (/next/upstream-clients). Everything above is
+// the v7 surface, kept for v7 consumers until v7 is dropped.
+export {
+	createShopifyClient,
+	type ShopifyClient,
+	type ShopifyClientConfig,
+	ShopifyError,
+} from "./v8/client";

@@ -11,7 +11,7 @@
  * hitting, not what the call actually does. The semantic operation
  * name lives in the GraphQL document itself (`query Foo { ... }`),
  * and is extracted by `extractGraphqlOperationName` (see
- * `./graphqlOperationName.ts`) at the client layer and stamped as
+ * `../v8/graphqlOperationName.ts`) at the client layer and stamped as
  * `init.operation`, which always wins over this router.
  *
  * So this router exists for:

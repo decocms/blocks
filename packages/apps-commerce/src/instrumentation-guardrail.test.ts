@@ -62,3 +62,29 @@ describe("commerce apps instrumentation guardrail", () => {
     });
   }
 });
+
+/**
+ * Next-major clients (/next/upstream-clients#write-a-client): the client
+ * module creates its fetch with `createInstrumentedFetch` from
+ * `@decocms/blocks/fetch` and never calls a bare `fetch(...)`, so every
+ * request it sends is measured with no site wiring. Add each app's client
+ * module here as it ships.
+ */
+const V8_CLIENTS: Record<string, string> = {
+  "apps-shopify": "src/v8/client.ts",
+};
+
+describe("next-major upstream clients instrumentation guardrail", () => {
+  for (const [app, path] of Object.entries(V8_CLIENTS)) {
+    it(`${app} sends every request through @decocms/blocks/fetch`, () => {
+      const src = readFileSync(join(repoRoot, "packages", app, path), "utf8");
+      expect(src, `${app} must import from @decocms/blocks/fetch`).toMatch(
+        /import\s*\{[^}]*\bcreateInstrumentedFetch\b[^}]*\}\s*from\s*["']@decocms\/blocks\/fetch["']/,
+      );
+      expect(src, `${app} must create its fetch with createInstrumentedFetch`).toMatch(
+        /createInstrumentedFetch\(\s*\{[^}]*provider:/,
+      );
+      expect(src, `${app} must not call fetch directly`).not.toMatch(/(?<![\w.])fetch\s*\(/);
+    });
+  }
+});
