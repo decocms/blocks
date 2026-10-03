@@ -1,5 +1,10 @@
 # Algolia app — initial scaffold
 
+> **Next major:** the package root exports `createAlgoliaClient`, a thin
+> client over the Algolia REST API built on `@decocms/blocks/fetch`
+> (see `/next/upstream-clients`). Everything below is the v7 surface, which
+> stays on the `./client`, `./loaders/client` and `./types` subpaths.
+
 This folder ports the Algolia integration from `deco-cx/apps/algolia`
 (Fresh/Deno) to `@decocms/apps/algolia` (TanStack Start/Node), following
 the same shape as `vtex/`, `magento/`, and `shopify/`.
@@ -56,7 +61,7 @@ the storefront-specific overlays will keep living in the site.
 
 ```ts
 // src/setup.ts
-import { initAlgoliaFromBlocks } from "@decocms/apps/algolia";
+import { initAlgoliaFromBlocks } from "@decocms/apps-algolia/client";
 import { blocks } from "./server/cms/blocks.gen";
 
 createSiteSetup({

@@ -1,12 +1,98 @@
 /**
- * Algolia app entry point for @decocms/apps.
- * Re-exports client config + initializer + types.
+ * `@decocms/apps-algolia`: a thin client for the Algolia Search REST API.
+ * See /next/upstream-clients.
  *
- * For loaders, use sub-path imports:
- *   import client from "@decocms/apps/algolia/loaders/client"
+ * It calls the REST API directly rather than through the `algoliasearch`
+ * SDK, so every request goes through `createInstrumentedFetch` (provider
+ * `algolia`) like every other client. No retries or circuit breaker, and no
+ * response cache: caching upstream data is the framework binding's job.
  *
- * For the SDK SearchClient directly (no proxy hop on the server):
- *   import { getAlgoliaClient } from "@decocms/apps/algolia/client"
+ * The v7 SDK wiring (`configureAlgolia`, `getAlgoliaClient`,
+ * `initAlgoliaFromBlocks`) stays on the `./client` and `./loaders/client`
+ * subpaths for v7 sites; it needs the optional `algoliasearch` peer.
  */
-export * from "./client";
-export type { AlgoliaConfig, Indices } from "./types";
+import { createInstrumentedFetch } from "@decocms/blocks/fetch";
+
+export interface AlgoliaClientConfig {
+  applicationId: string;
+  /** A search-only key is enough for search; never send an admin key to the browser. */
+  apiKey: string;
+}
+
+/** Search parameters, as the REST API names them (`query`, `hitsPerPage`, `filters`, ...). */
+export interface AlgoliaSearchParams {
+  query?: string;
+  [param: string]: unknown;
+}
+
+export interface AlgoliaSearchRequest extends AlgoliaSearchParams {
+  indexName: string;
+}
+
+export type AlgoliaHit<T> = T & { objectID: string; [field: string]: unknown };
+
+export interface AlgoliaSearchResponse<T = Record<string, unknown>> {
+  hits: AlgoliaHit<T>[];
+  nbHits: number;
+  page: number;
+  nbPages: number;
+  hitsPerPage: number;
+  processingTimeMS: number;
+  query: string;
+  params: string;
+  index?: string;
+  queryID?: string;
+  facets?: Record<string, Record<string, number>>;
+  [field: string]: unknown;
+}
+
+export class AlgoliaError extends Error {
+  constructor(
+    readonly operation: string,
+    readonly status: number,
+  ) {
+    super(`algolia ${operation} failed with HTTP ${status}`);
+  }
+}
+
+export function createAlgoliaClient(
+  config: AlgoliaClientConfig,
+  options: { fetch?: typeof fetch } = {},
+) {
+  const request = createInstrumentedFetch({ provider: "algolia", fetch: options.fetch });
+  const host = `https://${config.applicationId}-dsn.algolia.net`;
+
+  async function post<R>(operation: string, path: string, body: unknown): Promise<R> {
+    const response = await request(`${host}${path}`, {
+      operation,
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-algolia-application-id": config.applicationId,
+        "x-algolia-api-key": config.apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new AlgoliaError(operation, response.status);
+    return (await response.json()) as R;
+  }
+
+  return {
+    /** Runs several queries, on one or more indices, in one request. */
+    search<T = Record<string, unknown>>(
+      requests: AlgoliaSearchRequest[],
+    ): Promise<{ results: AlgoliaSearchResponse<T>[] }> {
+      return post("search", "/1/indexes/*/queries", { requests });
+    },
+
+    /** Runs one query on one index. */
+    searchSingleIndex<T = Record<string, unknown>>(
+      indexName: string,
+      params: AlgoliaSearchParams = {},
+    ): Promise<AlgoliaSearchResponse<T>> {
+      return post("searchSingleIndex", `/1/indexes/${encodeURIComponent(indexName)}/query`, params);
+    },
+  };
+}
+
+export type AlgoliaClient = ReturnType<typeof createAlgoliaClient>;

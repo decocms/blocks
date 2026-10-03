@@ -9,18 +9,18 @@
  * does NOT prove the fetch is actually reached at runtime — for VTEX/Shopify/
  * Magento that still depends on the *site* calling `setXFetch(createXFetch())`
  * at boot (they fall back to an uninstrumented `globalThis.fetch` otherwise).
- * Only Salesforce is auto-wired via `createHttpClient`'s default fetcher. So
- * this catches "a provider shipped with no instrumented fetch at all"; it does
- * not catch "a site forgot to wire it".
+ * So this catches "a provider shipped with no instrumented fetch at all"; it
+ * does not catch "a site forgot to wire it".
  *
  * This test reads sibling package source from disk (it does NOT import app
  * modules) so it stays within the one-way dependency graph. If you add a new
  * commerce provider, add it to REQUIRED below and give it a
  * `src/utils/instrumentedFetch.ts` that wires the two symbols.
  *
- * Known exception: `apps-algolia` uses the `algoliasearch` SDK, which owns its
- * own transport + cache, so it has no framework-instrumented fetch and is not
- * listed here.
+ * Thin clients (/next/upstream-clients) are checked separately below: each
+ * client module must build its requests on `createInstrumentedFetch` from
+ * `@decocms/blocks/fetch`, which measures every request itself, and must not
+ * call `fetch` in any form. A new thin client goes in V8_CLIENTS.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -42,7 +42,7 @@ function findRepoRoot(): string {
 const repoRoot = findRepoRoot();
 
 /** Commerce apps whose upstream egress must be instrumented. */
-const REQUIRED = ["apps-vtex", "apps-shopify", "apps-magento", "apps-salesforce"] as const;
+const REQUIRED = ["apps-vtex", "apps-shopify", "apps-magento"] as const;
 
 describe("commerce apps instrumentation guardrail", () => {
   for (const app of REQUIRED) {
@@ -76,6 +76,9 @@ const V8_CLIENTS: Record<string, { file: string; provider: string }> = {
   "apps-vtex": { file: "src/vtexClient.ts", provider: "vtex" },
   "apps-wake": { file: "src/wakeClient.ts", provider: "wake" },
   "apps-magento": { file: "src/magentoClient.ts", provider: "magento" },
+  "apps-algolia": { file: "src/index.ts", provider: "algolia" },
+  "apps-resend": { file: "src/emails.ts", provider: "resend" },
+  "apps-sfmc-personalization": { file: "src/index.ts", provider: "sfmc-personalization" },
 };
 
 describe("v8 upstream clients use the instrumented fetch", () => {
