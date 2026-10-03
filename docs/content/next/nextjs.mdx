@@ -347,10 +347,10 @@ A page rendered at build time (static rendering or ISR) never switches [variants
 
 ## Edit in the site editor
 
-To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its canvas defaults to Vite's port, so point it at Next's:
+To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its preview defaults to Vite's port, so point it at Next's:
 
 ```bash
-npx @decocms/blocks serve --app-url http://localhost:3000
+npx @decocms/blocks serve --preview localhost:3000
 ```
 
 Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).

@@ -8,7 +8,7 @@ order: 8
 
 # Site editor
 
-Your merchandising team wants to swap the home page hero image for the weekend and fix a typo in the footer, and none of them opens a code editor. The site editor is Deco CMS's content editor: it shows the form [`deco schema`](/next/schema) built from each block's types, next to a preview that your dev app renders, and saves each change back to the block's JSON file.
+Your merchandising team wants to swap the home page hero image for the weekend and fix a typo in the footer, and none of them opens a code editor. The site editor is Deco CMS's content editor: it shows the form [`deco schema`](/next/schema) built from each block's types, next to a preview of your running dev app, and saves each change back to the block's JSON file.
 
 This page shows what the site editor is, how to run it against the app on your machine, how uploads work, and what works differently because the site editor never runs your code.
 
@@ -20,7 +20,7 @@ The site editor never runs your code. It needs only two things, both files in yo
 
 ## Edit on your machine
 
-The site editor runs at `/site-editor` in Deco Studio. It needs no account and works whether you're signed in or not. If you're signed in, you can also pick "localhost" in the draft environment selector.
+The site editor runs at `/site-editor` in Deco Studio. It needs no account and works whether you're signed in or not. It opens in Studio's app layout, with the same Preview and Content tabs as the site editor inside a project: Preview shows your running dev app, Content holds the forms. Signed in, the sidebar lists your organizations; signed out, it's the same layout without them. Hosted features, such as publishing, releases and the GitHub backend, aren't there. If you're signed in, you can also pick "localhost" in a project's draft environment selector, which previews the same app.
 
 To edit the app running on your machine:
 
@@ -31,14 +31,14 @@ To edit the app running on your machine:
    Deco server          http://127.0.0.1:4545/rpc
    Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
    Assets               apps/storefront/public/assets   (PUT /assets/<name>)
-   App preview          http://localhost:5173
+   Preview              http://localhost:5173
    Site editor          https://<studio-origin>/site-editor#endpoint=…&token=…
    ```
 
-3. Open the link.
+3. Open the link. The Preview tab loads the address printed as `Preview`: the port from your Vite config, else `http://localhost:5173`. If your app runs elsewhere, pass it, such as `npx @decocms/blocks serve --preview localhost:8001`.
 4. The first time, Chrome asks whether the site editor may reach a server on your machine (Local Network Access). Allow it.
 
-Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) after every save, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)). Its flags, such as `--port` and `--app-url`, are in the [CLI reference](/next/cli#deco-serve).
+Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) after every save, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)). Its flags, such as `--port` and `--preview`, are in the [CLI reference](/next/cli#deco-serve).
 
 ## Images and other uploads
 
