@@ -154,8 +154,22 @@ function inlinedFiles(saved: SavedBlocks): string[] {
     .filter((file) => !IMPORTABLE_FILE.test(file));
 }
 
+/**
+ * The `.deco` folder's identity for `createCMS` (one instance per folder, so
+ * a hot-reloaded module keeps its instance): its path from the repository
+ * root, or `.deco` outside a repository. Relative, so builds are reproducible.
+ */
+export function contentRoot(deco: string): string {
+  for (let dir = path.dirname(deco); ; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, ".git"))) {
+      return path.relative(dir, deco).split(path.sep).join("/");
+    }
+    if (path.dirname(dir) === dir) return ".deco";
+  }
+}
+
 /** The source of `.deco/blocks.gen.ts` for a set of saved blocks. */
-export async function renderContentModule(saved: SavedBlocks): Promise<string> {
+export async function renderContentModule(saved: SavedBlocks, root = ".deco"): Promise<string> {
   const names = Object.keys(saved.blocks).sort();
   const revision = await computeContentRevision(saved.blocks);
   const taken = new Set<string>();
@@ -185,6 +199,7 @@ export async function renderContentModule(saved: SavedBlocks): Promise<string> {
     "  revision: string;",
     "  blocks: Record<string, unknown>;",
     "  aliases: Record<string, string>;",
+    "  root: string;",
     "} = {",
     `  revision: ${JSON.stringify(revision)},`,
     "  blocks: {",
@@ -193,6 +208,7 @@ export async function renderContentModule(saved: SavedBlocks): Promise<string> {
     "  aliases: {",
     ...aliases,
     "  },",
+    `  root: ${JSON.stringify(root)},`,
     "};",
     "",
     "export default content;",
@@ -233,7 +249,7 @@ export async function writeContent(paths: DecoPaths): Promise<ContentResult> {
   if (errors.length > 0) {
     throw new CliError(errors.map((d) => `.deco/blocks/${d.file}: ${d.message}`).join("\n"));
   }
-  const source = await renderContentModule(saved);
+  const source = await renderContentModule(saved, contentRoot(paths.deco));
   const changed = writeIfChanged(paths.content, source);
   return {
     root: paths.root,

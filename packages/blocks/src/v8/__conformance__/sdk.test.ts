@@ -592,8 +592,8 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
 
   it("a hot reload that hands in a new content module (new revision) keeps the instance", () => {
     // What `deco content` generates for the same .deco folder, before and after an edit.
-    const before = { revision: "rev-1", blocks: {}, aliases: {} };
-    const after = { revision: "rev-2", blocks: {}, aliases: {} };
+    const before = { revision: "rev-1", blocks: {}, aliases: {}, root: "apps/site/.deco" };
+    const after = { revision: "rev-2", blocks: {}, aliases: {}, root: "apps/site/.deco" };
     const a = createCMS({ blocks: {}, content: before });
     expect(createCMS({ blocks: {}, content: after })).toBe(a);
   });

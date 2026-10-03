@@ -429,7 +429,7 @@ describe("one instance per process", () => {
       blocks: docsBlocks(),
       content: { ...docsSnapshot("rev-1"), root: ".deco" },
     });
-    const next: Snapshot = { ...docsSnapshot("rev-2"), root: ".deco" };
+    const next = { ...docsSnapshot("rev-2"), root: ".deco" };
     (next.blocks.SummerSEO as Record<string, unknown>).title = "Reloaded";
     const second = createCMS({ blocks: docsBlocks(), content: next });
     expect(second).toBe(first);

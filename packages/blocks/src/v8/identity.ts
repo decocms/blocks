@@ -7,10 +7,14 @@ import type { Loader, Snapshot } from "./types";
 
 const OBJECT_IDS = Symbol.for("decocms.blocks.cms-loader-ids");
 
-/** `module:<root>` for a module that names its `.deco` folder, `loader#<id>`/`module#<id>` otherwise. */
+/**
+ * `module:<root>` for a content module, which names the `.deco` folder it was
+ * generated from in a `root` field `deco content` writes (not part of the
+ * documented `Snapshot`); `loader#<id>`/`module#<id>` otherwise.
+ */
 export function contentIdentity(content: Snapshot | Loader): string {
   if (typeof (content as Loader).load === "function") return `loader#${objectId(content)}`;
-  const root: unknown = (content as Snapshot).root;
+  const root: unknown = (content as { root?: unknown }).root;
   return typeof root === "string" && root.length > 0
     ? `module:${root}`
     : `module#${objectId(content)}`;
