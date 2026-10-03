@@ -6,7 +6,7 @@ import { gunzipSync } from "node:zlib";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { decoPaths } from "../root";
 import { type DecoMeta, generateSchema } from "../schema/generate";
-import { createFixture, type Fixture, recorder, STORE_FILES, sealSecret } from "../testing";
+import { createFixture, type Fixture, recorder, STORE_FILES, sealSecret } from "../__tests__/fixture";
 import { defaultAppUrl, type RunningServer, sanitizeAssetName, startServer } from "./server";
 import { gitBlobHash } from "./storage";
 

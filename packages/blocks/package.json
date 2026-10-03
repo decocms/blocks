@@ -12,6 +12,13 @@
 		"directory": "packages/blocks"
 	},
 	"main": "./src/index.ts",
+	"files": [
+		"bin",
+		"src",
+		"!src/**/*.test.ts",
+		"!src/**/*.test.tsx",
+		"!src/**/__tests__"
+	],
 	"bin": {
 		"deco": "./bin/deco.js"
 	},

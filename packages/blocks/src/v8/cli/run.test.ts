@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseFlags, runCli, USAGE } from "./run";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "./testing";
+import { createFixture, type Fixture, recorder, STORE_FILES } from "./__tests__/fixture";
 
 let fixture: Fixture;
 afterEach(() => fixture?.remove());

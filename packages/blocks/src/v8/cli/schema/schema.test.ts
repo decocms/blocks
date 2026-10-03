@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LEGACY_ALIASES } from "../builtins";
 import { CliError, decoPaths } from "../root";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "../testing";
+import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
 import { type DecoMeta, generateSchema, SCHEMA_FORMAT, type SchemaDiagnostic } from "./generate";
 import { schema, writeSchema } from "./index";
 import { toBase64 } from "./typeToSchema";

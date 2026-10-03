@@ -1,5 +1,6 @@
 /**
- * Fixture projects for the CLI's tests: a temp folder with a `.deco/`, real
+ * Test-only (`__tests__/` is left out of the published package, see `files`
+ * in package.json). Fixture projects for the CLI's tests: a temp folder with a `.deco/`, real
  * TypeScript sources and the workspace's `node_modules` linked in, so
  * `deco schema` resolves `react` types like it would in an app.
  */
@@ -7,11 +8,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Reporter } from "./log";
+import type { Reporter } from "../log";
 
 const WORKSPACE_NODE_MODULES = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../../node_modules",
+  "../../../../../../node_modules",
 );
 
 /** The types an app imports from `@decocms/blocks` (spec: api-reference › Types). */

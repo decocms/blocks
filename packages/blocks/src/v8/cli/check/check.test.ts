@@ -4,7 +4,7 @@ import type { SavedBlocks } from "../content";
 import { decoPaths } from "../root";
 import { type DecoMeta, generateSchema } from "../schema/generate";
 import { writeSchema } from "../schema/index";
-import { createFixture, type Fixture, recorder, STORE_FILES, sealSecret } from "../testing";
+import { createFixture, type Fixture, recorder, STORE_FILES, sealSecret } from "../__tests__/fixture";
 import { check, checkContent, formatProblems, type Problem, secretViolations } from "./index";
 
 let store: Fixture;

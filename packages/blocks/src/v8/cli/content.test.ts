@@ -12,7 +12,7 @@ import {
   writeContent,
 } from "./content";
 import { decoPaths } from "./root";
-import { createFixture, type Fixture, recorder } from "./testing";
+import { createFixture, type Fixture, recorder } from "./__tests__/fixture";
 
 let fixture: Fixture;
 afterEach(() => fixture?.remove());
