@@ -98,3 +98,7 @@ Saving and preview readiness are separate. A save returns after the Git commit; 
 Build assets in a worker with bounded concurrency and a memory budget, independently of the editing API. Stream downloads and snapshot output to temporary storage or the object store instead of holding every file body and the final serialized map simultaneously. Enforce per-entry and aggregate limits during reads, including for existing repository files; compressed byte size is not a bound on parsed JSON memory.
 
 The SDK still needs a full parsed snapshot for synchronous resolution. Bound accepted snapshot sizes separately, retain only a bounded set of versions, and account for the old revision, new revision, fallback and in-flight readers during a swap. Streaming preparation does not remove that runtime limit.
+
+## Studio implementation
+
+The [Studio implementation handoff](/next/studio-implementation) maps this design to existing Fast Preview modules and specifies persisted state, operation contracts, sequencing, initial limits, recovery scenarios and rollout phases.

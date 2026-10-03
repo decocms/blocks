@@ -191,3 +191,7 @@ A storage implements a small interface: a snapshot of names and versions, readin
 ### Conformance for hosted storage
 
 The black-box suite must exercise atomic set/delete, set precedence, stale entry and schema guards, repeat requests after lost responses, simultaneous duplicate requests, receipt recovery after a simulated restart, tenant isolation and oversized reads and writes. A storage retry revalidates against the new head; a rate-limit response carries retry timing rather than triggering a burst of immediate retries. Versioned draft assets are served by the separate [delivery contract](/next/content-delivery#exact-draft-previews), so a moving branch read is never mistaken for an immutable preview read.
+
+## Studio implementation
+
+The [Studio implementation handoff](/next/studio-implementation) maps this design to existing Fast Preview modules and specifies persisted state, operation contracts, sequencing, initial limits, recovery scenarios and rollout phases.

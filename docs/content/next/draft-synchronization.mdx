@@ -67,3 +67,7 @@ Parse the merged content before committing: every file must still be valid JSON.
 The draft lifecycle routes expose the latest incorporated production commit, synchronization state and a bounded summary of automatic resolutions. For example: "Updated published content; kept your title" or "Kept your whole block because it exceeded the merge limit." Keep the full audit record outside content snapshots.
 
 Emit changes through Studio's existing event delivery for open editors, with a slow fallback poll. The portable [content protocol](/next/content-protocol) remains polling-based and works without events. Branch creation, synchronization and rebasing are never tasks the business user has to perform.
+
+## Studio implementation
+
+The [Studio implementation handoff](/next/studio-implementation) maps this design to existing Fast Preview modules and specifies persisted state, operation contracts, sequencing, initial limits, recovery scenarios and rollout phases.

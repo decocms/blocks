@@ -651,7 +651,7 @@
       "id": "roadmap-api--publish-the-content-protocol-and-its-package",
       "group": "api",
       "title": "Publish the content protocol in <code>@decocms/blocks</code>",
-      "plan": "<p>Write down the protocol between the site editor and stored content: JSON-RPC 2.0 over one HTTP endpoint (<code>POST /rpc</code>, batches allowed) with four methods, <code>describe</code>, <code>schema.get</code>, <code>blocks.list</code> and <code>blocks.apply</code>, plus its errors, limits and conditional reads for polling. Ship it as a subpath of <code>@decocms/blocks</code> (<code>@decocms/blocks/protocol</code>), not a separate package. It holds the types and method definitions, a client, a server core over a <code>ContentStorage</code> interface, a filesystem storage and a black-box conformance suite any implementation runs over HTTP. Its key module holds the one filename rule (decode exactly once) that the site editor, <code>deco serve</code> and <code>deco content</code> all import. See <a href=\"#studio-compatibility\">Site editor compatibility</a>.</p><p>Add advertised durable idempotency receipts and optional schema preconditions, bound uncompressed reads and batch responses, and recheck guards after synchronization and storage retries. Preserve atomic apply semantics through autosave coalescing. Extend conformance for lost responses, restart recovery, racing writes, oversized payloads and tenant isolation. Hosted draft lifecycle, publishing and rollback stay outside the four-method protocol.</p>",
+      "plan": "<p>Write down the protocol between the site editor and stored content: JSON-RPC 2.0 over one HTTP endpoint (<code>POST /rpc</code>, batches allowed) with four methods, <code>describe</code>, <code>schema.get</code>, <code>blocks.list</code> and <code>blocks.apply</code>, plus its errors, limits and conditional reads for polling. Ship it as a subpath of <code>@decocms/blocks</code> (<code>@decocms/blocks/protocol</code>), not a separate package. It holds the types and method definitions, a client, a server core over a <code>ContentStorage</code> interface, a filesystem storage and a black-box conformance suite any implementation runs over HTTP. Its key module holds the one filename rule (decode exactly once) that the site editor, <code>deco serve</code> and <code>deco content</code> all import. See <a href=\"#studio-compatibility\">Site editor compatibility</a>.</p><p>Add advertised durable idempotency receipts and optional schema preconditions, bound uncompressed reads and batch responses, and recheck guards after synchronization and storage retries. Preserve atomic apply semantics through autosave coalescing. Extend conformance for lost responses, restart recovery, racing writes, oversized payloads and tenant isolation. Hosted draft lifecycle, publishing and rollback stay outside the four-method protocol.</p><p>Use the <a href=\"#studio-implementation\">Studio implementation handoff</a> for module ownership, durable state and APIs, operation sequencing, proposed defaults and acceptance scenarios; completion includes the documented failure and concurrency cases.</p>",
       "features": [
         "admin-protocol-endpoints",
         "dev-studio-content-loop",
@@ -663,7 +663,8 @@
       ],
       "docs": [
         "studio-compatibility",
-        "content-protocol"
+        "content-protocol",
+        "studio-implementation"
       ]
     },
     {
@@ -1397,7 +1398,7 @@
       "id": "roadmap-platform--build-studio-s-github-content-backend",
       "group": "studio",
       "title": "Build the site editor's GitHub content backend",
-      "plan": "<p>A <code>ContentStorage</code> inside the site editor's API that reads and writes <code>.deco/blocks</code> through the GitHub API, in the folder the project's \"app root\" setting names (a monorepo subfolder included). Every write is a commit, and all files of one <code>blocks.apply</code> go in one tree and one commit, with file contents inlined in the tree request. Clients poll on window focus and about every 30 seconds with one batched conditional request. Publishing, the draft pointer and <code>?__draft=</code> links stay site editor routes outside the protocol. Drop the requirement for a deployed preview URL, so a project with no deployment can still be edited.</p><p>Reuse the existing Fast Preview Git-provider and autosave machinery behind this adapter. Bind the editor endpoint to an automatically managed draft, normalize set precedence, preserve conditional guards and durable request receipts, and coordinate saves with synchronization and publication.</p>",
+      "plan": "<p>A <code>ContentStorage</code> inside the site editor's API that reads and writes <code>.deco/blocks</code> through the GitHub API, in the folder the project's \"app root\" setting names (a monorepo subfolder included). Every write is a commit, and all files of one <code>blocks.apply</code> go in one tree and one commit, with file contents inlined in the tree request. Clients poll on window focus and about every 30 seconds with one batched conditional request. Publishing, the draft pointer and <code>?__draft=</code> links stay site editor routes outside the protocol. Drop the requirement for a deployed preview URL, so a project with no deployment can still be edited.</p><p>Reuse the existing Fast Preview Git-provider and autosave machinery behind this adapter. Bind the editor endpoint to an automatically managed draft, normalize set precedence, preserve conditional guards and durable request receipts, and coordinate saves with synchronization and publication.</p><p>Use the <a href=\"#studio-implementation\">Studio implementation handoff</a> for module ownership, durable state and APIs, operation sequencing, proposed defaults and acceptance scenarios; completion includes the documented failure and concurrency cases.</p>",
       "features": [
         "admin-protocol-endpoints",
         "content-storage-and-delivery",
@@ -1409,7 +1410,8 @@
         "content-protocol",
         "studio-compatibility",
         "hosted-site-editor",
-        "draft-synchronization"
+        "draft-synchronization",
+        "studio-implementation"
       ]
     },
     {
@@ -1533,7 +1535,7 @@
       "id": "roadmap-platform--build-the-deco-api-release-service",
       "group": "studio",
       "title": "Build the Deco API release service",
-      "plan": "<p>Separate GitHub ingestion and publication from a stable storage/CDN data plane: production reads, including misses and cold reads, never call GitHub. Materialize immutable, canonically hashed JSON snapshots before promoting small per-environment channel manifests. Keep authorization in a minimal independently deployed gateway when needed. Reconcile missed or out-of-order webhooks in the control plane, bound materialization memory and retain last-good releases. Publishing doesn't validate content: the runtime's route tie-break and CI's <code>deco check</code> are the safety net.</p><p>Use a durable per-channel promotion coordinator and monotonic generations. Fast rollback selects a retained compatible snapshot without builds, deploys or GitHub reads, records an audit event and pauses automatic promotion until explicitly resumed. Prevent stale jobs from undoing it, define asset retention and garbage collection, notify rendered-page caches, and document actual propagation delays. Site token lifecycle and CI code/content compatibility remain required.</p>",
+      "plan": "<p>Separate GitHub ingestion and publication from a stable storage/CDN data plane: production reads, including misses and cold reads, never call GitHub. Materialize immutable, canonically hashed JSON snapshots before promoting small per-environment channel manifests. Keep authorization in a minimal independently deployed gateway when needed. Reconcile missed or out-of-order webhooks in the control plane, bound materialization memory and retain last-good releases. Publishing doesn't validate content: the runtime's route tie-break and CI's <code>deco check</code> are the safety net.</p><p>Use a durable per-channel promotion coordinator and monotonic generations. Fast rollback selects a retained compatible snapshot without builds, deploys or GitHub reads, records an audit event and pauses automatic promotion until explicitly resumed. Prevent stale jobs from undoing it, define asset retention and garbage collection, notify rendered-page caches, and document actual propagation delays. Site token lifecycle and CI code/content compatibility remain required.</p><p>Use the <a href=\"#studio-implementation\">Studio implementation handoff</a> for module ownership, durable state and APIs, operation sequencing, proposed defaults and acceptance scenarios; completion includes the documented failure and concurrency cases.</p>",
       "features": [
         "content-storage-and-delivery",
         "cms-page-routing",
@@ -1548,7 +1550,8 @@
         "hosted-publishing",
         "hosted-drafts",
         "content-delivery",
-        "hosted-releases-internals"
+        "hosted-releases-internals",
+        "studio-implementation"
       ],
       "pinned": false
     },
@@ -1556,7 +1559,7 @@
       "id": "roadmap-platform--synchronize-editor-drafts",
       "group": "studio",
       "title": "Keep editor drafts current automatically",
-      "plan": "<p>Manage internal draft branches automatically; editors never create branches or rebase. Extend GitHub push intake and existing Studio event delivery: synchronize open drafts in the background, inactive drafts on reopen, and reconcile before saves and publishing. Coalesce updates and retain a slow reconciliation fallback. Use three-way property-level JSON merging, draft-wins conflicts and deletions, atomic arrays, and whole-draft-blob fallback for oversized conflicting files. Reuse unchanged blobs without downloading them.</p><p>Serialize operations per draft, retry external head races without unconditional force updates, retain append-only history and recoverable incorporated-base metadata, and validate before committing. Bound merge memory and concurrency. Expose synchronization status and audited resolution summaries without overwriting unsaved form state. Publishing produces only the saved-content diff against current production.</p>",
+      "plan": "<p>Manage internal draft branches automatically; editors never create branches or rebase. Extend GitHub push intake and existing Studio event delivery: synchronize open drafts in the background, inactive drafts on reopen, and reconcile before saves and publishing. Coalesce updates and retain a slow reconciliation fallback. Use three-way property-level JSON merging, draft-wins conflicts and deletions, atomic arrays, and whole-draft-blob fallback for oversized conflicting files. Reuse unchanged blobs without downloading them.</p><p>Serialize operations per draft, retry external head races without unconditional force updates, retain append-only history and recoverable incorporated-base metadata, and validate before committing. Bound merge memory and concurrency. Expose synchronization status and audited resolution summaries without overwriting unsaved form state. Publishing produces only the saved-content diff against current production.</p><p>Use the <a href=\"#studio-implementation\">Studio implementation handoff</a> for module ownership, durable state and APIs, operation sequencing, proposed defaults and acceptance scenarios; completion includes the documented failure and concurrency cases.</p>",
       "features": [
         "content-storage-and-delivery",
         "dev-studio-content-loop",
@@ -1565,14 +1568,15 @@
       "docs": [
         "draft-synchronization",
         "hosted-site-editor",
-        "content-protocol"
+        "content-protocol",
+        "studio-implementation"
       ]
     },
     {
       "id": "roadmap-platform--materialize-exact-draft-previews",
       "group": "studio",
       "title": "Serve exact draft revisions from stored assets",
-      "plan": "<p>Materialize saved draft commits as private immutable assets with site- and revision-scoped preview grants. Separate committed save status from preview readiness. An old pointer returns its exact revision or an error, never a newer branch head. Serving previews reads storage only; receipt recovery and ingestion remain control-plane work. Bound retention and include active grants in asset garbage collection.</p>",
+      "plan": "<p>Materialize saved draft commits as private immutable assets with site- and revision-scoped preview grants. Separate committed save status from preview readiness. An old pointer returns its exact revision or an error, never a newer branch head. Serving previews reads storage only; receipt recovery and ingestion remain control-plane work. Bound retention and include active grants in asset garbage collection.</p><p>Use the <a href=\"#studio-implementation\">Studio implementation handoff</a> for module ownership, durable state and APIs, operation sequencing, proposed defaults and acceptance scenarios; completion includes the documented failure and concurrency cases.</p>",
       "features": [
         "studio-preview",
         "content-storage-and-delivery",
@@ -1581,7 +1585,8 @@
       "docs": [
         "content-delivery",
         "hosted-drafts",
-        "content-protocol"
+        "content-protocol",
+        "studio-implementation"
       ]
     },
     {
