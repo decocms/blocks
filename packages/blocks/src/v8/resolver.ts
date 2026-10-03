@@ -3,10 +3,11 @@
  *
  * One registry, later keys win: `{ ...savedBlocks, ...builtIns, ...blocks }`.
  * A function runs with its inputs resolved first (inside out, siblings
- * concurrently); a saved block is replaced by `{ ...saved, ...arguments }` and
- * looked up again; a type no key matches is retried once under its alias (the
- * snapshot's table, then the built-in legacy one in ./builtins/legacy);
- * anything else is `UNKNOWN_BLOCK`. The built-in `lazy` is
+ * concurrently); an alias (the snapshot's table, then the built-in legacy one
+ * in ./builtins/legacy) is a second key for a type, so like a function it wins
+ * over a saved block of the same name; a saved block is replaced by
+ * `{ ...saved, ...arguments }` and looked up again; anything else is
+ * `UNKNOWN_BLOCK`. The built-in `lazy` is
  * the one special case: its `value` is not resolved first.
  *
  * A `Resolver` belongs to one client, so its memo (results per block function
@@ -110,7 +111,11 @@ export class Resolver {
     }
     if (!isPlainObject(node)) return node;
     const type = node.__resolveType;
-    if (typeof type === "string" && this.#functionFor(type) === undefined) {
+    if (
+      typeof type === "string" &&
+      this.#functionFor(type) === undefined &&
+      this.#aliasFor(type) === undefined
+    ) {
       const saved = this.entry(type);
       if (saved !== undefined) {
         const next = [...chain, type];
@@ -163,7 +168,10 @@ export class Resolver {
       return this.#run(fn, type, node, path, chain);
     }
 
-    const saved = this.entry(type);
+    // An alias is a second key for a type, so like a function it wins over a
+    // saved block of the same name (with a warning; deco check rejects it).
+    const alias = viaAlias ? undefined : this.#aliasFor(type);
+    const saved = alias === undefined ? this.entry(type) : undefined;
     if (saved !== undefined) {
       const next = [...chain, type];
       if (chain.includes(type)) return Promise.reject(errors.cycle(next));
@@ -171,8 +179,7 @@ export class Resolver {
       return this.resolve(mergeReference(saved, node), path, next, true);
     }
 
-    const alias = viaAlias ? undefined : this.#alias(type);
-    if (alias !== undefined && alias !== type) {
+    if (alias !== undefined) {
       return this.#resolveBlock(
         wrapLegacyVariants(type, node),
         alias,
@@ -183,6 +190,14 @@ export class Resolver {
       );
     }
     return Promise.reject(errors.unknownBlock(type, path));
+  }
+
+  /** The type an alias names (never itself); a saved block of the same name loses (with a warning). */
+  #aliasFor(type: string): string | undefined {
+    const alias = this.#alias(type);
+    if (alias === undefined || alias === type) return undefined;
+    if (this.entry(type) !== undefined) this.#onCollision?.(type);
+    return alias;
   }
 
   /** Block map first, then built-ins; a saved block of the same name loses (with a warning). */

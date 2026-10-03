@@ -121,7 +121,7 @@ class CMSInstance implements CMS {
     if (this.#warned.has(name)) return;
     this.#warned.add(name);
     console.warn(
-      `[decocms/blocks] the saved block "${name}" has the name of a block type or built-in; ` +
+      `[decocms/blocks] the saved block "${name}" has the name of a block type, built-in or alias; ` +
         "the function wins. Rename the saved block (deco check reports this).",
     );
   }
