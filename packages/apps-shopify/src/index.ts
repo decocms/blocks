@@ -41,3 +41,15 @@ export {
 } from "./utils/instrumentedFetch";
 export { shopifyOperationRouter } from "./utils/operationRouter";
 export { getUserCookie, setUserCookie } from "./utils/user";
+
+// The next-major upstream client (/next/upstream-clients). Everything above is
+// the v7 surface, kept for v7 consumers until v7 is dropped.
+export {
+	createShopifyClient,
+	DEFAULT_SHOPIFY_API_VERSION,
+	type ShopifyClient,
+	type ShopifyClientConfig,
+	ShopifyError,
+	type ShopifyGraphQL,
+	type ShopifyRequestOptions,
+} from "./v8/client";
