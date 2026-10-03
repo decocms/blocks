@@ -295,90 +295,125 @@ describe("one revision per client", () => {
 });
 
 describe("update() checks on an interval", () => {
-  it("checks a loader with update() at most every interval, never in front of a request", async () => {
+  /** Background work runs at an idle moment (here, a timer): give it a turn. */
+  const idle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  /** A CMS over a loader with update(), with the clock and the jitter under test control. */
+  function scheduled(interval?: number, random = 0.5) {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
+    vi.spyOn(Math, "random").mockReturnValue(random); // 0.5: no jitter
+    vi.setSystemTime(0); // module scope on Workers
     const update = vi.fn(async () => ({ updated: false }));
     const cms = createCMS({
       blocks: docsBlocks(),
       content: { load: async () => docsSnapshot(), update },
-      interval: 120_000,
+      interval,
     });
-    cms.forRelease();
-    await Promise.resolve();
-    expect(update).not.toHaveBeenCalled();
+    return { cms, update, at: (iso: string) => vi.setSystemTime(new Date(iso)) };
+  }
 
-    vi.setSystemTime(new Date("2026-10-03T00:02:00Z"));
+  it("checks on first use, then every interval, in the background (never in front of a request)", async () => {
+    const { cms, update, at } = scheduled(120_000);
+    at("2026-10-03T00:00:00Z");
     cms.forRelease();
     expect(update).not.toHaveBeenCalled(); // scheduled, not awaited by the request
-    await Promise.resolve();
+    await idle();
     expect(update).toHaveBeenCalledTimes(1);
 
+    at("2026-10-03T00:01:59Z");
     cms.forRelease();
-    await Promise.resolve();
+    await idle();
     expect(update).toHaveBeenCalledTimes(1);
-  });
 
-  it("never checks more often than every 60 000 ms", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
-    const update = vi.fn(async () => ({ updated: false }));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { load: async () => docsSnapshot(), update },
-      interval: 1_000,
-    });
+    at("2026-10-03T00:02:00Z");
     cms.forRelease();
-    vi.setSystemTime(new Date("2026-10-03T00:00:30Z"));
     cms.forRelease();
-    await Promise.resolve();
-    expect(update).not.toHaveBeenCalled();
-    vi.setSystemTime(new Date("2026-10-03T00:01:00Z"));
-    cms.forRelease();
-    await Promise.resolve();
-    expect(update).toHaveBeenCalledTimes(1);
+    await idle();
+    expect(update).toHaveBeenCalledTimes(2);
   });
 
   it("starts the clock on the first forRelease, not at module scope (Workers read Date.now() as 0 there)", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(0);
-    const update = vi.fn(async () => ({ updated: false }));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { load: async () => docsSnapshot(), update },
-    });
-    vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
+    const { cms, update, at } = scheduled();
+    at("2026-10-03T00:00:00Z");
     cms.forRelease();
-    await Promise.resolve();
-    expect(update).not.toHaveBeenCalled();
-    vi.setSystemTime(new Date("2026-10-03T00:00:59Z"));
+    await idle();
+    at("2026-10-03T00:00:59Z");
     cms.forRelease();
-    await Promise.resolve();
-    expect(update).not.toHaveBeenCalled();
-    vi.setSystemTime(new Date("2026-10-03T00:01:00Z"));
+    await idle();
+    expect(update).toHaveBeenCalledTimes(1);
+    at("2026-10-03T00:01:00Z");
     cms.forRelease();
-    await Promise.resolve();
+    await idle();
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  it("never checks more often than every 60 000 ms, and warns when it raises interval", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { cms, update, at } = scheduled(1_000);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("raised to 60000 ms"));
+    at("2026-10-03T00:00:00Z");
+    cms.forRelease();
+    await idle();
+    at("2026-10-03T00:00:30Z");
+    cms.forRelease();
+    await idle();
+    expect(update).toHaveBeenCalledTimes(1);
+    at("2026-10-03T00:01:00Z");
+    cms.forRelease();
+    await idle();
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  it("spreads checks by up to 10 s either way, so servers that started together don't check together", async () => {
+    const early = scheduled(undefined, 0); // -10 s
+    early.at("2026-10-03T00:00:00Z");
+    early.cms.forRelease();
+    await idle();
+    early.at("2026-10-03T00:00:50Z");
+    early.cms.forRelease();
+    await idle();
+    expect(early.update).toHaveBeenCalledTimes(2);
+
+    resetForTests();
+    const late = scheduled(undefined, 1); // +10 s
+    late.at("2026-10-03T00:00:00Z");
+    late.cms.forRelease();
+    await idle();
+    late.at("2026-10-03T00:01:09Z");
+    late.cms.forRelease();
+    await idle();
+    expect(late.update).toHaveBeenCalledTimes(1);
+    late.at("2026-10-03T00:01:10Z");
+    late.cms.forRelease();
+    await idle();
+    expect(late.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("cms.update() checks at once and restarts the clock", async () => {
+    const { cms, update, at } = scheduled();
+    at("2026-10-03T00:00:00Z");
+    await cms.update();
+    expect(update).toHaveBeenCalledTimes(1);
+    at("2026-10-03T00:00:59Z");
+    cms.forRelease();
+    await idle();
     expect(update).toHaveBeenCalledTimes(1);
   });
 
   it("reads DECO_CONTENT_INTERVAL when interval is left out", async () => {
     vi.stubEnv("DECO_CONTENT_INTERVAL", "300000");
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
-    const update = vi.fn(async () => ({ updated: false }));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { load: async () => docsSnapshot(), update },
-    });
+    const { cms, update, at } = scheduled();
+    at("2026-10-03T00:00:00Z");
     cms.forRelease();
-    vi.setSystemTime(new Date("2026-10-03T00:04:59Z"));
+    await idle();
+    at("2026-10-03T00:04:59Z");
     cms.forRelease();
-    await Promise.resolve();
-    expect(update).not.toHaveBeenCalled();
-    vi.setSystemTime(new Date("2026-10-03T00:05:00Z"));
-    cms.forRelease();
-    await Promise.resolve();
+    await idle();
     expect(update).toHaveBeenCalledTimes(1);
+    at("2026-10-03T00:05:00Z");
+    cms.forRelease();
+    await idle();
+    expect(update).toHaveBeenCalledTimes(2);
   });
 });
 

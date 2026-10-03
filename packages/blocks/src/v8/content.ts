@@ -129,7 +129,11 @@ export class ContentStore {
    */
   replace(source: Snapshot | Loader): void {
     const previous = this.#source;
-    if (source === previous) return;
+    if (source === previous) {
+      // The same loader (a hosted remoteLoader that adopted new fallback content): re-read it.
+      this.#release = undefined;
+      return;
+    }
     if (isSnapshot(previous)) this.#served.delete(previous.revision);
     this.#source = source;
     this.#release = undefined;

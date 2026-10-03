@@ -6,15 +6,19 @@
  * a package loaded twice (two bundles, a dev reload) still shares one content
  * cache. See /next/api-reference#one-instance-per-process.
  */
+import { runInBackground } from "./background";
 import { builtIns } from "./builtins/index";
 import { secretBlock } from "./builtins/secret";
 import { CMSClient } from "./client";
 import { ContentStore, isLoader, isSnapshot } from "./content";
+import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity";
+import { LOADER_INTERVAL, remoteLoader, resetRemoteLoaders } from "./remoteLoader";
 import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
-const OBJECT_IDS = Symbol.for("decocms.blocks.cms-loader-ids");
 const MIN_INTERVAL = 60_000;
+/** Each check runs one interval, plus or minus up to this much, after the previous one. */
+const JITTER = 10_000;
 
 /** Options that must agree between two `createCMS` calls sharing an instance. */
 interface Fingerprint {
@@ -33,18 +37,17 @@ class CMSInstance implements CMS {
   readonly #builtIns: Readonly<Blocks>;
   #blocks: Blocks;
   /**
-   * When the source was last checked. It starts on the first `forRelease()`,
-   * not at construction: Workers read `Date.now()` as 0 at module scope, which
-   * would make the first request start a check straight away.
+   * When the next check is due. The first is on the first `forRelease()`, not
+   * at construction: Workers read `Date.now()` as 0 at module scope.
    */
-  #lastCheck: number | undefined;
+  #nextCheck: number | undefined;
 
   constructor(config: CMSConfig, interval: number) {
     this.config = config;
     this.#blocks = config.blocks;
     this.#builtIns = Object.freeze({ ...builtIns, secret: secretBlock(config.secrets?.key) });
     this.#interval = interval;
-    this.#store = new ContentStore(config.content);
+    this.#store = new ContentStore(contentOf(config));
     this.fingerprint = fingerprintOf(config, interval);
   }
 
@@ -62,14 +65,14 @@ class CMSInstance implements CMS {
   }
 
   update(): Promise<{ updated: boolean }> {
-    this.#lastCheck = Date.now();
+    this.#nextCheck = this.#due();
     return this.#store.update();
   }
 
   /** A later `createCMS` call with the same key hands in its (possibly hot-reloaded) map and content. */
   adopt(config: CMSConfig): void {
     this.#blocks = config.blocks;
-    this.#store.replace(config.content);
+    this.#store.replace(contentOf(config));
   }
 
   #client(load: () => Promise<Snapshot>): Client {
@@ -81,17 +84,19 @@ class CMSInstance implements CMS {
     });
   }
 
-  /** Checks a content source with `update()` every `interval`, never in front of a request. */
+  /**
+   * Checks a content source with `update()` on first use and then every
+   * `interval` (± up to 10 s), at an idle moment, never in front of a request.
+   */
   #scheduleUpdate(): void {
     if (!this.#store.updatable) return;
-    const now = Date.now();
-    if (this.#lastCheck === undefined) {
-      this.#lastCheck = now;
-      return;
-    }
-    if (now - this.#lastCheck < this.#interval) return;
-    this.#lastCheck = now;
-    void Promise.resolve().then(() => this.#store.update());
+    if (this.#nextCheck !== undefined && Date.now() < this.#nextCheck) return;
+    this.#nextCheck = this.#due();
+    runInBackground(() => this.#store.update());
+  }
+
+  #due(): number {
+    return Date.now() + this.#interval + (Math.random() * 2 - 1) * JITTER;
   }
 
   #warnCollision(name: string): void {
@@ -110,7 +115,9 @@ class CMSInstance implements CMS {
  */
 export function createCMS(config: CMSConfig): CMS {
   validate(config);
-  const interval = resolveInterval(config.interval);
+  const interval = resolveInterval(
+    config.interval ?? (config.content as { [LOADER_INTERVAL]?: number })[LOADER_INTERVAL],
+  );
   const key = Symbol.for(INSTANCE_PREFIX + identityOf(config));
   const store = globalThis as unknown as Record<symbol, CMSInstance | undefined>;
   const existing = store[key];
@@ -126,10 +133,18 @@ export function createCMS(config: CMSConfig): CMS {
 
 /** Clears every stored CMS instance, so a test starts clean. */
 export function resetForTests(): void {
-  const store = globalThis as unknown as Record<symbol, unknown>;
-  for (const symbol of Object.getOwnPropertySymbols(globalThis)) {
-    if (Symbol.keyFor(symbol)?.startsWith(INSTANCE_PREFIX)) delete store[symbol];
-  }
+  clearGlobals(INSTANCE_PREFIX);
+  resetRemoteLoaders();
+}
+
+/** With `site` and `token`, the content is the fallback of hosted releases and drafts. */
+function contentOf(config: CMSConfig): Snapshot | Loader {
+  if (!config.site || !config.token) return config.content;
+  return remoteLoader(config.content, {
+    site: config.site,
+    token: config.token,
+    interval: config.interval,
+  });
 }
 
 function validate(config: CMSConfig): void {
@@ -147,17 +162,16 @@ function validate(config: CMSConfig): void {
 }
 
 function resolveInterval(configured: number | undefined): number {
-  const raw = configured ?? Number(readEnv("DECO_CONTENT_INTERVAL"));
-  return Number.isFinite(raw) && raw > MIN_INTERVAL ? raw : MIN_INTERVAL;
-}
-
-function readEnv(name: string): string | undefined {
-  try {
-    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-      ?.env?.[name];
-  } catch {
-    return undefined;
+  const env = readEnv("DECO_CONTENT_INTERVAL");
+  const raw = configured ?? (env ? Number(env) : MIN_INTERVAL);
+  if (!Number.isFinite(raw)) return MIN_INTERVAL;
+  if (raw < MIN_INTERVAL) {
+    console.warn(
+      `[decocms/blocks] interval ${raw} ms is below the minimum; raised to ${MIN_INTERVAL} ms.`,
+    );
+    return MIN_INTERVAL;
   }
+  return raw;
 }
 
 /**
@@ -171,35 +185,9 @@ function readEnv(name: string): string | undefined {
  * new instance instead of updating the old.
  */
 function identityOf(config: CMSConfig): string {
-  const content = isLoader(config.content)
-    ? `loader#${objectId(config.content)}`
-    : contentIdentity(config.content);
+  const content = contentIdentity(config.content);
   if (!config.site || !config.token) return content;
   return `${content}|site:${config.site}|token:${fnv1a(config.token)}`;
-}
-
-/** `module:<root>` for a module that names its `.deco` folder, `module#<id>` otherwise. */
-function contentIdentity(snapshot: Snapshot): string {
-  const root: unknown = snapshot.root;
-  return typeof root === "string" && root.length > 0
-    ? `module:${root}`
-    : `module#${objectId(snapshot)}`;
-}
-
-/** A process-wide id per object (a loader, a root-less module), shared by every copy of this module. */
-function objectId(object: Loader | Snapshot): number {
-  const store = globalThis as unknown as Record<
-    symbol,
-    { ids: WeakMap<object, number>; next: number }
-  >;
-  store[OBJECT_IDS] ??= { ids: new WeakMap(), next: 1 };
-  const registry = store[OBJECT_IDS];
-  let id = registry.ids.get(object);
-  if (id === undefined) {
-    id = registry.next++;
-    registry.ids.set(object, id);
-  }
-  return id;
 }
 
 function fingerprintOf(config: CMSConfig, interval: number): Fingerprint {
@@ -231,14 +219,4 @@ function stableJson(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value) ?? "undefined";
-}
-
-/** FNV-1a, 32-bit: a non-cryptographic fingerprint that keeps secrets out of keys and logs. */
-function fnv1a(input: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
 }

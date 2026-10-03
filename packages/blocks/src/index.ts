@@ -42,6 +42,7 @@ export {
   type ResolveOptions,
   type Result,
   type Route,
+  remoteLoader,
   resetForTests,
   type Secret,
   type Seo,
