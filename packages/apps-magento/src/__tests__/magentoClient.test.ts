@@ -77,12 +77,57 @@ describe("createMagentoClient", () => {
     expect(new Headers(fetch.mock.calls[0]![1]?.headers).get("authorization")).toBeNull();
   });
 
-  it("refuses URLs on another origin, so the token never leaves the store", () => {
-    const magento = createMagentoClient(config, { fetch: upstream({}) });
-    expect(() => magento.request("https://evil.example/steal", { operation: "x" })).toThrow(
+  it("refuses URLs on another origin, so the token never leaves the store", async () => {
+    const fetch = upstream({});
+    const magento = createMagentoClient(config, { fetch });
+    await expect(magento.request("https://evil.example/steal", { operation: "x" })).rejects.toThrow(
       /only paths on the configured store/,
     );
-    expect(() => magento.request("//evil.example/steal", { operation: "x" })).toThrow();
+    await expect(magento.request("//evil.example/steal", { operation: "x" })).rejects.toThrow(
+      /only paths on the configured store/,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a customer Authorization header instead of the store's token", async () => {
+    const fetch = upstream({ data: { customer: { email: "a" } }, items: [] });
+    const magento = createMagentoClient(config, { fetch });
+    await magento.graphql("query Customer { customer { email } }", undefined, {
+      operationName: "Customer",
+      headers: { Authorization: "Bearer customer" },
+    });
+    await magento.rest("/rest/default/V1/carts/mine", {
+      operation: "getCart",
+      headers: { Authorization: "Bearer customer" },
+    });
+    for (const [, init] of fetch.mock.calls) {
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer customer");
+    }
+  });
+
+  it("sends GraphQL without the store's token unless asked, and keeps the JSON content type", async () => {
+    const fetch = upstream({ data: {} });
+    const magento = createMagentoClient(config, { fetch });
+    await magento.graphql("query Q { a }", undefined, {
+      operationName: "Q",
+      headers: { "Content-Type": "text/plain" },
+    });
+    await magento.graphql("query Q { a }", undefined, { operationName: "Q", authenticated: true });
+    const [first, second] = fetch.mock.calls.map(([, init]) => new Headers(init?.headers));
+    expect(first!.get("authorization")).toBeNull();
+    expect(first!.get("content-type")).toBe("application/json");
+    expect(second!.get("authorization")).toBe("Bearer key");
+  });
+
+  it("returns undefined for a 204 REST response", async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    const magento = createMagentoClient(config, { fetch });
+    await expect(
+      magento.rest("/rest/default/V1/carts/mine/items/1", {
+        operation: "removeCartItem",
+        method: "DELETE",
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("sends GraphQL with its operationName, which is the label", async () => {

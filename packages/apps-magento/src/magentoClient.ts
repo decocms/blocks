@@ -27,7 +27,11 @@ export interface MagentoClientOptions {
 export interface MagentoRequestInit extends RequestInit {
   /** The operation label, the API's own name for the call (e.g. `getCart`), never a URL. */
   operation: string;
-  /** Send the `apiKey` bearer token. Default true. */
+  /**
+   * Send the `apiKey` bearer token. Default true for `request`/`rest`, false
+   * for `graphql`. Never replaces an `Authorization` header the call sets
+   * (e.g. a customer token).
+   */
   authenticated?: boolean;
 }
 
@@ -62,14 +66,16 @@ export function createMagentoClient(
    * `/customer/section/load`, returning the raw response. Paths only: the
    * store's credentials never go to another origin.
    */
-  function request(path: string, init: MagentoRequestInit): Promise<Response> {
+  async function request(path: string, init: MagentoRequestInit): Promise<Response> {
     const { operation, authenticated = true, ...rest } = init;
     const url = new URL(path, origin);
     if (url.origin !== origin) {
       throw new Error(`magento ${operation}: only paths on the configured store are allowed`);
     }
     const headers = new Headers(rest.headers);
-    if (authenticated && config.apiKey) headers.set("authorization", `Bearer ${config.apiKey}`);
+    if (authenticated && config.apiKey && !headers.has("authorization")) {
+      headers.set("authorization", `Bearer ${config.apiKey}`);
+    }
     if (config.originHeader) headers.set("x-origin-header", config.originHeader);
     return instrumented(url, { ...rest, headers, operation });
   }
@@ -85,13 +91,16 @@ export function createMagentoClient(
       }
       const response = await request(path, { ...init, headers });
       if (!response.ok) throw new MagentoError(init.operation, response.status);
+      if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
     },
 
     /**
      * A GraphQL operation on `/graphql`. `operationName` is sent with the
      * request and is the operation label. `headers` adds per-call headers,
-     * such as `Store` or a customer token.
+     * such as `Store` or a customer `Authorization` token. Storefront
+     * GraphQL is public, so the `apiKey` is sent only with
+     * `authenticated: true`, and never over a customer token.
      */
     async graphql<TData, TVariables = Record<string, unknown>>(
       query: string,
@@ -99,11 +108,13 @@ export function createMagentoClient(
       init: { operationName: string; headers?: Record<string, string>; authenticated?: boolean },
     ): Promise<TData> {
       const { operationName, ...rest } = init;
+      const headers = new Headers(rest.headers);
+      headers.set("content-type", "application/json");
       const response = await request("/graphql", {
         operation: operationName,
-        authenticated: rest.authenticated,
+        authenticated: rest.authenticated ?? false,
         method: "POST",
-        headers: { ...rest.headers, "content-type": "application/json" },
+        headers,
         body: JSON.stringify({ query, variables, operationName }),
       });
       if (!response.ok) throw new MagentoError(operationName, response.status);

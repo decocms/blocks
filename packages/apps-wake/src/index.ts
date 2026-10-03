@@ -4,7 +4,6 @@
 export type { UserAuthenticate } from "./utils/client";
 export {
   createWakeClient,
-  WAKE_STOREFRONT_ENDPOINT,
   type WakeClient,
   type WakeClientConfig,
   type WakeClientOptions,

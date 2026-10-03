@@ -12,17 +12,15 @@ import type { UserAuthenticate } from "./utils/client";
 import { buildQuery, type QueryDefinition } from "./utils/gql";
 import { extractGraphqlOperationName } from "./utils/graphqlOperationName";
 
-export const WAKE_STOREFRONT_ENDPOINT = "https://storefront-api.fbits.net/graphql";
+const WAKE_STOREFRONT_ENDPOINT = "https://storefront-api.fbits.net/graphql";
 
 export interface WakeClientConfig {
   /** Wake Storefront API token, sent as `TCS-Access-Token`. */
   storefrontToken: string;
   /** Storefront GraphQL endpoint; defaults to Wake's multi-tenant endpoint. */
   storefrontEndpoint?: string;
-  /** Checkout origin, e.g. `https://checkout.example.com`; defaults to `https://<account>.checkout.fbits.store`. */
+  /** Checkout origin, e.g. `https://checkout.example.com`. Required by `getLogin`. */
   checkoutUrl?: string;
-  /** Wake account name; only used to derive the default `checkoutUrl`. */
-  account?: string;
 }
 
 export interface WakeClientOptions {
@@ -52,8 +50,7 @@ export type WakeClient = ReturnType<typeof createWakeClient>;
 export function createWakeClient(config: WakeClientConfig, options: WakeClientOptions = {}) {
   const request = createInstrumentedFetch({ provider: "wake", fetch: options.fetch });
   const endpoint = config.storefrontEndpoint || WAKE_STOREFRONT_ENDPOINT;
-  const checkoutUrl =
-    config.checkoutUrl || (config.account ? `https://${config.account}.checkout.fbits.store` : "");
+  const checkoutUrl = config.checkoutUrl;
 
   return {
     /**
@@ -69,14 +66,13 @@ export function createWakeClient(config: WakeClientConfig, options: WakeClientOp
     ): Promise<TData> {
       const query = typeof document === "string" ? document : buildQuery(document);
       const operation = extractGraphqlOperationName(query) ?? "graphql";
+      const headers = new Headers(init.headers);
+      headers.set("content-type", "application/json");
+      headers.set("tcs-access-token", config.storefrontToken);
       const response = await request(endpoint, {
         operation,
         method: "POST",
-        headers: {
-          ...init.headers,
-          "content-type": "application/json",
-          "tcs-access-token": config.storefrontToken,
-        },
+        headers,
         body: JSON.stringify({ query, variables }),
       });
       if (!response.ok) throw new WakeError(operation, response.status);
@@ -89,15 +85,18 @@ export function createWakeClient(config: WakeClientConfig, options: WakeClientOp
     /**
      * `GET /api/Login/Get` on the checkout: exchanges the shopper's checkout
      * cookies (the `fbits-login` cookie) for their account, or `null` when
-     * they aren't signed in (a 4xx).
+     * they aren't signed in (401, 403 or 404). Any other failure, such as
+     * a 429, throws a `WakeError`.
      */
     async getLogin(cookie: string): Promise<UserAuthenticate | null> {
-      if (!checkoutUrl) throw new Error("wake getLogin: set checkoutUrl or account");
+      if (!checkoutUrl) throw new Error("wake getLogin: set checkoutUrl");
       const response = await request(new URL("/api/Login/Get", checkoutUrl), {
         operation: "getLogin",
         headers: { cookie },
       });
-      if (response.status >= 400 && response.status < 500) return null; // not signed in
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        return null; // not signed in
+      }
       if (!response.ok) throw new WakeError("getLogin", response.status);
       return (await response.json()) as UserAuthenticate | null;
     },

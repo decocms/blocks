@@ -89,8 +89,7 @@ describe("v8 upstream clients use the instrumented fetch", () => {
       expect(src).toMatch(
         new RegExp(`createInstrumentedFetch\\(\\s*\\{[^}]*\\bprovider:\\s*"${provider}"`),
       );
-      expect(code, `${app} must not call fetch directly`).not.toMatch(/(^|[^.\w])fetch\s*\(/m);
-      expect(code).not.toContain("globalThis.fetch");
+      expect(code, `${app} must not call fetch directly`).not.toMatch(/\bfetch\s*\(/);
     });
   }
 });

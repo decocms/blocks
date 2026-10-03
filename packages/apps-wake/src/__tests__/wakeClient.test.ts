@@ -26,7 +26,7 @@ vi.mock("@decocms/blocks/fetch", async (importOriginal) => {
 });
 
 import { GetProduct } from "../storefront";
-import { createWakeClient, WAKE_STOREFRONT_ENDPOINT, WakeError } from "../wakeClient";
+import { createWakeClient, WakeError } from "../wakeClient";
 
 /** The error a call rejects with (fails the test if it resolves). */
 const failure = (call: Promise<unknown>): Promise<Error> =>
@@ -57,17 +57,25 @@ describe("createWakeClient", () => {
     const data = await wake.graphql<{ product: { productId: number } }>(
       GetProduct,
       { productId: 1 },
-      { headers: { "x-forwarded-for": "203.0.113.7", "tcs-access-token": "spoofed" } },
+      {
+        headers: {
+          "x-forwarded-for": "203.0.113.7",
+          "TCS-Access-Token": "spoofed",
+          "Content-Type": "text/plain",
+        },
+      },
     );
 
     expect(data).toEqual({ product: { productId: 1 } });
     expect(instrumented.providers).toEqual(["wake"]);
     expect(instrumented.operations).toEqual(["GetProduct"]);
     const [url, init] = fetch.mock.calls[0]!;
-    expect(String(url)).toBe(WAKE_STOREFRONT_ENDPOINT);
-    const headers = init?.headers as Record<string, string>;
-    expect(headers["tcs-access-token"]).toBe("tok"); // per-call headers can't override it
-    expect(headers["x-forwarded-for"]).toBe("203.0.113.7");
+    expect(String(url)).toBe("https://storefront-api.fbits.net/graphql");
+    const headers = new Headers(init?.headers);
+    // Per-call headers can't override the token or the content type, whatever their case.
+    expect(headers.get("tcs-access-token")).toBe("tok");
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.get("x-forwarded-for")).toBe("203.0.113.7");
     const body = JSON.parse(String(init?.body));
     expect(body.variables).toEqual({ productId: 1 });
     expect(body.query).toContain("fragment"); // fragments are sent with the document
@@ -94,10 +102,13 @@ describe("createWakeClient", () => {
 
   it("reads the signed-in shopper from the checkout, or null when signed out", async () => {
     const fetch = upstream({ CustomerAccessToken: "cat", Email: "a@example.com" });
-    const wake = createWakeClient({ storefrontToken: "tok", account: "acme" }, { fetch });
+    const wake = createWakeClient(
+      { storefrontToken: "tok", checkoutUrl: "https://checkout.example.com" },
+      { fetch },
+    );
     expect(await wake.getLogin("fbits-login=abc")).toMatchObject({ CustomerAccessToken: "cat" });
     const [url, init] = fetch.mock.calls[0]!;
-    expect(String(url)).toBe("https://acme.checkout.fbits.store/api/Login/Get");
+    expect(String(url)).toBe("https://checkout.example.com/api/Login/Get");
     expect(new Headers(init?.headers).get("cookie")).toBe("fbits-login=abc");
     expect(instrumented.operations).toEqual(["getLogin"]);
 
@@ -106,5 +117,20 @@ describe("createWakeClient", () => {
       { fetch: upstream({}, 401) },
     );
     expect(await signedOut.getLogin("")).toBeNull();
+  });
+
+  it("throws on a rate limit instead of reporting the shopper as signed out", async () => {
+    const limited = createWakeClient(
+      { storefrontToken: "tok", checkoutUrl: "https://checkout.example.com" },
+      { fetch: upstream({}, 429) },
+    );
+    const error = await failure(limited.getLogin("fbits-login=abc"));
+    expect(error).toBeInstanceOf(WakeError);
+    expect(error.message).toBe("wake getLogin failed with HTTP 429");
+  });
+
+  it("requires checkoutUrl for getLogin", async () => {
+    const wake = createWakeClient({ storefrontToken: "tok" }, { fetch: upstream({}) });
+    await expect(wake.getLogin("")).rejects.toThrow(/set checkoutUrl/);
   });
 });
