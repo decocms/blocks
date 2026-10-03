@@ -255,18 +255,27 @@ export function isJsxType(type: Type): boolean {
   );
 }
 
-/** `Lazy<T>` (`() => Promise<T>`): the `T`, or null for any other type. */
-function lazyInner(type: Type): Type | null {
+/**
+ * `Lazy<T>`: the `T`, or null for any other type. Only the `Lazy` alias
+ * counts, so a method like `onLoad: () => Promise<void>` stays a method
+ * (skipped) instead of becoming a lazy field. `typeHint`, the annotation as
+ * written, covers a checker that printed the alias away; the type must still
+ * have `Lazy`'s shape, a call with no parameters returning a promise of data.
+ */
+function lazyInner(type: Type, typeHint = ""): Type | null {
   const alias = type.getAliasSymbol();
   if (alias?.getName() === "Lazy") {
     const [arg] = type.getAliasTypeArguments();
     if (arg) return arg;
   }
+  if (!/^(\w+\.)?Lazy\s*</.test(typeHint.trim())) return null;
   const signatures = type.getCallSignatures();
   if (signatures.length !== 1 || type.getProperties().length > 0) return null;
   const [signature] = signatures;
   if (signature.getParameters().length > 0) return null;
-  return awaitedOf(signature.getReturnType(), true);
+  const inner = awaitedOf(signature.getReturnType(), true);
+  if (!inner || inner.isVoid() || inner.isUndefined() || inner.isNever()) return null;
+  return inner;
 }
 
 /** `Secret`, from `@decocms/blocks` (`string & { readonly __secret: true }`). */
@@ -345,6 +354,11 @@ const RUNTIME_INJECTED_TYPES = new Set([
 
 const titleCase = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 
+/** `Secret | undefined` → `Secret`: the annotation without its nullish members. */
+function stripNullish(typeHint: string): string {
+  return typeHint.replace(/\s*\|\s*(null|undefined)\b/g, "").trim();
+}
+
 function isNullableHint(optional: boolean, typeHint: string): boolean {
   return optional || /\bnull\b|\bundefined\b/.test(typeHint);
 }
@@ -385,10 +399,10 @@ function fieldSchema(
   ctx?: SchemaContext,
   visited: Set<string> = new Set(),
 ): any {
-  const lazy = lazyInner(nonNullable(propType));
+  const lazy = lazyInner(nonNullable(propType), stripNullish(typeHint));
   if (lazy) return lazySchema(fieldSchema(lazy, lazy.getText(), ctx, visited));
 
-  if (isSecretType(nonNullable(propType), typeHint)) return secretSchema();
+  if (isSecretType(nonNullable(propType), stripNullish(typeHint))) return secretSchema();
 
   if (ctx && isObjectLike(propType) && !isJsxType(nonNullable(propType))) {
     const fits = ctx.fitting(propType);
@@ -443,6 +457,12 @@ export function typeToJsonSchema(
 
   try {
     if (type.isAny() || type.isUnknown()) return {};
+
+    // Structural blocks wherever the type appears, not only as a whole field:
+    // `Secret[]` is a list of secret blocks, `Lazy<T>[]` a list of lazy ones.
+    if (isSecretType(type)) return secretSchema();
+    const lazy = lazyInner(type);
+    if (lazy) return lazySchema(fieldSchema(lazy, lazy.getText(), ctx, visited));
 
     if (type.isArray()) {
       const el = type.getArrayElementType();
@@ -573,9 +593,10 @@ export function typeToJsonSchema(
         const optional = prop.isOptional();
 
         // Methods aren't data, but `Lazy<T>` (a function prop) is a field.
+        const callable = nonNullable(propType);
         const isFunction =
-          propType.getCallSignatures().length > 0 && propType.getProperties().length === 0;
-        if (isFunction && !lazyInner(nonNullable(propType))) continue;
+          callable.getCallSignatures().length > 0 && callable.getProperties().length === 0;
+        if (isFunction && !lazyInner(nonNullable(propType), stripNullish(typeHint))) continue;
 
         // v7's opaque `Section` type: a section picker.
         const baseHint = typeHint.replace(/\s*\|\s*(null|undefined)/g, "").trim();

@@ -65,5 +65,5 @@ export const LEGACY_ALIASES: Readonly<Record<string, BuiltInBlock>> = {
  * every value must already carry the wrapper.
  */
 export function storesPlainVariants(name: string): boolean {
-  return LEGACY_ALIASES[name] === "multivariate";
+  return Object.hasOwn(LEGACY_ALIASES, name) && LEGACY_ALIASES[name] === "multivariate";
 }

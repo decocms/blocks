@@ -81,7 +81,8 @@ export function recorder(): Reporter & {
 /**
  * A small store: a hero section, a product card that takes a `Product`, a
  * catalog loader that returns one, a matcher, data-only `post` and `menu`
- * blocks, and a legacy alias key.
+ * blocks, a `vault` section with lists of secrets and lazy values (and
+ * methods), and a legacy alias key.
  */
 export const STORE_FILES: Record<string, string> = {
   "src/model.ts": `
@@ -159,9 +160,24 @@ export const post = (props: Post) => props;
 export const menu = (props: Menu) => props;
 export const footer = (props: { menu: Menu; enabled: boolean; label: string }) => <footer />;
 `,
+  "src/vault.tsx": `
+import type { Lazy, Secret } from "./deco";
+import type { Product } from "./model";
+
+export interface VaultProps {
+  label?: string;
+  keys?: Secret[];
+  slots?: Lazy<Product>[];
+  /** Methods aren't fields, even ones returning a promise. */
+  onLoad?: () => Promise<void>;
+  refresh: () => Promise<Product>;
+}
+export const vault = (props: VaultProps) => <div>{props.label}</div>;
+`,
   ".deco/index.ts": `
 import type { Blocks } from "../src/deco";
 import Hero from "../src/hero";
+import { vault } from "../src/vault";
 import { catalogProduct, productList, productCard, weekday, greeting, descriptor, post, menu, footer } from "../src/blocks";
 
 export default {
@@ -175,6 +191,7 @@ export default {
   post,
   menu,
   footer,
+  vault,
   "site/sections/Hero.tsx": Hero,
 } satisfies Blocks;
 `,

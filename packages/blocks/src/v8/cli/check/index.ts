@@ -51,6 +51,11 @@ function isBlock(value: unknown): value is { __resolveType: string } & Record<st
   return isObject(value) && typeof value.__resolveType === "string";
 }
 
+/** `map[key]` when `key` is the map's own: names like `constructor` or `__proto__` are just names. */
+function own<T>(map: Record<string, T> | undefined, key: string): T | undefined {
+  return map !== undefined && Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
 function resolveTypeEnum(schema: Json): string[] | null {
   const prop = schema?.properties?.__resolveType;
   return Array.isArray(prop?.enum) ? prop.enum : null;
@@ -120,11 +125,13 @@ class ValidationDocument {
 
   private transform(node: Json, wrap: boolean, top = false): Json {
     if (!isObject(node)) return node;
-    // Fields that hold a structural block (Lazy<T>, Secret) are the walk's job.
+    // Fields that hold a structural block (Lazy<T>, Secret), as a field or a
+    // list item, are entirely the walk's job: it reports a plain value there
+    // and checks a block on its own. Ajv accepts anything in them.
     if (!top && (isLazyShape(node) || isSecretShape(node))) {
       // Still register the lazy value's form: the walk validates it.
       if (isLazyShape(node)) this.transform(node.properties.value, true);
-      return { ...BLOCK_REF };
+      return {};
     }
     const copy: Record<string, Json> = {};
     for (const [k, v] of Object.entries(node)) {
@@ -192,6 +199,57 @@ class ValidationDocument {
 }
 
 // ---------------------------------------------------------------------------
+// Formats
+// ---------------------------------------------------------------------------
+
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const TIME = /^\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/i;
+
+function isDate(value: string): boolean {
+  const m = DATE.exec(value);
+  if (!m) return false;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+}
+
+/**
+ * The formats `deco check` enforces: the standard ones the schema's widgets
+ * write (`@format date`, `date-time`, `uri`). A date-time is a date, `T` (or a
+ * space) and a time whose seconds and zone are optional, since that is what
+ * the site editor's date-time picker saves. Every other format names a
+ * site-editor widget (`image-uri`, `color`, `rich-text`, …), not a rule, so it
+ * accepts any string.
+ */
+const STANDARD_FORMATS: Record<string, (value: string) => boolean> = {
+  date: isDate,
+  "date-time": (value) => {
+    const at = value.search(/[Tt ]/);
+    return at === 10 && isDate(value.slice(0, 10)) && TIME.test(value.slice(11));
+  },
+  uri: (value) => /^[a-z][a-z0-9+.-]*:/i.test(value) && URL.canParse(value),
+};
+
+function formatsFor(doc: Json): Record<string, true | ((value: string) => boolean)> {
+  const formats: Record<string, true | ((value: string) => boolean)> = { ...STANDARD_FORMATS };
+  const seen = new Set<object>();
+  const visit = (node: Json) => {
+    if (node === null || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    if (
+      !Array.isArray(node) &&
+      typeof node.format === "string" &&
+      !Object.hasOwn(formats, node.format)
+    ) {
+      formats[node.format] = true;
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(doc);
+  return formats;
+}
+
+// ---------------------------------------------------------------------------
 // The checker
 // ---------------------------------------------------------------------------
 
@@ -223,22 +281,23 @@ class Checker {
     this.ajv = new Ajv({
       strict: false,
       allErrors: true,
-      validateFormats: false,
       allowUnionTypes: true,
+      formats: formatsFor(this.validation.doc),
     });
     this.ajv.addSchema(this.validation.doc);
   }
 
   /** The block type a name calls, after the alias table; null if it isn't one. */
   private canonicalType(name: string): string | null {
-    const target = this.aliases[name] ?? name;
+    const target = own(this.aliases, name) ?? name;
     if (this.groupOf.has(target) || this.groupOf.has(name)) return target;
     return isBuiltIn(target) ? target : null;
   }
 
   private definitionOf(name: string): Json | undefined {
     return (
-      this.definitions[toBase64(name)] ?? this.definitions[toBase64(this.aliases[name] ?? name)]
+      own(this.definitions, toBase64(name)) ??
+      own(this.definitions, toBase64(own(this.aliases, name) ?? name))
     );
   }
 
@@ -257,8 +316,9 @@ class Checker {
     for (let i = 0; i < 32 && isObject(cur) && typeof cur.$ref === "string"; i++) {
       const ref: string = cur.$ref;
       if (ref.startsWith("#/definitions/"))
-        cur = this.definitions[ref.slice("#/definitions/".length)];
-      else if (ref.startsWith("#/root/")) cur = this.meta.schema.root[ref.slice("#/root/".length)];
+        cur = own(this.definitions, ref.slice("#/definitions/".length));
+      else if (ref.startsWith("#/root/"))
+        cur = own(this.meta.schema.root, ref.slice("#/root/".length));
       else return cur;
     }
     return cur;
@@ -274,20 +334,20 @@ class Checker {
         const ref: string = node.$ref;
         if (ref.startsWith("#/root/")) {
           const group = ref.slice("#/root/".length);
-          for (const key of Object.keys(this.meta.manifest.blocks[group] ?? {})) {
-            out.add(this.aliases[key] ?? key);
+          for (const key of Object.keys(own(this.meta.manifest.blocks, group) ?? {})) {
+            out.add(own(this.aliases, key) ?? key);
           }
           return;
         }
         if (ref === `#/definitions/${SECTION_REF_KEY}`) {
           for (const key of Object.keys(this.meta.manifest.blocks.sections ?? {})) {
-            out.add(this.aliases[key] ?? key);
+            out.add(own(this.aliases, key) ?? key);
           }
           return;
         }
         const target = this.deref(node);
         const name = blockDefinitionName(target);
-        if (name) out.add(this.aliases[name] ?? name);
+        if (name) out.add(own(this.aliases, name) ?? name);
         return;
       }
       for (const branch of node.anyOf ?? []) visit(branch);
@@ -305,7 +365,7 @@ class Checker {
     if (chain.includes(name)) return { type: null, cycle: [...chain, name] };
     const canonical = this.canonicalType(name);
     if (canonical) return { type: canonical };
-    const entry = this.saved.blocks[name];
+    const entry = own(this.saved.blocks, name);
     if (!entry || typeof entry.__resolveType !== "string") return { type: null };
     return this.underlyingType(entry.__resolveType, [...chain, name]);
   }
@@ -320,6 +380,10 @@ class Checker {
     ctx.problems.push({ file: ctx.file, path, message, severity, ...(code ? { code } : {}) });
   }
 
+  private isSecretField(field: Json | null): boolean {
+    return field !== null && isSecretShape(this.deref(field));
+  }
+
   /** Does a block of type `type` fit `field`? Returns why not, or null. */
   private fitProblem(type: string, field: Json | null): string | null {
     if (field === null) return null;
@@ -329,7 +393,9 @@ class Checker {
       return isLazyShape(resolved) ? null : "a lazy block only fits a Lazy<T> field";
     }
     if (isLazyShape(resolved)) return "this field is Lazy<T>: wrap the value in a lazy block";
-    if (type === "secret" && isSecretShape(resolved)) return null;
+    if (isSecretShape(resolved)) {
+      return type === "secret" ? null : "this field is a Secret: it takes a secret block";
+    }
     const allowed = this.allowedTypes(field);
     if (allowed.has(type)) return null;
     if (allowed.size === 0) return "this field takes a plain value";
@@ -343,10 +409,28 @@ class Checker {
       return;
     }
     if (field === null) return;
+    if (this.structuralProblem(ctx, value, path, field)) return;
+    const validate = this.validatorFor(field);
+    if (validate && !validate(value)) {
+      for (const e of rewriteErrors(validate.errors, value, path))
+        this.report(ctx, e.path, e.message);
+    }
+    this.walkNested(ctx, value, path, field);
+  }
+
+  /**
+   * A plain value in a field that only takes a structural block: `Lazy<T>`
+   * needs a `lazy` block and `Secret` a `secret` block, in a list item or a
+   * union member as much as in a field of its own. Reports it and returns
+   * true when the field is one of those (nothing else to check then).
+   */
+  private structuralProblem(ctx: Context, value: Json, path: string, field: Json): boolean {
     const resolved = this.deref(field);
     if (isLazyShape(resolved)) {
-      this.report(ctx, path, "this field is Lazy<T>: wrap the value in a lazy block");
-      return;
+      if (value !== undefined && value !== null) {
+        this.report(ctx, path, "this field is Lazy<T>: wrap the value in a lazy block");
+      }
+      return true;
     }
     if (isSecretShape(resolved)) {
       if (value !== undefined && value !== null) {
@@ -358,14 +442,9 @@ class Checker {
           "secret",
         );
       }
-      return;
+      return true;
     }
-    const validate = this.validatorFor(field);
-    if (validate && !validate(value)) {
-      for (const e of rewriteErrors(validate.errors, value, path))
-        this.report(ctx, e.path, e.message);
-    }
-    this.walkNested(ctx, value, path, field);
+    return false;
   }
 
   /** Find the blocks nested in a plain value, with the field each one sits in. */
@@ -390,7 +469,9 @@ class Checker {
       if (isObject(schema.items)) {
         value.forEach((item, i) => {
           if (isBlock(item)) this.checkBlock(ctx, item, `${path}[${i}]`, schema.items);
-          else this.walkNested(ctx, item, `${path}[${i}]`, schema.items, depth + 1);
+          else if (!this.structuralProblem(ctx, item, `${path}[${i}]`, schema.items)) {
+            this.walkNested(ctx, item, `${path}[${i}]`, schema.items, depth + 1);
+          }
         });
       }
       return;
@@ -404,19 +485,10 @@ class Checker {
         (isObject(schema.additionalProperties) ? schema.additionalProperties : undefined);
       if (!childField) continue;
       const childPath = joinPath(path, `/${key.replace(/~/g, "~0").replace(/\//g, "~1")}`);
-      const resolvedChild = this.deref(childField);
       if (isBlock(child)) this.checkBlock(ctx, child, childPath, childField);
-      else if (isLazyShape(resolvedChild) && child !== undefined && child !== null) {
-        this.report(ctx, childPath, "this field is Lazy<T>: wrap the value in a lazy block");
-      } else if (isSecretShape(resolvedChild) && child !== undefined && child !== null) {
-        this.report(
-          ctx,
-          childPath,
-          "plain text in a Secret field: save it as a secret block",
-          "error",
-          "secret",
-        );
-      } else this.walkNested(ctx, child, childPath, childField, depth + 1);
+      else if (!this.structuralProblem(ctx, child, childPath, childField)) {
+        this.walkNested(ctx, child, childPath, childField, depth + 1);
+      }
     }
   }
 
@@ -426,7 +498,7 @@ class Checker {
     const type = this.canonicalType(name);
 
     if (type === null) {
-      if (!(name in this.saved.blocks)) {
+      if (!Object.hasOwn(this.saved.blocks, name)) {
         this.report(ctx, path, `unknown block type "${name}"`);
         return;
       }
@@ -443,6 +515,8 @@ class Checker {
           ctx,
           path,
           `saved block "${name}" (a "${underlying}") doesn't fit here: ${fit}`,
+          "error",
+          this.isSecretField(field) ? "secret" : undefined,
         );
         return;
       }
@@ -459,7 +533,7 @@ class Checker {
 
     const fit = this.fitProblem(type, field);
     if (fit) {
-      const secretField = field !== null && isSecretShape(this.deref(field));
+      const secretField = this.isSecretField(field);
       this.report(
         ctx,
         path,
@@ -520,15 +594,24 @@ class Checker {
       const validate = this.validatorFor(def);
       if (validate && !validate(block)) {
         for (const e of rewriteErrors(validate.errors, block, path)) {
-          if (!/\.variants\[\d+\]\.(rule|value)\b|^variants\[\d+\]\.(rule|value)\b/.test(e.path)) {
-            this.report(ctx, e.path, e.message);
-          }
+          // Rules and values are checked below, each against its own field.
+          const variantPart = /(^|\.)variants\[\d+\]\.(rule|value)\b/.test(e.path);
+          const variantUnion =
+            /(^|\.)variants\[\d+\]$/.test(e.path) && e.message === "doesn't match any allowed form";
+          if (!variantPart && !variantUnion) this.report(ctx, e.path, e.message);
         }
       }
     }
     if (!Array.isArray(block.variants)) return;
     const plainValues = storesPlainVariants(name);
-    const valueField = field ?? def?.properties?.variants?.items?.properties?.value ?? null;
+    // The field the variants stand in for; a saved multivariate block on its
+    // own takes its type's value form (under `multivariate`, a lazy block's).
+    let valueField: Json | null = field;
+    if (valueField === null) {
+      const declared = def?.properties?.variants?.items?.properties?.value ?? null;
+      const resolved = declared === null ? null : this.deref(declared);
+      valueField = !plainValues && isLazyShape(resolved) ? resolved.properties.value : declared;
+    }
     const rule = { $ref: "#/root/matchers" };
     let alwaysAt = -1;
     block.variants.forEach((variant: Json, i: number) => {
@@ -579,7 +662,7 @@ class Checker {
       const entry = this.saved.blocks[name];
 
       // Names share one registry with block types (spec: saved-blocks › Names).
-      if (this.aliases[name] !== undefined) {
+      if (own(this.aliases, name) !== undefined) {
         this.report(ctx, "", `saved block "${name}" has the name of an alias`);
       } else if (isBuiltIn(name)) {
         this.report(ctx, "", `saved block "${name}" has the name of a built-in block`);
@@ -647,7 +730,7 @@ export function secretViolations(
   const checker = new Checker(meta, saved);
   const problems: Problem[] = [];
   for (const name of names) {
-    const entry = blocks[name];
+    const entry = Object.hasOwn(blocks, name) ? blocks[name] : undefined;
     if (!isBlock(entry)) continue;
     checker.checkBlock({ file: name, problems }, entry, "", null);
   }

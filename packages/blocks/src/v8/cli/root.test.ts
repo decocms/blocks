@@ -2,8 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CliError, findDecoRoot, findRepositoryRoot, relativePosix } from "./root";
 import { createFixture, type Fixture } from "./__tests__/fixture";
+import { CliError, findDecoRoot, findRepositoryRoot, relativePosix } from "./root";
 
 let fixture: Fixture;
 afterEach(() => fixture?.remove());

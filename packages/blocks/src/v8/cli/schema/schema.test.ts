@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
 import { LEGACY_ALIASES } from "../builtins";
 import { CliError, decoPaths } from "../root";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
 import { type DecoMeta, generateSchema, SCHEMA_FORMAT, type SchemaDiagnostic } from "./generate";
 import { schema, writeSchema } from "./index";
 import { toBase64 } from "./typeToSchema";
@@ -197,6 +197,31 @@ describe("types to fields", () => {
     expect(later.required).toEqual(["__resolveType", "value"]);
     expect(later.properties.value.anyOf).toContainEqual(ref("catalog-product"));
   });
+
+  it("makes Secret[] a list of secret blocks, not of plain strings", () => {
+    const keys = propsOf("vault").properties.keys;
+    expect(keys.type).toBe("array");
+    expect(keys.items).toMatchObject({
+      type: "object",
+      format: "secret",
+      writeOnly: true,
+      properties: { __resolveType: { enum: ["secret"] } },
+    });
+  });
+
+  it("makes Lazy<T>[] a list of lazy blocks whose value has the form of T", () => {
+    const slots = propsOf("vault").properties.slots;
+    expect(slots.type).toBe("array");
+    expect(slots.items.required).toEqual(["__resolveType", "value"]);
+    expect(slots.items.properties.__resolveType.enum).toEqual(["lazy"]);
+    expect(slots.items.properties.value.anyOf).toContainEqual(ref("catalog-product"));
+  });
+
+  it("skips methods, even ones that return a promise", () => {
+    const props = propsOf("vault");
+    expect(Object.keys(props.properties)).toEqual(["label", "keys", "slots"]);
+    expect(props.required).toBeUndefined();
+  });
 });
 
 describe("interchangeable blocks", () => {
@@ -282,6 +307,36 @@ describe("built-ins and aliases", () => {
     expect(meta.manifest.blocks.matchers["website/matchers/always.ts"]).toBeDefined();
     // Not in the pickers twice.
     expect(meta.schema.root.pages.anyOf).not.toContainEqual(ref("website/pages/Page.tsx"));
+  });
+
+  it("wraps each variant's value in a lazy block under multivariate, but not under legacy names", () => {
+    const value = (name: string) => def(name).properties.variants.items.properties.value;
+    expect(value("multivariate")).toEqual({
+      type: "object",
+      required: ["__resolveType", "value"],
+      properties: {
+        __resolveType: { type: "string", enum: ["lazy"], default: "lazy" },
+        value: { title: "Value" },
+      },
+    });
+    expect(value("website/flags/multivariate.ts")).toEqual({ title: "Value" });
+
+    const [, short, legacy] = def("page").properties.sections.anyOf;
+    expect(short.properties.__resolveType.enum).toEqual(["multivariate"]);
+    expect(short.properties.variants.items.properties.value).toMatchObject({
+      properties: {
+        __resolveType: { enum: ["lazy"] },
+        value: { type: "array", items: { $ref: "#/definitions/__SECTION_REF__" } },
+      },
+    });
+    expect(legacy.properties.__resolveType.enum).toEqual([
+      "website/flags/multivariate.ts",
+      "website/flags/multivariate/section.ts",
+    ]);
+    expect(legacy.properties.variants.items.properties.value).toMatchObject({
+      type: "array",
+      items: { $ref: "#/definitions/__SECTION_REF__" },
+    });
   });
 
   it("gives each legacy multivariate kind the form of the field it varies", () => {

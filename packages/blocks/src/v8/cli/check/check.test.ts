@@ -1,10 +1,17 @@
 // @vitest-environment node
+import Ajv from "ajv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { SavedBlocks } from "../content";
+import {
+  createFixture,
+  type Fixture,
+  recorder,
+  STORE_FILES,
+  sealSecret,
+} from "../__tests__/fixture";
+import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
 import { type DecoMeta, generateSchema } from "../schema/generate";
 import { writeSchema } from "../schema/index";
-import { createFixture, type Fixture, recorder, STORE_FILES, sealSecret } from "../__tests__/fixture";
 import { check, checkContent, formatProblems, type Problem, secretViolations } from "./index";
 
 let store: Fixture;
@@ -428,6 +435,201 @@ describe("secrets", () => {
       ["A", "B"],
     );
     expect(violations.map((v) => [v.file, v.path])).toEqual([["A", "apiKey"]]);
+  });
+});
+
+describe("lists of secrets and lazy values", () => {
+  const vault = (extra: Record<string, unknown>) => ({ __resolveType: "vault", ...extra });
+
+  it("rejects plain text in a Secret[] item, for check and for the secret guard", async () => {
+    const { ciphertext } = await sealSecret("k");
+    const blocks = {
+      V: vault({ keys: [{ __resolveType: "secret", ciphertext }, "plaintext", null] }),
+    };
+    expect(lines(run(blocks))).toEqual([
+      "V.json keys[1]: plain text in a Secret field: save it as a secret block",
+    ]);
+    expect(run(blocks)[0].code).toBe("secret");
+    expect(secretViolations(meta, blocks, ["V"]).map((v) => v.path)).toEqual(["keys[1]"]);
+  });
+
+  it("tags a saved reference that isn't a secret, in a Secret field, for the secret guard", () => {
+    const blocks = {
+      Promo: { __resolveType: "catalog-product", slug: "x" },
+      A: { ...hero, apiKey: { __resolveType: "Promo" } },
+      V: vault({ keys: [{ __resolveType: "Promo" }] }),
+    };
+    expect(lines(run(blocks))).toEqual([
+      'A.json apiKey: saved block "Promo" (a "catalog-product") doesn\'t fit here: this field is a Secret: it takes a secret block',
+      'V.json keys[0]: saved block "Promo" (a "catalog-product") doesn\'t fit here: this field is a Secret: it takes a secret block',
+    ]);
+    expect(secretViolations(meta, blocks, ["A", "V"]).map((v) => [v.file, v.path])).toEqual([
+      ["A", "apiKey"],
+      ["V", "keys[0]"],
+    ]);
+  });
+
+  it("requires a lazy block in each Lazy<T>[] item and checks its value as a T", () => {
+    expect(
+      lines(
+        run({
+          V: vault({
+            slots: [
+              { __resolveType: "lazy", value: { __resolveType: "catalog-product", slug: "x" } },
+              { name: "plain", price: 1 },
+              { __resolveType: "lazy", value: { name: "x" } },
+            ],
+          }),
+        }),
+      ),
+    ).toEqual([
+      "V.json slots[1]: this field is Lazy<T>: wrap the value in a lazy block",
+      "V.json slots[2].value.price: required",
+    ]);
+  });
+});
+
+describe("names that are also Object.prototype keys", () => {
+  it("reports a __resolveType of constructor or toString as an unknown block type", () => {
+    expect(
+      lines(
+        run({
+          A: { __resolveType: "constructor" },
+          B: { ...hero, product: { __resolveType: "toString" } },
+          C: page([{ __resolveType: "hasOwnProperty" }]),
+        }),
+      ),
+    ).toEqual([
+      'A.json unknown block type "constructor"',
+      'B.json product: unknown block type "toString"',
+      'C.json sections[0]: unknown block type "hasOwnProperty"',
+    ]);
+  });
+
+  it("treats saved blocks named constructor and toString as plain names", () => {
+    const blocks = {
+      constructor: { ...hero },
+      toString: { __resolveType: "catalog-product", slug: "x" },
+      Card: { __resolveType: "product-card", title: "t", product: { __resolveType: "toString" } },
+    };
+    expect(run(blocks)).toEqual([]);
+  });
+
+  it("reports a __proto__.json file instead of dropping it", () => {
+    const fixture = createFixture({
+      ".deco/blocks/__proto__.json": hero,
+      ".deco/blocks/constructor.json": hero,
+    });
+    try {
+      const savedBlocks = readSavedBlocks(`${fixture.root}/.deco/blocks`);
+      expect(Object.keys(savedBlocks.blocks)).toEqual(["constructor"]);
+      expect(lines(checkContent(meta, savedBlocks))).toEqual([
+        '__proto__.json not a valid entry name (name is "__proto__"); rename the file',
+      ]);
+    } finally {
+      fixture.remove();
+    }
+  });
+});
+
+describe("formats and character counts", () => {
+  it("checks date and date-time values, and leaves widget formats alone", () => {
+    const date = (start: string) => ({
+      ...hero,
+      title: {
+        __resolveType: "multivariate",
+        variants: [
+          {
+            rule: { __resolveType: "date", start, end: "2026-12-31T23:59:59Z" },
+            value: { __resolveType: "lazy", value: "Sale" },
+          },
+        ],
+      },
+    });
+    expect(lines(run({ A: date("not a date"), B: date("2026-02-30T10:00") }))).toEqual([
+      'A.json title.variants[0].rule.start: "not a date" isn\'t a valid date-time',
+      'B.json title.variants[0].rule.start: "2026-02-30T10:00" isn\'t a valid date-time',
+    ]);
+    expect(run({ A: date("2026-11-27T09:00"), B: date("2026-11-27T09:00:00.000-03:00") })).toEqual(
+      [],
+    );
+    // image-uri is a widget, not a rule: any string goes.
+    expect(run({ Hero: { ...hero, image: "/assets/a b.png" } })).toEqual([]);
+  });
+
+  it("counts characters as the validator does, so the numbers agree", () => {
+    expect(lines(run({ Hero: { ...hero, title: "🎉".repeat(61) } }))).toEqual([
+      "Hero.json title: 61 characters, max 60",
+    ]);
+    expect(run({ Hero: { ...hero, title: "🎉".repeat(60) } })).toEqual([]);
+  });
+});
+
+describe("the generated schema and deco check agree", () => {
+  /**
+   * Plain Ajv over the generated schema, as any JSON Schema tool reads it.
+   * `nullable` is the site editor's dialect (Ajv only allows it next to
+   * `type`), so it's dropped; nothing here is null.
+   */
+  function validateAgainstSchema(definitionKey: string, block: unknown) {
+    const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
+    const schema = JSON.parse(
+      JSON.stringify({ definitions: meta.schema.definitions, root: meta.schema.root }),
+      (key, value) => (key === "nullable" ? undefined : value),
+    );
+    ajv.addSchema({ $id: "meta", ...schema });
+    const validate = ajv.compile({ $ref: `meta#/definitions/${definitionKey}` });
+    return validate(block) ? [] : (validate.errors ?? []);
+  }
+  const lazy = (value: unknown) => ({ __resolveType: "lazy", value });
+
+  it("varies a page's sections with lazy values under multivariate", () => {
+    const home = page([], {
+      sections: {
+        __resolveType: "multivariate",
+        variants: [{ rule: { __resolveType: "always" }, value: lazy([hero]) }],
+      },
+    });
+    expect(validateAgainstSchema(btoa("page"), home)).toEqual([]);
+    expect(run({ HomePage: home })).toEqual([]);
+  });
+
+  it("varies them with plain values under the legacy names", () => {
+    const home = page([], {
+      sections: {
+        __resolveType: "website/flags/multivariate.ts",
+        variants: [{ rule: { __resolveType: "always" }, value: [hero] }],
+      },
+    });
+    expect(validateAgainstSchema(btoa("page"), home)).toEqual([]);
+    expect(run({ HomePage: home })).toEqual([]);
+  });
+
+  it("rejects plain values under multivariate, in both", () => {
+    const home = page([], {
+      sections: {
+        __resolveType: "multivariate",
+        variants: [{ rule: { __resolveType: "always" }, value: [hero] }],
+      },
+    });
+    expect(validateAgainstSchema(btoa("page"), home)).not.toEqual([]);
+    expect(lines(run({ HomePage: home }))).toEqual([
+      "HomePage.json sections.variants[0].value: a variant's value must be a lazy block",
+    ]);
+  });
+
+  it("does the same for a saved multivariate block on its own", () => {
+    const own = {
+      __resolveType: "multivariate",
+      variants: [{ rule: { __resolveType: "always" }, value: lazy("anything") }],
+    };
+    expect(validateAgainstSchema(btoa("multivariate"), own)).toEqual([]);
+    expect(run({ Flag: own })).toEqual([]);
+    const plain = { ...own, variants: [{ rule: { __resolveType: "always" }, value: "x" }] };
+    expect(validateAgainstSchema(btoa("multivariate"), plain)).not.toEqual([]);
+    expect(lines(run({ Flag: plain }))).toEqual([
+      "Flag.json variants[0].value: a variant's value must be a lazy block",
+    ]);
   });
 });
 

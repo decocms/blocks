@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { ciphertextProblem } from "./secrets";
 import { sealSecret } from "./__tests__/fixture";
+import { ciphertextProblem } from "./secrets";
 
 describe("ciphertext shape", () => {
   it.each([2048, 3072])("accepts a value sealed with a %i-bit key", async (bits) => {

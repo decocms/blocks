@@ -76,10 +76,11 @@ function plain(error: ErrorObject, data: unknown, base: string): PlainError {
       return { path: joinPath(at, `/${p.missingProperty}`), message: "required" };
     case "additionalProperties":
       return { path: joinPath(at, `/${p.additionalProperty}`), message: "unknown field" };
+    // Characters as the validator counts them: code points, not UTF-16 units.
     case "maxLength":
-      return { path: at, message: `${String(value).length} characters, max ${p.limit}` };
+      return { path: at, message: `${[...String(value)].length} characters, max ${p.limit}` };
     case "minLength":
-      return { path: at, message: `${String(value).length} characters, min ${p.limit}` };
+      return { path: at, message: `${[...String(value)].length} characters, min ${p.limit}` };
     case "maximum":
       return { path: at, message: `${show(value)}, max ${p.limit}` };
     case "minimum":
@@ -100,6 +101,8 @@ function plain(error: ErrorObject, data: unknown, base: string): PlainError {
       return { path: at, message: `${show(value)} isn't ${show(p.allowedValue)}` };
     case "type":
       return { path: at, message: `expected ${expected(p.type)}, got ${typeName(value)}` };
+    case "format":
+      return { path: at, message: `${show(value)} isn't a valid ${p.format}` };
     case "pattern":
       return { path: at, message: `doesn't match the pattern ${p.pattern}` };
     case "anyOf":

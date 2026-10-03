@@ -99,7 +99,10 @@ function builtInProps(name: BuiltInBlock, ctx: BuiltInContext): any {
         type: "object",
         required: ["variants"],
         properties: {
-          variants: variantsSchema({ title: "Value" }),
+          // Under the short name, each value is wrapped in a lazy block, so
+          // only the picked variant's value resolves (spec: built-in-blocks ›
+          // Variants). Legacy names store it plain: see legacyMultivariateValue.
+          variants: variantsSchema(lazySchema({ title: "Value" })),
           experiment: {
             type: "string",
             title: "Experiment",
@@ -130,7 +133,11 @@ function builtInProps(name: BuiltInBlock, ctx: BuiltInContext): any {
             title: "Sections",
             anyOf: [
               { type: "array", title: "Sections", items: sectionRef() },
-              sectionListVariants(),
+              sectionListVariants(["multivariate"], true),
+              sectionListVariants(
+                ["website/flags/multivariate.ts", "website/flags/multivariate/section.ts"],
+                false,
+              ),
             ],
           },
         },
@@ -190,22 +197,19 @@ function builtInProps(name: BuiltInBlock, ctx: BuiltInContext): any {
   }
 }
 
-/** A whole `sections` list with variants: each value is a list of sections. */
-function sectionListVariants() {
+/**
+ * A whole `sections` list with variants: each value is a list of sections,
+ * in a lazy block under `multivariate` and plain under the legacy names.
+ */
+function sectionListVariants(names: string[], lazy: boolean) {
+  const sections = { type: "array", title: "Sections", items: sectionRef() };
   return {
     type: "object",
-    title: "Variants",
+    title: lazy ? "Variants" : "Variants (legacy)",
     required: ["__resolveType"],
     properties: {
-      __resolveType: {
-        type: "string",
-        enum: [
-          "multivariate",
-          "website/flags/multivariate.ts",
-          "website/flags/multivariate/section.ts",
-        ],
-      },
-      variants: variantsSchema({ type: "array", title: "Sections", items: sectionRef() }),
+      __resolveType: { type: "string", enum: names },
+      variants: variantsSchema(lazy ? lazySchema(sections) : sections),
     },
   };
 }
