@@ -33,7 +33,7 @@ describe("v8 core bundle", () => {
     expect(output).not.toMatch(/node:|require\(/);
   });
 
-  it("imports nothing at runtime but its own modules (no React, no v7 code)", () => {
+  it("imports nothing at runtime but its own modules and the ciphertext format (no React, no v7 code)", () => {
     const output = bundle([
       "--platform=neutral",
       "--metafile=/dev/stdout",
@@ -42,6 +42,7 @@ describe("v8 core bundle", () => {
     ]);
     const inputs = Object.keys(JSON.parse(output.slice(output.indexOf("{"))).inputs);
     expect(inputs.length).toBeGreaterThan(0);
-    for (const input of inputs) expect(input, input).toMatch(/(^|\/)src\/v8\//);
+    for (const input of inputs)
+      expect(input, input).toMatch(/(^|\/)src\/(v8\/|protocol\/ciphertext\.ts$)/);
   });
 });

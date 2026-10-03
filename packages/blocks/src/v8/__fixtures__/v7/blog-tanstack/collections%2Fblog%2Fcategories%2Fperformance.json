@@ -1,0 +1,9 @@
+{
+  "name": "collections/blog/categories/performance",
+  "__resolveType": "blog/loaders/Category.ts",
+  "category": {
+    "name": "Performance",
+    "slug": "performance",
+    "description": "Web Vitals, otimização de imagens, cache, lazy loading e estratégias de PageSpeed 99+."
+  }
+}

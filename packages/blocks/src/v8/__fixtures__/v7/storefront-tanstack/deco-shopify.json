@@ -1,0 +1,11 @@
+{
+  "__resolveType": "site/apps/deco/shopify.ts",
+  "adminAccessToken": {
+    "__resolveType": "website/loaders/secret.ts",
+    "encrypted": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "name": "SHOPIFY_ACCESS_TOKEN"
+  },
+  "platform": "shopify",
+  "storeName": "example-store",
+  "storefrontAccessToken": "storefront-token-redacted"
+}

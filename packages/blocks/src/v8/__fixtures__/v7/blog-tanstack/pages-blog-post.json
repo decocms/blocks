@@ -1,0 +1,42 @@
+{
+  "name": "Blog Post",
+  "path": "/:slug",
+  "sections": [
+    {
+      "__resolveType": "site/sections/Blog/BlogHeader.tsx",
+      "logoAlt": "Blog",
+      "showReadingProgress": true,
+      "navLinks": [
+        { "label": "Blog", "href": "/" },
+        { "label": "Categorias", "href": "/topics" },
+        { "label": "Autores", "href": "/authors" }
+      ]
+    },
+    {
+      "__resolveType": "site/sections/Blog/BlogPostSection.tsx",
+      "page": {
+        "__resolveType": "blog/loaders/BlogPostPage.ts",
+        "slug": {
+          "__resolveType": "website/functions/requestToParam.ts",
+          "param": "slug"
+        }
+      },
+      "relatedPosts": {
+        "__resolveType": "blog/loaders/BlogpostList.ts",
+        "sortBy": "date_desc",
+        "count": 4
+      }
+    }
+  ],
+  "__resolveType": "website/pages/Page.tsx",
+  "seo": {
+    "__resolveType": "site/sections/Seo/SeoBlogPost.tsx",
+    "jsonLD": {
+      "__resolveType": "blog/loaders/BlogPostPage.ts",
+      "slug": {
+        "__resolveType": "website/functions/requestToParam.ts",
+        "param": "slug"
+      }
+    }
+  }
+}

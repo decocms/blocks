@@ -1,0 +1,167 @@
+{
+  "__resolveType": "site/sections/Footer/Footer.tsx",
+  "links": [
+    {
+      "title": "Our Company",
+      "children": [
+        {
+          "title": "About us",
+          "href": "#"
+        },
+        {
+          "title": "Our blog",
+          "href": "#"
+        },
+        {
+          "title": "Stores",
+          "href": "#"
+        },
+        {
+          "title": "Work with us",
+          "href": "#"
+        }
+      ],
+      "href": "#"
+    },
+    {
+      "title": "Orders & Purchases",
+      "href": "#",
+      "children": [
+        {
+          "title": "Check order status",
+          "href": "#"
+        },
+        {
+          "title": "Return and exchanges",
+          "href": "#"
+        },
+        {
+          "title": "Product retail",
+          "href": "#"
+        },
+        {
+          "title": "Gift cards",
+          "href": "#"
+        }
+      ]
+    },
+    {
+      "title": "Support & Services",
+      "href": "#",
+      "children": [
+        {
+          "title": "Support Center",
+          "href": "#"
+        },
+        {
+          "title": "Schedule a service",
+          "href": "#"
+        },
+        {
+          "title": "Contact us",
+          "href": "#"
+        }
+      ]
+    },
+    {
+      "title": "Support & Services",
+      "children": [
+        {
+          "title": "Support Center",
+          "href": "#"
+        },
+        {
+          "title": "Schedule a service",
+          "href": "#"
+        },
+        {
+          "title": "Contact us",
+          "href": "#"
+        }
+      ],
+      "href": "#"
+    }
+  ],
+  "social": [
+    {
+      "alt": "facebook",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/e3297645-e642-47fd-938b-db4cf7e30043/1742560235833-66137259-6bdb-4322-bed1-a2593560934c.svg"
+    },
+    {
+      "alt": "Instagram",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/823b7099-5cec-4737-ac77-827a2f90ba30/1742560237426-e71ae7f3-0f51-4185-af0a-fca08ebe4451.svg"
+    },
+    {
+      "alt": "Pinterest",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/6bffdb1a-7456-4e0e-bc4b-e84263540877/1742560238662-4becba39-fc08-4df2-bb5d-5e843f375deb.svg"
+    },
+    {
+      "alt": "X",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/c8e86cef-ed77-4aa7-9ee7-1554f9f8fe92/1742560239923-179a9ee9-3813-47b8-96eb-11e0c5558ede.svg"
+    }
+  ],
+  "paymentMethods": [
+    {
+      "alt": "Paypal",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/8c6b949a-eb40-413e-ad0c-448da12fbe62/1742560241202-7d858621-469e-4528-91b5-8c79fc413162.svg"
+    },
+    {
+      "alt": "Mastercard",
+      "image": "https://decoims.com/storefront-tanstack/52496102-adff-4a82-8e73-9d7c3c2aa285/1742560242494-88ab870c-4256-44b4-8da3-3cefe0436e87.svg"
+    },
+    {
+      "alt": "Maestro",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/8352a6c4-65a4-4b0c-845d-37cd787f0aec/1742560243691-e94aaf80-25f5-4e23-8708-14d78ffdebbb.svg"
+    },
+    {
+      "alt": "Google Pay",
+      "image": "https://decoims.com/storefront-tanstack/b885c6ab-6c42-4f47-932b-241b88aa4ea7/1742560245001-ccddc66e-baa8-4b44-a52c-ea48d8e111b5.svg"
+    },
+    {
+      "alt": "Elo",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/bebfeb50-88b5-484b-b8e6-ba48210fc120/1742560246527-11f90dd4-91b5-4b60-9304-f8a7a9be84eb.svg"
+    },
+    {
+      "alt": "Diners",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/13a404ad-8367-468a-8667-63b1a0a2124a/1742560247885-20bb8e66-5495-4f92-a6d0-4967a66f3a44.svg"
+    },
+    {
+      "alt": "Apple Pay",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/d11635b6-dbba-48c6-bb77-32460883c4d8/1742560249131-d4227ed7-333d-49b8-b3e2-35719f606640.svg"
+    },
+    {
+      "alt": "Amex",
+      "href": "#",
+      "image": "https://decoims.com/storefront-tanstack/84c6b6c0-5e9e-4bfe-bd24-d978da160f51/1742560250503-023472cf-782d-4a22-82d9-ecdf18466d96.svg"
+    },
+    {
+      "alt": "Visa",
+      "image": "https://decoims.com/storefront-tanstack/5b1eb037-c569-40b5-8fa7-4dd19bec41ce/1742560251996-2d213fd6-2754-4e92-a6f1-03825f71c7af.svg"
+    }
+  ],
+  "policies": [
+    {
+      "title": "Privacy Policy",
+      "href": "#"
+    },
+    {
+      "title": "Terms and Conditions",
+      "href": "#"
+    },
+    {
+      "title": "Cookies Policy",
+      "href": "#"
+    }
+  ],
+  "logo": "https://decoims.com/storefront-tanstack/b37f70f2-4a04-44d8-8d12-a6cba50b7785/1742560260738-f1faab73-e4ff-4037-b7c4-5d02bd0b1209.png",
+  "trademark": "TM & © 2023 Deco Storefront, Inc."
+}

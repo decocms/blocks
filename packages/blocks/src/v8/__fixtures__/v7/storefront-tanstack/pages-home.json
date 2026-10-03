@@ -1,0 +1,188 @@
+{
+  "name": "Home Page",
+  "sections": [
+    {
+      "__resolveType": "Deco"
+    },
+    {
+      "__resolveType": "Header"
+    },
+    {
+      "__resolveType": "site/sections/Images/Carousel.tsx",
+      "images": [
+        {
+          "desktop": "https://decoims.com/storefront-tanstack/afe9507b-d4cf-47c0-b33b-77b9dab15d87/product-1.jpg",
+          "mobile": "https://decoims.com/storefront-tanstack/49237080-5b0e-42e2-88ed-043b5f66687e/1742560203848-88b2ad41-be6d-4640-b9fe-c58942362f0f.jpg",
+          "alt": "Shoes",
+          "action": {
+            "title": "Skate into Adventure!",
+            "subTitle": "Top-quality roller skate shoes for all levels. ",
+            "href": "/s?q=shoes&page=0",
+            "label": "Grab Yours Now!"
+          }
+        },
+        {
+          "desktop": "https://decoims.com/storefront-tanstack/8a54ab0a-a136-4b6c-8f44-a47d99ac908f/1742560212519-d26304f4-355b-48d0-b649-e24b9cbf0ded.png",
+          "mobile": "https://decoims.com/storefront-tanstack/f93a0bef-57ee-45e5-8c23-573b443e5395/1742560215958-47a4d85a-1150-4e5d-abc2-5c642445ff12.png",
+          "alt": "Men",
+          "action": {
+            "title": "Discover Fresh Looks",
+            "subTitle": "Modern men's clothing and accessories.",
+            "href": "/men",
+            "label": "Shop the Collection"
+          }
+        },
+        {
+          "desktop": "https://decoims.com/storefront-tanstack/934e6382-6dbc-4433-b053-b0f8608a58c1/1742560219550-1226ef79-c7e0-403c-b716-b6b9af3f2936.png",
+          "mobile": "https://decoims.com/storefront-tanstack/09bc3306-d5e8-45c6-a740-734f2c035c22/1742560222938-f7ea4cbe-7498-4e64-9205-c741753edfcc.png",
+          "action": {
+            "label": "Shop Now!",
+            "href": "/women",
+            "title": "Embrace New Trends",
+            "subTitle": "Stylish clothes and accessories."
+          },
+          "alt": "Woman"
+        }
+      ],
+      "preload": true
+    },
+    {
+      "__resolveType": "site/sections/Product/ProductShelf.tsx",
+      "title": "Discover Our Featured Picks",
+      "cta": "/mono",
+      "products": {
+        "__resolveType": "Product List Loader"
+      }
+    },
+    {
+      "__resolveType": "site/sections/Category/CategoryGrid.tsx",
+      "title": "Departments",
+      "cta": "/all",
+      "items": [
+        {
+          "label": "Men",
+          "href": "/men",
+          "image": "https://decoims.com/storefront-tanstack/5ad15dbc-205a-4546-9801-5d18ed393caa/1742560225714-38c33c9f-14a1-4048-973b-dc2a75caf1fa.png"
+        },
+        {
+          "href": "/women",
+          "label": "Women",
+          "image": "https://decoims.com/storefront-tanstack/24f19e67-c8f4-4601-8c86-379a92747535/1742560227121-f6bea2b8-b248-4b42-9246-6e924a0acc8b.png"
+        },
+        {
+          "href": "/kids",
+          "label": "Kids",
+          "image": "https://decoims.com/storefront-tanstack/adfa8d1d-9a08-427b-ab0a-32dec0cc8fc3/1742560228502-1b0ecaa2-9a13-4de2-bf17-5196948ed128.png"
+        },
+        {
+          "href": "/accessories",
+          "label": "Accessories",
+          "image": "https://decoims.com/storefront-tanstack/ba682b53-64d8-44b7-8e57-18d02f5dcf5a/1742560230067-92129655-fe40-4b29-8fdb-e7f71e67a5d1.png"
+        },
+        {
+          "href": "/home-and-living",
+          "label": "Home & Living",
+          "image": "https://decoims.com/storefront-tanstack/048e3ef7-c5c6-41b7-aa3a-7b3822502d41/1742560231577-d0433c00-cd26-4638-b519-0cb64b9f82e8.png"
+        }
+      ]
+    },
+    {
+      "__resolveType": "site/sections/Images/Banner.tsx",
+      "title": "Register and Save Big!",
+      "cta": {
+        "label": "Sign Up",
+        "href": "#"
+      },
+      "description": "<p><span style=\"color: rgb(45, 194, 107);\" data-mce-style=\"color: rgb(45, 194, 107);\">Sign up now to get up to 50% off on your first order. Limited time offer!</span></p>",
+      "images": {
+        "desktop": "https://decoims.com/storefront-tanstack/6d050cd7-e16b-4fd2-830d-021125c95c2b/1742560233015-cf96d47f-564f-40da-ad94-7acac5f39327.png",
+        "mobile": "https://decoims.com/storefront-tanstack/b7b14181-28c7-421c-9535-2cc0e3259bc9/1742560234608-4d5c3212-3f75-4d50-89f3-970815748b43.png"
+      }
+    },
+    {
+      "__resolveType": "website/sections/Rendering/Lazy.tsx",
+      "section": {
+        "__resolveType": "site/sections/Product/ProductShelfTabbed.tsx",
+        "title": "Hottest Deals",
+        "tabs": [
+          {
+            "products": {
+              "__resolveType": "shopify/loaders/ProductList.ts",
+              "props": {
+                "sort": "",
+                "query": "hat and bag",
+                "count": 10
+              },
+              "filters": {
+                "tags": [],
+                "productTypes": [],
+                "productVendors": [],
+                "variantOptions": []
+              }
+            },
+            "title": "Accessories"
+          },
+          {
+            "products": {
+              "__resolveType": "shopify/loaders/ProductList.ts",
+              "props": {
+                "sort": "",
+                "query": "Shirts",
+                "count": 10
+              },
+              "filters": {
+                "tags": [],
+                "productTypes": [],
+                "productVendors": [],
+                "variantOptions": []
+              }
+            },
+            "title": "Fashion"
+          },
+          {
+            "products": {
+              "__resolveType": "shopify/loaders/ProductList.ts",
+              "props": {
+                "sort": "",
+                "query": "stickers",
+                "count": 10
+              },
+              "filters": {
+                "tags": [],
+                "productTypes": [],
+                "productVendors": [],
+                "variantOptions": []
+              }
+            },
+            "title": "Stickers"
+          }
+        ]
+      }
+    },
+    {
+      "__resolveType": "site/sections/Newsletter/Newsletter.tsx",
+      "label": "Sign up",
+      "placeholder": "Email address",
+      "empty": {
+        "title": "Get top deals, latest trends, and more.",
+        "description": "Receive our news and promotions in advance. Enjoy and get 10% off your first purchase. For more information click here."
+      },
+      "success": {
+        "title": "Thank you for subscribing!",
+        "description": "You’re now signed up to receive the latest news, trends, and exclusive promotions directly to your inbox. Stay tuned!"
+      },
+      "failed": {
+        "title": "Oops!. Something went wrong!",
+        "description": "Something went wrong. Please try again. If the problem persists, please contact us."
+      }
+    },
+    {
+      "__resolveType": "Footer"
+    }
+  ],
+  "__resolveType": "website/pages/Page.tsx",
+  "path": "/",
+  "seo": {
+    "__resolveType": "website/sections/Seo/SeoV2.tsx"
+  }
+}

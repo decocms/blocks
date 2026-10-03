@@ -20,6 +20,8 @@ interface ClientOptions {
   /** Loads this client's snapshot; called at most once. */
   load: () => Promise<Snapshot>;
   blocks: Blocks;
+  /** The built-ins, with this CMS's `secret`. */
+  builtIns: Readonly<Blocks>;
   onCollision?: (name: string) => void;
 }
 
@@ -102,6 +104,7 @@ export class CMSClient implements Client {
         resolver: new Resolver({
           snapshot,
           blocks: this.#options.blocks,
+          builtIns: this.#options.builtIns,
           onCollision: this.#options.onCollision,
         }),
       }),
