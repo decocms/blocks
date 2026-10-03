@@ -8,9 +8,7 @@ description: Schedule a campaign days ahead and it goes live on time, with no pu
 
 # Matchers and variants
 
-Campaigns run on a schedule. With Deco, you save the content and the date it switches on together, merge it days ahead, and it goes live on time on every server, with nobody publishing at midnight.
-
-Under the hood, it's an idea every developer knows: an `if`/`else` on the date. Here it is in code first, then as blocks.
+Campaigns run on a schedule, and publishing each change at exactly the right moment is a hassle. The easy way out is to add the content ahead of time and let it switch on by itself, on time. Under the hood, that's an `if`/`else` on a condition. Here's how to write that kind of condition as blocks, starting from the code you'd write today.
 
 ## In code
 
@@ -73,9 +71,9 @@ A **variant** is a `rule` plus a `value`; a **matcher** is a [block](/next/block
 | Only the chosen branch runs, like `cond ? a() : b()` | A [`lazy`](/next/blocks#lazy-blocks) value. |
 | The constants | Saved values that editors change in [Studio](/next/how-it-works#studio). |
 
-Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so every rule runs first and `multivariate` sees each one as a boolean. The values stay lazy, so only the chosen variant's value runs. That matters when values do work: if each variant's value is a hero section that fetches products, only the chosen hero fetches. `PromoBanner` gets a plain string and never knows a variant was involved.
+Blocks resolve from the inside out (see [Composing blocks](/next/blocks#composing-blocks)), so every rule runs first and `multivariate` sees each one as a boolean. It returns the value of the first variant whose rule is `true`, and `PromoBanner` gets a plain string: it never knows a variant was involved.
 
-The `lazy` wrapper is always there because the field is `Lazy<T>`; for plain text it costs nothing.
+<Callout>**Why `lazy`?** Without it, every variant's value would be computed before `multivariate` picks one, like running both branches of an `if`. `lazy` waits until a value is chosen, so only the winning branch runs. For a plain title that changes nothing; for a hero section that fetches products, only the chosen hero fetches. Studio adds the wrapper for you (see [Lazy blocks](/next/blocks#lazy-blocks)).</Callout>
 
 `end` takes the campaign down too, so there's nothing to do on Monday.
 
