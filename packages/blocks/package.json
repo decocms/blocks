@@ -27,6 +27,7 @@
 			"default": "./src/protocol/storage/fs/unsupported.ts"
 		},
 		"./protocol/storage/memory": "./src/protocol/storage/memory.ts",
+		"./protocol/conformance": "./src/protocol/conformance/index.ts",
 		"./types": "./src/types/index.ts",
 		"./types/widgets": "./src/types/widgets.ts",
 		"./setup": "./src/setup.ts",
