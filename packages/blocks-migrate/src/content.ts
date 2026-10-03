@@ -53,14 +53,18 @@ export function decofileEntries(decofile: unknown): Record<string, Record<string
   return entries;
 }
 
-export interface MoveContentOptions {
+interface MoveContentOptions {
   /** A decofile to split into `.deco/blocks`, relative to the root. */
   decofile?: string;
 }
 
 export function moveContent(root: string, report: Report, options: MoveContentOptions = {}): void {
   const blocksDir = path.join(root, ".deco", "blocks");
-  if (!hasJsonFiles(blocksDir)) {
+  const hasContent = hasJsonFiles(blocksDir);
+  if (options.decofile && hasContent) {
+    throw new Error(`--decofile given but .deco/blocks already has content`);
+  }
+  if (!hasContent) {
     const candidates = options.decofile ? [options.decofile] : DECOFILE_CANDIDATES;
     const source = candidates.map((c) => path.resolve(root, c)).find((c) => fs.existsSync(c));
     if (source) {

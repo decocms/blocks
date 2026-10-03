@@ -3,6 +3,7 @@
  * renames-and-migrations › Migrating from v7). The steps, in order:
  *
  * 1. content: saved blocks in `.deco/blocks`, v7 generated files removed;
+ *    and A/B tests keyed on a random matcher get its name as `experiment`;
  * 2. secrets: v7 secrets re-encrypted with `.deco/secrets.pub`;
  * 3. block map: `.deco/index.ts` with aliases under the v7 names, after
  *    vendoring the app loaders and actions the content calls;
@@ -16,11 +17,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeBlockMap } from "./blockMap";
 import { moveContent } from "./content";
+import { copyExperimentIds } from "./experiments";
 import { rewriteImports } from "./imports";
 import { createReport, type Report } from "./report";
 import { reencryptSecrets } from "./secrets";
 
-export interface MigrateOptions {
+interface MigrateOptions {
   /** The app root: the folder with the site's package.json. */
   root: string;
   /** A decofile to split into `.deco/blocks` when the site has none, relative to the root. */
@@ -74,6 +76,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   }
   const report = createReport();
   moveContent(root, report, { decofile: options.decofile });
+  copyExperimentIds(root, report);
   await reencryptSecrets(root, report);
   const { vendored } = writeBlockMap(root, report);
   rewriteImports(root, report, vendored);

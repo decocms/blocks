@@ -3,10 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeBlockMap } from "./blockMap";
 import { decofileEntries, moveContent } from "./content";
+import { copyExperimentIds } from "./experiments";
 import { rewriteImports, V8_API } from "./imports";
 import { createReport } from "./report";
 import { reencryptSecrets } from "./secrets";
+import { locateAppModule, vendorModule } from "./vendor";
 
 let root: string;
 afterEach(() => root && fs.rmSync(root, { recursive: true, force: true }));
@@ -48,9 +51,59 @@ describe("content", () => {
     moveContent(root, createReport());
     expect(fs.readdirSync(path.join(root, ".deco/blocks"))).toEqual(["Home.json"]);
   });
+
+  it("refuses --decofile when .deco/blocks already has content", () => {
+    site({ ".deco/blocks/Home.json": home, "live.json": { Other: home } });
+    expect(() => moveContent(root, createReport(), { decofile: "live.json" })).toThrow(
+      "--decofile given but .deco/blocks already has content",
+    );
+  });
+});
+
+describe("experiments", () => {
+  it("copies the random matcher's saved name into multivariate's experiment", () => {
+    const variants = [
+      { rule: { __resolveType: "Test AB" }, value: "B" },
+      { rule: { __resolveType: "website/matchers/always.ts" }, value: "A" },
+    ];
+    site({
+      ".deco/blocks/Test%20AB.json": { __resolveType: "website/matchers/random.ts", traffic: 0.5 },
+      ".deco/blocks/Home.json": {
+        ...home,
+        sections: [
+          { __resolveType: "website/flags/multivariate.ts", variants },
+          { __resolveType: "multivariate", experiment: "kept", variants },
+          { __resolveType: "website/flags/multivariate.ts", variants: [variants[1]] },
+        ],
+      },
+    });
+    const report = createReport();
+    copyExperimentIds(root, report);
+    const saved = JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks/Home.json"), "utf8"));
+    expect(saved.sections.map((s: { experiment?: string }) => s.experiment)).toEqual([
+      "Test AB",
+      "kept",
+      undefined,
+    ]);
+    expect(report.done).toHaveLength(1);
+  });
 });
 
 describe("secrets", () => {
+  it("reports a v7 secret with no encrypted value", async () => {
+    site({
+      ".deco/blocks/Key.json": { __resolveType: "website/loaders/secret.ts", name: "ACME_KEY" },
+    });
+    const report = createReport();
+    await reencryptSecrets(root, report);
+    expect(report.manual).toEqual([
+      expect.objectContaining({
+        subject: "Key.json",
+        message: expect.stringContaining("no encrypted value (it read env ACME_KEY)"),
+      }),
+    ]);
+  });
+
   it("leaves v7 secrets in place, reported, without a public key", async () => {
     const secret = { __resolveType: "website/loaders/secret.ts", encrypted: "abcd", name: "KEY" };
     site({ ".deco/blocks/App.json": { __resolveType: "site/apps/x.ts", token: secret } });
@@ -66,6 +119,54 @@ describe("secrets", () => {
     expect(
       JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks/App.json"), "utf8")).token,
     ).toEqual(secret);
+  });
+});
+
+describe("content can't write outside the site", () => {
+  it("doesn't vendor or register a type name that climbs out of its folder", () => {
+    site({
+      "node_modules/@decocms/apps-acme/package.json": { name: "@decocms/apps-acme" },
+      "node_modules/@decocms/apps-acme/src/loaders/A.ts": "export default () => 1;\n",
+      "node_modules/@decocms/apps-acme/outside.ts": "export default () => 1;\n",
+      "src/x.ts": "export default () => 1;\n",
+      ".deco/blocks/Home.json": {
+        ...home,
+        sections: [
+          { __resolveType: "acme/../outside.ts" },
+          { __resolveType: "acme/loaders/../../outside.ts" },
+          { __resolveType: "site/../src/x.ts" },
+        ],
+      },
+    });
+    expect(locateAppModule(root, "acme/loaders/A.ts")).toBeDefined();
+    expect(locateAppModule(root, "acme/loaders/../../outside.ts")).toBeUndefined();
+    const report = createReport();
+    writeBlockMap(root, report);
+    expect(fs.existsSync(path.join(root, "src/vendor"))).toBe(false);
+    expect(fs.readFileSync(path.join(root, ".deco/index.ts"), "utf8")).not.toMatch(
+      /outside|src\/x/,
+    );
+    expect(report.manual.filter((n) => n.step === "block map")).toHaveLength(3);
+  });
+});
+
+describe("vendoring", () => {
+  it("copies a JSON file the module imports, and reports an import that doesn't resolve", () => {
+    site({
+      "node_modules/@decocms/apps-acme/package.json": { name: "@decocms/apps-acme" },
+      "node_modules/@decocms/apps-acme/src/loaders/A.ts":
+        'import limits from "../limits.json" with { type: "json" };\nimport "./missing.css";\nexport default () => limits;\n',
+      "node_modules/@decocms/apps-acme/src/limits.json": { max: 50 },
+    });
+    const report = createReport();
+    const module = locateAppModule(root, "acme/loaders/A.ts")!;
+    vendorModule(root, module, new Map(), report);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, "src/vendor/acme/limits.json"), "utf8")),
+    ).toEqual({ max: 50 });
+    expect(report.manual.map((n) => n.message)).toEqual([
+      "imports ./missing.css, which doesn't resolve to a file; fix the import",
+    ]);
   });
 });
 

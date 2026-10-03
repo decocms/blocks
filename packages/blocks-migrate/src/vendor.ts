@@ -27,14 +27,16 @@ function withExtensions(file: string): string[] {
       ];
 }
 
+function isFile(file: string): boolean {
+  try {
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function firstFile(candidates: string[]): string | undefined {
-  return candidates.find((c) => {
-    try {
-      return fs.statSync(c).isFile();
-    } catch {
-      return false;
-    }
-  });
+  return candidates.find(isFile);
 }
 
 interface PackageRef {
@@ -132,7 +134,7 @@ function appSources(root: string, app: string): AppSource[] {
   return sources;
 }
 
-export interface AppModule {
+interface AppModule {
   file: string;
   app: AppSource;
 }
@@ -143,7 +145,8 @@ export function locateAppModule(root: string, type: string): AppModule | undefin
   if (!app || rest.length === 0) return undefined;
   for (const source of appSources(root, app)) {
     const file = firstFile(withExtensions(path.join(source.dir, ...rest)));
-    if (file) return { file, app: source };
+    // A type name is content, which editors control: never leave the package.
+    if (file && isInside(source.base, file)) return { file, app: source };
   }
   return undefined;
 }
@@ -198,7 +201,23 @@ export function vendorModule(
           return match;
         }
         if (!target) {
-          // A JSON or CSS file, or an import that doesn't resolve: copy nothing.
+          const asset = specifier.startsWith(".")
+            ? path.resolve(path.dirname(source), specifier)
+            : undefined;
+          if (asset && isInside(app.base, asset) && isFile(asset)) {
+            // A JSON or other non-TS file: copied as it is, same relative path.
+            const assetDest = destOf(asset);
+            if (!fs.existsSync(assetDest)) {
+              fs.mkdirSync(path.dirname(assetDest), { recursive: true });
+              fs.copyFileSync(asset, assetDest);
+            }
+          } else {
+            report.manual.push({
+              step: "vendor",
+              subject: path.relative(root, dest),
+              message: `imports ${specifier}, which doesn't resolve to a file; fix the import`,
+            });
+          }
           return match;
         }
         if (!isInside(app.base, target)) {

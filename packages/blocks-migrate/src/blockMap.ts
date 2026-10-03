@@ -123,7 +123,7 @@ function importPath(root: string, file: string): string {
   return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
-export interface BlockMapResult {
+interface BlockMapResult {
   /** Each vendored module: installed source → its copy in the site. */
   vendored: Map<string, string>;
 }
@@ -178,6 +178,13 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
     let file: string | undefined;
     if (namespace === "site") {
       const rest = type.slice("site/".length);
+      if (rest.split("/").includes("..")) {
+        leave(
+          type,
+          "not a path inside src/; register a block under this name, or migrate the content",
+        );
+        continue;
+      }
       if (rest.startsWith("apps/")) {
         leave(type, hintFor(type));
         continue;
