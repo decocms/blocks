@@ -75,20 +75,6 @@ The fix is a [lazy block](/next/blocks#lazy-blocks). Wrapped in `lazy`, a value 
 
 That's why `multivariate` takes lazy values, and why saved variants always carry the wrapper (`deco check` flags a value without it). Editors never see it: Studio adds it for them. Rules stay eager: they're cheap booleans.
 
-## Why it goes live on time
-
-Both titles are already in the [release](/next/releases-and-drafts#releases), the content everyone sees, since the deploy that followed your merge. So the switch isn't an event: at 00:00 there's no publish, no deploy and nothing that can fail.
-
-Each time a page is rendered, the server evaluates the rule against its own clock. Hosting providers keep server clocks synced to within a fraction of a second, so they all switch together. A page cached before midnight can still show the old title; see [Troubleshooting](/next/troubleshooting).
-
-## Check it before it starts
-
-A scheduled campaign is a change to content files, so it's checked like any other change, days before it goes live:
-
-- **Review it in a pull request.** Reviewers read the dates and the campaign value in the diff of `.deco/blocks`, and [`deco check`](/next/cli#deco-check) makes sure every block fits your code (see [On a branch](/next/releases-and-drafts#on-a-branch)).
-- **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight.
-- **Keep `always()` last.** The first match wins, so the `always()` variant is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends.
-
 ## Matchers: conditions for the marketing team
 
 A block function that returns `true` or `false` is a **matcher**. Matchers are what make variants usable without code: Studio lists every matcher in your block map in each variant's rule picker, so the marketing team builds conditions by picking from a list and filling a short form. `date` is one; you can add your own (see [Write your own matcher](#write-your-own-matcher)), such as:
@@ -169,3 +155,17 @@ A few more things you can do:
 - **Pick variants your way.** Declare your own `multivariate` in your [block map](/next/blocks#the-block-map); it replaces the built-in. Type each value as `Lazy<T>` to keep running only the chosen one.
 
 <Callout type="warning">**A variant is not access control.** Only the chosen value runs, but that's an optimization, not a guard: choose between values that are all fine to show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
+
+## Why it goes live on time
+
+Both titles are already in the [release](/next/releases-and-drafts#releases), the content everyone sees, since the deploy that followed your merge. So the switch isn't an event: at 00:00 there's no publish, no deploy and nothing that can fail.
+
+Each time a page is rendered, the server evaluates the rule against its own clock. Hosting providers keep server clocks synced to within a fraction of a second, so they all switch together. A page cached before midnight can still show the old title; see [Troubleshooting](/next/troubleshooting).
+
+## Check it before it starts
+
+A scheduled campaign is a change to content files, so it's checked like any other change, days before it goes live:
+
+- **Review it in a pull request.** Reviewers read the dates and the campaign value in the diff of `.deco/blocks`, and [`deco check`](/next/cli#deco-check) makes sure every block fits your code (see [On a branch](/next/releases-and-drafts#on-a-branch)).
+- **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight.
+- **Keep `always()` last.** The first match wins, so the `always()` variant is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends.
