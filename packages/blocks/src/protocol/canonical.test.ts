@@ -1,12 +1,15 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   APPLY_DIGEST_DOMAIN,
   applyRequestDigest,
   CanonicalJsonError,
   canonicalJson,
+  computeContentRevision,
   sha256Hex,
 } from "./canonical";
+import { contentHashFixtures } from "./conformance/contentHashFixtures";
 
 describe("canonicalJson", () => {
   it("sorts object keys recursively in code-unit order and keeps array order", () => {
@@ -70,5 +73,29 @@ describe("hashing", () => {
     expect(a).toBe(await applyRequestDigest({ requestKey: "k", set: { x: { v: 1 } } }));
     expect(a).not.toBe(await applyRequestDigest({ set: { x: { v: 2 } }, requestKey: "k" }));
     expect(a).toBe(await sha256Hex(`${APPLY_DIGEST_DOMAIN}{"requestKey":"k","set":{"x":{"v":1}}}`));
+  });
+});
+
+describe("computeContentRevision: the golden fixtures", () => {
+  it.each(contentHashFixtures.map((f) => [f.id, f] as const))("%s", async (_id, fixture) => {
+    expect(canonicalJson(fixture.blocks)).toBe(fixture.canonical);
+    expect(await computeContentRevision(fixture.blocks)).toBe(fixture.revision);
+    // An independent SHA-256 over the canonical bytes agrees.
+    expect(createHash("sha256").update(fixture.canonical, "utf8").digest("hex")).toBe(
+      fixture.revision,
+    );
+  });
+
+  it("gives the same revision whatever the insertion order", async () => {
+    const a = await computeContentRevision({ x: { b: 1, a: 2 }, y: [] });
+    const b = await computeContentRevision({ y: [], x: { a: 2, b: 1 } });
+    expect(a).toBe(b);
+  });
+
+  it("refuses values JSON can't represent", async () => {
+    await expect(computeContentRevision({ x: undefined as never })).rejects.toThrow(
+      CanonicalJsonError,
+    );
+    await expect(computeContentRevision({ x: Number.NaN })).rejects.toThrow(CanonicalJsonError);
   });
 });

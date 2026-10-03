@@ -1,11 +1,18 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { conformanceCases, defineConformanceSuite, runConformance } from "../conformance";
-import { createContentHandler } from "../server";
+import { createAssetHandler, createContentHandler } from "../server";
 import { createMemoryStorage, type MemoryStorage } from "../storage/memory";
-import { SECRET_BLOCK, SECRET_FIELD, schemaFixture } from "./fixtures";
+import {
+  generateSecretsKeyPair,
+  PROBE_LIMITS,
+  route,
+  SECRET_BLOCK,
+  SECRET_FIELD,
+  schemaFixture,
+} from "./fixtures";
 
-const PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n";
+const { publicKeyPem: PUBLIC_KEY } = await generateSecretsKeyPair();
 
 let storage: MemoryStorage = createMemoryStorage({
   state: { schema: JSON.stringify(schemaFixture), secretsPublicKey: PUBLIC_KEY },
@@ -13,15 +20,16 @@ let storage: MemoryStorage = createMemoryStorage({
 let handler = createHandler();
 
 function createHandler() {
-  return createContentHandler(storage, {
-    authorize: (request) => {
-      const auth = request.headers.get("authorization");
-      if (auth === "Bearer tenant-a") return { scope: "tenant-a" };
-      if (auth === "Bearer tenant-b") return { scope: "tenant-b" };
-      return "unauthorized";
-    },
-    limits: { maxListBytes: 256 * 1024 },
-  });
+  const authorize = (request: Request) => {
+    const auth = request.headers.get("authorization");
+    if (auth === "Bearer tenant-a") return { scope: "tenant-a" };
+    if (auth === "Bearer tenant-b") return { scope: "tenant-b" };
+    return "unauthorized" as const;
+  };
+  return route(
+    createContentHandler(storage, { authorize, limits: PROBE_LIMITS }),
+    createAssetHandler(storage, { authorize }),
+  );
 }
 
 defineConformanceSuite(
@@ -30,6 +38,7 @@ defineConformanceSuite(
     endpoint: "http://memory.test/rpc",
     token: "tenant-a",
     fetch: (request) => handler(request),
+    assetsEndpoint: "http://memory.test/assets/",
     secretField: { blockType: SECRET_BLOCK, field: SECRET_FIELD },
     secretsPublicKey: PUBLIC_KEY,
     otherTenant: { token: "tenant-b" },
@@ -47,6 +56,36 @@ defineConformanceSuite(
   { describe, it },
   { endpoint: "http://memory.test/rpc", fetch: (request) => schemaless(request), hasSchema: false },
   "schemaless memory storage conformance",
+);
+
+const schemaOverLimit = createContentHandler(
+  createMemoryStorage({ state: { schema: JSON.stringify(schemaFixture) } }),
+  { limits: { maxSchemaBytes: 128 } },
+);
+
+defineConformanceSuite(
+  { describe, it },
+  {
+    endpoint: "http://memory.test/rpc",
+    fetch: (request) => schemaOverLimit(request),
+    schemaOverLimit: true,
+  },
+  "memory storage with a schema over its limit",
+  (testCase) => testCase.id === "limits/schema-bytes",
+);
+
+const readOnlyStorage = createMemoryStorage({ description: { readOnly: true } });
+const readOnly = route(createContentHandler(readOnlyStorage), createAssetHandler(readOnlyStorage));
+
+defineConformanceSuite(
+  { describe, it },
+  {
+    endpoint: "http://memory.test/rpc",
+    fetch: (request) => readOnly(request),
+    assetsEndpoint: "http://memory.test/assets/",
+    hasSchema: false,
+  },
+  "read-only memory storage conformance",
 );
 
 describe("runConformance", () => {

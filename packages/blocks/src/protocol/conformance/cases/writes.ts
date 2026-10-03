@@ -132,6 +132,8 @@ export const writeCases: ConformanceCase[] = [
         "__proto__",
         `${p}-mod.ts`,
         `${p}-mod.tsx`,
+        `.${p}-hidden`,
+        ".",
       ];
       bad.push(`${p}-${"é".repeat(60)}`); // 360 encoded bytes
       for (const name of bad) {
@@ -168,7 +170,8 @@ export const writeCases: ConformanceCase[] = [
   },
   {
     id: "apply/spellings",
-    title: "two spellings of one name are one entry; a write keeps only the written spelling",
+    title:
+      "two spellings of one name are one entry: guards see either, and a write keeps only the written spelling",
     async run(ctx) {
       await writable(ctx);
       const encoded = `${ctx.prefix}-Home%20Page`;
@@ -180,8 +183,30 @@ export const writeCases: ConformanceCase[] = [
         ErrorCode.InvalidBlock,
         "both spellings in one write",
       );
-      await ctx.client.blocksApply({ set: { [encoded]: { v: 1 } } });
-      await ctx.client.blocksApply({ set: { [literal]: { v: 2 } } });
+      const created = await ctx.client.blocksApply({ set: { [encoded]: { v: 1 } } });
+      // Create-only under another spelling: the entry exists, so the guard fails.
+      const error = await expectError(
+        ctx.client.blocksApply({ set: { [literal]: { v: 2 } }, ifMatch: { [literal]: null } }),
+        ErrorCode.Conflict,
+        "create-only on another spelling of an existing entry",
+      );
+      assertEqual(
+        (error.data as { entries?: unknown }).entries,
+        { [literal]: { expected: null, actual: created.versions[encoded] } },
+        "the conflict reports the existing spelling's version",
+      );
+      assertEqual((await list(ctx)).blocks[encoded], { v: 1 }, "nothing was deleted");
+      // A guard on one spelling holds for the other.
+      const written = await ctx.client.blocksApply({
+        set: { [literal]: { v: 2 } },
+        ifMatch: { [literal]: created.versions[encoded]! },
+      });
+      assertEqual(
+        written.versions[encoded],
+        null,
+        "the result reports the deleted spelling as gone, so a client's map drops it",
+      );
+      assert(typeof written.versions[literal] === "string", "the written spelling has a version");
       const after = await list(ctx);
       assertEqual(after.blocks[literal], { v: 2 }, "the written spelling");
       assert(!(encoded in after.blocks), "the other spelling was deleted in the same commit");

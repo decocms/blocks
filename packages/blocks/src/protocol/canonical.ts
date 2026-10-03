@@ -85,6 +85,26 @@ export async function sha256Hex(data: string | Uint8Array): Promise<string> {
   return hex(await crypto.subtle.digest("SHA-256", bytes as BufferSource));
 }
 
+/**
+ * The version of the canonical content-hashing format below. A snapshot
+ * envelope records it beside the revision; the revision itself is excluded
+ * from its own hash.
+ */
+export const CONTENT_HASH_FORMAT = 1;
+
+/**
+ * The content revision of a `blocks` map: SHA-256 over its canonical JSON,
+ * lowercase hex. The one definition the CLI, the release materializer and
+ * the site editor's backend share; `contentHashFixtures` (in
+ * `@decocms/blocks/protocol/conformance`) pins its output.
+ *
+ * This identifies content, not storage: a storage's `blocks.list` revision
+ * is opaque and may be computed differently (from file versions).
+ */
+export async function computeContentRevision(blocks: Record<string, unknown>): Promise<string> {
+  return sha256Hex(canonicalJson(blocks));
+}
+
 /** The domain prefix of `blocks.apply` request digests, so they never equal another hash. */
 export const APPLY_DIGEST_DOMAIN = "deco-content/blocks.apply@1\n";
 

@@ -1,6 +1,7 @@
 /**
  * Limits, the secret guard and request-key idempotency.
  */
+import { encryptToCiphertext, publicKeyPemFromDer } from "../../ciphertext";
 import { ErrorCode, type InvalidBlockData } from "../../errors";
 import {
   assert,
@@ -21,6 +22,27 @@ async function withIdempotency(ctx: ConformanceContext) {
   const d = await writable(ctx);
   if (!d.writes.idempotency) return ctx.skip("request keys aren't advertised");
   return d;
+}
+
+/** A throwaway public key, for endpoints that don't report one. */
+async function ephemeralPublicKey(): Promise<string> {
+  const pair = (await crypto.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt", "decrypt"],
+  )) as CryptoKeyPair;
+  return publicKeyPemFromDer(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey)));
+}
+
+/** A real ciphertext: encrypted with the endpoint's public key when it reports one. */
+async function realCiphertext(ctx: ConformanceContext, value: string): Promise<string> {
+  const publicKey = (await ctx.describe()).secrets?.publicKey ?? (await ephemeralPublicKey());
+  return encryptToCiphertext(publicKey, value);
 }
 
 const key = (ctx: ConformanceContext, label: string) =>
@@ -103,6 +125,74 @@ export const guardCases: ConformanceCase[] = [
     },
   },
   {
+    id: "limits/batch-response-bytes",
+    title:
+      "a batch response over maxBatchResponseBytes answers later reads with LimitExceeded, never a write",
+    async run(ctx) {
+      const d = await writable(ctx);
+      const { maxBatchResponseBytes, maxBlockBytes, maxListBytes } = d.limits;
+      if (maxBatchResponseBytes > 1024 * 1024)
+        return ctx.skip("maxBatchResponseBytes is too large to probe");
+      // Enough content that one list fits the budget but four don't.
+      const target = Math.floor(maxBatchResponseBytes / 3);
+      if (target > maxListBytes / 2) return ctx.skip("maxListBytes is lower than the probe needs");
+      const size = Math.min(maxBlockBytes, 64 * 1024) - 64;
+      for (let filled = 0; filled < target; filled += size) {
+        await ctx.client.blocksApply({ set: { [ctx.name("fill")]: { text: "x".repeat(size) } } });
+      }
+      const write = ctx.name("batch-write");
+      const req = (id: number, method: string, params: unknown) => ({
+        jsonrpc: "2.0",
+        id,
+        method,
+        params,
+      });
+      const response = await ctx.rpc([
+        req(1, "blocks.list", {}),
+        req(2, "blocks.list", {}),
+        req(3, "blocks.list", {}),
+        req(4, "blocks.list", {}),
+        req(5, "blocks.apply", { set: { [write]: { kept: true } } }),
+        req(6, "blocks.list", {}),
+      ]);
+      const items = response.body as Array<{
+        id: number;
+        result?: unknown;
+        error?: { code: number; data?: { limit?: string } };
+      }>;
+      assert(Array.isArray(items) && items.length === 6, "one response per call");
+      assert(!items[0].error, "the first read fits");
+      const over = items.filter((i) => i.error?.code === ErrorCode.LimitExceeded);
+      assert(over.length > 0, "a read over the budget is LimitExceeded");
+      assert(
+        over.every((i) => i.error?.data?.limit === "maxBatchResponseBytes"),
+        "the error names maxBatchResponseBytes",
+      );
+      assert(items[4].result !== undefined, "the write still answers with its result");
+      const list = await ctx.client.blocksList();
+      assert(!list.notModified && write in list.blocks, "the write landed");
+    },
+  },
+  {
+    id: "limits/schema-bytes",
+    title: "a schema over maxSchemaBytes is LimitExceeded for schema.get and for writes",
+    async run(ctx) {
+      if (!ctx.options.schemaOverLimit)
+        return ctx.skip("the harness serves a schema within limits");
+      await expectError(ctx.client.schemaGet(), ErrorCode.LimitExceeded, "schema.get");
+      const d = await ctx.describe();
+      if (d.readOnly) return;
+      const name = ctx.name("schema-limited");
+      await expectError(
+        ctx.client.blocksApply({ set: { [name]: { v: 1 } } }),
+        ErrorCode.LimitExceeded,
+        "a write checked against the schema",
+      );
+      const list = await ctx.client.blocksList();
+      assert(!list.notModified && !(name in list.blocks), "nothing was written");
+    },
+  },
+  {
     id: "secrets/guard",
     title: "a Secret field accepts only a secret block with a well-formed ciphertext",
     async run(ctx) {
@@ -121,18 +211,20 @@ export const guardCases: ConformanceCase[] = [
       );
       const violation = (error.data as InvalidBlockData).violations[0];
       assertEqual(violation?.name, plain, "the violation names the entry");
-      await expectError(
-        ctx.client.blocksApply({
-          set: {
-            [ctx.name("bad-cipher")]: block({ __resolveType: "secret", ciphertext: "hunter2" }),
-          },
-        }),
-        ErrorCode.InvalidBlock,
-        "a malformed ciphertext",
-      );
+      // Text that only looks like a ciphertext is plain text all the same.
+      for (const ciphertext of ["hunter2", "v1.hunter2", "v1.my-api-key_123", "v1.QUJD.ZGVm"]) {
+        await expectError(
+          ctx.client.blocksApply({
+            set: { [ctx.name("bad-cipher")]: block({ __resolveType: "secret", ciphertext }) },
+          }),
+          ErrorCode.InvalidBlock,
+          `the malformed ciphertext ${JSON.stringify(ciphertext)}`,
+        );
+      }
       const ok = ctx.name("secret");
+      const ciphertext = await realCiphertext(ctx, "conformance-value");
       await ctx.client.blocksApply({
-        set: { [ok]: block({ __resolveType: "secret", ciphertext: "v1.QUJD.ZGVm" }) },
+        set: { [ok]: block({ __resolveType: "secret", ciphertext }) },
       });
       const list = await ctx.client.blocksList();
       assert(!list.notModified && ok in list.blocks, "an encrypted value is saved");

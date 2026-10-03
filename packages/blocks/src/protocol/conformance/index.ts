@@ -14,10 +14,12 @@
  * ```
  *
  * or collect a report with `runConformance(options)`. The suite writes only
- * names under its own prefix and deletes them after each case. Cases that
+ * names under its own prefix and deletes them after each case (uploads, which
+ * the protocol can't delete, stay in the asset folder). Cases that
  * don't apply to an endpoint (a read-only one, one without request keys)
  * skip themselves. Browser-safe: it only needs `fetch`.
  */
+import { assetCases } from "./cases/assets";
 import { guardCases } from "./cases/guards";
 import { readCases } from "./cases/reads";
 import type { ConformanceCase } from "./cases/types";
@@ -26,6 +28,7 @@ import { writeCases } from "./cases/writes";
 import { ConformanceContext, type ConformanceOptions, SkipCase } from "./context";
 
 export type { ConformanceCase } from "./cases/types";
+export { type ContentHashFixture, contentHashFixtures } from "./contentHashFixtures";
 export {
   assert,
   assertEqual,
@@ -44,6 +47,7 @@ export const conformanceCases: readonly ConformanceCase[] = [
   ...readCases,
   ...writeCases,
   ...guardCases,
+  ...assetCases,
 ];
 
 function defaultPrefix(): string {
@@ -121,11 +125,12 @@ export function defineConformanceSuite(
   runner: TestRegistrar,
   options: ConformanceOptions | (() => ConformanceOptions),
   suiteName = "content protocol conformance",
+  filter: (testCase: ConformanceCase) => boolean = () => true,
 ): void {
   const resolve = typeof options === "function" ? options : () => options;
   const prefix = defaultPrefix();
   runner.describe(suiteName, () => {
-    conformanceCases.forEach((testCase, index) => {
+    conformanceCases.filter(filter).forEach((testCase, index) => {
       runner.it(
         `${testCase.id}: ${testCase.title}`,
         async (context) => {
