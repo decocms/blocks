@@ -72,6 +72,7 @@ describe("commerce apps instrumentation guardrail", () => {
  */
 const V8_CLIENTS: Record<string, string> = {
   "apps-shopify": "src/v8/client.ts",
+  "apps-vtex": "src/vtexClient.ts",
 };
 
 describe("next-major upstream clients instrumentation guardrail", () => {
@@ -84,7 +85,9 @@ describe("next-major upstream clients instrumentation guardrail", () => {
       expect(src, `${app} must create its fetch with createInstrumentedFetch`).toMatch(
         /createInstrumentedFetch\(\s*\{[^}]*provider:/,
       );
-      expect(src, `${app} must not call fetch directly`).not.toMatch(/(?<![\w.])fetch\s*\(/);
+      expect(src, `${app} must not call fetch directly`).not.toMatch(
+        /(?<![\w.])(globalThis\.)?fetch\s*\(/,
+      );
     });
   }
 });
