@@ -1,0 +1,1280 @@
+{
+  "major": 1,
+  "version": "0.0.0",
+  "namespace": "site",
+  "site": "tanstack-rsc-smoke-fixture",
+  "manifest": {
+    "blocks": {
+      "sections": {
+        "promo-banner": {
+          "$ref": "#/definitions/cHJvbW8tYmFubmVy",
+          "namespace": "site"
+        },
+        "product-hero": {
+          "$ref": "#/definitions/cHJvZHVjdC1oZXJv",
+          "namespace": "site"
+        }
+      },
+      "loaders": {
+        "lazy": {
+          "$ref": "#/definitions/bGF6eQ==",
+          "namespace": "deco"
+        },
+        "multivariate": {
+          "$ref": "#/definitions/bXVsdGl2YXJpYXRl",
+          "namespace": "deco"
+        },
+        "secret": {
+          "$ref": "#/definitions/c2VjcmV0",
+          "namespace": "deco"
+        },
+        "website/flags/multivariate.ts": {
+          "$ref": "#/definitions/d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUudHM=",
+          "namespace": "website"
+        },
+        "website/flags/multivariate/section.ts": {
+          "$ref": "#/definitions/d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvc2VjdGlvbi50cw==",
+          "namespace": "website"
+        },
+        "website/loaders/secret.ts": {
+          "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3NlY3JldC50cw==",
+          "namespace": "website"
+        }
+      },
+      "matchers": {
+        "always": {
+          "$ref": "#/definitions/YWx3YXlz",
+          "namespace": "deco"
+        },
+        "never": {
+          "$ref": "#/definitions/bmV2ZXI=",
+          "namespace": "deco"
+        },
+        "date": {
+          "$ref": "#/definitions/ZGF0ZQ==",
+          "namespace": "deco"
+        },
+        "website/matchers/always.ts": {
+          "$ref": "#/definitions/d2Vic2l0ZS9tYXRjaGVycy9hbHdheXMudHM=",
+          "namespace": "website"
+        },
+        "website/matchers/never.ts": {
+          "$ref": "#/definitions/d2Vic2l0ZS9tYXRjaGVycy9uZXZlci50cw==",
+          "namespace": "website"
+        }
+      },
+      "pages": {
+        "page": {
+          "$ref": "#/definitions/cGFnZQ==",
+          "namespace": "deco"
+        },
+        "website/pages/Page.tsx": {
+          "$ref": "#/definitions/d2Vic2l0ZS9wYWdlcy9QYWdlLnRzeA==",
+          "namespace": "website"
+        },
+        "$live/pages/LivePage.tsx": {
+          "$ref": "#/definitions/JGxpdmUvcGFnZXMvTGl2ZVBhZ2UudHN4",
+          "namespace": "website"
+        }
+      },
+      "redirects": {
+        "redirect": {
+          "$ref": "#/definitions/cmVkaXJlY3Q=",
+          "namespace": "deco"
+        },
+        "website/loaders/redirect.ts": {
+          "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0LnRz",
+          "namespace": "website"
+        }
+      },
+      "content": {
+        "seo": {
+          "$ref": "#/definitions/c2Vv",
+          "namespace": "site"
+        },
+        "telemetry": {
+          "$ref": "#/definitions/dGVsZW1ldHJ5",
+          "namespace": "deco"
+        },
+        "analytics": {
+          "$ref": "#/definitions/YW5hbHl0aWNz",
+          "namespace": "deco"
+        }
+      }
+    }
+  },
+  "schema": {
+    "definitions": {
+      "Resolvable": {
+        "title": "Select from saved",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "__resolveType": {
+            "type": "string"
+          }
+        }
+      },
+      "UmVzb2x2YWJsZQ==": {
+        "title": "Select from saved",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "__resolveType": {
+            "type": "string"
+          }
+        }
+      },
+      "c2Vv": {
+        "title": "seo",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "title",
+          "description"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "seo"
+            ],
+            "default": "seo"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        }
+      },
+      "cHJvbW8tYmFubmVy@Props": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "href": {
+            "type": "string",
+            "title": "Href"
+          }
+        },
+        "required": [
+          "title",
+          "href"
+        ]
+      },
+      "cHJvbW8tYmFubmVy": {
+        "title": "promo-banner",
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/definitions/cHJvbW8tYmFubmVy@Props"
+          }
+        ],
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "promo-banner"
+            ],
+            "default": "promo-banner"
+          }
+        }
+      },
+      "cHJvZHVjdC1oZXJv@Props": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          },
+          "image": {
+            "type": "string",
+            "title": "Image"
+          }
+        },
+        "required": [
+          "name",
+          "price",
+          "currency",
+          "image"
+        ]
+      },
+      "cHJvZHVjdC1oZXJv": {
+        "title": "product-hero",
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/definitions/cHJvZHVjdC1oZXJv@Props"
+          }
+        ],
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "product-hero"
+            ],
+            "default": "product-hero"
+          }
+        }
+      },
+      "bGF6eQ==": {
+        "title": "lazy",
+        "description": "Resolves its value only when the function calls it",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "value"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "lazy"
+            ],
+            "default": "lazy"
+          },
+          "value": {
+            "title": "Value"
+          }
+        }
+      },
+      "bXVsdGl2YXJpYXRl": {
+        "title": "multivariate",
+        "description": "Picks the first variant whose rule is true",
+        "icon": "arrow-split",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "variants"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "multivariate"
+            ],
+            "default": "multivariate"
+          },
+          "variants": {
+            "type": "array",
+            "title": "Variants",
+            "items": {
+              "type": "object",
+              "required": [
+                "rule",
+                "value"
+              ],
+              "properties": {
+                "rule": {
+                  "title": "Rule",
+                  "$ref": "#/root/matchers"
+                },
+                "value": {
+                  "type": "object",
+                  "required": [
+                    "__resolveType",
+                    "value"
+                  ],
+                  "properties": {
+                    "__resolveType": {
+                      "type": "string",
+                      "enum": [
+                        "lazy"
+                      ],
+                      "default": "lazy"
+                    },
+                    "value": {
+                      "title": "Value"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "experiment": {
+            "type": "string",
+            "title": "Experiment",
+            "description": "The stable ID of an A/B test"
+          }
+        }
+      },
+      "YWx3YXlz": {
+        "title": "always",
+        "description": "Always true: the fallback variant",
+        "icon": "eye",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "always"
+            ],
+            "default": "always"
+          }
+        }
+      },
+      "bmV2ZXI=": {
+        "title": "never",
+        "description": "Always false: hides a block",
+        "icon": "eye-off",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "never"
+            ],
+            "default": "never"
+          }
+        }
+      },
+      "ZGF0ZQ==": {
+        "title": "date",
+        "description": "True from start until end",
+        "icon": "calendar-event",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "date"
+            ],
+            "default": "date"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          }
+        }
+      },
+      "cGFnZQ==": {
+        "title": "page",
+        "description": "A page at a URL",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "name",
+          "path",
+          "sections"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "page"
+            ],
+            "default": "page"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "seo": {
+            "title": "SEO",
+            "anyOf": [
+              {
+                "$ref": "#/definitions/Resolvable"
+              },
+              {
+                "$ref": "#/definitions/c2Vv"
+              }
+            ],
+            "nullable": true
+          },
+          "sections": {
+            "title": "Sections",
+            "anyOf": [
+              {
+                "type": "array",
+                "title": "Sections",
+                "items": {
+                  "$ref": "#/definitions/__SECTION_REF__"
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
+                      "multivariate"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "object",
+                          "required": [
+                            "__resolveType",
+                            "value"
+                          ],
+                          "properties": {
+                            "__resolveType": {
+                              "type": "string",
+                              "enum": [
+                                "lazy"
+                              ],
+                              "default": "lazy"
+                            },
+                            "value": {
+                              "type": "array",
+                              "title": "Sections",
+                              "items": {
+                                "$ref": "#/definitions/__SECTION_REF__"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants (legacy)",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
+                      "website/flags/multivariate.ts",
+                      "website/flags/multivariate/section.ts"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "array",
+                          "title": "Sections",
+                          "items": {
+                            "$ref": "#/definitions/__SECTION_REF__"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "cmVkaXJlY3Q=": {
+        "title": "redirect",
+        "description": "Sends one URL to another",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "from",
+          "to",
+          "permanent"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "redirect"
+            ],
+            "default": "redirect"
+          },
+          "from": {
+            "type": "string",
+            "title": "From"
+          },
+          "to": {
+            "type": "string",
+            "title": "To"
+          },
+          "permanent": {
+            "type": "boolean",
+            "title": "Permanent",
+            "description": "301 when true, 302 otherwise"
+          },
+          "status": {
+            "type": "number",
+            "enum": [
+              301,
+              302,
+              307,
+              308
+            ],
+            "title": "Status"
+          },
+          "discardQueryParameters": {
+            "type": "boolean",
+            "title": "Discard query parameters"
+          }
+        }
+      },
+      "dGVsZW1ldHJ5": {
+        "title": "telemetry",
+        "description": "Telemetry switches and sample rates",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "telemetry"
+            ],
+            "default": "telemetry"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "metrics": {
+            "type": "boolean",
+            "title": "Metrics",
+            "default": true
+          },
+          "errorSampleRate": {
+            "type": "number",
+            "title": "Error sample rate",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.05
+          },
+          "traceSampleRate": {
+            "type": "number",
+            "title": "Trace sample rate",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0
+          }
+        }
+      },
+      "YW5hbHl0aWNz": {
+        "title": "analytics",
+        "description": "Page view analytics settings",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "analytics"
+            ],
+            "default": "analytics"
+          },
+          "collector": {
+            "type": "string",
+            "title": "Collector"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        }
+      },
+      "c2VjcmV0": {
+        "title": "secret",
+        "description": "An encrypted value, decrypted on the server",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "ciphertext"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "secret"
+            ],
+            "default": "secret"
+          },
+          "ciphertext": {
+            "type": "string",
+            "title": "Ciphertext",
+            "writeOnly": true
+          }
+        }
+      },
+      "d2Vic2l0ZS9wYWdlcy9QYWdlLnRzeA==": {
+        "title": "website/pages/Page.tsx",
+        "description": "A page at a URL",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "name",
+          "path",
+          "sections"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/pages/Page.tsx"
+            ],
+            "default": "website/pages/Page.tsx"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "seo": {
+            "title": "SEO",
+            "anyOf": [
+              {
+                "$ref": "#/definitions/Resolvable"
+              },
+              {
+                "$ref": "#/definitions/c2Vv"
+              }
+            ],
+            "nullable": true
+          },
+          "sections": {
+            "title": "Sections",
+            "anyOf": [
+              {
+                "type": "array",
+                "title": "Sections",
+                "items": {
+                  "$ref": "#/definitions/__SECTION_REF__"
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
+                      "multivariate"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "object",
+                          "required": [
+                            "__resolveType",
+                            "value"
+                          ],
+                          "properties": {
+                            "__resolveType": {
+                              "type": "string",
+                              "enum": [
+                                "lazy"
+                              ],
+                              "default": "lazy"
+                            },
+                            "value": {
+                              "type": "array",
+                              "title": "Sections",
+                              "items": {
+                                "$ref": "#/definitions/__SECTION_REF__"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants (legacy)",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
+                      "website/flags/multivariate.ts",
+                      "website/flags/multivariate/section.ts"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "array",
+                          "title": "Sections",
+                          "items": {
+                            "$ref": "#/definitions/__SECTION_REF__"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "JGxpdmUvcGFnZXMvTGl2ZVBhZ2UudHN4": {
+        "title": "$live/pages/LivePage.tsx",
+        "description": "A page at a URL",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "name",
+          "path",
+          "sections"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "$live/pages/LivePage.tsx"
+            ],
+            "default": "$live/pages/LivePage.tsx"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "seo": {
+            "title": "SEO",
+            "anyOf": [
+              {
+                "$ref": "#/definitions/Resolvable"
+              },
+              {
+                "$ref": "#/definitions/c2Vv"
+              }
+            ],
+            "nullable": true
+          },
+          "sections": {
+            "title": "Sections",
+            "anyOf": [
+              {
+                "type": "array",
+                "title": "Sections",
+                "items": {
+                  "$ref": "#/definitions/__SECTION_REF__"
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
+                      "multivariate"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "object",
+                          "required": [
+                            "__resolveType",
+                            "value"
+                          ],
+                          "properties": {
+                            "__resolveType": {
+                              "type": "string",
+                              "enum": [
+                                "lazy"
+                              ],
+                              "default": "lazy"
+                            },
+                            "value": {
+                              "type": "array",
+                              "title": "Sections",
+                              "items": {
+                                "$ref": "#/definitions/__SECTION_REF__"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "title": "Variants (legacy)",
+                "required": [
+                  "__resolveType"
+                ],
+                "properties": {
+                  "__resolveType": {
+                    "type": "string",
+                    "enum": [
+                      "website/flags/multivariate.ts",
+                      "website/flags/multivariate/section.ts"
+                    ]
+                  },
+                  "variants": {
+                    "type": "array",
+                    "title": "Variants",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rule",
+                        "value"
+                      ],
+                      "properties": {
+                        "rule": {
+                          "title": "Rule",
+                          "$ref": "#/root/matchers"
+                        },
+                        "value": {
+                          "type": "array",
+                          "title": "Sections",
+                          "items": {
+                            "$ref": "#/definitions/__SECTION_REF__"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUudHM=": {
+        "title": "website/flags/multivariate.ts",
+        "description": "Picks the first variant whose rule is true",
+        "icon": "arrow-split",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "variants"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/flags/multivariate.ts"
+            ],
+            "default": "website/flags/multivariate.ts"
+          },
+          "variants": {
+            "type": "array",
+            "title": "Variants",
+            "items": {
+              "type": "object",
+              "required": [
+                "rule",
+                "value"
+              ],
+              "properties": {
+                "rule": {
+                  "title": "Rule",
+                  "$ref": "#/root/matchers"
+                },
+                "value": {
+                  "title": "Value"
+                }
+              }
+            }
+          },
+          "experiment": {
+            "type": "string",
+            "title": "Experiment",
+            "description": "The stable ID of an A/B test"
+          }
+        }
+      },
+      "d2Vic2l0ZS9mbGFncy9tdWx0aXZhcmlhdGUvc2VjdGlvbi50cw==": {
+        "title": "website/flags/multivariate/section.ts",
+        "description": "Picks the first variant whose rule is true",
+        "icon": "arrow-split",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "variants"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/flags/multivariate/section.ts"
+            ],
+            "default": "website/flags/multivariate/section.ts"
+          },
+          "variants": {
+            "type": "array",
+            "title": "Variants",
+            "items": {
+              "type": "object",
+              "required": [
+                "rule",
+                "value"
+              ],
+              "properties": {
+                "rule": {
+                  "title": "Rule",
+                  "$ref": "#/root/matchers"
+                },
+                "value": {
+                  "$ref": "#/definitions/__SECTION_REF__",
+                  "title": "Section"
+                }
+              }
+            }
+          },
+          "experiment": {
+            "type": "string",
+            "title": "Experiment",
+            "description": "The stable ID of an A/B test"
+          }
+        }
+      },
+      "d2Vic2l0ZS9tYXRjaGVycy9hbHdheXMudHM=": {
+        "title": "website/matchers/always.ts",
+        "description": "Always true: the fallback variant",
+        "icon": "eye",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/matchers/always.ts"
+            ],
+            "default": "website/matchers/always.ts"
+          }
+        }
+      },
+      "d2Vic2l0ZS9tYXRjaGVycy9uZXZlci50cw==": {
+        "title": "website/matchers/never.ts",
+        "description": "Always false: hides a block",
+        "icon": "eye-off",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/matchers/never.ts"
+            ],
+            "default": "website/matchers/never.ts"
+          }
+        }
+      },
+      "d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0LnRz": {
+        "title": "website/loaders/redirect.ts",
+        "description": "Sends one URL to another",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "redirect"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/loaders/redirect.ts"
+            ],
+            "default": "website/loaders/redirect.ts"
+          },
+          "redirect": {
+            "type": "object",
+            "title": "Redirect",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "title": "From"
+              },
+              "to": {
+                "type": "string",
+                "title": "To"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "permanent",
+                  "temporary"
+                ],
+                "title": "Type"
+              },
+              "discardQueryParameters": {
+                "type": "boolean",
+                "title": "Discard query parameters"
+              }
+            }
+          }
+        }
+      },
+      "d2Vic2l0ZS9sb2FkZXJzL3NlY3JldC50cw==": {
+        "title": "website/loaders/secret.ts",
+        "description": "An encrypted value, decrypted on the server",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "ciphertext"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/loaders/secret.ts"
+            ],
+            "default": "website/loaders/secret.ts"
+          },
+          "ciphertext": {
+            "type": "string",
+            "title": "Ciphertext",
+            "writeOnly": true
+          }
+        }
+      },
+      "__SECTION_REF__": {
+        "title": "Section",
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Resolvable"
+          },
+          {
+            "$ref": "#/definitions/cHJvbW8tYmFubmVy",
+            "inputSchema": "#/definitions/cHJvbW8tYmFubmVy@Props"
+          },
+          {
+            "$ref": "#/definitions/cHJvZHVjdC1oZXJv",
+            "inputSchema": "#/definitions/cHJvZHVjdC1oZXJv@Props"
+          }
+        ]
+      }
+    },
+    "root": {
+      "sections": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Resolvable"
+          },
+          {
+            "$ref": "#/definitions/cHJvbW8tYmFubmVy",
+            "inputSchema": "#/definitions/cHJvbW8tYmFubmVy@Props"
+          },
+          {
+            "$ref": "#/definitions/cHJvZHVjdC1oZXJv",
+            "inputSchema": "#/definitions/cHJvZHVjdC1oZXJv@Props"
+          }
+        ]
+      },
+      "loaders": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Resolvable"
+          },
+          {
+            "$ref": "#/definitions/bGF6eQ=="
+          },
+          {
+            "$ref": "#/definitions/bXVsdGl2YXJpYXRl"
+          },
+          {
+            "$ref": "#/definitions/c2VjcmV0"
+          }
+        ]
+      },
+      "matchers": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Resolvable"
+          },
+          {
+            "$ref": "#/definitions/YWx3YXlz"
+          },
+          {
+            "$ref": "#/definitions/bmV2ZXI="
+          },
+          {
+            "$ref": "#/definitions/ZGF0ZQ=="
+          }
+        ]
+      },
+      "pages": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Resolvable"
+          },
+          {
+            "$ref": "#/definitions/cGFnZQ=="
+          }
+        ]
+      },
+      "redirects": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Resolvable"
+          },
+          {
+            "$ref": "#/definitions/cmVkaXJlY3Q="
+          }
+        ]
+      },
+      "content": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/Resolvable"
+          },
+          {
+            "$ref": "#/definitions/c2Vv"
+          },
+          {
+            "$ref": "#/definitions/dGVsZW1ldHJ5"
+          },
+          {
+            "$ref": "#/definitions/YW5hbHl0aWNz"
+          }
+        ]
+      }
+    }
+  },
+  "format": "deco-meta@1",
+  "framework": "deco-cli",
+  "aliases": {
+    "website/pages/Page.tsx": "page",
+    "$live/pages/LivePage.tsx": "page",
+    "website/flags/multivariate.ts": "multivariate",
+    "website/flags/multivariate/section.ts": "multivariate",
+    "website/matchers/always.ts": "always",
+    "website/matchers/never.ts": "never",
+    "website/loaders/redirect.ts": "redirect",
+    "website/loaders/secret.ts": "secret"
+  }
+}
