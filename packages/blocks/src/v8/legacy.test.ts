@@ -166,7 +166,10 @@ describe("the built-in legacy alias table", () => {
     const [redirects] = await c.list<Redirect | LegacyRedirect>("redirect");
     expect(redirects).toEqual([flat, legacy]);
     expect(
-      matchRoute("https://x.test/campaigns/summer?utm=1", { routes: [], redirects: redirects! }),
+      matchRoute("https://x.test/campaigns/summer?utm=1", {
+        routes: [],
+        redirects: redirects as Redirect[],
+      }),
     ).toEqual({
       kind: "redirect",
       location: "/summer",
