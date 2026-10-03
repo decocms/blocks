@@ -66,7 +66,7 @@ export function matchRoute<T extends Route>(
     if (hit !== null) {
       return {
         kind: "redirect",
-        location: buildLocation(hit.value, hit.params, target.search),
+        location: buildLocation(hit.value, hit, target.search),
         status: hit.value.status,
       };
     }
@@ -211,18 +211,34 @@ function splatOf(segment: string): string | null {
 interface Hit<T> {
   value: T;
   params: Record<string, string>;
+  /**
+   * A splat's captured segments, each still separate and decoded. A redirect
+   * re-encodes them one by one, so an encoded `%2F` inside a segment stays
+   * `%2F` in the location and can't become a real slash (an open redirect via
+   * `/old/%2Fevil.com` → `//evil.com`).
+   */
+  splats: Record<string, string[]>;
 }
 
+/** A captured value: one segment for a parameter, the remaining segments for a splat. */
+type Capture = string | string[];
+
 function lookup<T>(root: TrieNode<T>, segments: string[], original: string[]): Hit<T> | null {
-  const values: string[] = [];
-  const found = walk(root, segments, original, 0, values);
+  const found = walk(root, segments, original, 0, []);
   if (found === null) return null;
   const params: Record<string, string> = {};
+  const splats: Record<string, string[]> = {};
   found.leaf.names.forEach((name, i) => {
     const value = found.values[i];
-    if (value !== undefined) params[name] = value;
+    if (value === undefined) return;
+    if (Array.isArray(value)) {
+      splats[name] = value;
+      params[name] = value.join("/");
+    } else {
+      params[name] = value;
+    }
   });
-  return { value: found.leaf.value, params };
+  return { value: found.leaf.value, params, splats };
 }
 
 function walk<T>(
@@ -230,26 +246,27 @@ function walk<T>(
   segments: string[],
   original: string[],
   depth: number,
-  values: string[],
-): { leaf: Leaf<T>; values: string[] } | null {
+  values: Capture[],
+): { leaf: Leaf<T>; values: Capture[] } | null {
   if (depth === segments.length) {
     if (node.leaf) return { leaf: node.leaf, values: [...values] };
     // A splat also matches nothing, so `/blog/*` serves `/blog` (and `/*` serves `/`).
-    return node.splat ? { leaf: node.splat, values: [...values, ""] } : null;
+    return node.splat ? { leaf: node.splat, values: [...values, []] } : null;
   }
   const literal = node.literals.get(segments[depth]!);
   if (literal) {
     const found = walk(literal, segments, original, depth + 1, values);
     if (found) return found;
   }
-  if (node.param) {
+  // A parameter is one segment and never contains a slash, even an encoded one.
+  if (node.param && !original[depth]!.includes("/")) {
     values.push(original[depth]!);
     const found = walk(node.param, segments, original, depth + 1, values);
     values.pop();
     if (found) return found;
   }
   if (node.splat) {
-    return { leaf: node.splat, values: [...values, original.slice(depth).join("/")] };
+    return { leaf: node.splat, values: [...values, original.slice(depth)] };
   }
   return null;
 }
@@ -312,7 +329,7 @@ function normalizeRedirect(input: unknown): NormalizedRedirect | null {
  */
 function buildLocation(
   redirect: NormalizedRedirect,
-  params: Record<string, string>,
+  { params, splats }: Pick<Hit<NormalizedRedirect>, "params" | "splats">,
   search: string,
 ): string {
   const hashAt = redirect.to.indexOf("#");
@@ -326,14 +343,28 @@ function buildLocation(
     /\/(\*|:([A-Za-z0-9_]+)(\*)?)(?=\/|$)/g,
     (match, _token: string, name: string | undefined, star: string | undefined) => {
       const key = name ?? "*";
+      const splat = splats[key];
+      if (splat !== undefined && (name === undefined || star !== undefined)) {
+        return `/${splat.map(encodeURIComponent).join("/")}`;
+      }
       const value = params[key];
-      if (value === undefined) return match;
-      const splat = name === undefined || star !== undefined;
-      return `/${splat ? value.split("/").map(encodeURIComponent).join("/") : encodeURIComponent(value)}`;
+      return value === undefined ? match : `/${encodeURIComponent(value)}`;
     },
   );
+  const location = sameOrigin(redirect.to, filled);
 
   const carried = redirect.discardQueryParameters ? "" : search.replace(/^\?/, "");
   const query = [ownQuery, carried].filter((part) => part.length > 0).join("&");
-  return `${filled}${query ? `?${query}` : ""}${hash}`;
+  return `${location}${query ? `?${query}` : ""}${hash}`;
+}
+
+/**
+ * A `to` that names a path on this site (one leading `/`) must stay one: if
+ * filling it produced `//host` or `/\\host`, which browsers read as another
+ * origin, the leading slashes collapse to one. Encoding every captured
+ * segment already prevents this; the check is a second line of defence.
+ */
+function sameOrigin(to: string, filled: string): string {
+  if (!to.startsWith("/") || to.startsWith("//") || to.startsWith("/\\")) return filled;
+  return filled.replace(/^[/\\]+/, "/");
 }

@@ -75,7 +75,8 @@ describe("routes", () => {
 
   it("percent-decodes the URL; params are decoded and never contain a slash", () => {
     expect(matchRoute("/caf%C3%A9/p", { routes })).toMatchObject({ params: { slug: "café" } });
-    expect(matchRoute("/a%2Fb/p", { routes })).toMatchObject({ params: { slug: "a/b" } });
+    // An encoded slash doesn't make a one-segment parameter span two segments.
+    expect(matchRoute("/a%2Fb/p", { routes })).toEqual({ kind: "not-found" });
     expect(matchRoute("/a/b/p", { routes })).toEqual({ kind: "not-found" });
   });
 
@@ -333,6 +334,48 @@ describe("redirects", () => {
     expect(matchRoute("/docs/x/y?q=1", { routes, redirects })).toMatchObject({
       location: "/next/x/y?q=1",
       status: 308,
+    });
+  });
+
+  describe("never redirects off-site through a splat", () => {
+    const redirects: Redirect[] = [
+      { from: "/old/*", to: "/*", permanent: true },
+      { from: "/docs/:rest*", to: "/:rest*", permanent: true },
+    ];
+    const cases: [string, string][] = [
+      ["/old/%2Fevil.com", "/%2Fevil.com"],
+      ["/old/%2F%2Fevil.com", "/%2F%2Fevil.com"],
+      ["/old/%5Cevil.com", "/%5Cevil.com"],
+      ["/old/%2Fevil.com/x", "/%2Fevil.com/x"],
+      ["/docs/%2F%2Fevil.com", "/%2F%2Fevil.com"],
+      ["https://shop.example/old/%2Fevil.com", "/%2Fevil.com"],
+      ["/old/\\evil.com", "/%5Cevil.com"],
+    ];
+    for (const [url, location] of cases) {
+      it(`${url} → ${location}`, () => {
+        const hit = matchRoute(url, { routes, redirects });
+        expect(hit).toMatchObject({ kind: "redirect", location });
+        const resolved = new URL((hit as { location: string }).location, "https://shop.example/");
+        expect(resolved.origin).toBe("https://shop.example");
+      });
+    }
+
+    it("keeps an encoded slash encoded in a splat, and a route splat's params decoded", () => {
+      expect(matchRoute("/old/a%2Fb/c", { routes, redirects: [redirects[0]!] })).toMatchObject({
+        location: "/a%2Fb/c",
+      });
+      expect(matchRoute("/x/a%2Fb", { routes: [route("All", "/x/*")] })).toMatchObject({
+        params: { "*": "a/b" },
+      });
+    });
+
+    it("leaves an absolute or protocol-relative `to` alone", () => {
+      const external: Redirect[] = [
+        { from: "/ext/*", to: "https://other.example/*", permanent: false },
+      ];
+      expect(matchRoute("/ext/a/b", { routes, redirects: external })).toMatchObject({
+        location: "https://other.example/a/b",
+      });
     });
   });
 
