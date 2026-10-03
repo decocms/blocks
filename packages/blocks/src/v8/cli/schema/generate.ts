@@ -26,6 +26,7 @@ import { createTsProject, type TsNode as Node, type TsType as Type } from "./tsP
 import {
   awaitedOf,
   getJsDocTags,
+  isDescriptorType,
   isJsxType,
   nonNullable,
   RESOLVABLE_KEY,
@@ -150,16 +151,6 @@ function blockExtras(docs: Record<string, string>): Record<string, string> {
 function isBooleanType(type: Type): boolean {
   if (type.isBoolean() || type.isBooleanLiteral()) return true;
   return type.isUnion() && type.getUnionTypes().every((t) => t.isBooleanLiteral());
-}
-
-/** A render descriptor (spec: rendering): `{ component: string; props: … }`. */
-function isDescriptorType(type: Type): boolean {
-  const check = (t: Type) => {
-    const component = t.getProperty("component");
-    return component !== undefined && t.getProperty("props") !== undefined;
-  };
-  if (type.isUnion()) return type.getUnionTypes().every((t) => check(t));
-  return type.isObject() && check(type);
 }
 
 function sameType(a: Type, b: Type): boolean {

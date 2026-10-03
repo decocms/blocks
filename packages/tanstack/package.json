@@ -9,6 +9,10 @@
     "directory": "packages/tanstack"
   },
   "main": "./src/index.ts",
+  "sideEffects": [
+    "./src/vite/**",
+    "./src/daemon/**"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./vite": "./src/vite/plugin.js",

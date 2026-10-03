@@ -8,7 +8,6 @@ export {
   SectionRenderer,
   StableOutlet,
 } from "./hooks";
-export { kvLoader } from "./kvLoader";
 export {
   CmsPage,
   cmsHomeRouteConfig,
@@ -58,3 +57,5 @@ export { setupTanstackFastDeploy } from "./setupFastDeploy";
 // bundle; importing it from here would drag `createDecoWorkerEntry` (and the
 // whole server graph behind it) into that bundle. Import it from the dedicated
 // "@decocms/tanstack/sdk/serverFnFetch" subpath instead.
+// Next major (v8): the binding's documented surface. See /next/api-reference#loaders.
+export { kvLoader } from "./v8/kvLoader";

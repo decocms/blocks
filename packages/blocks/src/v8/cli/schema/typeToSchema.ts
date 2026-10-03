@@ -242,6 +242,24 @@ function typeNames(type: Type): string[] {
 }
 
 /** `ReactNode`, `ReactElement`, `JSX.Element` and friends. */
+/** A render descriptor (spec: rendering): `{ component: string; props: … }`. */
+export function isDescriptorType(type: Type): boolean {
+  const check = (t: Type) => {
+    const component = t.getProperty("component");
+    return component !== undefined && t.getProperty("props") !== undefined;
+  };
+  if (type.isUnion()) return type.getUnionTypes().every((t) => check(t));
+  return type.isObject() && check(type);
+}
+
+/**
+ * What a section renders to: JSX, or a render descriptor in data mode. A field
+ * of either type is a section picker.
+ */
+function isSectionType(type: Type): boolean {
+  return isJsxType(type) || isDescriptorType(type);
+}
+
 export function isJsxType(type: Type): boolean {
   if (typeNames(type).some((n) => JSX_SYMBOLS.has(n))) return true;
   const text = type.getText();
@@ -404,7 +422,7 @@ function fieldSchema(
 
   if (isSecretType(nonNullable(propType), stripNullish(typeHint))) return secretSchema();
 
-  if (ctx && isObjectLike(propType) && !isJsxType(nonNullable(propType))) {
+  if (ctx && isObjectLike(propType) && !isSectionType(nonNullable(propType))) {
     const fits = ctx.fitting(propType);
     if (fits.length > 0) {
       const inner = nonNullable(propType);
@@ -471,7 +489,7 @@ export function typeToJsonSchema(
         : { type: "array" };
     }
 
-    if (isJsxType(type)) return sectionRef();
+    if (isSectionType(type)) return sectionRef();
 
     if (type.isString() || type.isStringLiteral()) {
       return type.isStringLiteral()
