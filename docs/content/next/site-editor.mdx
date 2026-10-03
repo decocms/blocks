@@ -20,17 +20,19 @@ The site editor never runs your code. It needs only two things, both files in yo
 
 ## Edit on your machine
 
-You can use the site editor on the app running on your machine, with or without a Deco account:
+The site editor runs at `/site-editor` in Deco Studio. It needs no account and works whether you're signed in or not. If you're signed in, you can also pick "localhost" in the draft environment selector.
+
+To edit the app running on your machine:
 
 1. Start your app's dev server.
-2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco/` (or takes `--root`) and prints a connect link:
+2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco/` (or takes `--root`) and prints a link to the site editor:
 
    ```text
    Deco server          http://127.0.0.1:4545/rpc
    Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
    Assets               apps/storefront/public/assets   (PUT /assets/<name>)
    App preview          http://localhost:5173
-   Site editor          https://<studio-origin>/connect#endpoint=…&token=…
+   Site editor          https://<studio-origin>/site-editor#endpoint=…&token=…
    ```
 
 3. Open the link.
