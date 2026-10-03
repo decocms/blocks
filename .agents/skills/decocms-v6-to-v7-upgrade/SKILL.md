@@ -40,7 +40,7 @@ plus only the `@decocms/apps-*` splits the site imports. Grep first:
 grep -rhoE '@decocms/apps/[a-z-]+' src/ | sort -u
 ```
 
-Mapping per commerce platform: `@decocms/apps/vtex` → `@decocms/apps-vtex`, and likewise `apps-magento`, `apps-algolia`, `apps-salesforce`, `apps-shopify`. Almost every site also needs `@decocms/apps-commerce` (shared types/sdk/utils) and `@decocms/apps-website` (Seo, analytics components). Real splits used: two of the reference sites = vtex + commerce + website; a third = vtex + magento + algolia + salesforce + commerce + website.
+Mapping per commerce platform: `@decocms/apps/vtex` → `@decocms/apps-vtex`, and likewise `apps-magento`, `apps-algolia`, `apps-salesforce`, `apps-shopify` (exception: the bare `@decocms/apps/algolia` maps to `@decocms/apps-algolia/client`, since that package's root is the v8 thin client). Almost every site also needs `@decocms/apps-commerce` (shared types/sdk/utils) and `@decocms/apps-website` (Seo, analytics components). Real splits used: two of the reference sites = vtex + commerce + website; a third = vtex + magento + algolia + salesforce + commerce + website.
 
 In the same commit, replace the site's `@decocms/start/scripts/*` `generate:*` chain with the ONE unified orchestrator (blocks-cli ships it as `scripts/generate.ts`; it runs blocks/manifest/sections/loaders/invoke/schema with an incremental content-hash cache, skipping generators whose inputs didn't change):
 

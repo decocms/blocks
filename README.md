@@ -121,10 +121,10 @@ All packages are versioned and released in lockstep.
 | [`@decocms/apps-vtex`](./packages/apps-vtex) | VTEX Commerce. |
 | [`@decocms/apps-shopify`](./packages/apps-shopify) | Shopify. |
 | [`@decocms/apps-magento`](./packages/apps-magento) | Magento. |
-| [`@decocms/apps-salesforce`](./packages/apps-salesforce) | Salesforce Commerce Cloud. |
 | [`@decocms/apps-algolia`](./packages/apps-algolia) | Algolia search. |
 | [`@decocms/apps-blog`](./packages/apps-blog) | v7 only: blog content and CMS integration. Next major: data-only blocks and `client.list` in the blog template. |
 | [`@decocms/apps-resend`](./packages/apps-resend) | Resend transactional email. |
+| [`@decocms/apps-sfmc-personalization`](./packages/apps-sfmc-personalization) | Salesforce Marketing Cloud Personalization (formerly Evergage). Replaces `@decocms/apps-salesforce`. |
 
 ## Getting started
 

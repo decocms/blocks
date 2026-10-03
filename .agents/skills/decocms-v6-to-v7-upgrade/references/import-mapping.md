@@ -71,7 +71,8 @@ Identical subpaths under the new package name:
 |---|---|
 | `@decocms/apps/vtex`, `@decocms/apps/vtex/*` (client, middleware, mod, types, loaders/*, actions/*, hooks/*, utils/*, commerceLoaders, inline-loaders/*) | `@decocms/apps-vtex`, `@decocms/apps-vtex/*` |
 | `@decocms/apps/magento(/*)` | `@decocms/apps-magento(/*)` |
-| `@decocms/apps/algolia(/*)` | `@decocms/apps-algolia(/*)` |
+| `@decocms/apps/algolia` | `@decocms/apps-algolia/client` (the root is now the v8 thin client) |
+| `@decocms/apps/algolia/*` | `@decocms/apps-algolia/*` |
 | `@decocms/apps/salesforce(/*)` | `@decocms/apps-salesforce(/*)` |
 | `@decocms/apps/shopify(/*)` | `@decocms/apps-shopify(/*)` |
 | `@decocms/apps/commerce/{sdk,types,utils}/*` | `@decocms/apps-commerce/*` |
