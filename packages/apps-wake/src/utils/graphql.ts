@@ -1,25 +1,9 @@
 import { type FetchFn, withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
 import type { InstrumentedFetchInit } from "@decocms/blocks/sdk/instrumentedFetch";
+import { buildQuery, type QueryDefinition } from "./gql";
 import { extractGraphqlOperationName } from "./graphqlOperationName";
 
-/**
- * Tagged-template helper that composes a GraphQL document string.
- * Kept identical to the Deno `gql` so the ported `graphql/queries.ts`
- * (which defines `{ fragments, query }` objects) works verbatim.
- */
-export function gql(strings: TemplateStringsArray, ...values: unknown[]): string {
-  return strings.reduce((acc, str, i) => acc + str + (values[i] ?? ""), "");
-}
-
-export interface QueryDefinition {
-  fragments?: string[];
-  query: string;
-}
-
-export function buildQuery(def: QueryDefinition): string {
-  const fragments = def.fragments?.join("\n") ?? "";
-  return fragments ? `${fragments}\n${def.query}` : def.query;
-}
+export { buildQuery, gql, type QueryDefinition } from "./gql";
 
 export interface GraphQLClient {
   /**

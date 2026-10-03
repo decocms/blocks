@@ -1,3 +1,6 @@
+// v8: the thin Magento client (see /next/upstream-clients).
+
+// v7 (kept for v7 consumers until the v7 modules are dropped)
 /**
  * Magento app entry point for @decocms/apps.
  * Re-exports client config + initializer.
@@ -8,6 +11,14 @@
  *   import { magentoFetch } from "@decocms/apps/magento/client"
  */
 export * from "./client";
+export {
+  createMagentoClient,
+  type MagentoClient,
+  type MagentoClientConfig,
+  type MagentoClientOptions,
+  MagentoError,
+  type MagentoRequestInit,
+} from "./magentoClient";
 export type { MagentoCart } from "./types";
 export {
   clearFetchCache,

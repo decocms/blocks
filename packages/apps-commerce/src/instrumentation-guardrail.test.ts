@@ -64,32 +64,33 @@ describe("commerce apps instrumentation guardrail", () => {
 });
 
 /**
- * Next-major clients (/next/upstream-clients#write-a-client): the client
- * module creates its fetch with `createInstrumentedFetch` from
- * `@decocms/blocks/fetch` and never calls a bare `fetch(...)`, so every
- * request it sends is measured with no site wiring. Add each app's client
- * module here as it ships.
+ * v8 thin clients (/next/upstream-clients): each client module creates its
+ * requests with `createInstrumentedFetch` from `@decocms/blocks/fetch` under
+ * its own provider name, and never calls a fetch around it. Unlike the v7
+ * factories above, nothing has to be wired at boot: the instrumented fetch is
+ * the only way the client reaches the network. Each client's own tests assert
+ * the operation labels.
  */
-const V8_CLIENTS: Record<string, string> = {
-  "apps-shopify": "src/v8/client.ts",
-  "apps-vtex": "src/vtexClient.ts",
+const V8_CLIENTS: Record<string, { file: string; provider: string }> = {
+  "apps-shopify": { file: "src/v8/client.ts", provider: "shopify" },
+  "apps-vtex": { file: "src/vtexClient.ts", provider: "vtex" },
+  "apps-wake": { file: "src/wakeClient.ts", provider: "wake" },
+  "apps-magento": { file: "src/magentoClient.ts", provider: "magento" },
 };
 
-describe("next-major upstream clients instrumentation guardrail", () => {
-  for (const [app, path] of Object.entries(V8_CLIENTS)) {
-    it(`${app} sends every request through @decocms/blocks/fetch`, () => {
-      const src = readFileSync(join(repoRoot, "packages", app, path), "utf8");
-      expect(src, `${app} must import from @decocms/blocks/fetch`).toMatch(
-        /import\s*\{[^}]*\bcreateInstrumentedFetch\b[^}]*\}\s*from\s*["']@decocms\/blocks\/fetch["']/,
+describe("v8 upstream clients use the instrumented fetch", () => {
+  for (const [app, { file, provider }] of Object.entries(V8_CLIENTS)) {
+    it(`${app} sends every request through createInstrumentedFetch as "${provider}"`, () => {
+      const src = readFileSync(join(repoRoot, "packages", app, file), "utf8");
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+      expect(src).toMatch(
+        /import\s*\{[^}]*\bcreateInstrumentedFetch\b[^}]*\}\s*from\s*"@decocms\/blocks\/fetch"/,
       );
-      expect(src, `${app} must create its fetch with createInstrumentedFetch`).toMatch(
-        /createInstrumentedFetch\(\s*\{[^}]*provider:/,
+      expect(src).toMatch(
+        new RegExp(`createInstrumentedFetch\\(\\s*\\{[^}]*\\bprovider:\\s*"${provider}"`),
       );
-      // Comments may mention "fetch (`@decocms/blocks/fetch`)"; only code counts.
-      const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-      expect(code, `${app} must not call fetch directly`).not.toMatch(
-        /(?<![\w.])(globalThis\.)?fetch\s*\(/,
-      );
+      expect(code, `${app} must not call fetch directly`).not.toMatch(/(^|[^.\w])fetch\s*\(/m);
+      expect(code).not.toContain("globalThis.fetch");
     });
   }
 });
