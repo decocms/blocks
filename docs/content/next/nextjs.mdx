@@ -355,4 +355,8 @@ npx @decocms/blocks serve --preview localhost:3000
 
 Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).
 
+### Reload on content changes
+
+`deco serve` rewrites `.deco/blocks.gen.ts` on every save, and Blocks has no dev hook for it; on Next.js you don't need one. `next dev` recompiles the server modules that import the content module, runs `src/cms.ts` again and refreshes open pages. Running it again is safe because `createCMS` adopts the new content module for the same `.deco` folder and returns the same instance, so keep it a plain module-scope call, as in step 2: no hot-reload handler, and no instance kept in a variable of your own. The [TanStack Start guide](/next/tanstack-start-descriptors#reload-on-content-changes) needs a few lines for both, since Vite does neither on its own.
+
 <Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Publish and preview without a deploy.** Two environment variables connect this app to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>

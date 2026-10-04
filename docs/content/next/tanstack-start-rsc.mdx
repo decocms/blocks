@@ -98,4 +98,6 @@ export default defineConfig({
 });
 ```
 
+To edit content while you develop, keep the `src/cms.ts` hot handler and the reload plugin from [Reload on content changes](/next/tanstack-start-descriptors#reload-on-content-changes); add the plugin to this config.
+
 <Small>Also requires `@vitejs/plugin-rsc` 0.5.30 and `react-server-dom-webpack` 19.2.7. If one repository builds both the descriptor and the RSC version, give each its own Vite config: the RSC plugins change how every component is bundled.</Small>

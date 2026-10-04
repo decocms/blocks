@@ -89,6 +89,10 @@ One difference remains: redirects created in the site editor are saved in the ol
 
 [`matchRoute`](/next/api-reference#matchroute-url-items) accepts both. A legacy `"type": "permanent"` is a 301 and `"temporary"` a 307, as before, and `discardQueryParameters` carries over, so no live redirect changes its status code or query handling. The site editor decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
 
+## Variant tabs
+
+A variant tab previews its variant through the [draft pointer](/next/api-reference#draft-pointers), never through a header or a site endpoint: the site editor loads the preview with a `?__draft=` pointer that [forces](/next/releases-and-drafts#preview-a-variant) the variant, addressed by the page (or saved block) that holds the `multivariate` and the JSON path to it, such as `Home@sections.3=1`. On your machine the pointer names the `deco serve` endpoint, which the content module ignores, so only the forced variant applies; with the hosted Deco CMS it's the draft's own pointer plus the `__variant` parameters. A site that picks its client with `draftPointer` needs nothing else. v7 sites keep `x-deco-matchers-override`.
+
 ## Legacy endpoints
 
 Sites on Fresh and Deno are edited the legacy way: the site editor reads from the running site and calls it for anything that runs code. v7 sites serve the same endpoints, from `@decocms/blocks-admin`, so a v7 project can stay on this path:

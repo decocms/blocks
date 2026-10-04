@@ -44,7 +44,7 @@ type TelemetryConfig = (
 
 interface CMS {
   forRelease(): Client;                         // a client reading the current release
-  forDraft(pointer: string): Client;            // a client reading the draft a pointer names; a source without drafts behaves like the release; a draft that can't load makes every call return [null, error]
+  forDraft(pointer: string): Client;            // a client reading the draft a pointer names, with the variants it forces; a source without drafts behaves like the release (forced variants still apply); a draft that can't load makes every call return [null, error]
   forRevision(revision: string): Client;        // a client pinned to a revision it has served; an unknown revision behaves like the release
   update(): Promise<{ updated: boolean }>;      // ask the content source for newer content now; never throws
 }
@@ -139,6 +139,7 @@ interface DraftPointer {
   host: string;      // host[:port] of the content source that holds the draft (the Deco API, when hosted), e.g. "api.deco.example"
   path: string;      // starts with "/"; opaque to your app (hosted drafts put a token signed by the site editor in its query)
   version: string;   // opaque, immutable: the branch head or ETag
+  variants?: { block: string; path: string; index: number }[];   // the variants a preview forces; absent when none
 }
 
 function parseDraftPointer(raw: string | null | undefined): DraftPointer | null;
@@ -146,6 +147,8 @@ function formatDraftPointer(pointer: DraftPointer): string;
 ```
 
 `parseDraftPointer` is strict and returns `null` on anything unexpected: a scheme, a stray `@`, an unrooted path, an odd character in the host or version. It's what `forDraft` calls, so an app only needs it to look inside a pointer, for example to show which version is being previewed, to key a cache on `version`, or to reject a pointer before storing it in a cookie. `formatDraftPointer` is the inverse, for building one from parts, as a mobile app might from a deep link. It throws on parts that wouldn't parse back, such as a path with a space or a `…` in it.
+
+`__variant` is a reserved parameter of the pointer's query: each one is a [forced variant](/next/releases-and-drafts#preview-a-variant), `<block>@<path>=<index>` URL-encoded, where `block` is the saved block the `multivariate` is saved in, `path` its JSON path inside that block (dot-separated keys and array indexes, empty for the saved block itself) and `index` the variant to show. `parseDraftPointer` moves them out of `path` into `variants` and rejects the pointer if one is malformed; `formatDraftPointer` appends them. `forDraft` applies them to the content it reads, even from a source with no drafts, and hands `load(pointer)` the pointer without them, so every variant of one draft shares one load.
 
 For websites, two more helpers carry a pointer from a URL into a cookie, so the parameter and cookie names never appear in app code. The hosted draft flow uses them; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app):
 
@@ -171,6 +174,10 @@ if (pointer) console.log(`previewing ${pointer.version} from ${pointer.host}`);
 // the path is opaque: copy it, don't build it
 formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=abc123", version: "9f3c1a" });
 // "api.deco.example/drafts/acme/main?token=abc123@9f3c1a"
+
+// show variant 1 of the multivariate at sections.3 of the saved block Home
+formatDraftPointer({ host: "localhost:4547", path: "/", version: "local", variants: [{ block: "Home", path: "sections.3", index: 1 }] });
+// "localhost:4547/?__variant=Home%40sections.3%3D1@local"
 ```
 
 ## `client.resolve(target, options?)`
@@ -286,7 +293,7 @@ interface Loader {
   update?(): Promise<{ updated: boolean }>;
 }
 
-interface DraftPointer { host: string; path: string; version: string }
+interface DraftPointer { host: string; path: string; version: string; variants?: { block: string; path: string; index: number }[] }
 
 interface Route { name: string; path: string }                    // extend it to give a type a URL
 

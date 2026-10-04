@@ -35,7 +35,7 @@ const cms = createCMS({ blocks, content: myLoader });   // myLoader.load(pointer
 
 A **draft pointer** is a short string that says which draft to load; it travels in `?__draft=` links (see [Draft pointers](/next/api-reference#draft-pointers)). `cms.forDraft(pointer)` passes it to that same loader's `load(pointer)`. The client you get back works exactly like the release client, so your rendering code doesn't change.
 
-The content module has no drafts: it ignores the pointer, so `forDraft` acts like `forRelease`. You get real drafts with the hosted Deco CMS or with a [loader you write](/next/content#write-a-loader), which must treat the pointer as untrusted input.
+The content module has no drafts: it ignores the pointer, so `forDraft` acts like `forRelease`, apart from any [variants the pointer forces](#preview-a-variant). You get real drafts with the hosted Deco CMS or with a [loader you write](/next/content#write-a-loader), which must treat the pointer as untrusted input.
 
 ## Preview
 
@@ -52,6 +52,18 @@ Everything after these two lines is the code that serves visitors. It's safe to 
 
 If a draft can't load, the draft client's `resolve` and `list` return an error instead of published content, so nobody mistakes the release for their draft. What to show is your app's choice, such as a short "this draft couldn't be loaded" page (see [A failed draft is an error](/next/content#write-a-loader)).
 
+### Preview a variant
+
+A field with [variants](/next/matchers-and-variants#variants) shows whichever variant's rule is true for you right now, so a preview of the Black Friday banner on a Tuesday in October shows the fallback. To see the other variants, a pointer can **force** them: each forced variant names a `multivariate` block by the saved block it's saved in and its JSON path inside that block, plus the index of the variant to show. That `multivariate` then returns that variant's value without evaluating any rule.
+
+The site editor's variant tabs work this way: picking the second variant of the hero in `Home` loads the preview with a pointer that forces `Home@sections.3` to variant `1`. Forced variants travel inside the pointer as `__variant` parameters (format in [Draft pointers](/next/api-reference#draft-pointers)), so they need nothing in your code beyond the two lines above:
+
+- **Only drafts force variants.** `forDraft` applies them; `forRelease` never does, so visitors always get the rules.
+- **They work without drafts.** Over the content module, which has no drafts, `forDraft` still applies them, so variant tabs work while you edit on your machine.
+- **A stale address is ignored.** If the block was renamed, the section moved, or the variant is gone, the content renders as saved.
+
+A link can force any variant. That's fine because [variants are not access control](/next/matchers-and-variants#run-an-a-b-test): every variant must be fine to show.
+
 <Hosted to="/next/hosted-drafts" label="Previewing drafts">**Drafts on your real site.** With the hosted Deco CMS, the site editor opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by the site editor reach unpublished drafts.</Hosted>
 
 ## Checking changes without a draft loader
@@ -60,7 +72,7 @@ Without a loader that serves drafts, you check a change by running a different b
 
 ### On your machine
 
-Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in the site editor through [`deco serve`](/next/site-editor#edit-on-your-machine). Nothing is committed: review the diff and commit it when the page looks right.
+Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in the site editor through [`deco serve`](/next/site-editor#edit-on-your-machine). On Vite that takes a few lines of your own; see the [TanStack Start guide](/next/tanstack-start-descriptors#reload-on-content-changes). Nothing is committed: review the diff and commit it when the page looks right.
 
 ### On a branch
 

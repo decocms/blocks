@@ -208,7 +208,49 @@ export default defineConfig({
 
 ## Edit in the site editor
 
-To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).
+To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app reloads (see the recipe below); you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).
+
+### Reload on content changes
+
+`deco serve` rewrites `.deco/blocks.gen.ts` on every save. Blocks has no dev hook for that, so two pieces of your own code make a save show up. First, let `src/cms.ts` take the new content module without running again:
+
+```ts title="src/cms.ts"
+// …the imports and client from step 2
+export const cms = createCMS({ blocks, content });
+
+// createCMS adopts the new module for the same .deco folder and returns the same instance. Running
+// this module again instead leaves server functions holding the old one, and the first request
+// after a save fails.
+if (import.meta.hot) {
+  import.meta.hot.accept("../.deco/blocks.gen", (next) => {
+    if (next) createCMS({ blocks, content: next.default });
+  });
+}
+```
+
+Pass the same options you passed the first time. Second, only the server imports the content module, so Vite swaps it without touching open pages. Reload them, so the site editor's preview shows the saved content:
+
+```ts title="vite.config.ts"
+import path from "node:path";
+
+const contentModule = path.resolve(__dirname, ".deco/blocks.gen.ts");
+
+export default defineConfig({
+  plugins: [
+    // …the plugins from step 6
+    {
+      name: "reload-on-content",
+      apply: "serve",
+      hotUpdate({ file, server }) {
+        if (this.environment.name === "client" || path.resolve(file) !== contentModule) return;
+        server.environments.client.hot.send({ type: "full-reload" });
+      },
+    },
+  ],
+});
+```
+
+The [RSC guide](/next/tanstack-start-rsc) reuses both unchanged.
 
 <Hosted to="/next/hosted#cloudflare-workers" label="Connect a Worker">**Publish and preview without a deploy.** A site ID and a Wrangler secret connect this Worker to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>
 

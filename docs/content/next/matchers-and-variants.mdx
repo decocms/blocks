@@ -71,7 +71,7 @@ Any field can have variants: a title, one block in a page's `sections`, or the w
 
 Variants are lazy: each `value` is wrapped in a [`lazy` block](/next/lazy-blocks), so only the winning variant runs, like `cond ? a() : b()`. If each variant were a hero section that fetches products, only the chosen hero fetches. Saved variants always carry the wrapper (`deco check` flags a variant without it), and editors never see it: the site editor adds it for them. Rules aren't lazy: they're cheap booleans and always run.
 
-Caching a page whose content varies per request is in [Pages with variants](/next/caching#pages-with-variants).
+Caching a page whose content varies per request is in [Pages with variants](/next/caching#pages-with-variants). To see a variant whose rule is false right now, preview it: a [draft pointer can force it](/next/releases-and-drafts#preview-a-variant), which is what the site editor's variant tabs do.
 
 ## Matchers
 
@@ -184,14 +184,14 @@ Then give `multivariate` the test's ID in `experiment`, and pass the same ID to 
 
 The `experiment` ID names the test wherever the variants live. Results are kept per ID, so renaming a saved block or moving the variants keeps a test's history. The site editor fills it in when an editor creates a test. Older sites keyed results on the saved block's name; [migrating from v7](/next/renames-and-migrations) copies that name into `experiment`, so existing results carry over.
 
-<Callout type="warning">**Variants are not access control.** Only the chosen variant runs, but that's an optimization, not a guard: choose between variants that are all fine to show. Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
+<Callout type="warning">**Variants are not access control.** Only the chosen variant runs, but that's an optimization, not a guard: choose between variants that are all fine to show. Anyone with a preview link can [force any variant](/next/releases-and-drafts#preview-a-variant). Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
 
 ## Schedule with confidence
 
 A scheduled campaign is a change to content files, so it's checked like any other change, days before it goes live:
 
 - **Review it in a pull request.** Reviewers read the dates and the campaign value in the diff of `.deco/blocks`, and [`deco check`](/next/checking) makes sure every block fits your code (see [On a branch](/next/releases-and-drafts#on-a-branch)).
-- **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight.
+- **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight. To check the campaign variant itself, [force it](/next/releases-and-drafts#preview-a-variant), as the site editor's variant tabs do.
 - **Keep `always()` last.** The first match wins, so the variant paired with the `always()` rule is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends. [`deco check`](/next/checking#what-deco-check-checks) warns about any variant after an `always` rule, since it can never be picked.
 
 If a cached page still shows the old title after the switch, see [Pages with variants](/next/caching#pages-with-variants) and [Troubleshooting](/next/troubleshooting).
