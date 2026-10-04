@@ -47,10 +47,23 @@ export interface Loader {
 export interface DraftPointer {
   /** `host[:port]` of the content source that holds the draft. */
   host: string;
-  /** Starts with `/`; opaque to the app. */
+  /** Starts with `/`; opaque to the app. Never carries the `__variant` parameters. */
   path: string;
   /** Opaque and immutable: the branch head or ETag. */
   version: string;
+  /** The variants this preview forces (the query's `__variant` parameters); absent when none. */
+  variants?: ForcedVariant[];
+}
+
+/**
+ * A variant a preview forces: the multivariate block at `path` (dot-separated
+ * keys and indexes, `""` for the saved block itself) inside the saved block
+ * `block` shows its variant `index` instead of evaluating rules.
+ */
+export interface ForcedVariant {
+  block: string;
+  path: string;
+  index: number;
 }
 
 // ---------------------------------------------------------------------------
