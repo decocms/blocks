@@ -15,6 +15,11 @@ import type { Loader, Snapshot } from "./types.ts";
 const SERVED_REVISIONS = 16;
 /** Composed drafts kept per CMS (see /next/studio-implementation's initial limits). */
 const CACHED_DRAFTS = 3;
+/**
+ * How long a loaded draft is reused before `load(pointer)` runs again, so a
+ * loader's own checks (a hosted grant's expiry) apply on a warm server too.
+ */
+const DRAFT_TTL_MS = 60_000;
 
 export function isLoader(content: unknown): content is Loader {
   return (
@@ -37,7 +42,9 @@ export class ContentStore {
   #source: Snapshot | Loader;
   #release: Promise<Snapshot> | undefined;
   #updating: Promise<{ updated: boolean }> | undefined;
-  readonly #drafts = new BoundedMap<string, Promise<Snapshot>>(CACHED_DRAFTS);
+  readonly #drafts = new BoundedMap<string, { pending: Promise<Snapshot>; at: number }>(
+    CACHED_DRAFTS,
+  );
   readonly #served = new BoundedMap<string, Snapshot>(SERVED_REVISIONS);
 
   constructor(source: Snapshot | Loader) {
@@ -74,7 +81,7 @@ export class ContentStore {
    * pointer. A loader gets `load(pointer)` only for a pointer that parses,
    * formatted again without its `__variant` parameters (so every variant of
    * one draft shares one load); anything else is `LOADER_FAILED`, never a
-   * silent fallback to the release.
+   * silent fallback to the release. A loaded draft is reused for a minute.
    */
   draft(pointer: string): Promise<Snapshot> {
     const source = this.#source;
@@ -90,11 +97,13 @@ export class ContentStore {
       version: parsed.version,
     });
     const cached = this.#drafts.get(key);
-    if (cached !== undefined) return cached;
-    const pending = this.#load(source, key);
-    this.#drafts.set(key, pending);
-    pending.catch(() => this.#drafts.delete(key));
-    return pending;
+    if (cached !== undefined && Date.now() - cached.at < DRAFT_TTL_MS) return cached.pending;
+    const entry = { pending: this.#load(source, key), at: Date.now() };
+    this.#drafts.set(key, entry);
+    entry.pending.catch(() => {
+      if (this.#drafts.get(key) === entry) this.#drafts.delete(key);
+    });
+    return entry.pending;
   }
 
   /** A release revision this store has served, or the release when it's unknown (drafts included). */
@@ -177,29 +186,46 @@ function truncate(value: string): string {
   return value.length > 80 ? `${value.slice(0, 80)}…` : value;
 }
 
-/** A Map that forgets its least recently set entry past `limit`. */
-class BoundedMap<K, V> {
+/**
+ * A Map that forgets its least recently used entries past `limit`, counted by
+ * `size` (one per entry unless given).
+ */
+export class BoundedMap<K, V> {
   readonly #map = new Map<K, V>();
-  constructor(readonly limit: number) {}
+  #total = 0;
+  constructor(
+    readonly limit: number,
+    readonly size: (value: V) => number = () => 1,
+  ) {}
 
   get(key: K): V | undefined {
-    return this.#map.get(key);
+    const value = this.#map.get(key);
+    if (value !== undefined) {
+      this.#map.delete(key);
+      this.#map.set(key, value);
+    }
+    return value;
   }
 
   set(key: K, value: V): void {
-    this.#map.delete(key);
+    this.delete(key);
     this.#map.set(key, value);
-    if (this.#map.size > this.limit) {
-      const oldest = this.#map.keys().next();
-      if (!oldest.done) this.#map.delete(oldest.value);
+    this.#total += this.size(value);
+    for (const [oldest, old] of this.#map) {
+      if (this.#total <= this.limit || oldest === key) break;
+      this.#map.delete(oldest);
+      this.#total -= this.size(old);
     }
   }
 
   delete(key: K): void {
+    if (!this.#map.has(key)) return;
+    this.#total -= this.size(this.#map.get(key) as V);
     this.#map.delete(key);
   }
 
   clear(): void {
     this.#map.clear();
+    this.#total = 0;
   }
 }

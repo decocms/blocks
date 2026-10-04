@@ -94,29 +94,38 @@ function deliveryApi() {
   const gates = new Map<string, Deferred>();
   let manifest: Record<string, unknown> | undefined;
   let failAll = false;
+  /** What an authorized overlay manifest response says about caching (the grant's remaining life). */
+  let manifestCaching = "private, max-age=3600";
+  let grantsExpired = false;
   const requests: { url: string; headers: Record<string, string> }[] = [];
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
     requests.push({ url, headers });
     if (failAll) throw new TypeError("fetch failed");
+    if (!url.startsWith(ORIGIN)) return new Response("wrong host", { status: 599 });
+    const pathname = url.slice(ORIGIN.length);
+    const p = pathname.split("?")[0] ?? "";
+    await gates.get(p)?.promise;
     if (url === MANIFEST_URL) {
       if (!manifest) return new Response("missing", { status: 404 });
       return Response.json(manifest);
     }
-    if (!url.startsWith(ORIGIN)) return new Response("wrong host", { status: 599 });
-    const pathname = url.slice(ORIGIN.length);
-    const p = pathname.split("?")[0] ?? "";
     if (/^\/sites\/[^/]+\/(drafts|draft-blocks)\//.test(p)) {
       const query = pathname.includes("?") ? pathname.slice(pathname.indexOf("?") + 1) : "";
-      if (headers.authorization !== `Bearer ${TOKEN}` || query !== GRANT) {
+      if (headers.authorization !== `Bearer ${TOKEN}` || query !== GRANT || grantsExpired) {
         return new Response("forbidden", { status: 403, headers: { "cache-control": "no-store" } });
       }
     }
-    await gates.get(p)?.promise;
     if (assets.has(p)) {
       const body = assets.get(p);
-      return body instanceof Response ? body : Response.json(body);
+      if (body instanceof Response) return body;
+      const caching = p.includes("/drafts/")
+        ? manifestCaching
+        : p.includes("/draft-blocks/")
+          ? "private, max-age=31536000, immutable"
+          : undefined;
+      return Response.json(body, caching ? { headers: { "cache-control": caching } } : undefined);
     }
     return new Response("not found", { status: 404 });
   });
@@ -159,6 +168,14 @@ function deliveryApi() {
     },
     fail(value: boolean) {
       failAll = value;
+    },
+    /** The Cache-Control an authorized overlay manifest is served with. */
+    manifestCaching(value: string) {
+      manifestCaching = value;
+    },
+    /** From now on every draft read is refused, as after the grant's expiry. */
+    expireGrants() {
+      grantsExpired = true;
     },
     assetFetches: () => requests.filter((r) => r.url.includes("/revisions/")).length,
     manifestFetches: () => requests.filter((r) => r.url === MANIFEST_URL).length,
@@ -299,7 +316,8 @@ describe("content-delivery", () => {
     const version = parseDraftPointer(older)!.version;
     const hash = (await draftOverlayAssets(SITE, { set: { SummerSEO: seoEntry("Draft v1") } }))
       .overlay.set.SummerSEO;
-    expect(api.requests.map((r) => r.url)).toEqual([
+    // (The release check forDraft schedules runs beside it, in the background.)
+    expect(api.draftFetches().map((r) => r.url)).toEqual([
       `${ORIGIN}/sites/acme/drafts/${version}.json?${GRANT}`,
       `${ORIGIN}/sites/acme/draft-blocks/${hash}.json?${GRANT}`,
     ]);
@@ -383,15 +401,16 @@ describe("draft overlays", () => {
     expect(await computeContentRevision(manifest)).toBe(version); // SHA-256 of canonical JSON
   });
 
-  it("DO-2: a draft never fetches a production revision or channel manifest to align", async () => {
+  it("DO-2: a draft never fetches a production revision to align; the release check it schedules never runs in front of it", async () => {
     const api = deliveryApi();
     api.publish(1, await hashed("Published"));
+    const channel = api.gate("/sites/acme/channels/production.json"); // the background check hangs
     const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = hostedCMS();
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft"); // a cold server: the fallback is the base
-    expect(api.manifestFetches()).toBe(0);
     expect(api.assetFetches()).toBe(0);
-    expect(api.requests.every((r) => /\/(drafts|draft-blocks)\//.test(r.url))).toBe(true);
+    expect(api.manifestFetches()).toBeLessThanOrEqual(1); // scheduled beside the draft, still pending
+    channel.resolve();
   });
 
   it("DO-3: a new save downloads its small manifest and only the changed blocks missing from the cache", async () => {
@@ -405,7 +424,7 @@ describe("draft overlays", () => {
     });
     await titleOf(cms.forDraft(first));
     expect(api.requests.filter((r) => r.url.includes("/draft-blocks/"))).toHaveLength(2);
-    const before = api.requests.length;
+    const before = api.draftFetches().length;
     const second = await api.draft({
       set: {
         SummerSEO: seoEntry("Draft, edited"),
@@ -413,7 +432,10 @@ describe("draft overlays", () => {
       },
     });
     expect(await titleOf(cms.forDraft(second))).toBe("Draft, edited");
-    const urls = api.requests.slice(before).map((r) => r.url);
+    const urls = api
+      .draftFetches()
+      .slice(before)
+      .map((r) => r.url);
     expect(urls).toHaveLength(2);
     expect(urls[0]).toContain("/drafts/");
     expect(urls[1]).toContain("/draft-blocks/"); // only SummerSEO's new hash
@@ -671,6 +693,84 @@ describe("draft overlays", () => {
     expect(await cms.forDraft(forced(0)).resolve("Banner")).toEqual(["draft fallback", null]);
     expect(await cms.forDraft(pointer).resolve("Banner")).toEqual([undefined, null]); // the rules
     expect(api.draftFetches()).toHaveLength(2);
+  });
+});
+
+describe("draft overlays: expiry and refresh", () => {
+  const hostedCMS = () =>
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE, token: TOKEN });
+  let now = 1_000_000;
+  beforeEach(() => {
+    now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  it("DO-15: an authorized manifest is cached only for its response's max-age, so an expired grant fails on a warm server", async () => {
+    const api = deliveryApi();
+    api.manifestCaching("private, max-age=120");
+    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const loader = remote(docsSnapshot());
+    await loader.load(pointer);
+    now += 119_000;
+    await loader.load(pointer);
+    expect(api.draftFetches()).toHaveLength(2); // manifest and block, once
+    now += 2_000;
+    api.expireGrants();
+    await expect(loader.load(pointer)).rejects.toThrow(/HTTP 403/);
+  });
+
+  it("DO-16: a manifest served without max-age, or with no-store, is asked for on every load", async () => {
+    for (const caching of ["private", "no-store, max-age=60"]) {
+      resetForTests();
+      const api = deliveryApi();
+      api.manifestCaching(caching);
+      const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+      const loader = remote(docsSnapshot());
+      await loader.load(pointer);
+      await loader.load(pointer);
+      const version = parseDraftPointer(pointer)!.version;
+      expect(api.draftFetches().filter((r) => r.url.includes(`/drafts/${version}`))).toHaveLength(
+        2,
+      );
+      expect(api.draftFetches()).toHaveLength(3); // the block came from the cache
+    }
+  });
+
+  it("DO-17: a CMS reuses a loaded draft for at most a minute, then loads it again (and its grant is checked)", async () => {
+    const api = deliveryApi();
+    api.manifestCaching("private, max-age=30");
+    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = hostedCMS();
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    now += 59_000;
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft"); // reused, though the manifest's max-age passed
+    expect(api.draftFetches()).toHaveLength(2);
+    now += 2_000;
+    api.expireGrants();
+    expect((await cms.forDraft(pointer).resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
+  });
+
+  it("DO-18: a server that only serves drafts still picks up new releases, and later drafts inherit them", async () => {
+    const api = deliveryApi();
+    api.publish(
+      1,
+      await hashed("Published", {
+        HelloWorld: { __resolveType: "post", name: "Republished", path: "/x", date: "2026-10-02" },
+      }),
+    );
+    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = hostedCMS();
+    const first = cms.forDraft(pointer);
+    expect((await first.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
+      "Hello, world",
+    ]); // cold: the fallback
+    await flush(); // the release check forDraft scheduled
+    expect(api.manifestFetches()).toBe(1);
+    const next = cms.forDraft(pointer);
+    expect(await titleOf(next)).toBe("Draft");
+    expect((await next.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
+      "Republished",
+    ]);
   });
 });
 

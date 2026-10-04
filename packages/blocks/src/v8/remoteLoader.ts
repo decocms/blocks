@@ -16,14 +16,17 @@
  *   return right now, fetches the overlay manifest the pointer's version names
  *   and only the changed-block assets not already cached, and layers their
  *   replacements and tombstones over the captured snapshot. It never fetches a
- *   production revision to align. Only pointers into this site's drafts on the
+ *   production revision to align. An authorized manifest is cached only as long
+ *   as its response's `max-age` (the grant's remaining life), so an expired
+ *   grant stops working on a warm server too. Only pointers into this site's drafts on the
  *   delivery host are fetched; anything else is refused. Any failure rejects:
  *   a draft never falls back to published content.
  * - In development (`NODE_ENV=development`), releases stay on the fallback so
  *   local files win; drafts still load.
- * - A release, or a draft's manifest and changed blocks together, larger than
- *   `MAX_SNAPSHOT_BYTES` is refused while it downloads, before it's buffered
- *   whole (a Worker isolate has 128 MB).
+ * - A release, or any one draft asset, larger than `MAX_SNAPSHOT_BYTES` is
+ *   refused while it downloads, before it's buffered whole (a Worker isolate
+ *   has 128 MB); a draft whose manifest and changed blocks together exceed it
+ *   is refused as each asset is counted.
  * - Without `site` or `token` it's a plain loader over the fallback: no
  *   releases, no drafts beyond what the fallback serves.
  *
@@ -36,7 +39,7 @@ import {
   DRAFT_OVERLAY_FORMAT,
   type DraftOverlay,
 } from "./canonical.ts";
-import { isSnapshot } from "./content.ts";
+import { BoundedMap, isSnapshot } from "./content.ts";
 import { parseDraftPointer } from "./draft.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
@@ -50,10 +53,9 @@ const MANIFEST_FORMAT = 1;
 const FETCH_TIMEOUT_MS = 10_000;
 /** The largest release, or draft (manifest plus changed blocks), accepted, in bytes of JSON. */
 const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
-/** Draft caches, per site: overlay manifests, changed-block bytes, composed views. */
+/** Draft caches, per site: authorized overlay manifests, and changed-block bytes. */
 const CACHED_OVERLAYS = 16;
 const CACHED_BLOCK_BYTES = 16 * 1024 * 1024;
-const CACHED_VIEWS = 3;
 /** Changed-block downloads in flight at once, per draft. */
 const BLOCK_FETCH_CONCURRENCY = 8;
 /** Overlay versions and block hashes: SHA-256, lowercase hex. */
@@ -72,6 +74,17 @@ interface Manifest {
   snapshot: string;
 }
 
+/** A downloaded, verified JSON asset and its size in bytes. */
+interface Asset<T> {
+  value: T;
+  bytes: number;
+}
+
+/** An authorized overlay manifest, usable until its grant's `max-age` runs out. */
+interface AuthorizedOverlay extends Asset<DraftOverlay> {
+  expiresAt: number;
+}
+
 class RemoteLoader implements Loader {
   readonly #site: string;
   readonly #token: string;
@@ -82,12 +95,10 @@ class RemoteLoader implements Loader {
   #current: Snapshot | undefined;
   #generation = -1;
   /** Authorized manifests, by overlay version and grant: a version alone unlocks nothing. */
-  readonly #overlays = new Lru<Promise<DraftOverlay>>(CACHED_OVERLAYS);
+  readonly #overlays = new BoundedMap<string, Promise<AuthorizedOverlay>>(CACHED_OVERLAYS);
   /** Verified changed blocks, by block hash, bounded by their bytes. */
-  readonly #blocks = new Lru<{ value: unknown; bytes: number }>(CACHED_BLOCK_BYTES, (b) => b.bytes);
-  readonly #pendingBlocks = new Map<string, Promise<{ value: unknown; bytes: number }>>();
-  /** Composed drafts, by captured production revision and overlay version. */
-  readonly #views = new Lru<{ base: Snapshot; view: Snapshot }>(CACHED_VIEWS);
+  readonly #blocks = new BoundedMap<string, Asset<unknown>>(CACHED_BLOCK_BYTES, (b) => b.bytes);
+  readonly #pendingBlocks = new Map<string, Promise<Asset<unknown>>>();
 
   constructor(
     fallback: Snapshot | Loader,
@@ -210,23 +221,13 @@ class RemoteLoader implements Loader {
     // Capture production once, before any network: this draft is layered over it.
     const base = this.#current ?? (await this.#loadFallback());
     const budget: Budget = { remaining: MAX_SNAPSHOT_BYTES };
-    const key = `${pointer.version}${grant}`;
-    let overlay = this.#overlays.get(key);
-    if (overlay === undefined) {
-      overlay = this.#overlay(
+    const manifest = charge(
+      budget,
+      await this.#authorizedOverlay(
         `${site}/drafts/${pointer.version}.json${grant}`,
         pointer.version,
-        budget,
-      );
-      this.#overlays.set(key, overlay);
-      overlay.catch(() => this.#overlays.delete(key));
-    }
-    const manifest = await overlay;
-
-    // Keyed by the base object too: a hot-reloaded content module can keep its revision.
-    const viewKey = `${base.revision}\n${pointer.version}`;
-    const cached = this.#views.get(viewKey);
-    if (cached !== undefined && cached.base === base) return cached.view;
+      ),
+    );
     const hashes = [...new Set(Object.values(manifest.set))];
     const values = new Map<string, unknown>();
     let next = 0;
@@ -241,49 +242,80 @@ class RemoteLoader implements Loader {
     };
     const workers = Math.min(BLOCK_FETCH_CONCURRENCY, hashes.length);
     await Promise.all(Array.from({ length: workers }, worker));
-    const view = composeOverlay(base, manifest, values, pointer.version);
-    this.#views.set(viewKey, { base, view });
-    return view;
+    return composeOverlay(base, manifest, values, pointer.version);
   }
 
-  async #overlay(path: string, version: string, budget: Budget): Promise<DraftOverlay> {
+  /**
+   * The manifest a pointer's grant authorizes: cached by version and grant
+   * until the response's `max-age` runs out (none, or 0, isn't cached), so an
+   * expired grant is asked about again. Concurrent callers share a download.
+   */
+  async #authorizedOverlay(path: string, version: string): Promise<AuthorizedOverlay> {
+    const asked = Date.now();
+    const cached = this.#overlays.get(path);
+    if (cached !== undefined) {
+      const overlay = await cached;
+      if (overlay.expiresAt >= asked) return overlay;
+      if (this.#overlays.get(path) === cached) this.#overlays.delete(path);
+    }
+    const pending = this.#overlay(path, version);
+    this.#overlays.set(path, pending);
+    const forget = () => {
+      if (this.#overlays.get(path) === pending) this.#overlays.delete(path);
+    };
+    pending.then((overlay) => {
+      if (overlay.expiresAt <= Date.now()) forget();
+    }, forget);
+    return pending;
+  }
+
+  async #overlay(path: string, version: string): Promise<AuthorizedOverlay> {
     const response = await fetchWithTimeout(`${HOSTED_DELIVERY_ORIGIN}${path}`, this.#auth());
     if (!response.ok) throw new Error(`draft overlay ${version}: HTTP ${response.status}`);
-    const [body] = await readBoundedJson(response, `draft overlay ${version}`, budget);
+    const maxAge = cacheLifetimeMs(response.headers.get("cache-control"));
+    const [body, bytes] = await readBoundedJson(response, `draft overlay ${version}`, {
+      remaining: MAX_SNAPSHOT_BYTES,
+    });
     const overlay = parseOverlay(body);
     if ((await computeOverlayVersion(overlay)) !== version) {
       throw new Error(`draft overlay ${version}: content doesn't match its version`);
     }
-    return overlay;
+    return { value: overlay, bytes, expiresAt: Date.now() + maxAge };
   }
 
   /**
    * A changed block, charged to this draft's budget: from the cache, or
-   * downloaded once and verified against its hash (concurrent drafts share
-   * one download). Only hashes an authorized manifest lists get here.
+   * downloaded once and verified against its hash. Concurrent drafts share
+   * one download, which is bounded on its own and then charged to each of
+   * them, so one draft's budget never fails another. Only hashes an
+   * authorized manifest lists get here.
    */
   async #block(path: string, hash: string, budget: Budget): Promise<unknown> {
     const cached = this.#blocks.get(hash);
     if (cached !== undefined) return charge(budget, cached);
-    const pending = this.#pendingBlocks.get(hash);
-    if (pending !== undefined) return charge(budget, await pending);
-    const download = (async () => {
-      const response = await fetchWithTimeout(`${HOSTED_DELIVERY_ORIGIN}${path}`, this.#auth());
-      if (!response.ok) throw new Error(`draft block ${hash}: HTTP ${response.status}`);
-      const [value, bytes] = await readBoundedJson(response, `draft block ${hash}`, budget);
-      if ((await computeBlockHash(value)) !== hash) {
-        throw new Error(`draft block ${hash}: content doesn't match its hash`);
-      }
-      const block = { value, bytes };
-      this.#blocks.set(hash, block);
-      return block;
-    })();
-    this.#pendingBlocks.set(hash, download);
-    try {
-      return (await download).value;
-    } finally {
-      this.#pendingBlocks.delete(hash);
+    let pending = this.#pendingBlocks.get(hash);
+    if (pending === undefined) {
+      const download = (async () => {
+        const response = await fetchWithTimeout(`${HOSTED_DELIVERY_ORIGIN}${path}`, this.#auth());
+        if (!response.ok) throw new Error(`draft block ${hash}: HTTP ${response.status}`);
+        const [value, bytes] = await readBoundedJson(response, `draft block ${hash}`, {
+          remaining: MAX_SNAPSHOT_BYTES,
+        });
+        if ((await computeBlockHash(value)) !== hash) {
+          throw new Error(`draft block ${hash}: content doesn't match its hash`);
+        }
+        const block = { value, bytes };
+        this.#blocks.set(hash, block);
+        return block;
+      })();
+      pending = download;
+      this.#pendingBlocks.set(hash, download);
+      void download.then(
+        () => this.#pendingBlocks.delete(hash),
+        () => this.#pendingBlocks.delete(hash),
+      );
     }
+    return charge(budget, await pending);
   }
 
   #auth(): Record<string, string> {
@@ -349,11 +381,18 @@ interface Budget {
   remaining: number;
 }
 
-/** Charges a cached block's bytes to a draft's budget, and returns its value. */
-function charge(budget: Budget, block: { value: unknown; bytes: number }): unknown {
-  budget.remaining -= block.bytes;
+/** Charges an asset's bytes to a draft's budget, and returns its value. */
+function charge<T>(budget: Budget, asset: Asset<T>): T {
+  budget.remaining -= asset.bytes;
   if (budget.remaining < 0) throw new Error(`draft: larger than ${MAX_SNAPSHOT_BYTES} bytes`);
-  return block.value;
+  return asset.value;
+}
+
+/** A response's private cache lifetime in ms: its `max-age`, or 0 without one or with `no-store`. */
+function cacheLifetimeMs(header: string | null): number {
+  if (header === null || /(?:^|,)\s*no-store\b/i.test(header)) return 0;
+  const seconds = /(?:^|,)\s*max-age=(\d+)/i.exec(header)?.[1];
+  return seconds === undefined ? 0 : Number(seconds) * 1000;
 }
 
 /**
@@ -443,43 +482,6 @@ function composeOverlay(
   const view: Snapshot = { revision: `${base.revision}~${version}`, blocks };
   if (base.aliases !== undefined) view.aliases = base.aliases;
   return view;
-}
-
-/** A Map that forgets its least recently used entries past `limit` (counted by `size`). */
-class Lru<V> {
-  readonly #map = new Map<string, V>();
-  #total = 0;
-  constructor(
-    readonly limit: number,
-    readonly size: (value: V) => number = () => 1,
-  ) {}
-
-  get(key: string): V | undefined {
-    const value = this.#map.get(key);
-    if (value !== undefined) {
-      this.#map.delete(key);
-      this.#map.set(key, value);
-    }
-    return value;
-  }
-
-  set(key: string, value: V): void {
-    this.delete(key);
-    this.#map.set(key, value);
-    this.#total += this.size(value);
-    for (const [oldest, old] of this.#map) {
-      if (this.#total <= this.limit || oldest === key) break;
-      this.#map.delete(oldest);
-      this.#total -= this.size(old);
-    }
-  }
-
-  delete(key: string): void {
-    const value = this.#map.get(key);
-    if (value === undefined) return;
-    this.#map.delete(key);
-    this.#total -= this.size(value);
-  }
 }
 
 function fetchWithTimeout(url: string, headers: Record<string, string>): Promise<Response> {
