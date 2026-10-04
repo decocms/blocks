@@ -17,10 +17,10 @@ This page shows the `?__draft=` link, the few lines that wire it into your app, 
 With the hosted Deco CMS, a [draft](/next/releases-and-drafts#drafts) is an editor's saved changes on their draft branch, not published yet (see [Editing in the site editor on GitHub](/next/hosted-site-editor)). To show it, the site editor opens your site with a **draft pointer** in the URL:
 
 ```bash
-https://store.example.com/summer?__draft=api.deco.example/drafts/acme/feat-summer%3Ftoken%3D…@9f3c1a
+https://store.example.com/summer?__draft=delivery.decocms.com/sites/acme/drafts%3Ftoken%3D…@9f3c1a…
 ```
 
-The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the [Deco API](/next/hosted#terms)'s address for this site's `feat-summer` branch, plus a token signed by the site editor. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
+The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `delivery.decocms.com/sites/acme/drafts?token=…` is where this site's drafts live, plus a grant signed by the site editor. The grant covers one overlay version of one site and expires after an hour; the editor mints a fresh one while it's open. `9f3c1a…`, after the `@`, is the overlay version: the SHA-256 of the overlay manifest, 64 hex characters. The hosted loader fetches only pointers of this shape, `delivery.decocms.com/sites/<your site>/drafts?<grant>@<version>`, and refuses any other host, site path or version, so your code never builds or checks one.
 
 The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) fetches the exact draft overlay that version names. The overlay contains only replacements for changed saved blocks and tombstones for deletions. Its small manifest references immutable changed-block assets, so repeated saves download only blobs the server does not already have.
 

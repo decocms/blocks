@@ -37,7 +37,7 @@ These are relative paths in the public [Studio repository](https://github.com/de
 | `apps/api/src/decofile/git-compat.ts` | Git comparison and content-path replay machinery | Apply content-only file-level draft-wins selection; retain append-only history for managed drafts |
 | `apps/api/src/git-providers/content.ts` and `github/content.ts` | Provider abstraction, existing-blob references, Git tree/commit/ref operations | Add explicit multi-parent commits and a non-forced draft-head update; support recovering uncertain writes |
 | `apps/api/src/api/routes/github-webhook.ts` | Existing signed GitHub event intake | Durably enqueue push processing, deduplicate deliveries, trigger release preparation and draft invalidation |
-| `apps/api/src/decofile/draft-token.ts` | Signing and verification machinery | Bind new grants to site, draft identity, exact asset revision and expiry rather than only a moving branch |
+| `apps/api/src/decofile/draft-token.ts` | Signing and verification machinery | Bind new grants to site, overlay version and expiry rather than only a moving branch |
 | `apps/web/src/components/sections-editor/decofile-api.ts` | Editor read/write state | Use the protocol client, stable draft IDs, guarded saves and retry keys |
 | `apps/web/src/components/sections-editor/use-fast-preview-draft-url.ts` | One source of preview URLs | Wait for the exact saved revision's asset, then mint its grant; surface preparing/unavailable states |
 | `apps/web/src/components/thread/github/publish-flow.ts` | Publish progress and review UI | Use the hosted publication operation for content drafts; retain the existing coding-session flow |

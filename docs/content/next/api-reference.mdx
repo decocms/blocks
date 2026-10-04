@@ -171,7 +171,8 @@ The cookie is `SameSite=None; Secure; Partitioned` because the site editor shows
 const pointer = parseDraftPointer(cookie);
 if (pointer) console.log(`previewing ${pointer.version} from ${pointer.host}`);
 
-// the path is opaque: copy it, don't build it
+// the path is opaque: copy it, don't build it (a custom loader's pointer; hosted
+// pointers are delivery.decocms.com/sites/<site>/drafts?token=…@<overlay version>)
 formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=abc123", version: "9f3c1a" });
 // "api.deco.example/drafts/acme/main?token=abc123@9f3c1a"
 
