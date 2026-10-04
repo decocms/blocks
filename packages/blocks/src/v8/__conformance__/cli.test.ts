@@ -2327,12 +2327,13 @@ describe("studio-implementation.mdx", () => {
       expect(await loader.update!()).toEqual({ updated: true });
     });
 
-    it("si-10: an exact draft revision is fetched with If-Match; a failure is an error, not the head", async () => {
+    it("si-10: an exact overlay version is fetched; a missing one is an error, not the head", async () => {
       const fallback = await snap("bundled");
       const loader = remoteLoader(fallback, { site: "acme", token: "t" }) as Loader;
-      await expect(loader.load("delivery.decocms.com/drafts/acme/feat@v1")).rejects.toThrow(
-        /HTTP 404/,
-      );
+      const version = "e".repeat(64);
+      await expect(
+        loader.load(`delivery.decocms.com/sites/acme/drafts?grant=g@${version}`),
+      ).rejects.toThrow(new RegExp(`draft overlay ${version}: HTTP 404`));
       // Before any release check, the bundled fallback is served.
       expect(await loader.load()).toBe(fallback);
     });

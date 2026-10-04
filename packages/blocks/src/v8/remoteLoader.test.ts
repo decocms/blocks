@@ -2,13 +2,14 @@
 /**
  * remoteLoader (hosted-releases-internals.mdx, hosted-publishing.mdx,
  * content-delivery.mdx, hosted-drafts.mdx): requests read memory, the
- * background check follows the channel manifest, drafts are fetched exactly.
+ * background check follows the channel manifest, drafts are exact overlays
+ * layered over the production content already in memory.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeContentRevision } from "./canonical";
 import { createCMS, resetForTests } from "./cms";
 import { remoteLoader } from "./remoteLoader";
-import { docsBlocks, docsSnapshot } from "./testFixtures";
+import { docsBlocks, docsSnapshot, draftOverlayAssets } from "./testFixtures";
 import type { Loader, Snapshot } from "./types";
 
 /** With `site` and `token` set, `remoteLoader` returns a loader. */
@@ -69,6 +70,12 @@ function deliveryApi() {
     },
     remove(path: string) {
       assets.delete(path);
+    },
+    /** Prepares a draft overlay's assets; returns its pointer. */
+    async draft(changes: { set?: Record<string, unknown>; delete?: string[] }) {
+      const { version, assets: prepared } = await draftOverlayAssets(SITE, changes);
+      for (const [path, body] of prepared) assets.set(path, body);
+      return `${HOST}/sites/${SITE}/drafts?grant=signed@${version}`;
     },
   };
 }
@@ -225,17 +232,52 @@ describe("remoteLoader: releases", () => {
 });
 
 describe("remoteLoader: drafts", () => {
-  it("fetches exactly the pointer's version from the delivery host, with the site token", async () => {
-    const api = deliveryApi();
-    const draft = await hashed("Draft");
-    api.asset("/drafts/acme/feat", draft);
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
+  const entry = (title: string) => ({ __resolveType: "seo", title, description: "d" });
 
-    expect(await loader.load(`${HOST}/drafts/acme/feat?token=signed@9f3c1a`)).toEqual(draft);
-    expect(api.requests[0]).toMatchObject({
-      url: `https://${HOST}/drafts/acme/feat?token=signed`,
-      headers: { authorization: `Bearer ${TOKEN}`, "if-match": "9f3c1a" },
-    });
+  it("fetches the overlay manifest, then its changed blocks, with the site token and the pointer's grant", async () => {
+    const api = deliveryApi();
+    const pointer = await api.draft({ set: { SummerSEO: entry("Draft") } });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
+    const view = await loader.load(pointer);
+    expect(view.blocks.SummerSEO).toEqual(entry("Draft"));
+    expect(api.requests).toHaveLength(2);
+    expect(api.requests[0]!.url).toMatch(
+      /\/sites\/acme\/drafts\/[0-9a-f]{64}\.json\?grant=signed$/,
+    );
+    expect(api.requests[1]!.url).toMatch(
+      /\/sites\/acme\/draft-blocks\/[0-9a-f]{64}\.json\?grant=signed$/,
+    );
+    for (const r of api.requests) expect(r.headers.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("layers over the newest release in memory, not the fallback", async () => {
+    const api = deliveryApi();
+    const release = await hashed("Published");
+    api.publish(1, release);
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
+    await loader.update?.();
+    const pointer = await api.draft({ set: { Extra: entry("New") } });
+    const view = await loader.load(pointer);
+    expect(Object.keys(view.blocks).sort()).toEqual(["Extra", "SummerSEO"]);
+    expect(view.blocks.SummerSEO).toEqual(release.blocks.SummerSEO);
+    expect(view.revision).toBe(`${release.revision}~${pointer.split("@")[1]}`);
+  });
+
+  it("concurrent loads of one draft share each download", async () => {
+    const api = deliveryApi();
+    const pointer = await api.draft({ set: { SummerSEO: entry("Draft") } });
+    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
+    const [a, b] = await Promise.all([loader.load(pointer), loader.load(pointer)]);
+    expect(a.blocks.SummerSEO).toEqual(b.blocks.SummerSEO);
+    expect(api.requests).toHaveLength(2);
+  });
+
+  it("an entry named __proto__ stays an entry", async () => {
+    const api = deliveryApi();
+    const pointer = await api.draft({ set: { ["__proto__"]: entry("Odd") } });
+    const view = await remote(docsSnapshot(), { site: SITE, token: TOKEN }).load(pointer);
+    expect(Object.hasOwn(view.blocks, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(view.blocks)).toBe(Object.prototype);
   });
 
   it("refuses a pointer to any other host without fetching (LOADER_FAILED)", async () => {
@@ -252,13 +294,14 @@ describe("remoteLoader: drafts", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("loads drafts in development too", async () => {
+  it("loads drafts in development too, over local files", async () => {
     vi.stubEnv("NODE_ENV", "development");
     const api = deliveryApi();
-    const draft = await hashed("Draft");
-    api.asset("/drafts/acme/feat", draft);
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
-    expect(await loader.load(`${HOST}/drafts/acme/feat@v1`)).toEqual(draft);
+    const pointer = await api.draft({ set: { SummerSEO: entry("Draft") } });
+    const fallback = docsSnapshot();
+    const view = await remote(fallback, { site: SITE, token: TOKEN }).load(pointer);
+    expect(view.blocks.SummerSEO).toEqual(entry("Draft"));
+    expect(view.blocks.HomePage).toBe(fallback.blocks.HomePage);
   });
 });
 

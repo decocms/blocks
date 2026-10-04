@@ -13,7 +13,8 @@ import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
 
 const SERVED_REVISIONS = 16;
-const CACHED_DRAFTS = 32;
+/** Composed drafts kept per CMS (see /next/studio-implementation's initial limits). */
+const CACHED_DRAFTS = 3;
 
 export function isLoader(content: unknown): content is Loader {
   return (
@@ -138,7 +139,9 @@ export class ContentStore {
     const previous = this.#source;
     if (source === previous) {
       // The same loader (a hosted remoteLoader that adopted new fallback content): re-read it.
+      // Cached drafts were layered over the old content, so they go too.
       this.#release = undefined;
+      this.#drafts.clear();
       return;
     }
     if (isSnapshot(previous)) this.#served.delete(previous.revision);
