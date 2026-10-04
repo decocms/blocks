@@ -22,7 +22,11 @@ https://store.example.com/summer?__draft=api.deco.example/drafts/acme/feat-summe
 
 The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `api.deco.example/drafts/…/feat-summer?token=…` is where the draft lives: the [Deco API](/next/hosted#terms)'s address for this site's `feat-summer` branch, plus a token signed by the site editor. Treat the path as opaque. `9f3c1a`, after the `@`, is the draft's version.
 
-The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) gives you a client over that draft: the CMS fetches that exact version from the Deco API, waits for it, and caches it by version, so the second request for the same draft is a memory read. A draft replaces the whole [revision](/next/releases-and-deployment#what-a-revision-is) (one version of all your content), deletions included, so a page in preview looks exactly as it will after publishing. If the draft can't be fetched, the client's calls return an error instead of published content, so an editor never mistakes the release for their draft (see [A failed draft is an error](/next/content#write-a-loader)).
+The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) fetches the exact draft overlay that version names. The overlay contains only replacements for changed saved blocks and tombstones for deletions. Its small manifest references immutable changed-block assets, so repeated saves download only blobs the server does not already have.
+
+The preview inherits every other block from whatever production content that server already has. There is no `baseRevision` and no download of a matching production snapshot. One client captures its local production content once, so the whole response uses that content plus one overlay. A later request can inherit newer production content without changing the pointer. Different servers can inherit different releases; the pointer fixes draft changes, not the full preview state.
+
+If the overlay can't be fetched, the client's calls return an error instead of silently displaying published content (see [A failed draft is an error](/next/content#write-a-loader)). The wire format, caching and deletion behavior are described in [Draft overlays for fast previews](/next/content-delivery#exact-draft-previews).
 
 ## Wire drafts into your app
 
@@ -144,4 +148,4 @@ The site editor edits your content without your site. It opens your site only fo
 
 ## Preview readiness
 
-A saved commit is durable before its preview asset is necessarily ready. The editor shows preparation status, then opens a signed pointer to the exact immutable revision. Moving the internal draft branch never changes what an older pointer serves. Draft reads use private object storage through the delivery service; a missing revision never triggers a GitHub fetch. See [Exact draft previews](/next/content-delivery#exact-draft-previews).
+A saved commit is durable before its preview asset is necessarily ready. The editor shows preparation status, then opens a signed pointer to the exact immutable overlay. Moving the internal draft branch never changes an older pointer's overrides, but later requests inherit whatever production that server currently has. Draft reads use private object storage through the delivery service; a missing revision never triggers a GitHub fetch. See [Exact draft previews](/next/content-delivery#exact-draft-previews).

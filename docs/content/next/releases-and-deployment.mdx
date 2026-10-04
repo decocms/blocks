@@ -24,7 +24,7 @@ Your block functions and your content live in your repository (see [The .deco fo
 
 ## What a revision is
 
-A **revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any saved block and you get a new revision. That makes a revision a safe cache key everywhere.
+A **release revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any saved block and you get a new revision. That makes a revision a safe cache key everywhere.
 
 <h2 id="publishing">Publishing is committing</h2>
 
@@ -51,3 +51,7 @@ Content can change while a server is running: in development, when you edit a fi
 Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response, or send `client.revision()` with the page and read follow-up requests with `cms.forRevision(revision)`.
 
 A revision only selects content; it isn't a secret and unlocks nothing.
+
+## Hosted draft identity
+
+A hosted preview client captures its local release and one draft overlay on first use. Its opaque revision identifies that pair; the draft pointer alone identifies only the overrides. Follow-up clients using the pointer may inherit newer local production. A served composite revision can be pinned only while the CMS retains that pair; it does not instruct the delivery API to fetch a matching base. See [Draft overlays for fast previews](/next/content-delivery#exact-draft-previews).

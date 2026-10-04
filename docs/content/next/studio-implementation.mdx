@@ -17,8 +17,9 @@ Read [Content protocol](/next/content-protocol), [Keeping drafts current](/next/
 
 - Business users work with drafts. Studio creates and maintains internal Git branches; creating branches and rebasing are never editor tasks.
 - Successful autosave means durable Git content. GitHub failure prevents new saves, but cannot prevent serving an already prepared release.
-- Production updates flow into active drafts automatically. Distinct JSON property changes combine; competing values and deletions favor the draft. Arrays are atomic. Oversized conflicts reuse the draft's entire Git blob.
+- Production updates flow into active drafts automatically. Untouched files follow production; any file edited or deleted in the draft favors the draft in full. Synchronization reuses Git blobs and never merges JSON properties or downloads conflict bodies.
 - Production and versioned preview delivery read only prepared object-store assets. Neither a cache miss nor recovery contacts GitHub, Studio's editing API or its database.
+- A draft asset is an immutable overlay of changed blocks and tombstones, with no base revision. Preview uses its server's existing production content, captured once per client; publish still builds a complete snapshot.
 - A release asset is immutable. A channel manifest selects the current release. Rollback increases the channel generation while selecting an older revision; it does not decrease the generation or require a build.
 - Editing, synchronization, publication and preparation are TypeScript control-plane work. The data plane is object storage/CDN with a minimal authorization layer when needed, independently deployable from Studio.
 - The portable protocol has four methods. Draft lifecycle, synchronization, publication, rollback and preview grants are separate Studio routes.
@@ -33,7 +34,7 @@ These are relative paths in the public [Studio repository](https://github.com/de
 | `apps/api/src/decofile/commit-coalescer.ts` | Autosave batching, awaiting committed results, retrying head races | Preserve per-request guards and receipts, normalize protocol set precedence, coordinate with synchronization |
 | `apps/api/src/decofile/read-decofile.ts` | Scoped tree traversal, blob hashes, bounded blob reads and single-flight resolution | Use for control-plane ingestion; do not use it as the production data-plane reader |
 | `apps/api/src/decofile/disk-cache.ts` | Bounded immutable blob cache | Treat it as an optimization, never as the durable release store |
-| `apps/api/src/decofile/git-compat.ts` | Git comparison and content-path replay machinery | Introduce a content-only three-way merge; retain append-only history for managed drafts |
+| `apps/api/src/decofile/git-compat.ts` | Git comparison and content-path replay machinery | Apply content-only file-level draft-wins selection; retain append-only history for managed drafts |
 | `apps/api/src/git-providers/content.ts` and `github/content.ts` | Provider abstraction, existing-blob references, Git tree/commit/ref operations | Add explicit multi-parent commits and a non-forced draft-head update; support recovering uncertain writes |
 | `apps/api/src/api/routes/github-webhook.ts` | Existing signed GitHub event intake | Durably enqueue push processing, deduplicate deliveries, trigger release preparation and draft invalidation |
 | `apps/api/src/decofile/draft-token.ts` | Signing and verification machinery | Bind new grants to site, draft identity, exact asset revision and expiry rather than only a moving branch |
@@ -53,7 +54,7 @@ Store these records through Studio's existing storage adapters and migrations. I
 
 | Record | Minimum persisted fields |
 |---|---|
-| Draft | `id`, organization/project/site IDs, repo identity, app root, internal branch, repository production ref, `headCommit`, `incorporatedProductionCommit`, lifecycle state, last editor activity, latest preview asset revision |
+| Draft | `id`, organization/project/site IDs, repo identity, app root, internal branch, repository production ref, `headCommit`, `incorporatedProductionCommit`, lifecycle state, last editor activity, latest preview overlay version |
 | Draft operation | operation ID, draft ID, kind, request digest, expected head, status, candidate commit and result, lease/fencing version, attempt and retry timing |
 | Save receipt | principal/project/draft scope, `requestKey`, canonical request digest, committed result, commit SHA, expiry; recoverable from committed metadata |
 | Repository observation | repo/ref scope, latest reconciled head, observed time; webhook delivery IDs recorded separately for deduplication |
@@ -78,7 +79,7 @@ These routes are a proposed Studio surface under `/api/:org/sites/:siteId`. Keep
 | `POST /drafts/:id/rpc` | The four-method JSON-RPC protocol | Endpoint bound to the draft; reject an explicit `ref` that attempts to escape its internal target |
 | `POST /drafts/:id/publish` | request key, expected draft head, expected channel generation | Durable operation ID; states distinguish awaiting checks, Git committed, preparing and promoted |
 | `POST /drafts/:id/discard` | request key, expected draft head | Terminal draft state; coordinated with in-flight saves |
-| `POST /drafts/:id/preview` | exact saved commit or prepared content revision | Preparing status, or signed pointer to the exact prepared asset with expiry |
+| `POST /drafts/:id/preview` | exact saved commit or prepared overlay version | Preparing status, or signed pointer to the exact prepared overlay with expiry |
 | `POST /channels/:channel/rollback` | request key, expected generation, retained target revision, reason | New generation and held channel state; no GitHub work in this operation |
 | `POST /channels/:channel/resume` | request key, expected generation | Explicitly resume automatic mode and reconcile latest desired production; never resume merely because an event arrived |
 | `GET /operations/:id` | editor session | Durable status/result or bounded error with retry timing |
@@ -103,14 +104,14 @@ save(draft, params):
   create tree + commit containing result and recoverable request metadata
   update draft ref without force; on head race rebuild and recheck guards
   persist result and emit editor invalidation
-  enqueue exact-commit preview materialization; return committed result
+  enqueue exact-commit overlay materialization; return committed result
 ```
 
 A request with an existing receipt must not synchronize and apply its old mutation again. Batch/coalescer logic retains each caller's identity, key and guards. Coalescing cannot cause one failed apply to partially write, or report another caller's unrelated mutation as its own result.
 
-For synchronization, pin base B, draft D and production M to commit SHAs, not branch names that can move while reading. Build the tree from M, replacing only owned content paths with the three-way merged result. This adopts production code and schemas and preserves other production repository paths. Refuse managed-draft code changes rather than silently treating them as content overrides.
+For synchronization, pin base B, draft D and production M to commit SHAs, not branch names that can move while reading. Build the tree from M, replacing only draft-edited or draft-deleted owned content paths. Compare B and D by blob identity: D == B takes M; otherwise D wins. This adopts production code and schemas and preserves other production repository paths. Refuse managed-draft code changes rather than silently treating them as content overrides.
 
-Use Git blob equality to select unchanged files without reading their contents. For genuine conflicts, apply the [merge rules](/next/draft-synchronization#three-way-content-merge). If any input exceeds the merge budget, reuse D's blob or deletion. A streamed read that crosses the budget aborts parsing and takes that same fallback; malformed small JSON returns an operation error and leaves the draft intact. The fallback does not bypass ordinary content-store size/format policy during later preparation.
+Use the [file-level rules](/next/draft-synchronization#file-level-draft-wins) to select existing blob IDs and deletions for all paths. No JSON bodies are read for synchronization and there is no size-based merge fallback. Large files use the same rule as small ones. Input syntax and ordinary size policy still apply when writing and materializing assets.
 
 Create a [Git commit with multiple parents](https://docs.github.com/en/rest/git/commits#create-a-commit) D and M, using the computed tree and metadata identifying M as the incorporated production commit. Update the draft ref non-forced. A competing ordinary append makes this fail; rerun against the fresh head with bounded retries. GitHub's ref update is not a general compare-and-swap with an expected-SHA argument: restrict managed branches to append-only Studio mutations, reconcile unexpected ref resets, and stop on divergent history rather than force it.
 
@@ -141,6 +142,18 @@ Release preparation, channel operations and rollback run in an independently dep
 
 Use configured R2 storage and CDN as the initial deployment target; keep the asset contract portable. The control plane writes assets. The delivery gateway has only read access and locally verifies scoped credentials using deployed verification keys. It does not query Studio's database per request. Token rotation/revocation must have a documented bounded propagation policy; if revocation state is consulted, serve that state from the isolated storage plane too. Private caching always happens behind authorization and is scoped to site and format/revision.
 
+## Draft overlay preparation
+
+Maintain the cumulative owned-file difference between the saved draft head and its internally recorded incorporated production commit. This control-plane metadata is necessary for Git synchronization; it is not sent as a `baseRevision` or imposed on preview servers. Normalize filename aliases using the shared key rule. Track deletions as tombstones and clear an override when the draft equals its incorporated production. Retain whole replacement entries for changed blocks; the draft wins simultaneous changes anywhere inside those files.
+
+Use write bodies from autosave and cached Git tree/blob identities to update the changed-entry index. On recovery or external updates, compare scoped tree metadata and read only missing changed bodies. Do not use a capped provider changed-file list as if it were complete: traverse the owned subtrees when comparison is truncated. Never crawl unrelated repo contents or rebuild a whole draft decofile merely to serve preview.
+
+Upload new changed-block assets first. Then upload the complete immutable overlay manifest, whose `set` references block hashes and whose `delete` enumerates cumulative deletions. Reuse unchanged blob assets across saves. The grant authorizes this manifest and its referenced blobs. Exclude secrets and enforce ordinary persistence guards before asset creation. The schema and `blocks.list` editor contract still describe the effective editable content; the overlay is a delivery optimization, not a replacement for that protocol shape.
+
+At request time, capture the server's existing normal production snapshot, then fetch the overlay and only missing changed blobs. Build a read-through immutable view for lookup and enumeration. No production revision is downloaded or refreshed just to satisfy a draft. Bound caches of blobs, overlays and composed views; composed-view keys include the local production revision and overlay version. References and deletion handling use that same view for every resolve in the client. For non-HTTP consumers the client lifetime has the same capture rule.
+
+Keep publication separate: it reconciles the draft with repository production and prepares a full release. A preview is not a promise that its inherited blocks match the later publication, especially during rollback holds when delivered content differs from Git.
+
 ## Promotion, rollback and recovery
 
 Use a durable per-channel lane with expected generations and stored desired manifests. It owns the only credential allowed to write channel objects. Preparation workers cannot promote directly. Every deliberate publish/resume/rollback gets a new ordered intent; superseded preparation may finish and retain its asset but cannot promote.
@@ -151,7 +164,7 @@ Only one writer may perform channel writes at a time. A database lease alone can
 
 Rollback uses this same lane with a retained ready target and sets mode to `held`. Recovery, webhook replay and periodic reconciliation must respect the hold. Explicit resume creates a new intent against the latest production observation. Record the delivery/Git mismatch and offer a separate Git revert; GitHub downtime does not block rollback.
 
-The SDK retains the greatest observed channel generation, discards stale asynchronous fetch completions, and accepts an older revision selected by a newer generation. In-flight page clients keep their original snapshot. Emit the cache-invalidation callback on generation changes even when content hashes repeat. Never silently substitute a branch head for a requested immutable preview revision.
+The SDK retains the greatest observed channel generation, discards stale asynchronous fetch completions, and accepts an older revision selected by a newer generation. In-flight page clients keep their original snapshot. Emit the cache-invalidation callback on generation changes even when content hashes repeat. Never substitute newer branch changes for an immutable overlay version. Apply it to the local production captured by this client; do not fetch or await a matching base.
 
 ## Proposed initial defaults
 
@@ -159,10 +172,9 @@ Keep these values in versioned configuration and expose protocol limits through 
 
 | Setting | Initial default |
 |---|---|
-| Property-merge input budget | 256 KiB for each of B/D/M; exceeding any one keeps the draft blob |
-| Conflicting files processed concurrently | 1 per job |
+| Synchronization file bodies downloaded | 0; only scoped tree metadata and blob identities |
 | Synchronization jobs concurrently | 1 per worker process; scale worker replicas with a global job cap |
-| Worker memory / accumulated conflict-read budget | 512 MiB container; 32 MiB input bytes per attempt, then checkpoint and yield; monitor actual heap and RSS |
+| Preparation worker memory / accumulated read budget | 512 MiB container; 32 MiB input bytes per attempt, then checkpoint and yield; monitor actual heap and RSS |
 | Protocol writes | 500 names, 1 MiB per entry, 8 MiB per request, 10 calls per batch |
 | Schema / block-list / aggregate batch response | 16 MiB / 16 MiB / 32 MiB uncompressed; error instead of truncation |
 | Prepared production snapshot | 8 MiB canonical block-map bytes; oversized historical sites need an explicit profiled tier before onboarding |
@@ -175,9 +187,10 @@ Keep these values in versioned configuration and expose protocol limits through 
 | Immutable revision cache | 1 year with immutable keys; authorize private access before using shared byte caches |
 | SDK release poll | 60 seconds with up to 10 seconds jitter, subject to the existing idle/Worker scheduling |
 | Rollback retention | 30 days minimum; always retain live channel targets and explicit pins |
+| Draft overlays / changed-blob cache | 8 MiB cumulative changed-block bytes per overlay; bounded cache, at most 3 composed views per site by default; unchanged production objects shared |
 | Preview grants / discarded-draft cleanup | 1 hour grants; assets retained beyond every unexpired grant before cleanup |
 
-Track readiness lag, promotion lag, provider calls per active draft, merge fallback counts, job RSS, head retries and held channels. Test the 8 MiB runtime limit with fallback, old/new revisions and concurrent pinned readers on the target hosts before rollout. A parser or serializer can still have high allocation overhead below the byte limit; lower concurrency or limits based on measurements.
+Track readiness lag, promotion lag, provider calls per active draft, file-level draft-win counts, job RSS, head retries and held channels. Test the 8 MiB runtime limit with fallback, old/new revisions and concurrent pinned readers on the target hosts before rollout. A parser or serializer can still have high allocation overhead below the byte limit; lower concurrency or limits based on measurements.
 
 The active-server propagation target at these defaults is preparation time plus up to roughly 75 seconds for manifest caching and polling/jitter, followed by any HTML cache delay. Scheduling and outages can extend it. Idle Workers have no elapsed-time guarantee until a request schedules refresh; their first response can serve the bundled fallback. Rollback follows the same rule.
 
@@ -187,9 +200,9 @@ The active-server propagation target at these defaults is preparation time plus 
 |---|---|
 | Editor opens a new project and saves | Internal branch created without branch UI; receipt returned only after committed files exist |
 | Main changes footer while draft changes title | Both edits appear; recorded base advances to the incorporated production commit |
-| Both change one title, array or deletion | Deterministic draft-wins result; audit identifies the automatic resolution |
-| Large conflicting block | Reuse draft blob without parsing it; unchanged blobs require no body downloads |
-| Missing size metadata or a stream crosses the limit | Read is bounded and switches to whole-draft-blob fallback, without partial writes |
+| Both change the same file, including different properties or deletion | Entire draft blob/deletion wins; audit identifies the production override |
+| Large conflicting block | Same file-level selection as every other block; zero body downloads for synchronization |
+| Missing size metadata or an asset read crosses its limit | Synchronization still uses blob IDs; writing/materializing assets enforces read limits without partial promotion |
 | Autosave races with synchronization on different replicas | Durable coordination plus head retry preserves edits; stale guards return conflict |
 | Save response lost, worker restarted | Same request key returns original commit/result; no duplicate mutation |
 | Git ref advanced, database update interrupted | Recover receipts and incorporated base from reachable commit metadata |
@@ -200,7 +213,11 @@ The active-server propagation target at these defaults is preparation time plus 
 | Old job completes after rollback | Channel remains at the rollback generation in held mode |
 | Manifest write succeeds but response is lost | Retry reconciles the same generation; an expired writer cannot overwrite a newer one |
 | SDK revision B fetch finishes after rollback to A | The higher-generation A remains selected; in-flight pages may finish on their pinned B |
-| Old preview link used after another save | Exact old asset or documented unavailable fallback, never newer branch content |
+| Old preview link used after another save | Exact old overlay or draft error, never newer branch changes; inherited content follows local production |
+| Local release changes while a draft renders | In-flight client keeps its pair; next client uses the new local release without downloading another full draft |
+| Draft deletes a block that exists in production | Tombstone hides it from lookup and listing; absent override without a tombstone inherits production |
+| Two servers have different local release revisions | Same overlay intentionally produces different inherited content; composed caches cannot cross those base identities |
+| Repeated saves change one previously edited block | Fetch the small manifest and only changed-blob hashes missing from cache, not the full production or draft map |
 | Private asset requested without a valid grant | No shared-cache bypass; tenant scope checked before bytes are served |
 | Publish confirmed, then another save arrives | Confirmed content publishes; later save remains unpublished |
 | GC runs during rollback or preview use | Channel targets, pins, referenced uploads and unexpired grants survive |
@@ -211,8 +228,8 @@ Run portable protocol conformance against the filesystem and GitHub adapters. Ad
 ## Rollout order
 
 1. Ship the shared protocol subpaths and golden hashing fixtures. Adapt existing Fast Preview reads/writes while keeping legacy routes during migration.
-2. Add durable draft IDs, operation lanes and recoverable receipts. Put automatic synchronization behind a dedicated default-off flag, then enable property merging and oversized fallback for managed content drafts.
-3. Add immutable production/draft materialization and a shadow delivery channel. Compare outputs with current control-plane reads without changing production traffic.
+2. Add durable draft IDs, operation lanes and recoverable receipts. Put automatic synchronization behind a dedicated default-off flag, then enable file-level draft wins for managed content drafts. No property merge engine is required.
+3. Add complete production snapshot and draft-overlay materialization and a shadow delivery channel. Compare outputs with current control-plane reads without changing production traffic.
 4. Enable the isolated data plane for selected sites after cold-read, outage and memory tests. Keep the bundled last-good fallback; no data-plane GitHub fallback is allowed during rollout.
 5. Enable channel promotion, rollback/hold/resume and retention after race/recovery tests pass. Make save, preview-ready, Git-committed and promoted status visible in the editor.
 6. Remove migrated readers' dependence on the legacy branch-head endpoint; retain coding-session behavior and document rollback of the rollout itself.

@@ -125,7 +125,7 @@ Persist the receipt with the mutation, or recover it from commit metadata. An in
 
 When `schemaPreconditions` is advertised, `ifSchemaMatch` guards against the form's schema changing before its save. A mismatch uses the Conflict error, with expected and actual schema versions. Recheck this and every per-entry `ifMatch` on the storage snapshot used for each atomic commit attempt, including after automatic synchronization. Receipts for completed identical requests are resolved before reevaluating those guards. Unsupported guards and request keys are rejected rather than ignored.
 
-`blocks.apply` still replaces whole entries. The JSON property merge used to incorporate production into a hosted draft belongs to the [draft lifecycle](/next/draft-synchronization#three-way-content-merge), not to a new implicit patch behavior in this method. The protocol does not execute site code or claim that shape validation proves compatibility with deployed code.
+`blocks.apply` still replaces whole entries. Hosted [draft synchronization](/next/draft-synchronization#file-level-draft-wins) uses the same whole-entry granularity: edited files and deletions favor the draft; untouched files adopt production. There is no implicit property patch behavior in this method. The protocol does not execute site code or claim that shape validation proves compatibility with deployed code.
 
 ### Polling instead of events
 

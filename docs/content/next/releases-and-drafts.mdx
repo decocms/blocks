@@ -25,7 +25,7 @@ A **release** is the content everyone sees right now. In the open-source setup, 
 
 ## Drafts
 
-A **draft** is another version of your content, not live yet. Your content [loader](/next/content#write-a-loader) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Previewing drafts](/next/hosted-drafts)).
+A **draft** is unpublished content. Hosted draft transport contains only changed blocks and deletions, layered over the production content already on the preview server; a custom loader may instead return a complete draft snapshot. Your content [loader](/next/content#write-a-loader) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Previewing drafts](/next/hosted-drafts)).
 
 The loader is what you pass to `createCMS` as its `content` option:
 

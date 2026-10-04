@@ -81,6 +81,8 @@ interface Loader {
 | Any object with `load()` | The snapshot its `load()` returns, or the draft a pointer names if it has drafts. If it can change while the process runs, give it `update()`. | Content kept somewhere other than the build, such as your own storage or Workers KV (see [Example: Workers KV](#example-workers-kv)) |
 | `remoteLoader(fallback: Snapshot \| Loader, { site?, token?, interval? })` | Hosted: releases and drafts from the [Deco API](/next/hosted#terms), over the fallback. `createCMS` builds it for you when `site` and `token` are set. Without `site` or `token`, it's a loader over the fallback alone. A release or draft over 64 MB is refused while it downloads. See [Publishing without a deploy](/next/hosted-publishing). | The hosted Deco CMS |
 
+Hosted `remoteLoader` uses complete snapshots for releases and private overlay assets for drafts. It captures the local production snapshot once, loads the overlay manifest and missing changed-block blobs, and exposes the combined view through the existing `Snapshot` interface. It does not request a matching base release. The draft client's revision is an opaque identity derived from the captured production revision and overlay version; cache composed results with both. Custom loaders may still return self-contained draft snapshots. See [Draft overlays for fast previews](/next/content-delivery#exact-draft-previews).
+
 ### Example: Workers KV
 
 Large sites on Cloudflare Workers can keep their content out of the bundle (see [Large content on Workers](/next/hosted-publishing#large-content-on-workers)). The loader is a few lines of your own code:

@@ -4,7 +4,7 @@ nav: Draft synchronization
 group: Under the hood
 kind: internals
 order: 10
-description: Automatically incorporate published Git content into editor drafts, with draft-wins JSON merging and bounded memory.
+description: Automatically incorporate published Git content into editor drafts, with file-level draft-wins selection and no JSON merge downloads.
 ---
 
 # Keeping drafts current
@@ -26,33 +26,33 @@ Keep periodic control-plane reconciliation as a fallback for missed events. Loca
 
 Synchronizing a draft requires GitHub reads and usually a commit. The cost follows active drafts and actual changes, not visitor traffic. A publication arriving after a synchronization began is incorporated by the next pass; drafts are not promised to match a perpetually moving head instantly.
 
-## Three-way content merge
+## File-level draft wins
 
-Compare the previous incorporated production content (**base**), the current **draft**, and the latest **production** content. Equality is structural JSON equality, not formatting. Missing properties and deleted blocks are distinct from JSON `null`.
+Compare the previous incorporated production tree (**B**), the current draft tree (**D**), and the latest production tree (**M**) by file path and Git blob identity. A missing file is a deletion, distinct from a JSON entry whose value is `null`.
 
-| Change relative to base | Result |
+For each owned saved-content path, if D equals B, take M. Otherwise take D, including deletion. When D equals M there is no remaining override after advancing the incorporated base. This is a whole-file rule: no property-level merge, textual merge or conflict-marker parsing.
+
+| File change relative to B | Result |
 |---|---|
-| Only production changed it | Adopt production |
-| Only the draft changed it | Keep the draft |
-| Both made the same change | Keep that value |
-| Both changed different object properties | Merge both changes |
-| Both changed the same value differently | Draft wins |
-| Draft deleted a block or property that production edited | Keep the deletion |
-| Draft edited a block or property that production deleted | Keep the draft value |
+| Only production changed it | Adopt production's blob |
+| Only the draft changed it | Keep the draft's blob |
+| Both changed it, even in different JSON properties | Keep the entire draft file |
+| Draft deleted a file that production edited | Keep the deletion |
+| Draft edited a file that production deleted | Keep the draft file |
+| Both created the same path differently | Keep the draft file |
+| Both now contain the same blob | Use that blob and clear the override |
 
-Recurse through objects when all three values are compatible objects. Arrays are atomic values in the first version: if both sides changed one, take the draft's entire array. A type change or a competing creation is also atomic. Do not merge array items by position; reordering sections would associate unrelated entries.
+For example, if the draft changes a hero title and production changes the image in that same file, the whole draft hero wins, including its previous image. If production changes a separate footer file, the draft inherits that footer. This is intentional and matches the whole-block preview overlay, not an exceptional fallback for large files.
 
-After incorporating production, advance the recorded base with the draft commit. Old changes must not remain pending against an old base forever. Retain both inputs in Git history using append-only merge commits; automatic synchronization does not squash or force-push saved history. Store enough metadata on the synchronization commit to recover the incorporated base if the database update is interrupted.
+After incorporating production, advance the recorded base with the draft commit. Keep enough metadata on the commit to recover the incorporated production SHA if the database update is interrupted. Retain append-only history for managed drafts; automatic synchronization never asks editors to rebase or rewrites their saved commits.
 
-Only retain draft overrides in the app root's saved-content paths. Code and generated schemas follow production; unrelated repository and monorepo paths are preserved. Publishing reconciles again and writes the resulting content-only diff onto current production, respecting branch protection and required checks.
+Only retain overrides in the app root's saved-content paths. Code and generated schemas follow production; unrelated production repository and monorepo paths are preserved. Publishing reconciles again using this same rule and writes a content-only diff onto current production, respecting branch protection and required checks.
 
-## Reuse blobs before reading JSON
+## Reuse blobs without reading JSON
 
-A Git blob hash can settle most files without downloading their bodies. If only one side changed a file, or both sides have the same blob, reference that existing blob in the new Git tree. Only files both sides changed differently need base, draft and production bodies for property-level merging.
+The whole-file decision uses tree metadata only. Reference existing blob IDs in the new tree; synchronization does not download or parse base, draft or production file bodies, even when they are huge. Traverse only owned subtrees, bound metadata concurrency, and detect truncated provider comparisons instead of silently omitting paths.
 
-For a file over the configured merge-size limit, keep the draft's whole blob by reference. Do the same if any of its three versions exceeds that limit; deleted draft entries stay deleted. Check provider size metadata first and enforce byte limits while streaming, because metadata can be absent or incorrect. This fallback avoids parsing the large file. It can discard production edits to other properties in that file, so report it separately from an ordinary property conflict.
-
-Process conflicting files sequentially or with low bounded concurrency. Persist each merged result and release its parsed objects before starting the next. Track a total job budget too: many small files can exhaust memory or time. Blob caches store immutable content with a bounded size and lifetime. Snapshot assembly has its own [memory bounds](/next/content-delivery#bound-preparation-memory).
+There is no property-merge size threshold or oversized-conflict fallback to implement. Content reads, editor writes and [asset preparation](/next/content-delivery#bound-preparation-memory) still enforce their own limits; they cannot infer safe heap usage from this cheaper synchronization path.
 
 ## Saves racing with synchronization
 
@@ -64,10 +64,14 @@ Parse the merged content before committing: every file must still be valid JSON.
 
 ## What the editor sees
 
-The draft lifecycle routes expose the latest incorporated production commit, synchronization state and a bounded summary of automatic resolutions. For example: "Updated published content; kept your title" or "Kept your whole block because it exceeded the merge limit." Keep the full audit record outside content snapshots.
+The draft lifecycle routes expose the latest incorporated production commit, synchronization state and a bounded summary of automatic resolutions. For example: "Updated published content; kept your hero file." Report when the draft file replaced a production change, without requiring manual conflict resolution. Keep the full audit record outside content snapshots.
 
 Emit changes through Studio's existing event delivery for open editors, with a slow fallback poll. The portable [content protocol](/next/content-protocol) remains polling-based and works without events. Branch creation, synchronization and rebasing are never tasks the business user has to perform.
 
 ## Studio implementation
 
 The [Studio implementation handoff](/next/studio-implementation) maps this design to existing Fast Preview modules and specifies persisted state, operation contracts, sequencing, initial limits, recovery scenarios and rollout phases.
+
+## Preview transport
+
+Synchronization maintains Git content and its incorporated production metadata. Preview delivery is separately optimized: [draft overlays](/next/content-delivery#exact-draft-previews) contain only cumulative changed blocks and deletion tombstones, applied over whatever production the preview server already has. The internal Git base is never a required preview `baseRevision`.

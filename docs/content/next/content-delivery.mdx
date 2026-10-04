@@ -89,9 +89,31 @@ Rollback uses the same propagation path as publishing. An active process sees it
 
 ## Exact draft previews
 
-Materialize draft commits into private immutable assets as well. A signed preview grant scopes access to the site, draft revision and expiry. The preview endpoint fetches the exact requested revision, never substitutes the current branch head under an old version, and never calls GitHub to fill a cache miss. An unavailable revision is an error: the client returns `LOADER_FAILED` and never substitutes published content.
+A draft is delivered as an immutable **overlay**, not a complete release snapshot. Its version fixes the replacements and deletions; it does not fix the inherited production content. There is no `baseRevision` in the draft asset or pointer. The base is whatever production snapshot the preview server already has when this client first loads.
 
-Saving and preview readiness are separate. A save returns after the Git commit; the editor can show "preparing preview" until materialization finishes. Publishing, rollback, preview grants and draft lifecycle remain control-plane routes outside the [content protocol](/next/content-protocol).
+```json
+{
+  "format": 1,
+  "set": { "HomeHero": "sha256-changed-block-hash" },
+  "delete": ["OldPromotion"]
+}
+```
+
+Store the manifest at `/sites/<site>/drafts/<overlay-version>.json` and changed JSON blocks at `/sites/<site>/draft-blocks/<block-hash>.json`. Each manifest contains the complete cumulative set of draft overrides and tombstones, not a patch that requires replaying earlier draft versions. Generate disjoint `set` and `delete` sets. The overlay version hashes the canonical manifest; block hashes identify the canonical changed JSON. Production releases still use complete `{ revision, blocks }` assets.
+
+The SDK downloads the small manifest and only referenced block blobs missing from its bounded, site-scoped cache. A new save can reuse previously downloaded blobs. It never fetches a production revision just to align a preview, and never crawls GitHub. A cold server uses its normal production fallback, loading that fallback by its existing mechanism if necessary; there is no extra draft base fetch or release-refresh barrier.
+
+Capture that local production snapshot once for each draft client. Look up draft replacements first, treat tombstones as absent, and inherit all other blocks from the captured production map. Enumeration unions the names and filters deletions. Use a read-through view or persistent map sharing unchanged objects instead of deep-copying the full release. Do not mutate the production snapshot when applying an overlay or resolving its entries.
+
+A subsequent request may inherit a newer local release, and another server may inherit a different one. That is intentional: a draft link identifies exact draft changes, not a reproducible full-state preview or a promise to match publication exactly. Rollback of production also changes inherited preview content on later requests. In-flight clients keep their captured base and overlay.
+
+Cache overlay assets by site and overlay version, and changed blobs by site and block hash. If caching composed views or rendered previews, key them by both the captured local production revision and overlay version, plus the normal access/request scope. An overlay version alone cannot identify the effective content. The draft client's opaque revision identifies this pair; it is not the release's full-map hash. Do not hash or serialize the entire merged map simply to construct that identity.
+
+A signed grant scopes access to site, draft overlay version and expiry. Authorize changed-blob reads against membership in that authorized manifest; knowing a block hash alone grants no access. Never substitute newer branch changes for an older overlay version. Missing, invalid or unauthorized overlay assets fail the draft client as documented; they do not silently display published content.
+
+Saving and preview readiness are separate: a save is committed before its overlay and referenced blobs necessarily exist. Upload changed blobs first, then the immutable manifest; show "preparing preview" until both are ready. Control-plane preparation uses saved write bodies and cached Git blob IDs, reads bodies only for changed files, and does not reconstruct a complete draft snapshot. The production commit incorporated by [draft synchronization](/next/draft-synchronization) remains internal Git metadata, not a preview base constraint. The same file-level rule applies during synchronization and publication: an edited draft file wins in full; production changes in that same file are intentionally not merged by property. Untouched files inherit production.
+
+Publishing, rollback, preview grants and draft lifecycle remain control-plane routes outside the [content protocol](/next/content-protocol). Publishing prepares a complete production snapshot; draft overlays do not change release or rollback semantics.
 
 ## Bound preparation memory
 
