@@ -11,10 +11,12 @@ import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
+import { parseDraftPointer } from "./draft.ts";
 import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity.ts";
 import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry.ts";
 import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types.ts";
+import { forceVariants } from "./variants.ts";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
 const MIN_INTERVAL = 60_000;
@@ -73,8 +75,13 @@ class CMSInstance implements CMS {
     );
   }
 
+  /** The draft, with the variants the pointer forces (even over a source with no drafts). */
   forDraft(pointer: string): Client {
-    return this.#client(() => this.#store.draft(pointer));
+    const variants = parseDraftPointer(pointer)?.variants;
+    if (variants === undefined) return this.#client(() => this.#store.draft(pointer));
+    return this.#client(() =>
+      this.#store.draft(pointer).then((snapshot) => forceVariants(snapshot, variants)),
+    );
   }
 
   forRevision(revision: string): Client {

@@ -2,8 +2,12 @@
  * Draft pointers (see /next/api-reference#draft-pointers): the string
  * `<host[:port]><path[?query]>@<version>` that names a draft, and the two
  * helpers that carry one from a `?__draft=` link into a cookie.
+ *
+ * The query's reserved `__variant` parameters are the variants a preview
+ * forces (`<block>@<path>=<index>`, URL-encoded, one per multivariate); the
+ * parser lifts them out of `path` into `variants`.
  */
-import type { DraftPointer } from "./types.ts";
+import type { DraftPointer, ForcedVariant } from "./types.ts";
 
 /** The draft cookie's name, for frameworks whose cookie API has no Request (Next.js `cookies()`). */
 export const DRAFT_COOKIE = "deco-draft";
@@ -18,6 +22,8 @@ const VERSION_RE = /^[A-Za-z0-9._-]{1,64}$/;
 /** Rooted path with an optional query; no `@`, `#`, whitespace or scheme characters. */
 const PATH_RE = /^\/[A-Za-z0-9/_.%~=&?-]*$/;
 const MAX_POINTER_LENGTH = 4096;
+const VARIANT_PARAM = "__variant=";
+const INDEX_RE = /^(0|[1-9][0-9]{0,3})$/;
 
 /**
  * Parses a pointer, strictly: `null` on a scheme, a stray `@`, an unrooted
@@ -39,7 +45,12 @@ export function parseDraftPointer(raw: string | null | undefined): DraftPointer 
   if (!PATH_RE.test(path) || path.startsWith("//")) return null;
 
   const host = normalizeHost(location.slice(0, slash));
-  return host === null ? null : { host, path, version };
+  if (host === null) return null;
+  const split = splitVariants(path);
+  if (split === null) return null;
+  return split.variants.length === 0
+    ? { host, path, version }
+    : { host, path: split.path, version, variants: split.variants };
 }
 
 /**
@@ -48,12 +59,70 @@ export function parseDraftPointer(raw: string | null | undefined): DraftPointer 
  * bad pointer is caught where it's built rather than where it's loaded.
  */
 export function formatDraftPointer(pointer: DraftPointer): string {
-  const raw = `${pointer.host}${pointer.path}@${pointer.version}`;
-  const parsed = parseDraftPointer(raw);
-  if (parsed === null || parsed.path !== pointer.path || parsed.version !== pointer.version) {
+  const variants = pointer.variants ?? [];
+  const params = variants.map((variant) => VARIANT_PARAM + encodeVariant(variant));
+  const path =
+    params.length === 0
+      ? pointer.path
+      : `${pointer.path}${pointer.path.includes("?") ? "&" : "?"}${params.join("&")}`;
+  const parsed = parseDraftPointer(`${pointer.host}${path}@${pointer.version}`);
+  if (
+    parsed === null ||
+    parsed.path !== pointer.path ||
+    parsed.version !== pointer.version ||
+    JSON.stringify(parsed.variants ?? []) !== JSON.stringify(variants.map(plainVariant))
+  ) {
     throw new TypeError(`invalid draft pointer parts: ${JSON.stringify(pointer)}`);
   }
-  return `${parsed.host}${parsed.path}@${parsed.version}`;
+  return `${parsed.host}${path}@${parsed.version}`;
+}
+
+/** The path without its `__variant` parameters, and the variants they force; `null` on a bad one. */
+function splitVariants(path: string): { path: string; variants: ForcedVariant[] } | null {
+  const q = path.indexOf("?");
+  if (q === -1) return { path, variants: [] };
+  const kept: string[] = [];
+  const variants: ForcedVariant[] = [];
+  for (const param of path.slice(q + 1).split("&")) {
+    if (!param.startsWith(VARIANT_PARAM)) {
+      kept.push(param);
+      continue;
+    }
+    const variant = decodeVariant(param.slice(VARIANT_PARAM.length));
+    if (variant === null) return null;
+    variants.push(variant);
+  }
+  const base = path.slice(0, q);
+  return { path: kept.length === 0 ? base : `${base}?${kept.join("&")}`, variants };
+}
+
+/** `<block>@<path>=<index>`: the index after the last `=`, the block before the last `@`. */
+function decodeVariant(encoded: string): ForcedVariant | null {
+  let raw: string;
+  try {
+    raw = decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+  const eq = raw.lastIndexOf("=");
+  const at = raw.lastIndexOf("@", eq);
+  if (eq === -1 || at <= 0) return null;
+  const index = raw.slice(eq + 1);
+  const path = raw.slice(at + 1, eq);
+  if (!INDEX_RE.test(index) || (path !== "" && path.split(".").includes(""))) return null;
+  return { block: raw.slice(0, at), path, index: Number(index) };
+}
+
+function encodeVariant({ block, path, index }: ForcedVariant): string {
+  // encodeURIComponent leaves !'()* as they are; the pointer's path doesn't allow them.
+  return encodeURIComponent(`${block}@${path}=${index}`).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function plainVariant({ block, path, index }: ForcedVariant): ForcedVariant {
+  return { block, path, index };
 }
 
 function normalizeHost(authority: string): string | null {
