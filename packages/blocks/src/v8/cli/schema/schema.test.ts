@@ -387,6 +387,46 @@ export const page = (props: StorePage) => props;`,
   }, 30_000);
 });
 
+describe("v7 field fidelity", () => {
+  it("keeps literal selects in declared order, maps @format datetime, and keeps free-form maps plain", async () => {
+    const fixture = createFixture({
+      "src/card.ts": `
+// Literals the checker meets first get lower ids; a union of them would
+// otherwise come out in that order instead of the order written below.
+export type Earlier = "page" | "product";
+export type Kind = "search" | "collection" | "page" | "product";
+export interface Badge { label: string }
+export interface Props {
+  earlier?: Earlier;
+  kind: "search" | "collection" | "page" | "product";
+  aliased?: Kind;
+  /** @format datetime */
+  endsAt?: string;
+  entities?: Record<string, any>;
+}
+export const card = (props: Props) => ({ component: "card", props });
+export const badge = (): Badge => ({ label: "" });`,
+      ".deco/index.ts": `import { badge, card } from "../src/card"; export default { badge, card };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const p = m.schema.definitions[`${b64("card")}@Props`]?.properties;
+      expect(p, Object.keys(m.schema.definitions).join(" ")).toBeDefined();
+      expect(p.kind.enum).toEqual(["search", "collection", "page", "product"]);
+      expect(p.aliased.enum).toEqual(["search", "collection", "page", "product"]);
+      expect(p.endsAt.format).toBe("date-time");
+      expect(p.entities).toEqual({
+        type: "object",
+        additionalProperties: {},
+        nullable: true,
+        title: "Entities",
+      });
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
 describe("imported maps", () => {
   it("follows a spread app map, the later key winning", async () => {
     const fixture = createFixture({

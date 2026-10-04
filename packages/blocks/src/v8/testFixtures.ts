@@ -2,6 +2,7 @@
  * The docs' running examples (blocks, saved blocks, how resolution works,
  * routing), as one block map and one content module, shared by the v8 tests.
  */
+import { computeBlockHash, computeOverlayVersion, type DraftOverlay } from "./canonical";
 import type { Blocks, Snapshot } from "./types";
 
 export const seo = (props: { title: string; description: string }) => ({ ...props });
@@ -83,4 +84,27 @@ export function docsSnapshot(revision = "rev-1"): Snapshot {
       },
     },
   };
+}
+
+/**
+ * The delivery assets of a hosted draft overlay (see
+ * /next/content-delivery#exact-draft-previews), as the site editor prepares
+ * them: each changed entry under its block hash, then the manifest under its
+ * overlay version. Paths are relative to the delivery origin.
+ */
+export async function draftOverlayAssets(
+  site: string,
+  changes: { set?: Record<string, unknown>; delete?: string[] },
+): Promise<{ version: string; overlay: DraftOverlay; assets: Map<string, unknown> }> {
+  const assets = new Map<string, unknown>();
+  const set: Record<string, string> = {};
+  for (const [name, entry] of Object.entries(changes.set ?? {})) {
+    const hash = await computeBlockHash(entry);
+    Object.defineProperty(set, name, { value: hash, enumerable: true }); // even "__proto__"
+    assets.set(`/sites/${site}/draft-blocks/${hash}.json`, entry);
+  }
+  const overlay: DraftOverlay = { format: 1, set, delete: changes.delete ?? [] };
+  const version = await computeOverlayVersion(overlay);
+  assets.set(`/sites/${site}/drafts/${version}.json`, overlay);
+  return { version, overlay, assets };
 }

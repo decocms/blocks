@@ -6,10 +6,13 @@ import {
   applyRequestDigest,
   CanonicalJsonError,
   canonicalJson,
+  computeBlockHash,
   computeContentRevision,
+  computeOverlayVersion,
+  DRAFT_OVERLAY_FORMAT,
   sha256Hex,
 } from "./canonical";
-import { contentHashFixtures } from "./conformance/contentHashFixtures";
+import { contentHashFixtures, draftOverlayFixtures } from "./conformance/contentHashFixtures";
 
 describe("canonicalJson", () => {
   it("sorts object keys recursively in code-unit order and keeps array order", () => {
@@ -97,5 +100,30 @@ describe("computeContentRevision: the golden fixtures", () => {
       CanonicalJsonError,
     );
     await expect(computeContentRevision({ x: Number.NaN })).rejects.toThrow(CanonicalJsonError);
+  });
+});
+
+describe("draft overlay hashes: the golden fixtures", () => {
+  it.each(draftOverlayFixtures.map((f) => [f.id, f] as const))("%s", async (_id, fixture) => {
+    for (const [name, entry] of Object.entries(fixture.blocks)) {
+      expect(await computeBlockHash(entry)).toBe(fixture.hashes[name]);
+      expect(fixture.overlay.set[name]).toBe(fixture.hashes[name]);
+    }
+    expect(canonicalJson(fixture.overlay)).toBe(fixture.canonical);
+    expect(await computeOverlayVersion(fixture.overlay)).toBe(fixture.version);
+    expect(createHash("sha256").update(fixture.canonical, "utf8").digest("hex")).toBe(
+      fixture.version,
+    );
+  });
+
+  it("an overlay version is independent of key order, and the format is versioned", async () => {
+    const a = await computeOverlayVersion({
+      format: DRAFT_OVERLAY_FORMAT,
+      set: { b: "1", a: "2" },
+      delete: [],
+    });
+    const b = await computeOverlayVersion({ delete: [], set: { a: "2", b: "1" }, format: 1 });
+    expect(a).toBe(b);
+    expect(DRAFT_OVERLAY_FORMAT).toBe(1);
   });
 });

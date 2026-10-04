@@ -627,7 +627,7 @@ describe("AR-22 remoteLoader", () => {
       token: "t",
     });
     const [, error] = await cms
-      .forDraft("delivery.decocms.com/drafts/acme/x@v1")
+      .forDraft(`delivery.decocms.com/sites/acme/drafts?grant=g@${"e".repeat(64)}`)
       .resolve("SummerSEO");
     expect(error?.code).toBe("LOADER_FAILED");
     expect(fetch).toHaveBeenCalled();

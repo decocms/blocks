@@ -41,7 +41,7 @@ class CMSInstance implements CMS {
   readonly #telemetry: TelemetryPipeline | undefined;
   #blocks: Blocks;
   /**
-   * When the next check is due. The first is on the first `forRelease()`, not
+   * When the next check is due. The first is on the first `forRelease()` or `forDraft()`, not
    * at construction: Workers read `Date.now()` as 0 at module scope.
    */
   #nextCheck: number | undefined;
@@ -75,8 +75,13 @@ class CMSInstance implements CMS {
     );
   }
 
-  /** The draft, with the variants the pointer forces (even over a source with no drafts). */
+  /**
+   * The draft, with the variants the pointer forces (even over a source with no
+   * drafts). A draft inherits local production, so it schedules the same
+   * background release check `forRelease()` does (never in front of the draft).
+   */
   forDraft(pointer: string): Client {
+    this.#scheduleUpdate();
     const variants = parseDraftPointer(pointer)?.variants;
     if (variants === undefined) return this.#client(() => this.#store.draft(pointer));
     return this.#client(() =>
