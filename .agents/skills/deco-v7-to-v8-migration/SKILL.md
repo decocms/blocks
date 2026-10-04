@@ -14,6 +14,8 @@ The spec is the docs page **Migrating from v7** (`/next/renames-and-migrations`)
 - `package.json` depends on `@decocms/blocks` `^7`, and on `@decocms/tanstack` or `@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli` or v7 `@decocms/apps-*`.
 - Saved content lives in `.deco/blocks/*.json`, or the site serves it at `/.decofile`.
 
+**Native or mobile apps** whose v7 package only generated Studio's files (bundled JSON, native rendering) also apply. The script still runs, but most manual steps don't: follow `reference/native-apps.md`.
+
 Not for sites still on `@decocms/start@6.x` (upgrade to 7.x first with `decocms-v6-to-v7-upgrade`) or on Fresh/Deno (migrate to TanStack first with `deco-to-tanstack-migration`; both live on the 7.x branch).
 
 ## Prerequisites
@@ -78,7 +80,7 @@ bunx deco schema && bunx deco content && bunx deco check   # 0 errors
 bun run typecheck && bun run build
 ```
 
-Then compare the migrated site with the v7 one page by page (a parity harness: SSR HTML, JSON-LD, analytics calls, cache headers, third-party requests). Encode every difference the product owner approves as an explicit rule, never a blanket ignore (`reference/parity.md`).
+Then compare the migrated site with the v7 one page by page (a parity harness: SSR HTML, JSON-LD, analytics calls, cache headers, third-party requests). Compare the editor forms as well (v7 `meta.gen.json` vs v8 `schema.gen.json`): many differences are stale v7 files or v7 heuristics v8 drops on purpose, a few are CLI bugs to fix. Encode every difference the product owner approves as an explicit rule, never a blanket ignore. Keep explained-but-unapproved ones as `pending`, and have a strict compare fail on them (`reference/parity.md`).
 
 ## DO NOT
 
@@ -92,5 +94,6 @@ Then compare the migrated site with the v7 one page by page (a parity harness: S
 - `reference/import-map.md`: every v7 import and its v8 replacement.
 - `reference/legacy-names.md`: the alias table and the seven rewritten names.
 - `reference/gotchas.md`: what the site migrations taught.
-- `reference/parity.md`: approved v7 → v8 differences.
+- `reference/parity.md`: how to approve differences, the pending state, editor-form causes, approved differences so far.
+- `reference/native-apps.md`: apps that bundle content and render natively.
 - `scripts/`: the migration (`main.ts` entry). Its tests run with the repo's `bun run test`.
