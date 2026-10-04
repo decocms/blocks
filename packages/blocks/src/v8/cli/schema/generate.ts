@@ -27,6 +27,7 @@ import {
   awaitedOf,
   getJsDocTags,
   isDescriptorType,
+  isFreeFormMap,
   isJsxType,
   nonNullable,
   RESOLVABLE_KEY,
@@ -283,7 +284,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     root,
     fitting(type) {
       const target = nonNullable(type);
-      if (target.isAny() || target.isUnknown()) return [];
+      if (target.isAny() || target.isUnknown() || isFreeFormMap(target)) return [];
       const cached = fitCache.get(target.compilerType);
       if (cached) return cached;
       const keys = candidates

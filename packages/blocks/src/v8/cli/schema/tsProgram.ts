@@ -321,6 +321,23 @@ export class TsNode {
     return t && typeof t === "object" && "kind" in t ? this.ctx.node(t) : undefined;
   }
 
+  /**
+   * The declarations of the type aliases a type annotation names, as written:
+   * `Kind` and `Kind | null` both give `Kind`'s. The checker drops the alias
+   * from `Kind | undefined`, so this is how a field finds its alias.
+   */
+  getAliasDeclarationTexts(): string[] {
+    const ts = this.ctx.ts;
+    const node = this.compilerNode as TS.TypeNode;
+    const members = ts.isUnionTypeNode(node) ? node.types : [node];
+    const texts: string[] = [];
+    for (const member of members) {
+      const decl = this.ctx.checker.getTypeFromTypeNode(member).aliasSymbol?.declarations?.[0];
+      if (decl) texts.push(decl.getText(decl.getSourceFile()));
+    }
+    return texts;
+  }
+
   /** Whether `other` is this node or inside it. */
   contains(other: TsNode): boolean {
     const a = this.compilerNode;
