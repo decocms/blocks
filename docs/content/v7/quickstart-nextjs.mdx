@@ -1,0 +1,248 @@
+---
+title: "Quickstart: Next.js App Router"
+nav: Quickstart · Next.js
+group: Getting started
+order: 4
+description: Add Deco Blocks to a Next.js App Router site, render one CMS page and connect Deco Studio.
+---
+
+# Quickstart: Next.js App Router
+
+In this guide you'll add Deco Blocks to a Next.js App Router project: one section, one page block, a page that renders whatever the CMS has for a path, and the routes Deco Studio uses to read, preview and publish content. Sections render as React Server Components, and sections marked `"use client"` keep working, including in Studio previews.
+
+You need Next.js 15 or later, React 19 and Node.js 24 or later. The examples assume your app lives in `src/app/`.
+
+## 1. Install the packages
+
+```bash
+bun add @decocms/blocks @decocms/blocks-admin @decocms/nextjs
+```
+
+`next`, `react` and `react-dom` are peer dependencies your project already has. Add the code generator and `tsx` to run it:
+
+```bash
+bun add -d @decocms/blocks-cli tsx
+```
+
+## 2. Wrap the Next.js config
+
+`withDeco` adds the rewrites that map Studio's URLs (`/.decofile`, `/live/_meta`, `/live/previews/*`) onto routes Next.js can express, and adds the Deco packages to `transpilePackages` because they ship TypeScript source.
+
+```ts title="next.config.ts"
+import type { NextConfig } from "next";
+import { withDeco } from "@decocms/nextjs/config";
+
+const nextConfig: NextConfig = {};
+
+export default withDeco(nextConfig);
+```
+
+It also adds response headers that keep draft-preview renders out of shared caches and search indexes, and it merges with any `rewrites`, `headers` and `transpilePackages` you already have. A CommonJS `next.config.js` works the same with `require("@decocms/nextjs/config")`.
+
+## 3. Add a path alias for generated files
+
+The code generator writes into `.deco/` at the project root. Add a `deco/*` alias so setup code can import those files without long relative paths:
+
+```json title="tsconfig.json (compilerOptions)"
+{
+  "compilerOptions": {
+    "paths": {
+      "deco/*": [".deco/*"]
+    }
+  }
+}
+```
+
+Keep any aliases you already have, such as `@/*`.
+
+## 4. Write a section
+
+A *section* is a React component that editors can place on a page: a file under `src/sections/` with a default export and an exported `Props` type. JSDoc comments become labels in Studio.
+
+```tsx title="src/sections/Hero.tsx"
+import type { ImageWidget } from "@decocms/blocks/types/widgets";
+
+export interface Props {
+  /** @title Title */
+  title: string;
+  /** @title Subtitle */
+  subtitle?: string;
+  /** @title Background image */
+  image?: ImageWidget;
+}
+
+export default function Hero({ title, subtitle, image }: Props) {
+  return (
+    <section style={{ backgroundImage: image ? `url(${image})` : undefined }}>
+      <h1>{title}</h1>
+      {subtitle && <p>{subtitle}</p>}
+    </section>
+  );
+}
+```
+
+Its key in content is `site/sections/Hero.tsx`. This one is a Server Component; a section that needs state or event handlers can start with `"use client"` like any other component.
+
+## 5. Add a page
+
+Content lives in `.deco/blocks/`, one JSON file per block. A *page block* has a `path` and a list of `sections`, and either its name starts with `pages-` or its `__resolveType` is `website/pages/Page.tsx`.
+
+```json title=".deco/blocks/pages-home.json"
+{
+  "__resolveType": "website/pages/Page.tsx",
+  "name": "Home",
+  "path": "/",
+  "sections": [
+    {
+      "__resolveType": "site/sections/Hero.tsx",
+      "title": "Summer collection",
+      "subtitle": "Light layers for long days."
+    }
+  ]
+}
+```
+
+## 6. Generate
+
+```json title="package.json (scripts)"
+{
+  "scripts": {
+    "generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --site my-store",
+    "predev": "bun run generate",
+    "prebuild": "bun run generate"
+  }
+}
+```
+
+```bash
+bun run generate
+```
+
+The generator notices `@decocms/nextjs` in your dependencies and adjusts what it writes:
+
+- `.deco/blocksManifest.gen.ts`, a module that statically imports every block file. Content becomes part of Next's module graph, so editing a block hot-reloads in `next dev` and production builds bundle the content.
+- `.deco/sections.gen.ts`, including `sectionImports`: a map of lazy imports for every section (Next.js has no `import.meta.glob`, so the map is generated instead).
+- `.deco/meta.gen.json`, the schema Studio builds its forms from.
+
+Rerun it when you add or remove a section or a block file, or change a section's `Props` (the schema comes from them). Editing an existing block's content doesn't need it; the `predev` and `prebuild` scripts above also run it for you. Commit `.deco/generate.digests.json` so CI can reuse the cache. See [Code generation](/v7/generate).
+
+## 7. Create the setup function
+
+`createNextSetup` is the Next.js bootstrap. It returns `ensureSetup`, an async function that registers your sections and content the first time it's called and does nothing on later calls.
+
+```ts title="src/deco/setup.ts"
+import { createNextSetup } from "@decocms/nextjs/setup";
+import blocks from "deco/blocksManifest.gen";
+import { loadingFallbacks, sectionImports, sectionMeta, syncComponents } from "deco/sections.gen";
+
+export const ensureSetup = createNextSetup({
+  blocks,
+  blocksDir: false,
+  sections: sectionImports,
+  conventions: { meta: sectionMeta, syncComponents, loadingFallbacks },
+  meta: () => import("deco/meta.gen.json").then((m) => m.default),
+  productionOrigins: ["https://www.example.com"],
+});
+```
+
+- `blocks` with `blocksDir: false` makes the generated manifest the only content source, so setup reads nothing from disk.
+- `conventions` applies the per-section flags the generator found. See [Section conventions](/v7/sections).
+- `meta` points at the schema. Keep it a dynamic `import()` so it loads only when Studio asks for it. Without it, `/live/_meta` answers 503 "Schema not initialized".
+
+Import this module only from server code (routes, layouts, pages), never from a client component.
+
+<Callout type="warning">**`ensureSetup` is not a side effect of importing the file.** Nothing is registered until something awaits it. The three places below each await it.</Callout>
+
+## 8. Mount the admin routes
+
+One catch-all route serves the whole admin protocol: reading and publishing content, the schema, loader and action calls, and section rendering.
+
+```ts title="src/app/deco/[[...deco]]/route.ts"
+import { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";
+import { ensureSetup } from "../../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export const { GET, POST, OPTIONS } = createDecoRouteHandlers({ setup: ensureSetup });
+```
+
+Studio previews render on a separate page at the fixed path `/deco/preview`. The catch-all redirects preview requests there.
+
+```tsx title="src/app/deco/preview/[[...path]]/page.tsx"
+import { createDecoPreviewPage } from "@decocms/nextjs";
+import { ensureSetup } from "../../../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export default createDecoPreviewPage({ setup: ensureSetup });
+```
+
+Previews need their own page because only Next's Server Components renderer can render sections that contain Client Components. See [Previews and draft preview](/v7/preview).
+
+<Callout type="warning">
+
+**Import from `@decocms/nextjs/routeHandlers` in `route.ts`, never from `@decocms/nextjs`.** The root package includes the rendering components, and route handlers can't load client component code: the route fails at import time with errors like "createContext is not a function". The root package is correct in pages and layouts.
+
+**Don't remove `"use client"` from a section to make a preview work.** Previews of interactive sections go through the preview page above.
+
+</Callout>
+
+## 9. Await setup in the root layout
+
+Pages don't have a setup hook of their own, so the root layout, which every page shares, awaits `ensureSetup` before rendering. `DecoRootLayout` renders `<html>` and `<body>` and the bridge that lets Studio talk to the page in its preview frame.
+
+```tsx title="src/app/layout.tsx"
+import { DecoRootLayout } from "@decocms/nextjs";
+import { ensureSetup } from "../deco/setup";
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await ensureSetup();
+  return <DecoRootLayout siteName="my-store">{children}</DecoRootLayout>;
+}
+```
+
+## 10. Render CMS pages
+
+`createDecoPage` returns a page component that resolves the CMS page for the current path, plus a `generateMetadata` that fills the title, description, canonical URL and robots from the page's SEO. Paths with no page block get Next's `notFound()`.
+
+```tsx title="src/app/[[...slug]]/page.tsx"
+import { createDecoPage } from "@decocms/nextjs";
+
+const page = createDecoPage({ siteName: "My Store" });
+
+export const generateMetadata = page.generateMetadata;
+export default page.default;
+```
+
+Assign the result to a variable and re-export it: `export const { default } = …` isn't valid JavaScript, because `default` is a reserved word.
+
+`createDecoPage` resolves content and renders sections, but it doesn't run section loaders or pass request details (cookies, the full URL) to matchers. When your sections need those, write your own page with `resolveDecoPage` and `runSectionLoaders`; see [Next.js App Router](/v7/nextjs).
+
+## 11. Run it
+
+```bash
+bun run dev
+```
+
+Open `http://localhost:3000`. You should see the Hero. Then check the endpoints Studio needs:
+
+```bash
+curl -s http://localhost:3000/live/_meta
+```
+
+It returns JSON with a `schema` and a `manifest`, and `manifest.blocks.sections` lists `site/sections/Hero.tsx`. `curl -s http://localhost:3000/.decofile` returns your blocks.
+
+## What you built
+
+- A section and a page block, with content bundled into the build.
+- A memoized setup awaited by the layout, the admin route and the preview page.
+- A catch-all page that renders any path the CMS knows.
+- The admin protocol: the endpoints Studio reads, previews through and publishes to.
+
+## Next steps
+
+- [Project structure](/v7/project-structure): the files you created and the generated ones.
+- [Next.js App Router](/v7/nextjs): the four surfaces in depth, custom page wrappers and limits.
+- [Loaders and actions](/v7/loaders): bring data into sections.
+- [Previews and draft preview](/v7/preview): render unpublished content on the real site.
+- [examples/nextjs-smoke](https://github.com/decocms/blocks/tree/main/examples/nextjs-smoke): a complete, runnable Next.js site to compare yours with.

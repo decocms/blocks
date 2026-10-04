@@ -1,0 +1,237 @@
+---
+title: Loaders and actions
+nav: Loaders & actions
+group: Core concepts
+order: 9
+description: The three kinds of server functions in a v7 site (loaders called from content, section loaders, and site loaders and actions) and how to call them over /deco/invoke.
+---
+
+# Loaders and actions
+
+Sections render props, but most real props come from somewhere: a product search, the visitor's device, the logged-in user. In v7 that work happens in server functions. A *loader* fetches data and an *action* changes something. This page covers the three places they plug in (content, sections, and your own `src/loaders` folder), how to call them from the browser, and how to cache them.
+
+<Terms>
+  <Term name="Loader">A server function that fetches data. Content can call it by key, or it can be attached to a section. See the [glossary](/v7/glossary#loader).</Term>
+  <Term name="Section loader">A server function that runs after resolution and before render, enriching one section's props. See the [glossary](/v7/glossary#section-loader).</Term>
+  <Term name="Action">A server function that changes something, such as adding to a cart or subscribing to a newsletter. See the [glossary](/v7/glossary#action).</Term>
+  <Term name="Invoke">Calling a loader or action by key over HTTP at `/deco/invoke/<key>`. See the [glossary](/v7/glossary#invoke).</Term>
+</Terms>
+
+## Where each kind runs
+
+<Flow label="Where loaders run in a request">
+  <FlowNode title="Resolution">Loaders named in content run as their values are resolved</FlowNode>
+  <FlowNode title="Section loaders">Each section's loader enriches its resolved props</FlowNode>
+  <FlowNode title="Render">The section renders with the final props</FlowNode>
+  <FlowNode title="In the browser">Loaders and actions called by key through `/deco/invoke`</FlowNode>
+</Flow>
+
+| Kind | Who chooses it | Registered with | Typical use |
+|---|---|---|---|
+| Loader in content | The editor, in Studio | `registerCommerceLoaders`, with maps that apps provide | A shelf's products, a page's product details |
+| Section loader | The developer, per section | `registerSectionLoaders` | Device, search params, data every instance of a section needs |
+| Site loader or action | Either | `registerCommerceLoaders`, with the `siteLoaders` map `generate` writes from `src/loaders` and `src/actions` | Your own data sources and mutations |
+
+Despite its name, `registerCommerceLoaders` registers every loader content can call, commerce or not.
+
+## Loaders in content
+
+When a prop's value has a `__resolveType` that names a loader, resolution calls the loader and puts its result in the prop:
+
+```json title="A shelf whose products come from a loader"
+{
+  "__resolveType": "site/sections/ProductShelf.tsx",
+  "title": "Best sellers",
+  "products": {
+    "__resolveType": "vtex/loaders/intelligentSearch/productList.ts",
+    "props": { "query": "summer", "count": 12 }
+  }
+}
+```
+
+The section sees `products` as the loader's return value, never the JSON above. Editors pick and configure the loader in Studio, which shows its props as a form.
+
+Loaders are found by key in a registry. Apps register theirs for you (for VTEX, `createVtexCommerceLoaders()`; see [VTEX](/v7/vtex)), and you can register any function with `registerCommerceLoaders` from `@decocms/blocks/cms`:
+
+```ts title="src/setup/commerce-init.ts"
+import { registerCommerceLoaders } from "@decocms/blocks/cms";
+import { setInvokeLoaders } from "@decocms/blocks-admin";
+import { createVtexCommerceLoaders } from "@decocms/apps-vtex/commerceLoaders";
+import { siteLoaders } from "../../.deco/loaders.gen";
+
+const COMMERCE_LOADERS = {
+  ...createVtexCommerceLoaders(),
+  ...siteLoaders,
+};
+
+registerCommerceLoaders(COMMERCE_LOADERS);
+setInvokeLoaders(() => COMMERCE_LOADERS);
+```
+
+`registerCommerceLoaders` makes the loaders resolvable from content, and `setInvokeLoaders` makes the same map callable through `/deco/invoke`. On TanStack Start, import this file from `src/worker-entry.ts`, not from `src/setup.ts`, so the loaders and anything they import stay on the server. On Next.js, make the same two calls inside `createNextSetup`'s `extend` option, which runs after the core setup.
+
+Before a loader runs, the runtime prepares its props:
+
+- **Nested values are resolved first,** so a prop can itself be a route param or another loader's result.
+- **Page context is injected.** The loader gets `__pagePath` (the page's path) and `__pageUrl` (its full URL, with tracking parameters such as `utm_*` and `gclid` removed).
+- **URL search params fill gaps.** Each search param of the page URL is copied into the loader's props unless the content already set a prop of that name, so `?sort=price:asc` reaches a listing loader. `count` and `pageOffset` are converted to numbers. `page` is skipped, because listing loaders read it from `__pageUrl` themselves.
+
+If a loader throws, the error goes to your `onResolveError` handler (see `createSiteSetup`) and the prop becomes `null`. On TanStack Start the page is also marked *degraded*: it's still rendered, but it's served with an `X-Deco-Degraded` header so the edge cache doesn't store the broken version. A section loader that throws degrades the page the same way, and the section renders with its unenriched props. If some data is decorative and the page is fine without it, register its key (the loader key, or the section key for a section loader) with `registerNonCriticalSections`, and its failures no longer degrade the page.
+
+### Reuse a saved loader
+
+A loader call saved as its own named block, such as `Category listing`, can be referenced from several places on a page, for example the product grid and the SEO block. Within one page render it runs once, and every reference gets the same result. That applies only to references with identical JSON (no differing overrides). It doesn't apply to inline loader calls (an identical inline call runs again unless the loader is [cached](#cache-a-loader)), or to deferred sections, which run the loader again when they load.
+
+## Section loaders
+
+A section loader belongs to a section rather than to content: it runs for every instance of that section, after resolution and before render. Write it as a `loader` export in the section file. It receives the resolved props and the request, and returns the props the component renders:
+
+```tsx title="src/sections/Product/SearchResult.tsx"
+import type { SectionProps } from "@decocms/blocks/types";
+
+export interface Props {
+  /** @title Results per page */
+  perPage?: number;
+}
+
+export async function loader(props: Props, req: Request) {
+  const url = new URL(req.url);
+  return { ...props, query: url.searchParams.get("q") ?? "" };
+}
+
+export default function SearchResult({ query }: SectionProps<typeof loader>) {
+  return <h1>Results for “{query}”</h1>;
+}
+```
+
+`SectionProps<typeof loader>` types the component's props as whatever the loader returns.
+
+A section's `loader` runs only when it's registered. Register it in setup with `registerSectionLoaders` from `@decocms/blocks/cms`, wrapping it in `withSectionLoader`. Common needs come as *mixins*, small ready-made section loaders, and `compose` chains them from left to right:
+
+```ts title="src/setup/section-loaders.ts"
+import {
+  compose,
+  registerSectionLoaders,
+  withDevice,
+  withMobile,
+  withSearchParam,
+  withSectionLoader,
+} from "@decocms/blocks/cms";
+
+registerSectionLoaders({
+  "site/sections/Product/SearchResult.tsx": compose(
+    withMobile(),
+    withSearchParam(),
+    withSectionLoader(() => import("../sections/Product/SearchResult")),
+  ),
+  "site/sections/ProductShelf.tsx": withDevice(),
+});
+```
+
+| Mixin | Adds to props |
+|---|---|
+| `withDevice()` | `device`: `"mobile"`, `"tablet"` or `"desktop"`, from the user agent |
+| `withMobile()` | `isMobile`: `true` on phones and tablets |
+| `withSearchParam()` | `currentSearchParam`: the value of `?q=` |
+| `withSectionLoader(() => import(…))` | Whatever the section module's own `loader` returns. Does nothing if it has none, and logs and keeps the props if it throws. |
+
+<Callout type="warning">**A mixin on its own replaces the section's loader.** If a section exports a `loader` and you register only `withSearchParam()` for it, the section's loader never runs and its props silently go missing. Compose the mixins with `withSectionLoader(...)`, and put `withSectionLoader` last so the section's loader sees the mixins' props and has the final say.</Callout>
+
+Section loaders also get a third argument, a context object with `device`, an `invoke` proxy for calling other loaders, `response.headers` for setting cookies, and `getAppState(name)` for an app's configuration.
+
+Nested sections (a `Section` prop) get their section loaders run too. Section loaders can be cached per section with the `cache` and `layout` conventions; see [Section conventions](/v7/sections).
+
+## Site loaders and actions
+
+Put your own server functions in `src/loaders/` and `src/actions/`, one default export per file:
+
+```ts title="src/loaders/storeHours.ts"
+export interface Props {
+  /** @title Store ID */
+  storeId: string;
+}
+
+export default async function storeHours(props: Props) {
+  const res = await fetch(`https://api.example.com/stores/${props.storeId}/hours`);
+  return (await res.json()) as { open: string; close: string };
+}
+```
+
+`generate` registers every such file in `.deco/loaders.gen.ts` under `site/loaders/<path>` (here `site/loaders/storeHours.ts`, also reachable without `.ts`). Spread `siteLoaders` into the map you register, as in the commerce-init example above, and the loader becomes available both to content (editors can pick it in Studio, with a form built from `Props`) and through invoke. Actions in `src/actions/` work the same way under `site/actions/<path>`.
+
+A loader file can also export `cache = "stale-while-revalidate"` so that identical calls running at the same time (several sections on one page asking for the same data, say) share one upstream call, and `cacheKey(props, req)` to say what makes two calls identical. Nothing is kept after the call settles; for a cache that lasts across requests, see [Cache a loader](#cache-a-loader).
+
+## Call loaders and actions over HTTP
+
+Loaders and actions are called by key at `/deco/invoke/<key>`, with their props as a JSON body. Use `POST`:
+
+```bash
+curl -s -X POST http://localhost:5173/deco/invoke/site/loaders/storeHours.ts -H "Content-Type: application/json" -d '{"storeId":"42"}'
+```
+
+| Form | Request | Response |
+|---|---|---|
+| Single call | `POST /deco/invoke/<key>` with the props as the body (JSON, form data or URL-encoded) | The result as JSON |
+| Batch | `POST /deco/invoke` with `{ "<name>": { "__resolveType": "<key>", …props }, … }`, or `{ "<key>": props, … }` | `{ "<name>": result \| { "error": … }, … }` |
+| Field selection | `?select=name,offers` | Only those fields of the result (applied to each item of an array) |
+
+An unknown key answers 404, a handler that throws answers 500. On TanStack Start, headers a handler sets on `RequestContext.responseHeaders`, such as `Set-Cookie`, are copied onto the invoke response; see [Request context](/v7/request-context).
+
+From browser code, use the `invoke` proxy from `@decocms/blocks/sdk/invoke`, which turns the key into a property path:
+
+```ts title="src/components/StoreHours.tsx (excerpt)"
+import { invoke } from "@decocms/blocks/sdk/invoke";
+
+const hours = await invoke.site.loaders.storeHours({ storeId: "42" });
+```
+
+With TanStack Query, `invokeQueryOptions(key, props)` from the same module returns ready-made query options.
+
+To make several calls in one request, use `batchInvoke` from the same module. Each entry names its loader in `__resolveType`, and each result comes back under the entry's name:
+
+```ts
+import { batchInvoke } from "@decocms/blocks/sdk/invoke";
+
+const { hours, brands } = await batchInvoke("/deco/invoke", {
+  hours: { __resolveType: "site/loaders/storeHours.ts", storeId: "42" },
+  brands: { __resolveType: "site/loaders/featuredBrands.ts" },
+});
+```
+
+An entry without `__resolveType` uses its name as the loader key. `batchInvoke` throws when the response isn't OK; a single call that fails comes back as `{ "error": … }` under its name, without failing the others.
+
+On TanStack Start sites with `@decocms/apps-vtex` installed, `generate` also writes `src/server/invoke.gen.ts`: typed TanStack server functions for the app's actions (adding to cart, updating the session), which client hooks such as the VTEX cart use. See [VTEX](/v7/vtex).
+
+## Cache a loader
+
+Loaders called on every page view can share results across requests with `createCachedLoader` from `@decocms/blocks/sdk/cachedLoader`. Give it a name, the loader and a cache profile (or explicit options):
+
+```ts title="src/setup/commerce-loaders.ts (excerpt)"
+import { createCachedLoader } from "@decocms/blocks/sdk/cachedLoader";
+import storeHours from "../loaders/storeHours";
+
+export const cachedStoreHours = createCachedLoader("site/loaders/storeHours.ts", storeHours, "static");
+```
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `policy` | `"stale-while-revalidate" \| "no-cache" \| "no-store"` | required | `no-store` returns the loader unchanged. |
+| `maxAge` | `number` (ms) | `60_000` | How long a result is fresh. |
+| `staleWhileRevalidate` | `number` (ms) | `300_000` | How long a stale result is served while a fresh one loads. |
+| `staleIfError` | `number` (ms) | `0` | How long a stale result is served when the loader fails. |
+| `keyFn` | `(props) => string` | `JSON.stringify` | What makes two calls the same entry. |
+
+Passing a profile name (`"static"`, `"product"`, `"listing"`, `"search"`) uses that profile's loader timings. The cache is in memory per instance, capped in size, and turned off in development; [Caching](/v7/caching) covers profiles and shared storage. Apps already cache their own catalog loaders.
+
+<Callout type="warning">
+
+**Don't cache visitor-specific loaders by props alone.** The cache key is the loader's name plus `keyFn(props)`. A loader that reads the visitor from the request (cookies, a session) instead of from its props shares one entry with every visitor, so one shopper's wishlist is served to the next. Leave those loaders uncached, or put the visitor's id in the props or in `keyFn`.
+
+</Callout>
+
+## Next steps
+
+- [Matchers and variants](/v7/variants): choose content per visitor.
+- [Section conventions](/v7/sections): `cache` and `layout` for section loaders.
+- [Request context](/v7/request-context): the request, abort signal and response headers inside a loader.
+- [Apps](/v7/apps): the loaders and actions each app brings.

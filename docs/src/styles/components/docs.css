@@ -1,0 +1,111 @@
+/* ==========================================================================
+   Docs, Roadmap and search: named component classes (layer components).
+
+   Why these aren't utilities on the elements: each is repeated tens to hundreds of times in the
+   prerendered HTML (every code block, heading, nav and outline link, search row, feature chip),
+   and inline their class strings made the pages ~40% heavier. Written once here with @apply,
+   they read as the same utilities. Variant-specific extras (the current link, a state, a size)
+   stay as utilities on the element; being in the utilities layer, those always win over these.
+   Several names were already hooks that scripts look for (heading-anchor, copy-button,
+   code-head, code-lang: the search index skips them).
+   ========================================================================== */
+
+/* ---------- Code panels (components/mdx/CodeBlock.tsx) ---------- */
+.code-head {
+  @apply flex h-11 items-center gap-[9px] border-b border-code-border bg-code-head pr-2 pl-4 font-mono text-12.5 leading-4 text-muted-fg;
+}
+.code-lang {
+  @apply inline-flex h-5.5 flex-none items-center rounded-full bg-surface px-[9px] font-sans text-11 leading-4 font-normal tracking-pill text-muted-fg inset-ring inset-ring-code-border max-xs:hidden print:hidden;
+}
+.copy-button {
+  @apply inline-flex h-[30px] min-w-[30px] flex-none items-center justify-center gap-1.5 rounded-full border font-sans text-12.5 leading-4 font-normal active:scale-[.96] print:hidden;
+  transition: color .25s ease, background-color .25s ease, border-color .25s ease, scale .25s var(--ease-out-quart);
+}
+
+/* The scrolling <pre>. CodeBlock's useScrollHints toggles `fade-l` / `fade-r` / `fade-b` where the
+   code continues; each sets its edge's fade width and the mask fades those edges. Not while
+   focused (the focus ring stays whole) and only on screen (print shows the code whole). */
+.code-pre {
+  @apply m-0 max-h-[880px] overflow-auto bg-transparent scrollbar-thin max-sm:text-12.5 print:text-[8pt];
+  @apply focus-visible:rounded-b-[13px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring;
+  --fade-l: 0px;
+  --fade-r: 0px;
+  --fade-b: 0px;
+  &.fade-l { --fade-l: 40px; }
+  &.fade-r { --fade-r: 72px; }
+  &.fade-b { --fade-b: 56px; }
+  @media screen {
+    &:is(.fade-l, .fade-r, .fade-b):not(:focus-visible) {
+      mask-image:
+        linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent),
+        linear-gradient(to top, transparent, #000 var(--fade-b));
+      mask-composite: intersect;
+    }
+  }
+}
+
+/* ---------- Headings (components/mdx/Heading.tsx, the Roadmap's to-do headings) ---------- */
+/* The hover permalink at a heading's left edge: shown while its heading is hovered or it has focus. */
+.heading-anchor {
+  @apply absolute top-1/2 -left-7.5 -mt-[11px] grid size-5.5 place-items-center rounded-full text-faint no-underline opacity-0 transition-[opacity,color] hover:text-eyebrow focus-visible:opacity-100 max-nav:hidden print:hidden;
+  :hover > & { @apply opacity-100; }
+}
+
+/* ---------- Navigation ---------- */
+/* A sidebar link (src/layout/Sidebar.tsx); the current one adds its colours and dot as utilities. */
+.nav-link {
+  @apply relative flex min-h-[34px] items-center gap-2.5 rounded-full px-3.5 py-1.5 text-14 leading-5 no-underline transition-colors focus-visible:-outline-offset-2;
+}
+/* An "On this page" link, in the rail (src/layout/Rail.tsx) and the inline outline
+   (components/mdx/TocInline.tsx); each sets its own size and indents. Code in a heading reads as
+   plain text here, and a Roadmap entry's .gx-n number hangs in the gutter. */
+.toc-link {
+  @apply block no-underline transition-colors has-[>.gx-n]:-indent-[22px];
+  & code { @apply border-0 bg-transparent p-0 text-12 text-inherit; font-weight: inherit; }
+}
+
+/* ---------- Search results (components/search/index.tsx); the row carries `group` ---------- */
+.search-hit {
+  @apply relative flex scroll-m-2 items-start gap-3 rounded-xl px-3 py-2.5 text-fg no-underline hover:bg-nav-active-bg hover:outline-none focus:bg-nav-active-bg focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-ring aria-selected:bg-nav-active-bg aria-selected:outline-none;
+}
+.search-hit-icon {
+  @apply grid size-7.5 flex-none place-items-center rounded-full bg-muted text-muted-fg group-aria-selected:bg-pill-on-bg group-aria-selected:text-pill-on-fg;
+}
+.search-hit-path {
+  @apply flex items-center gap-1.5 overflow-hidden text-12 leading-4 text-ellipsis whitespace-nowrap text-muted-fg;
+}
+.search-hit-title {
+  @apply text-15 leading-5.25 font-normal group-aria-selected:font-medium group-aria-selected:text-nav-active-fg;
+}
+.search-hit-go {
+  @apply grid size-6.5 flex-none place-items-center self-center rounded-full bg-surface text-muted-fg opacity-0 group-aria-selected:opacity-100;
+}
+
+/* ---------- Roadmap (components/roadmap/SectionViews.tsx) ---------- */
+/* A feature chip: status dot (::before, coloured by data-v) + name. */
+.feature-chip {
+  @apply inline-flex min-h-7 max-w-full items-center gap-[7px] rounded-full border border-border bg-surface py-1 pr-3 pl-2.5 text-13 leading-4.5 font-normal text-fg-body no-underline transition-[border-color,color,background-color] hover:border-border-strong hover:bg-bg-subtle hover:text-fg;
+}
+/* A row of the features list: name and meta, then the description beside them from 640px of row width. */
+.feature-row {
+  @apply m-0 grid grid-cols-[minmax(0,1fr)] gap-1.5 border-b border-hairline px-3 pt-[18px] pb-5 text-fg-body transition-[background-color] duration-300 target:animate-target max-sm:px-2 max-sm:pt-4 max-sm:pb-[18px] print:break-inside-avoid @min-rm:grid-cols-[minmax(0,14.5rem)_minmax(0,1fr)] @min-rm:grid-rows-[auto_1fr] @min-rm:gap-x-7;
+}
+/* A status marker: a dot before the label, a diamond for "to build" (data-v=g), so red and amber
+   never differ by colour alone. The element's data-v also sets the status colours: --vc (marker),
+   --vbg/--vfg (pill). */
+.status-dot {
+  @apply before:size-[7px] before:flex-none before:rounded-full before:bg-(--vc) data-[v=g]:before:rounded-[1px] data-[v=g]:before:[transform:rotate(45deg)_scale(.9)];
+  &[data-v=g] { --vc: var(--gx-g); --vbg: var(--gx-g-bg); --vfg: var(--gx-g-fg); }
+  &[data-v=p] { --vc: var(--gx-p); --vbg: var(--gx-p-bg); --vfg: var(--gx-p-fg); }
+  &[data-v=a] { --vc: var(--gx-a); --vbg: var(--gx-a-bg); --vfg: var(--gx-a-fg); }
+  &[data-v=c] { --vc: var(--gx-c); --vbg: var(--gx-c-bg); --vfg: var(--gx-c-fg); }
+  &[data-v=n] { --vc: var(--gx-n); --vbg: var(--gx-n-bg); --vfg: var(--gx-n-fg); }
+}
+/* A status pill (with .status-dot). */
+.gx-vp {
+  @apply inline-flex h-[22px] flex-none items-center gap-1.5 rounded-full bg-(--vbg) pr-[9px] pl-2 text-12 leading-4 font-medium tracking-[.01em] whitespace-nowrap text-(--vfg);
+}
+/* A to-do heading: the to-do box (or a note's rule) on ::before, added as utilities, hangs in the gutter. */
+.todo-heading {
+  @apply relative mt-0 mr-0 mb-3 -ml-[34px] flex items-baseline text-23 leading-[1.28] max-md:-ml-[30px] max-md:text-21 print:break-after-avoid before:mt-[calc(.5lh-9px)] before:mr-4 before:self-start max-md:before:mr-3;
+}

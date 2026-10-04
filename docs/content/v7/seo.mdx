@@ -1,0 +1,112 @@
+---
+title: SEO
+group: Rendering
+order: 18
+description: Where a page's title, description, canonical URL and structured data come from, how each binding writes them into the head, and how crawlers are treated.
+---
+
+# SEO
+
+A page's search metadata (its `<title>`, description, canonical URL, robots directive, social-sharing tags and structured data) is content, like its sections. Editors set it in Studio, site-wide defaults fill the gaps, and the binding writes the result into the page's `<head>`. This page explains where each value comes from and what each binding emits.
+
+<Terms>
+  <Term name="SEO block">The page's own SEO settings: the `seo` field of a [page block](/v7/glossary#page-block), usually a `SeoV2` block from the website app.</Term>
+  <Term name="SEO section">A section in the page whose props also contribute metadata, marked with `export const seo = true`.</Term>
+  <Term name="Site SEO defaults">The `seo` object of the Site block: fallback title, description, image and title templates for every page.</Term>
+  <Term name="JSON-LD">Structured data in schema.org vocabulary, embedded as `<script type="application/ld+json">`, that search engines read for rich results.</Term>
+</Terms>
+
+## Where the values come from
+
+Three sources feed a page's metadata:
+
+1. **The page's SEO block.** In Studio, every page has an SEO field. It usually holds a `SeoV2` block (`website/sections/Seo/SeoV2.tsx`) with a title, description, image, canonical URL and a "don't index" switch. For product and category pages it often holds a commerce SEO section whose data comes from a loader. It's always resolved on the server with the page, never deferred, so crawlers get it in the first response.
+2. **SEO sections in the page.** A section exported with `export const seo = true` (or registered with `registerSeoSections` from `@decocms/blocks/cms`) contributes the `title`, `description`, `canonical`, `image`, `noIndexing`, `type` and `jsonLDs` props it ends up with after its section loader runs. Use this when a body section knows the page's real title, like a search results section that knows the query. Later sections override earlier ones; `jsonLDs` from several sections are concatenated.
+3. **Site defaults.** The Site block's `seo` object holds `title`, `description`, `image`, and `titleTemplate` and `descriptionTemplate`, used when a page doesn't set its own. See [Content and the decofile](/v7/content).
+
+On TanStack Start, they're combined like this:
+
+- The SEO block's values win over SEO sections' values, field by field. Empty fields don't erase anything.
+- Missing title, description and image fall back to the site defaults.
+- The title and description are inserted into their templates. A template replaces `%s` with the value, so `"%s | My Store"` turns `Summer sale` into `Summer sale | My Store`. The SEO block's own templates come first, then the site's. A template that is empty or just `%s` is ignored.
+
+The `SeoV2` and `Seo` modules themselves are part of the website app; see [Website app](/v7/apps-website#seo-sections).
+
+### Product and category pages
+
+When the SEO block holds commerce data, a product listing page or a product details page from a commerce loader, the runtime derives what the block doesn't set explicitly:
+
+- **Title and description** from the platform's SEO fields for that category or product.
+- **Canonical URL** from the platform, or else from the last item of the page's breadcrumb.
+- **Image**, on product pages, from the product's first image.
+- **`noindex`** when the listing has no products or the product doesn't exist, so empty pages stay out of search results.
+- **JSON-LD**: the product or listing as structured data.
+
+Values the editor set on the block always win over derived ones.
+
+## What TanStack Start writes
+
+`cmsRouteConfig` and `cmsHomeRouteConfig` include a `head` function that turns the combined metadata into tags:
+
+| Tag | Value |
+|---|---|
+| `<title>` | The SEO title. Without one, the page block's `name` followed by ` \| ` and your `siteName`. Without a name, `defaultTitle`. |
+| `<meta name="description">` | The SEO description, or `defaultDescription`. |
+| `<meta name="robots">` | `noindex, nofollow` when `noIndexing` is set, otherwise `index, follow` with large image and snippet previews allowed. Always present. |
+| `<link rel="canonical">` and `og:url` | The canonical URL, when there is one. |
+| `og:title`, `og:description`, `og:image`, `og:type` | Title, description, image; type defaults to `website`. |
+| `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image` | The card is `summary_large_image` when there's an image, else `summary`. |
+| `<script type="application/ld+json">` | One per item in `jsonLDs`. |
+
+`siteName`, `defaultTitle` and `defaultDescription` are options of the route config; see [TanStack Start on Cloudflare Workers](/v7/tanstack#the-cms-routes). The `head` also adds `modulepreload` links for the page's server-rendered sections, so their code starts downloading early.
+
+Add other head tags (fonts, favicons, verification meta tags) in the root route's `head`, which TanStack merges with the page's.
+
+## What Next.js writes
+
+`createDecoPage` exports a `generateMetadata` that returns:
+
+- `title` and `description`,
+- `alternates.canonical` when there's a canonical URL,
+- `robots: { index: false, follow: false }` when `noIndexing` is set.
+
+It's deliberately narrower than the TanStack version. It doesn't apply site defaults or title templates, doesn't run the SEO block's section loader (so metadata that a commerce SEO section computes in its loader isn't available), and emits no Open Graph tags or JSON-LD. Use Next's own `metadata` in your layout for site-wide defaults, render JSON-LD from your sections, or write your own wrapper as shown in [Next.js App Router](/v7/nextjs).
+
+## Structured data and crawlers
+
+On a category page, the JSON-LD for the product list comes from the same commerce loader as the page's products and can be large. Human visitors don't need it. Two switches skip it for them while crawlers keep getting it:
+
+- **Per section, in Studio.** Commerce SEO sections have an `ignoreStructuredData` option ("ignore structured data"). With it on, human visitors get the page without that section's JSON-LD and without waiting for the commerce data behind it.
+- **Site-wide, in code.** `setAsyncRenderingConfig({ botAwareSeo: true })` from `@decocms/blocks/cms` does the same for every commerce-backed SEO block.
+
+Crawlers, and any request with `?__deco_ssr=1`, still get the full structured data either way. See [Deferred sections](/v7/rendering#eager-requests) for how crawlers are detected.
+
+<Callout type="warning">
+
+**Turn `botAwareSeo` on only if pages keep a title without the commerce data.** Skipping the data also skips the title and description derived from it, so a category page could fall back to a generic title for visitors. Give those pages an explicit title in their SEO block, or a site default, first. The per-section option has the same effect on that section, which is why it's off by default.
+
+</Callout>
+
+### robots.txt
+
+v7 doesn't manage `robots.txt` from content. Serve it as a static file from `public/` (a migrated Fresh site's `static/robots.txt` moves there for you):
+
+```text title="public/robots.txt"
+User-agent: *
+Disallow: /checkout
+Disallow: /account
+Sitemap: https://www.example.com/sitemap.xml
+```
+
+Each AI crawler has its own `User-agent`, so you can decide which ones to allow. For example, `User-agent: GPTBot` followed by `Disallow: /` keeps OpenAI's crawler out. For the sitemap itself, see [Sitemaps](/v7/routing#sitemaps).
+
+## Canonical URLs
+
+A canonical URL tells search engines which address is the real one when the same page is reachable through several: with sorting or tracking parameters, or with and without a trailing slash. Set it in the SEO block, or let commerce SEO derive it as described above. Without either, the page has no canonical tag. Write it as an absolute URL on your production domain.
+
+## Next steps
+
+- [Website app](/v7/apps-website): the `SeoV2` section and the site's SEO defaults.
+- [Section conventions](/v7/sections): `export const seo = true` with the other section exports.
+- [Images, scripts and UI helpers](/v7/components): JSON-LD components for your own sections.
+- [Pages and routing](/v7/routing): the page block and its `seo` field.

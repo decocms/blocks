@@ -1,0 +1,358 @@
+---
+title: API reference
+nav: API reference
+group: Reference
+order: 25
+---
+
+# API reference
+
+You're writing the request handler and need the exact signature of `list` or `matchRoute`. This page lists everything `@decocms/blocks` exports.
+
+Everything here is imported from `@decocms/blocks`, except the instrumented fetch for [upstream clients](/next/upstream-clients#what-a-client-is), in `@decocms/blocks/fetch`, [`track` and `AnalyticsScript`](#analytics), in `@decocms/blocks/analytics`, and [`encryptSecret`](#secrets), in `@decocms/blocks/secrets`. The [built-in blocks](/next/built-in-blocks), such as the [matchers](/next/matchers-and-variants#matchers), `multivariate` and `lazy`, need no import. What creating the CMS means for your app is in [Content and loaders](/next/content#create-the-cms).
+
+## `createCMS(config)`
+
+`createCMS` returns a **CMS**: your [block map](/next/blocks#the-block-map) plus your content. Create it once, at module scope, and ask it for a client per request: `forRelease()` for visitors, who see the current [release](/next/releases-and-drafts#releases), and `forDraft(pointer)` for [drafts](/next/releases-and-drafts#drafts), where the pointer names the draft (see [Draft pointers](#draft-pointers)).
+
+- **One revision per client.** A client loads one [revision](/next/releases-and-deployment#what-a-revision-is) on first use and reads only that revision afterwards; every later `list` or `resolve` reuses it. Create one client per request (why: [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `client.revision()` tells you which revision a client reads, and `cms.forRevision(revision)` returns a client pinned to it.
+- **Results are memoized per client and per block-map object**: build the map at module scope. An entry referenced three times runs its function once per client. Results are kept per function of the map you passed, so a map rebuilt inside your handler starts with an empty cache.
+- **Clients are cheap**: the content cache lives in the CMS, shared by every client.
+- **Same config, same instance**: see [One instance per process](#one-instance-per-process).
+
+```ts
+function createCMS(config: {
+  blocks: Blocks;               // your block functions; the CMS uses { ...builtIns, ...blocks }, so a key here overrides a built-in
+  content: Snapshot | Loader;   // the content module (.deco/blocks.gen.ts), or any Loader
+  interval?: number;            // ms between update() checks of a content source that has one; default DECO_CONTENT_INTERVAL or 60_000; minimum 60_000
+
+  telemetry?: false | TelemetryConfig;   // where telemetry goes; see /next/telemetry
+
+  secrets?: { key?: string };    // the private key that decrypts secret blocks, usually DECO_SECRETS_KEY; see /next/built-in-blocks#secrets
+
+  // Hosted releases and drafts (optional), see /next/hosted
+  site?: string;                // your site's ID, usually DECO_SITE
+  token?: string;               // your site token (secret), usually DECO_SITE_TOKEN
+}): CMS;
+
+type TelemetryConfig = (
+  | { site: string; token: string }                          // the hosted Deco CMS collector
+  | { endpoint: string; headers?: Record<string, string> }   // any OpenTelemetry (OTLP/HTTP) collector
+) & {
+  limits?: { errorSampleRate?: number; traceSampleRate?: number };   // caps on the Telemetry saved block; defaults 0.1 and 0
+};
+
+interface CMS {
+  forRelease(): Client;                         // a client reading the current release
+  forDraft(pointer: string): Client;            // a client reading the draft a pointer names, with the variants it forces; a source without drafts behaves like the release (forced variants still apply); a draft that can't load makes every call return [null, error]
+  forRevision(revision: string): Client;        // a client pinned to a revision it has served; an unknown revision behaves like the release
+  update(): Promise<{ updated: boolean }>;      // ask the content source for newer content now; never throws
+}
+
+interface Client {
+  resolve<T = unknown>(target: unknown, options?: { run?: boolean }): Promise<Result<T>>;   // run: false reads without running
+  list<T = Block>(type: string, options?: ListOptions<T>): Promise<Result<T[]>>;
+  revision(): Promise<string>;   // the revision this client reads (loads it on first use); rejects with LOADER_FAILED if the content can't load
+}
+```
+
+`content` takes the content module or a `Loader` (see [Configuring content](#configuring-content)). `interval` paces a content source that can change while the process runs (see [Loaders](#loaders)); the content module never changes, so it ignores it. `telemetry` says where measurements go: `false` sends nothing, an object sends there, and when it's left out the CMS uses `OTEL_EXPORTER_OTLP_ENDPOINT` (and `OTEL_EXPORTER_OTLP_HEADERS`) if set, otherwise nothing (see [Choose where telemetry goes](/next/telemetry#choose-where-telemetry-goes)). The top-level `site` and `token` load [hosted releases and drafts](/next/hosted) only; with either of them unset, the CMS reads `content` only. They never send telemetry by themselves. `secrets.key` is the PEM private key that [`secret` blocks](/next/built-in-blocks#secrets) decrypt with; without it, a `secret` block fails. The [rule from Blocks](/next/blocks#the-lookup-rule) is how a client resolves.
+
+<Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Hosted options.** With `site` and `token` set, the CMS serves releases published without a deploy and loads drafts for `forDraft`.</Hosted>
+
+### Configuring content
+
+`content` is the content module, `.deco/blocks.gen.ts`, in almost every app (see [The content module](/next/content#the-content-module)). It also accepts any object with a `load()` method that returns a snapshot, for cases the content module doesn't cover; the `Loader` interface is in [Loaders](#loaders).
+
+## Loaders
+
+One interface. `load()` with no argument is production; `load(pointer)` is a draft. `update()` checks for newer content. Most sites never write one: they pass the content module. When and how to write one is in [Write a loader](/next/content#write-a-loader). Here a loader is a source of content; it isn't [the site editor](/next/site-editor)'s "loaders" or a router's route loader.
+
+```ts
+interface Loader {
+  load(pointer?: string | null): Promise<Snapshot>;   // Snapshot = { revision, blocks }; see Types
+  update?(): Promise<{ updated: boolean }>;
+}
+```
+
+| Content | Loads | Use it for |
+|---|---|---|
+| A snapshot `{ revision, blocks }` (the content module) | The content that ships with the app, generated by `deco content`. Ignores the pointer: there are no drafts in it. No `update()`. | Every site: the content your build ships. With the hosted Deco CMS, also the fallback before the first release |
+| Any object with `load()` | The snapshot its `load()` returns, or the draft a pointer names if it has drafts. If it can change while the process runs, give it `update()`. | Content kept somewhere other than the build, such as your own storage or Workers KV (see [Example: Workers KV](#example-workers-kv)) |
+| `remoteLoader(fallback: Snapshot \| Loader, { site?, token?, interval? })` | Hosted: releases and drafts from the [Deco API](/next/hosted#terms), over the fallback. `createCMS` builds it for you when `site` and `token` are set. Without `site` or `token`, it's a loader over the fallback alone. A release or draft over 64 MB is refused while it downloads. See [Publishing without a deploy](/next/hosted-publishing). | The hosted Deco CMS |
+
+Hosted `remoteLoader` uses complete snapshots for releases and private overlay assets for drafts. It captures the local production snapshot once, loads the overlay manifest and missing changed-block blobs, and exposes the combined view through the existing `Snapshot` interface. It does not request a matching base release. The draft client's revision is an opaque identity derived from the captured production revision and overlay version; cache composed results with both. Custom loaders may still return self-contained draft snapshots. See [Draft overlays for fast previews](/next/content-delivery#exact-draft-previews).
+
+### Example: Workers KV
+
+Large sites on Cloudflare Workers can keep their content out of the bundle (see [Large content on Workers](/next/hosted-publishing#large-content-on-workers)). The loader is a few lines of your own code:
+
+```ts title="src/kv-loader.ts"
+import type { Loader, Snapshot } from "@decocms/blocks";
+
+// Loads the content module your deploy wrote to Workers KV under `key`.
+export function kvLoader(kv: KVNamespace, key: string): Loader {
+  return {
+    async load() {
+      const snapshot = await kv.get<Snapshot>(key, "json");
+      if (!snapshot) throw new Error(`no content in KV under "${key}"`);
+      return snapshot;
+    },
+  };
+}
+```
+
+```ts title="src/cms.ts"
+import { env } from "cloudflare:workers";
+import { createCMS } from "@decocms/blocks";
+import blocks from "../.deco";
+import { kvLoader } from "./kv-loader";
+
+// CONTENT is a KV binding; CONTENT_KEY is a variable your deploy sets, one key per deploy.
+export const cms = createCMS({ blocks, content: kvLoader(env.CONTENT, env.CONTENT_KEY) });
+```
+
+Your deploy writes the content to that key before the new Worker takes traffic, for example with `wrangler kv key put`. Use a new key for every deploy, such as one named after the commit, so Workers still running the old code keep reading the old content during a rollout. It ignores the pointer, so it serves no drafts, and has no `update()`, because a deploy's key never changes.
+
+A loader with `update()` is checked on its own: every `interval` (default `DECO_CONTENT_INTERVAL` or 60 000 ms, never below 60 000), at the next idle moment, so a request never waits on it. On Cloudflare Workers, which run no timers between requests, a due check runs after the response inside `ctx.waitUntil`. `cms.update()` checks at once, for a webhook or an admin "refresh now" button; it refreshes only the server that runs it, and never throws. A snapshot, like the content module, never changes, and a loader without `update()` is always current by construction.
+
+If `load(pointer)` fails, or the pointer doesn't parse, every call on that client returns `[null, error]` with `LOADER_FAILED`: no silent fallback to published content, and never a mix of draft and published entries. Your app decides what to show.
+
+A pointer comes from request input, so a loader that serves drafts must treat it as untrusted (see [Write a loader](/next/content#write-a-loader)).
+
+Caching, ETags, and fallbacks live inside the CMS, which any number of clients share. The client only ever sees `{ revision, blocks }`.
+
+## One instance per process
+
+`createCMS` instances (and hosted `remoteLoader` instances) are process-wide singletons. Each is stored on `globalThis` under a `Symbol.for("decocms.blocks…")` key derived from its configuration: the content's identity (for the content module, the `.deco` folder it was generated from; for a loader you write, the loader object; never the revision, so a hot reload that hands in new content keeps the same instance), and, with the hosted Deco CMS, also the site ID and token. So a package loaded twice, by two bundles or by a dev reload (hot module replacement, HMR), still shares one content cache and one schedule of `update()` checks. Different configurations, such as several sites in one app, get different instances. Calling it again with the same key but different options keeps the first instance and logs a warning that names the conflicting options. Tests can start clean:
+
+```ts
+function resetForTests(): void;   // clears every stored instance
+```
+
+## Draft pointers
+
+A pointer is a string, `<host[:port]><path[?query]>@<version>`, that names where a draft lives and which version it is. `forDraft` passes it to your content source's `load(pointer)`; the content module ignores it (see [Releases and drafts](/next/releases-and-drafts#drafts)). With the hosted Deco CMS, the site editor makes them ([Previewing drafts](/next/hosted-drafts)). Two helpers cover everything in between:
+
+```ts
+interface DraftPointer {
+  host: string;      // host[:port] of the content source that holds the draft (the Deco API, when hosted), e.g. "api.deco.example"
+  path: string;      // starts with "/"; opaque to your app (hosted drafts put a token signed by the site editor in its query)
+  version: string;   // opaque, immutable: the branch head or ETag
+  variants?: { block: string; path: string; index: number }[];   // the variants a preview forces; absent when none
+}
+
+function parseDraftPointer(raw: string | null | undefined): DraftPointer | null;
+function formatDraftPointer(pointer: DraftPointer): string;
+```
+
+`parseDraftPointer` is strict and returns `null` on anything unexpected: a scheme, a stray `@`, an unrooted path, an odd character in the host or version. It's what `forDraft` calls, so an app only needs it to look inside a pointer, for example to show which version is being previewed, to key a cache on `version`, or to reject a pointer before storing it in a cookie. `formatDraftPointer` is the inverse, for building one from parts, as a mobile app might from a deep link. It throws on parts that wouldn't parse back, such as a path with a space or a `…` in it.
+
+`__variant` is a reserved parameter of the pointer's query: each one is a [forced variant](/next/releases-and-drafts#preview-a-variant), `<block>@<path>=<index>` URL-encoded, where `block` is the saved block the `multivariate` is saved in, `path` its JSON path inside that block (dot-separated keys and array indexes, empty for the saved block itself) and `index` the variant to show. `parseDraftPointer` moves them out of `path` into `variants` and rejects the pointer if one is malformed; `formatDraftPointer` appends them. `forDraft` applies them to the content it reads, even from a source with no drafts, and hands `load(pointer)` the pointer without them, so every variant of one draft shares one load.
+
+For websites, two more helpers carry a pointer from a URL into a cookie, so the parameter and cookie names never appear in app code. The hosted draft flow uses them; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app):
+
+```ts
+function draftPointer(request: Request | { url: string; headers: Headers }): string | null;
+// ?__draft= from the URL first, then the deco-draft cookie. Null when neither is present, or when the URL says ?__draft=off.
+
+function draftCookie(request: Request | { url: string; headers: Headers }): string | null;
+// When the URL carries a valid ?__draft=, the Set-Cookie value that stores it (HttpOnly; Secure; SameSite=None; Partitioned; Path=/),
+// or one that expires the cookie when the value is off (how the site editor ends a preview). Null on every other request, and for a ?__draft= that doesn't parse.
+
+const DRAFT_COOKIE = "deco-draft";   // for frameworks whose cookie API has no Request, e.g. Next.js cookies()
+```
+
+Both take anything with a `url` and `headers`, so they work with a fetch `Request`, a Next.js `NextRequest`, or a framework's request wrapper. `DRAFT_COOKIE` is for the one place that has no request at all: reading the cookie in a Next.js Server Component.
+
+The cookie is `SameSite=None; Secure; Partitioned` because the site editor shows your site in an iframe on another site, and a `Lax` cookie wouldn't be sent there, so the preview would fall back to the release. `Partitioned` keeps it inside the site editor's frame, so it doesn't follow you to normal visits, and `HttpOnly` keeps page scripts from reading it.
+
+```ts
+const pointer = parseDraftPointer(cookie);
+if (pointer) console.log(`previewing ${pointer.version} from ${pointer.host}`);
+
+// the path is opaque: copy it, don't build it (a custom loader's pointer; hosted
+// pointers are delivery.decocms.com/sites/<site>/drafts?token=…@<overlay version>)
+formatDraftPointer({ host: "api.deco.example", path: "/drafts/acme/main?token=abc123", version: "9f3c1a" });
+// "api.deco.example/drafts/acme/main?token=abc123@9f3c1a"
+
+// show variant 1 of the multivariate at sections.3 of the saved block Home
+formatDraftPointer({ host: "localhost:4547", path: "/", version: "local", variants: [{ block: "Home", path: "sections.3", index: 1 }] });
+// "localhost:4547/?__variant=Home%40sections.3%3D1@local"
+```
+
+## `client.resolve(target, options?)`
+
+Loads the content once and applies the [lookup rule](/next/blocks#the-lookup-rule) to the target: [saved blocks](/next/saved-blocks) expand, and each function the target names in your block map runs with its resolved inputs. [Built-in blocks](/next/built-in-blocks) are always defined.
+
+| Call | Returns |
+|---|---|
+| `resolve("SummerSEO")` | The result of running the entry's function: for `SummerSEO`, `seo({ title: "Sunny!", description: "Light layers for long days." })` |
+| `resolve("SummerSEO", { run: false })` | The saved block, with references expanded and nothing run |
+| `resolve("SummerPage")` | The built-in page block's result: the page with `seo` and every block in `sections` resolved |
+| `resolve({ __resolveType: "seo", title: "Sale" })` | The result for an inline block: `seo({ title: "Sale" })` |
+| `resolve(page.sections)` | An array of results, one per block in the list; a block that resolves to `undefined`, such as a [hidden](/next/matchers-and-variants#hide-a-block) one, is left out |
+| `resolve({ title: "Store" })` | The same object: it contains no blocks |
+
+A string target is always a saved block's name. Any other value is walked as is, so you can pass a page field without checking whether it's a block or a literal. `T` describes the result you expect, because a saved block's name can't carry a static type; it isn't validated at runtime.
+
+**Reading without running.** With `{ run: false }`, `resolve` stops after expanding saved blocks: references are replaced and merged, and no function runs. Use it for previews, tooling and debugging, and to get a page's blocks without running them, so you can resolve each one with its own call; the [Next.js guide](/next/nextjs#7-stream-each-block-optional) streams a page that way. `client.list` returns entries this way by default.
+
+## `client.list(type, options?)`
+
+Every saved block whose [`__resolveType`](/next/blocks#functions-as-blocks) is `type` or an [alias](/next/renames-and-migrations) of it (another key for the same type, used when renaming). By default nothing runs: each entry comes back as `resolve(name, { run: false })` would return it. With `run: true` each entry is resolved, so every block inside it, and the entry's own type, must be in the block map (built-ins included) or a saved block, or it fails with [`UNKNOWN_BLOCK`](#errors). `list("page", { run: true })` returns ready pages. Entries come back sorted by name, so the order is the same on every server.
+
+```ts
+interface ListOptions<T> {
+  where?: (entry: T) => boolean;
+  sort?: (a: T, b: T) => number;
+  limit?: number;
+  run?: boolean;
+}
+
+const today = new Date().toISOString().slice(0, 10);   // "YYYY-MM-DD", comparable as a string
+const [posts] = await client.list<Post>("post", {
+  where: (p) => p.date <= today,
+  sort: (a, b) => b.date.localeCompare(a.date),
+  limit: 20,
+});
+```
+
+Filters run in memory over the loaded content map, the cost of content arriving as the whole map at once (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). Sites with tens of thousands of entries of one type should keep an index elsewhere.
+
+## `matchRoute(url, items)`
+
+A pure function. Given a URL and the entries you want to route, it returns the one that matches. The CMS doesn't know about URLs; this is the companion that does. See [Pages and routing](/next/routing).
+
+```ts
+function matchRoute<T extends Route>(
+  url: string | URL | Request,
+  items: { routes: T[]; redirects?: Redirect[] },
+): Match<T>;
+
+type Match<T> =
+  | { kind: "match";    entry: T; params: Record<string, string> }
+  | { kind: "redirect"; location: string; status: 301 | 302 | 307 | 308 }
+  | { kind: "not-found" };
+```
+
+Paths take literal segments, `:name` parameters and a trailing `/*` splat that matches one or more remaining segments into `params["*"]` (see [Match order](/next/routing#path-templates-and-match-order)). Redirects win over routes, exact paths win over parameters, parameters win over a splat, and when two entries can match the same URL, the one earlier in the array wins. It never throws. Entries are compiled into a segment trie, cached per `routes` array object, so a lookup costs the URL's depth, not the number of routes, and passing the same array again skips the build. See [how it matches](/next/router-internals).
+
+## `createInstrumentedFetch(options)`
+
+From `@decocms/blocks/fetch`. The fetch every [upstream client](/next/upstream-clients) uses: it times each request until its response headers arrive and labels the measurement. The CMS in the same process sends those measurements wherever its [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) points; with no destination, nothing leaves your servers.
+
+```ts
+function createInstrumentedFetch(options: {
+  provider: string;                                     // the provider label, e.g. "vtex", "acme-search"
+  fetch?: typeof fetch;                                 // the fetch underneath; defaults to globalThis.fetch
+  retry?: { attempts: number; backoffMs?: number };     // off unless set; a retried request is measured once
+  circuitBreaker?: { failures: number; cooldownMs: number };   // off unless set
+}): (input: string | URL | Request, init?: RequestInit & { operation?: string }) => Promise<Response>;
+```
+
+Each request is measured with `provider`, `operation`, `status_class`, `cached` and `retries` labels (see [What's sent](/next/telemetry#whats-sent)). A response with an `x-cache: HIT` header is labeled `cached`, so a cache you put underneath (see [Upstream data](/next/caching#upstream-data)) shows up in its measurements. It never logs request or response bodies, tokens or cookies. Writing a client with it is in [Write a client](/next/upstream-clients#write-a-client).
+
+## Analytics
+
+Page view settings come from the built-in [`analytics` block](/next/analytics), which needs no import; its props are the `Analytics` type in [Types](#types). From `@decocms/blocks/analytics`:
+
+```ts
+function AnalyticsScript(props: Analytics): ReactNode | null;   // the tracking script; render it in your root layout with the resolved block's settings; null when enabled is false
+function track(name: string, props?: Record<string, string | number | boolean>): void;   // send your own event from the browser, through the script AnalyticsScript renders; does nothing without it
+```
+
+## Secrets
+
+From `@decocms/blocks/secrets`. Encrypts a value with your public key, for a script or an AI agent that writes content; the site editor does the same for editors. How secrets work is in [Secrets](/next/built-in-blocks#secrets).
+
+```ts
+function encryptSecret(publicKey: string, value: string): Promise<{ __resolveType: "secret"; ciphertext: string }>;
+// publicKey: the contents of .deco/secrets.pub
+```
+
+## Types
+
+```ts
+// A block as stored: the JSON in .deco/blocks, and what client.list and { run: false } return.
+// Props never use it: a field's type is the value the function receives (see Schema).
+type Block = { __resolveType: string; [input: string]: unknown };
+
+// A block map: what .deco/index.ts exports and the CLI reads.
+type BlockFunction = (inputs: any) => unknown | Promise<unknown>;
+type Blocks = Record<string, BlockFunction>;
+
+// One fixed copy of the content: what the content module exports and load() returns.
+type Snapshot = {
+  revision: string;
+  blocks: Record<string, unknown>;     // the content map: entry name → saved JSON
+  aliases?: Record<string, string>;    // the alias table deco content writes: old type name → your type
+};
+
+interface Loader {
+  load(pointer?: string | null): Promise<Snapshot>;
+  update?(): Promise<{ updated: boolean }>;
+}
+
+interface DraftPointer { host: string; path: string; version: string; variants?: { block: string; path: string; index: number }[] }
+
+interface Route { name: string; path: string }                    // extend it to give a type a URL
+
+// The built-in types. Their blocks are always in the registry and the schema: override one by declaring
+// the key in your block map, e.g. page: (props: StorePage) => props with an interface that extends Page.
+interface Seo { title: string; description: string }
+interface Page extends Route { seo?: Seo; sections: ReactNode[] }   // resolved types (see Schema); without seo, your site's defaults apply
+interface Redirect {
+  from: string;
+  to: string;
+  permanent: boolean;                 // 301 or 302
+  status?: 301 | 302 | 307 | 308;     // wins over permanent
+  discardQueryParameters?: boolean;   // drop the request's query string instead of carrying it over
+}
+type Secret = string & { readonly __secret: true };   // a field the site editor saves encrypted, as a secret block; see /next/built-in-blocks#secrets
+type Lazy<T> = () => Promise<T>;                    // a prop the built-in lazy block fills; resolves its value when called, at most once
+interface Variant<T> { rule: boolean; value: Lazy<T> }   // one entry of variants: a rule and the variant it shows. Built-in multivariate takes { variants: Variant<T>[] }, runs the first variant whose rule is true, and returns Promise<T | undefined>
+
+// The Telemetry saved block's type (built in, always in the schema). See /next/telemetry#telemetry-settings-are-content.
+interface Telemetry {
+  enabled?: boolean;          // default true; false switches telemetry off
+  metrics?: boolean;          // default true
+  errorSampleRate?: number;   // default 0.05, capped by telemetry.limits
+  traceSampleRate?: number;   // default 0, capped by telemetry.limits
+}
+
+// The built-in analytics block's props. Separate from telemetry. See /next/analytics.
+// The block is (props?: Analytics) => Required<Analytics>: its input with the defaults filled in.
+interface Analytics {
+  collector?: string;   // an endpoint that accepts the One Dollar Stats format; default: the hosted Deco CMS collector
+  enabled?: boolean;    // default true; false makes AnalyticsScript render nothing
+}
+
+type Match<T> =
+  | { kind: "match";    entry: T; params: Record<string, string> }
+  | { kind: "redirect"; location: string; status: 301 | 302 | 307 | 308 }
+  | { kind: "not-found" };
+
+type Result<T> = [T, null] | [null, CMSError];
+
+interface CMSError {
+  code: "NOT_FOUND" | "UNKNOWN_BLOCK" | "CYCLE" | "BLOCK_FAILED" | "LOADER_FAILED";
+  message: string;
+  path: (string | number)[];   // where in the tree it happened
+  cause?: unknown;             // the original error, for BLOCK_FAILED and LOADER_FAILED
+}
+```
+
+## Errors
+
+Nothing in the SDK throws at request time: `resolve` and `list` return `[value, null]` or `[null, error]`, and `matchRoute` returns a `Match`. The one exception is `client.revision()`: it returns a plain promise, which rejects with a `LOADER_FAILED` error when the content can't load. Two entries that can match the same URL are a content bug [`deco check`](/next/checking#what-deco-check-checks) reports (see [Backward compatibility](/next/checking#backward-compatibility)). Check the error, not the value, because a block function can legitimately return `null`.
+
+| Code | When |
+|---|---|
+| `NOT_FOUND` | A string target names no saved block. |
+| `UNKNOWN_BLOCK` | A `__resolveType` names neither a type in the block map nor a saved block. [Built-in blocks](/next/built-in-blocks) never cause it. |
+| `CYCLE` | References lead back to an entry that's already being expanded (see [The rule in full](/next/how-resolution-works#the-rule-in-full)). |
+| `BLOCK_FAILED` | A block function threw. The original error is in `cause`. |
+| `LOADER_FAILED` | The loader couldn't load the content, or a draft pointer is invalid. The original error, if any, is in `cause`. |
+
+A `CMSError` has a `code`, a `message`, a `path` (where in the tree it happened, such as `["sections", 2, "product"]`), and an optional `cause`. Log it on the server, and show visitors a generic message.

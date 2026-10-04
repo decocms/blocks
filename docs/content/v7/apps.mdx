@@ -1,0 +1,173 @@
+---
+title: Apps
+nav: Overview
+group: Apps
+order: 25
+description: What a Deco app is, how a site installs and configures one, and which apps exist today.
+---
+
+# Apps
+
+An **app** is a companion package, published as `@decocms/apps-*`, that brings everything a site needs to talk to one platform: loaders that fetch data, actions that change it, sometimes sections and middleware, and the configuration that holds credentials. Editors configure an app in Studio, as a block in the decofile; your code installs it once at boot. This page explains the contract every app follows, the two ways to wire one into a site, and how credentials are resolved. The pages after it cover each app.
+
+## Key terms
+
+<Terms>
+  <Term name="App">A package such as `@decocms/apps-vtex` that exports a `configure` function and a manifest of loaders and actions. See the [glossary](/v7/glossary).</Term>
+  <Term name="App block">The decofile block that holds an app's settings, such as `deco-vtex` or `deco-resend`. Its key is the app's **block key**.</Term>
+  <Term name="Manifest">The list of loaders, actions and sections an app provides, keyed by paths like `vtex/loaders/intelligentSearch/productListingPage` or `resend/actions/send`.</Term>
+  <Term name="Registry entry">A small object, `*_REGISTRY_ENTRY`, that tells the framework which block key belongs to which app module.</Term>
+  <Term name="Secret">A credential stored in the app block, either as plain text or encrypted. Apps read it through `resolveSecret`, which can also fall back to an environment variable.</Term>
+</Terms>
+
+## The app contract
+
+Every app that can be configured from content has a `mod` module with one required export, `configure`. It receives the app block from the decofile and a secret resolver, and returns an **app definition**, or `null` when the block is missing something it needs (such as an account name or an API key):
+
+```ts title="The shape every app's mod module follows"
+configure(block, resolveSecret): Promise<AppDefinition | null>
+```
+
+An app definition has a `name`, a `manifest` with `loaders`, `actions` and optionally `sections`, a `state` object (usually the resolved config), and optionally a `middleware` and `dependencies`. The types live in `@decocms/apps-commerce/app-types` (`AppDefinition`, `AppManifest`, `AppMiddleware`, `AppModContract`) if you write an app of your own.
+
+Some apps also export `handlers`, a map of extra keys to functions the framework registers alongside the manifest, such as Wake's sitemap handler.
+
+When the framework receives an app definition, it does four things with it:
+
+1. **Registers every loader and action.** A module's default export is registered at the module key (`shopify/loaders/ProductList`), and each named function export at `<moduleKey>/<fnName>` (`vtex/actions/checkout/addItemsToCart`). Every key also gets a `.ts` twin. The same functions become available to content (a block whose `__resolveType` is that key) and to [invoke](/v7/loaders) at `/deco/invoke/<key>`.
+2. **Registers the manifest's sections**, if any.
+3. **Records the app's state**, so loaders can read it per request.
+4. **Registers the app's middleware**, if any. On TanStack the [Worker entry](/v7/tanstack) runs app middleware on every request automatically; the Next.js binding doesn't run it.
+
+## Installing apps with autoconfig
+
+The usual way to install apps is `autoconfigApps(blocks, registry)` from `@decocms/blocks-admin/apps` (also available at `@decocms/blocks-admin/apps/autoconfig`). You pass it the decofile and a list of registry entries. For every entry whose block key exists in the decofile, it loads the app module, calls `configure`, and registers the result. An app whose block isn't in the decofile is skipped.
+
+The apps that support autoconfig (VTEX, Shopify, Wake, Blog and Resend) each export a registry entry from their `./registry` subpath. There is no combined list: your site composes the array from the apps it uses.
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps, type AppRegistry } from "@decocms/blocks-admin/apps";
+import { loadBlocks } from "@decocms/blocks/cms";
+import { VTEX_REGISTRY_ENTRY } from "@decocms/apps-vtex/registry";
+import * as vtexMod from "@decocms/apps-vtex/mod";
+import { RESEND_REGISTRY_ENTRY } from "@decocms/apps-resend/registry";
+import * as resendMod from "@decocms/apps-resend/mod";
+
+const APP_REGISTRY: AppRegistry = [
+  { ...VTEX_REGISTRY_ENTRY, module: async () => vtexMod },
+  { ...RESEND_REGISTRY_ENTRY, module: async () => resendMod },
+];
+
+await autoconfigApps(loadBlocks(), APP_REGISTRY);
+```
+
+Run this only on the server, after `createSiteSetup` has loaded the decofile, and keep it out of anything the browser bundle imports: the app modules carry server-only code and credential handling. (`autoconfigApps` also returns immediately if it runs in a browser.) On TanStack, a convenient place is a module that `src/worker-entry.ts` imports right after `./setup`, as the [VTEX page](/v7/vtex#wiring-the-worker) shows.
+
+<Callout type="warning">
+
+**Pass app modules statically.** Each registry entry ships with a lazy `module: () => import("./mod")`. That works under `vite dev` but can fail to resolve in a production Worker bundle. When it does, autoconfig logs `[autoconfigApps] failed to configure app "<blockKey>"` and skips the app, so its loaders never register and the sections that use them render empty. Spread the entry and replace `module` with a static import, as above.
+
+</Callout>
+
+Autoconfig runs again whenever the decofile changes, for example after a publish from Studio, so an editor who changes an app's settings doesn't need a deploy. On TanStack it also runs once more on the first request: a Cloudflare Worker only sees its environment variables (including `DECO_CRYPTO_KEY`) inside the request handler, so encrypted credentials can only be decrypted then. The Worker entry does this for you.
+
+To check that every app your content uses has an entry, list the app namespaces the decofile references:
+
+```bash
+grep -rhoE '"(vtex|shopify|wake|commerce|website|blog|resend|algolia|magento|salesforce)/[^"]+"' .deco/blocks/ | sort -u
+```
+
+## Configuring apps by hand
+
+Several apps also expose a direct configuration function, for sites that prefer to wire things explicitly or for apps that have no registry entry yet:
+
+| App | Direct configuration |
+|---|---|
+| VTEX | `configureVtex(config)`, or `initVtexFromBlocks(blocks)` |
+| Shopify | `configureShopify(config)`, or `initShopifyFromBlocks(blocks)` |
+| Wake | `configureWake(config)`, or `initWakeFromBlocks(blocks)` |
+| Magento | `configureMagento(config)`, or `await initMagentoFromBlocks(blocks)` |
+| Algolia | `configureAlgolia(config)`, or `await initAlgoliaFromBlocks(blocks)` |
+| Blog | `configureBlog(config)` |
+| Resend | `configureResend(config)` |
+| Website | `configureWebsite(config)` |
+
+A common place for the `init*FromBlocks` helpers is the `initPlatform` option of `createSiteSetup`, which receives the decofile on the server:
+
+```ts title="src/setup.ts"
+import { createSiteSetup } from "@decocms/blocks/setup";
+import { blocks } from "../.deco/blocks.gen";
+import { initVtexFromBlocks } from "@decocms/apps-vtex";
+
+createSiteSetup({
+  sections: import.meta.glob("./sections/**/*.tsx"),
+  blocks,
+  initPlatform: (blocks) => initVtexFromBlocks(blocks),
+});
+```
+
+The manual path configures the app's client, but it doesn't register its loaders and actions for you. Register them with `registerCommerceLoaders` from `@decocms/blocks/cms` (VTEX and Wake ship ready-made maps; see [Loaders and actions](/v7/loaders)). The helpers also don't call `resolveSecret`: `initVtexFromBlocks` and `initShopifyFromBlocks` only use credentials stored in the block as plain strings, and `initWakeFromBlocks` reads Wake's tokens from environment variables. Use autoconfig when credentials are encrypted.
+
+## Secrets
+
+Apps read credentials through `resolveSecret(value, envVarName?)`, from `@decocms/blocks/sdk/crypto`. It tries, in order:
+
+1. A non-empty plain string stored in the block.
+2. An object with a `get()` method that returns a non-empty string.
+3. An object with an `encrypted` field: hex AES-CBC ciphertext that Studio produces, decrypted with the key in the `DECO_CRYPTO_KEY` environment variable.
+4. The environment variable named by `envVarName`, as a fallback.
+
+If nothing matches, it returns `null`, and most apps' `configure` then returns `null` too, which means the app isn't installed. Environment variables are looked up in `process.env`, then in a `.dev.vars` file in the working directory (Cloudflare's local-dev convention), then in the Worker's per-request environment.
+
+Each app chooses its fallback variable names. They're listed in the table below and on each app's page.
+
+## Reading app state in a loader
+
+On TanStack, the [Worker entry](/v7/tanstack) places every installed app's `state` on the request context before your code runs. Read it with `RequestContext.getAppState`, from `@decocms/blocks/sdk/requestContext`:
+
+```ts title="src/loaders/storeInfo.ts"
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+import type { VtexState } from "@decocms/apps-vtex";
+
+export default async function storeInfo() {
+  const vtex = RequestContext.getAppState<VtexState>("vtex");
+  return { account: vtex?.config.account ?? null };
+}
+```
+
+It returns `undefined` outside a request, or when the app isn't installed. The Next.js binding doesn't run app middleware, so there it also returns `undefined`; read the app's config from its client instead (for example `getVtexConfig()`). See [Request context](/v7/request-context).
+
+## Observability for commerce apps
+
+The commerce apps record upstream request timings and cache hits through two shared helpers in `@decocms/blocks`, but only if your site gives them the instrumented fetch. Call the app's setter once, at module scope in setup:
+
+```ts title="src/setup.ts"
+import { setVtexFetch, createVtexFetch } from "@decocms/apps-vtex";
+
+setVtexFetch(createVtexFetch());
+```
+
+Without that call, VTEX, Shopify, Wake and Magento use a plain fetch with a timeout, and their traffic doesn't appear in your metrics. Salesforce is instrumented by default, and Algolia deliberately isn't, because its SDK owns its own transport. See [Observability](/v7/observability).
+
+## All apps
+
+| App | Package | Status | Autoconfig entry | Block key | Credentials |
+|---|---|---|---|---|---|
+| [Commerce](/v7/apps-commerce) | `@decocms/apps-commerce` | Shared types and helpers | — | — | — |
+| [Website](/v7/apps-website) | `@decocms/apps-website` | Complete | No (write your own) | Your decofile's website block | — |
+| [VTEX](/v7/vtex) | `@decocms/apps-vtex` | Complete | `VTEX_REGISTRY_ENTRY` | `deco-vtex` | `appKey`/`appToken`, or `VTEX_APP_KEY`/`VTEX_APP_TOKEN` |
+| [Shopify](/v7/shopify) | `@decocms/apps-shopify` | Complete for the Storefront API | `SHOPIFY_REGISTRY_ENTRY` | `deco-shopify` | `storefrontAccessToken`, or `SHOPIFY_STOREFRONT_TOKEN` |
+| [Wake](/v7/wake) | `@decocms/apps-wake` | Complete | `WAKE_REGISTRY_ENTRY` | `deco-wake` | `WAKE_TOKEN` only |
+| [Magento](/v7/magento) | `@decocms/apps-magento` | Partial | No | `magento` | `apiConfig.apiKey` |
+| [Salesforce Personalization](/v7/salesforce) | `@decocms/apps-salesforce` | Recommendations only | No | — (loader props) | — |
+| [Algolia](/v7/algolia) | `@decocms/apps-algolia` | Experimental | No | `deco-algolia` | `adminApiKey`, `searchApiKey` |
+| [Blog](/v7/blog) | `@decocms/apps-blog` | Complete | `BLOG_REGISTRY_ENTRY` | `deco-blog` | — |
+| [Resend](/v7/resend) | `@decocms/apps-resend` | Complete | `RESEND_REGISTRY_ENTRY` | `deco-resend` | `apiKey`, or `RESEND_API_KEY` |
+
+Almost every site installs `@decocms/apps-commerce` and `@decocms/apps-website` next to its platform app.
+
+## Related
+
+- [Loaders and actions](/v7/loaders): how commerce loaders and invoke work.
+- [Commerce types and utilities](/v7/apps-commerce): the shared vocabulary every commerce app returns.
+- [Packages and exports](/v7/packages): every import path.

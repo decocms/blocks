@@ -1,0 +1,184 @@
+---
+title: Migrating from Fresh and Deno
+nav: From Fresh/Deno
+group: Upgrading
+order: 42
+description: Move a Deco storefront from Fresh, Preact and Deno to TanStack Start, React 19 and Cloudflare Workers with the deco-migrate tooling.
+---
+
+# Migrating from Fresh and Deno
+
+Deco storefronts built before v7 run on Fresh (a Deno web framework) with Preact components, islands for interactivity and HTMX for partial page updates. v7 runs the same content on TanStack Start with React 19 on Cloudflare Workers. `@decocms/blocks-cli` ships a migrator, `deco-migrate`, that does most of the mechanical conversion, plus tools to inspect the site before and audit it after. This page explains what changes, how to run the tools, and what you finish by hand.
+
+Your content (`.deco/blocks/`) carries over unchanged: page blocks, section props and app configuration keep the same shape.
+
+## What changes
+
+| Fresh/Deno site | v7 site |
+|---|---|
+| Preact components | React 19 components. `class` becomes `className`, `for` becomes `htmlFor`, `ComponentChildren` becomes `ReactNode`. |
+| Islands (selectively hydrated components) | Full server rendering followed by React hydration. Code splitting through `React.lazy` and Suspense. |
+| HTMX partials (`hx-get`, `f-partial`) | React state and TanStack Router navigation. There's no HTMX runtime in v7; every `hx-*` use is rewritten. |
+| Deno, import maps | Node-compatible code on Cloudflare Workers (with `nodejs_compat`), npm packages. |
+| `@preact/signals` | A small signal backed by a TanStack store; components subscribe with `useStore`. |
+| Sections that export `loader` and `action` | Sections are React components; their `loader` export still runs, through [section loaders](/v7/loaders). Commerce data comes from app loaders registered at setup. |
+| A global `fetch` patched with the request's abort signal | Explicit `RequestContext.fetch` and instrumented fetches. |
+| `deco-cx/apps` imports | `@decocms/apps-*` packages. Forks of the apps aren't supported; site-specific changes live in your own code. |
+| Tailwind v3, DaisyUI v4 | Tailwind v4, DaisyUI v5. |
+| `useMemo`, `useCallback` and `memo` for performance | The scaffolded `vite.config.ts` turns on the [React Compiler](https://react.dev/learn/react-compiler), which memoizes components for you, so you rarely write these by hand. Don't add new ones; leave the existing ones in place unless you test removing them (see [The Vite plugin](/v7/tanstack#react-compiler)). |
+
+## Before you start: take inventory
+
+Run the HTMX analyzer on the Fresh site. It's read-only and lists every `hx-*` attribute by kind and by file, so you know how much interactive behaviour must be rewritten by hand:
+
+```bash
+npx -p @decocms/blocks-cli deco-htmx-analyze --source ../my-store-fresh
+```
+
+`--json` prints machine-readable output; `--top <n>` changes how many files it ranks (default 20).
+
+It also helps to count what you're migrating, so you can compare it with the report's *Section Analysis*, *Island Elimination* and *Loader Inventory* afterwards. From the Fresh site's root (if your sections live under `src/`, prefix the paths):
+
+```bash
+for d in sections islands loaders actions; do echo "$d: $(find $d -type f \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | wc -l)"; done
+ls .deco/blocks/*.json | wc -l
+```
+
+## Run the migrator
+
+`deco-migrate` converts the site **in place**: it writes the new files into the source directory and deletes the old ones. Run it on a fresh branch or a copy of the repository, never on your only checkout.
+
+<Steps>
+<Step>
+
+**Preview.** From the Fresh site's root, run a dry run to see every file it would write, change or delete:
+
+```bash
+npx -p @decocms/blocks-cli deco-migrate --dry-run --verbose
+```
+
+</Step>
+<Step>
+
+**Migrate.**
+
+```bash
+npx -p @decocms/blocks-cli deco-migrate
+```
+
+Use `--source <dir>` to migrate another directory. For CI, add `--strict` (fail when type-checking reports errors) and `--with-build` (also run `vite build`).
+
+</Step>
+<Step>
+
+**Read `MIGRATION_REPORT.md`.** The migrator writes it at the site root. It lists:
+
+- the files it scaffolded, transformed, deleted and moved
+- **Manual Review Required**: items marked as errors, warnings or notes
+- **Section Analysis**: how many sections have loaders (moved to `src/setup/section-loaders.ts`), and which it treats as layout or listing sections
+- **Island Elimination**: wrapper islands are deleted and their imports repointed; standalone islands move to `src/components/`
+- **Loader Inventory**: how many loaders map to `@decocms/apps-*` and which custom ones were placed in `src/setup/commerce-loaders.ts`
+- **CSS Migration**, an **Always Check** list, **Known Issues** and **Next Steps**
+
+</Step>
+</Steps>
+
+### What it does
+
+The migrator runs in phases:
+
+1. **Analyze.** Detects the layout (`sections/` at the root or under `src/`), the commerce platform, and patterns that need attention. A mixed or empty layout stops the run.
+2. **Scaffold.** Writes the TanStack Start project: `package.json`, `tsconfig.json`, `vite.config.ts`, `wrangler.jsonc`, `src/setup.ts`, the routes (catch-all, home and admin routes), `src/server.ts`, `src/worker-entry.ts`, commerce loader wiring and styles.
+3. **Transform.** Rewrites imports, JSX attributes, Fresh APIs, Deno-specific code, Tailwind classes and DaisyUI themes.
+4. **Clean up.** Deletes Fresh artifacts (`islands/`, `routes/`, `deno.json`, `fresh.gen.ts` …) and moves `static/` to `public/`.
+5. **Report.** Writes `MIGRATION_REPORT.md`.
+6. **Verify.** Runs smoke checks on the output.
+7. **Bootstrap.** Installs dependencies with Bun and runs the generators.
+8. **Compile.** Type-checks, and builds with `--with-build`. `--no-compile` skips it.
+9. **Audit.** Runs the post-migration cleanup audit (below). `--no-cleanup-audit` skips it.
+
+The run stops with exit code 2 if the source layout is *mixed* (both `sections/` and `src/sections/` exist, usually because a migration already ran partly on this checkout: restore it with git and start again) or *empty* (none of the expected directories exist, so `--source` points at the wrong folder). It also exits with 2 when the verify phase fails, or, with `--strict`, when the compile or the cleanup audit reports problems.
+
+Imports are rewritten to the v7 packages, for example `apps/commerce/types.ts` to `@decocms/apps-commerce/types`, `apps/vtex/…` to `@decocms/apps-vtex/…`, `apps/admin/widgets.ts` to `@decocms/blocks/types/widgets`, `@deco/deco/hooks` to `@decocms/blocks/sdk/useScript` and `@decocms/blocks/sdk/useDevice`, and `preact` to `react`.
+
+### Tune section conventions
+
+The migrator marks some sections with [section conventions](/v7/sections) based on their names, for example rendering a header synchronously or caching a shelf's loader. To adjust the lists for your site, add `.deco-migrate.config.json` at the source root:
+
+```json title=".deco-migrate.config.json"
+{
+  "sectionConventions": {
+    "extend": {
+      "eagerSync": ["Header"],
+      "sync": ["Hero"],
+      "listingCache": ["ProductShelf"],
+      "staticCache": ["Footer"]
+    }
+  }
+}
+```
+
+Entries are section file names without the extension. `extend` adds to the built-in lists; `replace` uses only yours. `eagerSync` renders the section eagerly and bundles it synchronously, `sync` bundles it synchronously, `listingCache` and `staticCache` cache its loader with the `listing` or `static` profile.
+
+## What you finish by hand
+
+The migrator gets the project building; these need judgement:
+
+- **Platform hooks.** `useCart`, `useUser` and `useWishlist` must be wired to the app's hooks. For VTEX the migrator generates thin wrappers around the app's factories; check them against your components (see [VTEX](/v7/vtex)).
+- **Interactive behaviour from HTMX and islands.** Rewrite each `hx-*` interaction as React state, a server function or an invoke call (see [Loaders and actions](/v7/loaders)).
+- **Matchers.** Custom matchers move to `registerMatcher(key, (rule, ctx) => boolean)`, and code that used `MatchContext` uses the `MatcherContext` fields instead (see [Matchers and variants](/v7/variants)).
+- **Deferred sections.** Check that sections editors marked async have a `LoadingFallback` with the final dimensions, and that cacheable sections are marked (see [Deferred sections](/v7/rendering)).
+- **Search and other site-specific loaders.**
+- **Signals.** Wherever a component reads `signal.value` during render, subscribe with `useStore(signal.store)` from `@tanstack/react-store`, or it won't re-render.
+
+Copy components over faithfully rather than rewriting them; fix only what the new runtime requires.
+
+### Tailwind v4 pitfalls
+
+- Tailwind v4 emits `px-*` as logical properties. An element that mixes `px-*` with `pl-*` or `pr-*` can resolve differently than before; use one style per element.
+- DaisyUI v5 theme variables are OKLCH components, not hex colors.
+- **Negative z-index.** The migrator turns `-z-{n}` into `z-0` on images, but a background layer with `-z-10` that isn't an image can disappear behind its parent when that parent creates a stacking context (an animation, transform or filter does). Use `z-0` on the background and `relative z-10` on the content. `grep -rn -- '-z-' src/` finds what's left.
+- **Opacity utilities.** `bg-opacity-*` and `text-opacity-*` were removed in v4. The migrator rewrites them to the slash form (`bg-black/20`), but flags cases where the color and the opacity are in different class strings, for you to fix.
+
+The compile phase runs a real Tailwind compile of `src/styles/app.css`. To run that check again, use `npx @tailwindcss/cli -i src/styles/app.css -o /dev/null`. A separate class linter (breakpoint order, arbitrary values, v3 class renames) ships with the CLI: `npx tsx node_modules/@decocms/blocks-cli/scripts/tailwind-lint.ts`, with `--fix` to apply its fixes.
+
+## Audit the result
+
+`deco-post-cleanup` scans the migrated site for dead code and boilerplate the framework now provides (local shims, stale widget types, unused runtime files):
+
+```bash
+npx -p @decocms/blocks-cli deco-post-cleanup
+```
+
+`--fix` applies the fixes that are safe to automate; `--json` prints machine-readable output; `--strict` exits with code 2 when there are warnings, for CI. Run it until it's clean, then run the site on the production build (`bun run preview`) and check real pages in a browser before deploying. Then work through [Going live after a migration](/v7/migration-cutover).
+
+## Changes that land on the old site after the cut
+
+A migration takes time, and the Fresh site keeps changing meanwhile. Re-running `deco-migrate` would overwrite your hand fixes. `deco-reconcile` instead produces one patch per file changed on the old site since the migration, for you to port one at a time:
+
+```bash
+npx -p @decocms/blocks-cli deco-reconcile --source ../my-store-fresh --target ../my-store --snapshot <cut sha>
+```
+
+- `--snapshot` is the last source commit already migrated (the cut).
+- `--target-snapshot` is the migration commit on the new site; it defaults to the commit that added `MIGRATION_REPORT.md`. Commits after it count as hand fixes, and the output flags files touched on both sides.
+- `--out` sets the output directory (default `<target>/.reconcile/<source head>`).
+
+It writes nothing to the target except the output directory: `INDEX.md` for you, `manifest.json` (which also records which patches are done), and `patches/NNN-<file>.patch`. Content under `.deco/`, CI workflows, lockfiles and binary assets are skipped. To keep `.deco/blocks/` in sync while editors still publish to the old site, use `deco-sync-blocks-bot` (see [Deploying and Fast Deploy](/v7/releases#keeping-deco-blocks-in-sync-with-production)). To move shoppers to the new site a share at a time while the old one still runs, see [Shift traffic gradually](/v7/migration-cutover#shift-traffic-gradually).
+
+## Not available in v7
+
+These capabilities of the Fresh-era framework have no v7 equivalent:
+
+- 103 Early Hints responses.
+- A section-level `transformProps` hook. Use a [section loader](/v7/loaders) instead.
+- The `runOnce`/release resolver and resolve-chain tracing.
+- Some admin widget types (select, checkbox and radio groups, date picker, number range, dynamic and custom widgets). The supported ones are listed in [Schema generation](/v7/schema).
+- Live preview updates pushed over a WebSocket. Studio refreshes the preview instead.
+
+## Related
+
+- [Going live after a migration](/v7/migration-cutover): checks, parity and a gradual traffic split.
+- [Upgrading from @decocms/start 6.x](/v7/upgrade-from-start): if the site is already on TanStack Start.
+- [CLI reference](/v7/cli): every flag of these tools.
+- [Troubleshooting](/v7/troubleshooting)

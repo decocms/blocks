@@ -1,0 +1,166 @@
+---
+title: Deferred sections
+group: Rendering
+order: 16
+description: How sections that editors mark async in Studio render as a skeleton first and load afterwards, which sections get deferred, and how to configure it.
+---
+
+# Deferred sections
+
+A slow section, such as a product shelf waiting on a search API, shouldn't hold up the rest of the page. In Studio an editor can mark any section on a page as async (the ⚡ toggle). That section becomes a **deferred section**: the server sends its skeleton with the page, and the browser fetches the real section separately, when it's about to scroll into view. The rest of the page arrives without waiting for it.
+
+<Terms>
+  <Term name="Deferred section">A section rendered first as its skeleton and loaded separately afterwards. See the [glossary](/v7/glossary#deferred-section).</Term>
+  <Term name="Eager section">A section resolved and rendered on the server as part of the page.</Term>
+  <Term name="Eager request">A request that gets every section eagerly: search-engine crawlers, audit requests and programmatic fetches.</Term>
+  <Term name="Fold threshold">An optional position on the page after which unmarked sections are deferred too. Off by default.</Term>
+</Terms>
+
+## How a deferred section loads
+
+<Flow label="Deferred section">
+  <FlowNode title="Editor marks ⚡">Studio wraps the section in the content, so the page knows it's async</FlowNode>
+  <FlowNode title="Server renders the page">Eager sections render; the deferred one renders its `LoadingFallback`. Its content stays on the server</FlowNode>
+  <FlowNode title="Skeleton nears the viewport">Within 300px of the visible area, the browser asks the server for that section</FlowNode>
+  <FlowNode title="Server resolves it">Resolves the section's content, runs its section loader, returns the props</FlowNode>
+  <FlowNode title="Section replaces the skeleton">Rendered in place, with a short fade-in</FlowNode>
+</Flow>
+
+A deferred section's content isn't embedded in the page, which also keeps the HTML and the hydration payload smaller. When the browser asks for the section, the server looks up the content it kept from the page render, or resolves the page again to find it, so the request can land on any server instance.
+
+Each section's request is independent: one slow or failing section doesn't affect the others. If the request fails, the section's `ErrorFallback` renders, or nothing.
+
+## Wire it up
+
+**TanStack Start.** Two things are needed, and the [quickstart](/v7/quickstart) sets up both:
+
+1. `applySectionConventions` in setup. Among other things it turns async rendering on; without it, every section renders eagerly and the ⚡ toggle does nothing. See [Section conventions](/v7/sections#apply-them-in-setup).
+2. `loadDeferredSectionFn={deferredSectionLoader}` on `DecoPageRenderer`, imported from `@decocms/tanstack/sdk/deferredSectionLoader`:
+
+```tsx title="src/routes/$.tsx (excerpt)"
+<DecoPageRenderer
+  sections={data.resolvedSections ?? []}
+  deferredSections={data.deferredSections ?? []}
+  pagePath={data.pagePath}
+  pageUrl={data.pageUrl}
+  loadDeferredSectionFn={deferredSectionLoader}
+/>
+```
+
+`deferredSectionLoader` calls a TanStack server function that resolves the section. It works on the first page load and after client-side navigation alike. Without it, deferred sections stay skeletons forever after a client-side navigation.
+
+**Next.js.** `createDecoPage` handles deferred sections without extra wiring. The server starts resolving each one immediately and streams it into the page under its own `<Suspense>` boundary, so there's no scroll trigger: everything arrives in the same response, just not all at once. `deferredTrigger` has no effect, and the per-section `LoadingFallback` isn't used for the stream. [Next.js App Router](/v7/nextjs) lists what `createDecoPage` does and doesn't run, including section loaders.
+
+## Which sections are deferred
+
+The ⚡ toggle in Studio decides, with a few exceptions. For each top-level section on a page, the runtime goes through these checks in order and stops at the first one that applies:
+
+1. **Eager requests get everything eagerly.** Crawlers must see the whole page, so a request from a search-engine bot is never deferred, whatever the content says.
+2. **`export const deferred = true`** in the section file: deferred.
+3. **Marked async (⚡) in Studio**, directly or inside a variant that matched: deferred.
+4. **Layout sections** (`export const layout = true`): eager.
+5. **`export const neverDefer = true`**: eager.
+6. **`export const eager = true`**, when the section is before the fold threshold: eager.
+7. **At or after the fold threshold**: deferred.
+8. Anything else: eager.
+
+The fold threshold is off by default (it's `Infinity`), which makes steps 4 to 7 inert. With the defaults, a section is deferred when an editor marked it ⚡ or its file says `deferred = true`, and is eager otherwise. No code flag can make an editor's ⚡ section eager.
+
+Two more cases:
+
+- A deferred section with a `scheduling` prop whose window has closed, or not opened yet, is left out of the page entirely rather than rendered as a skeleton that turns into nothing.
+- Only top-level sections of a page are deferred. Sections nested inside another section's props resolve with their parent.
+
+### Eager requests
+
+A request gets every section eagerly when any of these is true:
+
+- **Its user agent looks like a crawler.** The list covers the common search engines, social previews and auditing tools (Googlebot, Bingbot, Lighthouse and others). Add your own pattern with `registerBotPattern(/mycrawler/i)` from `@decocms/blocks/cms`.
+- **The URL has `?__deco_ssr=1`** (or `?__bot=1`). Use it to see the crawler's version of a page from a normal browser, for SEO checks or debugging.
+- **It's a programmatic fetch**, such as a `fetch()` from your own script that reads the page's HTML. Those can't run the browser-side loading, so they'd only ever see skeletons. They're detected by the `Sec-Fetch-Dest: empty` header; client-side navigations within the site are excluded.
+
+On TanStack Start, the edge cache keeps the eager and deferred versions of a page in separate entries. See [Caching](/v7/caching).
+
+<Callout type="warning">
+
+**Don't mark a gate section async.** Some sections decide what the rest of the page shows: a combined product-and-category route whose loader picks which branch renders, for example. A deferred section is resolved later, in a separate request, and can't change what the page already rendered around it. Leave those sections unmarked in Studio. There's deliberately no code override that wins over ⚡, so this is an editorial rule: tell your editors which sections must stay eager.
+
+</Callout>
+
+## Configure it
+
+`setAsyncRenderingConfig` from `@decocms/blocks/cms` adjusts the behaviour site-wide. Call it once, at module scope, in setup:
+
+```ts title="src/setup.ts (excerpt)"
+import { setAsyncRenderingConfig } from "@decocms/blocks/cms";
+
+setAsyncRenderingConfig({ deferredTrigger: "load" });
+```
+
+Each call merges with the previous settings, so the order relative to `applySectionConventions` doesn't matter.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `deferredTrigger` | `"intersection" \| "load"` | `"intersection"` | When the browser fetches a deferred section. `"intersection"` waits until the skeleton is within 300px of the viewport. `"load"` fetches every deferred section as soon as the page hydrates, without waiting for scroll. TanStack Start only. |
+| `respectCmsLazy` | `boolean` | `true` | Whether the ⚡ toggle defers sections. Set `false` to ignore it. |
+| `foldThreshold` | `number` | `Infinity` | Defers unmarked sections from this position on (0-based, counting top-level sections). Off by default. |
+| `alwaysEager` | `string[]` | `[]` | Section keys kept eager before the fold threshold, like `export const eager = true`. Merged with earlier calls. |
+| `botAwareSeo` | `boolean` | `false` | Skips commerce data in the page's SEO block for human visitors. See [SEO](/v7/seo#structured-data-and-crawlers). |
+
+<Callout type="warning">
+
+**Set `deferredTrigger` in a module the browser also loads.** The browser reads it, not the server. On TanStack Start that means `src/setup.ts`, which the router imports. Called from the Worker entry or other server-only code, the server still defers sections, but the browser falls back to `"intersection"` without any warning.
+
+</Callout>
+
+**Choosing a trigger.** `"intersection"` sends the fewest requests: a section nobody scrolls to is never fetched. Its cost is that content below the fold doesn't exist in the document until the visitor scrolls, so it can't be found with the browser's find-in-page, and impressions for it aren't tracked until then. `"load"` fills in the whole page right after hydration, which is how Deco sites on Fresh behave, at the cost of a burst of requests on every page load and every client-side navigation. Sites migrated from Fresh usually want `"load"`; pages with many heavy deferred sections usually don't.
+
+**The fold threshold.** A finite `foldThreshold` defers unmarked sections by position, for example everything from the fifth section on, while keeping the first sections server-rendered for a fast first paint. Use `eager`, `neverDefer` and `layout` to keep particular sections out of it, such as an interactive filter bar that needs its props during hydration. Most sites leave it off and let editors decide.
+
+## Skeletons and layout shift
+
+When a deferred section arrives, it replaces its skeleton. If the two have different heights, everything below moves, which hurts the page's Cumulative Layout Shift. Give every section that can be deferred a `LoadingFallback` with the section's final size. [Section conventions](/v7/sections#skeletons) covers what the skeleton receives on each binding.
+
+## Defer a single prop
+
+Deferring is all or nothing for a section. Sometimes only one prop is expensive and is needed only in some cases, like the "not found" sections a product page renders when the product doesn't exist. By default the resolver resolves every prop, including commerce loaders inside branches the section never shows.
+
+`asResolved(value, true)` tells the resolver to leave a prop alone and hand the section a function instead. The section calls `resolveDeferred` on it only in the branch that needs it. Both come from `@decocms/blocks/cms`, and `asResolved` is applied in the section's `onBeforeResolveProps` export, which receives the raw props from the content before resolution:
+
+```tsx title="src/sections/Product/ProductDetails.tsx"
+import { asResolved, resolveDeferred } from "@decocms/blocks/cms";
+import type { ProductDetailsPage } from "@decocms/apps-commerce/types";
+import type { Section } from "@decocms/blocks/types";
+
+export interface Props {
+  page: ProductDetailsPage | null;
+  notFoundSections?: Section[];
+}
+
+export const onBeforeResolveProps = (props: Props) => ({
+  ...props,
+  notFoundSections: asResolved(props.notFoundSections, true),
+});
+
+export const loader = async (props: Props) => {
+  if (props.page) return { ...props, notFoundSections: [] };
+  return { ...props, notFoundSections: await resolveDeferred(props.notFoundSections) };
+};
+```
+
+The section's loader must be registered for this to run; see [Loaders and actions](/v7/loaders).
+
+<Callout type="warning">
+
+**A deferred prop that's never resolved reaches the component as `undefined`.** Functions can't be sent to the browser, so the prop is dropped. Resolve it on every branch that renders it. `asResolved(value)` without `true` passes the value through untouched, without resolving anything inside it.
+
+</Callout>
+
+`resolveDeferred` also accepts a plain value, so the section works the same when the prop wasn't deferred, such as in Studio previews.
+
+## Next steps
+
+- [Section conventions](/v7/sections): `LoadingFallback`, `deferred`, `eager` and the other exports.
+- [Images, scripts and UI helpers](/v7/components): `LazySection`, for deferring part of a section in the browser.
+- [Caching](/v7/caching): how the edge cache treats eager and deferred page versions.
+- [How resolution works](/v7/walkthrough): where deferral fits in resolving a page.

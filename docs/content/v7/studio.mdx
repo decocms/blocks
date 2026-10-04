@@ -1,0 +1,144 @@
+---
+title: Deco Studio and the admin protocol
+nav: Studio & admin protocol
+group: Core concepts
+order: 12
+description: The HTTP endpoints Deco Studio calls on your site, how each binding mounts them, and how to configure previews, CORS and publishing.
+---
+
+# Deco Studio and the admin protocol
+
+[Deco Studio](https://studio.decocms.com) is Deco's visual editor. It doesn't host your site or hold a copy of your code: it talks to your running site over a small set of HTTP endpoints, called the *admin protocol*, to read the schema and content, render previews and publish changes. This page lists those endpoints, shows how each binding mounts them, and covers the settings that affect what editors see.
+
+<Terms>
+  <Term name="Deco Studio">Deco's visual editor (also called the admin). It reads your schema and content from your site and publishes changes back. See the [glossary](/v7/glossary#deco-studio).</Term>
+  <Term name="Admin protocol">The HTTP endpoints Studio calls on your site. See the [glossary](/v7/glossary#admin-protocol).</Term>
+  <Term name="Render shell">The HTML document previews render inside: your stylesheet, fonts and theme.</Term>
+</Terms>
+
+## How Studio talks to your site
+
+<Flow label="Studio and your site">
+  <FlowNode title="Schema">`GET /live/_meta`: which sections and loaders exist and what their forms look like</FlowNode>
+  <FlowNode title="Content">`GET /.decofile`: the current blocks</FlowNode>
+  <FlowNode title="Preview">`/live/previews/*`: a section or page rendered with the editor's unsaved props</FlowNode>
+  <FlowNode title="Publish">`POST /.decofile`: the new content, applied in memory</FlowNode>
+</Flow>
+
+Studio loads your site in an iframe for previews and calls the other endpoints from the browser, so they answer with CORS headers. All the handlers come from `@decocms/blocks-admin`; the bindings mount them for you.
+
+## The endpoints
+
+| Method and path | What it does |
+|---|---|
+| `GET /live/_meta` | Returns the schema (`.deco/meta.gen.json`, composed with the framework's types) with an ETag. Answers `304` when Studio's `If-None-Match` matches, `503` when no schema is configured. Also served at `/deco/meta`. |
+| `GET /.decofile` | Returns the current decofile, with the revision as ETag and `Cache-Control: no-cache`. |
+| `POST /.decofile` | Replaces content. See [Publishing](#publishing). |
+| `GET /live/previews` | The empty HTML shell Studio's preview frame starts from. |
+| `GET` or `POST /live/previews/<block or section>` | Renders one section, a saved block, or a whole page (`website/pages/Page.tsx`) with the props Studio sends, inside the render shell. |
+| `POST /deco/render` | The same renderer, with the component given in the body or the `resolveChain` query parameter. |
+| `POST /deco/invoke/<key>`, `POST /deco/invoke` | Calls a loader or action by key, or a batch of them. See [Loaders and actions](/v7/loaders#call-loaders-and-actions-over-http). |
+| `GET /deco/_liveness` | Answers `OK`, for health checks. |
+
+Page previews evaluate matchers against the path and device Studio is previewing (`?path=`, `?deviceHint=mobile`), and run section loaders, so the preview shows real data. Each previewed section is wrapped in a `<section data-manifest-key="…">` so Studio can map clicks back to blocks. Errors render inline in the preview rather than failing the request.
+
+## Publishing
+
+When an editor publishes, Studio sends the content to `POST /.decofile`. The body is one of two shapes:
+
+- **A delta:** an object whose only key is `blocks`, holding the changed blocks. A `null` value deletes that block.
+
+  ```json title="A delta publish"
+  { "blocks": { "Header": { "__resolveType": "site/sections/Header/Header.tsx", "logo": "https://www.example.com/logo-v2.svg" }, "pages-old-sale": null } }
+  ```
+
+- **A full decofile:** any other object replaces all content.
+
+The site applies it with `setBlocks`, clears its loader cache, invalidates the schema ETag, and, with [Fast Deploy](/v7/releases), writes the snapshot to KV. It answers:
+
+| Field | Meaning |
+|---|---|
+| `ok` | `true` |
+| `mode` | `"delta"` or `"full"` |
+| `previousBlockCount`, `newBlockCount` | Block counts before and after |
+| `revision` | The new content revision |
+| `kvWritten` | Whether the snapshot was written to KV (always `false` without Fast Deploy) |
+| `timestamp` | When it was applied |
+
+Outside development, publishing requires a token. Set `DECO_RELEASE_RELOAD_TOKEN` in the site's environment, and the request's `Authorization` header must equal it exactly. Without the variable, every publish is refused with `401`. In development (`NODE_ENV=development`) no token is needed, which is how the TanStack dev server applies your local block edits.
+
+## In TanStack Start
+
+The endpoints are split between the Worker entry and three file routes.
+
+`createDecoWorkerEntry` handles `/live/_meta`, `/.decofile`, `/live/previews` and `/live/previews/*`, and `/deco/_liveness`, when you pass the handlers as its `admin` option. These responses are never cached.
+
+```ts title="src/worker-entry.ts (excerpt)"
+import {
+  corsHeaders,
+  handleDecofileRead,
+  handleDecofileReload,
+  handleMeta,
+  handleRender,
+} from "@decocms/blocks-admin";
+
+export default createDecoWorkerEntry(serverEntry, {
+  admin: { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, corsHeaders },
+});
+```
+
+The file routes `src/routes/deco/meta.ts`, `src/routes/deco/invoke.$.ts` and `src/routes/deco/render.ts` serve the rest, using `decoMetaRouteConfig()`, `decoInvokeRouteConfig()` and `decoRenderRouteConfig()`. Call each factory in its own route file. The [quickstart](/v7/quickstart#8-add-the-routes) has all three.
+
+<Callout type="warning">**Mount the admin handlers in `createDecoWorkerEntry`, not in TanStack's `createServerEntry`.** Production builds drop custom request handling from the server entry, so the endpoints work in development and then return your HTML page in production. If `/live/_meta` returns HTML, check this first, and check that `wrangler.jsonc`'s `main` points at `src/worker-entry.ts`.</Callout>
+
+## In Next.js
+
+One catch-all route, `app/deco/[[...deco]]/route.ts` with `createDecoRouteHandlers({ setup })`, serves every endpoint. `withDeco` in `next.config` rewrites the public paths onto it, because Next.js route folders can't start with a dot:
+
+| Public path | Rewritten to |
+|---|---|
+| `/.decofile` | `/deco/decofile` |
+| `/live/_meta` | `/deco/meta` |
+| `/live/previews/:path*` | `/deco/previews/:path*` |
+
+Preview `GET`s redirect to the fixed page `/deco/preview`, rendered by `createDecoPreviewPage`, so Client Components work in previews; see [Previews and draft preview](/v7/preview). On Next.js, `/deco/meta` accepts only `GET` and `/deco/invoke` only `POST`. The [Next.js quickstart](/v7/quickstart-nextjs#8-mount-the-admin-routes) shows both files.
+
+## What previews look like
+
+Previews render your sections outside your app's normal layout, so you tell the admin side what the surrounding document needs. On TanStack, `createAdminSetup` from `@decocms/blocks-admin/setup` takes:
+
+| Option | Type | What it does |
+|---|---|---|
+| `meta` | `() => Promise<schema>` | Loads the schema. Required. Keep it a dynamic `import()`. |
+| `css` | `string` | URL of your stylesheet (a Vite `?url` import). Required. |
+| `fonts` | `string[]` | Font stylesheet URLs to load in previews. |
+| `previewWrapper` | component | Wraps every preview, to provide context your sections need. Use `PreviewProviders` from `@decocms/tanstack`. |
+| `getCommerceLoaders` | `() => Record<string, loader>` | The loaders `/deco/invoke` can call, if you don't register them with `setInvokeLoaders`. |
+
+On Next.js, the same settings are `createNextSetup`'s `meta`, `renderShell: { css, fonts }` and `previewWrapper`.
+
+For anything else about the shell, call `setRenderShell` from `@decocms/blocks-admin` in setup. It takes `css`, `fonts`, `theme` (the `data-theme` attribute), `bodyClass` and `lang`. If your styles use DaisyUI color variables, set the theme, or previews render without colors:
+
+```ts title="src/setup.ts (excerpt)"
+import { setRenderShell } from "@decocms/blocks-admin";
+
+setRenderShell({ theme: "light" });
+```
+
+The Next.js preview page already defaults the theme to `light`.
+
+## Live controls
+
+`DecoRootLayout` (in both bindings) renders `LiveControls`, a small script that lets Studio and the page talk while the page is in Studio's frame: it reports which page is open and responds to editor messages. Outside Studio it also adds a shortcut: press <Kbd>.</Kbd> on your site to open it in Studio (<Kbd>Ctrl</Kbd>/<Kbd>⌘</Kbd> + <Kbd>.</Kbd> for a new tab).
+
+## CORS and framing
+
+Studio calls the admin endpoints from the browser, so they answer with CORS headers that allow `GET`, `POST` and `OPTIONS` and the `Content-Type`, `Authorization` and `If-None-Match` headers. On Next.js, `OPTIONS` preflights are answered without running setup.
+
+Studio also shows your pages in a frame. On TanStack, HTML responses carry a `frame-ancestors` policy that lets Deco's Studio frame your pages; see [TanStack Start on Cloudflare Workers](/v7/tanstack) to change the security headers.
+
+## Next steps
+
+- [Schema generation](/v7/schema): what `/live/_meta` contains.
+- [Previews and draft preview](/v7/preview): previews in depth, and drafts on the real site.
+- [Deploying and Fast Deploy](/v7/releases): making publishes durable in production.

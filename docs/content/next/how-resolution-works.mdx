@@ -1,0 +1,30 @@
+---
+title: How resolution works
+nav: How resolution works
+group: Under the hood
+kind: internals
+order: 2
+---
+
+# How resolution works
+
+Here's the setup. Your [block map](/next/blocks#the-block-map) registers two functions, `product-card` and `catalog-product`. Two blocks are [saved](/next/saved-blocks): `CurrentProduct`, which is `{ "__resolveType": "catalog-product", "slug": "summer-shirt" }`, and `SummerCard`, shown in step 1, which uses it ([`__resolveType`](/next/blocks#functions-as-blocks) names the function a block calls). As code, `SummerCard` means `productCard({ title: "Summer collection", product: catalogProduct({ slug: "summer-shirt" }) })`.
+
+This page shows, step by step, how the SDK evaluates that block. Step through [`client.resolve("SummerCard")`](/next/api-reference#client-resolve-target-options) to watch [the lookup rule](/next/blocks#the-lookup-rule) at work, or switch to `{ run: false }` to see what a read returns. `product-card` can return a [descriptor](/next/rendering#which-mode-to-use) or a React element (for frameworks that render React Server Components, such as the Next.js App Router); the second toggle compares them. This is an illustration, so it doesn't run any application code.
+
+<Walkthrough />
+
+## The rule in full
+
+[Blocks](/next/blocks#the-lookup-rule) gives the rule in one paragraph. These are the details behind it:
+
+- **One namespace.** [Saved blocks](/next/saved-blocks), [built-in blocks](/next/built-in-blocks) and your block map share one registry, `{ ...savedBlocks, ...builtIns, ...blocks }`, so names should be unique. When a saved block has the same name as a block type, the function wins; [`deco check`](/next/checking#what-deco-check-checks) reports the collision.
+- **Inputs resolve concurrently.** A function's inputs resolve before it runs, children before parents, and sibling blocks at the same time.
+- **One exception: `lazy`.** A [lazy block](/next/lazy-blocks) is the only block whose input doesn't resolve first. The function gets `() => Promise<T>` instead, which resolves `value` the first time it's called and returns the same result after that. If it's never called, nothing inside it runs. If its value fails, calling the function rejects with that error; the function that called it is already running, so it handles the error itself.
+- **Failures stop the parent.** If a nested block fails (outside a `lazy` block), its parent never runs and `resolve` returns the error, much as an outer call never runs when an inner one throws. The error's `path` says where in the tree it happened.
+- **Overrides merge, then look up again.** A reference with extra arguments expands to `{ ...saved, ...arguments }` (see [Override arguments](/next/saved-blocks#override-arguments)), and the merged block goes through the rule again.
+- **A name with no saved block fails.** `client.resolve("Name")` fails with [`NOT_FOUND`](/next/api-reference#errors) when nothing is saved under that name; a string is always a saved block's name, never a block type.
+- **Results are returned as is.** The CMS never walks a function's return value. This is also why a function that returns its input, like `seo`, can't loop: `__resolveType` is stripped before the call, and whatever comes back is never looked up again.
+- **Only data can loop.** A saved-entry expansion is the one branch that applies the rule again, so two entries that reference each other, or an entry that references itself, would recurse forever. The CMS tracks the entries expanded on the current path and fails with `CYCLE` the moment one repeats, with the chain in `error.path`.
+- **Block functions should only read.** They run whenever content is resolved: for a visitor, in a preview, or when an agent checks its edit. Put side effects in your own route handlers or server functions (see [Call a client](/next/upstream-clients#call-a-client)).
+- **Reading without running.** `client.resolve(target, { run: false })` stops after expansion: saved blocks are replaced and merged, and no function runs. It's useful for previews, tooling and debugging, and it's what [`client.list`](/next/api-reference#client-list-type-options) returns by default.

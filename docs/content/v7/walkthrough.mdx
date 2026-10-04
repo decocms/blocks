@@ -1,0 +1,123 @@
+---
+title: How resolution works
+group: Under the hood
+kind: internals
+order: 2
+description: What the runtime does to turn a page block's JSON into sections ready to render, in order, with a worked example.
+---
+
+# How resolution works
+
+**Resolution** turns a page's raw content into the props its sections render with: it follows block names, picks variants and calls loaders, wherever a `__resolveType` appears. This page walks through it in the order the runtime does it, first for a whole page and then for a single value, and finishes with a worked example. It describes `resolveDecoPage` and the resolver behind it, both in `@decocms/blocks/cms`.
+
+## From URL to sections
+
+<Flow label="Resolving a page">
+  <FlowNode title="Find the page">The first page block whose `path` pattern matches the URL</FlowNode>
+  <FlowNode title="Split the sections">Each top-level section is either deferred or resolved now</FlowNode>
+  <FlowNode title="Resolve eager sections">All at once, in parallel; layout sections from their cache</FlowNode>
+  <FlowNode title="Resolve the SEO block">Always now, never deferred</FlowNode>
+  <FlowNode title="Section loaders">The binding enriches each section's props</FlowNode>
+</Flow>
+
+1. **Find the page.** The runtime matches the path against every page block's `path` and takes the first match, along with its route parameters (`:slug` and the like). No match means no page, and the binding answers 404. [Pages and routing](/v7/routing) has the matching rules.
+2. **Build the matcher context.** The request's URL, path, user agent, cookies and headers, which every matcher in the page will see. See [Matchers and variants](/v7/variants).
+3. **Get the section list.** A page's `sections` is usually an array. It can also be a variant or a named block that produces an array; that outer value is resolved first, without resolving the sections inside it yet.
+4. **Split the sections.** For each top-level section the runtime decides whether to defer it, using the rules in [Deferred sections](/v7/rendering#which-sections-are-deferred). A deferred section is followed through names, async wrappers and variants just far enough to know which section component it is, without calling any loader. What's left is recorded as a deferred section, and its raw props stay on the server for the browser's later request.
+5. **Resolve the eager sections.** Each eager section is resolved fully (the next section of this page), all of them concurrently. A [layout section](/v7/sections#layout-sections) is served from a 5-minute cache keyed by section and device class, and concurrent requests share one resolution. Each result keeps its position on the page, so eager and deferred sections can be merged back in order.
+6. **Resolve the SEO block.** The page's `seo` field is resolved last, eagerly, so it can reuse named blocks the sections already resolved. Async wrappers are ignored for it. See [SEO](/v7/seo).
+
+`resolveDecoPage` returns the page's name, path and route parameters, the resolved sections, the deferred sections and the SEO block. The binding then runs section loaders on the result (TanStack Start's route loader does; see [Loaders and actions](/v7/loaders)) and renders.
+
+## Resolving a value
+
+Inside a section, resolution is recursive. Given any JSON value, the resolver checks these cases in order and stops at the first that applies:
+
+1. **Not an object** (a string, number, boolean or `null`): returned as is.
+2. **An array:** each item is resolved, in parallel. Items that resolve to "not present" (a variant with no match) are dropped, so a hidden item leaves no hole.
+3. **An object without `__resolveType`:** each property is resolved, in parallel.
+4. **A type the runtime skips:** a few legacy types handled elsewhere (SEO sections from the website and commerce apps, the analytics section, the commerce proxies, the redirect and page-list loaders) resolve to `null`. Your own types can be added with `addSkipResolveType`.
+5. **Too deep:** past 20 levels of nesting, the value resolves to `null` and an error is logged. This stops a block that refers to itself from looping.
+6. **Already resolved:** `{ "__resolveType": "resolved", "data": … }` returns `data` untouched. This is what `asResolved(value)` produces. With `deferred: true`, it returns a function that resolves `data` only when called; see [Defer a single prop](/v7/rendering#defer-a-single-prop).
+7. **An async wrapper** (`website/sections/Rendering/Lazy.tsx` or `Deferred.tsx`, what Studio adds for ⚡): unwrapped and its section resolved. Whether the section is deferred was already decided at the page level; nested wrappers just resolve.
+8. **A route parameter** (`website/functions/requestToParam.ts`): the named parameter from the page's `path`, such as the product slug.
+9. **A commerce extension wrapper:** unwrapped to its `data`.
+10. **A variant** (`website/flags/multivariate.ts` or `website/flags/multivariate/section.ts`): the rules are evaluated in order and the first matching variant's `value` is resolved. The others are never touched, so their loaders don't run. No match resolves to "not present".
+11. **A commerce loader** (a key registered with `registerCommerceLoaders`): its props are resolved first. Then the page's path and URL are added as `__pagePath` and `__pageUrl`, with tracking parameters removed, and the URL's query parameters are copied into props that the content didn't set (except `page`). The loader is called and its result is the value. If it throws, `onResolveError` is called, the value is `null`, and the page is marked degraded.
+12. **A named block** (a `__resolveType` that names a block in the decofile): the block's JSON is merged with the reference's other fields, which override it, and the result is resolved. Results are memoized for the rest of this page's resolution, keyed by the reference including its overrides.
+13. **An unregistered loader or action** (a name containing `/loaders/` or `/actions/` that matched nothing above): passed to `onDanglingReference`, which by default logs a warning and returns `null`.
+14. **Anything else is a section.** If the section exports `onBeforeResolveProps`, it first receives the raw props. Then every prop is resolved and the value keeps its `__resolveType`, which names the component.
+
+Studio previews add one more case: `{ "__resolveType": "preview", "block": "<name>" }` resolves the named block, so Studio can preview a saved block with edited props.
+
+After resolution, sections nested in props are turned into `{ Component, props }` objects, the shape [`RenderSection`](/v7/model) renders, and a top-level section whose component isn't registered is skipped with a warning.
+
+## A worked example
+
+Here's a page and the blocks it refers to:
+
+```json title=".deco/blocks (excerpt)"
+{
+  "pages-summer-sale": {
+    "__resolveType": "website/pages/Page.tsx",
+    "name": "Summer sale",
+    "path": "/summer-sale",
+    "sections": [
+      { "__resolveType": "Header" },
+      {
+        "__resolveType": "website/flags/multivariate.ts",
+        "variants": [
+          {
+            "rule": { "__resolveType": "website/matchers/device.ts", "mobile": true },
+            "value": { "__resolveType": "site/sections/Hero.tsx", "title": "Tap to shop the sale" }
+          },
+          {
+            "rule": { "__resolveType": "website/matchers/always.ts" },
+            "value": { "__resolveType": "site/sections/Hero.tsx", "title": "Summer sale" }
+          }
+        ]
+      },
+      { "__resolveType": "Summer shelf", "title": "Picked for summer" },
+      {
+        "__resolveType": "website/sections/Rendering/Lazy.tsx",
+        "section": { "__resolveType": "Footer" }
+      }
+    ]
+  },
+  "Header": { "__resolveType": "site/sections/Header/Header.tsx", "links": [] },
+  "Footer": { "__resolveType": "site/sections/Footer/Footer.tsx" },
+  "Summer shelf": {
+    "__resolveType": "site/sections/ProductShelf.tsx",
+    "title": "Summer",
+    "products": {
+      "__resolveType": "vtex/loaders/intelligentSearch/productList.ts",
+      "props": { "query": "summer", "count": 12 }
+    }
+  }
+}
+```
+
+A phone requests `/summer-sale`, on a site where `Header.tsx` exports `layout = true`:
+
+1. `pages-summer-sale` matches the path. It has four top-level sections.
+2. **Splitting.** The fourth section is wrapped in `Lazy.tsx`, so an editor marked it ⚡: it's deferred. The runtime follows the wrapper and the `Footer` name to learn it's `site/sections/Footer/Footer.tsx`, and records it as deferred at position 3. The other three are eager.
+3. **Section 0, `Header`.** It's a named block whose component is a layout section, so the runtime looks in the layout cache under the Header key and `mobile`. On a miss, it resolves the block (case 12, then case 14) and caches the result for 5 minutes.
+4. **Section 1, the variant** (case 10). The device rule matches a phone, so the first `value` is resolved (case 14): `site/sections/Hero.tsx` with the title "Tap to shop the sale". The desktop Hero is never resolved.
+5. **Section 2, `Summer shelf`** (case 12). The block's JSON is merged with the reference's `title`, which overrides it: the shelf's title is "Picked for summer". Resolving the merged object reaches `products` (case 11): the VTEX loader's props are resolved, `__pagePath` and `__pageUrl` are added, and the loader runs. `products` becomes its list of products.
+6. **SEO.** The page has no `seo` field, so there's no SEO block.
+7. The result has three resolved sections (positions 0, 1 and 2) and one deferred section (position 3). The binding runs section loaders on the three, renders them, and renders the Footer's skeleton. When the visitor scrolls near the bottom, the browser requests the Footer, and the server resolves it from the raw props it kept.
+
+On a desktop request, step 4 picks the second Hero, and the Header comes from its `desktop` cache entry.
+
+## Errors and limits
+
+- **A failing commerce loader** doesn't fail the page. Its value becomes `null`, `onResolveError` (an option of `createSiteSetup`) is called, and the page is marked degraded. On TanStack Start the edge cache doesn't store a degraded page; see [Caching](/v7/caching#degraded-pages).
+- **A section that throws while resolving** resolves to nothing, and the rest of the page renders.
+- **Memoization is per page resolution.** A named block referenced twice with the same overrides is resolved once per request, not across requests. Commerce loaders aren't deduplicated by it; their own cache does that (see [Caching](/v7/caching#caching-loaders)).
+- **References that go nowhere:** an unregistered loader or action is handled by `onDanglingReference`. Any other unknown name is treated as a section, and a section without a registered component is skipped with a warning, so a typo in a block name shows up as a missing section rather than an error.
+
+## Next steps
+
+- [Content and the decofile](/v7/content): the content model this page resolves.
+- [Deferred sections](/v7/rendering): the deferral rules used in step 4.
+- [The Worker request pipeline](/v7/request-pipeline): what happens to the request before and after resolution on TanStack Start.

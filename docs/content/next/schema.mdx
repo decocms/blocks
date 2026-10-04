@@ -1,0 +1,133 @@
+---
+title: Forms from types
+nav: Forms from types
+group: Built on Blocks
+kind: docs
+order: 7
+---
+
+# Forms from types
+
+You already describe your banner's inputs in TypeScript: `title: string`, `image: string`, `endsOn?: string`. Normally you'd also build an admin form by hand, with a text box, an image picker and a date picker, and keep it in step with the type forever. With Deco CMS, `deco schema` reads the type and writes the form description for you, `.deco/schema.gen.json`, and [the site editor](/next/site-editor) shows editors that form. It only accepts values your function can take.
+
+This page shows how types become fields, how blocks that return the same type become interchangeable, how to pick widgets with JSDoc tags, and how to declare data-only blocks.
+
+## From types to forms
+
+`deco schema` reads the default export of `.deco/index.ts` (or `.deco/index.tsx`), your [block map](/next/blocks#the-block-map), and writes `.deco/schema.gen.json` (flags in [CLI](/next/cli#deco-schema-and-deco-content)). Don't edit `schema.gen.json`: it's generated. Each key's form comes from its function's first parameter. Nothing else in the file is read.
+
+```bash
+npx @decocms/blocks schema
+```
+
+It finds `.deco/` by walking up from the current folder, or takes `--root` ([how it finds the folder](/next/cli#finding-the-deco-folder)). Commit `.deco/schema.gen.json` with your code.
+
+For each block, `deco schema` reads the type of the function's first parameter. Each property becomes a field:
+
+| TypeScript type | Field in the site editor |
+|---|---|
+| `string` | A text box |
+| `number` | A number field |
+| `boolean` | A toggle |
+| A union of string literals (`"sm" \| "md" \| "lg"`), or an `enum` | A select |
+| An array | A list editors can add to and reorder |
+| An object, such as `Product` or `Seo` | A group of fields, or a block (see below) |
+| An optional property (`endsOn?: string`) | An optional field |
+| `ReactNode` / `ReactNode[]` | A choice of components: one, or a list (see [Interchangeable blocks](#interchangeable-blocks)) |
+| `Secret`, from `@decocms/blocks` | A write-only password box; the value is saved encrypted (see [Secrets](/next/built-in-blocks#secrets)) |
+
+**Think in functions.** A field's type is the value your function *receives*, already resolved. The site editor fills the field with a plain value of that type or, for objects and JSX, with a block whose function returns that type. The return type is awaited, so a function that returns `T` and one that returns `Promise<T>` both fit:
+
+```ts
+interface ProductCardProps {
+  title: string;
+  product: Product;   // The site editor offers any block whose function returns a Product, e.g. catalogProduct
+}
+```
+
+`deco schema` reads each block function's return type to know which functions fit which fields:
+
+- **Objects** (`product: Product`, `seo: Seo`) take a plain value, or a block whose function returns that type, such as `catalogProduct` or `seo`.
+- **`ReactNode` and `ReactNode[]`** (`sections: ReactNode[]`) take functions that return JSX, sync or async (Server Components): one, or as many as you like. Only JSX counts. TypeScript's `ReactNode` also includes strings, numbers and booleans, but functions that return those aren't offered here, so a [matcher](/next/matchers-and-variants) (a function that returns a `boolean`) never shows up as a section.
+- **Simple types** (`string`, `number`, `boolean`, a union of literals) get a plain input only. A function that returns a `string` isn't offered for `title: string`, and matchers aren't offered for `permanent: boolean`.
+
+Two things work on top of this. Any field can have [variants](/next/matchers-and-variants#variants), alternate content picked per request (by date, or by any rule you write): `multivariate<T>` is generic, so `T` becomes the field's type, a `string` for a title or `ReactNode[]` for a whole `sections` list. Each `rule` in `variants` is the one `boolean` field that offers blocks: any function that returns a `boolean` (a matcher). And a [`Lazy<T>` field](/next/lazy-blocks#lazyt-props) gets the form of `T`: `deco schema` makes it a `lazy` block whose `value` is a `T`, editors fill in a `T`, and the site editor writes the `lazy` block around it.
+
+Never type a prop as a block. `Block` is only the shape of saved JSON (see [Composing blocks](/next/blocks#composing-blocks)).
+
+A date, an image and rich text are all `string`s to TypeScript; a JSDoc `@format` tag tells the site editor which input to show (see [Widgets](#widgets)).
+
+### Interchangeable blocks
+
+Any block whose function returns the field's type can fill it, so editors can swap one for another without touching code. This is polymorphism, and it comes from the schema: `deco schema` records each function's return type, so the schema already lists which functions fit which field, the way TypeScript would match them. The site editor just shows the choices. For such a field, there are two kinds:
+
+- **A new block**: pick one of the functions that fit, and fill in its form right there.
+- **A [saved block](/next/saved-blocks)**: the site editor lists the saved blocks in `.deco/blocks` and shows the ones whose function returns the field's type. Picking one stores a reference, `{ "__resolveType": "SummerCard" }`, so editing `SummerCard` updates every place that uses it (see [Reuse a block](/next/saved-blocks#reuse-a-block)).
+
+## Widgets
+
+Each type gets a default widget, such as a text box for a `string`. JSDoc tags on a field change the label, add help text and limits, or swap in a richer widget: a date picker, an image uploader, a color picker or a rich-text editor.
+
+| Tag | Effect in the editor | Example |
+|---|---|---|
+| `@title` | The field's label (the default is the property name) | `@title Headline` |
+| `@description` | Help text under the field | `@description Shown above the fold` |
+| `@default` | The value a new block starts with, parsed as JSON when it can be | `@default 10` |
+| `@minimum` / `@maximum` | The allowed range of a number | `@maximum 100` |
+| `@minLength` / `@maxLength` | The allowed length of a string | `@maxLength 60` |
+| `@format` | A specialized input for a string, such as `date`, `date-time`, `rich-text`, `textarea`, `color` or `image-uri`. For a credential, type the field as `Secret` instead. | `@format rich-text` |
+| `@options` | A select over a `string` field, from a list of allowed values, without narrowing the TypeScript type | `@options ["sm", "md", "lg"]` |
+| `@ignore` | Leaves the field out of the form | `@ignore` |
+
+Put each tag on its own line. This type:
+
+```ts
+export interface PromoBannerProps {
+  /**
+   * @title Headline
+   * @maxLength 60
+   */
+  title: string;
+  /**
+   * @title Image
+   * @format image-uri
+   */
+  image: string;
+  /** @title Link */
+  href: string;
+  /**
+   * @title Ends on
+   * @format date
+   */
+  endsOn?: string;
+}
+```
+
+becomes a form with a *Headline* text box limited to 60 characters, an *Image* picker, a *Link* field and an optional *Ends on* date picker.
+
+**Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so the site editor shows a select without asking your site for the options. A picker whose options come from a function shows a text field, since the site editor never runs your code (see [What works without your code](/next/site-editor#what-works-without-your-code)).
+
+## Data-only blocks
+
+A blog post or a navigation menu has fields but no logic. Declare it with a function that returns its input unchanged:
+
+```ts title=".deco/index.ts"
+import type { Blocks } from "@decocms/blocks";
+import type { Post } from "../src/post";
+import seo from "../src/seo";
+import hero from "../src/hero";
+
+const post = (props: Post) => props;                     // data only: returns what the editor saved
+
+export default { seo, hero, post } satisfies Blocks;     // page, redirect and the other built-in blocks need no entry
+```
+
+A `post` is now a block like any other. Your app reads posts by type with [`client.list("post")`](/next/api-reference#client-list-type-options) or by URL with [`matchRoute`](/next/api-reference#matchroute-url-items) (see [Pages and routing](/next/routing)), and [`client.resolve`](/next/api-reference#client-resolve-target-options) works on a saved post too. Blocks inside a post still resolve, because a block's inputs resolve before its function runs. And like any block, it can fill a field of its return type: a block with a `featured: Post` field lets editors pick a saved post (see [Interchangeable blocks](#interchangeable-blocks)).
+
+To add fields to a built-in such as `page`, see [Change a built-in](/next/built-in-blocks#change-a-built-in).
+
+A saved block can't share a name with a block type, a built-in or an alias; see [Names](/next/saved-blocks#names).
+
+## When your types change
+
+Saved content must keep working when you change a type, and `deco check` makes sure it does, on every pull request and before every build. See [Backward compatibility](/next/checking#backward-compatibility).

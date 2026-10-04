@@ -1,0 +1,220 @@
+---
+title: Matchers and variants
+nav: Matchers & variants
+group: Core concepts
+order: 10
+description: Show different content to different visitors with multivariate flags and matchers, including A/B splits, device and location rules, and custom matchers.
+---
+
+# Matchers and variants
+
+The same page can show different content to different visitors: a mobile banner on phones, a sale hero until midnight, the new checkout to half of your traffic. In v7, editors set this up in content with a *variant* block that holds several alternatives, each guarded by a *matcher*, a rule that's true or false for the current request. This page shows how variants are stored, which matchers are built in, and how to add your own.
+
+<Terms>
+  <Term name="Matcher">A rule `(rule, context) => boolean` evaluated per request: device, cookie, date, location, a random traffic split. See the [glossary](/v7/glossary#matcher).</Term>
+  <Term name="Variant">One alternative in a multivariate flag: a `rule` (a matcher) and a `value` (the content to use when it matches).</Term>
+  <Term name="Multivariate flag">A block with a list of variants. The first variant whose rule matches is used.</Term>
+</Terms>
+
+## A variant block
+
+A multivariate flag is a value with `__resolveType: "website/flags/multivariate.ts"` and a `variants` list. Each variant has a `rule`, which is a matcher block, and a `value`, which is whatever content to use. Here's a Hero that differs on mobile:
+
+```json title="A section with a mobile variant"
+{
+  "__resolveType": "website/flags/multivariate.ts",
+  "variants": [
+    {
+      "rule": { "__resolveType": "website/matchers/device.ts", "mobile": true },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "Tap to shop the sale", "image": "https://www.example.com/hero-mobile.jpg" }
+    },
+    {
+      "rule": { "__resolveType": "website/matchers/always.ts" },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "Summer sale", "image": "https://www.example.com/hero.jpg" }
+    }
+  ]
+}
+```
+
+During resolution, the runtime checks each variant's rule in order and resolves the first matching `value`; the others are never resolved, so their loaders don't run. Put a catch-all (`always.ts`) last. If nothing matches, the flag resolves to nothing, and in a list of sections the entry is simply dropped. `website/flags/multivariate/section.ts` works the same way and is what Studio uses for section variants.
+
+Variants work anywhere a value can go: a whole section, a single prop, a loader's props, or a list of sections.
+
+## Built-in matchers
+
+These matchers are always available. Their keys are what you put in a rule's `__resolveType`, and the other fields of the rule are its settings.
+
+| Matcher key | Rule fields | True when |
+|---|---|---|
+| `website/matchers/always.ts` | none | Always |
+| `website/matchers/never.ts` | none | Never |
+| `website/matchers/device.ts` | `mobile`, `tablet`, `desktop` (booleans) | The user agent is one of the checked devices. With none checked, always. |
+| `website/matchers/random.ts` | `traffic` (0 to 1, default `0.5`) | A random draw falls under `traffic`. Sticky per visitor; see below. |
+| `website/matchers/date.ts` | `start`, `end` (ISO dates) | Now is strictly between them. Either may be omitted. |
+| `website/matchers/cron.ts` | `start`, `end` | Like `date.ts`, inclusive at both ends. |
+| `website/matchers/cookie.ts` | `name`, `value?` | The cookie exists (and equals `value`, when given). |
+| `website/matchers/queryString.ts` | `key` (or `param`), `value?` | The search param exists (and equals `value`). |
+| `website/matchers/pathname.ts` | `case: { type, pathname }` with `type` one of `Equals`, `Includes`, `Not Includes`, `Starts With`; or `pattern` / `includes` / `excludes` | The request path fits. |
+| `website/matchers/host.ts` | `host` | The request host equals it. |
+| `website/matchers/userAgent.ts` | `includes?`, `match?` (a regular expression) | The user agent contains `includes` and matches `match`. |
+| `website/matchers/location.ts` | `includeLocations`, `excludeLocations`: lists of `{ country?, regionCode?, city?, coordinates? }` | The visitor's location (from the platform's geo headers) is in an included location and not in an excluded one. `coordinates` is `"lat,lng,radius-in-meters"`. |
+| `website/matchers/environment.ts` | `environment`: `"production"` or `"development"` | `NODE_ENV` matches. |
+| `website/matchers/multi.ts` | `op`: `"and"` or `"or"`, `matchers`: a list of rules | All (or any) of the inner rules match. |
+| `website/matchers/negate.ts` | `matcher`: a rule | The inner rule doesn't match. |
+
+A rule can also be a reference to a saved matcher block by name, such as `{ "__resolveType": "MobileVisitors" }`, so editors can define a segment once and reuse it.
+
+<Callout>**Location rules and the edge cache.** On TanStack Start, a page whose content depends on location must be cached per location, or every visitor gets the first visitor's variant. The Worker detects `location.ts` in your content and adds the visitor's region to its cache key automatically. Don't target finer than the cache key (city or coordinates) on cached pages. See [Caching](/v7/caching).</Callout>
+
+## A/B tests with random traffic
+
+`website/matchers/random.ts` splits traffic. With `"traffic": 0.5`, about half of your visitors match:
+
+```json title="A 50/50 test of two heroes"
+{
+  "__resolveType": "website/flags/multivariate.ts",
+  "variants": [
+    {
+      "rule": { "__resolveType": "website/matchers/random.ts", "traffic": 0.5 },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "Free shipping on orders over $50" }
+    },
+    {
+      "rule": { "__resolveType": "website/matchers/always.ts" },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "10% off your first order" }
+    }
+  ]
+}
+```
+
+On TanStack Start the decision is sticky: it's stored in the `deco_segment` cookie, so a visitor keeps seeing the same variant on every page and visit. If an editor changes `traffic`, each visitor is re-rolled once. The edge cache keeps a separate entry per cohort, so cached pages stay consistent with the cookie.
+
+<Callout>
+
+**Give each test its own saved matcher.** The sticky decision is stored under the matcher's name. A saved matcher block (say, `HeroTest`) gets its own entry, but every inline `random.ts` rule shares the name `website/matchers/random.ts`, so two unrelated inline 50% tests put each visitor in the same group for both. A saved matcher also gives the same answer everywhere you reuse it.
+
+</Callout>
+
+## Vary a whole page
+
+A page's `sections` can itself be a variant whose values are complete section lists, for example a different layout for mobile visitors:
+
+```json title=".deco/blocks/pages-home.json (excerpt)"
+"sections": {
+  "__resolveType": "website/flags/multivariate.ts",
+  "variants": [
+    {
+      "rule": { "__resolveType": "website/matchers/device.ts", "mobile": true },
+      "value": [{ "__resolveType": "Header" }, { "__resolveType": "site/sections/MobileHero.tsx" }]
+    },
+    {
+      "rule": { "__resolveType": "website/matchers/always.ts" },
+      "value": [{ "__resolveType": "Header" }, { "__resolveType": "site/sections/Hero.tsx" }]
+    }
+  ]
+}
+```
+
+Variants nest: a variant's value can be another variant block.
+
+## Schedule a campaign
+
+`website/matchers/date.ts` matches between two instants. Here's a Black Friday hero that replaces the regular one only during the event:
+
+```json title="A hero scheduled for Black Friday"
+{
+  "__resolveType": "website/flags/multivariate.ts",
+  "variants": [
+    {
+      "rule": {
+        "__resolveType": "website/matchers/date.ts",
+        "start": "2026-11-27T00:00:00-03:00",
+        "end": "2026-11-30T23:59:59-03:00"
+      },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "Black Friday: up to 50% off" }
+    },
+    {
+      "rule": { "__resolveType": "website/matchers/always.ts" },
+      "value": { "__resolveType": "site/sections/Hero.tsx", "title": "New season arrivals" }
+    }
+  ]
+}
+```
+
+Write the dates with an explicit time-zone offset, so the campaign starts at midnight in your store's time zone, not the server's. The match is strictly between `start` and `end`. Cached pages switch when their edge-cache entry expires, so the change can lag `start` and `end` by up to the page's cache lifetime; see [Caching](/v7/caching).
+
+## Write a custom matcher
+
+A matcher is a function from the rule's settings and the request context to a boolean. Register it with `registerMatcher` from `@decocms/blocks/cms`, by passing a registration function in `customMatchers`:
+
+```ts title="src/matchers/vip.ts"
+import { registerMatcher } from "@decocms/blocks/cms";
+
+export function registerVipMatcher() {
+  registerMatcher("site/matchers/vip.ts", (rule, ctx) => {
+    const tier = typeof rule.tier === "string" ? rule.tier : "gold";
+    return ctx.cookies?.loyalty_tier === tier;
+  });
+}
+```
+
+```ts title="src/setup.ts (excerpt)"
+import { registerVipMatcher } from "./matchers/vip";
+
+createSiteSetup({
+  sections,
+  blocks,
+  customMatchers: [registerVipMatcher],
+});
+```
+
+Content can now use `{ "__resolveType": "site/matchers/vip.ts", "tier": "platinum" }` as a rule. The context gives you:
+
+| Field | What it holds |
+|---|---|
+| `url`, `path` | The page's full URL and path |
+| `userAgent` | The `User-Agent` header |
+| `cookies` | Cookies as an object |
+| `headers` | Request headers as an object |
+| `request` | The `Request` itself |
+
+Matchers run during resolution, on every request that resolves the page, so keep them fast and synchronous: read from the request, don't fetch. An unknown matcher key evaluates to `false` with a warning in the log.
+
+To make a custom matcher selectable in Studio, describe it with `registerMatcherSchema({ key: "site/matchers/vip.ts", title: "Loyalty tier", namespace: "site" })` from the same package. Add a `propsSchema` (a JSON Schema object) to give its settings, such as `tier`, a form.
+
+## Force a variant for testing
+
+To check what a variant looks like without meeting its rule, send the `x-deco-matchers-override` header (or the same name as a query parameter). Its value is space-separated `name=1` (force true) or `name=0` (force false) pairs, where `name` is a saved matcher block's name. Because pairs are separated by spaces, a name that contains a space only works in the query parameter:
+
+```bash
+curl -s https://www.example.com/ -H "x-deco-matchers-override: MobileVisitors=1"
+```
+
+As a query parameter, URL-encode the pair, and repeat the parameter for several: `?x-deco-matchers-override=Mobile%20visitors%3D1`. On TanStack Start, requests that carry it bypass the edge cache.
+
+## Feature flags from PostHog
+
+If you run feature flags in PostHog, `@decocms/blocks/matchers/posthog` bridges them into matchers, without adding PostHog as a dependency. Configure an adapter once, at module scope in setup, and register the matcher:
+
+```ts title="src/setup.ts (excerpt)"
+import { registerMatcher } from "@decocms/blocks/cms";
+import { configurePostHogMatcher, createPostHogMatcher } from "@decocms/blocks/matchers/posthog";
+import posthog from "posthog-js";
+
+configurePostHogMatcher({
+  isFeatureEnabled: (key) => posthog.isFeatureEnabled(key) ?? false,
+  getFeatureFlagVariant: (key) => posthog.getFeatureFlag(key),
+});
+registerMatcher("posthog/matchers/featureFlag.ts", createPostHogMatcher());
+```
+
+Rules then look like `{ "__resolveType": "posthog/matchers/featureFlag.ts", "flagKey": "new-checkout", "variant": "test" }`. The adapter is called synchronously, so flags must already be loaded when the page resolves.
+
+## Other flag APIs
+
+Two more modules exist for advanced cases. `@decocms/blocks/flags/*` is a separate, function-composition flag API carried over from the Fresh-era `website` app; it doesn't use the matcher registry above. `@decocms/blocks/sdk/experiments` reads N-way experiment configurations published to a KV store; it's experimental and depends on platform infrastructure, so prefer multivariate flags.
+
+## Next steps
+
+- [Caching](/v7/caching): how variants interact with the edge cache.
+- [Previews and draft preview](/v7/preview): preview variants before publishing.
+- [Content and the decofile](/v7/content): where variant blocks live.

@@ -1,0 +1,257 @@
+---
+title: TanStack Start
+nav: TanStack Start
+group: Websites
+order: 19
+description: Render Deco CMS pages with TanStack Start on Cloudflare Workers, streaming each block as a descriptor.
+---
+
+# TanStack Start
+
+Editors choose page URLs in [the site editor](/next/site-editor), so one catch-all route serves every URL with [`matchRoute`](/next/api-reference#matchroute-url-items). Start sends loader data to the browser as serialized data, and JSX can't make that trip, so here [blocks](/next/blocks) return descriptors (plain objects such as `{ component: "product-hero", props }`; see [Rendering](/next/rendering)).
+
+This page shows how to render Deco pages with TanStack Start on Cloudflare Workers, streaming each block as a descriptor. To render blocks as Server Components instead, see [Which mode to use](/next/rendering#which-mode-to-use) and the experimental [TanStack Start + RSC guide](/next/tanstack-start-rsc).
+
+**Prerequisites:** a TanStack Start app (see the [Start quick start](https://tanstack.com/start/latest/docs/framework/react/quick-start)); `npm install @decocms/blocks zod` and `npm install -D @cloudflare/vite-plugin wrangler` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); the [example project](/next/routing#the-example-project); and `PromoBanner`, `ProductHero` and `CartButton` from step 1 of the [Next.js guide](/next/nextjs). Enable `resolveJsonModule` in `tsconfig.json` so TypeScript accepts the JSON imports in `.deco/blocks.gen.ts`, the [content module](/next/content#the-content-module).
+
+## 1. Return descriptors from blocks
+
+```ts title=".deco/index.ts"
+import type { Blocks, Seo } from "@decocms/blocks";
+import type { BlockDescriptor, ProductHeroProps, PromoBannerProps, ResolvedPage } from "../src/model";
+
+export default {
+  page: (input: ResolvedPage<BlockDescriptor>) => input,
+  seo: (input: Seo) => input,
+  "promo-banner": (input: PromoBannerProps): BlockDescriptor => ({ component: "promo-banner", props: input }),
+  "product-hero": (input: ProductHeroProps): BlockDescriptor => ({ component: "product-hero", props: input }),
+} satisfies Blocks;
+```
+
+These blocks return descriptors, not JSX, so they don't [fit](/next/schema#interchangeable-blocks) the built-in page's `sections: ReactNode[]`. The `page` key [replaces the built-in page](/next/built-in-blocks#change-a-built-in) with one that takes `ResolvedPage<BlockDescriptor>`, whose `sections` is a `BlockDescriptor[]`, and returns it as is. The built-in [`redirect`](/next/built-in-blocks#pages-and-redirects) block is added for you. Run `deco schema` and `deco content` before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
+
+```json title="package.json"
+{
+  "scripts": {
+    "predev": "deco schema && deco content",
+    "prebuild": "deco schema && deco content && deco check"
+  }
+}
+```
+
+Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either (see [The content module](/next/content#the-content-module)).
+
+## 2. Create the CMS
+
+```ts title="src/cms.ts"
+import { createCMS } from "@decocms/blocks";
+import blocks from "../.deco";
+import content from "../.deco/blocks.gen";
+
+// Serves the content module: the content of the commit this build was made from.
+export const cms = createCMS({ blocks, content });
+
+// The client for this request. Every page gets its client here, so this is the one place to change
+// if requests ever need different content.
+export const client = (_request: Request) => cms.forRelease();
+```
+
+`cms.forRelease()` returns the client your code calls `list` and `resolve` on, one per request (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `client` takes the request even though this guide doesn't read it (hence the `_` that keeps unused-parameter lint rules quiet); [hosted drafts](/next/hosted-drafts#tanstack-start) read it, and the steps below stay the same.
+
+Telemetry is one more `createCMS` option, off until you say where it goes, such as `telemetry: { endpoint: env.OTLP_ENDPOINT }` for your own OpenTelemetry collector (see [Telemetry](/next/telemetry#choose-where-telemetry-goes)). On Workers it's sent after the response, inside `ctx.waitUntil`, so it never slows a page (see [How telemetry is sent](/next/telemetry-internals)).
+
+
+## 3. Match the URL to a page
+
+This helper is shared by both TanStack guides. It resolves each block separately rather than calling [`c.resolve(page)`](/next/api-reference#client-resolve-target-options), so each block's promise streams to the browser on its own. `T` is what your blocks return: `BlockDescriptor` here, `ReactNode` in the [RSC guide](/next/tanstack-start-rsc), which reuses this file unchanged. The server function hands the incoming request to `client()`. Each block promise resolves to `{ value, failed }`: `failed` is `true` if the block failed, so no internal error details reach the browser, and `value` is `undefined` for a [hidden](/next/matchers-and-variants#hide-a-block) block. If an editor gave the whole `sections` list [variants](/next/matchers-and-variants), it's one `multivariate` block that resolves to a list (`T[]`), so it streams as one.
+
+```ts title="src/open-page.server.ts"
+import { notFound, redirect } from "@tanstack/react-router";
+import { matchRoute, type Redirect, type Seo } from "@decocms/blocks";
+import { client } from "./cms";
+import type { StoredPage } from "./model";
+
+export async function openPage<T>(href: string, request: Request) {
+  const c = client(request);
+  const [pages, pagesError] = await c.list<StoredPage>("page");
+  if (pagesError) throw pagesError;
+  const [redirects, redirectsError] = await c.list<Redirect>("redirect");
+  if (redirectsError) throw redirectsError;
+
+  const match = matchRoute(href, { routes: pages, redirects });
+  if (match.kind === "not-found") throw notFound();
+  if (match.kind === "redirect") throw redirect({ href: match.location, statusCode: match.status });
+
+  const page = match.entry;
+  // Variants of the whole list are one multivariate block: it resolves to the chosen list and streams as one.
+  const sections = Array.isArray(page.sections) ? page.sections : [page.sections];
+  const blocks = sections.map((block, index) => ({
+    key: `${href}:${index}`,
+    value: c.resolve<T | T[] | undefined>(block).then(([value, blockError]) => {
+      if (blockError) console.error(blockError);
+      return { value: value ?? undefined, failed: blockError !== null };
+    }),
+  }));
+
+  // Every block has started before SEO is awaited.
+  const [seo, seoError] = await c.resolve<Seo | undefined>(page.seo);   // undefined when the page has no seo
+  if (seoError) throw seoError;
+  return { seo, blocks };
+}
+```
+
+## 4. Expose it through a server function
+
+A server function runs only on the server. During server rendering it's a plain call; in the browser, Start replaces it with a fetch to the server, so the CMS and the content never ship to the client. That makes it a public HTTP endpoint, so validate its input: here, a path that starts with `/`.
+
+```ts title="src/page.functions.ts"
+import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
+import { z } from "zod";
+import { openPage } from "./open-page.server";
+import type { BlockDescriptor } from "./model";
+
+export const loadPage = createServerFn({ method: "GET" })
+  .inputValidator(z.object({ href: z.string().startsWith("/") }))
+  .handler(({ data }) => openPage<BlockDescriptor>(data.href, getRequest()));
+```
+
+## 5. Render the catch-all route
+
+```tsx title="src/routes/$.tsx"
+import { Suspense } from "react";
+import { Await, createFileRoute } from "@tanstack/react-router";
+import ProductHero from "../ProductHero";
+import PromoBanner from "../PromoBanner";
+import type { BlockDescriptor } from "../model";
+import { loadPage } from "../page.functions";
+
+// Maps each descriptor to its component. Add a case per block type.
+function View({ block }: { block: BlockDescriptor | BlockDescriptor[] }) {
+  if (Array.isArray(block)) return block.map((item, index) => <View key={index} block={item} />);   // the chosen variant of the whole list
+  switch (block.component) {
+    case "promo-banner":
+      return <PromoBanner {...block.props} />;
+    case "product-hero":
+      return <ProductHero {...block.props} />;
+  }
+}
+
+export const Route = createFileRoute("/$")({
+  loader: ({ location }) => loadPage({ data: { href: location.pathname + location.searchStr } }),
+  head: ({ loaderData }) => ({
+    meta: loaderData?.seo   // without seo, the root route's defaults apply
+      ? [{ title: loaderData.seo.title }, { name: "description", content: loaderData.seo.description }]
+      : [],
+  }),
+  component: Page,
+  pendingComponent: () => <p>Opening page…</p>,
+  errorComponent: () => <p>The page could not be loaded.</p>,
+});
+
+function Page() {
+  const page = Route.useLoaderData();
+  return (
+    <main>
+      {page.blocks.map((block) => (
+        <Suspense key={block.key} fallback={<p>Loading…</p>}>
+          <Await promise={block.value}>
+            {({ value, failed }) => {
+              if (failed) return <p role="status">This content is temporarily unavailable.</p>;
+              return value ? <View block={value} /> : null;   // undefined when an editor hid the block
+            }}
+          </Await>
+        </Suspense>
+      ))}
+    </main>
+  );
+}
+```
+
+<Callout>**Keep block promises unawaited.** Start can send a promise inside loader data: the page goes out right away, and each promise's value streams to the browser when it resolves, where `Await` renders it. Awaiting them in `openPage` would make the page wait for its slowest block.</Callout>
+
+## 6. Configure Cloudflare Workers
+
+```ts title="vite.config.ts"
+import { defineConfig } from "vite";
+import { cloudflare } from "@cloudflare/vite-plugin";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [cloudflare({ viteEnvironment: { name: "ssr" } }), tanstackStart(), react()],
+});
+```
+
+```jsonc title="wrangler.jsonc"
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cms-rendering-example",
+  "main": "@tanstack/react-start/server-entry",
+  "compatibility_date": "2026-02-14",
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"]
+}
+```
+
+`nodejs_compat` enables the Node APIs Start relies on, such as `AsyncLocalStorage`. `no_handle_cross_request_promise_resolution` keeps Workers' older behavior for a promise created in one request and awaited in another, which this setup relies on: the CMS shares one content load across requests. See Cloudflare's [compatibility flags](https://developers.cloudflare.com/workers/configuration/compatibility-flags/).
+
+## How it works
+
+- **The server function becomes an RPC stub.** Import it statically from the route, so Start can replace it with a fetch call in the client build. See [Start server functions](https://tanstack.com/start/latest/docs/framework/react/server-functions).
+- **What ships to the browser.** The view registry and its views, and the descriptors as data. The CMS, the block map and the content stay on the server.
+- **Reading the request.** A block that needs headers or cookies calls `getRequest()` from `@tanstack/react-start/server`, like any other server code.
+
+## Deployment checklist
+
+- Workers need nothing special: the content module is bundled like any import and kept in memory per isolate.
+- Keep both compatibility flags from step 6.
+
+## Edit in the site editor
+
+To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) (`npx @decocms/blocks serve`) beside your dev server; its canvas opens your Vite dev app by default. Each save writes a file in `.deco/blocks` and your app reloads (see the recipe below); you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).
+
+### Reload on content changes
+
+`deco serve` rewrites `.deco/blocks.gen.ts` on every save. Blocks has no dev hook for that, so two pieces of your own code make a save show up. First, let `src/cms.ts` take the new content module without running again:
+
+```ts title="src/cms.ts"
+// …the imports and client from step 2
+export const cms = createCMS({ blocks, content });
+
+// createCMS adopts the new module for the same .deco folder and returns the same instance. Running
+// this module again instead leaves server functions holding the old one, and the first request
+// after a save fails.
+if (import.meta.hot) {
+  import.meta.hot.accept("../.deco/blocks.gen", (next) => {
+    if (next) createCMS({ blocks, content: next.default });
+  });
+}
+```
+
+Pass the same options you passed the first time. Second, only the server imports the content module, so Vite swaps it without touching open pages. Reload them, so the site editor's preview shows the saved content:
+
+```ts title="vite.config.ts"
+import path from "node:path";
+
+const contentModule = path.resolve(__dirname, ".deco/blocks.gen.ts");
+
+export default defineConfig({
+  plugins: [
+    // …the plugins from step 6
+    {
+      name: "reload-on-content",
+      apply: "serve",
+      hotUpdate({ file, server }) {
+        if (this.environment.name === "client" || path.resolve(file) !== contentModule) return;
+        server.environments.client.hot.send({ type: "full-reload" });
+      },
+    },
+  ],
+});
+```
+
+The [RSC guide](/next/tanstack-start-rsc) reuses both unchanged.
+
+<Hosted to="/next/hosted#cloudflare-workers" label="Connect a Worker">**Publish and preview without a deploy.** A site ID and a Wrangler secret connect this Worker to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>
+
+<Small>Tested with Start 1.168.58, Router 1.170.39, React 19.2.7, Vite 7.3.6, Cloudflare Vite plugin 1.44.0, and Wrangler 4.110.0.</Small>

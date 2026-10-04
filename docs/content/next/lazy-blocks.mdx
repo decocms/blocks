@@ -1,0 +1,62 @@
+---
+title: Lazy blocks
+nav: Lazy blocks
+group: Built on Blocks
+kind: docs
+order: 11
+description: Every argument runs before its function, except a lazy block, which runs only when the function calls it. Ask for one by typing a prop as Lazy<T>.
+---
+
+# Lazy blocks
+
+On [Matchers and variants](/next/matchers-and-variants) you gave the home page two heroes, each fetching its own products, and a rule that picks one. In code you'd write `inTest ? newHero() : oldHero()`, and only one hero would fetch. But a block's arguments run before its function, so if both heroes were plain arguments to `multivariate`, both would fetch and one result would be thrown away.
+
+This page shows the one exception to that rule, the built-in `lazy` block: how to write one, how a function asks for it with `Lazy<T>`, and where Deco CMS uses it.
+
+## Write a lazy block
+
+Blocks resolve [from the inside out](/next/blocks#composing-blocks): every argument runs before its function. A **lazy block** is the one block that doesn't. `lazy` wraps a `value` (any block or JSON), and the function receives a function instead of the value. Calling it resolves `value`:
+
+```jsonc
+// The call
+productCard({
+  title: "Summer collection",
+  showProduct: false,
+  product: () => catalogProduct({ slug: "summer-shirt" }),
+});
+
+// Saved as JSON
+{
+  "__resolveType": "product-card",
+  "title": "Summer collection",
+  "showProduct": false,
+  "product": {
+    "__resolveType": "lazy",
+    "value": { "__resolveType": "catalog-product", "slug": "summer-shirt" }
+  }
+}
+```
+
+`catalogProduct` runs only if `productCard` calls `product()`, and at most once: a second call returns the same result. If it's never called, nothing inside it runs. If `value` fails, calling the function rejects with that error, and the function that called it handles it.
+
+<h2 id="lazyt-props">`Lazy<T>` props</h2>
+
+A function asks for laziness in its types. Type the prop as `Lazy<T>`, which is `() => Promise<T>`, and call it when you need the value:
+
+```tsx title="src/product-card.tsx"
+import type { Lazy } from "@decocms/blocks";
+
+export async function productCard({ title, showProduct, product }: { title: string; showProduct: boolean; product: Lazy<Product> }) {
+  if (!showProduct) return <Title text={title} />;   // catalogProduct never runs
+  const item = await product();                       // catalogProduct runs here
+  return <Card title={title} product={item} />;
+}
+```
+
+Editors never see the wrapper. [`deco schema`](/next/schema#from-types-to-forms) gives a `Lazy<Product>` field the form of a `Product`, editors fill in a `Product`, and the site editor writes the `lazy` block around it. [`deco check`](/next/checking#what-deco-check-checks) fails if a `Lazy<T>` field holds something other than a `lazy` block, or a `lazy` block sits in a field that isn't `Lazy<T>`. See [`Lazy<T>`](/next/api-reference#types).
+
+## Where lazy is used
+
+- **Variants.** The built-in `multivariate` takes lazy variants, so only the winning variant runs, like `cond ? a() : b()`. That's why saved variants always carry the wrapper (see [Variants](/next/matchers-and-variants#variants)).
+- **Expensive rules.** Rules stay eager, because they're usually cheap booleans. A matcher you write can take an inner rule as `Lazy<boolean>` and call it only when needed (see [Write your own matcher](/next/matchers-and-variants#write-your-own-matcher)).
+- **Your own functions.** Any function that only sometimes needs an argument, like the product card above.

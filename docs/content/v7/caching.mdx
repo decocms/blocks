@@ -1,0 +1,252 @@
+---
+title: Caching
+group: Production
+order: 37
+description: The cache layers of a v7 site, the cache profiles that configure them, and how to segment, debug and purge the edge cache.
+---
+
+# Caching
+
+A v7 storefront caches at several layers: whole pages at the edge, data from loaders in memory, upstream API calls from commerce apps, and route data in the browser. One set of named policies, [cache profiles](/v7/glossary#cache-profile), drives all of them, so a product page uses the same "product" timing everywhere. This page explains the layers, the profiles, how to keep personalized pages out of shared caches, and how to read and purge the edge cache. The edge cache is part of `@decocms/tanstack`'s Worker entry; the data caches work on both bindings.
+
+## The layers
+
+| Layer | What it caches | Where |
+|---|---|---|
+| **Edge cache** | Whole HTML responses, and the cacheable server-function responses that load deferred sections | The Worker entry (`createDecoWorkerEntry`), in the Cloudflare Cache API or your own [cache storage](#shared-cache-storage). TanStack only. |
+| **Browser** | Responses, through `Cache-Control` | The visitor's browser |
+| **Loader cache** | Results of loaders wrapped with `createCachedLoader`, and of cacheable [section loaders](/v7/glossary#section-loader) | Server memory, per isolate or instance |
+| **Fetch cache** | Upstream `GET` calls made by commerce apps (VTEX, Magento) | Server memory, with in-flight de-duplication |
+| **Client route cache** | TanStack Router loader data (`staleTime`, `gcTime`) | The browser, during client navigation |
+
+Every layer serves stale content while it refreshes in the background (**stale-while-revalidate**), and most also serve stale content when the upstream fails (**stale-if-error**).
+
+## Cache profiles
+
+A cache profile names a policy. There are seven:
+
+| Profile | Used for | Edge fresh / SWR / SIE | Browser fresh / SWR / SIE | Loader fresh / SIE |
+|---|---|---|---|---|
+| `static` | The home page and other rarely changing pages | 15 min / 2 h / 6 h | 2 min / 30 min / 2 h | 5 min / 30 min |
+| `product` | Product detail pages | 5 min / 30 min / 2 h | 1 min / 10 min / 1 h | 30 s / 10 min |
+| `listing` | Category and collection pages; the default | 2 min / 15 min / 1 h | 30 s / 5 min / 30 min | 1 min / 5 min |
+| `search` | Search results | 1 min / 5 min / 30 min | 0 / 2 min / 10 min | 1 min / 3 min |
+| `cart` | Not chosen by the built-in rules (cart paths resolve to `private`); available to your own `registerCachePattern` or `detectProfile` | not cached | not cached | not cached |
+| `private` | Account, checkout, login and other personal pages | not cached | not cached | not cached |
+| `none` | APIs and framework routes | not cached | not cached | not cached |
+
+"Fresh" is how long a cached copy is served as is, "SWR" how long after that it's served while refreshing, and "SIE" how long it can be served when the origin fails.
+
+### How a URL gets its profile
+
+The Worker picks a profile for each request. Unless you override it, `detectCacheProfile` from `@decocms/blocks/sdk/cacheHeaders` applies these rules in order:
+
+1. **Private paths → `private`.** Any path whose first segment (after an optional two-letter locale such as `/pt`) is one of: `cart`, `carrinho`, `checkout`, `account`, `myaccount`, `my-account`, `minha-conta`, `meus-pedidos`, `pedidos`, `orders`, `order-placed`, `login`, `logout`, `sair`, `cadastro`, `signup`, `register`, `profile`, `perfil`, `wishlist`, `favoritos`, `listadedesejos`, `lista-de-desejos`, `minha-lista`, `assinaturas`, `subscriptions`, `troca`, `trocas`, `devolucao`, `devolucoes`. Matching ignores case.
+2. `/api/`, `/deco/` and `/_build` → `none`.
+3. `/s`, `/s/…`, or any URL with a `q` query parameter → `search`.
+4. A path ending in `/p` → `product`.
+5. `/` → `static`.
+6. Anything else → `listing`.
+
+Server-function requests made during client navigation inherit the profile of the page they load, so a product page's data is cached like the product page.
+
+### Change the rules
+
+All of these are module-level settings. Call them once, at module scope, in your setup module.
+
+```ts title="src/setup.ts"
+import {
+  registerCachePattern,
+  registerPrivatePaths,
+  setCacheProfile,
+} from "@decocms/blocks/sdk/cacheHeaders";
+
+// Cache product pages at the edge for 10 minutes instead of 5.
+setCacheProfile("product", { edge: { fresh: 600 } });
+
+// Never cache these site-specific personal pages.
+registerPrivatePaths(["/my-lists", "/returns"]);
+
+// Treat /collections/* as listing pages explicitly.
+registerCachePattern({
+  test: (pathname) => pathname.startsWith("/collections/"),
+  profile: "listing",
+});
+```
+
+- `setCacheProfile(name, overrides)` merges partial timings into a profile. Edge and browser times are in seconds; loader times in milliseconds. It refuses to make `cart`, `private` or `none` public, logging a warning and keeping the profile private, unless you first call `allowPublicPrivateProfile()` (also from `@decocms/blocks/sdk/cacheHeaders`).
+- `registerPrivatePaths(prefixes)` adds private path prefixes. It can only make paths more restricted, which makes it the safe choice for personal pages.
+- `registerCachePattern({ test, profile })` adds a rule evaluated before the built-in ones. A custom rule can never make a built-in private path public: if it would, the path stays `private`.
+
+On TanStack you can also decide per request with the Worker entry's `detectProfile(url)` option. Return a profile name, or `null` to fall through to the rules above.
+
+## Personalized pages: segments
+
+The edge cache stores one copy per **cache key**. If a page looks different for different visitors (a logged-in header, regional prices, a price table per sales channel), the key must say so, or one visitor's page is served to another. The Worker entry's `buildSegment` option describes the visitor's **segment**:
+
+```ts title="src/worker-entry.ts"
+import "./setup";
+import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { extractVtexContext } from "@decocms/apps-vtex/middleware";
+
+const serverEntry = createServerEntry({ fetch: handler.fetch });
+
+export default createDecoWorkerEntry(serverEntry, {
+  buildSegment: (request) => {
+    const vtex = extractVtexContext(request);
+    const ua = request.headers.get("user-agent") ?? "";
+    return {
+      device: /mobile|android|iphone/i.test(ua) ? "mobile" : "desktop",
+      loggedIn: vtex.isLoggedIn,
+      salesChannel: vtex.salesChannel,
+      regionId: vtex.regionId ?? undefined,
+    };
+  },
+});
+```
+
+The segment has this shape:
+
+```ts
+type SegmentKey = {
+  device: "mobile" | "desktop" | "tablet";
+  loggedIn?: boolean;
+  salesChannel?: string;
+  regionId?: string;
+  flags?: string[];
+  [custom: string]: string | boolean | string[] | undefined;
+};
+```
+
+Rules:
+
+- **`loggedIn: true` always bypasses the edge cache.** Logged-in visitors always get a freshly rendered page.
+- **Keep the segment as small as the content requires.** Every distinct value multiplies the number of cached copies. Include `regionId` only if prices or stock vary by region.
+- **Without `buildSegment`**, the key varies by device only (set `deviceSpecificKeys: false` to drop that too), and the Worker logs a warning at boot: logged-in visitors would share anonymous pages, so wire it on any site with accounts.
+- **Geography.** With the default `geoCacheKey: "auto"`, the Worker adds the visitor's region to the key only when some block in your content uses the location matcher (`website/matchers/location.ts`). Set `"country"`, `"region"`, `"city"` or `"off"` to choose explicitly. Don't add geography to `buildSegment` yourself.
+
+A/B tests that split traffic with the random matcher are handled for you: the visitor's assigned variants are part of the key (see [Matchers and variants](/v7/variants)).
+
+### Tracking parameters
+
+`utm_*`, `gclid`, `fbclid` and the other common tracking parameters are stripped before the key is built, so `/?utm_source=newsletter` reads the same entry as `/`. A request that carries tracking parameters can read a cached page but never writes one (the response carries `X-Cache-Store: skipped-tracking`). To add your own parameters to the list, call `registerTrackingParams` from `@decocms/blocks/sdk/urlUtils` in setup. To keep them in the key, set `stripTrackingParams: false`.
+
+### Cookies
+
+A response that sets a cookie is personal by definition, so the Worker doesn't cache a response with a `Set-Cookie` header, except for cookies in its **safe list**. Safe cookies are removed from the stored copy and kept on the live response. The default list is `vtex_is_session`, `vtex_is_anonymous`, `vtex_segment` and `_deco_bucket`; replace it with the `safeCookies` option.
+
+If your home page shows `X-Cache: BYPASS` with `X-Cache-Reason: private-set-cookie`, something sets a cookie on every response. Move it after the cache, into middleware or the browser.
+
+### Degraded pages
+
+When a [section loader](/v7/glossary#section-loader) fails, the section renders with its unloaded props and the page is marked **degraded** (`X-Deco-Degraded: true`). The Worker treats a degraded page like a server error: it doesn't cache it, and serves the last good copy if it has one. Sections whose failure shouldn't count (decorative shelves, recommendations) can be excluded with `registerNonCriticalSections` from `@decocms/blocks/cms`.
+
+## Reading the cache headers
+
+Every response the Worker handles carries headers that explain its cache decision:
+
+| Header | Values |
+|---|---|
+| `X-Cache` | `HIT` (fresh copy), `STALE-HIT` (stale copy while refreshing), `STALE-ERROR` (stale copy because the origin failed), `MISS` (rendered and stored), `BYPASS` (not cacheable) |
+| `X-Cache-Reason` | Why it bypassed. See below. |
+| `X-Cache-Profile` | The profile used. |
+| `X-Cache-Segment` | A hash of the visitor's segment, when `buildSegment` is set. |
+| `X-Cache-Version` | The deploy version in the key. |
+| `X-Cache-Age` | Age of the cached copy, in seconds. |
+
+`X-Cache-Reason` values:
+
+| Value | Meaning |
+|---|---|
+| `logged-in` | The segment said `loggedIn: true`. |
+| `private-set-cookie` | The response set a cookie outside the safe list. |
+| `profile:<name>` | The profile isn't public (`cart`, `private`, `none`). |
+| `non-cacheable:<name>` | A request outside the cacheable paths whose profile is `private`, `cart` or `none`. |
+| `method:<METHOD>`, `bypass-path` | Not a `GET`, or a framework path such as `/deco/` or `/live/`. |
+| `status:<code>` | The origin returned an error status. |
+| `degraded` | A critical section loader failed. |
+| `draft-preview` | The request carries a [draft preview](/v7/preview). |
+| `matchers-override` | The request forces matcher results (used by Studio previews). |
+
+```bash
+curl -sD- -o/dev/null https://www.example.com/ | grep -i '^x-cache'
+```
+
+## Purging
+
+Each deploy already gets a new cache namespace (see [Deploying and Fast Deploy](/v7/releases#deploying-a-tanstack-site-to-workers)). To drop specific pages without deploying, `POST /_cache/purge` with a bearer token:
+
+```bash
+curl -X POST https://www.example.com/_cache/purge -H "Authorization: Bearer $PURGE_TOKEN" -H "Content-Type: application/json" -d '{"paths":["/","/summer-sale"]}'
+```
+
+The token is the value of the Worker's `PURGE_TOKEN` variable (rename it with `purgeTokenEnv`, or pass `purgeTokenEnv: false` to disable purging, which then answers 404). The body:
+
+| Field | Type | What it does |
+|---|---|---|
+| `paths` | `string[]` | Required. The paths to purge. |
+| `countries` | `string[]` | Also purge these geographic variants. |
+| `salesChannels` | `string[]` | Segment sales channels to purge. Default `["1"]`. |
+| `regionIds` | `string[]` | Segment regions to purge. |
+
+The Worker deletes every device, bot and segment variant of each path and answers `{ "purged": [...], "total": n }`. A wrong token gets 401.
+
+`POST /_cache/purge-loaders` (same token) clears the in-memory loader cache, but only in the isolate that receives it. It's not a global purge; a deploy is.
+
+## Caching loaders
+
+Wrap a loader with `createCachedLoader` to cache its results in memory, keyed by its props, with stale-while-revalidate, stale-if-error and de-duplication of concurrent calls:
+
+```ts title="src/setup/commerce-loaders.ts"
+import { createCachedLoader } from "@decocms/blocks/sdk/cachedLoader";
+import { productDetailsPage } from "./loaders/productDetailsPage";
+
+export const cachedProductPage = createCachedLoader("site/loaders/productDetailsPage", productDetailsPage, "product");
+```
+
+The third argument is a profile name (recommended) or explicit options: `policy` (`"stale-while-revalidate"`, `"no-cache"` or `"no-store"`), `maxAge` (ms, default 60 000), `staleWhileRevalidate` (ms, default 300 000), `staleIfError` (ms, default 0) and `keyFn` (default `JSON.stringify` of the props).
+
+- The cache is capped at 32 MB per isolate. Change it with `DECO_LOADER_CACHE_MAX_BYTES` or `setLoaderCacheMaxBytes(bytes)` in setup.
+- It's disabled when `DECO_CACHE_DISABLE=true` and in development (`NODE_ENV=development`).
+- Commerce apps ship pre-wrapped loader maps that already use the right profiles (`createVtexCommerceLoaders`, `createWakeCommerceLoaders`).
+
+Section loaders can be cached too, with `export const cache = "listing"` in the section file or `registerCacheableSections` (see [Section conventions](/v7/sections)). Layout sections such as the header and footer have their own shared cache (see [Layout sections](/v7/sections#layout-sections)).
+
+## Shared cache storage
+
+By default, the edge cache uses the Cloudflare Cache API and the data caches live only in memory. The Worker entry's `cacheStorage` option gives them a shared store instead, so loader and section results survive new isolates:
+
+```ts title="src/worker-entry.ts"
+import { createKVCacheStorage, type CacheKVNamespace } from "@decocms/blocks/sdk/cacheStorage";
+
+export default createDecoWorkerEntry(serverEntry, {
+  cacheStorage: (env) => createKVCacheStorage(env.CACHE as CacheKVNamespace),
+  buildSegment,
+});
+```
+
+Bind `CACHE` to a KV namespace (separate from `DECO_KV`). `@decocms/blocks/sdk/cacheStorage` also has `createWebCacheStorage(cache, origin)` and `createMemoryCacheStorage(maxBytes)`, and you can implement the `CacheStorage` interface (`get`, `set(key, value, expiresAt)`, `delete`) on any store. Returning `null` from the option opts a request out.
+
+- Entries always expire: their lifetime is the profile's fresh time plus the longer of its SWR and SIE windows.
+- Keys include the site, the deployment and the content revision, so a deploy or a publish moves to new keys and old ones age out. There's no distributed invalidation.
+- Logged-in, draft and preview requests never read or write shared storage.
+- Only JSON-compatible values are shared; anything else stays in memory.
+
+## The CDN in front of the Worker
+
+The Worker's cache key has dimensions the CDN in front of it can't see (segment, A/B cohort, bot), so by default the Worker sends `CDN-Cache-Control: no-store` on everything. The `cdnCacheControl` option relaxes that safely for one case: the default, `"serverfn-segment"`, lets the CDN cache server-function responses (deferred sections, client navigation data) whose URL carries a segment marker the server issued and verified. HTML documents are never CDN-cached by this option. `"no-store"` turns it off; `"match-profile"` sends profile headers, and is honored only when the cache key is the bare URL (no `buildSegment`, `deviceSpecificKeys: false`, `geoCacheKey: "off"`).
+
+Caching **HTML** at the CDN, so the Worker isn't invoked at all, requires CDN rules that decline personalized requests before they reach the cache. Before considering it, check that:
+
+- the Worker already caches your pages (`X-Cache` shows `HIT`/`MISS`, not `BYPASS`);
+- `buildSegment` is wired and logged-in visitors bypass;
+- your content doesn't use matchers finer than the key (city or coordinate location rules are not safe);
+- a logged-in account page is never served from the CDN, which you test explicitly.
+
+## Related
+
+- [TanStack Start on Cloudflare Workers](/v7/tanstack): every `createDecoWorkerEntry` option.
+- [Deploying and Fast Deploy](/v7/releases): deploy versioning.
+- [Observability](/v7/observability): cache metrics.
+- [Troubleshooting](/v7/troubleshooting#pages-always-show-x-cache-bypass)

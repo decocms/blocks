@@ -1,0 +1,88 @@
+---
+title: Releases and drafts
+nav: Releases & drafts
+group: Content and data
+order: 14
+kind: docs
+description: A release is the content everyone sees. A draft is another set of calls your same code runs. Preview is your app rendering a draft.
+---
+
+# Releases and drafts
+
+Marketing has rewritten the home page for the summer sale and wants to see it on the real site before anyone else does. Visitors should keep seeing today's page until the new one is approved.
+
+This page shows the two versions of content your app can render, the release and a draft, how preview picks between them, and how to check a change when you have no drafts at all.
+
+Your app always renders one version of your content. Usually that's the release. A draft is another set of calls, run by the same code: only the content differs.
+
+## Releases
+
+A **release** is the content everyone sees right now. In the open-source setup, it's the [content module](/next/content#the-content-module) in your build: the `.deco/blocks` files of the commit you deployed. A new release goes out with your next deploy (see [Deployment](/next/releases-and-deployment)).
+
+`cms.forRelease()` gives you a client, the object you read content with, over the release. `cms` is the object your app creates once with [`createCMS`](/next/content#create-the-cms).
+
+<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Releases without a deploy.** With the hosted Deco CMS, the release is your latest publish, and it reaches running servers on their next background check, with no new application build.</Hosted>
+
+## Drafts
+
+A **draft** is unpublished content. Hosted draft transport contains only changed blocks and deletions, layered over the production content already on the preview server; a custom loader may instead return a complete draft snapshot. Your content [loader](/next/content#write-a-loader) fetches it from wherever it lives: your own storage, or the hosted Deco CMS (see [Previewing drafts](/next/hosted-drafts)).
+
+The loader is what you pass to `createCMS` as its `content` option:
+
+```ts
+const cms = createCMS({ blocks, content: myLoader });   // myLoader.load(pointer) returns the draft
+```
+
+A **draft pointer** is a short string that says which draft to load; it travels in `?__draft=` links (see [Draft pointers](/next/api-reference#draft-pointers)). `cms.forDraft(pointer)` passes it to that same loader's `load(pointer)`. The client you get back works exactly like the release client, so your rendering code doesn't change.
+
+The content module has no drafts: it ignores the pointer, so `forDraft` acts like `forRelease`, apart from any [variants the pointer forces](#preview-a-variant). You get real drafts with the hosted Deco CMS or with a [loader you write](/next/content#write-a-loader), which must treat the pointer as untrusted input.
+
+## Preview
+
+Preview is your real app rendering a draft instead of the release. It isn't a separate feature. In your route or page handler (see [Rendering](/next/rendering)), read the pointer from the request with [`draftPointer`](/next/api-reference#draft-pointers) and pick the client:
+
+```ts
+import { draftPointer } from "@decocms/blocks";
+
+const pointer = draftPointer(request);   // from ?__draft= or the draft cookie; null otherwise
+const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+```
+
+Everything after these two lines is the code that serves visitors. It's safe to add even when your content has no drafts: you get the release.
+
+If a draft can't load, the draft client's `resolve` and `list` return an error instead of published content, so nobody mistakes the release for their draft. What to show is your app's choice, such as a short "this draft couldn't be loaded" page (see [A failed draft is an error](/next/content#write-a-loader)).
+
+### Preview a variant
+
+A field with [variants](/next/matchers-and-variants#variants) shows whichever variant's rule is true for you right now, so a preview of the Black Friday banner on a Tuesday in October shows the fallback. To see the other variants, a pointer can **force** them: each forced variant names a `multivariate` block by the saved block it's saved in and its JSON path inside that block, plus the index of the variant to show. That `multivariate` then returns that variant's value without evaluating any rule.
+
+The site editor's variant tabs work this way: picking the second variant of the hero in `Home` loads the preview with a pointer that forces `Home@sections.3` to variant `1`. Forced variants travel inside the pointer as `__variant` parameters (format in [Draft pointers](/next/api-reference#draft-pointers)), so they need nothing in your code beyond the two lines above:
+
+- **Only drafts force variants.** `forDraft` applies them; `forRelease` never does, so visitors always get the rules.
+- **They work without drafts.** Over the content module, which has no drafts, `forDraft` still applies them, so variant tabs work while you edit on your machine.
+- **A stale address is ignored.** If the block was renamed, the section moved, or the variant is gone, the content renders as saved.
+
+A link can force any variant. That's fine because [variants are not access control](/next/matchers-and-variants#run-an-a-b-test): every variant must be fine to show.
+
+<Hosted to="/next/hosted-drafts" label="Previewing drafts">**Drafts on your real site.** With the hosted Deco CMS, the site editor opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by the site editor reach unpublished drafts.</Hosted>
+
+## Checking changes without a draft loader
+
+Without a loader that serves drafts, you check a change by running a different build: your dev server, or your host's preview deployment of a branch. Neither needs a pointer; each build simply has its own release.
+
+### On your machine
+
+Your dev app already renders your working tree. Editing a file in `.deco/blocks` reloads the page through your framework's hot module replacement, whether you edit by hand, with an agent, or in the site editor through [`deco serve`](/next/site-editor#edit-on-your-machine). On Vite that takes a few lines of your own; see the [TanStack Start guide](/next/tanstack-start-descriptors#reload-on-content-changes). Nothing is committed: review the diff and commit it when the page looks right.
+
+### On a branch
+
+A content change is a change to files, so it can wait on a branch. Open a pull request: reviewers read the diff of `.deco/blocks`, and CI runs `npx @decocms/blocks schema && npx @decocms/blocks check` (see [Backward compatibility](/next/checking#backward-compatibility)). Your host's preview deployment builds the branch with its own content module, so its URL shows that branch's content:
+
+```bash
+git switch -c summer-sale
+# edit .deco/blocks/SummerSale.json, by hand or with deco serve
+git add .deco/blocks && git commit -m "Summer sale page"
+git push -u origin summer-sale   # your host's preview deployment renders /summer with the branch's content
+```
+
+A branch that also changes a block function is checked the same way, so you can try a new field and the content that uses it together. Merging publishes the change (see [Publishing is committing](/next/releases-and-deployment#publishing)). Your host's preview deployment is public unless you protect it with your host's access controls.

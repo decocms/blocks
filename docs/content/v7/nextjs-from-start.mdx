@@ -1,0 +1,211 @@
+---
+title: Moving a Next.js site off @decocms/start 5.x
+nav: Next.js from 5.x
+group: Upgrading
+order: 43
+description: Replace the @decocms/start 5.x /core, /next and /node imports of a Next.js site with @decocms/blocks, @decocms/blocks-admin and @decocms/nextjs.
+---
+
+# Moving a Next.js site off @decocms/start 5.x
+
+Some Next.js App Router sites adopted Deco through prerelease 5.x versions of `@decocms/start`, importing from its `/core`, `/next` and `/node` entry points. Those entry points were withdrawn; v7 replaces them with `@decocms/blocks`, `@decocms/blocks-admin` and `@decocms/nextjs`. Most functions keep their names and signatures and only change import path. This page maps the old entry points to the new packages and walks through the five steps.
+
+It applies when `package.json` pins `@decocms/start` to a `5.x-next` prerelease, or when code imports `@decocms/start/next`, `@decocms/start/core` or `@decocms/start/node`. For a TanStack site on 6.x, see [Upgrading from @decocms/start 6.x](/v7/upgrade-from-start).
+
+## Where each entry point went
+
+| Old entry point | v7 |
+|---|---|
+| `@decocms/start/core` | `@decocms/blocks/cms` (server code) and `@decocms/blocks/cms/client` (Client Components) |
+| `@decocms/start/next` | `@decocms/nextjs` (route handlers, preview page, page helpers) and `@decocms/blocks-admin` (protocol types) |
+| `@decocms/start/node` | `@decocms/blocks/cms/loadDecofileDirectory`, for loading a directory of block files. Nothing else from `/node` has an equivalent. |
+
+Function by function:
+
+| Old | New |
+|---|---|
+| `registerSection`, `registerSectionsSync`, `getResolvedComponent`, `listRegisteredSections` from `/core` | Same names from `@decocms/blocks/cms`, or from `@decocms/blocks/cms/client` in a Client Component |
+| `setBlocks`, `loadBlocks`, `setResolveErrorHandler`, `registerLayoutSections`, `registerSectionLoaders` from `/core` | Same names from `@decocms/blocks/cms` |
+| (none) | `registerSeoSections` from `@decocms/blocks/cms`. A new call: without it, page SEO resolves to `{}`. |
+| `loadCmsPage` from `/next` | `createDecoPage` from `@decocms/nextjs`, or your own wrapper over `resolveDecoPage`, `runSectionLoaders` and `extractSeoFromSections` (below) |
+| `loadAllDecofileBlocks` from `/node` | The generated block manifest (recommended), or `loadDecofileDirectory` from `@decocms/blocks/cms/loadDecofileDirectory` |
+| `createDecoAdminRouteHandlers` from `/next` | `createDecoRouteHandlers` from `@decocms/nextjs/routeHandlers`, plus `createDecoPreviewPage` from `@decocms/nextjs` |
+| `/_watch` and `/fs/file/*` routes | Delete them. They served a live-editing channel that v7 doesn't have. |
+| `/_healthcheck` and `/_ready` routes | Write them yourself (below). |
+
+## The five steps
+
+<Steps>
+<Step>
+
+**Dependencies.** Remove the `@decocms/start` pin and add the v7 packages:
+
+```bash
+bun add @decocms/nextjs @decocms/blocks @decocms/blocks-admin
+```
+
+Add `@decocms/blocks-cli` as a dev dependency to generate the block manifest and schema (see [Code generation](/v7/generate)).
+
+</Step>
+<Step>
+
+**Section registration.** Change the import of `registerSection` and `registerSectionsSync` from `@decocms/start/core` to `@decocms/blocks/cms`. Nothing else changes. In files marked `"use client"`, import from `@decocms/blocks/cms/client` instead: the full `@decocms/blocks/cms` barrel is server-only.
+
+</Step>
+<Step>
+
+**Setup and page resolution.** Rewrite your setup module on top of `@decocms/blocks/cms`. If your pages need no custom logic, `createNextSetup` from `@decocms/nextjs/setup` and `createDecoPage` from `@decocms/nextjs` replace most of it (see [Next.js App Router](/v7/nextjs)). If your site has its own wrapper layer, keep its function names and return shapes so page files don't change, and implement it as below.
+
+</Step>
+<Step>
+
+**Admin routes and previews.** Mount the protocol catch-all and the preview page (below).
+
+</Step>
+<Step>
+
+**Validate against a production build** with your real content and a section that is a Client Component (below).
+
+</Step>
+</Steps>
+
+## Page resolution with your own wrapper
+
+`resolveDecoPage(path, context)` finds the page block for a path and resolves its content. It does **not** run section loaders, and it returns the page's SEO block as a resolved section rather than a plain object. A wrapper that replaces `loadCmsPage` does three things:
+
+```ts title="src/deco/page.ts"
+import { cache } from "react";
+import { headers } from "next/headers";
+import { extractSeoFromSections, resolveDecoPage, runSectionLoaders } from "@decocms/blocks/cms";
+import { ensureSetup } from "./setup";
+
+export const resolveCmsPage = cache(async (path: string) => {
+  await ensureSetup();
+
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const request = new Request(`${proto}://${host}${path}`, { headers: h });
+
+  const page = await resolveDecoPage(path, {
+    request,
+    url: request.url,
+    path,
+    userAgent: h.get("user-agent") ?? undefined,
+  });
+  if (!page) return null;
+
+  // Section loaders fill in data such as product lists.
+  const sections = await runSectionLoaders(page.resolvedSections, request);
+  const seoSections = page.seoSection ? await runSectionLoaders([page.seoSection], request) : [];
+  const seo = extractSeoFromSections([...seoSections, ...sections]);
+
+  return { ...page, sections, seo };
+});
+```
+
+- Passing the request in the context lets [matchers](/v7/variants) see the URL, cookies and user agent.
+- `extractSeoFromSections` reads only sections registered with `registerSeoSections`. Register every `__resolveType` your page blocks use in their `seo` field.
+- `findPageByPath` matches each page block's `path` field, not its key in the decofile, so block keys don't need to follow any naming rule.
+
+<Callout type="warning">
+
+**`createDecoPage` runs no section loaders.** It resolves the page with an empty matcher context and renders. If your sections depend on loaders (commerce data, for example), write a wrapper like the one above instead of switching to `createDecoPage`.
+
+</Callout>
+
+### Loading blocks
+
+For Next.js the recommended source of content is the generated block manifest: `generate` writes `.deco/blocksManifest.gen.ts`, which imports every `.deco/blocks/*.json` file, and you pass it with `createNextSetup({ blocks, blocksDir: false })`. Next then bundles the content and hot-reloads it in `next dev`. If you set blocks yourself, `setBlocks(blocks)` takes the same map.
+
+If the site has a directory of block files that `generate` doesn't produce, `loadDecofileDirectory(dir)` reads it into one map:
+
+```ts title="src/deco/setup.ts"
+import { setBlocks } from "@decocms/blocks/cms";
+import { loadDecofileDirectory } from "@decocms/blocks/cms/loadDecofileDirectory";
+
+let setupPromise: Promise<void> | null = null;
+
+export function ensureSetup(): Promise<void> {
+  setupPromise ??= loadDecofileDirectory(".deco/blocks").then(setBlocks);
+  return setupPromise;
+}
+```
+
+It reads the file system at runtime, so the directory must be deployed with the app.
+
+## Admin routes and the preview page
+
+Mount the protocol catch-all with `createDecoRouteHandlers` from the `/routeHandlers` subpath:
+
+```ts title="src/app/deco/[[...deco]]/route.ts"
+import { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";
+import { ensureSetup } from "../../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export const { GET, POST, OPTIONS } = createDecoRouteHandlers({ setup: ensureSetup });
+```
+
+Then the preview page, at this exact path:
+
+```tsx title="src/app/deco/preview/[[...path]]/page.tsx"
+import { createDecoPreviewPage } from "@decocms/nextjs";
+import { ensureSetup } from "../../../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export default createDecoPreviewPage({ setup: ensureSetup });
+```
+
+Wrap `next.config` with `withDeco` from `@decocms/nextjs/config`; it routes `/live/_meta`, `/.decofile` and `/live/previews/*` to the catch-all.
+
+- **Never import the root `@decocms/nextjs` from `route.ts`.** Route handlers run under React's server build, and the root barrel includes Client Component code that can't load there.
+- **Don't remove `"use client"` to make a preview render.** Preview requests redirect to `/deco/preview`, which renders through Next's own renderer and supports Client Components. The path is fixed by the framework.
+
+## Health and readiness routes
+
+v7 ships no health-check helpers. Write them as plain routes. Next treats a folder starting with `_` as private, so encode the underscore as `%5F`:
+
+```ts title="src/app/%5Fhealthcheck/route.ts"
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  return new Response("ok", { status: 200 });
+}
+```
+
+```ts title="src/app/%5Fready/route.ts"
+import { loadBlocks } from "@decocms/blocks/cms";
+import { ensureSetup } from "../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    await ensureSetup();
+    const ready = Object.keys(loadBlocks()).length > 0;
+    return new Response(ready ? "ready" : "not ready", { status: ready ? 200 : 503 });
+  } catch {
+    return new Response("not ready", { status: 503 });
+  }
+}
+```
+
+Folders starting with a dot work the other way around: keep the literal dot (`.well-known`); an encoded `%2E` isn't decoded and falls through to your catch-all.
+
+## Validate with a production build
+
+`next dev` doesn't exercise the same module graph as a production build. Before you ship:
+
+1. Run `next build` and `next start` with the site's real `.deco/blocks` content.
+2. Create a preview of a section that is a Client Component and request `/live/previews/<block key>`. Expect a redirect to `/deco/preview/<block key>`, a 200, the component's initial markup, and no "Attempted to call … from the server" error.
+3. Load real pages and check that section loader data and SEO tags are present.
+
+While the v7 packages are linked locally rather than installed from the registry, test with packed tarballs (`npm pack`) instead of symlinks: bundlers resolve packages differently under symlinks.
+
+## Related
+
+- [Next.js App Router](/v7/nextjs): the binding in full.
+- [Quickstart: Next.js App Router](/v7/quickstart-nextjs)
+- [Packages and exports](/v7/packages)

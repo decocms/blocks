@@ -1,0 +1,149 @@
+---
+title: Telemetry
+nav: Telemetry
+group: Telemetry & analytics
+order: 21
+description: Send errors, metrics and traces from your servers to your own OpenTelemetry collector or to the hosted Deco CMS, with switches and sample rates kept in a saved block.
+---
+
+# Telemetry
+
+Your search provider gets slow on Black Friday, and shelves start timing out. You want upstream latency and error rates in your own Grafana, or somewhere you can look at them without running a collector at all.
+
+Deco CMS measures what it sees, resolving content and calling APIs, and sends those measurements as OpenTelemetry to wherever you point it. It's open source, and it works with any collector. This page shows how to choose where telemetry goes, what's sent, and how editors and code share control of how much.
+
+## Choose where telemetry goes
+
+Pass `telemetry` to [`createCMS`](/next/api-reference#createcms-config). To send to your own collector, give it an OTLP/HTTP endpoint:
+
+```ts title="cms.ts"
+import { createCMS } from "@decocms/blocks";
+import blocks from "./.deco";
+import content from "./.deco/blocks.gen";
+
+export const cms = createCMS({
+  blocks,
+  content,
+  telemetry: {
+    endpoint: process.env.OTLP_ENDPOINT!,                            // e.g. https://otel.example.com
+    headers: { authorization: `Bearer ${process.env.OTLP_TOKEN}` },  // optional
+  },
+});
+```
+
+That works with the OpenTelemetry Collector, Grafana, Honeycomb, or anything else that accepts OTLP over HTTP.
+
+<Hosted to="/next/hosted-telemetry" label="Hosted telemetry">**No collector to run.** Pass your site's ID and token instead, `telemetry: { site, token }`, and the hosted Deco CMS collects your telemetry and shows it for your site.</Hosted>
+
+How the destination is chosen:
+
+- `telemetry: false` sends nothing.
+- `telemetry: { … }` sends there.
+- Without `telemetry`, the CMS uses `OTEL_EXPORTER_OTLP_ENDPOINT` (and `OTEL_EXPORTER_OTLP_HEADERS`) if they're set. Otherwise nothing is sent: in development, in tests, and anywhere you haven't configured it.
+
+The top-level `site` and `token` options load [hosted releases and drafts](/next/hosted#connect-your-site). They never turn telemetry on by themselves: telemetry goes only where `telemetry` (or the environment) points.
+
+<h2 id="whats-sent">What's sent</h2>
+
+| Measurement | Labels | Reported by |
+|---|---|---|
+| Upstream latency: each request to a third-party API, timed until its response headers arrive (`http.client.request.duration`) | `provider`, `operation`, `status_class` (2xx, 4xx, 5xx, error), `cached`, `retries` | The instrumented fetch, `createInstrumentedFetch`, which every [upstream client](/next/upstream-clients#what-a-client-is) uses |
+| Error logs | error code, block type, provider | The SDK |
+| Traces (off by default) | block resolution and upstream spans | The SDK, at `traceSampleRate` |
+
+That's everything the SDK measures. The requests your site serves and its page cache belong to your web framework, so measure them with its OpenTelemetry setup (Next.js has [`instrumentation.ts`](https://nextjs.org/docs/app/guides/open-telemetry); on Cloudflare Workers, turn on Workers observability). Point it at the same collector and both show up side by side.
+
+A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. The `cached` label tells you whether a response came from a [cache](/next/caching#upstream-data), so hit rates show up next to latency. Page views from the browser aren't telemetry: they're [analytics](/next/analytics), a separate built-in block.
+
+## Telemetry settings are content
+
+How much is sent is a setting editors can see and change. It lives in a well-known [saved block](/next/saved-blocks#save-a-block) named `Telemetry`, whose type is the [built-in `telemetry` block](/next/built-in-blocks#telemetry-and-analytics), so it's always in the schema and [the site editor](/next/site-editor) shows it as a form:
+
+```json title=".deco/blocks/Telemetry.json"
+{
+  "__resolveType": "telemetry",
+  "enabled": true,
+  "metrics": true,
+  "errorSampleRate": 0.05,
+  "traceSampleRate": 0
+}
+```
+
+| Field | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Switches all telemetry off when `false`. |
+| `metrics` | `true` | Sends upstream metrics. |
+| `errorSampleRate` | `0.05` | The share of error logs sent (5%). |
+| `traceSampleRate` | `0` | The share of requests traced. |
+
+The block is optional: without it, the defaults above apply. `deco content` doesn't create it; add the file when you want to change something. Switching telemetry off is a commit to this file, made in the site editor or by hand, and it ships like any other content. The destination and its credentials never go here: content is edited in the site editor and shipped in releases, so secrets stay in code.
+
+## Sampling
+
+Telemetry is sampled and aggregated, so its cost stays flat as traffic grows:
+
+- **Metrics are aggregated** in memory, per server, and sent in batches: counts, sums and latency buckets per combination of labels, not one record per request.
+- **Error logs are sampled** at `errorSampleRate`, so a burst of identical errors sends a few examples, not thousands.
+- **Sending never delays a response.** Batches go out in the background, and a collector that's down only loses that batch (see [How telemetry is sent](/next/telemetry-internals#sending-in-the-background)).
+
+Code caps what content can raise. The sample rates in the `Telemetry` block are limited by `limits` on the `telemetry` option, so an editor can't increase what leaves your servers for a third party:
+
+```ts
+telemetry: {
+  endpoint: process.env.OTLP_ENDPOINT!,
+  limits: { errorSampleRate: 0.1, traceSampleRate: 0 },   // the defaults
+},
+```
+
+With these defaults, content can send at most 10% of error logs, and traces stay off until code raises `traceSampleRate`.
+
+## Privacy
+
+- Telemetry never carries request or response bodies, tokens, cookies or authorization headers. The SDK scrubs them before sending, so a third-party endpoint gets the same guarantee.
+- Requests are labeled by route pattern (`/products/:slug`), never by the raw URL.
+- Error logs are sampled and structured: an error's code, message and where it happened.
+
+## Your own tracing
+
+The `telemetry` option covers the measurements Deco CMS takes. To trace your own code with [OpenTelemetry](https://opentelemetry.io/), wrap each function in your [block map](/next/blocks#the-block-map) in a span named after its block type:
+
+```ts title=".deco/index.ts"
+import { trace } from "@opentelemetry/api";
+import type { Blocks } from "@decocms/blocks";
+import { PromoBanner } from "../src/promo-banner";
+
+const tracer = trace.getTracer("my-store");
+
+// Runs a block function inside a span named after its block type.
+function traced<P, R>(type: string, fn: (props: P) => R) {
+  return (props: P) =>
+    tracer.startActiveSpan(type, async (span) => {
+      try {
+        return await fn(props);
+      } catch (error) {
+        span.recordException(error as Error);
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
+}
+
+export default {
+  "promo-banner": traced("promo-banner", PromoBanner),
+} satisfies Blocks;
+```
+
+The wrapped function keeps its props type, so its form doesn't change, and it returns a `Promise`, which fits the same fields (return types are awaited). Make each request span the parent of these block spans and of your outbound HTTP spans, and add the served revision from [`client.revision()`](/next/api-reference#createcms-config) as an attribute. Keep credentials and customer data out of attributes, and export asynchronously, so a collector that's down never blocks rendering.
+
+## Troubleshooting
+
+| Symptom | What to check |
+|---|---|
+| Nothing reaches the collector | Check that `telemetry` is set (or `OTEL_EXPORTER_OTLP_ENDPOINT`), and that the [`Telemetry` block](#telemetry-settings-are-content), if you have one, isn't `enabled: false`. Metrics are sent in batches, so expect a short delay. |
+| Only some errors arrive | Error logs are sampled at `errorSampleRate`, capped by [`limits`](#sampling). |
+| Upstream calls missing | Only requests made through `createInstrumentedFetch` are measured; check that your client uses it (see [Calling APIs](/next/upstream-clients)). |
+| Prometheus shows odd counters | Metrics use delta temporality; see [Metrics](/next/telemetry-internals#metrics). |
+| Telemetry sent while only loading releases | Top-level `site` and `token` don't send telemetry. Look for `telemetry` or `OTEL_EXPORTER_OTLP_ENDPOINT` in your config and environment. |
+
+How batches are encoded and sent is [under the hood](/next/telemetry-internals).

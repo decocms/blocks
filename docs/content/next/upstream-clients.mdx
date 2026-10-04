@@ -1,0 +1,151 @@
+---
+title: Calling APIs
+nav: Calling APIs
+group: Content and data
+order: 13
+description: Deco CMS doesn't fetch data. Sites call commerce, search and email platforms through thin, instrumented API clients, and this page shows how to use and write one.
+---
+
+# Calling APIs
+
+A product shelf on your homepage needs search results from your commerce platform. Deco CMS doesn't fetch them for you: your code calls the API, the same way it would without a CMS.
+
+Deco CMS gives you **upstream clients** for that: thin, typed API clients that send every request through the framework's instrumented fetch, so every call to a third-party API is measured the same way, and the measurements go wherever your [telemetry](/next/telemetry#whats-sent) goes.
+
+This page shows how to call a platform through its client, how to write a client for a service Deco doesn't ship one for, and how retries work.
+
+## What a client is
+
+Deco ships one client package per platform: VTEX, Shopify, Wake, Magento, Algolia, Resend and others. Each one is:
+
+- **Typed request functions**, one per API operation, with the platform's own request and response types (generated from its API description where it has one).
+- **Built on the instrumented fetch**, [`createInstrumentedFetch`](/next/api-reference#createinstrumentedfetch-options), which times each request and labels it with the provider, the operation, the status class, whether it was cached, and how many retries it took.
+- **Configured by your code.** A client takes its settings (account, keys, endpoint) as arguments; you read them from environment variables where you create it, or from a [`secret` block](/next/built-in-blocks#secrets) when editors should set a key without a deploy.
+
+Everything else lives in code your site owns:
+
+| Not in a client | Where it lives |
+|---|---|
+| Converters from a platform's types to shared commerce types | [Platform templates](/next/how-it-works#key-terms), the starter sites you copy and then own, and your code |
+| React hooks for the cart, the user and the wishlist | Platform templates |
+| Cart, session and sign-in flows | Platform templates, as your framework's server functions or route handlers |
+| Website features: SEO helpers, sitemaps, redirect logic | Platform templates and your code. The framework itself ships the built-in `always`, `never` and `date` [matchers](/next/matchers-and-variants#matchers), `multivariate`, and the [`analytics`](/next/analytics) block for page views. |
+| [Loaders and actions](/v7/loaders) (v7's data functions) that [the site editor](/next/site-editor) ran through `/deco/invoke` | Your code; see [Migrating from v7](/next/renames-and-migrations#loaders-actions-and-invoke). |
+
+The Salesforce client, `@decocms/apps-sfmc-personalization`, covers Salesforce Marketing Cloud Personalization (formerly Evergage); it replaces `@decocms/apps-salesforce`.
+
+## Call a client
+
+Without a client, you'd write the request by hand:
+
+```ts
+const response = await fetch(`https://${account}.vtexcommercestable.com.br/api/catalog_system/pub/products/search?ft=linen+shirt`);
+const products = await response.json();
+```
+
+A client gives you the same call, typed and measured. Create it once, at module scope, and call it from wherever your app fetches data: a route loader, a server function, a route handler. A block function can call one too, since it's ordinary code; it gets its inputs from content and fetches what it needs.
+
+Per-shopper reads and anything that changes state, like adding to a cart, belong in your framework's server functions or route handlers. Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
+
+```ts title="src/commerce.ts"
+import { createVtexClient } from "@decocms/apps-vtex";
+
+export const vtex = createVtexClient({
+  account: process.env.VTEX_ACCOUNT!,
+  appKey: process.env.VTEX_APP_KEY!,
+  appToken: process.env.VTEX_APP_TOKEN!,
+});
+
+// Anywhere on the server
+const products = await vtex.search.products({ query: "linen shirt", count: 12 });
+```
+
+The operation names here are illustrative; each client mirrors its platform's API.
+
+Caching upstream responses is your app's job, not the client's: pass a caching fetch as the client's `fetch` option (see [Upstream data](/next/caching#upstream-data)).
+
+## Retries and failures
+
+**Defaults per client.** The VTEX client turns on retries and a circuit breaker, which fails fast for a short time after repeated failures; other clients leave both off.
+
+A retried request is measured once, with the number of retries as a label (see [What's sent](/next/telemetry#whats-sent)).
+
+## Write a client
+
+When there's no client for the service you call, write one. It's a small module: a factory that takes the configuration, and one function per operation.
+
+```ts title="acme-search.ts"
+import { createInstrumentedFetch } from "@decocms/blocks/fetch";
+
+export interface AcmeSearchConfig {
+  endpoint: string;   // e.g. https://api.acme-search.example
+  apiKey: string;
+}
+
+export interface ProductHit {
+  sku: string;
+  name: string;
+  price: number;
+  image: string;
+  url: string;
+}
+
+export class AcmeSearchError extends Error {
+  constructor(readonly operation: string, readonly status: number) {
+    super(`acme-search ${operation} failed with HTTP ${status}`);   // no body, no key
+  }
+}
+
+export function createAcmeSearch(config: AcmeSearchConfig, options: { fetch?: typeof fetch } = {}) {
+  // Every request through this fetch is timed and labeled as provider "acme-search".
+  const request = createInstrumentedFetch({ provider: "acme-search", fetch: options.fetch });
+
+  return {
+    async search(query: string, limit = 10): Promise<ProductHit[]> {
+      const url = new URL("/v1/search", config.endpoint);
+      url.searchParams.set("q", query);
+      url.searchParams.set("limit", String(limit));
+
+      const response = await request(url, {
+        operation: "search",                                    // the operation label
+        headers: { authorization: `Bearer ${config.apiKey}` },
+      });
+      if (!response.ok) throw new AcmeSearchError("search", response.status);
+
+      const body = (await response.json()) as { hits: ProductHit[] };
+      return body.hits;
+    },
+  };
+}
+```
+
+Then create it with your settings, once, and use it like any other client:
+
+```ts title="src/search.ts"
+import { createAcmeSearch } from "./acme-search";
+
+export const search = createAcmeSearch({
+  endpoint: process.env.ACME_SEARCH_URL!,
+  apiKey: process.env.ACME_SEARCH_KEY!,
+});
+```
+
+A block function in your [block map](/next/blocks#the-block-map) can then fetch what it renders:
+
+```tsx title=".deco/index.tsx (excerpt)"
+"product-shelf": async ({ title, query }: { title: string; query: string }) => {
+  const products = await search.search(query, 8);
+  return <ProductShelf title={title} products={products} />;
+},
+```
+
+A few rules keep clients consistent:
+
+1. **One provider name per service**, lowercase, such as `acme-search`. Dashboards group by it.
+2. **Name every operation.** Use the API's own name for it (`search`, `getProduct`), never a URL with IDs in it, so the label has a small, fixed set of values.
+3. **Take configuration as arguments.** Read environment variables where the site creates the client, not inside it, so the same client works on Node, Workers and in tests.
+4. **Keep it thin.** Return the platform's types. Converting to your own types, caching policy and UI state belong to the site.
+5. **Never put bodies, tokens or cookies in errors or logs.** Report the operation and the status.
+6. **Accept a `fetch` option** for tests and caching (see [Upstream data](/next/caching#upstream-data)). For tests, pass a fake that returns canned responses, and assert on the requests it received.
+
+`createInstrumentedFetch` measures every request; the measurements go wherever [telemetry](/next/telemetry#choose-where-telemetry-goes) is configured, and nowhere when it's off (see [What's sent](/next/telemetry#whats-sent)). Its options are in the [API reference](/next/api-reference#createinstrumentedfetch-options).

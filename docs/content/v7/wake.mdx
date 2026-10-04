@@ -1,0 +1,151 @@
+---
+title: Wake
+group: Apps
+order: 30
+description: Connect a site to Wake Commerce for catalog pages, search, carts, wishlists and checkout routing.
+---
+
+# Wake
+
+`@decocms/apps-wake` connects a site to Wake Commerce through its Storefront GraphQL API and checkout REST API. It provides cached catalog loaders (product pages, listings, shelves, search suggestions, recommendations, shop info and partners), per-visitor loaders for the cart, user and wishlist, and actions for the cart, coupons, kits, wishlists, newsletters, reviews, notify-me and shipping simulation. Everything returns the shared [commerce types](/v7/apps-commerce).
+
+```bash
+bun add @decocms/apps-wake @decocms/apps-commerce @decocms/apps-website
+```
+
+## Configuring
+
+Wake keeps its credentials out of content. The block holds only where to connect; the token always comes from the environment:
+
+| Block field | What it does |
+|---|---|
+| `account` | Required. Your Wake account name. |
+| `checkoutUrl` | Your checkout and login domain, such as `https://secure.store.example.com`. Defaults to `https://<account>.checkout.fbits.store`. |
+| `storefrontEndpoint` | Optional. The Storefront API endpoint; defaults to Wake's public one. |
+
+| Variable | What it does |
+|---|---|
+| `WAKE_TOKEN` | Required. The Storefront API token. |
+| `WAKE_KEY` | The admin API token. Read, but not used by any loader or action yet. |
+
+The app reads both from `process.env` only, not from the Worker's per-request environment. On Cloudflare Workers, `process.env` is available only with the `nodejs_compat` compatibility flag, so check that `WAKE_TOKEN` is visible there: if it isn't, `configure` returns `null` and the app silently isn't installed.
+
+Install it with the registry entry; its block key is `deco-wake`. `configure` returns `null`, and the app isn't installed, when the block has no `account` or `WAKE_TOKEN` isn't set:
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps, type AppRegistry } from "@decocms/blocks-admin/apps";
+import { loadBlocks } from "@decocms/blocks/cms";
+import { WAKE_REGISTRY_ENTRY } from "@decocms/apps-wake/registry";
+import * as wakeMod from "@decocms/apps-wake/mod";
+
+const APP_REGISTRY: AppRegistry = [{ ...WAKE_REGISTRY_ENTRY, module: async () => wakeMod }];
+
+await autoconfigApps(loadBlocks(), APP_REGISTRY);
+```
+
+Or configure it by hand: `initWakeFromBlocks(blocks)` reads the `wake` or `deco-wake` block, and `configureWake(config)` takes the config directly. Both are exported from the package root.
+
+## Instrumented fetch
+
+Call `setWakeFetch(createWakeFetch())` once, at module scope in your setup:
+
+```ts title="src/setup.ts"
+import { setWakeFetch, createWakeFetch } from "@decocms/apps-wake";
+
+setWakeFetch(createWakeFetch());
+```
+
+Each call is then measured and traced, named after its GraphQL operation or checkout endpoint. Without it, calls use a plain fetch with a timeout and aren't measured. See [Observability](/v7/observability).
+
+## Cached catalog loaders
+
+`createWakeCommerceLoaders()` returns the catalog loaders wrapped in the framework's loader cache, ready for `registerCommerceLoaders`:
+
+```ts title="src/setup/commerce-loaders.ts"
+import { registerCommerceLoaders } from "@decocms/blocks/cms";
+import { createWakeCommerceLoaders } from "@decocms/apps-wake/commerceLoaders";
+
+registerCommerceLoaders(createWakeCommerceLoaders());
+```
+
+| Key | Cache profile | Notes |
+|---|---|---|
+| `wake/loaders/productDetailsPage.ts` | `product` | Uses the page path when `slug` is empty. Reads `?skuId` to pick the variant. |
+| `wake/loaders/productListingPage.ts` | `listing` | Uses the current page URL for paging, sorting and filters. |
+| `wake/loaders/productList.ts` | `listing` | Shelves, with filters by category, brand, attributes, price and stock. |
+| `wake/loaders/suggestion.ts` | `search` | Autocomplete. |
+| `wake/loaders/recommendations.ts` | `product` | Recommendations for a product. |
+| `wake/loaders/shop.ts`, `wake/loaders/partners.ts` | `static` | Shop info and partners. |
+
+Each key is also registered without `.ts`. Override profiles with `cacheProfiles` and add loaders with `extra`, as with [VTEX](/v7/vtex#commerce-loaders). The cart, user and wishlist loaders are deliberately left out: they're per visitor and never cached.
+
+The listing loader reads Wake's URL conventions: `busca` for the search term, `sort` or `ordenacao` for sorting (`SALES:DESC` by default), `page` for the page number, `tamanho` for the page size, and `filtro` and `precoPor` for filters. Its props include `limit` (12), `sort`, `query`, `onlyMainVariant` (`true`), `filters` and `pageOffset` (`0` or `1`, `0` by default).
+
+## Cart, user and wishlist
+
+Session state lives in Wake's cookies:
+
+| Cookie | Holds |
+|---|---|
+| `carrinho-id` | The cart id. Readable by browser scripts, so client code can reuse it. |
+| `fbits-login` | The login, exchanged with Wake's checkout for a customer token. |
+| `partner-token` | The active partner, when partner pricing applies. `HttpOnly`. |
+
+The cart, user and wishlist loaders and every action read these from the current request through [request context](/v7/request-context), and write `Set-Cookie` headers to the request's response headers, which [invoke](/v7/loaders) copies onto its response. That's why calling them through `/deco/invoke` needs no extra wiring. The `cart` loader creates a cart when the visitor has none; cart actions fail with `Missing cart cookie` (HTTP 400) until one exists.
+
+The actions, at `@decocms/apps-wake/actions/...` and as `wake/actions/...` invoke keys:
+
+| Action | Props |
+|---|---|
+| `cart/addItem`, `cart/addItems` | `productVariantId`, `quantity`, optional `customization` and `subscription` (a list under `products` for `addItems`) |
+| `cart/updateItemQuantity` | `productVariantId`, `quantity` |
+| `cart/addCoupon`, `cart/removeCoupon` | `coupon` |
+| `cart/addKit`, `cart/removeKit` | `products`, `quantity`, `kitId` |
+| `cart/partnerAssociate`, `cart/partnerDisassociate` | `partnerAccessToken` |
+| `wishlist/addProduct`, `wishlist/removeProduct` | `productId` |
+| `newsletter/register` | `email`, `name` |
+| `review/create` | `email`, `name`, `productVariantId`, `rating`, `review` |
+| `notifyme` | `email`, `name`, `productVariantId` |
+| `shippingSimulation` | `cep`, plus either `productVariantId` and `quantity` for one product, or `simulateCartItems` to quote the visitor's cart; `useSelectedAddress` uses the address already on the cart |
+| `submmitForm` | `body`, `recaptchaToken` (the module name really is spelled this way) |
+
+The package doesn't ship React hooks. Call these through your own server functions or `/deco/invoke`.
+
+## Checkout routes and the sitemap
+
+Wake's checkout, login, cart and account pages are served by Wake. To keep them on your domain, your Worker forwards those paths to the checkout URL.
+
+`@decocms/apps-wake/loaders/proxy` returns the list of routes to forward, as plain descriptors: `/checkout`, `/Fechamento` and `/Fechamento/*`, `/Login`, `/Login/*`, `/login/*` and `/Login/Authenticate`, `/Carrinho/*`, `/api/*`, `/MinhaConta` and `/MinhaConta/*`, any `extraPathsToProxy` you pass, and a `sitemap` route for `/Sitemap.xml`. Each proxy descriptor carries the target in `url` (your checkout URL). It doesn't proxy anything itself: your Worker's `proxyHandler` does the forwarding.
+
+`@decocms/apps-wake/handlers/sitemap` serves Wake's sitemap for your account with your host in every URL; pass `include` to add entries to it.
+
+```ts title="src/worker-entry.ts (excerpt)"
+import proxyRoutes from "@decocms/apps-wake/loaders/proxy";
+import Sitemap from "@decocms/apps-wake/handlers/sitemap";
+
+function matches(template: string, pathname: string) {
+  return template.endsWith("/*")
+    ? pathname.startsWith(template.slice(0, -1))
+    : pathname === template;
+}
+
+export default createDecoWorkerEntry(serverEntry, {
+  proxyHandler: async (request, url) => {
+    if (url.pathname === "/Sitemap.xml") return Sitemap()(request);
+    for (const route of proxyRoutes({})) {
+      if (route.type === "proxy" && matches(route.pathTemplate, url.pathname)) {
+        return fetch(new Request(new URL(url.pathname + url.search, route.url), request));
+      }
+    }
+    return null;
+  },
+});
+```
+
+<Callout type="warning">This sketch forwards requests as they are. A production proxy also has to rewrite the `Domain` of the checkout's `Set-Cookie` headers and its `Location` redirects to your host, the way [VTEX's checkout proxy](/v7/vtex#wiring-the-worker) does.</Callout>
+
+## Related
+
+- [Apps](/v7/apps): installing apps.
+- [Commerce types and utilities](/v7/apps-commerce): the shapes these loaders return.
+- [Caching](/v7/caching): cache profiles.

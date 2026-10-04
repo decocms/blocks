@@ -1,0 +1,108 @@
+---
+title: Site editor compatibility
+nav: Site editor compatibility
+group: Under the hood
+kind: internals
+order: 6
+---
+
+# Site editor compatibility
+
+[The site editor](/next/site-editor) reads and writes a next-major site through the [content protocol](/next/content-protocol), which needs only the committed [schema](/next/schema#from-types-to-forms) and the files in `.deco/blocks`. This page shows what the site editor reads from the schema, the alias table, and the endpoints older sites still serve.
+
+## What the site editor reads from the schema
+
+Everything the site editor knows about the shape of your content comes from the schema, so it's all inferred from your types. Where it reads the schema depends on what it edits:
+
+- **Your machine**, through [`deco serve`](/next/site-editor#edit-on-your-machine) on localhost: the schema in your working tree, so a type you just added shows up as soon as `deco schema` writes it.
+- **A draft on GitHub**, with the hosted Deco CMS: the `schema.gen.json` committed on the draft's branch, falling back to your default branch when that branch has none.
+
+The file follows the site editor's format, `deco-meta@1`:
+
+- **`manifest`**: every key of your [block map](/next/blocks#the-block-map), plus the [built-ins](/next/built-in-blocks), grouped by kind (table below).
+- **`schema.definitions`**: one JSON Schema per type, the form the site editor shows, keyed by the padded-base64 type name.
+
+The group names are the site editor's, inherited from the Fresh and Deno framework. The CLI picks the group from the type:
+
+| Manifest group | What lands there | The site editor uses it for |
+|---|---|---|
+| `sections` (the site editor's legacy name) | Block functions that return JSX or a [render descriptor](/next/rendering#which-mode-to-use) | The site editor's "add" catalog: the blocks an editor can add to a page |
+| `matchers` | Block functions that return `boolean` ([matchers](/next/matchers-and-variants)), including the built-in `always`, `never` and `date` | The rule picker next to each [variant](/next/matchers-and-variants#variants) |
+| `loaders` | Every other block function, such as one that fetches products. The site editor calls these loaders, after the Fresh and Deno name for data functions; they have nothing to do with where your content comes from. This includes the built-ins `multivariate` and `lazy`. The site editor recognizes `lazy` by name and never offers it as a pick: it only writes it around a value in a `Lazy<T>` field. | Data fields that can point at a function |
+| `pages` | The built-in `page` (or your override of it) and [data-only blocks](/next/schema#data-only-blocks) whose type extends `Route`, like `post` | The page list, "new page", the URL field |
+| `redirects` | The built-in `redirect` | The redirects screen |
+| `content` | Every other data-only block (a function that returns its input), including the built-in `telemetry` | Plain entries: navigation menus, settings, email templates |
+
+```json title=".deco/schema.gen.json, abridged"
+{
+  "manifest": {
+    "blocks": {
+      "sections":  { "hero": { "$ref": "#/definitions/aGVybw==" } },
+      "matchers":  { "always": { "$ref": "…" }, "never": { "$ref": "…" }, "date": { "$ref": "…" } },
+      "loaders":   { "multivariate": { "$ref": "…" }, "lazy": { "$ref": "…" } },
+      "content":   { "seo": { "$ref": "…" } },
+      "pages":     { "page": { "$ref": "…" } },
+      "redirects": { "redirect": { "$ref": "…" } }
+    }
+  },
+  "schema": {
+    "definitions": {
+      "aGVybw==": { "type": "object", "properties": { "title": { "type": "string", "title": "Heading" } } }
+    },
+    "root": { "sections": { "anyOf": ["…"] } }
+  }
+}
+```
+
+Three conventions follow from this:
+
+- A key is a **block type if it's in the manifest and a saved block if it isn't**, so short names like `hero` are fine, as long as no saved block uses the same name (see [the lookup rule](/next/blocks#the-lookup-rule)).
+- A field with variants is `{ "variants": [{ "rule": …, "value": … }, …] }`: each entry pairs a rule with a variant, and each `value` is a [`lazy` block](/next/lazy-blocks#write-a-lazy-block) that the site editor writes around what the editor fills in. The first variant whose rule is true wins, so the default, with the `always` rule, goes last.
+- A redirect is a flat `{ from, to, permanent }` entry, plus the optional `status` and `discardQueryParameters` (see [Pages and redirects](/next/built-in-blocks#pages-and-redirects)).
+
+Saved blocks aren't in the schema: the site editor builds its pickers of saved blocks from the map `blocks.list` returns. Schema strings, such as titles and `@image` templates, are untrusted input to the site editor, which escapes them.
+
+## Well-known types and the alias table
+
+The Fresh and Deno framework, and v7, name every block type by the path of the file that defined it, so a page type was `website/pages/Page.tsx` and the always-true rule was `website/matchers/always.ts`. The site editor's special screens still find a few types by those names, and `deco-meta@1` keeps them:
+
+| Role | The name the site editor looks for |
+|---|---|
+| Page | `website/pages/Page.tsx` (or `$live/pages/LivePage.tsx`) |
+| Variants (`multivariate`) | `website/flags/multivariate.ts`, `website/flags/multivariate/section.ts` |
+| Always and never rules (the default variant; hiding a block) | `website/matchers/always.ts`, `website/matchers/never.ts` |
+| Redirect | `website/loaders/redirect.ts` |
+| Secret | `website/loaders/secret.ts` (v7 secrets are re-encrypted once when the site migrates; see [Secrets](/next/renames-and-migrations#secrets)) |
+
+Your code uses `page`, `always` and the other short names. The CLI emits an **alias table**, a list of second names for types, and writes it into the schema, so the site editor's screens find your types under the names they expect. Content the site editor saves under an old name resolves too: [`deco content`](/next/content#the-content-module) writes the alias table into the content module, and [`createCMS`](/next/api-reference#createcms-config) reads it from there. Under `website/flags/multivariate.ts`, variants are saved as plain values; the alias bridge wraps each one in a `lazy` block, so they run only when chosen, like new ones.
+
+One difference remains: redirects created in the site editor are saved in the old nested shape, not the flat one from [Pages and routing](/next/routing):
+
+```json
+// Saved by the site editor's legacy redirect screen
+{ "__resolveType": "website/loaders/redirect.ts",
+  "redirect": { "from": "/campaigns/summer", "to": "/summer", "type": "temporary", "discardQueryParameters": true } }
+
+// The shape these docs use
+{ "__resolveType": "redirect", "from": "/campaigns/summer", "to": "/summer", "permanent": false, "status": 307, "discardQueryParameters": true }
+```
+
+[`matchRoute`](/next/api-reference#matchroute-url-items) accepts both. A legacy `"type": "permanent"` is a 301 and `"temporary"` a 307, as before, and `discardQueryParameters` carries over, so no live redirect changes its status code or query handling. The site editor decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
+
+## Variant tabs
+
+A variant tab previews its variant through the [draft pointer](/next/api-reference#draft-pointers), never through a header or a site endpoint: the site editor loads the preview with a `?__draft=` pointer that [forces](/next/releases-and-drafts#preview-a-variant) the variant, addressed by the page (or saved block) that holds the `multivariate` and the JSON path to it, such as `Home@sections.3=1`. On your machine the pointer names the `deco serve` endpoint, which the content module ignores, so only the forced variant applies; with the hosted Deco CMS it's the draft's own pointer plus the `__variant` parameters. A site that picks its client with `draftPointer` needs nothing else. v7 sites keep `x-deco-matchers-override`.
+
+## Legacy endpoints
+
+Sites on Fresh and Deno are edited the legacy way: the site editor reads from the running site and calls it for anything that runs code. v7 sites serve the same endpoints, from `@decocms/blocks-admin`, so a v7 project can stay on this path:
+
+| Endpoint | Legacy use |
+|---|---|
+| `GET /live/_meta` | The schema and manifest |
+| `GET /.decofile` | The saved blocks |
+| `/live/previews` | Block previews: gallery thumbnails, saved blocks, in-place renders |
+| `/deco/invoke` | Running a loader or action: dynamic pickers and the Run button |
+| `/live/invoke` | Encrypting secret fields through the site's encrypt action |
+
+Next-major sites serve none of them, and the SDK has no invoke endpoint. The site editor picks the protocol for any project that has a committed schema in its app root (`<root>/.deco/schema.gen.json` or `<root>/.deco/meta.gen.json`), and the legacy path otherwise. v7 sites commit `meta.gen.json`, so they move to the protocol automatically, without what it leaves out: block previews, Run, dynamic pickers and editing v7 secrets.

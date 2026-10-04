@@ -1,0 +1,261 @@
+---
+title: Pages and routing
+nav: Pages & routing
+group: Websites
+order: 16
+kind: docs
+---
+
+# Pages and routing
+
+Marketing wants a summer campaign live at `/summer` today, and the old `/campaigns/summer` link from last year's emails should land there too. In most apps, each of those is a code change and a deploy.
+
+With Deco CMS, an editor saves the page and the redirect in [the site editor](/next/site-editor), and one route you wrote once serves them both.
+
+This page shows how pages and redirects are saved, how one catch-all route serves them with `matchRoute`, and how to give your own types a URL.
+
+Without a CMS, every page is a route file and every redirect is a line in your framework's config:
+
+```tsx
+// app/summer/page.tsx: one file per page, written and deployed by a developer
+export default function SummerPage() { return <Hero title="Summer starts here" />; }
+
+// next.config.ts: one entry per redirect
+redirects: async () => [{ source: "/campaigns/summer", destination: "/summer", permanent: true }],
+```
+
+With Deco CMS, pages and redirects are saved [blocks](/next/blocks).
+
+## Pages and redirects are content
+
+`page` and `redirect` are [built-in blocks](/next/built-in-blocks#pages-and-redirects), so you don't declare them. Anything with a URL extends the `Route` interface, exported from `@decocms/blocks`:
+
+```ts
+/** An entry that lives at a URL. Extend it to make a type routable. */
+interface Route {
+  /** @title Name */
+  name: string;
+  /** @title Path */
+  path: string;        // "/summer", or a template like "/:slug/p" or "/docs/*"
+}
+
+/** The built-in `page` block: a route with SEO and a list of blocks. */
+interface Page extends Route {
+  seo?: Seo;           // optional: without it, your site's SEO defaults apply
+  sections: ReactNode[];
+}
+
+/** The built-in `redirect` block. */
+interface Redirect {
+  from: string;        // literal or template
+  to: string;
+  permanent: boolean;  // 301 or 302
+  status?: 301 | 302 | 307 | 308;     // wins over permanent
+  discardQueryParameters?: boolean;   // drop the request's query string instead of carrying it over
+}
+```
+
+A page's fields are typed as what it receives, already resolved: a `Seo` object and a list of rendered blocks. A page saved without `seo` gets `undefined` there, and your app falls back to its site-wide title and description ([how the site editor fills them](/next/schema#from-types-to-forms)). In the saved JSON, `seo` is a block and `sections` is a list of blocks:
+
+```json title=".deco/blocks/SummerPage.json"
+{
+  "__resolveType": "page",
+  "name": "Summer campaign",
+  "path": "/summer",
+  "seo": { "__resolveType": "SummerSEO" },
+  "sections": [
+    { "__resolveType": "hero", "title": "Summer starts here", "image": "https://cdn.example.com/summer.jpg" }
+  ]
+}
+```
+
+```ts
+// What client.resolve("SummerPage") returns: seo and every block in sections resolved.
+{
+  name: "Summer campaign",
+  path: "/summer",
+  seo: seo({ title: "Sunny!", description: "Light layers for long days." }),   // SummerSEO, expanded
+  sections: [hero({ title: "Summer starts here", image: "https://cdn.example.com/summer.jpg" })],
+}
+```
+
+```json title=".deco/blocks/LegacySummer.json"
+{
+  "__resolveType": "redirect",
+  "from": "/campaigns/summer",
+  "to": "/summer",
+  "permanent": true
+}
+```
+
+**The router's rule is one line: an entry with a string `path` matches at that path.** `Route` makes that intentional: the [CLI](/next/cli) checks that any block type with a `path` extends `Route`, so a stray `path` field on an unrelated block is a schema error, not a surprise URL. Keep `path` and `from` plain strings, not blocks, so the router can match without running code. To add fields to pages, [change the built-in](/next/built-in-blocks#change-a-built-in).
+
+## Route a request
+
+Deco CMS doesn't route; it lists and resolves, and `matchRoute` is a helper. Routing is three steps in your request handler: list the types you want at URLs, hand them to [`matchRoute`](/next/api-reference#matchroute-url-items), and resolve the winner. Do all three with one client from `cms.forRelease()`, so they see the same content even if it changes mid-request (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)).
+
+```ts
+import { matchRoute, type Redirect } from "@decocms/blocks";
+import type { ReactNode } from "react";
+import type { ResolvedPage, StoredPage } from "./model";   // see The example project below
+import type { Post } from "./post";
+// cms comes from cms.ts (see Quickstart); request is the incoming Request; render/renderPost are your own view code
+// error handling omitted: check the second tuple element in real code
+
+const client = cms.forRelease();
+const [pages]     = await client.list<StoredPage>("page");   // as saved: seo and sections are still blocks
+const [posts]     = await client.list<Post>("post");
+const [redirects] = await client.list<Redirect>("redirect");
+
+const match = matchRoute(request, { routes: [...pages, ...posts], redirects });
+
+switch (match.kind) {
+  case "not-found":
+    return new Response("Not found", { status: 404 });
+  case "redirect":
+    return Response.redirect(new URL(match.location, request.url), match.status);
+  case "match": {
+    const entry = match.entry;
+    if ("__resolveType" in entry && entry.__resolveType === "post") {
+      return renderPost(entry as Post);                                        // already the saved post
+    }
+    const [page] = await client.resolve<ResolvedPage<ReactNode>>(entry);       // seo and sections resolved
+    return render(page.seo, page.sections);
+  }
+}
+```
+
+`Route` types describe what an editor fills in, so they don't declare `__resolveType`. The saved entry still has it, so check it with `in` before comparing.
+
+Mount this handler as your app's catch-all route, the one that runs when no other route matches. To send each block as soon as it's ready instead of resolving the whole page, see [Stream each block](/next/nextjs#7-stream-each-block-optional). `matchRoute` reads redirects as listed, so routing never resolves them.
+
+| `kind` | Fields |
+|---|---|
+| `"match"` | `entry` (the stored route you passed in) and `params` from the path template. |
+| `"redirect"` | `location` with parameters filled in and the request's query string carried over (unless the redirect sets `discardQueryParameters`), and `status`: the redirect's `status`, else `301` or `302` from `permanent`. |
+| `"not-found"` | None |
+
+<Callout>**`matchRoute` is a helper, not a requirement.** Deco CMS has no idea what a URL is. If your framework already routes, or you'd rather open a page by name (`client.resolve("SummerPage")` returns it ready to render), skip it. It exists because "an editor typed a path and that page is now live" is the common case, and getting precedence and parameters right by hand is tedious.</Callout>
+
+Which types route is your decision, per handler: a blog lists `post`, a docs site lists `doc`. Deco CMS never injects `match.params` into blocks; share them the way your app shares request state. For example, with Node's `AsyncLocalStorage`: `export const routeParams = new AsyncLocalStorage<Record<string, string>>();`, wrap rendering in `routeParams.run(match.params, () => render(…))`, and a block reads `routeParams.getStore()?.slug`.
+
+Matching is a lookup, not a scan: a lookup costs the URL's depth, not the number of routes. To skip rebuilding the lookup on each request, reuse one `routes` array per [`client.revision()`](/next/api-reference#createcms-config); details are in [Router internals](/next/router-internals).
+
+<h2 id="path-templates-and-match-order">Match order</h2>
+
+A route's `path` and a redirect's `from` accept literal segments and named parameters. A route at `/:slug/p` matches `/summer/p` with `params.slug = "summer"`.
+
+A path can also end with `/*`, a **splat**, to match whatever comes after it, one or more segments. A redirect from `/old-blog/*` to `/blog/*` sends `/old-blog/2024/hello` to `/blog/2024/hello`, and a route at `/docs/*` gets the rest of the path in `params["*"]` (`"guides/setup"` for `/docs/guides/setup`). A splat never matches zero segments, so `/docs` needs its own entry. In a redirect's `to`, the captured segments stay percent-encoded, so a crafted URL can't turn the redirect into a jump to another site.
+
+- Redirects are checked before routes, so a redirect overrides a route at the same path.
+- Within each group, exact paths win over parameters, and parameters win over a splat: `/docs/setup` beats `/docs/:page`, which beats `/docs/*`.
+- Two entries with the same path, or two templates that can match the same URL, are a conflict. [`deco check`](/next/checking#what-deco-check-checks) reports it; at request time `matchRoute` picks the one earlier in the array instead of throwing.
+
+Serve framework endpoints, API routes and static assets from their own routes, so they never reach this catch-all.
+
+## Your own routable types
+
+A blog doesn't want a `page` entry per post. Make `Post` extend `Route`, declare it in your block map, and pass the saved posts to `matchRoute` along with your pages, as the handler above does:
+
+```ts title="src/post.ts"
+import type { Route } from "@decocms/blocks";
+
+export interface Post extends Route {
+  /**
+   * @title Published on
+   * @format date
+   */
+  date: string;
+  /** @format rich-text */
+  body: string;
+}
+```
+
+```ts title=".deco/index.ts"
+import type { Blocks } from "@decocms/blocks";
+import type { Post } from "../src/post";
+
+const post = (props: Post) => props;   // data only: returns what the editor saved
+export default { /* your other blocks, */ post } satisfies Blocks;
+```
+
+```json title=".deco/blocks/HelloWorld.json"
+{ "__resolveType": "post", "name": "Hello, world", "path": "/blog/hello-world", "date": "2026-09-01", "body": "…" }
+```
+
+`client.resolve(match.entry)` returns a page with `seo` and `sections` resolved; a post comes back as saved, so call it on a post only if the post contains blocks.
+
+Because the URL is a field, linking to an entry is reading it, and listing a routable type gives you an index:
+
+```ts
+const [posts] = await client.list<Post>("post", { sort: (a, b) => b.date.localeCompare(a.date) });
+for (const post of posts) link(post.path, post.name);          // "/blog/hello-world", "Hello, world"
+// link() stands in for your framework's <Link> or an <a href>
+```
+
+## Types without a URL
+
+A menu, an email template or campaign settings work the same way, minus `Route`: declare `menu: (props: Menu) => props` in your [block map](/next/blocks#the-block-map) and save entries with `"__resolveType": "menu"` (see [Data-only blocks](/next/schema#data-only-blocks)).
+
+## The example project
+
+The framework guides share these files: the model in `src/model.ts`, the post type in `src/post.ts` (from [Your own routable types](#your-own-routable-types)), and two entries in `.deco/blocks`. The page is a product page with two blocks, a `promo-banner` (a free-shipping bar) and a `product-hero`. Each guide's block map registers `seo`, `promo-banner`, `product-hero` and `post`.
+
+```ts title="src/model.ts"
+import type { Block, Route, Seo } from "@decocms/blocks";
+
+export interface PromoBannerProps { title: string; href: string; }
+export interface ProductHeroProps { name: string; price: number; currency: string; image: string; }
+
+// What a block returns in data mode: a component name and its props.
+export type BlockDescriptor =
+  | { component: "promo-banner"; props: PromoBannerProps }
+  | { component: "product-hero"; props: ProductHeroProps };
+
+// A saved page, as client.list returns it by default (nothing run): seo and sections are still JSON.
+export interface StoredPage extends Route {
+  seo?: Seo | Block;
+  sections: Block[] | Block;   // a list of blocks, or one multivariate block that picks a whole list
+}
+
+// What client.resolve returns for a page: seo and every block in sections resolved.
+export interface ResolvedPage<T> extends Route { seo?: Seo; sections: T[]; }
+```
+
+- `BlockDescriptor` is what a block returns in data mode (see [Rendering](/next/rendering)).
+- `Block` is a block as stored, `{ "__resolveType": "…", …inputs }`. `StoredPage` needs it because [`client.list`](/next/api-reference#client-list-type-options) returns pages before anything runs, so a guide can resolve each block separately and stream it. If an editor gave the whole list [variants](/next/matchers-and-variants), `sections` is one `multivariate` block.
+- `ResolvedPage<T>` is what the `page` block returns, with `T` being what your blocks return. The [TanStack Start guide](/next/tanstack-start-descriptors) uses `ResolvedPage<BlockDescriptor>`; the JSX guides keep the built-in `Page`.
+
+```json title=".deco/blocks/ShirtPage.json"
+{
+  "__resolveType": "page",
+  "name": "Summer shirt",
+  "path": "/:slug/p",
+  "seo": {
+    "__resolveType": "seo",
+    "title": "Summer shirt | Deco example",
+    "description": "Light cotton shirt for hot days."
+  },
+  "sections": [
+    { "__resolveType": "promo-banner", "title": "Free shipping over $50", "href": "/shipping" },
+    {
+      "__resolveType": "product-hero",
+      "name": "Summer shirt",
+      "price": 49,
+      "currency": "USD",
+      "image": "/images/summer-shirt.jpg"
+    }
+  ]
+}
+```
+
+```json title=".deco/blocks/LegacyProduct.json"
+{
+  "__resolveType": "redirect",
+  "from": "/old-products/:slug",
+  "to": "/:slug/p",
+  "permanent": true
+}
+```
+
+The redirect sends `/old-products/summer` to `/summer/p`. The hero uses literal values to keep the example small; on a real store, its block function fetches the product for the slug through an [upstream client](/next/upstream-clients#write-a-client), reading the route params from your app's request state (see [Reading the request](/next/blocks#reading-the-request)).

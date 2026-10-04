@@ -1,0 +1,86 @@
+---
+title: Caching
+nav: Caching
+group: Production
+order: 23
+description: The caches a request passes through, who owns each one, and what to key it by.
+---
+
+# Caching
+
+A wrong cache key is how a site shows one customer's cart to another or serves last week's prices. This page shows each cache a request passes through, who owns it, and what you key it by.
+
+The table shows who owns each cache and what you're responsible for.
+
+| Layer | Lifetime | Your responsibility |
+|---|---|---|
+| Content map | The snapshot, held in memory by the CMS and cached by [revision](/next/releases-and-deployment#what-a-revision-is). One per process, even if the package is loaded twice (see [One instance per process](/next/api-reference#one-instance-per-process)). It comes from the [content module](/next/content#the-content-module) or a [loader](/next/content#write-a-loader). | Nothing. |
+| Resolved blocks | For one client (the object `cms.forRelease()` returns, see [`createCMS`](/next/api-reference#createcms-config)). A client runs each block once and reuses the result for the rest of the request. | Make [a client per request](/next/releases-and-deployment#one-revision-per-response) and resolve everything the response renders through it. |
+| Dynamically imported modules | Block functions you load lazily with `import()` are cached by the JavaScript runtime for the life of the process, so anything a module stores in a top-level variable is shared by every request. | Keep per-request state out of module globals. |
+| Upstream data | Responses from the APIs your code calls (a commerce platform, a search service), cached by code in your app, if you add it. See [Upstream data](#upstream-data). | Key by every input the response depends on; see [Upstream data](#upstream-data). |
+| Cross-request results | Anything you cache across requests yourself (rendered HTML at a CDN, a resolved page in KV). Your policy. | Key by revision, app version (new code can render the same content differently), inputs, and relevant request context. Define TTL and invalidation. |
+
+A [block type](/next/blocks#the-block-map) alone is never a cache key. Include every input that can change the result. A cache hit doesn't bypass authorization.
+
+Block functions should only read; see [The rule in full](/next/how-resolution-works#the-rule-in-full).
+
+## Upstream data
+
+Where an API response can be cached depends on where your site runs, so caching lives in your app, not in Deco CMS or the [upstream clients](/next/upstream-clients#what-a-client-is). Clients accept a `fetch` option, the fetch under [`createInstrumentedFetch`](/next/api-reference#createinstrumentedfetch-options) (see [Write a client](/next/upstream-clients#write-a-client)), so a cache is a fetch you pass in. Two short recipes follow.
+
+Include everything a response depends on in its cache key (tenant, locale, currency, region), and never cache a shopper's private data as public. Cache only the calls that are the same for every visitor, and only `GET` requests.
+
+### Cloudflare Workers
+
+The Cloudflare Cache API keys a response by its URL only, so use this for requests whose URL holds every input (headers such as `authorization` aren't part of the key):
+
+```ts title="src/cached-fetch.ts"
+// A fetch that serves GET responses from the Cloudflare Cache API for `seconds`.
+export function cachedFetch(seconds: number): typeof fetch {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    if (request.method !== "GET") return fetch(request);
+
+    const cache = caches.default;
+    const hit = await cache.match(request);
+    if (hit) {
+      const response = new Response(hit.body, hit);
+      response.headers.set("x-cache", "HIT");      // the instrumented fetch labels it cached
+      return response;
+    }
+
+    const response = await fetch(request);
+    if (response.ok) {
+      const copy = new Response(response.clone().body, response);
+      copy.headers.set("cache-control", `public, max-age=${seconds}`);
+      await cache.put(request, copy);
+    }
+    return response;
+  };
+}
+```
+
+```ts title="src/search.ts"
+export const search = createAcmeSearch(config, { fetch: cachedFetch(60) });
+```
+
+### Next.js
+
+Next.js caches a `fetch` in its data cache when you pass `next: { revalidate }`, so the wrapper only adds that option:
+
+```ts title="src/cached-fetch.ts"
+// A fetch whose responses Next.js keeps in its data cache for `seconds`.
+export function cachedFetch(seconds: number): typeof fetch {
+  return (input, init) => fetch(input, { ...init, next: { revalidate: seconds } });
+}
+```
+
+Pass it the same way, `createAcmeSearch(config, { fetch: cachedFetch(60) })`. Next's data cache doesn't set `x-cache`, so these hits aren't labeled `cached`. See the Next.js docs on [caching data](https://nextjs.org/docs/app/guides/caching).
+
+Where the instrumented fetch's measurements go, including the `cached` label, is in [Telemetry](/next/telemetry#whats-sent).
+
+<Hosted to="/next/hosted-drafts" label="Previewing drafts">**Skip the cache for drafts.** When the hosted Deco CMS renders a draft on your site (a request you serve with `cms.forDraft`), use a client without the cached fetch, so editors see fresh data.</Hosted>
+
+## Pages with variants
+
+A [matcher](/next/matchers-and-variants#matchers) runs only when a page is rendered, so a cached page keeps the [variant](/next/matchers-and-variants#variants) it was rendered with, up to one cache lifetime past the switch. Around a scheduled switch, keep cache lifetimes shorter than the delay you can accept, or don't cache pages whose variants switch by date. On Next.js, a page rendered at build time never switches; see the [Next.js caching note](/next/nextjs#caching).

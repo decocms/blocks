@@ -1,0 +1,108 @@
+---
+title: Magento
+group: Apps
+order: 31
+description: "The partial Magento app: configuration, cart, user and wishlist loaders, a few actions, a shared response cache and an instrumented fetch."
+---
+
+# Magento
+
+`@decocms/apps-magento` is the start of a Magento integration. It gives you a configured, authenticated client for Magento's REST and GraphQL APIs, loaders for the visitor's cart, user and wishlist, actions for newsletter sign-up, stock alerts and the wishlist, and the shared caching and observability plumbing. You write the catalog loaders yourself on top of it.
+
+<Callout>
+
+**Partial.** This is an initial port. Not available yet: product page, listing, shelf and related-product loaders; cart actions (add, update, remove, coupons, simulation); checkout proxying; React hooks. The app also has no registry entry, so it can't be installed with `autoconfigApps`: configure it as shown below. Its exports map lists a `./hooks/*` path, but there are no hooks behind it.
+
+</Callout>
+
+```bash
+bun add @decocms/apps-magento @decocms/apps-commerce
+```
+
+## Configuring
+
+The app reads a block keyed `magento`, with connection settings under `apiConfig`:
+
+| Field | What it does |
+|---|---|
+| `apiConfig.baseUrl` | Your Magento base URL, such as `https://store.example.com/`. |
+| `apiConfig.apiKey` | The API token, sent as `Authorization: Bearer`. Plain text, or a secret block: its encrypted value is decrypted with `DECO_CRYPTO_KEY`, and the environment variable named by its `name` field is the fallback. |
+| `apiConfig.storeId` | The store id; `1` by default. |
+| `apiConfig.site` | The store code used in REST paths, as in `/rest/<site>/V1/...`. |
+| `apiConfig.storeHeader`, `apiConfig.originHeader`, `apiConfig.currencyCode`, `apiConfig.useSuffix` | Optional store header, origin header (a secret, sent as `x-origin-header`), currency, and URL-suffix handling. |
+| `features`, `cartConfigs`, `imagesConfig`, `pricingConfig` | Feature switches and cart, image and installment settings, available to your code through `getMagentoConfig()`. |
+
+### Waiting for configuration
+
+`initMagentoFromBlocks(blocks)` is asynchronous, because it may need to decrypt secrets. `createSiteSetup`'s `initPlatform` doesn't wait for promises, so if you start it there, a request can arrive before it finishes and fail with `configureMagento() must be called before loaders run`. Await it instead, in a server-only module your server entry imports:
+
+```ts title="src/setup/magento.ts"
+import { loadBlocks, onChange } from "@decocms/blocks/cms";
+import { initMagentoFromBlocks, setMagentoFetch, createMagentoFetch } from "@decocms/apps-magento";
+
+setMagentoFetch(createMagentoFetch());
+
+await initMagentoFromBlocks(loadBlocks());
+
+// Pick up settings an editor publishes later.
+onChange((blocks) => {
+  void initMagentoFromBlocks(blocks);
+});
+```
+
+Secrets are resolved when that code runs. On Cloudflare Workers, environment values are visible at module scope only through `process.env` with the `nodejs_compat` flag; see [Apps](/v7/apps#secrets) for the lookup order.
+
+If you'd rather not depend on the block, call `configureMagento` synchronously with the values:
+
+```ts title="src/setup/magento.ts"
+import { configureMagento } from "@decocms/apps-magento";
+
+configureMagento({
+  baseUrl: "https://store.example.com/",
+  apiKey: process.env.MAGENTO_API_KEY ?? "",
+  storeId: 1,
+  site: "default",
+});
+```
+
+## Calling Magento
+
+`magentoFetch(path, init?)` is the client every loader uses, and the one to use in your own loaders. Relative paths resolve against `baseUrl`. For requests to your Magento origin it adds the `Authorization` header (skip it with `authenticated: false`), the origin header and a `Referer`. Requests to any other origin get none of them, so your credentials only ever go to your own store.
+
+For reads that can be shared between visitors, wrap the call in `magentoCachedFetch(cacheKey, doFetch)`. It's the framework's shared stale-while-revalidate cache: successful responses stay fresh for three minutes, 404s for ten seconds, server errors aren't cached, and a stale copy is served for up to a day if Magento errors. Concurrent identical requests are merged. It returns the parsed JSON, or `null` for a cacheable non-2xx response. Encode any value that comes from the visitor before putting it in a path, as the example does.
+
+```ts title="src/loaders/magento/category.ts"
+import { magentoCachedFetch, magentoFetch, getMagentoConfig } from "@decocms/apps-magento";
+
+export default async function category(props: { id: string }) {
+  const { site } = getMagentoConfig();
+  const path = `/rest/${encodeURIComponent(site)}/V1/categories/${encodeURIComponent(props.id)}`;
+  return magentoCachedFetch(path, () => magentoFetch(path));
+}
+```
+
+Call `setMagentoFetch(createMagentoFetch())` at module scope, as above, to measure and trace every call; without it, calls use a plain fetch with a timeout. See [Observability](/v7/observability).
+
+## Loaders and actions
+
+These are plain functions. Register the ones your content uses with `registerCommerceLoaders` (see [Loaders and actions](/v7/loaders)).
+
+| Function | Import | What it does |
+|---|---|---|
+| `cart(props, request)` | `@decocms/apps-magento/loaders/cart` | The visitor's cart, from the `dataservices_cart_id` cookie. `null` if there's no cart. |
+| `user(props, request)` | `@decocms/apps-magento/loaders/user` | The signed-in customer, from the `PHPSESSID` session cookie, or `null`. |
+| `wishlist(props, request)` | `@decocms/apps-magento/loaders/wishlist` | The customer's wishlist. |
+| `features()` | `@decocms/apps-magento/loaders/features` | The `features` switches from the block. |
+| `subscribe({ email })` | `@decocms/apps-magento/actions/newsletter/subscribe` | Newsletter sign-up. |
+| `stockAlert({ product_id, name, email })` | `@decocms/apps-magento/actions/product/stockAlert` | Registers a back-in-stock alert. |
+| `addItem({ productId }, request)`, `removeItem({ productId }, request)` | `@decocms/apps-magento/actions/wishlist/addItem`, `.../removeItem` | Wishlist changes. Need the `PHPSESSID` and `form_key` cookies. For `removeItem`, `productId` is the wishlist item's id, not the product's. |
+
+The session loaders take the request as their second argument. When you register them as commerce loaders, read it from [request context](/v7/request-context) and pass it on.
+
+`@decocms/apps-magento/utils/*` also exposes helpers for building GraphQL filters and sort orders from URLs, mapping Magento products to the shared [commerce types](/v7/apps-commerce) (`toProduct`, `toBreadcrumbList`, `toSeo`), and ignoring tracking parameters in cache keys.
+
+## Related
+
+- [Apps](/v7/apps): the app contract and secrets.
+- [Loaders and actions](/v7/loaders): registering your own loaders.
+- [Caching](/v7/caching): the cache layers.

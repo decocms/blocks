@@ -1,0 +1,57 @@
+---
+title: Deployment
+nav: Deployment
+group: Content and data
+order: 15
+kind: docs
+---
+
+# Deployment
+
+On Thursday night an editor fixes a typo in Friday's sale banner. How does that fix reach visitors, and if it breaks the page, how do you undo it?
+
+This page shows how a change ships, how each response stays on one revision, and how to roll back. What a release, a draft and a preview are is in [Releases and drafts](/next/releases-and-drafts).
+
+## How a change ships
+
+Your block functions and your content live in your repository (see [The .deco folder](/next/saved-blocks#the-deco-folder)), so they ship together:
+
+| Step | What happens |
+|---|---|
+| Commit | A developer, an agent, or an editor in [the site editor](/next/site-editor) changes a function, a [saved block](/next/saved-blocks), or both. Review them in one pull request like any other change. |
+| Build | The [`prebuild` script](/next/cli#run-it-before-dev-and-build) runs `deco schema && deco content && deco check`: it bundles `.deco/blocks` into the build as the [content module](/next/content#the-content-module), and fails the build if saved content doesn't fit the code (see [Checking content](/next/checking)). |
+| Deploy | Your host serves the new build. Every server of that build serves exactly one revision: the content of the commit it was built from. |
+
+## What a revision is
+
+A **release revision** identifies one exact content map: `deco content` computes it as a hash of the whole map, so two copies of the content are the same exactly when their revisions match (see [Snapshots and revisions](/next/internals#snapshots-and-revisions)). A revision never changes once it exists: change any saved block and you get a new revision. That makes a revision a safe cache key everywhere.
+
+<h2 id="publishing">Publishing is committing</h2>
+
+There's no separate publish step: once a change to `.deco/blocks` is on your production branch, your next deploy serves it. In development, editing a file hot-reloads, so you see a change before you commit it.
+
+Because content and code share one history, a content change is a commit like any other. That gives you:
+
+- **Review.** A content change is a diff in a pull request, next to the code it needs.
+- **Branches.** A content change can wait on a branch, with its own preview deployment, until it's ready (see [On a branch](/next/releases-and-drafts#on-a-branch)).
+- **Rollback.** Undo a change like any other commit (see [Roll back](#roll-back)).
+
+<Hosted to="/next/hosted-publishing" label="Publishing without a deploy">**Skip the deploy wait.** With the hosted Deco CMS, a commit to your production branch is served as a [release](/next/releases-and-drafts#releases) and reaches running servers on their next background check, with no application rebuild.</Hosted>
+
+## Roll back
+
+If Friday's banner breaks the page, redeploy the previous build: its content and code roll back together, so they always fit. To undo only the content, revert the content commit and deploy. Reverting a single code commit doesn't revert content committed after it; see [Backward compatibility](/next/checking#backward-compatibility).
+
+<Hosted to="/next/hosted-publishing#fast-content-rollback" label="Fast content rollback">**Restore content without a deploy.** With hosted delivery, repoint the production channel to a retained, compatible release. Git reconciliation and code rollback are separate actions.</Hosted>
+
+## One revision per response
+
+Content can change while a server is running: in development, when you edit a file, or with a [loader](/next/content#write-a-loader) that updates. Two reads a few milliseconds apart could then see different revisions; a header from one and a footer from the other make an inconsistent page. A client (what `cms.forRelease()` returns; see [`createCMS`](/next/api-reference#createcms-config)) prevents that: its first call picks a revision, and every later `list` and `resolve` on it, including concurrent ones, uses the same one. So make one client per request.
+
+Follow-up requests from the browser may land on a newer revision. If data must match the HTML, render it in the same response, or send `client.revision()` with the page and read follow-up requests with `cms.forRevision(revision)`.
+
+A revision only selects content; it isn't a secret and unlocks nothing.
+
+## Hosted draft identity
+
+A hosted preview client captures its local release and one draft overlay on first use. Its opaque revision identifies that pair; the draft pointer alone identifies only the overrides. Follow-up clients using the pointer may inherit newer local production. A served composite revision can be pinned only while the CMS retains that pair; it does not instruct the delivery API to fetch a matching base. See [Draft overlays for fast previews](/next/content-delivery#exact-draft-previews).

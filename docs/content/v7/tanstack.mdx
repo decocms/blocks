@@ -1,0 +1,480 @@
+---
+title: TanStack Start on Cloudflare Workers
+nav: TanStack Start
+group: Framework guides
+order: 19
+description: Every file, option and component the TanStack Start binding gives a site that runs on Cloudflare Workers.
+---
+
+# TanStack Start on Cloudflare Workers
+
+`@decocms/tanstack` is the binding that runs a Deco Blocks site on TanStack Start and deploys it to Cloudflare Workers. This page is the reference for it: what each file in your project does, every option of the Worker wrapper, the route factories, the layout components, the router, and the Vite plugin. If you haven't built a page yet, start with the [TanStack quickstart](/v7/quickstart) and come back here when you need to change a default.
+
+A **binding** is the package that connects the framework-neutral runtime (`@decocms/blocks`) to one app framework. The TanStack binding is the more complete of the two: it also owns the edge cache, [Fast Deploy](/v7/releases) and the page-as-JSON endpoints, none of which exist on [Next.js](/v7/nextjs).
+
+## The files a site owns
+
+A TanStack site wires the binding through a handful of files. The [migration scaffold](/v7/migrate-from-fresh) and the [quickstart](/v7/quickstart) both produce this layout.
+
+| File | Role |
+|---|---|
+| `vite.config.ts` | Adds `decoVitePlugin()` next to TanStack Start's and Cloudflare's plugins. |
+| `src/setup.ts` | Registers sections, content and the Studio schema (`createSiteSetup`, `createAdminSetup`). Module-level settings live here too. |
+| `src/server.ts` | TanStack Start's request handler. |
+| `src/worker-entry.ts` | The Worker's `main`. Wraps the server entry with `createDecoWorkerEntry`, which owns caching, the admin protocol and everything else in front of TanStack. |
+| `src/router.tsx` | Builds the router with `createDecoRouter`. |
+| `src/routes/__root.tsx` | Renders the HTML document with `DecoRootLayout`. |
+| `src/routes/index.tsx`, `src/routes/$.tsx` | The home route and the catch-all CMS route. |
+| `src/routes/deco/meta.ts`, `invoke.$.ts`, `render.ts` | Admin protocol routes built from factories. |
+| `wrangler.jsonc` | Worker configuration: `main`, compatibility flags, bindings and vars. |
+| `src/start.ts` (optional) | Your own TanStack Start instance. Without it, the Vite plugin supplies a default. |
+
+### Load setup first
+
+`src/setup.ts` fills module-level registries: the decofile, the section registry, matchers and the schema loader. TanStack Start splits server functions into separate modules, and any of them can run before your route files are imported. So the setup module must be the **first import** of both server entry points.
+
+```ts title="src/server.ts"
+import "./setup";
+import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";
+
+export default createStartHandler(defaultStreamHandler);
+```
+
+<Callout type="warning">
+
+If `import "./setup"` is not first in `src/server.ts` and `src/worker-entry.ts`, the first page load still works (server-side render), but client-side navigation shows "No CMS page block matches this URL". Moving the import to the top fixes it.
+
+</Callout>
+
+## The Worker entry
+
+`createDecoWorkerEntry(serverEntry, options)` takes TanStack Start's server entry and returns a Worker handler `{ fetch(request, env, ctx) }`. Every request goes through it before TanStack sees it. It answers the admin protocol, applies CMS redirects, serves `?renderJson`, runs your proxy, caches responses at the edge, adds security headers and records telemetry. [The Worker request pipeline](/v7/request-pipeline) walks through the order step by step.
+
+```ts title="src/worker-entry.ts"
+import "./setup";
+import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
+import { createDecoWorkerEntry } from "@decocms/tanstack";
+import { detectDevice } from "@decocms/blocks/sdk/detectDevice";
+import {
+  corsHeaders,
+  handleDecofileRead,
+  handleDecofileReload,
+  handleMeta,
+  handleRender,
+} from "@decocms/blocks-admin";
+
+const serverEntry = createServerEntry({ fetch: handler.fetch });
+
+export default createDecoWorkerEntry(serverEntry, {
+  admin: { handleMeta, handleDecofileRead, handleDecofileReload, handleRender, corsHeaders },
+  buildSegment: (request) => ({
+    device: detectDevice(request.headers.get("user-agent") ?? ""),
+  }),
+  renderJson: false,
+  asJson: false,
+});
+```
+
+<Callout type="warning">
+
+Admin routes and cache logic belong in `createDecoWorkerEntry`, not in TanStack's `createServerEntry`. Vite strips custom fetch logic from the server entry in production builds. The symptom is `/live/_meta` returning HTML and responses carrying no `X-Cache` header. Also check that `main` in `wrangler.jsonc` points at `src/worker-entry.ts`.
+
+</Callout>
+
+The options type isn't exported from the package, so the tables below spell out each option's shape. Everything is optional.
+
+### Admin
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `admin` | `{ handleMeta, handleDecofileRead, handleDecofileReload, handleRender, corsHeaders }` | none | The [admin protocol](/v7/studio) handlers from `@decocms/blocks-admin`. With them, the Worker answers `/live/_meta`, `GET` and `POST /.decofile`, `/live/previews` and `/live/previews/<component>`, and `/deco/_liveness`, all with no-store headers and admin CORS. Without them, those paths fall through to TanStack. |
+| `previewShell` | `string` | built from the render shell | Custom HTML for the empty `/live/previews` page that Studio loads into its iframe. |
+
+### Caching
+
+These options shape the edge cache. [Caching](/v7/caching) explains profiles, headers and purging in depth.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `cacheStorage` | `(env, request) => CacheStorage \| null` | Web Cache API for responses, memory for data | Chooses shared cache storage per request, for example `createKVCacheStorage` from `@decocms/blocks/sdk/cacheStorage`. Return `null` to opt out. |
+| `detectProfile` | `(url: URL) => CacheProfileName \| null` | built-in detection | Picks the [cache profile](/v7/caching) for a URL. Return `null` to fall through to the built-in rules. |
+| `deviceSpecificKeys` | `boolean` | `true` | Splits cache entries by device class. |
+| `bypassPaths` | `string[]` | `["/_build", "/deco/", "/live/", "/.decofile"]` | Paths that are never cached. Your list is added to the defaults; the defaults can't be removed. |
+| `extraBypassPaths` | `string[]` | `[]` | More paths to bypass, merged the same way. |
+| `stripTrackingParams` | `boolean` | `true` | Removes `utm_*`, `gclid`, `fbclid` and similar parameters from the cache key. |
+| `cacheVersionEnv` | `string \| false` | `"BUILD_HASH"` | Env var whose value is appended to every cache key, so each deploy gets its own cache namespace. Falls back to the build hash the Vite plugin injects. |
+| `purgeTokenEnv` | `string \| false` | `"PURGE_TOKEN"` | Env var holding the bearer token for `POST /_cache/purge` and `POST /_cache/purge-loaders`. `false` turns both endpoints off. |
+| `safeCookies` | `string[]` | `vtex_is_session`, `vtex_is_anonymous`, `vtex_segment`, `_deco_bucket` | Cookies that may appear in `Set-Cookie` without making a response uncacheable. They're stripped from the cached copy. Any other `Set-Cookie` bypasses the cache. |
+| `staticPaths` | `string[]` | `["/fonts/"]` | Path prefixes treated as static assets. |
+| `fingerprintedAssetPattern` | `RegExp` | matches `/assets/<name>-<hash>.<ext>` | Assets matching it get a one-year immutable cache. |
+| `cdnCacheControl` | `"serverfn-segment" \| "no-store" \| "match-profile" \| (profile) => string \| null` | `"serverfn-segment"` | What `CDN-Cache-Control` tells Cloudflare's CDN in front of the Worker. HTML documents are never CDN-cached by the default. `"match-profile"` is honoured only when the cache key is the raw URL (no `buildSegment`, `deviceSpecificKeys: false`, `geoCacheKey: "off"`). |
+
+### Segments
+
+A **segment** is the set of request properties that change what a page looks like, such as device, logged-in state or sales channel. The Worker keys its cache on the segment so different audiences never share an entry.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `buildSegment` | `(request) => { device: "mobile" \| "tablet" \| "desktop"; loggedIn?: boolean; salesChannel?: string; regionId?: string; flags?: string[]; [custom: string]: string \| boolean \| string[] \| undefined }` | none | Computes the segment. A segment with `loggedIn: true` always bypasses the cache. Extra keys become extra cache dimensions. |
+
+Without `buildSegment`, the Worker logs a warning at boot: it can't tell logged-in visitors apart, so they would share the anonymous cache entry. Commerce apps ship a helper for this. With VTEX, for example, `extractVtexContext` from `@decocms/apps-vtex/middleware` reads the login and sales-channel cookies (see [VTEX](/v7/vtex)).
+
+Only add dimensions you actually use. A `regionId` on a site without regional pricing multiplies every page into one copy per region for nothing. Location-based keying is handled by `geoCacheKey` below.
+
+### Geo
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `geoCacheKey` | `"auto" \| "off" \| "country" \| "region" \| "city"` | `"auto"` | Adds the visitor's location to the cache key. `"auto"` checks the decofile whenever it changes: if any block uses the `website/matchers/location.ts` matcher it keys by region, otherwise it doesn't key by location at all. |
+| `autoInjectGeoCookies` | `boolean` | `true` | Makes Cloudflare's geolocation available to matchers as request cookies inside the Worker. They are never sent to the browser. |
+
+### Security
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `securityHeaders` | `Record<string, string> \| false` | `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `X-XSS-Protection`, `Strict-Transport-Security`, `Cross-Origin-Opener-Policy`, and a `Content-Security-Policy` that only sets `frame-ancestors` so Studio can frame the site | Headers added to HTML responses. Your entries are merged over the defaults. `false` turns them off. |
+| `csp` | `string[] \| false` | none | Content-Security-Policy directives, joined with `; `. |
+| `cspMode` | `"report-only" \| "enforce"` | `"report-only"` | `"report-only"` sends `Content-Security-Policy-Report-Only`. `"enforce"` sends an enforced policy with a per-request nonce, on non-cacheable HTML only. |
+
+### Page JSON
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `renderJson` | `boolean` | `true` | Serves `?renderJson`, the lean per-section page JSON. |
+| `asJson` | `boolean` | `true` | Serves `?asJson`, the legacy raw page JSON. |
+| `pageJsonCors` | `string[] \| "*" \| false` | `"*"` | CORS for `?renderJson`. See [Storefront as an API](/v7/storefront-api). |
+
+The migration scaffold sets `renderJson` and `asJson` to `false`; turn them on when a client actually needs them.
+
+### Proxy
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `proxyHandler` | `(request, url) => Response \| null \| Promise<Response \| null>` | none | Runs after the admin routes, redirects and page JSON, and before static assets and caching. Return a `Response` to answer the request yourself (for example, by proxying checkout to the commerce platform), or `null` to continue. |
+
+```ts title="src/worker-entry.ts (VTEX proxy)"
+import { createVtexCheckoutProxy, shouldProxyToVtex } from "@decocms/apps-vtex/utils/proxy";
+
+const proxyCheckout = createVtexCheckoutProxy({
+  account: "acme",
+  checkoutOrigin: "secure.store.example.com",
+});
+
+export default createDecoWorkerEntry(serverEntry, {
+  // ...admin, buildSegment
+  proxyHandler: (request, url) =>
+    shouldProxyToVtex(url.pathname) ? proxyCheckout(request, url) : null,
+});
+```
+
+### Speculation rules
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `speculationRules` | `{ action?, eagerness?, linkSelector?, excludeHrefMatches?, overrideDefaultExclusions? }` | off | Emits a `<script type="speculationrules">` so the browser prefetches or prerenders the next document. See [Speculation rules](/v7/speculation-rules). |
+
+### Observability and outbound requests
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `observability` | `OtelOptions \| false` | on | Wraps the handler with `instrumentWorker` from `@decocms/blocks/sdk/otel`. Exporters only start when their env vars are set. `false` turns the wrapper off, for example when you wrap the handler yourself. See [Observability](/v7/observability). |
+| `outboundUserAgent` | `string \| false` | `Deco/<version> (+https://deco.cx)` | User-Agent added to outgoing `fetch` calls that don't set one. Some partner firewalls block requests without a User-Agent. `false` leaves `fetch` untouched. |
+
+## Routes
+
+### The CMS routes
+
+`cmsRouteConfig(options)` and `cmsHomeRouteConfig(options)` return TanStack route options to spread into `createFileRoute("/$")` and `createFileRoute("/")`. They supply the loader (which resolves the page on the server), search-param handling, cache headers, the `<head>` (title, description, robots, Open Graph, canonical, JSON-LD) and an error boundary. They don't supply `component` or `notFoundComponent`: those are yours.
+
+```tsx title="src/routes/$.tsx"
+import { createFileRoute } from "@tanstack/react-router";
+import { cmsRouteConfig, DecoPageRenderer, NotFoundPage } from "@decocms/tanstack";
+import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
+
+export const Route = createFileRoute("/$")({
+  ...cmsRouteConfig({
+    siteName: "My Store",
+    defaultTitle: "My Store",
+    defaultDescription: "Everything for your home.",
+  }),
+  component: CmsPageRoute,
+  notFoundComponent: NotFoundPage,
+});
+
+function CmsPageRoute() {
+  const data = Route.useLoaderData();
+  if (!data) return <NotFoundPage />;
+  return (
+    <DecoPageRenderer
+      sections={data.resolvedSections ?? []}
+      deferredSections={data.deferredSections ?? []}
+      pagePath={data.pagePath}
+      pageUrl={data.pageUrl}
+      device={data.device}
+      loadDeferredSectionFn={deferredSectionLoader}
+    />
+  );
+}
+```
+
+The home route is the same with `cmsHomeRouteConfig`. Its options are the same as below minus `ignoreSearchParams` and `ssr`, and `siteName` is optional there (it defaults to `defaultTitle`).
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `siteName` | `string` | required | Used in page titles: a page without an SEO title gets `<page name> \| <siteName>`. |
+| `defaultTitle` | `string` | required | Title when nothing else provides one. |
+| `defaultDescription` | `string` | none | Description when no section provides one. |
+| `ignoreSearchParams` | `string[]` | `["skuId"]` | Search params that don't trigger a new server fetch when they change. |
+| `pendingComponent` | component | none | Shown during client navigation while the loader runs. Without one, the previous page stays on screen until the next one is ready. |
+| `pendingMs` | `number` | `200` | Delay before the pending component appears. |
+| `pendingMinMs` | `number` | `300` | Minimum time the pending component stays once shown. |
+| `errorComponent` | `({ error, reset }) => ReactNode` | built-in error page | Rendered when page resolution throws. |
+| `ssr` | `boolean \| "data-only"` | `true` | `"data-only"` runs the loader on the server and renders on the client. |
+| `resolveGlobals` | `boolean` | `true` | Merges the Site block's `theme`, `global` and `pageSections` into every page. `false` also skips the Theme section's `<style>` injection. |
+
+The built-in error page and the label of `NavigationProgress` are in Portuguese. To use your own text, pass `errorComponent`:
+
+```tsx title="src/routes/$.tsx (custom error page)"
+function PageError({ reset }: { error: Error; reset: () => void }) {
+  return (
+    <div role="alert">
+      <p>Something went wrong loading this page.</p>
+      <button type="button" onClick={reset}>Try again</button>
+    </div>
+  );
+}
+
+export const Route = createFileRoute("/$")({
+  ...cmsRouteConfig({
+    siteName: "My Store",
+    defaultTitle: "My Store",
+    errorComponent: PageError,
+  }),
+  component: CmsPageRoute,
+  notFoundComponent: NotFoundPage,
+});
+```
+
+The loader returns `null` when no page block matches the path. Otherwise it returns the resolved page: `resolvedSections`, `deferredSections`, `pagePath`, `pageUrl`, `device`, `seo`, `cacheProfile` and a few more. `CmsPage` and `NotFoundPage` are exported as ready-made components, but `CmsPage` doesn't wire `loadDeferredSectionFn`, so render `DecoPageRenderer` yourself as above.
+
+### Admin routes
+
+Studio also calls three paths that TanStack serves as file routes. Build them with the factories; each call returns a fresh options object.
+
+```ts title="src/routes/deco/meta.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoMetaRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
+```
+
+```ts title="src/routes/deco/invoke.$.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoInvokeRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRouteConfig());
+```
+
+```ts title="src/routes/deco/render.ts"
+import { createFileRoute } from "@tanstack/react-router";
+import { decoRenderRouteConfig } from "@decocms/tanstack";
+
+export const Route = createFileRoute("/deco/render")(decoRenderRouteConfig());
+```
+
+<Callout type="warning">
+
+Call the factory in each route file. Sharing one options object between routes breaks hot reload in development with "Route cannot have both an 'id' and a 'path' option".
+
+</Callout>
+
+`withSiteGlobals` is still exported but does nothing. Site globals are resolved inside the CMS route loaders.
+
+## Layout and rendering components
+
+### DecoRootLayout
+
+`DecoRootLayout` renders the whole HTML document: `<html>`, `<head>` with TanStack's head content, and `<body>` with the event bootstrap, the analytics collector, a navigation progress bar, the route outlet, the draft-preview badge, Studio's live controls and TanStack's scripts. It already renders the outlet, so don't pass `<Outlet />` as a child.
+
+```tsx title="src/routes/__root.tsx"
+import { createRootRoute } from "@tanstack/react-router";
+import { DecoRootLayout } from "@decocms/tanstack";
+import appCss from "../styles/app.css?url";
+
+export const Route = createRootRoute({
+  head: () => ({
+    meta: [{ charSet: "utf-8" }, { name: "viewport", content: "width=device-width, initial-scale=1" }],
+    links: [{ rel: "stylesheet", href: appCss }],
+  }),
+  component: () => <DecoRootLayout siteName="my-store" lang="en" />,
+});
+```
+
+| Prop | Type | Default | What it does |
+|---|---|---|---|
+| `siteName` | `string` | required | Identifies the site to Studio's live controls. |
+| `lang` | `string` | `"en"` | `<html lang>`. |
+| `dataTheme` | `string` | `"light"` | `<html data-theme>`. DaisyUI v4 needs it for its color variables. |
+| `bodyClassName` | `string` | `"bg-base-200 text-base-content"` | Class on `<body>`. |
+| `account` | `string` | none | Commerce account name exposed to analytics scripts. |
+| `decoReadyDelay` | `number` | `500` | Milliseconds after hydration before the `deco:ready` event fires on `document`. |
+| `speculationRules` | speculation config | from the Worker option | Overrides the Worker's speculation rules for this root. |
+| `children` | `ReactNode` | none | Extra body content after the outlet, such as a toast container. |
+
+### DecoPageRenderer
+
+`DecoPageRenderer` renders a page's sections in order. Eager sections render immediately. [Deferred sections](/v7/rendering) render a skeleton first (the section's own `LoadingFallback`, or the `loadingFallback` prop), then load when they come within 300px of the viewport.
+
+| Prop | Type | Default | What it does |
+|---|---|---|---|
+| `sections` | resolved sections | required | The loader's `resolvedSections`. |
+| `deferredSections` | deferred sections | none | The loader's `deferredSections`. |
+| `loadDeferredSectionFn` | function | none | Fetches a deferred section. Pass `deferredSectionLoader` from `@decocms/tanstack/sdk/deferredSectionLoader`. Without it, deferred sections stay skeletons after client-side navigation. |
+| `pagePath` | `string` | `"/"` | Path forwarded to deferred loaders. |
+| `pageUrl` | `string` | none | Full URL, with query, forwarded to deferred loaders. |
+| `device` | `"mobile" \| "tablet" \| "desktop"` | resolved at runtime | The server's device, so `useDevice()` returns the same value during hydration. |
+| `loadingFallback` | `ReactNode` | built-in | Skeleton for deferred sections without their own. |
+| `errorFallback` | `ReactNode` | built-in | Rendered when a section throws. |
+| `deferredPromises` | record of promises | none | Server-only streaming path. It doesn't survive client navigation, so keep `loadDeferredSectionFn` either way. |
+
+The package also exports `SectionRenderer` and `SectionList` for rendering sections outside a page, `NavigationProgress` (a top progress bar with an optional `color`), `StableOutlet`, `DraftPreviewIndicator` and `PreviewProviders` (router and query providers for preview renders, meant for `createAdminSetup({ previewWrapper })`).
+
+## The router
+
+`createDecoRouter(options)` wraps TanStack's `createRouter` with defaults that suit storefronts. Search params are parsed and written with `URLSearchParams`, so a repeated key such as `?filter.brand=Nike&filter.brand=Acme` becomes an array instead of a JSON string. Create the `QueryClient` inside `getRouter()`:
+
+```tsx title="src/router.tsx"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createDecoRouter } from "@decocms/tanstack";
+import { routeTree } from "./routeTree.gen";
+import "./setup";
+
+export function getRouter() {
+  const queryClient = new QueryClient();
+  return createDecoRouter({
+    routeTree,
+    context: { queryClient },
+    Wrap: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+  });
+}
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: ReturnType<typeof getRouter>;
+  }
+}
+```
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `routeTree` | route tree | required | TanStack's generated route tree. |
+| `context` | object | none | Router context. |
+| `Wrap` | component | none | Wraps the app, typically with providers. |
+| `scrollRestoration` | `boolean` | `true` | Restores scroll on back/forward. |
+| `defaultPreload` | `"intent" \| "viewport" \| "render" \| false` | `"intent"` | When links preload their route. |
+| `trailingSlash` | TanStack option | TanStack's default | Trailing-slash handling. |
+
+`decoParseSearch` and `decoStringifySearch` are the two serializers, exported for use elsewhere.
+
+## The Vite plugin
+
+`decoVitePlugin()` from `@decocms/tanstack/vite` must be in your Vite config. The module is plain JavaScript without type declarations, so TypeScript configs need a `// @ts-expect-error` on the import.
+
+```ts title="vite.config.ts"
+import { cloudflare } from "@cloudflare/vite-plugin";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+// @ts-expect-error -- plain JS module without type declarations
+import { decoVitePlugin } from "@decocms/tanstack/vite";
+
+export default defineConfig({
+  plugins: [
+    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    tanstackStart({ server: { entry: "server" } }),
+    react(),
+    decoVitePlugin(),
+  ],
+  define: {
+    "process.env.DECO_SITE_NAME": JSON.stringify(process.env.DECO_SITE_NAME || "my-store"),
+  },
+  resolve: {
+    dedupe: ["@decocms/blocks", "@decocms/blocks-admin", "@decocms/tanstack", "react", "react-dom"],
+  },
+});
+```
+
+What the plugin does:
+
+- **Keeps server code out of the browser.** In the client build it replaces `react-dom/server`, `node:async_hooks`, the schema (`meta.gen.json`), the decofile (`blocks.gen.ts`) and the generated loader map (`loaders.gen.ts`) with empty stubs, so content, schema and loader source never ship to the browser.
+- **Loads content on the server.** In the server build, `.deco/blocks.gen.ts` becomes a `JSON.parse` of its `.json` sibling.
+- **Stamps a build hash.** It defines `__DECO_BUILD_HASH__` from the CI commit or `git rev-parse`, which the Worker uses to version its cache when `BUILD_HASH` isn't set.
+- **Regenerates in development.** It watches `.deco/blocks/*.json` and applies edits live, regenerates `.deco/meta.gen.json` when files under `src/` change, and runs [`generate`](/v7/generate) for sections, loaders and invoke on start and on changes. If `blocks.gen.json` or `meta.gen.json` is missing on a fresh clone, it generates them before the first request.
+- **Provides a default start entry.** If you have no `src/start.ts`, it uses one that wires `decoServerFnFetch` (next section).
+- **Splits vendor chunks** for React, the router and React Query in production builds. It deliberately leaves `@decocms/*` packages unsplit: they import each other in a cycle, and splitting them gives a chunk load order that crashes at runtime. If you customize `build.rollupOptions.output.manualChunks`, don't give these packages their own chunks.
+
+`decoVitePlugin({ fastDeploy })` takes one option. `fastDeploy: "auto"` (the default) removes the bundled decofile from the server bundle only when the build sets `DECO_SEEDED_DEPLOY`. `true` forces that, and `false` never does it. Without the bundled copy there is no fallback if Fast Deploy can't read KV, so leave it on `"auto"` unless your pipeline seeds KV before every deploy. See [Deploying and Fast Deploy](/v7/releases).
+
+### React Compiler
+
+This isn't done by the plugin: the migrator's `vite.config.ts` also turns on the [React Compiler](https://react.dev/learn/react-compiler) with `react({ babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] } })` and `babel-plugin-react-compiler` as a dev dependency. It's optional for new sites.
+
+## Server function fetch
+
+TanStack Start calls server functions (such as the deferred-section loader) over `/_serverFn`. `decoServerFnFetch` is a `fetch` that adds a cache-segment marker to those calls, so the CDN can cache them safely. The Vite plugin wires it automatically unless your site has its own `src/start.ts`. If it does, add it there:
+
+```ts title="src/start.ts"
+import { createStart } from "@tanstack/react-start";
+import { decoServerFnFetch } from "@decocms/tanstack/sdk/serverFnFetch";
+
+export const startInstance = createStart(() => ({
+  serverFns: { fetch: decoServerFnFetch },
+}));
+```
+
+Import it from its subpath, not the package root: `src/start.ts` is part of the client bundle.
+
+## Cookie passthrough
+
+`@decocms/tanstack/sdk/cookiePassthrough` bridges cookies between the browser and an upstream API inside a server function:
+
+- `getRequestCookieHeader()` returns the incoming `Cookie` header, or `undefined` outside a request.
+- `forwardResponseCookies(cookies: string[])` appends `Set-Cookie` headers to the current response, keeping any already set. Outside a request it does nothing.
+
+You don't need them for the VTEX actions: the invoke file that [`generate`](/v7/generate) writes carries its own cookie bridge, so those actions already pass the platform's `Set-Cookie` headers to the browser. Use the helpers in your own server functions that talk to a cookie-based API.
+
+## wrangler.jsonc
+
+```jsonc title="wrangler.jsonc"
+{
+  "name": "my-store",
+  "main": "src/worker-entry.ts",
+  "compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "vars": {
+    "DECO_SITE_NAME": "my-store",
+    "DECO_ENV_NAME": "production"
+  }
+}
+```
+
+- `main` must be your worker entry, not TanStack's server entry.
+- `nodejs_compat` is required: [request context](/v7/request-context) uses `AsyncLocalStorage`.
+- `no_handle_cross_request_promise_resolution` is required: the framework's caches share in-flight promises between requests, and without the flag the Worker hangs.
+- `version_metadata` lets telemetry report which deploy served a request.
+- For Fast Deploy, add a `DECO_KV` binding and `"DECO_FAST_DEPLOY": "1"`, and call `setupTanstackFastDeploy()` in `src/setup.ts`. See [Deploying and Fast Deploy](/v7/releases).
+
+Pass `BUILD_HASH` per deploy so each deploy gets a fresh cache namespace:
+
+```bash
+npx wrangler deploy --var BUILD_HASH:$(git rev-parse --short HEAD)
+```
+
+## Related
+
+- [Quickstart: TanStack Start](/v7/quickstart) builds the files on this page from scratch.
+- [Caching](/v7/caching) covers profiles, `X-Cache` headers and purging.
+- [The Worker request pipeline](/v7/request-pipeline) shows what `createDecoWorkerEntry` does with each request.
+- [Deferred sections](/v7/rendering) explains when sections are deferred.
+- [Troubleshooting](/v7/troubleshooting) lists symptoms and fixes.

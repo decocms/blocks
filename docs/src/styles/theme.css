@@ -1,0 +1,315 @@
+/* ==========================================================================
+   The Tailwind theme: what utilities exist and what they resolve to.
+
+   Colours come from tokens.css through `@theme inline`: `bg-surface` compiles to
+   `background-color: var(--surface)`, so every colour utility follows light/dark/print with no
+   `dark:` variant. Tailwind's default palette is removed: only the site's colours (plus white,
+   black, transparent, current) exist, so an off-palette colour is a build-time unknown class.
+
+   Everything else is `@theme static`: emitted on :root whether or not a utility uses it, so plain
+   CSS (the prose layer, keyframes, inline styles) can say var(--font-mono), var(--shadow-win),
+   var(--ease-out-quart), var(--text-13).
+   ========================================================================== */
+
+/* ---------- Colours: bg-*, text-*, border-*, outline-*, ring-*, fill-*, stroke-*, decoration-* ---------- */
+@theme inline {
+  --color-*: initial;
+  --color-white: #FFFFFF;
+  --color-black: #000000;
+
+  /* brand */
+  --color-lime: var(--lime);
+  --color-lime-2: var(--lime-2);
+  --color-forest: var(--forest);
+  --color-olive: var(--olive);
+  --color-olive-ink: var(--olive-ink);
+  --color-olive-ring: var(--olive-ring);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-ink: var(--brand-ink);
+  --color-purple: var(--purple);
+  --color-yellow: var(--yellow);
+  --color-band-fg: var(--band-fg);
+  --color-band-muted: var(--band-muted);
+  --color-band-line: var(--band-line);
+  --color-hdr-pill: var(--hdr-pill);
+
+  /* paper, ink, hairlines */
+  --color-bg: var(--bg);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-bg-warm: var(--bg-warm);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-hover: var(--hover);
+  --color-fg: var(--fg);
+  --color-fg-body: var(--fg-body);
+  --color-muted-fg: var(--muted-fg);
+  --color-faint: var(--faint);
+  --color-quiet: var(--quiet);
+  --color-num-faint: var(--num-faint);
+  --color-ol-num: var(--ol-num);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-hairline: var(--hairline);
+
+  /* accents */
+  --color-eyebrow: var(--eyebrow);
+  --color-link: var(--link);
+  --color-link-line: var(--link-line);
+  --color-ring: var(--ring);
+  --color-tint: var(--tint);
+  --color-tint-fg: var(--tint-fg);
+  --color-mark-bg: var(--mark-bg);
+  --color-mark-fg: var(--mark-fg);
+
+  /* navigation */
+  --color-nav-active-bg: var(--nav-active-bg);
+  --color-nav-active-fg: var(--nav-active-fg);
+  --color-nav-bar: var(--nav-bar);
+  --color-pill-on-bg: var(--pill-on-bg);
+  --color-pill-on-fg: var(--pill-on-fg);
+  --color-pill-on-ring: var(--pill-on-ring);
+  --color-indicator-ring: var(--indicator-ring);
+  /* Inlined, not var(): ::backdrop doesn't inherit custom properties in older browsers. */
+  --color-backdrop: rgb(14 26 16 / .3);
+
+  /* code */
+  --color-code-bg: var(--code-bg);
+  --color-code-inline: var(--code-inline);
+  --color-code-head: var(--code-head);
+  --color-code-border: var(--code-border);
+  --color-code-fg: var(--code-fg);
+  --color-code-sel: var(--code-sel);
+
+  /* callouts, tables, diffs */
+  --color-note-bg: var(--note-bg);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-border: var(--warn-border);
+  --color-warn-icon: var(--warn-icon);
+  --color-preview-bg: var(--preview-bg);
+  --color-preview-border: var(--preview-border);
+  --color-preview-dot: var(--preview-dot);
+  --color-preview-dot-ring: var(--preview-dot-ring);
+  --color-th-bg: var(--th-bg);
+  --color-del-bg: var(--del-bg);
+  --color-del-fg: var(--del-fg);
+  --color-add-bg: var(--add-bg);
+
+  /* home mocks */
+  --color-st-bg: var(--st-bg);
+  --color-st-fg: var(--st-fg);
+  --color-st-muted: var(--st-muted);
+  --color-st-border: var(--st-border);
+  --color-st-field: var(--st-field);
+  --color-st-track: var(--st-track);
+  --color-st-fill: var(--st-fill);
+  --color-win-bg: var(--win-bg);
+  --color-win-panel: var(--win-panel);
+  --color-win-bar: var(--win-bar);
+  --color-win-dot: var(--win-dot);
+  --color-who-fg: var(--who-fg);
+  --color-step-on: var(--step-on);
+  --color-stack-fg: var(--stack-fg);
+  --color-stack-hover: var(--stack-hover);
+  --color-term-bg: var(--term-bg);
+  --color-result-code-bg: var(--result-code-bg);
+  --color-result-icon-bg: var(--result-icon-bg);
+  --color-result-icon-fg: var(--result-icon-fg);
+  --color-pub-live-bg: var(--pub-live-bg);
+  --color-pub-live-fg: var(--pub-live-fg);
+  --color-tag-yours-bg: var(--tag-yours-bg);
+  --color-footer-bg: var(--footer-bg);
+  --color-footer-panel: var(--footer-panel);
+
+  /* roadmap statuses */
+  --color-gx-g: var(--gx-g);
+  --color-gx-g-bg: var(--gx-g-bg);
+  --color-gx-g-fg: var(--gx-g-fg);
+  --color-gx-p: var(--gx-p);
+  --color-gx-p-bg: var(--gx-p-bg);
+  --color-gx-p-fg: var(--gx-p-fg);
+  --color-gx-a: var(--gx-a);
+  --color-gx-a-bg: var(--gx-a-bg);
+  --color-gx-a-fg: var(--gx-a-fg);
+  --color-gx-c: var(--gx-c);
+  --color-gx-c-bg: var(--gx-c-bg);
+  --color-gx-c-fg: var(--gx-c-fg);
+  --color-gx-n: var(--gx-n);
+  --color-gx-n-bg: var(--gx-n-bg);
+  --color-gx-n-fg: var(--gx-n-fg);
+  --color-gx-now-bg: var(--gx-now-bg);
+  --color-gx-now-fg: var(--gx-now-fg);
+  --color-gx-track: var(--gx-track);
+
+  /* syntax: text-syn-keyword, … (Shiki itself writes inline var(--syn-*)) */
+  --color-syn-comment: var(--syn-comment);
+  --color-syn-keyword: var(--syn-keyword);
+  --color-syn-string: var(--syn-string);
+  --color-syn-type: var(--syn-type);
+  --color-syn-function: var(--syn-function);
+  --color-syn-number: var(--syn-number);
+  --color-syn-property: var(--syn-property);
+  --color-syn-punctuation: var(--syn-punctuation);
+  --color-syn-operator: var(--syn-operator);
+  --color-syn-tag: var(--syn-tag);
+
+  /* h-header, top-header, scroll-mt-header, pt-header, … (64px; 58px below 900px) */
+  --spacing-header: var(--header-h);
+}
+
+@theme static {
+  /* ---------- Fonts: font-sans (default), font-mono ---------- */
+  --font-*: initial;
+  --font-sans: "Switzer", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* ---------- Type sizes: text-13, text-12.5, … (no implied line height: pair with leading-*) ----------
+     Named by their px value; these are every size the site uses. Line heights: leading-[18px] or
+     the spacing scale (leading-4 = 16px, leading-4.5 = 18px, leading-5 = 20px, leading-5.5 = 22px). */
+  --text-*: initial;
+  --text-10\.5: 10.5px;
+  --text-11: 11px;
+  --text-11\.5: 11.5px;
+  --text-12: 12px;
+  --text-12\.5: 12.5px;
+  --text-13: 13px;
+  --text-13\.5: 13.5px;
+  --text-14: 14px;
+  --text-14\.5: 14.5px;
+  --text-15: 15px;
+  --text-16: 16px;
+  --text-17: 17px;
+  --text-18: 18px;
+  --text-19: 19px;
+  --text-21: 21px;
+  --text-22: 22px;
+  --text-23: 23px;
+  --text-25: 25px;
+  --text-27: 27px;
+  --text-34: 34px;
+  --text-44: 44px;
+  /* Fluid display sizes: the doc h1, the landing hero h1, the landing section h2s. */
+  --text-display: clamp(34px, 3.6vw, 48px);
+  --text-hero: clamp(35px, 4.2vw, 58px);
+  --text-section: clamp(30px, 3.5vw, 48px);
+
+  /* ---------- Letter spacing (Tailwind's defaults stay too) ---------- */
+  --tracking-ui: -.005em;       /* body UI text, eyebrows, labels */
+  --tracking-snug: -.01em;      /* h3s, card titles, the logo */
+  --tracking-heading: -.015em;  /* h2s, section titles, pager titles */
+  --tracking-display: -.02em;   /* h1s */
+  --tracking-code: -.03em;      /* code inside headings */
+  --tracking-pill: .02em;       /* language badges, small pills */
+  --tracking-label: .04em;      /* 11–12px uppercase labels (table heads, badges) */
+
+  /* ---------- Radii: Tailwind's (sm 4, md 6, lg 8, xl 12, 2xl 16, 3xl 24, full) plus ---------- */
+  --radius-box: 14px;           /* code panels, tables, callouts, the explorer on phones */
+  --radius-dialog: 20px;        /* the search dialog */
+
+  /* ---------- Shadows: shadow-sm, shadow-md, shadow-lg, shadow-win (follow the theme) ---------- */
+  --shadow-*: initial;
+  --shadow-sm: 0 1px 2px light-dark(rgba(40, 37, 36, .05), rgba(0, 0, 0, .3));
+  --shadow-md: 0 1px 2px light-dark(rgba(40, 37, 36, .04), rgba(0, 0, 0, .3)), 0 12px 32px -16px light-dark(rgba(40, 37, 36, .2), rgba(0, 0, 0, .6));
+  --shadow-lg: 0 0 0 1px light-dark(rgba(40, 37, 36, .06), rgba(255, 255, 255, .06)), 0 24px 64px -16px light-dark(rgba(40, 37, 36, .32), rgba(0, 0, 0, .7));
+  --shadow-win: 0 50px 110px -36px light-dark(rgba(14, 26, 16, .35), rgba(0, 0, 0, .75));   /* browser-window mocks, the explorer */
+  --shadow-float: 0 24px 60px rgba(0, 0, 0, .3);                                            /* the landing header pill, the toast */
+  --shadow-lift: 0 24px 48px -24px rgba(40, 37, 36, .28);                                   /* pager cards on hover */
+  --shadow-thumb: 0 1px 3px rgba(0, 0, 0, .2);                                              /* the Home sliders' thumb */
+
+  /* ---------- Easing: ease-out-quart (the site's standard), ease-out-expo (slow settles) ----------
+     Bare `transition-*` utilities default to .25s ease, the old hand-written CSS's most common pair
+     (duration-300, duration-350 … for the others; `ease-[ease]` is the default). */
+  --ease-*: initial;
+  --ease-out-quart: cubic-bezier(.25, 1, .5, 1);
+  --ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+  --default-transition-duration: .25s;
+  --default-transition-timing-function: ease;
+
+  /* ---------- Breakpoints: sm: = width >= 560px, max-sm: = width < 560px, … ----------
+     The site's own set (Tailwind's defaults are removed), sorted by width. A value used in one
+     place only stays arbitrary (max-[430px]:); anything that recurs gets a name here. */
+  --breakpoint-*: initial;
+  --breakpoint-2xs: 360px;      /* the smallest phones: header pills tighten */
+  --breakpoint-xs: 480px;       /* phones: code-head language badge and Copy label, journey meta */
+  --breakpoint-home-sm: 640px;  /* Home: phone layouts of the sections */
+  --breakpoint-sm: 560px;       /* phones vs. larger: gutters 16px → 24px, type steps */
+  --breakpoint-md: 768px;       /* header tabs ↔ drawer tabs, pager/flow stack */
+  --breakpoint-hdr-sm: 860px;   /* landing header: links ↔ menu button */
+  --breakpoint-nav: 900px;      /* sidebar ↔ drawer, header 58 → 64px */
+  --breakpoint-hdr: 980px;      /* landing header: link spacing */
+  --breakpoint-home: 1000px;    /* Home: two-column sections stack */
+  --breakpoint-lg: 1024px;      /* landing stepper, header search collapses */
+  --breakpoint-home-lg: 1100px; /* Home: card grids 3 → 2 columns; landing header centres its links */
+  --breakpoint-home-xl: 1140px; /* Home: the "Every change is a commit" cards stack */
+  --breakpoint-rail: 1200px;    /* "On this page" rail ↔ inline outline */
+  --breakpoint-xl: 1280px;      /* sidebar/rail widths, landing stack */
+  --breakpoint-wide: 1600px;    /* docs: the article column widens (G2) */
+
+  /* ---------- Containers: max-w-article, max-w-landing, … (Tailwind's 3xs–7xl, prose stay) ---------- */
+  --container-article: 720px;       /* the docs reading column (prose, code, tables share it) */
+  --container-article-wide: 800px;  /* … from the wide breakpoint */
+  --container-landing: 1200px;      /* Home sections */
+  --container-landing-header: 1360px;
+  --container-shell: 1920px;        /* the docs shell's outer cap on ultrawide screens */
+  /* Container-query sizes (@min-rm:): the Roadmap's rows switch to label-beside-value layouts. */
+  --container-rm-sm: 600px;
+  --container-rm: 640px;
+
+  /* ---------- Animations: animate-enter, animate-pop, … ---------- */
+  --animate-enter: deco-enter 1.1s var(--ease-out-expo) both;   /* delay: [animation-delay:var(--d)] */
+  --animate-pop: pop .35s var(--ease-out-expo);                 /* the search dialog opening */
+  --animate-toast-in: toast-in .45s var(--ease-out-expo);
+  --animate-flash: flash .8s var(--ease-out-quart);             /* journey diff line */
+  --animate-commit-in: commit-in 1s var(--ease-out-quart);
+  --animate-blink: blink 1.1s steps(1) infinite;                /* text caret */
+  --animate-target: target-flash 2.4s var(--ease-out-quart);    /* Roadmap row reached by a deep link */
+
+  @keyframes deco-enter { from { opacity: 0; transform: translateY(22px); } }
+  @keyframes pop { from { opacity: 0; transform: translateY(7px) scale(.985); } }
+  @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 10px); } }
+  @keyframes flash { from { background: color-mix(in srgb, var(--lime) 55%, transparent); } }
+  @keyframes commit-in { from { background: color-mix(in srgb, var(--lime) 35%, transparent); } }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes target-flash { from, 35% { background-color: var(--hover); } }
+}
+
+/* ---------- Variants ---------- */
+/* dark: an explicit data-theme wins, otherwise the OS (the same rule as the tokens' color-scheme).
+   Colours never need it (they're light-dark tokens); it's for the rest: dark:hidden, dark:block. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) { @slot; }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) { @slot; }
+  }
+}
+/* js: / no-js: — the theme script adds class="js" to <html> before first paint. */
+@custom-variant js (&:where(.js, .js *));
+@custom-variant no-js (&:where(:root:not(.js), :root:not(.js) *));
+/* nav-open: — the mobile drawer is open (Menu.tsx toggles body.nav-open). */
+@custom-variant nav-open (&:where(.nav-open, .nav-open *));
+
+/* ---------- Shared utilities (more than one area uses them) ---------- */
+/* The current/pressed pill: header tabs, drawer tabs, segmented controls, step pills, search's active icon. */
+@utility pill-on {
+  background-color: var(--pill-on-bg);
+  color: var(--pill-on-fg);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--pill-on-ring);
+}
+/* The small uppercase olive label (rail title, sidebar groups, kickers, search groups, code-head language). */
+@utility eyebrow-label {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -.005em;
+  text-transform: uppercase;
+  color: var(--eyebrow);
+}
+/* Scrollers: a thin scrollbar (thumb colour: [--scrollbar-thumb:var(--border)]), or none at all. */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, var(--border-strong)) transparent;
+}
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}

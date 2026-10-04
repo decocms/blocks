@@ -1,0 +1,103 @@
+---
+title: TanStack Start with React Server Components
+nav: TanStack Start + RSC
+group: Websites
+order: 20
+description: Switch the TanStack Start guide to React Server Components, so blocks return JSX and only Client Components ship JavaScript.
+---
+
+# TanStack Start with React Server Components
+
+<Callout type="warning">**Experimental.** TanStack Start's RSC support is experimental and needs the extra Vite plugin configured in step 4.</Callout>
+
+You want view code that only the server needs to stay off the client, and you'd rather not keep a view registry in sync with your blocks. With React Server Components, blocks return JSX, the server renders it and streams the result in React's wire format (Flight), and only Client Components ship JavaScript.
+
+This page shows the four changes from the [TanStack Start guide](/next/tanstack-start-descriptors) that switch it to Server Components. It reuses that guide's content, CMS and `openPage`.
+
+## 1. Swap the block map
+
+Replace `.deco/index.ts` with the [Next.js guide](/next/nextjs#2-create-the-cms)'s `.deco/index.tsx`. It doesn't replace [`page`](/next/built-in-blocks#pages-and-redirects), because its blocks return JSX, which the built-in page already takes. Keep `src/cms.ts` and `src/open-page.server.ts` from the TanStack Start guide as they are. `deco schema` reads `.deco/index.tsx` as well as `.deco/index.ts`, so the scripts don't change.
+
+## 2. Render blocks on the server
+
+Replace `src/page.functions.ts` with this file. It's `.tsx` now, because it contains JSX. Each block renders under its own Suspense boundary as soon as it's ready, the streaming technique the [Next.js guide](/next/nextjs#7-stream-each-block-optional) walks through.
+
+```tsx title="src/page.functions.tsx"
+import { Suspense, type ReactNode } from "react";
+import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
+import { renderServerComponent } from "@tanstack/react-start/rsc";
+import { z } from "zod";
+import { openPage } from "./open-page.server";
+
+async function BlockSlot({ value }: { value: Promise<{ value?: ReactNode; failed: boolean }> }) {
+  const { value: node, failed } = await value;
+  if (failed) return <p role="status">This content is temporarily unavailable.</p>;
+  return node ?? null;   // undefined when an editor hid the block: render nothing
+}
+
+export const loadPage = createServerFn({ method: "GET" })
+  .inputValidator(z.object({ href: z.string().startsWith("/") }))
+  .handler(async ({ data }) => {
+    const page = await openPage<ReactNode>(data.href, getRequest());
+    const content = await renderServerComponent(
+      <main>
+        {page.blocks.map((block) => (
+          <Suspense key={block.key} fallback={<p>Loading…</p>}>
+            <BlockSlot value={block.value} />
+          </Suspense>
+        ))}
+      </main>,
+    );
+    return { seo: page.seo, content };
+  });
+```
+
+## 3. Render the route
+
+```tsx title="src/routes/$.tsx"
+import { createFileRoute } from "@tanstack/react-router";
+import { loadPage } from "../page.functions";
+
+export const Route = createFileRoute("/$")({
+  loader: ({ location }) => loadPage({ data: { href: location.pathname + location.searchStr } }),
+  head: ({ loaderData }) => ({
+    meta: loaderData?.seo   // without seo, the root route's defaults apply
+      ? [{ title: loaderData.seo.title }, { name: "description", content: loaderData.seo.description }]
+      : [],
+  }),
+  component: () => <>{Route.useLoaderData().content}</>,
+  pendingComponent: () => <p>Opening page…</p>,
+  errorComponent: () => <p>The page could not be loaded.</p>,
+});
+```
+
+`renderServerComponent` serializes the tree in Flight. Client Components like `CartButton` travel as references the browser loads and hydrates. That only works with the RSC plugin from step 4; the `"use client"` directive marks the boundary, but the plugin does the work. Inside this tree, only values React's Flight format can serialize are allowed; serialization adapters you register with Start for loader data don't apply here. If you cache the result with TanStack Query, set `structuralSharing: false`, because Query would otherwise try to diff the RSC payload as plain data. See [Start Server Components](https://tanstack.com/start/latest/docs/framework/react/server-components).
+
+## 4. Configure Cloudflare Workers
+
+Server Components build as a separate Vite environment named `rsc`. Listing it under `childEnvironments` bundles it into the same Worker as server rendering, so one deploy serves both. Keep `wrangler.jsonc` from the TanStack Start guide.
+
+```ts title="vite.config.ts"
+import { defineConfig } from "vite";
+import { cloudflare } from "@cloudflare/vite-plugin";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import react from "@vitejs/plugin-react";
+import rsc from "@vitejs/plugin-rsc";
+
+export default defineConfig({
+  plugins: [
+    cloudflare({ viteEnvironment: { name: "ssr", childEnvironments: ["rsc"] } }),
+    tanstackStart({ rsc: { enabled: true } }),
+    rsc(),
+    react(),
+  ],
+  environments: {
+    rsc: { build: { outDir: "dist/server/rsc" } },
+  },
+});
+```
+
+To edit content while you develop, keep the `src/cms.ts` hot handler and the reload plugin from [Reload on content changes](/next/tanstack-start-descriptors#reload-on-content-changes); add the plugin to this config.
+
+<Small>Also requires `@vitejs/plugin-rsc` 0.5.30 and `react-server-dom-webpack` 19.2.7. If one repository builds both the descriptor and the RSC version, give each its own Vite config: the RSC plugins change how every component is bundled.</Small>

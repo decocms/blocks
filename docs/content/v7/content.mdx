@@ -1,0 +1,186 @@
+---
+title: Content and the decofile
+nav: The decofile
+group: Core concepts
+order: 7
+description: How a v7 site stores content as a flat map of JSON blocks, how blocks refer to each other, and how content reaches the running site.
+---
+
+# Content and the decofile
+
+All of a site's content lives in one structure, the *decofile*: a flat map from block names to JSON. Pages, the sections on them, shared headers and footers, A/B variants and app settings are all entries in it. This page shows how the decofile is stored, the ways blocks refer to each other, and how content gets from the repository and from Studio into the running site.
+
+<Terms>
+  <Term name="Decofile">The site's content: a flat map of block name to JSON, stored as `.deco/blocks/*.json` and bundled into the build. See the [glossary](/v7/glossary#decofile).</Term>
+  <Term name="Named block">An entry in the decofile, such as `Header` or `pages-home`, that other content can refer to by name.</Term>
+  <Term name="Reference">A value whose `__resolveType` is the name of another block. It stands for that block, optionally with some props overridden.</Term>
+  <Term name="Revision">A hash of the current decofile. It changes whenever content changes and is used as an ETag and cache key.</Term>
+</Terms>
+
+## One file per block
+
+On disk, each block is a JSON file in `.deco/blocks/`, named after the block (URL-encoded). The block's name is the file name without `.json`:
+
+```text
+.deco/blocks/
+├── pages-home.json          the block "pages-home"
+├── pages-summer-sale.json   the block "pages-summer-sale"
+├── Header.json              the block "Header"
+├── Footer.json              the block "Footer"
+├── Site.json                the block "Site"
+└── deco-vtex.json           the VTEX app's settings
+```
+
+At build time, `generate` merges these files into one map. That map is what the runtime holds in memory and what Studio reads and writes through `/.decofile`. The map is flat: there are no folders or types in the names, only what each block's JSON says it is.
+
+## Inline values and references
+
+A page's sections can be written inline, or they can point at a named block. Here's a header saved once as its own block:
+
+```json title=".deco/blocks/Header.json"
+{
+  "__resolveType": "site/sections/Header/Header.tsx",
+  "logo": "https://www.example.com/logo.svg",
+  "links": [
+    { "label": "New in", "href": "/new" },
+    { "label": "Sale", "href": "/summer-sale" }
+  ]
+}
+```
+
+And a page that uses it by name, next to an inline Hero:
+
+```json title=".deco/blocks/pages-summer-sale.json"
+{
+  "__resolveType": "website/pages/Page.tsx",
+  "name": "Summer sale",
+  "path": "/summer-sale",
+  "sections": [
+    { "__resolveType": "Header", "transparent": true },
+    {
+      "__resolveType": "site/sections/Hero.tsx",
+      "title": "Summer sale",
+      "image": "https://www.example.com/summer.jpg"
+    },
+    {
+      "__resolveType": "site/sections/ProductShelf.tsx",
+      "title": "Best sellers",
+      "products": {
+        "__resolveType": "vtex/loaders/intelligentSearch/productList.ts",
+        "props": { "query": "summer", "count": 12 }
+      }
+    },
+    { "__resolveType": "Footer" }
+  ]
+}
+```
+
+Three kinds of value appear in that page:
+
+- **A reference with an override.** `{ "__resolveType": "Header", "transparent": true }` means "the block named `Header`, with `transparent` set to `true`". The runtime takes the saved block and merges the extra props over it, for this use only. Editing `Header` in Studio changes it on every page that refers to it.
+- **An inline section.** The Hero's props are written right there, so they belong to this page alone.
+- **A loader call.** The shelf's `products` prop names a data loader, here one from the VTEX app, with its own props. During resolution the loader runs, and the shelf receives its result (a list of products) as `products`. See [Loaders and actions](/v7/loaders).
+
+The loader receives every field of this object except `__resolveType` as its first argument. This VTEX loader takes its query under `props`; a loader you write, like `storeHours` in [Loaders and actions](/v7/loaders), reads its fields directly.
+
+In Studio, a block saved under its own name is what editors see as a *saved* section (not to be confused with the Site block's global sections): change it once and every page that uses it changes, which is why the header and footer are usually saved. A section configured directly on a page is local to that page.
+
+Resolution follows these names recursively, so a referenced block can itself contain references and loader calls. A `__resolveType` that names a loader or action that isn't registered resolves to `null` with a warning in the log; `onDanglingReference` in `createSiteSetup` changes that behaviour. Any other name that matches no block is treated as a section key, so a misspelled block name shows up as a section with no registered component, which the renderer skips with a warning.
+
+## Secrets in content
+
+App settings sometimes need credentials, such as an API token. Studio stores fields typed as `Secret` encrypted, as an object with an `encrypted` value, so the credential itself never lands in your repository. At runtime the app decrypts it with the key in the `DECO_CRYPTO_KEY` environment variable. Studio encrypts with your site's key, so `DECO_CRYPTO_KEY` must hold that same key, as base64-encoded JSON with the AES-CBC `key` and `iv` bytes. Apps can also fall back to a plain environment variable when the field is empty (the VTEX app reads `VTEX_APP_KEY`, for example). Set `DECO_CRYPTO_KEY` as a secret in your hosting environment. See [Apps](/v7/apps).
+
+## The Site block
+
+A block named `Site` (or `site`) holds site-wide settings. The runtime reads two fields from it:
+
+- `seo`: default title, description and templates used when a page doesn't set its own. See [SEO](/v7/seo).
+- `previewHosts`: the hosts allowed to render unpublished drafts, read once at setup. On Next.js it's read only from a block named `site`. See [Previews and draft preview](/v7/preview).
+
+On TanStack Start, its `global`, `theme` and `pageSections` entries are also rendered on every page; the route option `resolveGlobals: false` turns that off.
+
+## Redirects in content
+
+Redirects are blocks too. A block whose `__resolveType` is `website/loaders/redirect.ts` (one redirect) or `website/loaders/redirects.ts` (a list) declares `from`, `to` and a `type`:
+
+```json title=".deco/blocks/redirect-old-sale.json"
+{
+  "__resolveType": "website/loaders/redirect.ts",
+  "redirect": { "from": "/sale-2025", "to": "/summer-sale", "type": "permanent" }
+}
+```
+
+`permanent` answers with 301, anything else with 302. A `from` that ends in `*` matches every path with that prefix, and a `*` in `to` is replaced with the rest of the path, so `/old/*` to `/new/*` sends `/old/shoes` to `/new/shoes`. There are no other patterns. The TanStack Worker applies redirects before rendering; see [Pages and routing](/v7/routing#redirects).
+
+<Callout>
+
+**Temporary or permanent?** Use temporary (302) while a redirect might still change. Browsers cache a 301 and keep following it even after you delete the rule.
+
+</Callout>
+
+### Redirects from a CSV file
+
+Redirects kept in a CSV file under `public/` and referenced by a `website/loaders/redirectsFromCsv.ts` block (its `from` field holds the file's path) are read by `generate` and turned into ordinary redirect blocks, so the site never reads the file at runtime. Write one rule per line, `from,to[,type]`:
+
+```text title="public/redirects.csv"
+from,to,type
+# spring sale ended
+/spring-sale,/summer-sale,permanent
+/old/*,/new/*
+```
+
+- A `from,to` header row is optional and skipped.
+- Lines starting with `#` and blank lines are ignored.
+- Values are split on commas, with no quoting, so a URL can't contain a comma.
+- `permanent` or `301` gives a 301; anything else, or nothing, gives a 302.
+- The path can be written `public/redirects.csv`, `static/redirects.csv` or `redirects.csv`; all resolve under `public/`.
+- A missing file is a warning during `generate`, not an error.
+- For the same exact `from`, a redirect block wins over a CSV row.
+
+## How content reaches the runtime
+
+The runtime keeps the decofile in memory. You rarely call these functions yourself, but knowing them explains how publishing works. They come from `@decocms/blocks/cms`:
+
+| Function | What it does |
+|---|---|
+| `setBlocks(blocks)` | Replaces the whole decofile in one step, recomputes the revision and notifies listeners. |
+| `loadBlocks()` | Returns the current decofile (with any per-request draft or preview override applied). |
+| `getRevision()` | The current revision hash. |
+| `onChange((blocks, revision) => …)` | Calls you after every `setBlocks`. Returns an unsubscribe function. |
+
+Content arrives from three places:
+
+1. **At startup,** from the build. `createSiteSetup({ blocks })` calls `setBlocks` with the bundled content (`.deco/blocks.gen` on TanStack, the blocks manifest on Next.js).
+2. **In development,** from your editor. The TanStack Vite plugin watches `.deco/blocks/` and applies each file change to the running server as a delta. On Next.js with the blocks manifest, block files are part of the module graph, so edits hot-reload the same way.
+3. **From Studio,** when an editor publishes. Studio sends `POST /.decofile` with either the full decofile or a delta, an object whose only key is `blocks`, holding the changed blocks (`null` deletes one). The site merges it, calls `setBlocks`, clears its loader cache and invalidates the schema's ETag. See [Deco Studio and the admin protocol](/v7/studio).
+
+On TanStack Start with [Fast Deploy](/v7/releases), each Worker isolate also loads its deployment's published decofile from Cloudflare KV when it starts and checks for a newer revision about every ten seconds, so a publish reaches every instance without a deploy.
+
+<Callout type="warning">
+
+**Read content inside the request, not at module load.** Code that calls `loadBlocks()` at the top level of a module captures the content that existed when the module loaded and never sees a publish:
+
+```ts
+import { loadBlocks } from "@decocms/blocks/cms";
+import { loadRedirects, matchRedirect } from "@decocms/blocks/sdk/redirects";
+
+// Don't: runs once, when the module is first imported
+const redirects = loadRedirects(loadBlocks());
+
+// Do: runs per request, so it sees the current content
+export function findRedirect(path: string) {
+  return matchRedirect(path, loadRedirects(loadBlocks()));
+}
+```
+
+The framework's own consumers (redirects, routing, apps) already rebuild on change. If you need to react to a publish, use `onChange`.
+
+</Callout>
+
+## Next steps
+
+- [Pages and routing](/v7/routing): how a page block is found for a URL.
+- [Loaders and actions](/v7/loaders): the functions content can call.
+- [Deco Studio and the admin protocol](/v7/studio): reading and publishing content over HTTP.
+- [Deploying and Fast Deploy](/v7/releases): how content ships in production.

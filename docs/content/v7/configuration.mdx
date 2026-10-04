@@ -1,0 +1,245 @@
+---
+title: Configuration reference
+nav: Configuration
+group: Reference
+order: 45
+description: Every environment variable, binding and setup option a v7 site reads, in one place.
+---
+
+# Configuration reference
+
+This page collects every environment variable and Cloudflare binding v7 reads, and the options of the setup functions, route configs and Worker entry. Each table links back to the page that explains the feature. On Cloudflare Workers, set variables under `vars` in `wrangler.jsonc` (or as secrets for sensitive values); on Next.js and in Node tooling, set them in the process environment.
+
+## Environment variables and bindings
+
+### Runtime
+
+| Name | Read by | Default | What it does |
+|---|---|---|---|
+| `NODE_ENV` | all packages | | `development` turns on dev behaviour: no loader cache, no auth on `POST /.decofile`, stack traces in invoke errors, observability off. |
+| `DECO_PREVIEW` | `@decocms/blocks` | | `true` makes `isDevMode()` return true outside development. |
+| `DECO_SITE_NAME` | `@decocms/tanstack`, observability, Vite plugin | | The site's name: infers its Deco-hosted preview hosts, names the service in telemetry, and is passed to `generate --site` in development. |
+| `DECO_SITE` | `@decocms/blocks/middleware` | `storefront` | The site name in `buildDecoState`. |
+| `DECO_CRYPTO_KEY` | `@decocms/blocks/sdk/crypto` | | Key that decrypts secrets stored encrypted in the decofile (app credentials). A secret. See [Apps](/v7/apps). |
+
+### Studio and the admin protocol
+
+| Name | Read by | Default | What it does |
+|---|---|---|---|
+| `DECO_RELEASE_RELOAD_TOKEN` | `@decocms/blocks-admin` | | Required for `POST /.decofile` outside development: the `Authorization` header must equal it exactly. Without it, publishes get 401. See [Deco Studio and the admin protocol](/v7/studio). |
+
+### Draft preview
+
+| Name | Read by | Default | What it does |
+|---|---|---|---|
+| `DECO_ALLOWED_PREVIEW_HOSTS` | `@decocms/blocks` | the Site block's `previewHosts` | Comma-separated request hosts (with port) allowed to render drafts. Replaces the Site block's list. `none` turns draft preview off. |
+| `DECO_PREVIEW_API_DOMAINS` | `@decocms/blocks` | Studio's domains and `localhost` | Comma-separated domains drafts may be fetched from. A leading `.` matches subdomains. |
+
+See [Previews and draft preview](/v7/preview).
+
+### Fast Deploy (TanStack)
+
+| Name | Kind | Default | What it does |
+|---|---|---|---|
+| `DECO_FAST_DEPLOY` | variable | | `1` or `true` turns Fast Deploy on, together with `DECO_KV`. |
+| `DECO_KV` | KV binding | | The namespace holding content snapshots. |
+| `DECO_DEPLOYMENT_ID` | variable | `BUILD_HASH`, then the build-time hash | The deployment whose snapshot this Worker reads and writes. Passed per deploy. |
+| `DECO_SEEDED_DEPLOY` | build variable | | Set by deployment pipelines that seed KV before activation; makes `decoVitePlugin` stub bundled content out in `"auto"` mode. |
+| `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_KV_NAMESPACE_ID` | CLI variables | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, the namespace in `wrangler.jsonc` | Credentials for `deco-sync-blocks-to-kv` and `deco-migrate-blocks-to-kv`. |
+
+See [Deploying and Fast Deploy](/v7/releases).
+
+### Caching
+
+| Name | Read by | Default | What it does |
+|---|---|---|---|
+| `BUILD_HASH` | `@decocms/tanstack` | the build-time hash | Version added to every edge cache key. Rename with `cacheVersionEnv`. |
+| `PURGE_TOKEN` | `@decocms/tanstack` | | Bearer token for `POST /_cache/purge` and `/_cache/purge-loaders`. Rename with `purgeTokenEnv`. |
+| `DECO_LOADER_CACHE_MAX_BYTES` | `@decocms/blocks` | 32 MB | Size cap of the in-memory loader cache. |
+| `DECO_CACHE_DISABLE` | `@decocms/blocks` | | `true` disables the loader cache and shortens route cache times. |
+
+See [Caching](/v7/caching).
+
+### Observability
+
+| Name | Kind | Default | What it does |
+|---|---|---|---|
+| `DECO_OTEL` | variable | auto | `on`, `off`, or unset (on when deployed, off in development). |
+| `DECO_OTEL_TRACES_ENDPOINT` | variable | | Collector endpoint for spans (OTLP/HTTP). |
+| `DECO_OTEL_METRICS_ENDPOINT` | variable | | Collector endpoint for metrics. |
+| `DECO_OTEL_LOGS_ENDPOINT` | variable | | Collector endpoint for logs. |
+| `DECO_OTEL_HEADERS` | variable | | Extra OTLP headers, `k=v,k2=v2`. |
+| `DECO_OTEL_AUTH_TOKEN` | secret | | `Authorization` header value for the collector. |
+| `DECO_OTEL_TRACES_SAMPLING_RATE` | variable | `0.01` | Fraction of traces exported. |
+| `DECO_OTEL_LOGS_MIN_LEVEL` | variable | `info` | Lowest log level posted. |
+| `DECO_OTEL_ERROR_PROMOTION`, `DECO_OTEL_ERROR_PROMOTION_RATE` | variables | off, `0.1` | Export a share of unsampled error traces. |
+| `DECO_ENV_NAME` | variable | `production` | `deployment.environment` on telemetry. |
+| `DECO_METRICS` | Analytics Engine binding | | Metrics to Analytics Engine. |
+| `CF_VERSION_METADATA` | `version_metadata` binding | | `service.version` on telemetry. |
+| `OTEL_LOG_OUTGOING_FETCH` | variable | | `true` logs every outgoing fetch. |
+
+See [Observability](/v7/observability).
+
+### Analytics
+
+| Name | Read by | Default | What it does |
+|---|---|---|---|
+| `DECO_ANALYTICS_ENABLED` | `Stats` (`@decocms/blocks/hooks`) | | Must be exactly `true` for the first-party analytics tag to render. |
+| `DECO_ANALYTICS_ORIGIN` | `Stats` | same origin | Origin the tag loads from. |
+| `DECO_ANALYTICS_SITE_KEY` | `Stats` | | Site key, for sites not served through Deco's edge. |
+| `ONEDOLLAR_ENABLED` | `OneDollarStats` (`@decocms/apps-website`) | enabled | `false` disables it. |
+| `ONEDOLLAR_COLLECTOR`, `ONEDOLLAR_STATIC_SCRIPT` | `OneDollarStats` | | Collector and script URL overrides. |
+
+### Apps
+
+| Name | App | What it does |
+|---|---|---|
+| `VTEX_APP_KEY`, `VTEX_APP_TOKEN` | VTEX | Fallback credentials when the `deco-vtex` block has none. |
+| `VTEX_RESILIENCE_DISABLED` | VTEX | `true` turns off retries and the circuit breaker in `createVtexFetch`. |
+| `SHOPIFY_STOREFRONT_TOKEN` | Shopify | Fallback Storefront API token. |
+| `WAKE_TOKEN` | Wake | The Storefront API token. Required; Wake reads it only from the environment. |
+| `RESEND_API_KEY` | Resend | Fallback API key. |
+
+Apps whose credentials are stored as encrypted secrets also need `DECO_CRYPTO_KEY`. See each app's page under [Apps](/v7/apps).
+
+### Development
+
+| Name | Read by | What it does |
+|---|---|---|
+| `DECO_SITE_NAME` + `DECO_ENV_NAME` | Vite plugin | When both are set in `vite dev`, the plugin connects your local server to Studio through a tunnel. |
+| `DECO_HOST` | Vite plugin | `false` selects the older tunnel relay. |
+| `WORKERS_CI_COMMIT_SHA` | Vite plugin | Used as the build hash on Cloudflare Workers Builds. |
+
+## A complete `wrangler.jsonc`
+
+```jsonc title="wrangler.jsonc"
+{
+  "name": "my-store",
+  "main": "src/worker-entry.ts",
+  "compatibility_date": "2026-02-14",
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+  "kv_namespaces": [{ "binding": "DECO_KV", "id": "<your namespace id>" }],
+  "vars": {
+    "DECO_SITE_NAME": "my-store",
+    "DECO_ENV_NAME": "production",
+    "DECO_FAST_DEPLOY": "1"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  },
+  "version_metadata": { "binding": "CF_VERSION_METADATA" }
+}
+```
+
+- `nodejs_compat` is required: request context uses `AsyncLocalStorage`.
+- `no_handle_cross_request_promise_resolution` lets the framework's caches share an in-flight request across concurrent visitors; without it, the Worker can hang.
+- Set `DECO_RELEASE_RELOAD_TOKEN`, `PURGE_TOKEN`, `DECO_CRYPTO_KEY` and `DECO_OTEL_AUTH_TOKEN` as secrets (`wrangler secret put`), not in `vars`.
+
+## `createSiteSetup`
+
+From `@decocms/blocks/setup`. See [Blocks and sections](/v7/model).
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `sections` | `Record<string, () => Promise<any>>` | required | Section modules keyed `./sections/<path>.tsx`, as `import.meta.glob` returns them. Registered as `site/sections/<path>.tsx`. |
+| `blocks` | `Record<string, unknown>` | required | The decofile, usually `blocks` from `.deco/blocks.gen`. |
+| `productionOrigins` | `string[]` | | Absolute URLs on these origins in content are made relative. |
+| `customMatchers` | `Array<() => void>` | | Functions that register your own matchers. Built-in matchers are always registered. |
+| `onResolveError` | `(error, resolveType, context) => void` | | Called when a loader or section fails during resolution. |
+| `onDanglingReference` | `(resolveType) => any` | warns, returns `null` | Called for a loader or action key nothing registered. |
+| `initPlatform` | `(blocks) => void` | | Runs with the content at setup and again whenever it changes, to configure a platform. |
+
+## `createAdminSetup`
+
+From `@decocms/blocks-admin/setup`. TanStack only; Next.js passes these to `createNextSetup`. See [Deco Studio and the admin protocol](/v7/studio).
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `meta` | `() => Promise<any>` | required | Loads the schema lazily, usually `() => import("../.deco/meta.gen.json").then((m) => m.default)`. |
+| `css` | `string` | required | URL of your stylesheet for preview pages, from a `?url` import. |
+| `fonts` | `string[]` | `[]` | Font stylesheet URLs for previews. |
+| `previewWrapper` | `React.ComponentType` | | Wraps every preview, to provide context (TanStack: `PreviewProviders`). |
+| `getCommerceLoaders` | `() => Record<string, (props, request?) => Promise<any>>` | | Loaders made invokable at `/deco/invoke`. |
+
+For a preview theme, body class or language, call `setRenderShell({ theme: "light", bodyClass, lang })` from `@decocms/blocks-admin`.
+
+## `createNextSetup`
+
+From `@decocms/nextjs/setup`. Returns `ensureSetup()`. See [Next.js App Router](/v7/nextjs).
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `sections` | `Record<string, () => Promise<any>>` | required | Section modules keyed `./sections/<path>.tsx`; use the generated `sectionImports`. |
+| `blocks` | `Record<string, unknown>` | | Content, usually the generated block manifest. Merged over `blocksDir`. |
+| `blocksDir` | `string \| false` | `".deco/blocks"` | Directory read at runtime. `false` when you pass `blocks`. |
+| `conventions` | `{ meta, syncComponents, loadingFallbacks }` | | Section conventions from `.deco/sections.gen.ts`. |
+| `meta` | `() => Promise<unknown>` | | The schema. Without it, `/live/_meta` returns 503. |
+| `renderShell` | `{ css?: string; fonts?: string[] }` | | Preview stylesheet and fonts. |
+| `previewWrapper` | `React.ComponentType` | | Wraps previews. |
+| `productionOrigins`, `customMatchers`, `onResolveError`, `onDanglingReference` | | | As in `createSiteSetup`. |
+| `extend` | `(blocks) => void \| Promise<void>` | | Runs last, with the loaded content. |
+
+## `cmsRouteConfig` and `cmsHomeRouteConfig`
+
+From `@decocms/tanstack`. Spread into `createFileRoute("/$")` and `createFileRoute("/")`. See [TanStack Start on Cloudflare Workers](/v7/tanstack).
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `siteName` | `string` | required (`/$`); `defaultTitle` (`/`) | Used in page titles. |
+| `defaultTitle` | `string` | required | Title when a page has none. |
+| `defaultDescription` | `string` | | Description when a page has none. |
+| `ignoreSearchParams` | `string[]` | `["skuId"]` | Query parameters that don't trigger a reload. `/$` only. |
+| `pendingComponent` | component | none | Shown during slow navigations. Without it, the previous page stays visible. |
+| `pendingMs`, `pendingMinMs` | `number` | `200`, `300` | When the pending component shows, and for how long at least. |
+| `errorComponent` | component | built-in error page | Shown when loading fails. |
+| `ssr` | `boolean \| "data-only"` | full SSR | TanStack Start's SSR mode. `/$` only. |
+| `resolveGlobals` | `boolean` | `true` | Merge the Site block's global sections and theme into every page. |
+
+## `createDecoWorkerEntry`
+
+From `@decocms/tanstack`: `createDecoWorkerEntry(serverEntry, options)`.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `admin` | `{ handleMeta, handleDecofileRead, handleDecofileReload, handleRender, corsHeaders }` | | Admin protocol handlers from `@decocms/blocks-admin`. Without it, `/live/_meta`, `/.decofile` and `/live/previews` aren't served. |
+| `buildSegment` | `(request) => SegmentKey` | | The visitor's cache segment. See [Caching](/v7/caching#personalized-pages-segments). |
+| `detectProfile` | `(url) => CacheProfileName \| null` | built-in rules | Choose a cache profile per URL. |
+| `deviceSpecificKeys` | `boolean` | `true` | Split the cache by mobile/desktop when there's no `buildSegment`. |
+| `geoCacheKey` | `"auto" \| "off" \| "country" \| "region" \| "city"` | `"auto"` | Geography in the cache key. |
+| `autoInjectGeoCookies` | `boolean` | `true` | Expose Cloudflare geolocation to matchers. |
+| `safeCookies` | `string[]` | VTEX session cookies and `_deco_bucket` | Cookies that don't prevent caching. |
+| `stripTrackingParams` | `boolean` | `true` | Remove tracking parameters from cache keys. |
+| `bypassPaths` | `string[]` | `/_build`, `/deco/`, `/live/`, `/.decofile` | Never cached. Your entries are added to the defaults. |
+| `extraBypassPaths` | `string[]` | `[]` | More paths never cached. |
+| `staticPaths` | `string[]` | `["/fonts/"]` | Path prefixes of non-fingerprinted files (fonts, icons) that get long-lived immutable cache headers. |
+| `fingerprintedAssetPattern` | `RegExp` | hashed files under `/assets/` | Assets cached for a year. |
+| `cacheVersionEnv` | `string \| false` | `"BUILD_HASH"` | Variable with the deploy version for cache keys. |
+| `purgeTokenEnv` | `string \| false` | `"PURGE_TOKEN"` | Variable with the purge token. `false` disables purging. |
+| `cacheStorage` | `(env, request) => CacheStorage \| null` | Cache API + memory | Shared cache storage. |
+| `cdnCacheControl` | `"serverfn-segment" \| "no-store" \| "match-profile" \| (profile) => string \| null` | `"serverfn-segment"` | `CDN-Cache-Control` policy. |
+| `renderJson` | `boolean` | `true` | Serve `?renderJson`. See [Storefront as an API](/v7/storefront-api). |
+| `asJson` | `boolean` | `true` | Serve `?asJson`. |
+| `pageJsonCors` | `string[] \| "*" \| false` | `"*"` | CORS for page JSON. |
+| `proxyHandler` | `(request, url) => Response \| null \| Promise<…>` | | Proxy paths to another origin (checkout, for example). |
+| `previewShell` | `string` | built from the render shell | HTML for the empty preview frame. |
+| `securityHeaders` | `Record<string, string> \| false` | `nosniff`, HSTS, referrer and permissions policies, `frame-ancestors` for Studio | Headers on HTML responses. |
+| `csp` | `string[] \| false` | | Content Security Policy directives. |
+| `cspMode` | `"report-only" \| "enforce"` | `"report-only"` | `enforce` adds a per-request nonce on uncached HTML. |
+| `speculationRules` | `SpeculationRulesConfig` | off | See [Speculation rules](/v7/speculation-rules). |
+| `observability` | `OtelOptions \| false` | on | See [Observability](/v7/observability). |
+| `outboundUserAgent` | `string \| false` | `Deco/<version> (+https://deco.cx)` | `User-Agent` added to outgoing `fetch` calls that have none. |
+
+## `decoVitePlugin`
+
+From `@decocms/tanstack/vite`.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `fastDeploy` | `boolean \| "auto"` | `"auto"` | Remove the bundled content from the server bundle (production builds only). `"auto"` does so only when `DECO_SEEDED_DEPLOY` is set. See [Deploying and Fast Deploy](/v7/releases#bundle-stub-mode-advanced). |
+
+## Related
+
+- [Packages and exports](/v7/packages)
+- [CLI reference](/v7/cli): command flags.

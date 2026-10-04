@@ -1,0 +1,37 @@
+/* Home (components/home/*): what utilities can't say, or say badly. Everything else is utilities on the components. */
+
+/* The site editor mock's range sliders (Journey.tsx): track, filled part and thumb are vendor
+   pseudo-elements, each needing its own rule (one unsupported selector drops a whole rule).
+   --val is the filled percentage, set inline by the component. */
+.home-range { -webkit-appearance: none; appearance: none; }
+.home-range::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--st-fill) 0 var(--val, 50%), var(--st-track) var(--val, 50%) 100%); }
+.home-range::-moz-range-track { height: 4px; border-radius: 2px; background: var(--st-track); }
+.home-range::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--st-fill); }
+.home-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--brand); border: 1.5px solid var(--brand-ink); box-shadow: var(--shadow-thumb); transition: transform .25s var(--ease-out-quart); }
+.home-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--brand); border: 1.5px solid var(--brand-ink); box-shadow: var(--shadow-thumb); }
+.home-range:active::-webkit-slider-thumb { transform: scale(1.15); }
+
+/* The publishing timeline's connectors (Sections.tsx): a pill linked to the previous one draws a
+   dashed line across the --gap (::before) and a chevron (::after); `tl-far` spans a skipped column.
+   Below 1000px (max-home) the lanes are vertical lists and the link runs down instead. */
+.tl-linked {
+  &::before, &::after { content: ''; position: absolute; }
+  &::before {
+    top: 50%; right: calc(100% + 1px); width: var(--gap); height: 1px;
+    background: repeating-linear-gradient(to right, var(--border-strong) 0 4px, transparent 4px 8px);
+  }
+  &::after {
+    top: calc(50% - 3px); right: calc(100% + 3px); width: 6px; height: 6px;
+    border-top: 1px solid var(--muted-fg); border-right: 1px solid var(--muted-fg);
+    rotate: 45deg; opacity: .7;
+  }
+  &.tl-far::before { width: calc(100% + 2 * var(--gap)); }
+  @media (width < 1000px) {
+    &::before {
+      top: auto; right: auto; bottom: calc(100% + 1px); left: 50%; width: 1px; height: var(--gap);
+      background: repeating-linear-gradient(to bottom, var(--border-strong) 0 4px, transparent 4px 8px);
+    }
+    &::after { top: -8px; right: auto; left: calc(50% - 3px); rotate: 135deg; }
+    &.tl-far::before { width: 1px; height: calc(100% + 2 * var(--gap) + 2px); }
+  }
+}

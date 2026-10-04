@@ -1,0 +1,244 @@
+---
+title: Observability
+group: Production
+order: 38
+description: The traces, metrics and logs a v7 site emits, how to send them to your OpenTelemetry collector, and how to instrument your own code.
+---
+
+# Observability
+
+A v7 site on Cloudflare Workers reports what it does as OpenTelemetry-shaped traces, metrics and structured logs: how long each request and page resolution took, how each cache decided, how each upstream commerce call went. It's on by default in `@decocms/tanstack`'s Worker entry and stays quiet until you tell it where to send data. This page lists what's emitted, how to configure the exporters, and how to add your own spans, logs and instrumented fetches.
+
+## What's emitted
+
+**Spans** (one per unit of work, nested under the request):
+
+| Span | What it covers |
+|---|---|
+| `deco.http.request` | The whole request, in the Worker entry. |
+| `deco.cms.resolvePage` | Finding and resolving the page for a URL. |
+| `deco.section.loaders.batch` | All section loaders of a page. |
+| `deco.section.loader` | One section loader. |
+| `deco.section.deferred.load` | Loading one [deferred section](/v7/glossary#deferred-section). |
+| `deco.cache.lookup`, `deco.cache.store` | Edge cache reads and writes. |
+| `deco.admin.meta`, `deco.admin.decofile.read`, `deco.admin.decofile.reload`, `deco.admin.render`, `deco.admin.invoke` | [Admin protocol](/v7/glossary#admin-protocol) endpoints. |
+| `<provider>.<operation>` | An outbound call through an instrumented fetch, such as a VTEX search. |
+
+When a request makes a cache decision, its span also gets `deco.cache.decision` (`HIT`, `STALE-HIT`, `STALE-ERROR`, `MISS`, `BYPASS`, the same values as the `X-Cache` header) and `deco.cache.profile`.
+
+**Metrics:**
+
+| Metric | Type | Labels |
+|---|---|---|
+| `http.server.request.duration` | histogram | method, status, route pattern, cache decision and layer |
+| `http.client.request.duration` | histogram | `provider`, `operation`, `status_class`, `cached` |
+| `deco.cache.requests` | counter | status, profile, layer (`edge`, `cachedLoader`, `swr`), provider |
+| `deco.cache.size` | histogram | `op` (`get`, `set`), profile |
+| `deco.cms.resolve.duration` | histogram | route |
+| `deco.loader.duration` | histogram | `deco.loader.name`, `deco.cache.result` |
+| `deco.loader.errors` | counter | `deco.loader.name` |
+
+The names are exported as `MetricNames` from `@decocms/blocks/sdk/observability`. The route label is the route pattern (for example `/$`), not the raw path, so it stays low-cardinality.
+
+**Identity.** Every framework span and log line carries:
+
+- `service.name`: the `serviceName` option, else the `DECO_SITE_NAME` variable, else `deco-site`;
+- `service.version`: the Worker version id, when the `version_metadata` binding exists;
+- `deco.runtime.version`: the `@decocms/blocks` version;
+- `deployment.environment`: the `DECO_ENV_NAME` variable, else `production`.
+
+Logs written inside a traced scope also carry `trace_id` and `span_id`, so you can go from a log line to its trace.
+
+## Turn it on
+
+`createDecoWorkerEntry` wraps your handler in `instrumentWorker` for you. It starts the exporters from environment variables on each request and flushes them after the response with `ctx.waitUntil`, so the visitor never waits for telemetry.
+
+Whether it runs is controlled by the `DECO_OTEL` variable:
+
+| `DECO_OTEL` | Effect |
+|---|---|
+| unset | On in deployed Workers, off in local development (`vite dev`). |
+| `on` | Always on, including locally. |
+| `off` | Off. |
+
+Pass options with the Worker entry's `observability` option, or `observability: false` to turn the wrapper off (for example because you wrap the handler yourself):
+
+```ts title="src/worker-entry.ts"
+export default createDecoWorkerEntry(serverEntry, {
+  observability: { serviceName: "my-store" },
+});
+```
+
+If you build your own handler, wrap it with `instrumentWorker` from `@decocms/blocks/sdk/otel`. It also accepts a function of `env` when an option comes from the environment:
+
+```ts title="src/worker-entry.ts"
+import { instrumentWorker } from "@decocms/blocks/sdk/otel";
+
+export default instrumentWorker(handler, (env) => ({ serviceName: String(env.DECO_SITE_NAME) }));
+```
+
+### Where the data goes
+
+The framework sends data over three channels. Each is wired only when its variable is set:
+
+| Variable | Channel | When unset |
+|---|---|---|
+| `DECO_OTEL_TRACES_ENDPOINT` | Spans, posted as OTLP/HTTP to your collector | Spans reach you only through Cloudflare's own tracing, if enabled in `wrangler.jsonc` |
+| `DECO_OTEL_METRICS_ENDPOINT` | Metrics, posted as OTLP/HTTP | No OTLP metrics (Analytics Engine still works, below) |
+| `DECO_OTEL_LOGS_ENDPOINT` | Log records at or above `DECO_OTEL_LOGS_MIN_LEVEL` (default `info`), posted as OTLP/HTTP | Logs go to the console only, and from there to Cloudflare Workers Logs |
+| `DECO_METRICS` (binding) | Metrics written to a Cloudflare Analytics Engine dataset | No Analytics Engine metrics |
+
+Point the endpoints at your OpenTelemetry collector. Related variables:
+
+| Variable | What it does |
+|---|---|
+| `DECO_OTEL_HEADERS` | Extra headers for the OTLP requests, as `key=value,key2=value2`. |
+| `DECO_OTEL_AUTH_TOKEN` | The full `Authorization` header value for the collector, such as `Bearer <token>`. Store it as a Worker secret. An `authorization` key in `DECO_OTEL_HEADERS` overrides it. |
+| `DECO_OTEL_TRACES_SAMPLING_RATE` | Fraction of traces to export. Default `0.01`. |
+| `DECO_OTEL_LOGS_MIN_LEVEL` | Lowest level posted to the logs endpoint. Default `info`. |
+| `DECO_OTEL_ERROR_PROMOTION` | `true` exports a share of unsampled traces that ended in an error. |
+| `DECO_OTEL_ERROR_PROMOTION_RATE` | That share. Default `0.1`. |
+
+Sampling is consistent per trace: either every span of a trace is exported or none is. A request that arrives with a sampled `traceparent` header is always exported. Add `?__d` to a URL to force sampling for that request while debugging.
+
+### Options
+
+`OtelOptions` (the `observability` option, or `instrumentWorker`'s second argument):
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `disabled` | `boolean` | `false` | Skip every exporter. `DECO_OTEL` overrides it. |
+| `envVar` | `string` | `"DECO_OTEL"` | The variable read for the on/off switch. |
+| `serviceName` | `string` | `DECO_SITE_NAME`, then `"deco-site"` | `service.name`. |
+| `analyticsEngineBindingName` | `string` | `"DECO_METRICS"` | The Analytics Engine binding. |
+| `analyticsEngineEnabled` | `boolean` | on when bound | `false` ignores the binding. |
+| `otlpTracesEnabled`, `otlpMetricsEnabled`, `otlpLogsEnabled` | `boolean` | on when the endpoint is set | `false` disables that channel without unsetting its variable. |
+| `otlpTracesSamplingRate` | `number` | `0.01` | Trace sampling. The variable wins over the option. |
+| `otlpLogsMinLevel` | `"debug" \| "info" \| "warn" \| "error"` | `"info"` | Lowest level posted. The variable wins. |
+| `otlpHeaders` | `Record<string, string>` | | Extra OTLP headers. |
+| `otlpAuthToken` | `string` | | Collector token, if you don't use the variable. |
+| `otlpTracesErrorPromotion`, `otlpTracesErrorPromotionRate` | `boolean`, `number` | `false`, `0.1` | Error promotion, as above. |
+| `decoAppsVersion` | `string` | | Stamped as `deco.apps.version`. |
+
+Each `*EnvVar` variant (`otlpTracesEndpointEnvVar`, `otlpMetricsEndpointEnvVar`, `otlpLogsEndpointEnvVar`, `otlpHeadersEnvVar`, `otlpAuthTokenEnvVar`, `otlpTracesSamplingRateEnvVar`, `otlpLogsMinLevelEnvVar`, …) renames the variable read for that setting.
+
+## Configure Wrangler
+
+`wrangler.jsonc` controls Cloudflare's own logs and traces and the bindings the framework uses:
+
+```jsonc title="wrangler.jsonc"
+{
+  "main": "./src/worker-entry.ts",
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1, "persist": true },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01, "persist": true }
+  },
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "analytics_engine_datasets": [{ "binding": "DECO_METRICS", "dataset": "my_store_metrics" }]
+}
+```
+
+- Keep `traces.head_sampling_rate` at `0.01`. Higher rates multiply the volume of trace data at storefront traffic levels; raise it only temporarily, for an investigation.
+- Keep `logs.head_sampling_rate` at `1`: info and warning logs are cheap and useful.
+- `version_metadata` is what puts `service.version` on spans and logs, so you can tie a regression to a deployment.
+
+Two CLIs help keep this block right:
+
+```bash
+npx -p @decocms/blocks-cli deco-audit-observability
+```
+
+```bash
+npx -p @decocms/blocks-cli deco-cf-observability --write --traces-rate 0.01
+```
+
+`deco-audit-observability` reads `wrangler.jsonc` and reports problems such as observability disabled, a traces rate above `0.01` or a missing `version_metadata` binding. It exits 0 in its default `--mode warn`; use `--mode block` in CI to fail on errors. Some of its rules check for bindings used by Deco's hosted platform; treat those as informational on your own setup. `deco-cf-observability` writes the observability block for you; pass `--traces-rate 0.01`, since its own default is `0.1`. Both are described in the [CLI reference](/v7/cli).
+
+## Logging
+
+Use `logger` from `@decocms/blocks/sdk/logger` (also exported from `@decocms/blocks` and `@decocms/blocks/sdk/observability`). Each call writes one JSON line with your message and attributes, plus the identity above:
+
+```ts title="src/loaders/wishlist.ts"
+import { logger, serializeError } from "@decocms/blocks/sdk/logger";
+
+export default async function wishlist(props: { userId: string }) {
+  try {
+    return await fetchWishlist(props.userId);
+  } catch (err) {
+    logger.error("wishlist fetch failed", { userId: props.userId, error: serializeError(err) });
+    return [];
+  }
+}
+```
+
+- `logger.debug`, `info`, `warn` and `error` take a message and an optional attributes object.
+- `setLogLevel("warn")` sets the minimum level.
+- `serializeError(err)` turns anything thrown into a JSON-safe object.
+- `configureLogger(adapter)` replaces the output, for an adapter with `log(level, msg, attrs)`.
+
+When `DECO_OTEL_LOGS_ENDPOINT` is set, `console.*` calls also go through the logger, so third-party code that logs to the console is captured.
+
+Without an OTLP logs endpoint, `logger` and `console` output goes to Cloudflare Workers Logs when `observability` is enabled in `wrangler.jsonc` (see [Configure Wrangler](#configure-wrangler)). During an incident you can stream a deployed Worker's logs live with `npx wrangler tail` (see [Real-time logs](https://developers.cloudflare.com/workers/observability/logs/real-time-logs/)).
+
+## Tracing your own code
+
+`withTracing(name, fn, attributes?)` runs an async function inside a span:
+
+```ts title="src/loaders/recommendations.ts"
+import { withTracing, injectTraceContext } from "@decocms/blocks/sdk/observability";
+
+export default function recommendations(props: { sku: string }) {
+  return withTracing("site.recommendations", async () => {
+    const headers = new Headers();
+    injectTraceContext(headers);
+    const res = await fetch(`https://api.example.com/recs/${props.sku}`, { headers });
+    return res.json();
+  }, { sku: props.sku });
+}
+```
+
+`injectTraceContext(headers)` adds a W3C `traceparent` header for the active span, so a service that also uses OpenTelemetry joins the same trace. It does nothing when no span is active. `setSpanAttribute(key, value)` adds an attribute to the active span.
+
+## Instrumenting upstream calls
+
+Commerce apps report their upstream calls through one shared fetch wrapper, which records `http.client.request.duration` and a span per call. For VTEX, Shopify, Wake and Magento, wire it once at boot, at module scope in your setup module:
+
+```ts title="src/setup.ts"
+import { createVtexFetch, setVtexFetch } from "@decocms/apps-vtex";
+
+setVtexFetch(createVtexFetch());
+```
+
+Until you do, those apps use a plain `fetch` with a timeout and report nothing. The Salesforce app is instrumented by default; Algolia uses its SDK's own transport and isn't instrumented. Each app page shows its call ([Apps](/v7/apps)).
+
+If you write your own integration, build the same thing with `createInstrumentedFetch` from `@decocms/blocks/sdk/instrumentedFetch` and `recordCommerceMetric`:
+
+```ts title="src/utils/acmeFetch.ts"
+import { createInstrumentedFetch } from "@decocms/blocks/sdk/instrumentedFetch";
+import { recordCommerceMetric } from "@decocms/blocks/sdk/observability";
+
+export const acmeFetch = createInstrumentedFetch({
+  name: "acme",
+  resolveOperation: (url) => (new URL(url).pathname.startsWith("/search") ? "search" : undefined),
+  onComplete: (m) =>
+    recordCommerceMetric(m.durationMs, { provider: "acme", operation: m.operation, cached: m.cached }),
+});
+
+// An explicit operation name wins over resolveOperation.
+await acmeFetch("https://api.example.com/search?q=shoes", { operation: "search.products" });
+```
+
+- The span is named `acme.<operation>`. The operation comes from the call's `operation`, then `defaultOperation`, then `resolveOperation(url, method)`, then `fetch`.
+- Each call gets a `traceparent` header (`injectTraceparent: false` to stop it) and a 10-second timeout (`timeoutMs` to change it, `0` to disable).
+- Query values are redacted in spans and logs unless listed in `keepQueryKeys`.
+- `OTEL_LOG_OUTGOING_FETCH=true` logs every outgoing request.
+
+For caching upstream `GET`s, use `createFetchCache` from `@decocms/blocks/sdk/fetchCache` rather than your own cache: it emits `deco.cache.requests` with layer `swr` and your provider name, including hits that never reach the network.
+
+## Related
+
+- [Caching](/v7/caching): the cache decisions behind `deco.cache.*`.
+- [Configuration reference](/v7/configuration): every `DECO_OTEL_*` variable.
+- [CLI reference](/v7/cli): the audit and codemod flags.

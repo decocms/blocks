@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/migrate-apps-import.mjs
 // Rewrites @decocms/start/* imports to the correct new package per the
-// proven mapping in docs/apps-monorepo-migration-plan.md's Global
+// proven mapping in notes/apps-monorepo-migration-plan.md's Global
 // Constraints. Usage: node scripts/migrate-apps-import.mjs <dir>
 import { readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { join, extname } from "node:path";

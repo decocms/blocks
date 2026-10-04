@@ -1,0 +1,113 @@
+/* ==========================================================================
+   The article's prose layer: the look of what MDX writes as bare HTML inside
+   <article class="doc-section">, which can't carry utility classes — headings, the lede,
+   paragraphs, lists (the "–" markers and the numbered hairline rows), links, emphasis, and table
+   cells. The Roadmap's articles use the same markup. Everything the MDX components render
+   themselves (code panels, callouts, flows, tables' wrapper, terms, the inline outline, heading
+   anchors) is utilities in components/mdx/*.
+
+   - Imported into its own `prose` cascade layer (src/styles/app.css), above base and below
+     components and utilities: any class on an element beats these element defaults, whatever
+     the selectors' specificity.
+   - `not-prose` opts an element and everything inside it out (widgets, Roadmap blocks, the
+     inline outline, heading anchors). Every rule below has the shape
+     `.doc-section :where(<el>):not(:where(.not-prose, .not-prose *))`, so all weigh the same and
+     source order decides between them.
+   ========================================================================== */
+.doc-section { position: relative; }
+
+/* ---------- Headings: one h1 (the page title), h2 sections, h3 sub-sections ---------- */
+.doc-page :where(h1):not(:where(.not-prose, .not-prose *)) {
+  position: relative; margin: 0 0 20px; color: var(--fg);
+  font-size: var(--text-display); line-height: 1.14; font-weight: 400; letter-spacing: var(--tracking-display); text-wrap: balance;
+}
+.doc-page :where(h1, h2):not(:where(.not-prose, .not-prose *)):focus { outline: none; }
+.doc-page :where(h2):not(:where(.not-prose, .not-prose *)) {
+  position: relative; margin: 64px 0 14px; color: var(--fg);
+  font-size: 27px; line-height: 1.22; font-weight: 400; letter-spacing: var(--tracking-heading); text-wrap: balance;
+}
+.doc-page :where(h3):not(:where(.not-prose, .not-prose *)) {
+  position: relative; margin: 32px 0 8px; color: var(--fg);
+  font-size: 17px; line-height: 24px; font-weight: 500; letter-spacing: var(--tracking-snug); text-wrap: balance;
+}
+.doc-page :where(h1, h2, h3):not(:where(.not-prose, .not-prose *)) code {
+  font-size: .86em; padding: 0; background: none; border: 0; color: inherit; font-weight: 400; letter-spacing: var(--tracking-code);
+}
+
+/* ---------- Paragraphs and lists ---------- */
+.doc-section :where(p, li):not(:where(.not-prose, .not-prose *)) { color: var(--fg-body); font-size: 16px; line-height: 1.72; }
+.doc-section :where(p):not(:where(.not-prose, .not-prose *)) { margin: 16px 0; }
+/* The lede: the paragraph right after the page title. */
+.doc-page > :where(h1 + p):not(:where(.not-prose)) { font-size: 19px; line-height: 1.6; color: var(--muted-fg); letter-spacing: var(--tracking-ui); margin: 0 0 28px; }
+
+.doc-section :where(ul, ol):not(:where(.not-prose, .not-prose *)) { margin: 18px 0; padding-left: 22px; }
+/* Preflight removes list styles; ::marker needs one to render the "–" below. */
+.doc-section :where(ul):not(:where(.not-prose, .not-prose *)) { list-style-type: disc; }
+.doc-section :where(ul ul, ol ul):not(:where(.not-prose, .not-prose *)) { list-style-type: circle; }
+.doc-section :where(li):not(:where(.not-prose, .not-prose *)) { padding-left: 6px; }
+.doc-section :where(li + li):not(:where(.not-prose, .not-prose *)) { margin-top: 8px; }
+.doc-section :where(ul > li):not(:where(.not-prose, .not-prose *))::marker { color: var(--olive-ring); content: "–  "; }
+
+/* Ordered lists are numbered rows on hairlines: "01", "02", … in the gutter. */
+.doc-section :where(ol):not(:where(.not-prose, .not-prose *)) { list-style: none; padding-left: 0; counter-reset: n; border-bottom: 1px solid var(--hairline); }
+.doc-section :where(ol > li):not(:where(.not-prose, .not-prose *)) {
+  position: relative; counter-increment: n; margin: 0; padding: 14px 0 14px 44px; border-top: 1px solid var(--hairline);
+}
+.doc-section :where(ol > li):not(:where(.not-prose, .not-prose *))::before {
+  content: counter(n, decimal-leading-zero); position: absolute; left: 2px; top: 16px;
+  font-size: 13px; line-height: 24px; font-variant-numeric: tabular-nums; color: var(--ol-num);
+}
+
+/* ---------- Inline ---------- */
+.doc-section :where(strong):not(:where(.not-prose, .not-prose *)) { color: var(--fg); font-weight: 500; }
+.doc-section :where(em):not(:where(.not-prose, .not-prose *)) { font-style: italic; }
+.doc-section :where(a):not(:where(.not-prose, .not-prose *)) {
+  color: var(--link); font-weight: 400; text-decoration-line: underline; text-decoration-thickness: 1px;
+  text-decoration-color: var(--link-line); text-underline-offset: 3px; border-radius: 2px;
+  transition: text-decoration-color .25s ease, color .25s ease;
+}
+.doc-section :where(a):not(:where(.not-prose, .not-prose *)):hover { text-decoration-color: currentColor; }
+.doc-section :where(a):not(:where(.not-prose, .not-prose *)):has(> code) { text-underline-offset: 4px; }
+.doc-section :where(a code):not(:where(.not-prose, .not-prose *)) { color: inherit; }
+
+/* ---------- Table cells (the wrapper and <table> are components/mdx/Table.tsx) ---------- */
+.doc-section :where(th):not(:where(.not-prose, .not-prose *)) {
+  text-align: left; font-size: 12px; line-height: 18px; font-weight: 400; letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--eyebrow); background: var(--th-bg); white-space: nowrap;
+}
+.doc-section :where(th, td):not(:where(.not-prose, .not-prose *)) { padding: 14px 18px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+@media (width < 560px) {
+  .doc-section :where(th, td):not(:where(.not-prose, .not-prose *)) { padding: 11px 12px; }
+}
+.doc-section :where(thead th):not(:where(.not-prose, .not-prose *)) { padding-top: 12px; padding-bottom: 12px; }
+.doc-section :where(td + td, th + th):not(:where(.not-prose, .not-prose *)) { padding-left: 20px; }
+.doc-section :where(tr:last-child td):not(:where(.not-prose, .not-prose *)) { border-bottom: 0; }
+.doc-section :where(td):not(:where(.not-prose, .not-prose *)) { color: var(--fg-body); }
+.doc-section :where(td:first-child):not(:where(.not-prose, .not-prose *)) { color: var(--fg); }
+.doc-section :where(tbody tr):not(:where(.not-prose, .not-prose *)) { transition: background-color .2s ease; }
+.doc-section :where(tbody tr:hover td):not(:where(.not-prose, .not-prose *)) { background: color-mix(in oklab, var(--bg-subtle) 70%, transparent); }
+/* Code in cells stays on one line (a cell's code with spaces, .can-wrap, may wrap on phones). */
+.doc-section :where(td, th):not(:where(.not-prose, .not-prose *)) code { font-size: 12.5px; overflow-wrap: normal; white-space: nowrap; }
+.doc-section :where(th):not(:where(.not-prose, .not-prose *)) code { text-transform: none; letter-spacing: 0; }
+@media (width < 560px) {
+  .doc-section :where(td, th):not(:where(.not-prose, .not-prose *)) code.can-wrap { white-space: normal; }
+}
+
+/* ---------- Phones and print ---------- */
+@media (width < 560px) {
+  .doc-page :where(h1):not(:where(.not-prose, .not-prose *)) { font-size: 34px; line-height: 1.15; }
+  .doc-page :where(h2):not(:where(.not-prose, .not-prose *)) { font-size: 23px; margin-top: 48px; }
+  .doc-section :where(p, li):not(:where(.not-prose, .not-prose *)) { line-height: 1.7; }
+  .doc-page > :where(h1 + p):not(:where(.not-prose)) { font-size: 17px; line-height: 1.6; }
+}
+@media print {
+  .doc-page :where(h1):not(:where(.not-prose, .not-prose *)) { font-size: 26pt; line-height: 1.2; }
+  .doc-page :where(h2):not(:where(.not-prose, .not-prose *)) { font-size: 16pt; line-height: 1.3; break-after: avoid; margin-top: 24pt; }
+  .doc-page :where(h3):not(:where(.not-prose, .not-prose *)) { break-after: avoid; }
+  .doc-section :where(p, li):not(:where(.not-prose, .not-prose *)) { font-size: 10.5pt; line-height: 1.55; }
+  .doc-page > :where(h1 + p):not(:where(.not-prose)) { font-size: 12pt; line-height: 1.5; }
+  .doc-section :where(tr):not(:where(.not-prose, .not-prose *)) { break-inside: avoid; }
+}
+
+/* Paragraphs and list items in table cells keep the table's size (after the phone/print sizes above). */
+.doc-section :where(table p, table li):not(:where(.not-prose, .not-prose *)) { font-size: 14px; line-height: 22px; }

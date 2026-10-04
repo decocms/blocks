@@ -1,0 +1,83 @@
+---
+title: How v7 is built
+nav: Overview
+group: Under the hood
+kind: internals
+order: 1
+description: Why v7 ships as separate packages of plain TypeScript source, how runtime state stays single, and which entry points are safe for the browser.
+---
+
+# How v7 is built
+
+You don't need this page to build a site. It explains the design decisions behind the packages: why they ship source instead of bundles, how the runtime keeps exactly one copy of its state, and why some imports are server-only. Knowing them helps when an error mentions a duplicate registry, `node:async_hooks` in a browser bundle, or an import that works on the server but not in a client component.
+
+## Separate packages, one direction
+
+v7 is five framework packages plus the companion apps:
+
+| Package | Role | Depends on |
+|---|---|---|
+| `@decocms/blocks` | The runtime: content, resolution, registries, SDK | no other Deco package |
+| `@decocms/blocks-admin` | The admin protocol Studio talks to | `blocks` |
+| `@decocms/blocks-cli` | Code generation and migration tools | `blocks` |
+| `@decocms/tanstack` | The TanStack Start and Cloudflare Workers binding | `blocks`, `blocks-admin`, `blocks-cli` |
+| `@decocms/nextjs` | The Next.js App Router binding | `blocks`, `blocks-admin` |
+
+Dependencies point one way. The runtime never imports a binding, and the two bindings never import each other. That keeps the runtime free of framework code (no TanStack or Next.js types in `@decocms/blocks`), so both bindings share one implementation of resolution, caching helpers and the admin protocol.
+
+When a feature needs something from both sides, it's split rather than given a dependency in the wrong direction. Setup is the example you've already met: `createSiteSetup` in `@decocms/blocks/setup` takes the runtime options, and `createAdminSetup` in `@decocms/blocks-admin/setup` takes the admin ones.
+
+## Source, not bundles
+
+Each package's `exports` map points every public path at a TypeScript source file, for example `@decocms/blocks/cms` at the `cms` folder's index file. There is no build step in the packages and no `dist/`. Your bundler (Vite, or Next's) compiles the package source together with your own code.
+
+This is deliberate. An earlier single-package version of the framework shipped a bundled build, and the bundler split shared modules into several output files. A module such as the section registry could then exist twice in the same server, and a section registered through one copy was invisible to code reading the other. Shipping source means each module is compiled once, by your bundler, as part of your app.
+
+## One copy of the runtime's state
+
+Even with source exports, a module can occasionally be evaluated more than once: some builds load server functions as separate chunks, for example. So the runtime doesn't keep its state in module variables. It keeps it on a single object, `globalThis.__deco`, which every copy of a module reads and writes:
+
+- the section registry, section options and synchronously registered sections,
+- commerce loaders, custom matchers and section loaders,
+- the layout, cacheable, SEO, eager and deferred section sets,
+- the async rendering configuration,
+- the loaded decofile and its revision.
+
+Each module creates its keys on first load if they don't exist yet and otherwise uses the ones already there. Setup can therefore run in any module copy and every other copy sees the result. Treat `globalThis.__deco` as private: read and change this state through the exported functions, never directly.
+
+## Request-scoped state and conditional exports
+
+`RequestContext` (see [Request context](/v7/request-context)) is built on `AsyncLocalStorage` from `node:async_hooks`, which exists on servers but not in browsers. Its storage is published as `@decocms/blocks/sdk/requestContextStorage` with conditional exports:
+
+```json title="@decocms/blocks package.json (excerpt)"
+"./sdk/requestContextStorage": {
+  "workerd": "./src/sdk/requestContextStorage.ts",
+  "node": "./src/sdk/requestContextStorage.ts",
+  "browser": "./src/sdk/requestContextStorage.browser.ts",
+  "default": "./src/sdk/requestContextStorage.ts"
+}
+```
+
+A bundler picks the first condition in the list that the build target has. Browser builds get a stub with the same shape that never holds a request. Server builds get the real implementation.
+
+The order matters. A Cloudflare Workers build activates `workerd`, `worker` and `browser` at once. If `browser` came first, a Workers deploy would get the stub, and cookies, abort signals and device detection would silently stop working in production with no build error. That's why `workerd` and `node` are listed before `browser`.
+
+## Server-only and client-safe entry points
+
+Some entry points pull in server-only modules (`node:async_hooks`, `node:fs/promises`). Importing any export from them in browser code drags the whole module graph along, because modules are evaluated per file, not per export.
+
+| Import | Safe in browser code | Use it for |
+|---|---|---|
+| `@decocms/blocks/cms` | No | Setup, loaders, resolution, registration: server code. |
+| `@decocms/blocks/cms/client` | Yes | Section registry lookups (`getResolvedComponent`, `registerSection`), section loader mixins, schema helpers, `getDeferredTrigger`. |
+| `@decocms/blocks/sdk/requestContext` | Yes | Request-scoped state. In the browser every accessor behaves as outside a request. |
+| `@decocms/nextjs/routeHandlers` | Server only | The admin route handlers. The package root also exports client components, which a route handler must not import. |
+| `@decocms/nextjs` | Mixed | Server pages and layouts. Client component files import only what they render. |
+
+On TanStack Start, `src/setup.ts` imports from `@decocms/blocks/cms` and still runs in the browser, because the router imports it. That works because the Vite plugin from `@decocms/tanstack/vite` replaces server-only modules with small stubs in the client build. Next.js has no such step and rejects those imports in client components, which is why `@decocms/blocks/cms/client` exists. Use it from any Client Component.
+
+## Next steps
+
+- [How resolution works](/v7/walkthrough): what the runtime does with a page's content, step by step.
+- [The Worker request pipeline](/v7/request-pipeline): everything `createDecoWorkerEntry` does with a request.
+- [Packages and exports](/v7/packages): every public import path.

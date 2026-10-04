@@ -7,7 +7,7 @@
  * block. Metrics travel from the site Worker to the ingestor over a normal
  * outbound `fetch`. Sub-requests are free on the paid plan, and the
  * ingestor's per-POST charge is captured in the cost model in
- * `docs/observability.md`.
+ * `notes/observability.md`.
  *
  * **Aggregation model.** Buffers are per-isolate, accumulated forever (until
  * the isolate dies), and exported with `AggregationTemporality = CUMULATIVE`
@@ -24,7 +24,7 @@
  *     Workers; instead, every request's `ctx.waitUntil(flush())` keeps the
  *     buffer drained to roughly within one cooldown window of real time.
  *
- * **Data loss profile.** Documented in `docs/observability.md` under
+ * **Data loss profile.** Documented in `notes/observability.md` under
  * "Worker isolate lifecycle". Worst case is the cooldown window of
  * datapoints lost on isolate teardown — for `minFlushIntervalMs: 5000`,
  * that's ≤ 5s of metrics from one isolate. At fleet scale this is well

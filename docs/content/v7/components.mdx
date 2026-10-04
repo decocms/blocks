@@ -1,0 +1,259 @@
+---
+title: Images, scripts and UI helpers
+nav: Images & UI helpers
+group: Rendering
+order: 17
+description: The React components and helpers sections use most, such as Image and Picture, LazySection, inline scripts, device detection, cookies, analytics events, load-more pagination and JSON-LD.
+---
+
+# Images, scripts and UI helpers
+
+`@decocms/blocks` ships the building blocks most storefront sections need: an `Image` component that resizes through an image CDN, a lazy wrapper, safe inline scripts, device detection, cookie helpers, analytics events, load-more pagination and JSON-LD components. The components come from `@decocms/blocks/hooks`; the helpers each have their own `@decocms/blocks/sdk/*` path.
+
+## Images
+
+`Image` renders an `<img>` whose `src` and `srcset` point at resized versions of the original, so the browser downloads an image the size it displays:
+
+```tsx title="src/sections/Hero.tsx"
+import { Image } from "@decocms/blocks/hooks";
+import type { ImageWidget } from "@decocms/blocks/types/widgets";
+
+export interface Props {
+  title: string;
+  image: ImageWidget;
+}
+
+export default function Hero({ title, image }: Props) {
+  return (
+    <section>
+      <Image src={image} alt={title} width={1280} height={480} preload />
+      <h1>{title}</h1>
+    </section>
+  );
+}
+```
+
+| Prop | Type | Default | What it does |
+|---|---|---|---|
+| `src` | `string` | required | The original image URL, usually from an `ImageWidget` prop. |
+| `width` | `number` | required | Display width in CSS pixels. The `srcset` offers 1× and 2× this width. |
+| `height` | `number` | none | Display height. Set it: it reserves the space (no layout shift), and without it the component logs a warning. |
+| `fit` | `"cover" \| "contain" \| "fill"` | `"cover"` | How the image is cropped to `width` × `height`. |
+| `preload` | `boolean` | `false` | For the page's main image (its Largest Contentful Paint). Adds a `<link rel="preload">`, and loads the image eagerly with high priority. Use it once per page. |
+| `media` | `string` | none | Media query for the preload link, when the image only shows on some screens. |
+| `sizes` | `string` | `"(max-width: 768px) 100vw, 50vw"` | The standard `sizes` attribute. Set it when the image isn't half the viewport wide on desktop. |
+
+Every other `<img>` attribute passes through. Without `preload`, images load lazily (`loading="lazy"`) and decode asynchronously.
+
+How the URL is rewritten depends on where the image lives:
+
+- **Images uploaded to Deco** go through the image CDN, `assets.decocms.com` by default, which resizes and converts them at the edge.
+- **VTEX and Shopify images** are resized with the platform's own URL format, without the CDN.
+- **`data:` URIs** are left alone.
+
+Two settings apply site-wide. Call them once, at module scope, in setup:
+
+```ts title="src/setup.ts (excerpt)"
+import { registerImageCdnDomain, registerImageQuality } from "@decocms/blocks/hooks";
+
+registerImageQuality("high");
+registerImageCdnDomain("assets.decocms.com");
+```
+
+- `registerImageQuality` accepts `"low"`, `"medium"` or `"high"`. Unset, the CDN uses its own default, the lowest of the three. Other values, such as `"80"`, are silently treated as the default. The setting doesn't affect VTEX or Shopify images.
+- `registerImageCdnDomain` changes the CDN host. You rarely need it; the default works for every site.
+
+`getOptimizedMediaUrl({ originalSrc, width, height, fit })` and `getSrcSet(src, width, height, fit)` build the same URLs, for a CSS background or an `og:image`.
+
+### Different images per screen
+
+`Picture` and `Source` serve a different image by media query, for example a tall banner on phones and a wide one on desktop:
+
+```tsx title="src/sections/Banner.tsx"
+import { Image, Picture, Source } from "@decocms/blocks/hooks";
+import type { ImageWidget } from "@decocms/blocks/types/widgets";
+
+export interface Props {
+  mobile: ImageWidget;
+  desktop: ImageWidget;
+  alt: string;
+}
+
+export default function Banner({ mobile, desktop, alt }: Props) {
+  return (
+    <Picture preload>
+      <Source media="(max-width: 767px)" src={mobile} width={430} height={590} />
+      <Source media="(min-width: 768px)" src={desktop} width={1440} height={480} />
+      <Image src={desktop} alt={alt} width={1440} height={480} />
+    </Picture>
+  );
+}
+```
+
+With `preload` on `Picture`, each `Source` adds a preload link for its own media query.
+
+## Lazy rendering in the browser
+
+`LazySection` delays rendering part of a component until it scrolls near the viewport:
+
+```tsx
+import { LazySection } from "@decocms/blocks/hooks";
+
+<LazySection fallback={<div style={{ height: 400 }} />} minHeight={400}>
+  <ReviewsCarousel reviews={reviews} />
+</LazySection>
+```
+
+It differs from a [deferred section](/v7/rendering) in what it saves. A deferred section's data isn't fetched or sent with the page at all. `LazySection` only postpones rendering: its children's props are already on the page. Use it to keep heavy client components (carousels, maps, embeds) from rendering during hydration.
+
+| Prop | Default | What it does |
+|---|---|---|
+| `fallback` | nothing | Rendered until the content is visible. Give it a fixed height. |
+| `rootMargin` | `"200px"` | How far ahead of the viewport to start rendering. |
+| `minHeight` | none | Minimum height of the wrapper, to avoid layout shift. |
+| `eager` | `false` | Render immediately, for content above the fold. |
+| `className` | none | Class for the wrapper `<div>`. |
+
+## Inline scripts
+
+For small bits of JavaScript that must run before or without React (a scroll handler, a one-line initialization), use `inlineScript` from `@decocms/blocks/sdk/useScript`. It takes the script as a string and returns the props for a `<script>` element:
+
+```tsx title="src/sections/BackToTop.tsx"
+import { inlineScript } from "@decocms/blocks/sdk/useScript";
+
+const SCRIPT = (id: string) =>
+  `document.getElementById("${id}").addEventListener("click", () => window.scrollTo({ top: 0 }))`;
+
+export default function BackToTop() {
+  return (
+    <>
+      <button id="back-to-top" type="button">Back to top</button>
+      <script {...inlineScript(SCRIPT("back-to-top"))} />
+    </>
+  );
+}
+```
+
+`useScript(fn, ...args)`, from the same path, is deprecated. It turns a function into a string with `fn.toString()`, and the server and browser builds can compile the same function differently, so the HTML from the server doesn't match what the browser renders and React reports a hydration error. Write the script as a string constant instead, as above.
+
+## Device detection
+
+Sections often render differently on phones. There are three ways to know the device, depending on where the code runs:
+
+- **In a component:** `useDevice()` from `@decocms/blocks/sdk/useDevice` returns `"mobile"`, `"tablet"` or `"desktop"`. On TanStack Start, `DecoPageRenderer` provides the device the server detected, so the server render and the browser agree.
+- **In a section loader:** compose `withDevice()` or `withMobile()`, which add `device` or `isMobile` to the props. See [Loaders and actions](/v7/loaders).
+- **In other server code:** `detectDevice(userAgent)` from `@decocms/blocks/sdk/detectDevice`.
+
+All three read the user agent, never the screen width, so the server and the browser reach the same answer. For layout differences that are purely visual, prefer CSS media queries: they need no detection at all, and cached pages stay the same for every device.
+
+## Class names
+
+`cn(...)` from `@decocms/blocks/sdk/cn` combines class names and resolves conflicting Tailwind utilities, so `cn("p-2", isLarge && "p-4")` gives `"p-4"` when `isLarge` is true. It accepts strings, arrays, objects and falsy values. `clx(...)`, from `@decocms/blocks/sdk/clx` or the same `cn` path, only joins the truthy strings, without merging.
+
+## Cookies
+
+`@decocms/blocks/sdk/cookie` has helpers for both sides:
+
+| Function | Where | What it does |
+|---|---|---|
+| `getCookie(name)` | Browser | Reads a cookie from `document.cookie`. Returns `""` if absent. |
+| `setCookie(name, value, days)` | Browser | Sets a cookie on `/` that expires in `days`. |
+| `deleteCookie(name)` | Browser | Deletes a cookie on `/`. |
+| `getCookies(headers)` | Server | Parses a request's `Cookie` header into an object. |
+| `getServerSideCookie(request, name)` | Server | Reads one cookie from a request. |
+| `setResponseCookie(headers, cookie)` | Server | Appends a `Set-Cookie` header built from `{ name, value, maxAge?, expires?, path?, domain?, secure?, httpOnly?, sameSite? }`. |
+| `deleteResponseCookie(headers, name, { path?, domain? })` | Server | Appends a `Set-Cookie` that clears the cookie. Match the original `path` and `domain`. |
+| `decodeCookie(value)` | Either | Parses a URL-encoded JSON cookie value, or returns `null`. |
+
+To set a cookie from a loader or action, append to `RequestContext.responseHeaders`; see [Request context](/v7/request-context). On TanStack Start, a response that sets a cookie isn't cached at the edge unless the cookie is on the safe list (see [Caching](/v7/caching#cookies)).
+
+## Analytics events
+
+`useSendEvent` from `@decocms/blocks/sdk/analytics` returns two `data-` attributes that describe an analytics event and when to send it:
+
+```tsx title="src/components/ProductCard.tsx"
+import { useSendEvent } from "@decocms/blocks/sdk/analytics";
+import type { Product } from "@decocms/apps-commerce/types";
+
+export default function ProductCard({ product }: { product: Product }) {
+  const viewEvent = useSendEvent({
+    on: "view",
+    event: { name: "view_item", params: { item_id: product.productID } },
+  });
+  return <article {...viewEvent}>{product.name}</article>;
+}
+```
+
+Both bindings' root layouts include a small script that watches for these attributes. It sends `"view"` events when at least half of the element becomes visible (once per element), and `"click"` events on click. Each event is pushed to `window.dataLayer` (for Google Tag Manager) and to `window.DECO.events`. The script waits while the page is being prerendered by [speculation rules](/v7/speculation-rules), so prerendered pages that are never opened don't send events. `"change"` is accepted by the type but the script doesn't act on it.
+
+`gtmScript(containerId)`, from the same path, returns the Google Tag Manager snippet as a string with the same prerender guard. Render it with `inlineScript`. The commerce event types and mappers (`view_item`, `add_to_cart` and the rest) are in [Commerce types and utilities](/v7/apps-commerce).
+
+### Deco's analytics collector
+
+`Stats` from `@decocms/blocks/hooks` loads Deco's first-party analytics collector. It renders nothing unless the environment variable `DECO_ANALYTICS_ENABLED` is exactly `true`. On TanStack Start, `DecoRootLayout` already renders it, so turning analytics on is only the environment variable. On Next.js, render `<Stats />` in your root layout. `DECO_ANALYTICS_ORIGIN` and `DECO_ANALYTICS_SITE_KEY` are in the [configuration reference](/v7/configuration).
+
+## Load more
+
+`useLoadMore` from `@decocms/blocks/hooks` implements a "load more" button for listing pages. It keeps the pages loaded so far and fetches the next one by calling a loader through [invoke](/v7/loaders), with the next page's URL so the loader keeps the current filters and sorting:
+
+```tsx title="src/components/ProductGallery.tsx"
+"use client";
+
+import { useLoadMore } from "@decocms/blocks/hooks";
+import type { ProductListingPage } from "@decocms/apps-commerce/types";
+
+export default function ProductGallery({ page, url }: { page: ProductListingPage; url: string }) {
+  const { pages, loadMore, loading, hasMore } = useLoadMore(
+    page,
+    "vtex/loaders/intelligentSearch/productListingPage.ts",
+    url,
+  );
+  const products = pages.flatMap((p) => p.products ?? []);
+
+  return (
+    <>
+      <ul>{products.map((p) => <li key={p.productID}>{p.name}</li>)}</ul>
+      {hasMore && (
+        <button type="button" onClick={loadMore} disabled={loading}>
+          {loading ? "Loading…" : "Load more"}
+        </button>
+      )}
+    </>
+  );
+}
+```
+
+- The second argument is the loader's key. The loader must be callable through `/deco/invoke`; commerce loaders are once you pass them to `setInvokeLoaders` (see [Loaders and actions](/v7/loaders)).
+- `hasMore` comes from the last page's `pageInfo.nextPage` (or a top-level `nextPage`).
+- The third argument resets the list when it changes. Pass the current URL, so changing a filter starts over from the new first page.
+- It also returns `error`, set when a fetch fails.
+
+## JSON-LD
+
+`ProductJsonLd`, `PLPJsonLd` and `BreadcrumbJsonLd` from `@decocms/blocks/hooks` render schema.org structured data as a `<script type="application/ld+json">`, from the commerce types:
+
+```tsx
+import { BreadcrumbJsonLd, ProductJsonLd } from "@decocms/blocks/hooks";
+
+<ProductJsonLd product={page.product} url={url} />
+<BreadcrumbJsonLd breadcrumb={page.breadcrumbList} />
+```
+
+`PLPJsonLd` takes `{ page, url }` for a product listing page. `seoMetaTags(props)` returns meta tag objects for a custom `<head>`. For SEO across a whole page, see [SEO](/v7/seo).
+
+## Hydration tips
+
+The server renders each page to HTML, and React then *hydrates* it in the browser, expecting to produce the same markup. When the two differ, React reports a hydration error and may re-render the whole page. The usual causes, and the fix for each:
+
+- **Values that differ between server and browser**, such as `Date.now()`, `Math.random()`, `window` or `localStorage` in the render. Read them in an effect, or render that part only in the browser. On TanStack Start, wrap it in `ClientOnly` from `@tanstack/react-router`, or branch on `useHydrated()` from the same package. A whole section can be marked `export const clientOnly = true` on either binding (see [Section conventions](/v7/sections)).
+- **Scripts built from functions.** Use `inlineScript` with a string, not `useScript`.
+- **Device checks on screen width.** Use `useDevice()`, which reads the user agent.
+- **Generated ids.** Use React's `useId`. `useId` from `@decocms/blocks/sdk/useId` is the same without colons, for use in CSS selectors.
+
+`suppressHydrationWarning` hides the error without fixing it. The root layouts already set it on `<html>` and `<body>`, where browser extensions add attributes; don't add it elsewhere.
+
+## Next steps
+
+- [SEO](/v7/seo): page titles, metadata and structured data.
+- [Section conventions](/v7/sections): `clientOnly`, `sync` and skeletons.
+- [Commerce types and utilities](/v7/apps-commerce): the product types these components use.

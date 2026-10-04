@@ -1,0 +1,105 @@
+name: Docs site
+
+# Builds the Deco Blocks docs site (docs/: TanStack Start + MDX, prerendered to static HTML,
+# with a Pagefind search index). docs/ is a standalone Bun package with its own bun.lock, so
+# every step runs in docs/.
+#
+# - Pull requests that touch docs/: check, build, then upload docs/dist/client as the workflow
+#   artifact "docs-site". It's built for the root path; to view it, unzip it and serve the
+#   folder with any static server that maps /x to x.html (or copy it into docs/dist/client and
+#   run `bun run preview`). Nothing is deployed.
+# - Pushes to main that touch docs/, and manual runs on main: check, build for the /blocks/
+#   base path GitHub Pages serves this repository under, then deploy docs/dist/client to
+#   GitHub Pages. Only decocms/blocks's main branch deploys (a manual run on another branch,
+#   or a fork, only builds). Needs Pages enabled with "GitHub Actions" as its source
+#   (Settings > Pages); until then the deploy job fails, and nothing else depends on it.
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, never cancelled midway; a newer push to a PR
+# cancels that PR's older preview build.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('docs-site-preview-{0}', github.ref) || 'docs-site-pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    env:
+      # Pages serves the repository at https://<owner>.github.io/blocks/; previews build for /.
+      BASE_PATH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks' && '/blocks/' || '/' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # `vite build` (and its prerender) runs under Node: the vite bin is `#!/usr/bin/env node`, and
+      # TanStack Start needs Node >= 22.12 (docs/package.json "engines"). Bun installs and runs
+      # the scripts; pin Node so the build doesn't depend on whatever the runner has.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Same Bun as the rest of the repo (package.json "packageManager").
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Check (types, content, Roadmap data)
+        run: bun run check
+
+      # vite build (prerenders every page), then 404.html, the link check and the Pagefind index.
+      - name: Build docs/dist/client
+        run: bun run build
+
+      - name: Upload the preview (pull requests)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site
+          path: docs/dist/client
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/dist/client
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'decocms/blocks'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # The build hardcodes the /blocks/ base path, so nothing uses this step's outputs; it
+      # checks Pages is set up before deploying.
+      - uses: actions/configure-pages@v6
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

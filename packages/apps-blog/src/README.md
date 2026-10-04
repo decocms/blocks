@@ -2,7 +2,7 @@
 
 Source of truth: [`deco-cx/apps/blog`](https://github.com/deco-cx/apps/tree/main/blog).
 This package was originally copied from `apps-start`'s already-reduced blog port
-(Task 13 of `docs/apps-monorepo-migration-plan.md`), not from the Deno original,
+(Task 13 of `notes/apps-monorepo-migration-plan.md`), not from the Deno original,
 so a chunk of the upstream surface was missing. This file tracks what is now in
 sync and what deliberately isn't.
 
@@ -28,7 +28,7 @@ sync and what deliberately isn't.
 |---|---|
 | `db/schema.ts` | Drizzle/SQLite table definitions for the `records` app. Neither the app nor `drizzle-orm` exists in this monorepo, and pulling them in would make every site installing the blog carry a DB client. The table/column names now live on the site's side of `src/core/blogRecords.ts`. |
 | `loaders/extensions/{BlogpostList,BlogpostListing,BlogpostPage}.ts` | Three-line delegations to `website/loaders/extension.ts` — the *generic* extension-composition loader. That loader has not been ported into `@decocms/apps-website`; reimplementing it here would put a website-app concern in the wrong package. The 6 concrete ratings/reviews extensions are ported and callable directly. **Tracked gap: port `website/loaders/extension.ts` into `@decocms/apps-website`.** |
-| `manifest.gen.ts` (as generated) | `scripts/generate-manifests.ts` doesn't exist in this repo (deferred, `docs/apps-monorepo-migration-plan.md`). `src/manifest.gen.ts` is hand-maintained — add new loaders/actions/sections to it manually. |
+| `manifest.gen.ts` (as generated) | `scripts/generate-manifests.ts` doesn't exist in this repo (deferred, `notes/apps-monorepo-migration-plan.md`). `src/manifest.gen.ts` is hand-maintained — add new loaders/actions/sections to it manually. |
 | `mod.ts`'s `preview` / `PreviewContainer` | `utils/preview.tsx` is Deno-app scaffolding with no equivalent here; `preview` is `undefined`, matching every other `apps-*` package. |
 
 ## Ratings, reviews and view counts

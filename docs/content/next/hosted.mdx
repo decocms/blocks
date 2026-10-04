@@ -1,0 +1,117 @@
+---
+title: The hosted Deco CMS
+nav: Overview
+group: Hosted Deco CMS
+order: 27
+description: What the hosted Deco CMS adds on top of the open-source Deco CMS, what it doesn't do, and how to connect a site to it with a site ID and token.
+---
+
+# The hosted Deco CMS
+
+Your editors want a fix live without waiting for an application build, and they want to edit without cloning the repository. That's what the hosted Deco CMS is for: an optional service Deco runs on top of the same files. It changes how fast content reaches visitors and where editors work, not how your code is written.
+
+[Deco CMS](/next/how-it-works) is complete without it: your functions, your content files, your deploys and your own telemetry collector are all you need. This page shows what the hosted Deco CMS adds, what it doesn't do, and how to connect your site.
+
+## What it adds
+
+Deco runs these services for a connected site:
+
+| Service | What it changes | Without it |
+|---|---|---|
+| **Site editor on GitHub** | Editors use [the site editor](/next/site-editor) on your GitHub repository, with nothing to clone or install: each save is a commit on a draft branch, and publishing brings it to production. See [Editing in the site editor on GitHub](/next/hosted-site-editor). | The site editor on your machine, and you commit the changes ([Edit on your machine](/next/site-editor#edit-on-your-machine)). |
+| **Drafts** | The Deco API serves an editor's draft to your real site, so the site editor previews it in place. See [Previewing drafts](/next/hosted-drafts). | Drafts are branches you preview with your own preview deploys ([Releases and drafts](/next/releases-and-drafts#on-a-branch)). |
+| **Publishing** | The control plane prepares production commits as immutable **releases**, and a storage/CDN delivery plane serves the promoted release without a deploy. Servers refresh in the background. See [Publishing without a deploy](/next/hosted-publishing). | Content ships with your next deploy ([Deployment](/next/releases-and-deployment#publishing)). |
+| **Asset storage** | Images and other files editors upload go to Deco's storage and are served from a CDN. See [Uploads](/next/hosted-site-editor#uploads). | Uploads are files in your repository ([Images and other uploads](/next/site-editor#images-and-other-uploads)). |
+| **Telemetry collector** | A hosted OpenTelemetry collector: set `telemetry: { site, token }` and view latency, error rates and traces with nothing to run. See [Hosted telemetry](/next/hosted-telemetry). | Send telemetry to your own OpenTelemetry collector, or nothing ([Telemetry](/next/telemetry)). |
+| **Analytics collector** | The [`analytics` block](/next/analytics)'s default: view page views with nothing to run. | Send page views to One Dollar Stats or your own collector ([Analytics](/next/analytics)). |
+
+## What stays the same
+
+- **Your repository is the authoring source of truth.** Content is still the JSON files in `.deco/blocks`, and every edit is still a commit. The delivery channel selects what visitors receive; a fast content rollback can temporarily select an older release without reverting Git.
+- **Your code doesn't change.** Block functions, the [block map](/next/blocks#the-block-map), [`resolve`](/next/api-reference#client-resolve-target-options), [`list`](/next/api-reference#client-list-type-options) and [routing](/next/routing) work the same way. The same [`createCMS`](/next/api-reference#createcms-config) call takes two more options, `site` and `token`.
+- **The content module stays.** Your build still bundles the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`. It's what a server serves before it has fetched its first release, and what it keeps serving if the Deco API is unreachable.
+
+## What it doesn't do
+
+- **It doesn't run your app.** Your app runs where you deploy it: Node, Cloudflare Workers or any other host you choose.
+- **It doesn't run your code.** The Deco API serves content files; your servers call your functions. The site editor never runs your code either (see [What works without your code](/next/site-editor#what-works-without-your-code)).
+- **It doesn't build or deploy.** Code still ships through your own pipeline; only content can skip the deploy.
+
+## Connect your site
+
+A site is connected by two values: its **site ID** in the hosted Deco CMS and its **site token**. Read them from environment variables, by convention `DECO_SITE` and `DECO_SITE_TOKEN`, and pass them to `createCMS` next to your content:
+
+```ts title="cms.ts"
+import { createCMS } from "@decocms/blocks";
+import blocks from "./.deco";
+import content from "./.deco/blocks.gen";
+
+const site = process.env.DECO_SITE;           // your site's ID in the hosted Deco CMS
+const token = process.env.DECO_SITE_TOKEN;    // your site token (secret)
+
+export const cms = createCMS({
+  blocks,
+  content,
+  site,
+  token,
+  // Optional: also send telemetry to the hosted collector
+  telemetry: site && token ? { site, token } : false,
+});
+```
+
+The site ID isn't a secret; the token is, so keep it out of the repository. When either value is undefined, in development or in tests for example, the CMS reads `content` only, exactly like `createCMS({ blocks, content })`. So the same lines work everywhere, and a site keeps working if you disconnect it.
+
+**Local files win in development.** In your dev server, even with both values set (in `.env.local` or `.dev.vars`), ordinary requests read your local `.deco/blocks`, not the published release, so your edits and the site editor's saves through [`deco serve`](/next/site-editor#edit-on-your-machine) show up right away. A `?__draft=` link still loads that draft from the Deco API.
+
+`site` and `token` load releases and drafts, nothing else. Telemetry is separate and opt-in: it goes only where the [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) points, so pass the same two values there to use the hosted collector, or point it at your own collector instead. Drafts need a few lines of wiring in your app; see [Wire drafts into your app](/next/hosted-drafts#wire-drafts-into-your-app). How often servers check for a release is the `interval` option of `createCMS`; see [Check interval](/next/hosted-publishing#check-interval).
+
+### Next.js
+
+Set `DECO_SITE` and `DECO_SITE_TOKEN` in your host's environment (and in `.env.local`, which you keep out of Git, to try it locally). Create the CMS in a module that starts with `import "server-only"`, or import it only from one that does, as the [Next.js guide](/next/nextjs) does: the build then fails if a Client Component imports it, which keeps the token out of the browser.
+
+### Cloudflare Workers
+
+On Workers, environment variables come from `env` in `cloudflare:workers`:
+
+```ts title="src/cms.ts"
+import { createCMS } from "@decocms/blocks";
+import { env } from "cloudflare:workers";
+import blocks from "../.deco";
+import content from "../.deco/blocks.gen";
+
+export const cms = createCMS({
+  blocks,
+  content,
+  site: env.DECO_SITE,
+  token: env.DECO_SITE_TOKEN,
+  telemetry: { site: env.DECO_SITE, token: env.DECO_SITE_TOKEN },   // optional: the hosted collector
+});
+```
+
+Locally, `wrangler dev` reads them from a `.dev.vars` file you keep out of Git. In production, set the site ID as a plain variable in `wrangler.jsonc` (`vars`) and the token as a secret:
+
+```bash
+npx wrangler secret put DECO_SITE_TOKEN
+```
+
+Release checks on Workers run after the response, inside `ctx.waitUntil`, on their own; see [How a commit becomes a release](/next/hosted-publishing#how-a-commit-becomes-a-release). Sites with several megabytes of content should read [Large content on Workers](/next/hosted-publishing#large-content-on-workers).
+
+## Terms
+
+<Terms>
+  <Term name="Site ID and site token">The two values that connect your app to the hosted Deco CMS, usually the `DECO_SITE` and `DECO_SITE_TOKEN` environment variables, passed to `createCMS` as `site` and `token`. They load releases and drafts. Passed under `telemetry` too, they send telemetry to the hosted collector. Only the token is secret.</Term>
+  <Term name="Deco API">The delivery service that serves prepared release and draft assets from storage/CDN. It never reads GitHub in response to a production content request.</Term>
+  <Term name="Hosted collector">The hosted Deco CMS's endpoint for telemetry, used when `telemetry` is `{ site, token }` (see [Hosted telemetry](/next/hosted-telemetry)), and for page views, the [`analytics` block](/next/analytics)'s default `collector`.</Term>
+  <Term name="Release">A [release](/next/releases-and-drafts#releases) as the Deco API serves it: the content of one commit to your production branch, live without a deploy. See [Publishing without a deploy](/next/hosted-publishing).</Term>
+  <Term name="Draft pointer">The string the site editor puts in a `?__draft=` link: where a draft lives on the Deco API, with a token the site editor signed, and which version. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) reads it. See [Previewing drafts](/next/hosted-drafts).</Term>
+  <Term name="Draft branch">The branch the site editor's GitHub backend commits an editor's saves to, created on the first save. Publishing brings it to your production branch. See [Editing in the site editor on GitHub](/next/hosted-site-editor).</Term>
+</Terms>
+
+## On these pages
+
+- [Site editor on GitHub](/next/hosted-site-editor): draft branches, uploads in hosted storage, publishing, and CI on the site editor's commits.
+- [Previewing drafts](/next/hosted-drafts): the `?__draft=` link, wiring drafts into your app, and who may preview.
+- [Publishing without a deploy](/next/hosted-publishing): how a commit becomes a release, how servers pick it up, the fallback, and keeping running code compatible with new content.
+- [Production delivery and rollback](/next/content-delivery): immutable assets, channel promotion, outage behavior and restoring an older release.
+- [Keeping drafts current](/next/draft-synchronization): automatic production updates, conflict resolution and bounded merge memory.
+- [Hosted telemetry](/next/hosted-telemetry): turning on the hosted collector for telemetry.

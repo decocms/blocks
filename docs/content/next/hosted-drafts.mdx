@@ -1,0 +1,151 @@
+---
+title: Previewing drafts
+nav: Previewing drafts
+group: Hosted Deco CMS
+order: 29
+description: With the hosted Deco CMS, the site editor opens your real site with a ?__draft= link and the draft renders in place, with no preview deploy.
+---
+
+# Previewing drafts
+
+An editor changes the summer banner and wants to see it on the real product page before publishing. With the [hosted Deco CMS](/next/hosted), [the site editor](/next/site-editor) opens your real site with a link that names the draft, and your app renders that draft in place: same code, different content, no build.
+
+This page shows the `?__draft=` link, the few lines that wire it into your app, and who may preview.
+
+## The `?__draft=` link
+
+With the hosted Deco CMS, a [draft](/next/releases-and-drafts#drafts) is an editor's saved changes on their draft branch, not published yet (see [Editing in the site editor on GitHub](/next/hosted-site-editor)). To show it, the site editor opens your site with a **draft pointer** in the URL:
+
+```bash
+https://store.example.com/summer?__draft=delivery.decocms.com/sites/acme/drafts%3Ftoken%3D…@9f3c1a…
+```
+
+The part after `__draft=` is URL-encoded, which is why `?` and `=` show as `%3F` and `%3D`. Decoded, `delivery.decocms.com/sites/acme/drafts?token=…` is where this site's drafts live, plus a grant signed by the site editor. The grant covers one overlay version of one site and expires after an hour; the editor mints a fresh one while it's open. `9f3c1a…`, after the `@`, is the overlay version: the SHA-256 of the overlay manifest, 64 hex characters. The hosted loader fetches only pointers of this shape, `delivery.decocms.com/sites/<your site>/drafts?<grant>@<version>`, and refuses any other host, site path or version, so your code never builds or checks one.
+
+The pointer is a string, `<host><path>@<version>`. [`cms.forDraft(pointer)`](/next/api-reference#draft-pointers) fetches the exact draft overlay that version names. The overlay contains only replacements for changed saved blocks and tombstones for deletions. Its small manifest references immutable changed-block assets, so repeated saves download only blobs the server does not already have.
+
+The preview inherits every other block from whatever production content that server already has. There is no `baseRevision` and no download of a matching production snapshot. One client captures its local production content once, so the whole response uses that content plus one overlay. A later request can inherit newer production content without changing the pointer. Different servers can inherit different releases; the pointer fixes draft changes, not the full preview state.
+
+If the overlay can't be fetched, the client's calls return an error instead of silently displaying published content (see [A failed draft is an error](/next/content#write-a-loader)). The wire format, caching and deletion behavior are described in [Draft overlays for fast previews](/next/content-delivery#exact-draft-previews).
+
+## Wire drafts into your app
+
+Picking the client from [`draftPointer(request)`](/next/api-reference#draft-pointers) is the two-line pattern in [Preview](/next/releases-and-drafts#preview). The hosted flow adds a cookie: the pointer is only in the URL of the first page the site editor opens, so that response sets a cookie and every link the editor clicks stays in preview. `draftCookie(request)` returns the `Set-Cookie` value for that response, and `null` on every other request; `draftPointer` reads the query parameter or the cookie:
+
+```ts title="A plain request handler"
+import { draftPointer, draftCookie } from "@decocms/blocks";
+import { cms } from "./cms";
+
+export async function handle(request: Request) {
+  const pointer = draftPointer(request);               // from ?__draft= or the cookie; null on an ordinary request
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+  const response = await render(client, request);      // your own function: list, matchRoute and resolve as usual
+
+  const cookie = draftCookie(request);
+  if (cookie) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
+```
+
+The site editor ends a preview by opening the site with `?__draft=off`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
+
+Without a [site ID and token](/next/hosted#connect-your-site), the CMS reads the [content module](/next/content#the-content-module), which has no drafts, so it ignores the pointer: you're already looking at your files. With them, your dev server still serves your local files to ordinary requests, and a `?__draft=` link loads the draft from the Deco API (see [Local files win in development](/next/hosted#connect-your-site)). That's why the same code serves previews and visitors everywhere. A draft is just another set of calls run by the same code; to serve drafts from somewhere other than the hosted Deco CMS, see [Write a loader](/next/content#write-a-loader).
+
+### Next.js
+
+In the [Next.js guide](/next/nextjs), the cookie and the client split across two files. `proxy.ts` (Next.js 16's name for `middleware.ts`) runs before every request and appends the cookie:
+
+```ts title="src/proxy.ts"
+import { NextResponse, type NextRequest } from "next/server";
+import { draftCookie } from "@decocms/blocks";
+
+export function proxy(request: NextRequest) {
+  const response = NextResponse.next();
+  const cookie = draftCookie(request);          // only set on the request the site editor opens; expiring when leaving preview
+  if (cookie) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
+```
+
+And `client()` reads the cookie with `cookies()`, since a Server Component has no request:
+
+```ts title="src/client.server.ts"
+import "server-only";
+import { cookies } from "next/headers";
+import { DRAFT_COOKIE } from "@decocms/blocks";
+import { cms } from "./cms";
+
+// The client for this request: a draft when the cookie holds a valid pointer, production otherwise.
+export async function client() {
+  const pointer = (await cookies()).get(DRAFT_COOKIE)?.value;
+  return pointer ? cms.forDraft(pointer) : cms.forRelease();
+}
+```
+
+Nothing else in the guide changes: every page already gets its client from `client()`.
+
+### TanStack Start
+
+In the [TanStack Start guide](/next/tanstack-start-descriptors), `client(request)` in `src/cms.ts` reads the pointer from the URL or the cookie:
+
+```ts title="src/cms.ts (changes)"
+import { createCMS, draftPointer } from "@decocms/blocks";
+
+// The client for this request: the draft it points at, or the current release.
+export const client = (request: Request) => {
+  const pointer = draftPointer(request);
+  return pointer ? cms.forDraft(pointer) : cms.forRelease();
+};
+```
+
+Start's request middleware runs around every request, so it appends the cookie to the document response:
+
+```ts title="src/start.ts"
+import { createMiddleware, createStart } from "@tanstack/react-start";
+import { draftCookie } from "@decocms/blocks";
+
+const draftCookieMiddleware = createMiddleware().server(async ({ request, next }) => {
+  const result = await next();
+  const cookie = draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
+  if (cookie) result.response.headers.append("Set-Cookie", cookie);
+  return result;
+});
+
+export const startInstance = createStart(() => ({ requestMiddleware: [draftCookieMiddleware] }));
+```
+
+## Not a website
+
+`forDraft` takes the pointer string and nothing else, so nothing here assumes HTTP. A mobile app takes it from the deep link the site editor opens, or from a "preview" field on a debug screen, and keeps it in app state:
+
+```ts
+// React Native, on a deep link like mystore://preview?__draft=...
+const pointer = new URL(url).searchParams.get("__draft");
+setClient(pointer ? cms.forDraft(pointer) : cms.forRelease());
+```
+
+A script passes it as an argument. To look inside a pointer, or build one from parts, use `parseDraftPointer` and `formatDraftPointer` from the [API reference](/next/api-reference#draft-pointers); `forDraft` parses on its own, so normally you don't have to.
+
+## Who may preview
+
+Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither needs code in your app. First, the pointer must name your site's own Deco API host, which the CMS looks up from your site ID and token. A pointer to any other host is refused (the client returns an error), so a crafted pointer can't make your server fetch from somewhere else. Second, the pointer carries a token signed by the site editor, which the Deco API checks before serving the draft.
+
+A revision on its own selects content but unlocks nothing; only a signed pointer reaches unpublished drafts.
+
+If a website wants to show drafts on its preview domain only, it checks the request's host before calling `forDraft`:
+
+```ts
+const host = new URL(request.url).host;
+const pointer = host === "preview.store.example.com" ? draftPointer(request) : null;
+const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+```
+
+<Callout type="warning">**The token is the only Deco credential.** The site ID isn't secret, and the site holds no other credential for Deco (the private key for [secrets](/next/built-in-blocks#secrets) is your own). An invalid or unexpected pointer never loads anything: the client returns an error, and your app decides what to show.</Callout>
+
+## The site editor's canvas
+
+The site editor edits your content without your site. It opens your site only for previews: the canvas loads the real page with a `?__draft=` link, so the site needs its site ID and token and the wiring above. With [`deco serve`](/next/site-editor#edit-on-your-machine), the canvas opens your dev app instead, which already renders your working tree.
+
+## Preview readiness
+
+A saved commit is durable before its preview asset is necessarily ready. The editor shows preparation status, then opens a signed pointer to the exact immutable overlay. Moving the internal draft branch never changes an older pointer's overrides, but later requests inherit whatever production that server currently has. Draft reads use private object storage through the delivery service; a missing revision never triggers a GitHub fetch. See [Exact draft previews](/next/content-delivery#exact-draft-previews).

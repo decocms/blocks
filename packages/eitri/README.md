@@ -13,7 +13,7 @@ well-filled `.deco`* so Studio can author content against your Eitri sections:
 
 It is a thin, Eitri-flavored wrapper over `@decocms/blocks-cli`'s `generate`
 orchestrator (`--platform eitri`). See
-[`docs/eitri-stack-design.md`](../../docs/eitri-stack-design.md) for the full
+[`notes/eitri-stack-design.md`](../../notes/eitri-stack-design.md) for the full
 design.
 
 ## What Eitri owns vs. what deco owns

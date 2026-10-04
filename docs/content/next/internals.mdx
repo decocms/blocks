@@ -1,0 +1,88 @@
+---
+title: How Deco works inside
+nav: Overview
+group: Under the hood
+kind: internals
+order: 1
+---
+
+# How Deco works inside
+
+The [developer docs](/next/how-it-works) describe how to use Deco CMS. This part describes how it works inside. It's for contributors, for anyone connecting a new framework or content store, and for the curious:
+
+- [How resolution works](/next/how-resolution-works): one saved block, expanded and run step by step.
+- [How hosted releases stay current](/next/hosted-releases-internals): with the [hosted Deco CMS](/next/hosted), new releases arrive without a request ever waiting on the network.
+- [How telemetry is sent](/next/telemetry-internals): the wire format, why a slow collector never slows a page, and what's scrubbed before anything leaves.
+- [How `matchRoute` matches](/next/router-internals): the data structure that maps a URL to an entry.
+- [Content protocol](/next/content-protocol): the four methods [the site editor](/next/site-editor) reads and writes content through, and the two backends that serve them.
+- [Site editor compatibility](/next/studio-compatibility): what the site editor reads from the schema, the alias table, and the legacy endpoints older sites serve.
+- [Design decisions](/next/design-decisions): the choices behind all of the above, and why they won.
+- [Snapshots and revisions](#snapshots-and-revisions): how the content module holds your saved blocks, and how a revision names one version of them.
+- [How the CLI ships](#how-the-cli-ships): why the `deco` command lives inside `@decocms/blocks`, and why it never ends up in your app's bundle.
+
+## Snapshots and revisions
+
+The [content module](/next/content#the-content-module)'s default export, `{ revision, blocks }`, is a **snapshot**: one fixed copy of your content map, the saved blocks by name. Each client reads one fixed effective content view. Releases use complete snapshots; hosted drafts layer immutable changes and tombstones over the production snapshot already local to that client (see [Draft overlays](/next/content-delivery#exact-draft-previews)). Unchanged objects are shared, not downloaded again. The field is called `blocks` after the [Blocks](/next/blocks) format, which the site editor also reads and writes, but it holds [saved blocks](/next/saved-blocks): any JSON, never functions. Functions only ever come from your [block map](/next/blocks#the-block-map).
+
+A release revision names that exact set of entries, like a version number. The CMS and your app use it to tell when content changed, to keep cached data from different versions apart, and to tell one deploy's content from the next. Any change to any entry produces a new revision, and a revision is never reused for different content. [`deco content`](/next/cli#deco-schema-and-deco-content) computes it as a hash of the whole map, so two copies of the same content get the same revision wherever they're built; [Deployment](/next/releases-and-deployment#one-revision-per-response) shows what that buys you.
+
+Hosted draft clients use an opaque composite identity of the local production revision and overlay version instead of hashing the whole merged map. The same overlay can yield different effective content over different local releases; only the changes, not the inherited base, are fixed by a draft pointer.
+
+To read an entry exactly as stored, with references in place, index the map: `content.blocks["PromoBanner"]`.
+
+## How the CLI ships
+
+The `deco` command ships inside `@decocms/blocks` rather than in a package of its own. That means one install, and the CLI's version can never drift from the runtime's: the schema and content module it generates always match the SDK that reads them.
+
+- **The bin.** The package declares a single bin, `deco`. That's why `npx @decocms/blocks schema` works with nothing installed, and why scripts can say `deco schema` once it's installed. The bin is a small JavaScript file that loads the CLI's TypeScript sources, so it runs under plain Node as well as Bun.
+- **Programmatic use.** The same commands are importable from the `@decocms/blocks/cli` subpath.
+- **Nothing in your bundle.** `typescript` is a peer dependency, which npm and Bun install for you, and the CLI loads it only when a command runs. Bundlers only include what your app imports, and apps never import `@decocms/blocks/cli`, so the CLI and the TypeScript compiler never reach an app bundle. The runtime never imports the `cli` subpath either.
+
+## How `deco check` works
+
+[`deco check`](/next/checking) validates your saved blocks with a JSON Schema validator, against `.deco/schema.gen.json` as it is on disk, the file `deco schema` writes. It doesn't generate a schema of its own, so run `deco schema` first. It doesn't type-check generated TypeScript with `tsc`, for three reasons:
+
+- **Speed.** Validating thousands of JSON files takes milliseconds, and no TypeScript is loaded at all. `tsc` would have to load your whole app first.
+- **Messages that point at the data.** Errors are grouped by file: a line with the file, then one indented line per field, not a line in a generated file:
+
+  ```text
+  .deco/blocks/HomePage.json
+    sections[2].title: required
+  ```
+- **One contract.** The schema also carries what types can't express, such as `@maxLength` or `@format date`, and it's what the site editor enforces. What passes `deco check` is exactly what the site editor allows.
+
+Three things make the messages useful:
+
+1. **Dispatch on [`__resolveType`](/next/blocks#functions-as-blocks).** A field that takes any block of a type, like `product: Product` or `sections: ReactNode[]`, is an `anyOf` in the schema, and plain `anyOf` validation reports every branch that didn't match. The check reads `__resolveType` first and validates against that one block type's schema, so an unknown name is a single error: `unknown block type "promo-banner"`.
+2. **References by return type.** A reference to a saved block is checked against the return type of the function behind it, the same rule the site editor uses to offer blocks for a field.
+3. **Plain wording.** Validator errors are rewritten into short lines: `title: required`, `title: 214 characters, max 60`, `size: "xl" isn't one of "sm", "md", "lg"`.
+
+The check is only as accurate as the schema, so `deco schema`'s translation of types into schemas is tested on its own. Your usual `tsc` run still checks the code itself.
+
+## Contributing
+
+The framework lives in one repository, `decocms/blocks`, as a Bun workspace (Bun is the package manager and test runner). The framework is one package, `@decocms/blocks`; the `apps-*` folders under `packages/` are [upstream clients](/next/upstream-clients) for commerce and other services, which depend only on it. The v7 to v8 migration is an agent skill in `.agents/skills` (see [Migrating from v7](/next/renames-and-migrations#run-the-migration)). The [content protocol](/next/content-protocol) lives inside `@decocms/blocks`, as its `protocol` subpath; the `cli` subpath uses it, and the runtime never imports it. Packages depend on each other in one direction only:
+
+```text
+packages/
+├── blocks/          @decocms/blocks           the SDK: loaders, client, resolution, router,
+│                                              plus the deco CLI (the cli subpath) and the content
+│                                              protocol the site editor and deco serve speak
+│                                              (the protocol subpath).
+│                                              depends on no other @decocms package
+└── apps-*/          @decocms/apps-{vtex,shopify,wake,magento,algolia,resend,sfmc-personalization}
+                                               thin upstream clients.
+                                               depends on: @decocms/blocks
+```
+
+The framework used to be a single bundled package, and bundling one package into another can create two copies of a module that must exist once, such as the block registry; two registries in one process disagree in ways that are hard to find. So packages import each other's TypeScript source, never a bundled build. The SDK also guards against this at runtime: [`createCMS`](/next/api-reference#createcms-config) and [`remoteLoader`](/next/api-reference#loaders) keep their instances on `globalThis`, so a second copy reuses the first (see [One instance per process](/next/api-reference#one-instance-per-process)). `blocks` never imports from an `apps-*` package; if a feature needs both sides, split it into two functions rather than import in reverse.
+
+Apps following these docs need only `@decocms/blocks`, which includes the CLI (see [How the CLI ships](#how-the-cli-ships)). The scripts that move sites off Fresh and Deno are v7 tooling (see [Migrate from Fresh](/v7/migrate-from-fresh)). The next major has no per-framework packages. v7's `@decocms/blocks-admin`, `@decocms/tanstack` and `@decocms/nextjs` stay on the 7.x line, serving v7 sites on the site editor's legacy endpoints; next-major apps don't depend on them. What depended on the platform (caching upstream responses, loading content from Workers KV) is a few lines in your template (see [Upstream data](/next/caching#upstream-data) and [Example: Workers KV](/next/api-reference#example-workers-kv)), and the site editor reaches next-major apps through the content protocol.
+
+```bash
+bun install
+bun run check     # typecheck + lint + unused code
+bun run test      # vitest, whole repo
+```
+
+Two rules before your first PR. If a site has to copy or wrap code because a package doesn't export something it needs, add the export to the package. And some tests guard bugs that already reached production, such as the test that keeps two copies of the package from creating two CMS instances; if one fails, fix the code, not the assertion.

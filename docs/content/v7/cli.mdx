@@ -1,0 +1,286 @@
+---
+title: CLI reference
+group: CLI
+order: 24
+description: Synopsis, flags, defaults and exit codes for every command in @decocms/blocks-cli and @decocms/eitri.
+---
+
+# CLI reference
+
+`@decocms/blocks-cli` ships the command-line tools around a Deco site: migration and upgrade codemods, Fast Deploy content sync, a content pull bot, and observability configuration checks. This page lists each one with its flags, defaults and exit codes. The most-used command, `generate`, has its own page: [Code generation](/v7/generate).
+
+## Running the commands
+
+The package installs as a development dependency. Its commands are TypeScript files run through `tsx`, so run them with `npx -p`, which works whether or not the package is installed locally:
+
+```bash
+npx -p @decocms/blocks-cli deco-upgrade-6-to-7 --help
+```
+
+Two scripts have no command name; run those by file path with `tsx`, as shown in their sections. Every named command accepts `-h` or `--help`.
+
+Several commands are **dry runs by default**: they print what they would change and write nothing until you pass `--write`.
+
+| Command | What it does | Writes without a flag? |
+|---|---|---|
+| `deco-migrate` | Migrates a Fresh/Deno site to TanStack Start, in place | Yes (use `--dry-run`) |
+| `deco-post-cleanup` | Audits a migrated site for leftover code | No (`--fix` applies safe fixes) |
+| `deco-htmx-analyze` | Inventories htmx usage before the rewrite | No |
+| `deco-reconcile` | Exports source-repo changes made since the migration, as patches | Only its output folder |
+| `deco-upgrade-6-to-7` | Moves an `@decocms/start` 6.x site onto the current packages | No (`--write`) |
+| `deco-sync-blocks-to-kv` | Syncs content to Cloudflare KV for Fast Deploy | No (`--write`) |
+| `deco-migrate-blocks-to-kv` | Seeds KV with a deployment's content once | No (`--write`) |
+| `deco-sync-blocks-bot` | Pulls production content into `.deco/blocks` | Yes (use `--dry-run`) |
+| `deco-cf-observability` | Writes the observability block in `wrangler.jsonc` | No (`--write`) |
+| `deco-audit-observability` | Checks the observability block in `wrangler.jsonc` | No |
+| `deco-eitri` | Scaffolds and generates an Eitri app's `.deco` | Yes |
+
+## Migration and upgrade
+
+### deco-migrate
+
+Migrates a Fresh/Preact/Deno storefront to TanStack Start, React 19 and Cloudflare Workers. It rewrites the source directory **in place**, so run it on a copy or a fresh branch. The phases are: analyze, scaffold, transform, cleanup, report (writes `MIGRATION_REPORT.md`), verify, bootstrap (installs dependencies and generates), compile, and a final cleanup audit. [Migrating from Fresh and Deno](/v7/migrate-from-fresh) explains the whole procedure.
+
+```bash
+npx -p @decocms/blocks-cli deco-migrate --source ./my-store --dry-run --verbose
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--source <dir>` | `.` | Site to migrate. |
+| `--dry-run` | off | Shows the changes without writing. |
+| `--verbose` | off | Logs every file. |
+| `--strict` | off | Exits 2 when the typecheck, build or cleanup audit reports errors. |
+| `--with-build` | off | Also runs `vite build` in the compile phase. |
+| `--no-compile` | off | Skips the compile phase. |
+| `--no-cleanup-audit` | off | Skips the final cleanup audit. |
+
+An optional `.deco-migrate.config.json` at the source root adjusts which sections get section conventions: `{ "sectionConventions": { "extend": { "sync": [], "eagerSync": [], "listingCache": [], "staticCache": [] } } }`, or `"replace"` instead of `"extend"`.
+
+Exit codes: `0` success; `1` unexpected error; `2` unsupported source layout, a failed verification, or (with `--strict`) compile or audit errors.
+
+### deco-post-cleanup
+
+Audits a migrated site for dead code and boilerplate the framework now provides. Read-only unless you pass `--fix`.
+
+```bash
+npx -p @decocms/blocks-cli deco-post-cleanup --source ./my-store --json
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--source <dir>` | `.` | Site to audit. |
+| `--fix` | off | Applies the mechanical fixes for the rules marked safe. Other rules stay report-only. |
+| `--json` | off | Prints the findings as JSON. |
+| `--strict` | off | Exits 2 if there are warning-level findings. |
+
+### deco-htmx-analyze
+
+Read-only inventory of `hx-*` attributes in a Fresh site, so you can size the rewrite to React before migrating. v7 has no htmx runtime.
+
+```bash
+npx -p @decocms/blocks-cli deco-htmx-analyze --source ./my-store --top 10
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--source <dir>` | current directory | Site to analyze. |
+| `--json` | off | Prints the inventory as JSON. |
+| `--top <n>` | `20` | How many files to list, by occurrence count. |
+
+### deco-reconcile
+
+A migration takes time, and the original site keeps changing meanwhile. `deco-reconcile` collects everything committed to the original repository since the migration cut and writes one patch per file, with suggested target paths, for you to port into the migrated repository. It writes nothing into the target tree except its output folder.
+
+```bash
+npx -p @decocms/blocks-cli deco-reconcile --source ../my-store-fresh --target ../my-store --snapshot <cut-sha>
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--source <dir>` | required | Checkout of the original Fresh/Deno repository. |
+| `--target <dir>` | required | Checkout of the migrated repository. |
+| `--snapshot <sha>` | required | Last source commit already reconciled (the migration cut). |
+| `--target-snapshot <sha>` | the commit that added `MIGRATION_REPORT.md`, else `HEAD` | The migration commit in the target. Later target commits are treated as hand fixes and reported as possible collisions. |
+| `--out <dir>` | `<target>/.reconcile/<source-head>` | Output folder: `manifest.json` (with per-file `done` flags for resuming), `INDEX.md` and `patches/`. |
+| `--verbose` | off | Logs every file. |
+
+Exit codes: `0` success; `2` bad arguments or a git failure. Feed the source head it reports back as `--snapshot` next time.
+
+### deco-upgrade-6-to-7
+
+Upgrades a site that is already on TanStack Start from `@decocms/start` 6.x and `@decocms/apps` 5.x to the current split packages. It rewrites import paths (including renamed exports) and updates `package.json`. [Upgrading from @decocms/start 6.x](/v7/upgrade-from-start) is the full procedure.
+
+```bash
+npx -p @decocms/blocks-cli deco-upgrade-6-to-7 --write
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--src-dir <dir>` | `src` | Source folder to rewrite. |
+| `--write` | off | Applies the changes. Without it, lists the files that would change. |
+
+Exit codes: `0` success or dry run; `2` the source folder doesn't exist.
+
+## Fast Deploy content
+
+Both commands write to Cloudflare KV over the REST API. With `--write` they need credentials in the environment: `CF_ACCOUNT_ID` (or `CLOUDFLARE_ACCOUNT_ID`), `CF_API_TOKEN` (or `CLOUDFLARE_API_TOKEN`, with permission to edit Workers KV) and `CF_KV_NAMESPACE_ID` (or the `DECO_KV` namespace id read from `wrangler.jsonc`). Cloudflare Workers Builds provides the account and token variables itself. [Deploying and Fast Deploy](/v7/releases) shows where they go in a pipeline.
+
+### deco-sync-blocks-to-kv
+
+Writes the content snapshot for one deployment, and can mark that deployment live.
+
+```bash
+npx -p @decocms/blocks-cli deco-sync-blocks-to-kv --write --all --deployment-id "$WORKERS_CI_COMMIT_SHA"
+```
+
+```bash
+npx -p @decocms/blocks-cli deco-sync-blocks-to-kv --set-live --deployment-id "$WORKERS_CI_COMMIT_SHA"
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--deployment-id <id>` | none (required to write) | Deployment id, normally the commit SHA, that the content is stored under. |
+| `--set-live` | off | Only records `<id>` as the live deployment. Reads no content; implies a write. |
+| `--all` | off | Syncs even when git shows no content change. |
+| `--since <ref>` | `HEAD~1` | Base ref for the content-change check. |
+| `--blocks-dir <dir>` | `.deco/blocks` | Content folder. |
+| `--retain <n>` | `10` | Deployment snapshots to keep; older ones are removed. |
+| `--purge-url <origin>` | none | After syncing, calls `POST /_cache/purge` on this origin. |
+| `--purge-token <token>` | `PURGE_TOKEN` env var | Bearer token for that purge. |
+| `--write` | off | Performs the writes. |
+
+Use this command rather than writing KV yourself: the revision it stores must match the one the Worker computes byte for byte.
+
+Exit codes: `0` success, nothing to do, or dry run; `2` bad folder, missing credentials or arguments, or a failed verification.
+
+### deco-migrate-blocks-to-kv
+
+One-time seed of a deployment's content into KV, for turning Fast Deploy on for an existing site.
+
+```bash
+npx -p @decocms/blocks-cli deco-migrate-blocks-to-kv --deployment-id <commit-sha> --write
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--deployment-id <id>` | none (required to write) | Deployment id to store the content under. |
+| `--blocks-dir <dir>` | `.deco/blocks` | Content folder. |
+| `--write` | off | Performs the writes. |
+
+Exit codes match `deco-sync-blocks-to-kv`.
+
+## Content sync
+
+### deco-sync-blocks-bot
+
+Pulls the production content (`GET <origin>/.decofile`) into `.deco/blocks/`, one file per block, so a scheduled job can open a pull request with what editors published. It protects some blocks by default: blocks matching `--deny`, and blocks holding encrypted secret references, are never overwritten or deleted.
+
+```bash
+npx -p @decocms/blocks-cli deco-sync-blocks-bot --origin https://www.example.com --dry-run
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--origin <url>` | none | Site origin; the bot fetches `<origin>/.decofile`. |
+| `--url <url>` | none | Full content URL, instead of `--origin`. |
+| `--out <dir>` | `.deco/blocks` | Content folder to write. |
+| `--deny <globs>` | `Site,site` | Block-name globs never overwritten. |
+| `--allow-secret-blocks` | off | Also overwrites blocks that hold encrypted secrets. |
+| `--prune` | off | Deletes local blocks missing upstream. |
+| `--dry-run` | off | Reports without writing. |
+| `--fail-on-plaintext-secret` | off | Exits 1 if a block it would write holds what looks like a raw credential. |
+| `--max-bytes <n>` | `67108864` (64 MiB) | Largest response accepted. |
+| `--timeout-ms <n>` | `60000` | Fetch timeout. |
+| `--json` | off | Prints the report as JSON. |
+| `--github` | off | Prints GitHub Actions annotations. |
+
+Exit codes: `0` done, with or without changes; `1` the plaintext-secret check failed; `2` usage, network or payload error (nothing written).
+
+## Observability configuration
+
+### deco-cf-observability
+
+Writes Cloudflare's observability block (logs and traces) into `wrangler.jsonc`. Without `--write` it prints a diff.
+
+```bash
+npx -p @decocms/blocks-cli deco-cf-observability --write --traces-rate 0.01
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--source <dir>` | `.` | Folder with `wrangler.jsonc`. |
+| `--write` | off | Applies the change. |
+| `--traces-rate <r>` | `0.1` | Head sampling rate for traces. |
+| `--logs-rate <r>` | `1.0` | Head sampling rate for logs. |
+| `--destination-logs <name>` | none | Also forwards logs to this Cloudflare destination. |
+| `--destination-traces <name>` | none | Also forwards traces to this Cloudflare destination. |
+| `--persist`, `--no-persist` | `--persist` | Keeps logs and traces in the Cloudflare dashboard. Drop it only when forwarding to a destination. |
+
+Pass `--traces-rate 0.01`. The default of `0.1` is above the rate `deco-audit-observability` accepts, so the audit flags a file written with it.
+
+Exit codes: `0` nothing to change (or written); `1` a change is needed and `--write` wasn't passed; `2` the file is missing or invalid.
+
+### deco-audit-observability
+
+Checks the observability block in `wrangler.jsonc`: that observability, logs and traces are on, that the trace sampling rate is at most `0.01`, that logs aren't under-sampled, and that data is kept somewhere. It also checks the rest of the telemetry wiring the migration scaffold sets up, such as the `version_metadata` binding, the tail consumer and the telemetry endpoint variables, so a `wrangler.jsonc` written by hand can get findings for those too.
+
+```bash
+npx -p @decocms/blocks-cli deco-audit-observability --mode block --github
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--source <dir>` | `.` | Folder with `wrangler.jsonc`. |
+| `--json` | off | Prints the findings as JSON. |
+| `--mode <warn\|block>` | `warn` | `warn` always exits 0. `block` exits 1 when there's an error-level finding. |
+| `--github` | off | Prints GitHub Actions annotations. |
+
+Exit codes: `0` no findings, or any findings in `warn` mode; `1` error findings in `block` mode; `2` the file is missing or can't be parsed. Use `--mode block` to make it a CI gate.
+
+## Eitri
+
+### deco-eitri
+
+Ships with `@decocms/eitri`, not `@decocms/blocks-cli`. See [Eitri apps](/v7/eitri).
+
+```bash
+npx deco-eitri init
+```
+
+```bash
+npx deco-eitri generate --root apps/mobile
+```
+
+- `deco-eitri init [--root <dir>]` creates `tsconfig.json` and `src/eitri-env.d.ts`, never overwriting existing files.
+- `deco-eitri generate [flags]` runs [`generate`](/v7/generate) with `--platform eitri`, forwarding every flag.
+
+Exit codes: `0` success; `1` no command, an unknown command, or a generation failure.
+
+## Scripts without a command name
+
+These ship in `@decocms/blocks-cli` and run by path.
+
+### audit-secrets.ts
+
+Scans source for credentials written into loaders and actions, and for the secrets SDK (`@decocms/blocks/sdk/crypto`) imported from a `"use client"` file.
+
+```bash
+npx tsx node_modules/@decocms/blocks-cli/scripts/audit-secrets.ts --source ./src --mode block
+```
+
+Flags: `--source <dir>` (default `.`), `--json`, `--mode warn|block` (default `warn`), `--github`. Exit codes: `0` no findings or `warn` mode; `1` error findings in `block` mode; `2` the source folder is missing.
+
+### tailwind-lint.ts
+
+Finds class issues when moving from Tailwind v3 to v4 and DaisyUI v4 to v5: renamed classes, arbitrary values that have a built-in equivalent (`px-[16px]` becomes `px-4`), and responsive variants written in an order that v4's cascade gets wrong. It reports by default; `--fix` rewrites the files. It scans `src/` unless you pass a folder.
+
+```bash
+npx tsx node_modules/@decocms/blocks-cli/scripts/tailwind-lint.ts src/sections --fix
+```
+
+## Related
+
+- [Code generation](/v7/generate) covers `generate`.
+- [Migrating from Fresh and Deno](/v7/migrate-from-fresh) and [Upgrading from @decocms/start 6.x](/v7/upgrade-from-start) walk through the migration commands in order.
+- [Observability](/v7/observability) explains what the observability settings control.

@@ -1,0 +1,107 @@
+---
+title: Analytics
+nav: Analytics
+group: Telemetry & analytics
+order: 22
+description: Privacy-friendly page views, with no cookies, from a built-in block compatible with One Dollar Stats.
+---
+
+# Analytics
+
+Marketing wants to know which landing page the Black Friday banner sends people to, without a cookie banner or a third-party tag manager.
+
+Deco CMS includes small, open-source web analytics compatible with [One Dollar Stats](https://onedollarstats.com). It counts page views without cookies, and it's a [built-in block](/next/built-in-blocks), `analytics`, so you add it like any other block and editors can change it in [the site editor](/next/site-editor). This page shows how to add it, where page views go, how to send your own events and how to turn it off.
+
+Analytics has nothing to do with [telemetry](/next/telemetry): telemetry is errors, metrics and traces from your servers, configured in code, while analytics is page views from the browser, configured in this block.
+
+## Add analytics to your site
+
+### 1. Save an `analytics` block
+
+Save a block whose type is the built-in `analytics`. With no arguments, it uses the defaults:
+
+```json title=".deco/blocks/Analytics.json"
+{ "__resolveType": "analytics" }
+```
+
+Like any [saved block](/next/saved-blocks), it's a JSON file in your repository, and the site editor shows it as a form.
+
+The `analytics` block holds settings, not a script: it returns its arguments with the defaults filled in. To send page views to your own collector, set `collector`:
+
+```json title=".deco/blocks/Analytics.json"
+{ "__resolveType": "analytics", "collector": "https://stats.example.com/events" }
+```
+
+### 2. Render the script
+
+Resolve the block in your root layout and pass the settings to `AnalyticsScript`, from `@decocms/blocks/analytics`, so every page gets it:
+
+```tsx title="app/layout.tsx"
+import type { Analytics } from "@decocms/blocks";
+import { AnalyticsScript } from "@decocms/blocks/analytics";
+import { cms } from "../cms";
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const [analytics] = await cms.forRelease().resolve<Analytics>("Analytics");   // the settings, defaults filled in
+
+  return (
+    <html lang="en">
+      <body>
+        {children}
+        <AnalyticsScript {...analytics} />
+      </body>
+    </html>
+  );
+}
+```
+
+It works the same on every framework, since the block returns plain settings. In the browser, the script sends a page view on every navigation: the path without its query string, the referrer and the hostname.
+
+## Props
+
+| Prop | Default | What it does |
+|---|---|---|
+| `collector` | The hosted Deco CMS collector | The endpoint page views go to: One Dollar Stats' collector or any endpoint that accepts its format. |
+| `enabled` | `true` | `AnalyticsScript` renders nothing when `false`. |
+
+There's no site ID: like One Dollar Stats, the collector tells sites apart by the page's hostname. The exact type is in the [API reference](/next/api-reference#types).
+
+<Hosted to="/next/hosted" label="The hosted Deco CMS">**Analytics with nothing to run.** Leave `collector` out, and the hosted Deco CMS collects your page views and shows them for your site. It only counts page views from sites [connected](/next/hosted#connect-your-site) to the hosted Deco CMS, so without it, set `collector` or turn analytics off.</Hosted>
+
+## Send your own events
+
+Call `track` from `@decocms/blocks/analytics`, with an event name and optional properties:
+
+```tsx
+import { track } from "@decocms/blocks/analytics";
+
+<button onClick={() => { addToCart(sku); track("add_to_cart", { sku }); }}>Add to cart</button>
+```
+
+`track` sends through the script `AnalyticsScript` renders. On a page without it, `track` does nothing.
+
+Ecommerce events, such as a product view or a purchase, belong to your [platform template](/next/how-it-works#key-terms): it calls `track` next to its own tag manager push, so Deco CMS itself knows nothing about carts or orders.
+
+## Turn it off
+
+Set `enabled` to `false`, in the site editor or by hand:
+
+```json title=".deco/blocks/Analytics.json"
+{ "__resolveType": "analytics", "enabled": false }
+```
+
+It's a content edit, so it ships like any other, and switching it back on is the same one-field commit. Because it's a block, you can also pick between settings with [variants](/next/matchers-and-variants), to switch it on only during a campaign, for example.
+
+## One Dollar Stats
+
+Page views use the wire format of the One Dollar Stats tracker, so the two halves mix and match:
+
+- point `collector` at One Dollar Stats' own collector, or
+- use their tracker script on your site and send to a collector that accepts the format.
+
+The format isn't versioned, so Deco CMS tests against a pinned tracker version; the details are [under the hood](/next/telemetry-internals#analytics-events).
+
+## Privacy
+
+- No cookies, nothing stored in the browser and no fingerprinting: a page view is a path, a referrer and a hostname.
+- Query strings are dropped, so search terms and tracking parameters stay out of your data. Keep personal data out of `track` properties.

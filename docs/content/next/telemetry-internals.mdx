@@ -1,0 +1,47 @@
+---
+title: How telemetry is sent
+nav: Telemetry internals
+group: Under the hood
+kind: internals
+order: 7
+---
+
+# How telemetry is sent
+
+You're contributing to the SDK, or wiring up a collector, and want to know why a collector that's down never slows a page. This page shows the wire format, how metrics are shaped, and how batches leave a server. What's sent and how to configure it is in [Telemetry](/next/telemetry).
+
+## The wire format
+
+Telemetry is OpenTelemetry over OTLP/HTTP, encoded as JSON, posted to the standard paths under the configured endpoint: `/v1/traces`, `/v1/metrics` and `/v1/logs`. JSON keeps a protobuf library out of the edge bundle. Bodies are gzipped. A failed send is retried only on `429`, `502`, `503` and `504`; any other error drops the batch.
+
+## Metrics
+
+Metric names follow the OpenTelemetry semantic conventions, such as `http.client.request.duration` for upstream calls. The SDK records no `http.server.*` metrics: the requests your site serves are your framework's to measure. Metrics use **delta temporality**: each batch carries what happened since the last one, because a Cloudflare Workers isolate can disappear at any moment and has no long-lived counter to report. Prometheus-style backends need the collector's `deltatocumulative` processor to turn them into cumulative counters.
+
+Every batch carries these resource attributes:
+
+| Attribute | Value |
+|---|---|
+| `service.name` | `OTEL_SERVICE_NAME`, else the site ID, else `decocms-site` |
+| `service.version` | The deployed commit, read from the first variable your host sets (`DECO_COMMIT_SHA`, `WORKERS_CI_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, `VERCEL_GIT_COMMIT_SHA`, `GITHUB_SHA`, `RENDER_GIT_COMMIT`, `SOURCE_VERSION`, `COMMIT_SHA`), else `unknown` |
+| `deployment.environment.name` | `VERCEL_ENV` when set, else `development` when `NODE_ENV` is `development`, else `production` |
+| `deco.site` | The site ID, when there is one |
+| `deco.release` | The [revision](/next/releases-and-deployment#what-a-revision-is) being served |
+
+The standard `OTEL_RESOURCE_ATTRIBUTES` variable overrides any of them, for example `deployment.environment.name=preview`.
+
+## Sending in the background
+
+Measurements are aggregated in memory and sent in batches, never in front of a response. On Cloudflare Workers, which run no timers between requests, a batch goes out after the response, inside `ctx.waitUntil`. Elsewhere, it goes out on a timer that doesn't keep the process alive. A collector that's down or slow loses that one batch; nothing waits for it and nothing piles up.
+
+## Scrubbing
+
+The SDK removes `cookie`, `authorization` and similar headers, tokens and request and response bodies before anything is encoded. Scrubbing happens on the sending side, not in a collector, so a third-party endpoint gets the same guarantee as the hosted Deco CMS.
+
+## Several CMS instances
+
+The [instrumented fetch](/next/api-reference#createinstrumentedfetch-options) reports its measurements to the CMS in the same process, which sends them where its `telemetry` option points. The instrumented fetch reports to the most recently created CMS with telemetry; several sites in one process share one destination.
+
+## Analytics events
+
+[Analytics](/next/analytics) is separate from telemetry: it doesn't use the `telemetry` option or the OTLP path above. The script `AnalyticsScript` renders sends page views in the One Dollar Stats tracker's wire format: a JSON object with the page URL (without query string) and a list of events, each with its type, the referrer when it's from another site, and its properties. When the encoded payload is short, it goes as a `GET` with the JSON, base64-encoded, in the `?data=` parameter; otherwise it's sent with `navigator.sendBeacon` or a `POST`.

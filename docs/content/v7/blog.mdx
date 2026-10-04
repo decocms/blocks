@@ -1,0 +1,183 @@
+---
+title: Blog
+group: Apps
+order: 34
+description: Write blog posts, categories and authors in Studio, and list, page, search and render them with SEO and structured data.
+---
+
+# Blog
+
+`@decocms/apps-blog` turns blog content written in Studio into loaders and sections for your site. Posts, categories and authors are ordinary blocks in the decofile, so they're versioned, previewed and published like the rest of your content. The app reads them straight from the decofile in memory, with no external service, and gives you loaders for post pages, listings, related posts and categories, SEO sections with structured data, and a set of sections for rich post bodies.
+
+```bash
+bun add @decocms/apps-blog @decocms/apps-commerce @decocms/apps-website
+```
+
+## Key terms
+
+<Terms>
+  <Term name="Post">A block whose key starts with `collections/blog/posts` and whose value holds the post under a `post` field.</Term>
+  <Term name="Category">A block whose key starts with `collections/blog/categories`, holding the category under a `category` field.</Term>
+  <Term name="Live post">A post that's published, or scheduled with a go-live time that has passed. Only live posts appear in listings.</Term>
+  <Term name="Records adapter">Optional storage you provide for ratings, reviews and view counts. Without it those features return empty results.</Term>
+</Terms>
+
+## The content model
+
+Each post is a block in the decofile:
+
+```json title=".deco/blocks/collections%2Fblog%2Fposts%2Fsummer-guide.json"
+{
+  "__resolveType": "blog/loaders/Blogpost.ts",
+  "post": {
+    "title": "The summer guide",
+    "excerpt": "Light layers for long days.",
+    "slug": "summer-guide",
+    "date": "2026-06-01",
+    "status": "published",
+    "categories": [{ "name": "Guides", "slug": "guides" }],
+    "content": "<p>…</p>"
+  }
+}
+```
+
+The main `BlogPost` fields:
+
+| Field | What it holds |
+|---|---|
+| `title`, `excerpt`, `slug`, `date` | Required. `date` is a calendar date; `slug` is how the post is found and linked. |
+| `status`, `scheduledDatetime` | Publication state (see below). |
+| `content` | The body as rich text (HTML). |
+| `sections` | An alternative body built from sections, which editors pick in Studio. |
+| `image`, `alt`, `imageCarousel` | The cover image and an optional carousel. |
+| `authors`, `categories` | Lists of `Author` (`name`, `email`, `avatar`, …) and `Category` (`name`, `slug`). |
+| `dateModified`, `readTime`, `seo`, `extraProps` | Optional metadata, SEO overrides and free-form extra fields. |
+
+Ratings, reviews and view counts are added to posts at runtime when you provide a [records adapter](#ratings-reviews-and-views).
+
+### Publication and scheduling
+
+`status` is one of `draft`, `published`, `scheduled`, `archived`, `generating` or `awaiting_review`. A post is **live** when its status is `published` or missing (older posts have none), or when it's `scheduled` and `scheduledDatetime` has passed. A scheduled time without a time zone is read as UTC, and an unreadable one is never treated as live. Any other status, including ones added later, keeps the post out.
+
+Listings, related posts and category pages drop posts that aren't live, and posts without a `slug`, before they paginate. A single post's page still loads a post that isn't live, so editors can preview it, but marks it `noIndexing`. If you build your own listing, apply the same rule with `isLivePost(post)`, exported from the package root.
+
+## Configuring
+
+The app's settings live in a `deco-blog` block. Every field is optional:
+
+| Field | What it does |
+|---|---|
+| `pageSlug` | Your post route, such as `/blog/:category/:slug`. Used to preview posts in Studio on their real page. |
+| `categorySlug` | Your category route, such as `/blog/:category`. |
+| `canonicalBaseUrl` | The origin for canonical URLs and structured data, such as `https://www.example.com`. Defaults to the request's host. |
+| `publisher` | The organization (`name`, `logo`, `url`) named in structured data. |
+| `seo` | `titleTemplate` and `descriptionTemplate` (with `%s` for the page's value), plus other site SEO defaults. |
+
+Install it with the registry entry; `configure` always succeeds, even with an empty block:
+
+```ts title="src/setup/apps.ts"
+import { autoconfigApps, type AppRegistry } from "@decocms/blocks-admin/apps";
+import { loadBlocks } from "@decocms/blocks/cms";
+import { BLOG_REGISTRY_ENTRY } from "@decocms/apps-blog/registry";
+import * as blogMod from "@decocms/apps-blog/mod";
+
+const APP_REGISTRY: AppRegistry = [{ ...BLOG_REGISTRY_ENTRY, module: async () => blogMod }];
+
+await autoconfigApps(loadBlocks(), APP_REGISTRY);
+```
+
+If you register loaders by hand instead, `createBlogLoaders()` returns them as a map for `registerCommerceLoaders`, and `configureBlog(config)` sets the same options:
+
+```ts title="src/setup/commerce-loaders.ts"
+import { registerCommerceLoaders } from "@decocms/blocks/cms";
+import { configureBlog, createBlogLoaders } from "@decocms/apps-blog";
+
+configureBlog({ pageSlug: "/blog/:category/:slug", canonicalBaseUrl: "https://www.example.com" });
+registerCommerceLoaders(createBlogLoaders());
+```
+
+## Loaders
+
+Each key is registered with and without `.ts`.
+
+| Key | Props | Returns |
+|---|---|---|
+| `blog/loaders/BlogPostPage` | `slug` | A `BlogPostPage` (`post`, `seo`), or `null` |
+| `blog/loaders/BlogpostListing` | `slug?` (a category), `count?`, `page?`, `sortBy?`, `query?` | A `BlogPostListingPage`: `posts`, `category`, `categories`, `pageInfo`, `seo` |
+| `blog/loaders/BlogpostList` | `count?`, `page?`, `slug?`, `postSlugs?`, `sortBy?`, `query?` | `BlogPost[]` |
+| `blog/loaders/BlogRelatedPosts` | `slug?` (one or more categories), `excludePostSlug?`, `count?`, `page?`, `sortBy?`, `query?` | `BlogPost[]` |
+| `blog/loaders/GetCategories` | `slug?`, `count?`, `sortBy?` (`title_asc` or `title_desc`) | `Category[]` |
+| `blog/loaders/BlogPostItem` | `slug` | One `BlogPost` |
+
+Lists default to 12 posts, page 1, newest first. When a prop is empty, the listing loaders read it from the page URL instead: `count`, `page`, `sortBy`, and `q` for a search term, which matches the title, excerpt and content. Props win over the URL. They return `null`, not an empty page, when nothing matches or the page is past the end, so handle `null` in your sections.
+
+A post page's content passes the slug from the route with `requestToParam`:
+
+```json title=".deco/blocks/pages-blog-post.json"
+{
+  "name": "Blog post",
+  "path": "/blog/:category/:slug",
+  "sections": [
+    {
+      "__resolveType": "site/sections/Blog/BlogPost.tsx",
+      "page": {
+        "__resolveType": "blog/loaders/BlogPostPage.ts",
+        "slug": { "__resolveType": "website/functions/requestToParam.ts", "param": "slug" }
+      }
+    }
+  ]
+}
+```
+
+<Callout type="warning">**Two sort names are inverted.** `title_asc` sorts Z to A and `view_desc` puts the least-viewed posts first; `title_desc` and `view_asc` are their opposites. The names are kept as they are so existing content keeps the order editors already chose. The date sorts behave as named.</Callout>
+
+## SEO sections
+
+Two sections render a page's SEO tags and structured data from a loader's result. Pass the loader's result as `jsonLD`, and optionally `title` and `description`:
+
+- **`SeoBlogPost`** (`@decocms/apps-blog/sections/Seo/SeoBlogPost`) for post pages. It emits a `BlogPosting` and a `BreadcrumbList`.
+- **`SeoBlogPostListing`** (`@decocms/apps-blog/sections/Seo/SeoBlogPostListing`) for listings. It emits a `Blog` and a `BreadcrumbList`.
+
+Both apply the block's `titleTemplate` and `descriptionTemplate`, set the canonical URL from `canonicalBaseUrl` when configured, and mark posts that aren't live as `noIndexing`. They render through the website app's `Seo` component (see [Website app](/v7/apps-website#seo-sections)).
+
+## Post body sections
+
+For posts built from sections instead of one rich-text field, the app ships a set of body sections under `@decocms/apps-blog/sections/blocks/<Name>`:
+
+`Paragraph`, `Heading`, `List`, `Divider`, `Quote`, `Callout`, `Checklist`, `Steps`, `Stat`, `StatGroup`, `CardGroup`, `Comparison`, `Table`, `BlockImage`, `Video`, `Code` and `Cta`.
+
+They're styled with Tailwind classes, including theme tokens such as `text-accent`, so your Tailwind theme should define them. HTML they render is sanitized first.
+
+If your posts come from an external editor as a list of typed blocks, `blocksToSections(blocks, overrides?)` converts them into section references ordered by `position`. Pass `overrides` to map a block type to a section of your own.
+
+`Template` (`@decocms/apps-blog/sections/Template`) is the preview Studio shows for a post record. When `pageSlug` is set, it shows the post on its real page; otherwise it renders the post's fields and sections.
+
+## Ratings, reviews and views
+
+The app doesn't store ratings, reviews or view counts itself. To enable them, give it a **records adapter** once, at module scope in your setup, backed by whatever storage you choose. Every method is optional:
+
+```ts title="src/setup/blog.ts"
+import { setBlogRecordsAdapter } from "@decocms/apps-blog";
+import { db } from "../db";
+
+setBlogRecordsAdapter({
+  listPostViews: () => db.postViews.all(),
+  incrementPostView: (id) => db.postViews.increment(id),
+});
+```
+
+| Method | Used for |
+|---|---|
+| `listRatings(slug)`, `upsertRating(input)` | Ratings and the `submitRating` action |
+| `listReviews(options)`, `getReview(id)`, `createReview(input)`, `updateReview(id, patch)` | Reviews and the `submitReview` action |
+| `listPostViews()`, `incrementPostView(id)` | View counts, the `view_*` sorts and the `submitView` action |
+
+Without an adapter, reads return empty lists, writes return `null`, `submitView` returns `{ count: 0 }`, and view sorts fall back to date order. Adapter errors are logged and treated the same way, so storage problems never break a page.
+
+The actions are reachable over [invoke](/v7/loaders) as `blog/actions/submitRating`, `blog/actions/submitReview` and `blog/actions/submitView`. To add ratings or reviews to loader results, call the extension functions in `@decocms/apps-blog/loaders/extensions/<BlogpostList|BlogpostListing|BlogpostPage>/<ratings|reviews>` on the loader's output; they make extra storage calls per post, so use them only where you show the data.
+
+## Related
+
+- [Website app](/v7/apps-website): the `Seo` component these sections use.
+- [Pages and routing](/v7/routing): routes with parameters.
+- [Content and the decofile](/v7/content): how blocks are stored.

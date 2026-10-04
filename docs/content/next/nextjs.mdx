@@ -1,0 +1,362 @@
+---
+title: Next.js App Router
+nav: Next.js
+group: Websites
+order: 18
+description: Render Deco CMS pages in the Next.js App Router with Server Components, generate metadata from the page's SEO block, and stream each block.
+---
+
+# Next.js App Router
+
+Editors choose page URLs in [the site editor](/next/site-editor), so your app can't know its routes ahead of time. Instead, one catch-all route receives every URL, asks [`matchRoute`](/next/api-reference#matchroute-url-items) which page or redirect owns it, and renders that page's blocks.
+
+This page shows how to render Deco pages with Server Components, generate metadata from the page's SEO block, and optionally stream each block.
+
+**Prerequisites:** an App Router app (the SDK reads no files, so the Node and Edge runtimes both work), with a root layout; `npm install @decocms/blocks server-only` (`@decocms/blocks` includes the [`deco` CLI](/next/cli)); and the [example project](/next/routing#the-example-project): `src/model.ts` plus the entries in `.deco/blocks`, in your app root.
+
+## 1. Add the components
+
+`PromoBanner` and `ProductHero` are the components the two blocks render. `CartButton` is a Client Component with state, there to show that interactive components keep working inside blocks the CMS renders on the server. None of them knows about the CMS.
+
+```tsx title="src/CartButton.tsx"
+"use client";
+import { useState } from "react";
+
+export default function CartButton() {
+  const [count, setCount] = useState(0);
+  return (
+    <button type="button" onClick={() => setCount((value) => value + 1)}>
+      Add to cart ({count})
+    </button>
+  );
+}
+```
+
+```tsx title="src/PromoBanner.tsx"
+import type { PromoBannerProps } from "./model";
+
+export default function PromoBanner({ title, href }: PromoBannerProps) {
+  return (
+    <a href={href} role="note">
+      {title}
+    </a>
+  );
+}
+```
+
+```tsx title="src/ProductHero.tsx"
+import CartButton from "./CartButton";
+import type { ProductHeroProps } from "./model";
+
+export default function ProductHero({ name, price, currency, image }: ProductHeroProps) {
+  const formatted = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(price);
+  return (
+    <section>
+      <img src={image} alt={name} />
+      <h1>{name}</h1>
+      <p>{formatted}</p>
+      <CartButton />
+    </section>
+  );
+}
+```
+
+## 2. Create the CMS
+
+Next renders both blocks as Server Components, and `CartButton` stays a Client Component. The [block map](/next/blocks#the-block-map) lives in `.deco/`, in your app root, next to your content (see [The `.deco` folder](/next/saved-blocks#the-deco-folder)), so it imports your components from `../src/`.
+
+```tsx title=".deco/index.tsx"
+import type { Blocks, Seo } from "@decocms/blocks";
+import ProductHero from "../src/ProductHero";
+import PromoBanner from "../src/PromoBanner";
+import type { ProductHeroProps, PromoBannerProps } from "../src/model";
+
+export default {
+  seo: (input: Seo) => input,
+  "promo-banner": (input: PromoBannerProps) => <PromoBanner {...input} />,
+  "product-hero": (input: ProductHeroProps) => <ProductHero {...input} />,
+} satisfies Blocks;
+```
+
+`seo` returns its input. Registering it lets editors save SEO as a reusable entry with its own form. `page` and `redirect` are [built-in blocks](/next/built-in-blocks#pages-and-redirects), so they aren't listed here. Both blocks return JSX, so they [fit the built-in page's](/next/schema#interchangeable-blocks) `sections: ReactNode[]`.
+
+`cms.ts` imports the [content module](/next/content#the-content-module), `.deco/blocks.gen.ts`. Step 3 generates it; until it has run once, TypeScript can't find the import.
+
+```ts title="src/cms.ts"
+import { createCMS } from "@decocms/blocks";
+import blocks from "../.deco";
+import content from "../.deco/blocks.gen";
+
+// Serves the content module: the content of the commit this build was made from.
+export const cms = createCMS({ blocks, content });
+```
+
+[`createCMS`](/next/api-reference#createcms-config) combines your block map and your content into the `cms` object (see [Create the CMS](/next/content#create-the-cms)). This guide doesn't cache upstream responses; for a short recipe over Next's data cache, see [Upstream data](/next/caching#next-js).
+
+Telemetry is one more option, and it's off until you say where it goes: for example, `telemetry: { endpoint: process.env.OTLP_ENDPOINT! }` sends it to your own OpenTelemetry collector. See [Telemetry](/next/telemetry#choose-where-telemetry-goes).
+
+```ts title="src/client.server.ts"
+import "server-only";
+import { cms } from "./cms";
+
+// The client for this request. Every page gets its client here, so this is the one place to change
+// if requests ever need different content.
+export async function client() {
+  return cms.forRelease();
+}
+```
+
+`cms.forRelease()` returns the client your code calls `list` and `resolve` on, one per request (see [One revision per response](/next/releases-and-deployment#one-revision-per-response)). `import "server-only"` makes the build fail if a Client Component imports this file, which keeps the CMS and its content out of the browser.
+
+
+## 3. Generate the schema and content
+
+`deco schema` and `deco content` generate the files the site editor and the app need; run them before the dev server and the build (see [Run it before dev and build](/next/cli#run-it-before-dev-and-build)):
+
+```json title="package.json"
+{
+  "scripts": {
+    "predev": "deco schema && deco content",
+    "prebuild": "deco schema && deco content && deco check"
+  }
+}
+```
+
+Commit `.deco/schema.gen.json` and gitignore `.deco/blocks.gen.ts`; don't edit either. What reloads on its own is in [The content module](/next/content#the-content-module); while you work, you can leave `npx @decocms/blocks content --watch` running beside `next dev`.
+
+## 4. Match the URL to a page
+
+`openPage` lists pages and redirects, matches the pathname, and resolves the page that wins (each step is explained in [Route a request](/next/routing#route-a-request)). The built-in `page` block resolves `seo` and every block in `sections`, so the page comes back ready to render. Listing is cheap: the CMS holds the content in memory.
+
+`generateMetadata` and the page component both need the page. Wrap the lookup in React's `cache` so they share one client and one result.
+
+```ts title="src/open-page.server.ts"
+import "server-only";
+import { cache, type ReactNode } from "react";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
+import { matchRoute, type Redirect } from "@decocms/blocks";
+import { client } from "./client.server";
+import type { ResolvedPage, StoredPage } from "./model";
+
+export const openPage = cache(async (pathname: string) => {
+  const c = await client();
+  const [pages, pagesError] = await c.list<StoredPage>("page");
+  if (pagesError) throw pagesError;
+  const [redirects, redirectsError] = await c.list<Redirect>("redirect");
+  if (redirectsError) throw redirectsError;
+
+  const match = matchRoute(pathname, { routes: pages, redirects });
+  if (match.kind === "not-found") notFound();
+  if (match.kind === "redirect") {
+    if (match.status === 301 || match.status === 308) permanentRedirect(match.location);
+    redirect(match.location);
+  }
+
+  const [page, error] = await c.resolve<ResolvedPage<ReactNode>>(match.entry);
+  if (error) throw error;
+  return page;
+});
+
+export const pathnameFor = (segments: string[] = []) =>
+  "/" + segments.map(encodeURIComponent).join("/");
+```
+
+## 5. Render the catch-all route
+
+The page's `sections` are already rendered blocks, so the route lists them in order.
+
+```tsx title="src/app/[[...path]]/page.tsx"
+import { Fragment } from "react";
+import type { Metadata } from "next";
+import { openPage, pathnameFor } from "../../open-page.server";
+
+type Props = { params: Promise<{ path?: string[] }> };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const page = await openPage(pathnameFor((await params).path));
+  return { title: page.seo?.title, description: page.seo?.description };   // without seo, the layout's metadata applies
+}
+
+export default async function Page({ params }: Props) {
+  const page = await openPage(pathnameFor((await params).path));
+  return (
+    <main>
+      {page.sections.map((section, index) => (
+        <Fragment key={index}>{section}</Fragment>
+      ))}
+    </main>
+  );
+}
+```
+
+If any block fails, `resolve` returns an error, `openPage` throws it, and Next shows its error page. To show a fallback for just the failing block, use the [streaming step](#7-stream-each-block-optional).
+
+## 6. Add your own routable type (a blog)
+
+Add `src/post.ts` from [Your own routable types](/next/routing#your-own-routable-types), add `post: (props: Post) => props` to the default export of `.deco/index.tsx` (importing `Post` from `../src/post`), run `npx @decocms/blocks schema` again, and save an entry such as `.deco/blocks/HelloWorld.json` (a new file, so run `npx @decocms/blocks content` again unless `--watch` is running). Then route posts in `openPage`; without this, every post link is a 404. List posts next to pages, and return the post as is when it wins: `match.entry` is already the saved post. Call `c.resolve(match.entry)` only if your posts contain blocks:
+
+```ts title="src/open-page.server.ts (changes)"
+import type { Post } from "./post";
+
+  // inside openPage, after listing pages and redirects:
+  const [posts, postsError] = await c.list<Post>("post");
+  if (postsError) throw postsError;
+
+  const match = matchRoute(pathname, { routes: [...pages, ...posts], redirects });
+  // … not-found and redirect handling as before …
+
+  if ("__resolveType" in match.entry && match.entry.__resolveType === "post") return { post: match.entry as Post, page: null };
+  const [page, error] = await c.resolve<ResolvedPage<ReactNode>>(match.entry);
+  if (error) throw error;
+  return { post: null, page };
+```
+
+`openPage` now returns `{ post, page }`, one of them set. In `Page`, render the post when `post` is set (for example `<article><h1>{post.name}</h1>…</article>`), and the page's sections otherwise. In `generateMetadata`, use `post.name` as the title for a post.
+
+A blog index needs no page entry. List the `post` type; each entry carries its own `path`:
+
+```tsx title="src/app/blog/page.tsx"
+import Link from "next/link";
+import { client } from "../../client.server";
+import type { Post } from "../../post";
+
+export default async function BlogIndex() {
+  const c = await client();
+  const [posts, error] = await c.list<Post>("post", { sort: (a, b) => b.date.localeCompare(a.date) });
+  if (error) throw error;
+  return (
+    <ul>
+      {posts.map((post) => (
+        <li key={post.path}><Link href={post.path}>{post.name}</Link></li>
+      ))}
+    </ul>
+  );
+}
+```
+
+## 7. Stream each block (optional)
+
+So far the page renders once every block is ready, so one slow block holds up the whole page. To send each block as soon as it's ready, resolve the blocks one by one instead of resolving the page, and give each its own Suspense boundary. A failing block then shows a fallback instead of failing the page.
+
+`c.list("page")` already returns each page as saved, with its blocks not yet run (the same as `c.resolve(entry, { run: false })`; see [Reading without running](/next/api-reference#client-resolve-target-options)). So `openPage` starts resolving `seo` and every block in `sections` with separate calls, without waiting for any, and returns the promises. If an editor gave the whole list [variants](/next/matchers-and-variants), `sections` is one `multivariate` block instead of a list; `openPage` then resolves it as one, and React renders the list it returns in one Suspense boundary. Block keys include the pathname, so React mounts fresh Suspense boundaries when you navigate. These files replace steps 4 and 5; if you added posts in step 6, see the changes right after them:
+
+```ts title="src/open-page.server.ts"
+import "server-only";
+import { cache, type ReactNode } from "react";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
+import { matchRoute, type Redirect, type Seo } from "@decocms/blocks";
+import { client } from "./client.server";
+import type { StoredPage } from "./model";
+
+export const openPage = cache(async (pathname: string) => {
+  const c = await client();
+  const [pages, pagesError] = await c.list<StoredPage>("page");
+  if (pagesError) throw pagesError;
+  const [redirects, redirectsError] = await c.list<Redirect>("redirect");
+  if (redirectsError) throw redirectsError;
+
+  const match = matchRoute(pathname, { routes: pages, redirects });
+  if (match.kind === "not-found") notFound();
+  if (match.kind === "redirect") {
+    if (match.status === 301 || match.status === 308) permanentRedirect(match.location);
+    redirect(match.location);
+  }
+
+  const page = match.entry;   // as saved: seo and sections are still blocks
+  // Variants of the whole list are one multivariate block: it resolves to the chosen list and streams as one.
+  const sections = Array.isArray(page.sections) ? page.sections : [page.sections];
+  return {
+    blocks: sections.map((block, index) => ({
+      key: `${pathname}:${index}`,
+      result: c.resolve<ReactNode>(block),
+    })),
+    seo: c.resolve<Seo | undefined>(page.seo),   // undefined when the page has no seo
+  };
+});
+
+export const pathnameFor = (segments: string[] = []) =>
+  "/" + segments.map(encodeURIComponent).join("/");
+```
+
+Each block is now a promise of a `Result`, `[value, error]`. `BlockSlot` awaits it inside its own Suspense boundary and shows a fallback if that one block failed. A [hidden](/next/matchers-and-variants#hide-a-block) block resolves to `undefined` and renders nothing.
+
+```tsx title="src/app/[[...path]]/page.tsx"
+import { Suspense, type ReactNode } from "react";
+import type { Metadata } from "next";
+import type { Result } from "@decocms/blocks";
+import { openPage, pathnameFor } from "../../open-page.server";
+
+type Props = { params: Promise<{ path?: string[] }> };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const page = await openPage(pathnameFor((await params).path));
+  const [seo, error] = await page.seo;
+  if (error) throw error;
+  return { title: seo?.title, description: seo?.description };   // without seo, the layout's metadata applies
+}
+
+async function BlockSlot({ result }: { result: Promise<Result<ReactNode>> }) {
+  const [node, error] = await result;
+  if (error) {
+    console.error(error);
+    return <p role="status">This content is temporarily unavailable.</p>;
+  }
+  return node ?? null;   // undefined when an editor hid the block: render nothing
+}
+
+export default async function Page({ params }: Props) {
+  const page = await openPage(pathnameFor((await params).path));
+  return (
+    <main>
+      {page.blocks.map((block) => (
+        <Suspense key={block.key} fallback={<p>Loading…</p>}>
+          <BlockSlot result={block.result} />
+        </Suspense>
+      ))}
+    </main>
+  );
+}
+```
+
+If you added posts in step 6, list them and pass them to `matchRoute` as before, return the post before resolving any block, and add `post: null` to the page's return value:
+
+```ts title="src/open-page.server.ts (posts)"
+  if ("__resolveType" in match.entry && match.entry.__resolveType === "post") {
+    return { post: match.entry as Post, blocks: [], seo: null };
+  }
+  // … build blocks and seo as above, then:
+  return { post: null, blocks, seo };
+```
+
+`Page` and `generateMetadata` check `post` the same way as in step 6: when it's set, render the post and use `post.name` as the title, and only otherwise await `page.seo` and render `page.blocks`.
+
+Metadata now waits only for SEO, and Next can stream it separately. Once streaming starts, the status code and headers are already sent, so a later error can't change them; `openPage` decides 404s and redirects before anything streams (see [Errors, streaming, and cancellation](/next/rendering#errors-streaming-and-cancellation)). The same technique works in TanStack Start; see the [TanStack Start guide](/next/tanstack-start-descriptors).
+
+## How it works
+
+- **One place picks the content.** Every page gets its client from `client()`, so changing where content comes from touches only that function.
+- **`openPage` takes a pathname.** React's `cache` compares arguments by identity, so pass a primitive. If content depends on query parameters, include a normalized search string in the argument. A block that needs headers or cookies reads them with `next/headers`, like any other server code.
+- **Redirect status codes.** Next's navigation helpers send 308 and 307. For an exact 301 or 302, or a redirect's own `status`, match redirects in a `proxy.ts` (Next.js 16's name for `middleware.ts`) with `matchRoute` and return `NextResponse.redirect(url, match.status)`. Proxy makes its own client, so if the content changes between the two (in development, for example), the redirect check and the page can briefly see different versions of it.
+
+
+These files use the default App Router configuration. [Cache Components](https://nextjs.org/docs/app/api-reference/config/next-config-js/cacheComponents) adds caching and Suspense requirements of its own. See the Next.js docs on [metadata](https://nextjs.org/docs/app/api-reference/functions/generate-metadata) and [proxy](https://nextjs.org/docs/app/api-reference/file-conventions/proxy).
+
+### Caching
+
+A page rendered at build time (static rendering or ISR) never switches [variants](/next/matchers-and-variants): its matchers ran once, during the build. Render pages with date-switched variants on each request, with `await connection()` from `next/server` or `export const dynamic = "force-dynamic";`. The other caches a request passes through are in [Caching](/next/caching).
+
+## Edit in the site editor
+
+To edit this app's content in [the site editor](/next/site-editor) while you develop, run [`deco serve`](/next/cli#deco-serve) beside `next dev`. Its preview defaults to Vite's port, so point it at Next's:
+
+```bash
+npx @decocms/blocks serve --preview localhost:3000
+```
+
+Each save writes a file in `.deco/blocks` and your app hot-reloads; you commit the changes as usual (see [Edit on your machine](/next/site-editor#edit-on-your-machine)).
+
+### Reload on content changes
+
+`deco serve` rewrites `.deco/blocks.gen.ts` on every save, and Blocks has no dev hook for it; on Next.js you don't need one. `next dev` recompiles the server modules that import the content module, runs `src/cms.ts` again and refreshes open pages. Running it again is safe because `createCMS` adopts the new content module for the same `.deco` folder and returns the same instance, so keep it a plain module-scope call, as in step 2: no hot-reload handler, and no instance kept in a variable of your own. The [TanStack Start guide](/next/tanstack-start-descriptors#reload-on-content-changes) needs a few lines for both, since Vite does neither on its own.
+
+<Hosted to="/next/hosted#connect-your-site" label="Connect your site">**Publish and preview without a deploy.** Two environment variables connect this app to the hosted Deco CMS: published content goes live without a rebuild, and drafts render on your site.</Hosted>

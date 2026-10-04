@@ -1,0 +1,197 @@
+---
+title: Matchers and variants
+nav: Matchers & variants
+group: Built on Blocks
+order: 10
+kind: docs
+description: Schedule a campaign days ahead and it goes live on time, with no publish or deploy at the switch. A matcher is a rule that returns true or false; multivariate picks the first variant whose rule is true.
+---
+
+# Matchers and variants
+
+Black Friday starts at midnight, and nobody wants to be awake to publish the new banner. The easy way out is to add the content ahead of time and let it switch on by itself, on time. In code, that's an `if`/`else` on a condition. Matchers and variants let you write that condition as [blocks](/next/blocks), so editors can change it.
+
+This page shows how to schedule a campaign with `multivariate`, what a variant is, the built-in matchers, how to hide a block, how to write your own matchers, and how to run an A/B test.
+
+## Schedule a campaign
+
+Say the promo banner should show a Black Friday title from Friday to the end of Cyber Monday, and the usual title the rest of the time:
+
+```tsx
+const now = new Date();
+const start = new Date("2026-11-27T00:00:00-05:00");
+const end = new Date("2026-12-01T00:00:00-05:00");
+const title = now >= start && now < end ? "Black Friday: 40% off everything" : "Free shipping over $50";
+
+<PromoBanner title={title} href="/deals" />;
+```
+
+It works, but the dates and the titles live in your code. Changing them means a code change and a deploy each time.
+
+As blocks, the same condition is content that editors can change:
+
+```jsonc
+{
+  "__resolveType": "promo-banner",
+  "title": {
+    "__resolveType": "multivariate",
+    "variants": [
+      {
+        "rule": { "__resolveType": "date", "start": "2026-11-27T00:00:00-05:00", "end": "2026-12-01T00:00:00-05:00" },
+        "value": { "__resolveType": "lazy", "value": "Black Friday: 40% off everything" }
+      },
+      {
+        "rule": { "__resolveType": "always" },
+        "value": { "__resolveType": "lazy", "value": "Free shipping over $50" }
+      }
+    ]
+  },
+  "href": "/deals"
+}
+```
+
+Each `value` is wrapped in `lazy` so only the winning variant runs; the site editor adds this wrapper for you (see [Variants](#variants)).
+
+`multivariate` is a [built-in block](/next/built-in-blocks#language-built-ins). It evaluates the rules in order and returns the first variant whose rule is `true`. Each piece of the code version has a block:
+
+| In code | As blocks |
+| --- | --- |
+| The ternary, or a chain of `if`/`else if` | `multivariate` with a list of rules and their variants; the first variant whose rule is `true` wins. |
+| The date condition | The built-in `date` matcher. |
+| The final `else` | A last entry whose rule is `always`; its variant is the fallback. |
+| The constants | Saved values that editors change in [the site editor](/next/site-editor). |
+
+`end` takes the campaign down too, so there's nothing to do on Monday. `PromoBanner` gets a plain string: it never knows there were variants.
+
+## Variants
+
+A **variant** is the alternate content: the `value` next to a `rule` in `variants`. Each entry pairs one rule with one variant.
+
+Any field can have variants: a title, one block in a page's `sections`, or the whole list, which is how the site editor varies a page. [Forms from types](/next/schema#from-types-to-forms) shows how the field's type flows through `multivariate<T>`.
+
+Variants are lazy: each `value` is wrapped in a [`lazy` block](/next/lazy-blocks), so only the winning variant runs, like `cond ? a() : b()`. If each variant were a hero section that fetches products, only the chosen hero fetches. Saved variants always carry the wrapper (`deco check` flags a variant without it), and editors never see it: the site editor adds it for them. Rules aren't lazy: they're cheap booleans and always run.
+
+Caching a page whose content varies per request is in [Pages with variants](/next/caching#pages-with-variants). To see a variant whose rule is false right now, preview it: a [draft pointer can force it](/next/releases-and-drafts#preview-a-variant), which is what the site editor's variant tabs do.
+
+## Matchers
+
+A block function that returns `true` or `false` is a **matcher**. Matchers are what make variants usable without code: the site editor lists every matcher in your block map in the rule picker next to each variant, so the marketing team builds conditions by picking from a list and filling a short form. `date` is one; you can add your own (see [Write your own matcher](#write-your-own-matcher)), such as:
+
+- **Temperature**: `true` when it's above a given temperature where the visitor is, to promote cold drinks on hot days.
+- **Birthday**: `true` during a signed-in customer's birthday week, to show a gift.
+- **Cart value**: `true` when the cart is over an amount, to offer free shipping.
+- **Loyalty tier**: `true` for gold members, to show early access.
+
+### Built-in matchers
+
+Three matchers are [built-in blocks](/next/built-in-blocks#language-built-ins), because they depend on nothing but the clock. Like every built-in, they need no import:
+
+- **`always`** is always `true`. Use it for the fallback.
+- **`never`** is always `false`. The site editor uses it to hide a block.
+- **`date`** is `true` from `start` until `end`. Both are optional.
+
+`start` and `end` are ISO 8601 strings. Write them with the offset your store's time zone has on that date, like `"2026-11-27T00:00:00-05:00"` for New York in November, so the campaign starts at midnight on your clock. Daylight saving time changes the offset (New York is `-04:00` in summer), so check it for each date. A date without a time, like `"2026-11-27"`, means midnight UTC. `end` itself doesn't match, so a campaign that ends at midnight uses that midnight as its `end`.
+
+### Hide a block
+
+When an editor hides a block, the site editor gives it variants whose only rule is `never`. No rule matches, so the block resolves to `undefined` and nothing inside it runs. In a list, such as a page's `sections`, a block that resolves to `undefined` is left out, so your components never see a gap.
+
+Blocks doesn't render anything itself, so what a missing block shows is up to your app. Each framework guide renders nothing for it, and shows a fallback only when a block fails (see [Errors, streaming, and cancellation](/next/rendering#errors-streaming-and-cancellation)).
+
+### Write your own matcher
+
+In code, a weekend title would be one more condition, like `today === "Sat" || today === "Sun"`. As a matcher, that condition moves into a function that returns a `boolean`. This one is `true` on the days of the week you pick, in your store's time zone:
+
+```ts title="src/matchers.ts"
+type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
+
+export function weekday({ days, timeZone = "America/New_York" }: { days: Day[]; timeZone?: string }) {
+  const today = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone }).format(new Date());   // "Sat"
+  return days.some((day) => day === today);
+}
+```
+
+Add it to your [block map](/next/blocks#the-block-map) and run `npx @decocms/blocks schema` (see [Forms from types](/next/schema#from-types-to-forms)):
+
+```ts title=".deco/index.ts"
+import type { Blocks } from "@decocms/blocks";
+import { weekday } from "../src/matchers";
+import { PromoBanner } from "../src/promo-banner";
+
+export default { weekday, "promo-banner": PromoBanner } satisfies Blocks;   // always, never, date, multivariate and lazy are built in
+```
+
+The site editor's rule picker now lists `weekday` next to the built-in `date` (see [what the site editor reads](/next/studio-compatibility#what-the-site-editor-reads-from-the-schema)). An editor can give weekends their own title:
+
+```jsonc
+// The title field of the promo banner
+{
+  "__resolveType": "multivariate",
+  "variants": [
+    {
+      "rule": { "__resolveType": "weekday", "days": ["Sat", "Sun"] },
+      "value": { "__resolveType": "lazy", "value": "Weekend: free shipping on everything" }
+    },
+    {
+      "rule": { "__resolveType": "always" },
+      "value": { "__resolveType": "lazy", "value": "Free shipping over $50" }
+    }
+  ]
+}
+```
+
+A few more things you can do:
+
+- **Make it `async`.** `multivariate` waits for it.
+- **Match on the request.** To match on a cookie, a header or a country, read the request the way the rest of your app does (see [Reading the request](/next/blocks#reading-the-request)).
+- **Combine rules.** `and`, `or` and `not` are one-line matchers, like `export const not = ({ rule }: { rule: boolean }) => !rule;`.
+- **Skip an expensive rule.** Rules always run. A matcher can take an inner rule as [`Lazy<boolean>`](/next/lazy-blocks#lazyt-props) and call it only when needed, like `export const and = async ({ a, b }: { a: boolean; b: Lazy<boolean> }) => a && (await b());`, where `b` runs only if `a` is `true`.
+- **Pick variants your way.** Declare your own `multivariate` in your block map; it replaces the built-in (see [Change a built-in](/next/built-in-blocks#change-a-built-in)). Type each `value` as `Lazy<T>` to keep running only the chosen variant.
+
+## Run an A/B test
+
+An A/B test is a variant whose rule puts each visitor in a group. Write it as a matcher that takes the share of traffic and buckets each visitor the same way on every request:
+
+```ts title="src/matchers.ts"
+import { visitorId } from "./visitor";   // your app's anonymous visitor ID, kept in a cookie
+
+const bucket = (key: string) => [...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % 100;
+
+/** @title A/B split */
+export function split({ experiment, percent }: { experiment: string; percent: number }) {
+  return bucket(`${experiment}:${visitorId()}`) < percent;   // true for `percent`% of visitors
+}
+```
+
+Then give `multivariate` the test's ID in `experiment`, and pass the same ID to the rule:
+
+```jsonc
+{
+  "__resolveType": "multivariate",
+  "experiment": "hero-headline",
+  "variants": [
+    {
+      "rule": { "__resolveType": "split", "experiment": "hero-headline", "percent": 50 },
+      "value": { "__resolveType": "lazy", "value": "Summer starts here" }
+    },
+    {
+      "rule": { "__resolveType": "always" },
+      "value": { "__resolveType": "lazy", "value": "New summer collection" }
+    }
+  ]
+}
+```
+
+The `experiment` ID names the test wherever the variants live. Results are kept per ID, so renaming a saved block or moving the variants keeps a test's history. The site editor fills it in when an editor creates a test. Older sites keyed results on the saved block's name; [migrating from v7](/next/renames-and-migrations) copies that name into `experiment`, so existing results carry over.
+
+<Callout type="warning">**Variants are not access control.** Only the chosen variant runs, but that's an optimization, not a guard: choose between variants that are all fine to show. Anyone with a preview link can [force any variant](/next/releases-and-drafts#preview-a-variant). Never use one to guard protected data or to decide whether a side effect runs; put that check inside the function that does the work.</Callout>
+
+## Schedule with confidence
+
+A scheduled campaign is a change to content files, so it's checked like any other change, days before it goes live:
+
+- **Review it in a pull request.** Reviewers read the dates and the campaign value in the diff of `.deco/blocks`, and [`deco check`](/next/checking) makes sure every block fits your code (see [On a branch](/next/releases-and-drafts#on-a-branch)).
+- **Preview the page.** A [draft](/next/releases-and-drafts#preview) or your host's [preview deployment of the branch](/next/releases-and-drafts#on-a-branch) renders it at the current time, so before the start date it shows the fallback, exactly what visitors see until midnight. To check the campaign variant itself, [force it](/next/releases-and-drafts#preview-a-variant), as the site editor's variant tabs do.
+- **Keep `always()` last.** The first match wins, so the variant paired with the `always()` rule is the fallback. If no rule matches, `multivariate` returns `undefined`, and the component gets `undefined` instead of a title. With `always()` last, the page never comes up empty, before the campaign or after it ends. [`deco check`](/next/checking#what-deco-check-checks) warns about any variant after an `always` rule, since it can never be picked.
+
+If a cached page still shows the old title after the switch, see [Pages with variants](/next/caching#pages-with-variants) and [Troubleshooting](/next/troubleshooting).

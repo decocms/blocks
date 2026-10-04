@@ -1,0 +1,204 @@
+---
+title: Packages and exports
+nav: Packages & exports
+group: Reference
+order: 44
+description: Every v7 package, every import path it exposes, and which ones are safe in browser code.
+---
+
+# Packages and exports
+
+Each v7 package publishes its TypeScript source, and its `package.json` `exports` map lists the only import paths you can use. A path that isn't in the map can't be imported, even if the file exists. This page lists every package's map, what each path holds, and where it may run: **server** means server code only (it imports Node or Workers APIs), **both** means it is safe in browser bundles too.
+
+The dependency graph is one-way. `@decocms/blocks` depends on no other Deco package. `@decocms/blocks-admin` and `@decocms/blocks-cli` depend on it. `@decocms/tanstack` depends on all three, and `@decocms/nextjs` on `blocks` and `blocks-admin`. The two bindings never depend on each other.
+
+## Requirements
+
+| Package | Peer dependencies | Engines |
+|---|---|---|
+| `@decocms/blocks` | `react` ^19, `react-dom` ^19 | Node.js 24 or later |
+| `@decocms/blocks-admin` | `react` ^19, `react-dom` ^19 | |
+| `@decocms/blocks-cli` | none (runs with `tsx`) | |
+| `@decocms/tanstack` | `@tanstack/react-start` ≥1, `@tanstack/react-query` ≥5, `@tanstack/store` ≥0.7, `react` ^19, `react-dom` ^19, `vite` 6, 7 or 8 | |
+| `@decocms/nextjs` | `next` ≥15, `react` ^19, `react-dom` ^19 | Node.js 24 or later |
+| `@decocms/apps-*` | `react` ^19, `react-dom` ^19, plus the extras noted per app below | |
+
+## `@decocms/blocks`
+
+The framework-agnostic core.
+
+| Import path | What it is | Runs on |
+|---|---|---|
+| `@decocms/blocks` | Re-exports `./cms`, `./hooks`, `./middleware`, `./types` and the logger. It does **not** re-export `./sdk`. | server |
+| `@decocms/blocks/cms` | The CMS: content (`setBlocks`, `loadBlocks`, `onChange`), page lookup and resolution (`resolveDecoPage`, `resolveValue`), registries (sections, section loaders, commerce loaders, matchers, layout and SEO sections), section conventions, deferral helpers, schema composition, draft preview and Fast Deploy key helpers. | server |
+| `@decocms/blocks/cms/client` | The browser-safe subset: section registry lookups (`getResolvedComponent`, `getSection`, `registerSection`, …), schema registration, section mixins (`compose`, `withDevice`, …) and the deferred-section trigger. | both |
+| `@decocms/blocks/cms/loadDecofileDirectory` | `loadDecofileDirectory(dir)`: reads a directory of block files into one map. | server (Node file system) |
+| `@decocms/blocks/setup` | `createSiteSetup`. | both |
+| `@decocms/blocks/hooks` | React components: `Image`, `Picture`, `Source`, `LazySection`, `RenderSection`, `SectionErrorBoundary`, `LiveControls`, `Stats`, `useLoadMore`, JSON-LD components, image CDN settings. | both |
+| `@decocms/blocks/preview` | `DraftPreviewBadge` and its helpers. | both |
+| `@decocms/blocks/types` | Section and app types (`SectionProps`, `Resolved`, `AppContext`, …). | types |
+| `@decocms/blocks/types/widgets` | Studio widget aliases (`ImageWidget`, `RichText`, `Color`, `Secret`, …). | types |
+| `@decocms/blocks/matchers/builtins` | `registerBuiltinMatchers` (called by `createSiteSetup`). | both |
+| `@decocms/blocks/matchers/posthog` | PostHog feature-flag matcher bridge. | both |
+| `@decocms/blocks/matchers/override` | Reading `x-deco-matchers-override`. | both |
+| `@decocms/blocks/flags/audience`, `/flags/everyone`, `/flags/flag`, `/flags/types`, `/flags/multivariate`, `/flags/multivariate/image`, `/flags/multivariate/message`, `/flags/multivariate/page`, `/flags/multivariate/section` | Function-style flag primitives carried over from the Fresh-era website app. | both |
+| `@decocms/blocks/middleware` | Request helpers: liveness and health checks, CORS, server timing, hydration context, deferred-section input validation. | server |
+| `@decocms/blocks/middleware/healthMetrics`, `/middleware/hydrationContext`, `/middleware/observability`, `/middleware/validateSection` | The same, one module each. | server |
+| `@decocms/blocks/sdk` | The SDK barrel: common helpers (device detection, invoke, scripts, redirects, URLs, cookies, CSP, analytics, cache headers, `deepOmit`, …). Several modules below are **only** available by subpath. | mixed |
+
+The SDK subpaths. Modules marked † are not in the `@decocms/blocks/sdk` barrel; import them by subpath.
+
+| Import path | What it is | Runs on |
+|---|---|---|
+| `@decocms/blocks/sdk/abTesting` † | Traffic split between a migrated Worker and a legacy origin, for migrations. | server |
+| `@decocms/blocks/sdk/analytics` | `useSendEvent`, `ANALYTICS_SCRIPT`, `gtmScript`. | both |
+| `@decocms/blocks/sdk/cacheHeaders` | Cache profiles: `setCacheProfile`, `detectCacheProfile`, `registerCachePattern`, `registerPrivatePaths` †, `cacheHeaders`. | both |
+| `@decocms/blocks/sdk/cachedLoader` † | `createCachedLoader` and the loader cache. | server |
+| `@decocms/blocks/sdk/cacheStorage` † | Shared cache storage adapters (KV, Web Cache, memory). | server |
+| `@decocms/blocks/sdk/responseCache` † | HTTP response caching over a cache storage. | server |
+| `@decocms/blocks/sdk/fetchCache` † | `createFetchCache`, the shared stale-while-revalidate cache for upstream `GET`s. | server |
+| `@decocms/blocks/sdk/fetchTimeout` | `withFetchTimeout` and the 10 s default. | both |
+| `@decocms/blocks/sdk/instrumentedFetch` | `createInstrumentedFetch`. | server |
+| `@decocms/blocks/sdk/mergeCacheControl` | Merges `Cache-Control` headers, keeping the most restrictive. | both |
+| `@decocms/blocks/sdk/clx`, `@decocms/blocks/sdk/cn` † | Class name helpers (`cn` adds Tailwind merge). | both |
+| `@decocms/blocks/sdk/composite` † | `createCompositeLogger`, `createCompositeMeter`. | both |
+| `@decocms/blocks/sdk/cookie` | Cookie helpers for the browser and the server (`getCookies`, `setResponseCookie` † are subpath-only). | both |
+| `@decocms/blocks/sdk/crypto` † | `resolveSecret`, `decryptSecret` for CMS-encrypted secrets. | server |
+| `@decocms/blocks/sdk/csp` | `frame-ancestors` headers for Studio previews. | server |
+| `@decocms/blocks/sdk/useDevice`, `@decocms/blocks/sdk/detectDevice` † | Device detection (`detectDevice` is also re-exported by `useDevice`) and the `useDevice` hook. | both |
+| `@decocms/blocks/sdk/djb2`, `@decocms/blocks/sdk/encoding` † | Hashing (`djb2`, `djb2Hex`, also in the barrel) and base64 helpers. | both |
+| `@decocms/blocks/sdk/env` | `isDevMode()`. | both |
+| `@decocms/blocks/sdk/experiments` † | Sticky N-way experiments read from a published configuration. Experimental. | server |
+| `@decocms/blocks/sdk/flags` † | The `deco_segment` sticky-flag cookie. | both |
+| `@decocms/blocks/sdk/http` † | `STATUS_CODE`, `HttpError`, `UserAgent`. | both |
+| `@decocms/blocks/sdk/invoke` | `invoke`, `createAppInvoke`, `batchInvoke`, `invokeQueryOptions`. | both |
+| `@decocms/blocks/sdk/logger` † | The structured logger. | both |
+| `@decocms/blocks/sdk/nonce` † | The request's CSP nonce. | server |
+| `@decocms/blocks/sdk/normalizeUrls` | Rewrites production URLs in content to relative ones. | both |
+| `@decocms/blocks/sdk/observability` † | Tracing, metrics and logging in one barrel. | server |
+| `@decocms/blocks/sdk/otel` † | `instrumentWorker` and `OtelOptions`. | server |
+| `@decocms/blocks/sdk/otelAdapters` †, `/sdk/otelHttpLog` †, `/sdk/otelHttpMeter` †, `/sdk/otelHttpTracer` † | OTLP and Analytics Engine exporters, for custom wiring. | server |
+| `@decocms/blocks/sdk/redirects` | CMS redirects. | both |
+| `@decocms/blocks/sdk/requestContext` † | `RequestContext`. | both (stub in the browser) |
+| `@decocms/blocks/sdk/requestContextStorage` † | The storage behind it, chosen by export condition: `workerd`, `node` and `default` get `AsyncLocalStorage`; `browser` gets a no-op stub. | both |
+| `@decocms/blocks/sdk/retry` † | Retry helpers. | both |
+| `@decocms/blocks/sdk/serverTimings` | `createServerTimings` for `Server-Timing` headers. | server |
+| `@decocms/blocks/sdk/signal` | `signal()`, backed by a TanStack store. | both |
+| `@decocms/blocks/sdk/sitemap` † | Sitemap generation from page blocks. | server |
+| `@decocms/blocks/sdk/urlUtils` | Tracking-parameter stripping and canonical URLs. | both |
+| `@decocms/blocks/sdk/useId` | `useId`. | both |
+| `@decocms/blocks/sdk/useScript` | `inlineScript`; `useScript` is deprecated. | both |
+| `@decocms/blocks/sdk/useSuggestions` † | Autocomplete hook factory. | browser |
+| `@decocms/blocks/sdk/wrapCaughtErrors` | Error wrapping helpers. | both |
+
+<Callout type="warning">
+
+**Don't import `@decocms/blocks/cms` (or the `@decocms/blocks` root) from browser code.** It reaches `node:async_hooks`. Client Components use `@decocms/blocks/cms/client`.
+
+</Callout>
+
+## `@decocms/blocks-admin`
+
+| Import path | What it is | Runs on |
+|---|---|---|
+| `@decocms/blocks-admin` | The admin protocol handlers (`handleMeta`, `handleDecofileRead`, `handleDecofileReload`, `handleRender`, `handleInvoke`), CORS helpers, invoke registration (`setInvokeLoaders`, `setInvokeActions`, `registerInvokeHandlers`), schema and render-shell setters (`setMetaData`, `setRenderShell`, `setPreviewWrapper`), `registerAdminOrigin`. | server |
+| `@decocms/blocks-admin/setup` | `createAdminSetup`. | server |
+| `@decocms/blocks-admin/admin/setup` | The state setters alone, without the handlers. | both |
+| `@decocms/blocks-admin/apps` | `autoconfigApps`, `setupApps`, app types (`AppRegistry`, `AppDefinition`, …). | server |
+| `@decocms/blocks-admin/apps/autoconfig` | `autoconfigApps` and its types. | server |
+| `@decocms/blocks-admin/sdk/setupApps` | `setupApps`, `registerAppMiddleware`, `getAppMiddleware`. | server |
+| `@decocms/blocks-admin/sdk/htmlShell` | `buildHtmlShell`, the preview HTML document. | server |
+
+## `@decocms/blocks-cli`
+
+| Import path | What it is |
+|---|---|
+| `@decocms/blocks-cli/generate` | The `generate` orchestrator. Run it as `tsx node_modules/@decocms/blocks-cli/scripts/generate.ts`. |
+| `@decocms/blocks-cli/generate-blocks` | `generateBlocks` and `readBlockDelta`, used by the TanStack Vite plugin. |
+
+Commands (`bin`): `deco-migrate`, `deco-post-cleanup`, `deco-htmx-analyze`, `deco-reconcile`, `deco-upgrade-6-to-7`, `deco-sync-blocks-to-kv`, `deco-migrate-blocks-to-kv`, `deco-sync-blocks-bot`, `deco-cf-observability`, `deco-audit-observability`. Run them with `npx -p @decocms/blocks-cli <command>`. The individual generator scripts and `audit-secrets.ts`, `cdn-rules.ts` and `tailwind-lint.ts` are reachable only by file path under `node_modules/@decocms/blocks-cli/scripts/`. See [CLI reference](/v7/cli).
+
+## `@decocms/tanstack`
+
+| Import path | What it is | Runs on |
+|---|---|---|
+| `@decocms/tanstack` | Route configs (`cmsRouteConfig`, `cmsHomeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig`, `decoInvokeRouteConfig`), server functions (`loadCmsPage`, `loadCmsHomePage`, `loadDeferredSection`), components (`DecoRootLayout`, `DecoPageRenderer`, `SectionRenderer`, `SectionList`, `NavigationProgress`, `StableOutlet`, `DraftPreviewIndicator`, `PreviewProviders`, `CmsPage`, `NotFoundPage`), `createDecoWorkerEntry`, `setupTanstackFastDeploy`, `createDecoRouter`, speculation rules. | both |
+| `@decocms/tanstack/vite` | `decoVitePlugin`. Plain JavaScript without type declarations: add `// @ts-expect-error` above the import in a TypeScript config. | build |
+| `@decocms/tanstack/sdk/deferredSectionLoader` | `deferredSectionLoader`, for `DecoPageRenderer`'s `loadDeferredSectionFn`. | both |
+| `@decocms/tanstack/sdk/serverFnFetch` | `decoServerFnFetch`, for your own `src/start.ts`. | browser |
+| `@decocms/tanstack/sdk/startEntry` | The default TanStack Start entry used when your site has no `src/start.ts`. | both |
+| `@decocms/tanstack/sdk/cookiePassthrough` | `getRequestCookieHeader`, `forwardResponseCookies`. | server |
+| `@decocms/tanstack/sdk/cdnSegment` | Constants of the CDN segment marker. Framework plumbing. | both |
+| `@decocms/tanstack/sdk/createInvoke` | A type marker read by `generate` when it writes `invoke.gen.ts`. It throws if called. | build |
+| `@decocms/tanstack/daemon` | The local development tunnel to Studio, started by the Vite plugin. Not for direct use. | dev |
+
+The option types of `createDecoWorkerEntry` aren't exported; their shapes are written out in [TanStack Start on Cloudflare Workers](/v7/tanstack).
+
+## `@decocms/nextjs`
+
+| Import path | What it is | Runs on |
+|---|---|---|
+| `@decocms/nextjs` | `createDecoPage`, `createDecoPreviewPage`, `DecoRootLayout`, `DecoPageRenderer`, `SectionRenderer`, draft preview helpers (`ensureDraft`, `DraftPreviewIndicator`, …). For `page.tsx` and `layout.tsx`, **never** `route.ts`. | server components |
+| `@decocms/nextjs/routeHandlers` | `createDecoRouteHandlers`. The import for `route.ts` files. | server |
+| `@decocms/nextjs/setup` | `createNextSetup`. | server |
+| `@decocms/nextjs/config` | `withDeco`, `DECO_REWRITES`. CommonJS, so it works from `next.config.js` and `next.config.ts`. | build |
+| `@decocms/nextjs/middleware` | `draftMiddleware`, `prepareDraft`, `applyDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`. | edge middleware |
+
+## `@decocms/eitri`
+
+| Import path | What it is |
+|---|---|
+| `@decocms/eitri` | `generateEitri`, `eitriGenerateArgs`, `runEitriInit`. |
+| `@decocms/eitri/tsconfig` | A base `tsconfig.json` to extend. |
+| `@decocms/eitri/types` | Type shims for the Eitri runtime modules. |
+
+Command: `deco-eitri` (`init`, `generate`). See [Eitri apps](/v7/eitri).
+
+## Apps
+
+Wildcard paths (`*`) map to the files of that directory, without the extension.
+
+### `@decocms/apps-commerce`
+
+`./types` (also the package's main entry), `./types/cart`, `./app-types`, `./resolve`, `./manifest-utils`, `./registry`, `./sdk/*` (`formatPrice`, `url`, `useOffer`, `useVariantPossibilities`, `analytics`), `./utils/*` (`filters`, `canonical`, `productToAnalyticsItem`, `constants`, `stateByZip`). There's no root import; use `@decocms/apps-commerce/types`. See [Commerce types and utilities](/v7/apps-commerce).
+
+### `@decocms/apps-website`
+
+`.`, `./mod`, `./client`, `./types`, `./components/*` (`Seo`, `Analytics`, `OneDollarStats`, `Stats`, `Theme`, `Video`), `./loaders/*`, `./loaders/fonts/*`, `./utils/*`, `./sections/*`, `./sections/Seo/*`. No `./registry`. See [Website app](/v7/apps-website).
+
+### `@decocms/apps-vtex`
+
+`.`, `./client`, `./mod`, `./registry`, `./commerceLoaders`, `./schemas`, `./types`, `./middleware`, `./actions`, `./actions/*`, `./actions/analytics/*`, `./loaders`, `./loaders/*`, `./loaders/intelligentSearch/*`, `./loaders/legacy/*`, `./loaders/workflow/*`, `./inline-loaders/productDetailsPage`, `./inline-loaders/productListingPage`, `./inline-loaders/productList`, `./inline-loaders/productListShelf`, `./inline-loaders/relatedProducts`, `./inline-loaders/suggestions`, `./inline-loaders/minicart`, `./inline-loaders/workflowProducts`, `./hooks`, `./hooks/*`, `./utils`, `./utils/*`. Extra optional peer: `@tanstack/react-query` ≥5 for the Query-based hooks. See [VTEX](/v7/vtex).
+
+### `@decocms/apps-shopify`
+
+`.`, `./client`, `./mod`, `./registry`, `./loaders/*`, `./actions/*`, `./actions/cart/*`, `./actions/user/*`, `./utils/*`. See [Shopify](/v7/shopify).
+
+### `@decocms/apps-wake`
+
+`.`, `./client`, `./mod`, `./registry`, `./commerceLoaders`, `./loaders/*`, `./actions/*`, `./actions/cart/*`, `./actions/newsletter/*`, `./actions/review/*`, `./actions/wishlist/*`, `./handlers/*`, `./utils/*`. The map also declares `./hooks` and `./hooks/*`, but the package ships no hook files, so those paths don't resolve. See [Wake](/v7/wake).
+
+### `@decocms/apps-magento`
+
+`.`, `./client`, `./types`, `./middleware`, `./loaders/*`, `./actions/*`, `./utils/*`. No `mod` or `registry`. The map declares `./hooks/*`, but the package ships no hook files, so that path doesn't resolve. See [Magento](/v7/magento).
+
+### `@decocms/apps-salesforce`
+
+`.`, `./types`, `./loaders/products/*` (`list`, `listRecomended`, `listCart`), `./utils/*`. Extra peer: `@tanstack/react-start` ≥1. See [Salesforce Personalization](/v7/salesforce).
+
+### `@decocms/apps-algolia`
+
+`.`, `./client`, `./types`, `./loaders/*`. Extra peer: `algoliasearch` ^5, required by `.` and `./client`. See [Algolia](/v7/algolia).
+
+### `@decocms/apps-blog`
+
+`.`, `./mod`, `./client`, `./registry`, `./types`, `./manifest.gen`, `./loaderMap`, `./loaders/*`, `./loaders/extensions/*`, `./actions/*`, `./core/*`, `./utils/*`, `./sections/*`, `./sections/Seo/*`, `./sections/blocks/*`, `./static/*`. See [Blog](/v7/blog).
+
+### `@decocms/apps-resend`
+
+`.`, `./mod`, `./client`, `./registry`, `./types`, `./actions/send`. See [Resend](/v7/resend).
+
+## Related
+
+- [Configuration reference](/v7/configuration)
+- [How v7 is built](/v7/internals): why the packages are split this way.

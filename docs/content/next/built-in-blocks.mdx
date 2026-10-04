@@ -1,0 +1,138 @@
+---
+title: Built-in blocks
+nav: Built-in blocks
+group: Blocks
+kind: docs
+order: 6
+description: Ten functions every block map gets for free (lazy, multivariate, always, never, date, page, redirect, telemetry, analytics and secret), and how to replace or change one.
+---
+
+# Built-in blocks
+
+Almost every site needs pages, redirects and an if/else. Instead of writing those functions yourself, Deco CMS adds ten of them to your [block map](/next/blocks#the-block-map). You don't import or list them, and they're always in the schema and the registry, so a built-in never fails with `UNKNOWN_BLOCK`.
+
+This page lists the built-ins, what each one takes and returns, and how to replace one or change the fields editors see. It's a quick list: each built-in is explained on the page where you'll use it, linked in the last column.
+
+| Name | Takes | Returns | More in |
+| --- | --- | --- | --- |
+| `lazy` | `value` | A function that resolves `value` when called | [Lazy blocks](/next/lazy-blocks) |
+| `multivariate` | `variants`: a list of `{ rule, value }` | The first variant whose rule is `true` | [Matchers and variants](/next/matchers-and-variants#variants) |
+| `always` | nothing | `true` | [Matchers and variants](/next/matchers-and-variants#built-in-matchers) |
+| `never` | nothing | `false` | [Matchers and variants](/next/matchers-and-variants#built-in-matchers) |
+| `date` | `start`, `end` | `true` from `start` until `end` | [Matchers and variants](/next/matchers-and-variants#built-in-matchers) |
+| `page` | `name`, `path`, `seo`, `sections` | The page, fully resolved | [Pages and routing](/next/routing) |
+| `redirect` | `from`, `to`, `permanent`, `status`, `discardQueryParameters` | Its arguments, as saved | [Pages and routing](/next/routing) |
+| `telemetry` | Telemetry settings | Its arguments, as saved | [Telemetry](/next/telemetry#telemetry-settings-are-content) |
+| `analytics` | `collector`, `enabled` | Its arguments, with defaults filled in | [Analytics](/next/analytics) |
+| `secret` | `ciphertext` | The decrypted string, on the server only | [Secrets](#secrets) below |
+
+## Language built-ins
+
+These five are part of how blocks evaluate, so every site gets the same ones:
+
+- **`lazy`** takes `value` and returns a [`Lazy<T>`](/next/lazy-blocks#lazyt-props) function that resolves it when called, at most once. It's the one block whose argument doesn't resolve first (see [Lazy blocks](/next/lazy-blocks)).
+- **`multivariate`** takes `variants`, a list of entries that each pair a `rule` (a `boolean`) with a `value` (a `Lazy<T>`), and returns the first variant whose rule is `true`, or `undefined` if none is. Only that variant runs. It also takes an optional `experiment`, the stable ID of an [A/B test](/next/matchers-and-variants#run-an-a-b-test).
+- **`always`** returns `true`, so the variant paired with it is the fallback.
+- **`never`** returns `false`, so the variant paired with it is never picked. That's how the site editor hides a block: it resolves to `undefined`, and a list leaves it out (see [Hide a block](/next/matchers-and-variants#hide-a-block)).
+- **`date`** takes `start` and `end`, both optional ISO 8601 strings, and returns `true` from `start` until `end`.
+
+[Matchers and variants](/next/matchers-and-variants) shows how they work together, and how to write matchers of your own.
+
+## Pages and redirects
+
+- **`page`** takes `name`, `path`, an optional `seo` and `sections` (the page's blocks, in order), and returns the page with `seo` and every block in `sections` resolved. Its [type](/next/api-reference#types) is `interface Page extends Route { seo?: Seo; sections: ReactNode[] }`. A page without `seo` uses your site's defaults.
+- **`redirect`** takes `from`, `to`, `permanent` (`true` for a 301, `false` for a 302), and two optional fields: `status`, one of `301`, `302`, `307` or `308`, which wins over `permanent`, and `discardQueryParameters`, which drops the request's query string instead of carrying it over. It returns them as saved.
+
+[Pages and routing](/next/routing) shows how to find the page for a URL and turn redirects into responses.
+
+## Telemetry and analytics
+
+These two are separate features:
+
+- **`telemetry`** is the type of the well-known `Telemetry` [saved block](/next/saved-blocks), which holds your site's telemetry switches and sample rates. It returns its arguments as saved; [Telemetry settings are content](/next/telemetry#telemetry-settings-are-content) lists the fields.
+- **`analytics`** takes `collector` and `enabled`, both optional, and returns them with the defaults filled in (the hosted Deco CMS collector, and `true`). Save one, resolve it in your layout and pass it to `AnalyticsScript`; see [Analytics](/next/analytics).
+
+## Secrets
+
+A newsletter form needs its email service's API key, and editors should be able to change it without a deploy. As plain JSON, the key would sit in your repository for anyone who can read it. A `secret` block keeps only an encrypted copy there:
+
+```json
+{ "__resolveType": "secret", "ciphertext": "v1.AbX3…" }
+```
+
+On the server, it resolves to the decrypted string.
+
+### Type a field as a secret
+
+Type the field as `Secret`, from `@decocms/blocks`. It's a `string` with a type tag, so your function uses it like any string:
+
+```ts title="src/newsletter.tsx"
+import type { Secret } from "@decocms/blocks";
+
+export interface NewsletterProps {
+  listId: string;
+  /** @title API key */
+  apiKey: Secret;
+}
+```
+
+[The site editor](/next/site-editor) shows a `Secret` field as a write-only password box: editors can set or replace the value, never read it back. It encrypts the value in the browser and saves a `secret` block, so the plain text never reaches your repository.
+
+### Create the keys
+
+Secrets use a key pair, so encrypting needs no secret at all:
+
+- **The public key**, committed at `.deco/secrets.pub`, encrypts. The site editor gets it from [`deco serve`](/next/cli#deco-serve) or the hosted backend, and an AI agent reads the file. In a script, `encryptSecret(publicKey, value)` from `@decocms/blocks/secrets` returns a ready `secret` block.
+- **The private key** decrypts. It stays on your servers, in an environment variable, and you pass it to [`createCMS`](/next/api-reference#createcms-config):
+
+```ts title="cms.ts"
+export const cms = createCMS({ blocks, content, secrets: { key: process.env.DECO_SECRETS_KEY } });
+```
+
+Create the pair once, with OpenSSL, from your app root:
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out deco-secrets.key
+openssl pkey -in deco-secrets.key -pubout -out .deco/secrets.pub
+```
+
+Commit `.deco/secrets.pub`. Store the whole of `deco-secrets.key`, line breaks included, as `DECO_SECRETS_KEY` wherever you keep server secrets (on Workers, `npx wrangler secret put DECO_SECRETS_KEY < deco-secrets.key`; in `.env.local` or `.dev.vars`, wrap it in double quotes). Then delete the file, or keep it in a password manager. Never commit it.
+
+Each value is encrypted with a fresh AES-256-GCM key, which is wrapped with the public key using RSA-OAEP and SHA-256. Both are in the Web Crypto API, so it works the same in browsers, on Node and on Workers.
+
+To rotate keys by hand, create a new pair, replace `.deco/secrets.pub`, save each secret again on a branch, and deploy that branch with the new `DECO_SECRETS_KEY`.
+
+<Hosted to="/next/hosted" label="The hosted Deco CMS">**Keys managed for you.** With the hosted Deco CMS, you create and rotate the key pair from your site's settings, and a rotation re-encrypts every saved secret in one commit.</Hosted>
+
+### Guardrails
+
+- **Server only.** A `secret` block fails if it's resolved in the browser, so its value only exists where your server code runs. It's a plain string there: use it in server code, and don't pass it to a Client Component as a prop, or it ends up in the page.
+- **Reads stay encrypted.** [`{ run: false }`](/next/api-reference#client-resolve-target-options) and `client.list` return the block as saved, with its `ciphertext`.
+- **No plain text in content.** The [content protocol](/next/content-protocol#errors-and-limits) refuses a plain string in a `Secret` field, so the site editor and agents can't save one by mistake.
+- **A missing key fails that block.** Without a key, or with the wrong one, a `secret` block fails with [`BLOCK_FAILED`](/next/api-reference#errors). Resolve the page's blocks one by one (see [Errors, streaming, and cancellation](/next/rendering#errors-streaming-and-cancellation)) and the rest of the page still renders.
+- **Telemetry redacts.** Decrypted values never appear in spans or logs.
+- **`deco check` needs no key.** It checks that each `ciphertext` is well formed, but can't decrypt it.
+
+A v7 site re-encrypts its secrets once when it migrates (see [Secrets](/next/renames-and-migrations#secrets)).
+
+## Change a built-in
+
+Your block map is spread over the built-ins (see [the lookup rule](/next/blocks#the-lookup-rule)), so declaring a built-in's key in your block map replaces it. For example, declare `page` to wrap every page in your layout, or declare `multivariate` to pick variants your way (type each `value` as `Lazy<T>` to keep running only the chosen one).
+
+To change only the fields editors see, declare the key with a function that returns its input. [`Page`](/next/api-reference#types) is exported from `@decocms/blocks`; extend it to add fields:
+
+```ts title=".deco/index.ts"
+import type { Blocks, Page } from "@decocms/blocks";
+import seo from "../src/seo";
+import hero from "../src/hero";
+
+interface StorePage extends Page { theme: "light" | "dark" }
+
+const page = (props: StorePage) => props;
+
+export default { seo, hero, page } satisfies Blocks;
+```
+
+Nothing is lost: arguments resolve before the function runs, so returning `props` gives the same resolved page as the built-in, `seo` and `sections` included, plus `theme`. You read it in the result of `client.resolve`, as `page.theme`, and [`deco schema`](/next/schema) gives editors a *theme* select on every page.
+
+No saved block can be called `page`, `redirect`, `telemetry`, `analytics`, `always`, `never`, `date`, `multivariate`, `lazy` or `secret` (see [Names](/next/saved-blocks#names)).

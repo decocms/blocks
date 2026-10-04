@@ -1,0 +1,86 @@
+---
+title: Algolia
+group: Apps
+order: 33
+description: A shared, configured Algolia v5 client for writing your own search loaders.
+---
+
+# Algolia
+
+`@decocms/apps-algolia` configures one [Algolia](https://www.algolia.com) search client per Worker from your decofile and hands it to your loaders. It doesn't ship search loaders of its own yet: you write the queries, and the app takes care of credentials and sharing the client.
+
+<Callout>
+
+**Experimental.** This is an initial scaffold. Not available yet: product list, listing page and suggestion loaders, indexing actions, and an analytics section. It has no registry entry, so configure it with `initAlgoliaFromBlocks` or `configureAlgolia`, as shown below.
+
+</Callout>
+
+## Installing
+
+The app uses version 5 of Algolia's JavaScript client, which relies only on the standard `fetch` and `crypto` APIs and so runs on Cloudflare Workers (version 4 doesn't). Install it next to the app; it's declared as an optional peer dependency, but the client entry points need it:
+
+```bash
+bun add @decocms/apps-algolia algoliasearch@^5
+```
+
+## Configuring
+
+Editors configure the app in a `deco-algolia` block:
+
+| Field | What it does |
+|---|---|
+| `applicationId` | Your Algolia application id. |
+| `searchApiKey` | A search-only key, as plain text. |
+| `adminApiKey` | An admin key, as a secret: encrypted, or a reference to an environment variable by `name`. |
+
+`initAlgoliaFromBlocks(blocks, blockKey?)` reads that block (pass a second argument if yours has another key), resolves the admin key, and configures the client. It's asynchronous and returns `false` when the block isn't there. Because `createSiteSetup`'s `initPlatform` doesn't wait for promises, await it in a server-only module your server entry imports:
+
+```ts title="src/setup/algolia.ts"
+import { loadBlocks } from "@decocms/blocks/cms";
+import { initAlgoliaFromBlocks } from "@decocms/apps-algolia";
+
+await initAlgoliaFromBlocks(loadBlocks());
+```
+
+Or configure it directly with `configureAlgolia({ applicationId, searchApiKey, adminApiKey })`. Calling it again replaces the client.
+
+## Writing a search loader
+
+`getAlgoliaClient()` returns the shared client, creating it on first use. Every loader in the Worker gets the same instance, so they also share the client's in-memory request cache.
+
+```ts title="src/loaders/search.ts"
+import { getAlgoliaClient } from "@decocms/apps-algolia/client";
+
+export interface Props {
+  /** @title Search term */
+  term: string;
+}
+
+export default async function search(props: Props) {
+  const client = getAlgoliaClient();
+  const { hits } = await client.searchSingleIndex({
+    indexName: "products",
+    searchParams: { query: props.term, hitsPerPage: 12 },
+  });
+  return hits;
+}
+```
+
+`getAlgoliaClient()` throws if `applicationId` is missing, or if there's neither an admin key nor a search key. The `Indices` type, from `@decocms/apps-algolia/types`, names the conventional index names: `products`, `products_price_asc`, `products_price_desc` and `products_query_suggestions`.
+
+<Callout type="warning">
+
+**Keep the client on the server.** When an admin key is configured, the shared client uses it for every call. Use `getAlgoliaClient()` only in server code such as loaders, and return search results, never the client, to the browser. If browser code needs to query Algolia directly, give it the search-only key and create a separate client there.
+
+</Callout>
+
+A `client` loader (`@decocms/apps-algolia/loaders/client`) exists for content written for the earlier framework that asked for the client by name. For new code, call `getAlgoliaClient()` directly.
+
+## Observability
+
+Algolia's client owns its own transport and cache, so its calls don't go through the framework's instrumented fetch and don't appear in the upstream metrics. That's by design. Wrap your loaders' work in a span with `withTracing`, from `@decocms/blocks/sdk/observability`, if you want them traced (see [Observability](/v7/observability)).
+
+## Related
+
+- [Apps](/v7/apps): app status and secrets.
+- [Loaders and actions](/v7/loaders): registering your loaders.

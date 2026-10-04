@@ -1,0 +1,174 @@
+---
+title: Pages and routing
+nav: Pages & routing
+group: Core concepts
+order: 8
+description: How a URL finds a page block in v7, the path pattern syntax, redirects, sitemaps, and the route helpers in each binding.
+---
+
+# Pages and routing
+
+In a v7 site, editors create pages, not developers. A page is a block in the decofile with a URL pattern and a list of sections, and one catch-all route in your app renders whichever page matches the request. This page explains what makes a block a page, how patterns are matched and ranked, how URL parameters reach sections, and how redirects and sitemaps fit in.
+
+<Terms>
+  <Term name="Page block">A block with a `path` and `sections`, whose name starts with `pages-` or whose `__resolveType` is `website/pages/Page.tsx`. See the [glossary](/v7/glossary#page-block).</Term>
+  <Term name="Path pattern">The page's `path`, matched against the request path with the `URLPattern` syntax, for example `/:slug/p`.</Term>
+  <Term name="Route params">The values a pattern captures, such as `slug`, available to content through `requestToParam`.</Term>
+</Terms>
+
+## What makes a block a page
+
+A block is a page when both are true:
+
+- its name starts with `pages-`, **or** its `__resolveType` is `website/pages/Page.tsx`;
+- it has a `path` and a `sections` array.
+
+```json title=".deco/blocks/pages-summer-sale.json"
+{
+  "__resolveType": "website/pages/Page.tsx",
+  "name": "Summer sale",
+  "path": "/summer-sale",
+  "sections": [{ "__resolveType": "site/sections/Hero.tsx", "title": "Summer sale" }],
+  "seo": { "__resolveType": "website/sections/Seo/SeoV2.tsx", "title": "Summer sale" }
+}
+```
+
+`name` is used as a fallback title. The optional `seo` holds the page's SEO section; it's always resolved up front so crawlers see it. See [SEO](/v7/seo).
+
+The block's name (`pages-summer-sale`) is only an identifier. The URL comes from `path`, so editors can change a page's URL without renaming anything.
+
+## Path patterns
+
+`path` is matched with the web-standard `URLPattern` API, the same syntax browsers and Cloudflare Workers support. The common forms:
+
+| Pattern | Matches | Captures |
+|---|---|---|
+| `/summer-sale` | Exactly `/summer-sale` | Nothing |
+| `/:slug/p` | `/blue-shirt/p` | `slug = "blue-shirt"` |
+| `/:category/:slug/p` | `/men/blue-shirt/p` | `category`, `slug` |
+| `/:slug([\w-]+)` | `/blue-shirt`, not `/blue.shirt` | `slug`, restricted by the regular expression |
+| `/blog{/:page}?` | `/blog` and `/blog/2` | `page` when present |
+| `/*` | Any path | The rest of the path as `0` |
+
+Pattern matching needs `URLPattern`, which Cloudflare Workers, browsers, Deno and Node.js 24+ provide. On an older Node.js, matching throws an error that says so, rather than quietly returning no page.
+
+## Which page wins
+
+Several patterns can match the same path: `/men/blue-shirt/p` matches both `/:category/:slug/p` and `/*`. The runtime sorts page blocks by how specific their pattern is and uses the first match:
+
+1. Patterns without wildcards (no `*`, `{…}?` or other optional parts) come before patterns with them.
+2. Then, more literal segments first (`/summer-sale` before `/:slug`).
+3. Then, more parameter segments first.
+
+With these four pages:
+
+| Page | `path` |
+|---|---|
+| `pages-home` | `/` |
+| `pages-summer-sale` | `/summer-sale` |
+| `pages-product` | `/:slug/p` |
+| `pages-catalog` | `/*` |
+
+`/summer-sale` renders `pages-summer-sale`, `/blue-shirt/p` renders `pages-product` with `slug = "blue-shirt"`, and `/men/shirts` falls through to `pages-catalog`. A path no pattern matches has no page, and the binding renders its not-found response.
+
+## Use route params in content
+
+A product page needs the slug from its URL. A value of type `website/functions/requestToParam.ts` resolves to one of the matched page's params:
+
+```json title="Inside pages-product"
+{
+  "__resolveType": "site/sections/Product/ProductDetails.tsx",
+  "page": {
+    "__resolveType": "vtex/loaders/intelligentSearch/productDetailsPage.ts",
+    "slug": { "__resolveType": "website/functions/requestToParam.ts", "param": "slug" }
+  }
+}
+```
+
+During resolution, `slug` becomes `"blue-shirt"` before the loader runs. Commerce loaders also receive the page's path and full URL automatically (as `__pagePath` and `__pageUrl`), and many of them read the slug or search terms from there; see [Loaders and actions](/v7/loaders).
+
+## Resolve a page yourself
+
+The bindings do this for you, but the underlying calls are public in `@decocms/blocks/cms`:
+
+| Function | Returns |
+|---|---|
+| `findPageByPath(path)` | `{ page, params, blockKey }` for the best match, or `null`. No resolution. |
+| `getAllPages()` | Every page block, sorted most specific first. |
+| `resolveDecoPage(path, matcherCtx?)` | The fully resolved page, or `null` when no page matches. |
+
+`resolveDecoPage` returns:
+
+| Field | What it is |
+|---|---|
+| `name`, `path`, `params`, `blockKey` | The page's name, the requested path, the captured params and the block's name. |
+| `resolvedSections` | The sections to render now, each `{ component, props, key, index }`. |
+| `deferredSections` | Sections marked async in Studio, to be loaded after the page. See [Deferred sections](/v7/rendering). |
+| `seoSection` | The resolved `seo` section, if the page has one. |
+
+`matcherCtx` carries the request (URL, cookies, headers, user agent) so [matchers](/v7/variants) can pick variants. Without it, matchers that depend on the request can't see one.
+
+## In TanStack Start
+
+`cmsRouteConfig` and `cmsHomeRouteConfig` from `@decocms/tanstack` return the options for your `/$` (catch-all) and `/` routes. You spread them into `createFileRoute` and add the component. The [quickstart](/v7/quickstart#8-add-the-routes) shows both files.
+
+The route's loader calls a server function that resolves the page, runs section loaders and resolves the Site block's global sections. It returns `resolvedSections`, `deferredSections`, `pagePath`, `pageUrl`, the SEO and the cache profile, or `null` when no page matches. The route also sets cache headers and a `<head>` from the page's SEO.
+
+| Option (`cmsRouteConfig`) | Type | Default | What it does |
+|---|---|---|---|
+| `siteName` | `string` | required | Used in page titles (`<name> \| <siteName>`). |
+| `defaultTitle` | `string` | required | Title when nothing else provides one. |
+| `defaultDescription` | `string` | none | Description when the page has none. |
+| `ignoreSearchParams` | `string[]` | `["skuId"]` | Search params that don't trigger a new page load when they change. |
+| `pendingComponent` | component | none | Shown during slow navigations. Without it the previous page stays until the new one is ready. |
+| `pendingMs` / `pendingMinMs` | `number` | `200` / `300` | When the pending component appears, and its minimum time on screen. |
+| `errorComponent` | component | built-in | Shown when loading the page throws. The built-in page is in Portuguese; pass your own. |
+| `ssr` | `boolean \| "data-only"` | full SSR | TanStack's SSR mode for this route. |
+| `resolveGlobals` | `boolean` | `true` | Merge the Site block's global sections into every page. |
+
+`cmsHomeRouteConfig` takes `defaultTitle`, `defaultDescription`, `siteName` (defaults to `defaultTitle`), the pending options, `errorComponent` and `resolveGlobals`.
+
+### Your own routes
+
+The CMS catch-all doesn't stop you from adding ordinary TanStack routes. A file such as `src/routes/store-locator.tsx` or `src/routes/api/feed.ts` takes precedence over `/$`, because TanStack Router [matches the most specific route first](https://tanstack.com/router/latest/docs/routing/route-matching); every other URL still reaches the CMS. Paths under `/api/` get the `none` [cache profile](/v7/caching#how-a-url-gets-its-profile), so they're never cached at the edge. On a VTEX site, the checkout proxy claims `/checkout`, `/account`, `/api/` and other paths before routing, so pick paths it doesn't claim or exclude yours from it (see [VTEX](/v7/vtex#wiring-the-worker)). Avoid the paths of the admin protocol (`/live/_meta`, `/.decofile` and `/deco/*`), which the Worker entry and the [admin routes](/v7/tanstack#admin-routes) serve.
+
+## In Next.js
+
+`createDecoPage({ siteName })` from `@decocms/nextjs` returns a page component and `generateMetadata` for `app/[[...slug]]/page.tsx`. It builds the path from the slug segments, resolves the page, renders it, and calls Next's `notFound()` when nothing matches. See the [Next.js quickstart](/v7/quickstart-nextjs#10-render-cms-pages).
+
+`createDecoPage` doesn't run section loaders and resolves without request details, so request-dependent matchers (cookies, device) don't apply. Sites that need either write their own page with `resolveDecoPage`, `runSectionLoaders` and `extractSeoFromSections`; [Next.js App Router](/v7/nextjs) shows how.
+
+## Redirects
+
+Redirect blocks (`website/loaders/redirect.ts` and `website/loaders/redirects.ts`, plus CSV files turned into blocks by `generate`) are described in [Content and the decofile](/v7/content#redirects-in-content). On TanStack Start, the Worker entry applies them before rendering:
+
+- Exact rules are checked before prefix rules (a `from` ending in `*`).
+- `"type": "permanent"` answers 301; anything else answers 302.
+- The redirect map is rebuilt whenever content changes.
+
+The Next.js binding doesn't apply CMS redirects. Use Next's `redirects` config, or match them yourself with `loadRedirects(loadBlocks())` and `matchRedirect(path, map)` from `@decocms/blocks/sdk/redirects`.
+
+## Sitemaps
+
+`@decocms/blocks/sdk/sitemap` builds a sitemap from your page blocks. `getCMSSitemapEntries(origin)` returns one entry per page whose path has no parameters or wildcards (a product pattern like `/:slug/p` can't be listed without data), and `generateSitemapXml(entries)` renders the XML. Here's a Next.js route:
+
+```ts title="src/app/sitemap.xml/route.ts"
+import { generateSitemapXml, getCMSSitemapEntries } from "@decocms/blocks/sdk/sitemap";
+import { ensureSetup } from "../../deco/setup";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  await ensureSetup();
+  const xml = generateSitemapXml(getCMSSitemapEntries("https://www.example.com"));
+  return new Response(xml, { headers: { "Content-Type": "application/xml" } });
+}
+```
+
+The home page gets `daily` and priority 1.0, other pages `weekly` and 0.7; pass options to change them. Commerce apps can add product URLs; for VTEX, see [VTEX](/v7/vtex).
+
+## Next steps
+
+- [Loaders and actions](/v7/loaders): data for the sections on a page.
+- [Matchers and variants](/v7/variants): different content for different visitors on the same path.
+- [SEO](/v7/seo): titles, descriptions and structured data.

@@ -1,0 +1,124 @@
+---
+title: Deco Blocks v7
+nav: Overview
+group: Getting started
+order: 1
+description: What Deco Blocks v7 is, the packages it ships as, and where to start for a new site, a Next.js site or a migration.
+---
+
+# Deco Blocks v7
+
+Deco Blocks is a framework for content-managed websites and storefronts. You write the building blocks of a page as React components in TypeScript; editors arrange them into pages in Deco Studio, Deco's visual editor; and your app serves the result on TanStack Start on Cloudflare Workers or on the Next.js App Router. These docs cover v7, the current released version of its packages.
+
+## What you build with it
+
+A v7 site has three ingredients:
+
+- **Sections.** A [section](/v7/glossary#section) is a React component that editors can place on a page, such as a hero banner, a product shelf or a footer. Its props are an exported `Props` type, and the framework turns that type into the form editors fill in.
+- **Content.** Everything editors create (pages, the sections on them and their props, A/B variants, app settings) is stored as JSON in the [decofile](/v7/glossary#decofile): one file per [block](/v7/glossary#block) under `.deco/blocks/`, committed to your repository and edited through [Deco Studio](/v7/glossary#deco-studio).
+- **A binding.** A [binding](/v7/glossary#binding) connects the runtime to your app framework. It finds the page for each URL, resolves its content, runs data loaders and renders the sections.
+
+Commerce and content integrations (VTEX, Shopify, Wake, a blog, transactional email and more) come as [apps](/v7/glossary#app): companion packages that add loaders, actions and sections for one platform, configured from a block in the decofile.
+
+[How v7 works](/v7/architecture) follows one request from URL to HTML and one edit from Studio to your site.
+
+## The packages
+
+The framework is five packages with a one-way dependency graph: `@decocms/blocks` depends on none of the others, and the two bindings never depend on each other. Every package ships its TypeScript source, so your bundler compiles it with your app.
+
+| Package | What it is |
+|---|---|
+| `@decocms/blocks` | The framework-agnostic core: the decofile, page lookup, content resolution, the section registry, matchers, and SDK utilities for caching, request context, images and more. |
+| `@decocms/blocks-admin` | The [admin protocol](/v7/glossary#admin-protocol): the endpoints Deco Studio calls on your site, plus the admin half of site setup and app auto-configuration. |
+| `@decocms/blocks-cli` | Build-time tooling: the `generate` code generator, migration and upgrade codemods, and Fast Deploy and observability CLIs. Usually a dev dependency. |
+| `@decocms/tanstack` | The binding for TanStack Start on Cloudflare Workers: CMS routes, the Worker entry with its edge cache, a Vite plugin, deferred sections and [Fast Deploy](/v7/glossary#fast-deploy). |
+| `@decocms/nextjs` | The binding for the Next.js App Router: Server Component pages, route handlers for Studio, an RSC preview page and one-call setup. |
+
+`@decocms/eitri` is a sixth, generation-only binding for Eitri mobile apps; see [Eitri apps](/v7/eitri).
+
+The apps:
+
+| Package | Integration |
+|---|---|
+| `@decocms/apps-commerce` | Shared commerce types (schema.org-shaped `Product`, listing and detail pages, cart), the app contract and portable helpers. Almost every site installs it. |
+| `@decocms/apps-website` | SEO sections, analytics tags, theme and font loaders shared by every backend. |
+| `@decocms/apps-vtex` | VTEX: catalog and search loaders, cart and account actions, hooks, checkout proxy. |
+| `@decocms/apps-shopify` | Shopify Storefront API: product loaders, cart and customer actions. |
+| `@decocms/apps-wake` | Wake Commerce: catalog loaders, cart and wishlist actions, sitemap. |
+| `@decocms/apps-magento` | Magento. A partial port; see [Magento](/v7/magento). |
+| `@decocms/apps-salesforce` | Salesforce Marketing Cloud Personalization recommendations. |
+| `@decocms/apps-algolia` | A shared Algolia search client. Experimental; see [Algolia](/v7/algolia). |
+| `@decocms/apps-blog` | Blog posts, categories and authors authored in Studio. |
+| `@decocms/apps-resend` | Transactional email through Resend. |
+
+[Packages and exports](/v7/packages) lists every import path each package exposes.
+
+## Pick your path
+
+| You are… | Start here |
+|---|---|
+| Starting a new site on Cloudflare Workers | [Quickstart: TanStack Start on Cloudflare Workers](/v7/quickstart). This is the most complete binding: it adds the edge cache and Fast Deploy. |
+| Starting a new site, or adding Deco to one, on Next.js | [Quickstart: Next.js App Router](/v7/quickstart-nextjs) |
+| Inheriting an existing v7 site | [Project structure](/v7/project-structure), then [Blocks and sections](/v7/model) |
+| Moving a Fresh/Deno Deco site to v7 | [Migrating from Fresh and Deno](/v7/migrate-from-fresh) |
+| Upgrading a TanStack site from `@decocms/start` 6.x | [Upgrading from @decocms/start 6.x](/v7/upgrade-from-start) |
+| Moving a Next.js site off `@decocms/start` 5.x | [Moving a Next.js site off @decocms/start 5.x](/v7/nextjs-from-start) |
+
+## Requirements
+
+- **React 19.** Every runtime package and app has `react` and `react-dom` `^19` as peer dependencies (the build-time CLIs don't).
+- **Node.js 24 or later** for Node-based tooling and for Next.js. Page matching uses the native `URLPattern` API; on an older runtime it fails with an explicit error rather than returning 404s.
+- **On Cloudflare Workers**, the `nodejs_compat` compatibility flag. Request-scoped state uses `AsyncLocalStorage`, which Workers provide only with that flag.
+- **Next.js 15 or later** for `@decocms/nextjs`. **TanStack Start 1.x** and **Vite 6 or later** for `@decocms/tanstack`.
+
+## Install
+
+For TanStack Start:
+
+```bash
+bun add @decocms/blocks @decocms/blocks-admin @decocms/tanstack @tanstack/react-start @tanstack/react-router @tanstack/react-query @tanstack/store react react-dom
+```
+
+```bash
+bun add -d vite
+```
+
+For Next.js:
+
+```bash
+bun add @decocms/blocks @decocms/blocks-admin @decocms/nextjs
+```
+
+The quickstarts take it from there.
+
+<Callout type="preview">
+
+**Looking ahead.** The next major version of Deco Blocks is being designed in the open, with a smaller API built around plain functions. Read [how it works](/next/how-it-works) and follow the [Roadmap](/roadmap). Everything on these v7 pages describes what ships today.
+
+</Callout>
+
+## Next steps
+
+- [How v7 works](/v7/architecture): the request and authoring flows, and the package graph.
+- [Quickstart: TanStack Start on Cloudflare Workers](/v7/quickstart) or [Quickstart: Next.js App Router](/v7/quickstart-nextjs).
+- [Glossary](/v7/glossary): every term these docs use.
+
+## Further resources
+
+- [Deco Studio](https://studio.decocms.com): the visual editor your site connects to.
+- [decocms/blocks on GitHub](https://github.com/decocms/blocks): source code, issues, runnable sites in `examples/` and Agent Skills for migrations in `.agents/skills/`.
+- [TanStack Start](https://tanstack.com/start/latest), the [Next.js App Router](https://nextjs.org/docs/app) and [Cloudflare Workers](https://developers.cloudflare.com/workers/): the frameworks and platform v7 builds on.
+- [@decocms/parity](https://www.npmjs.com/package/@decocms/parity): compares a migrated site with the original.
+- [The Deco community on Discord](https://decocms.com/discord): ask questions and get help.
+
+### Training videos
+
+A five-part walkthrough of editing a site in Deco Studio, from the first settings to publishing a change. The videos are in Portuguese; each one has an English page that covers the same ground.
+
+| Video | Covers | Read instead |
+| --- | --- | --- |
+| [Visão Geral e Configurações](https://www.youtube.com/watch?v=Tz_QO3iAojs) | Overview and settings | [Deco Studio and the admin protocol](/v7/studio) |
+| [Edição de Conteúdo](https://www.youtube.com/watch?v=MuAh3bhLhuA) | Editing content | [Content and the decofile](/v7/content) |
+| [SEO e Redirects](https://www.youtube.com/watch?v=jh7OnXQtCa0) | SEO and redirects | [SEO](/v7/seo) · [Redirects in content](/v7/content#redirects-in-content) |
+| [Segmentação e Agendamento](https://www.youtube.com/watch?v=RU_c8rjC40k) | Segments and scheduling | [Matchers and variants](/v7/variants) |
+| [Rascunhos e Fluxo de Publicação](https://www.youtube.com/watch?v=kO3H5XHTznA) | Drafts and publishing | [Previews and draft preview](/v7/preview#draft-preview) |

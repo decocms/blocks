@@ -1,0 +1,159 @@
+---
+title: Storefront as an API
+group: Framework guides
+order: 21
+description: Serve loader results and whole CMS pages as JSON for native apps and other non-HTML clients.
+---
+
+# Storefront as an API
+
+A Deco site can serve its data as JSON as well as HTML, so a native mobile app or any other client can use the same content editors manage in Studio. This page covers the three ways to get JSON out of a site, how to shape what each section sends, and how to keep that payload stable for clients you can't redeploy.
+
+| Way | Returns | Weight | Use when | Binding |
+|---|---|---|---|---|
+| `POST /deco/invoke/<key>` | One loader or action result | Lightest | You need one piece of data: a product, the cart, a search | TanStack and Next.js |
+| `?renderJson` | The page, one entry per section, each projected by the section | Light | The client renders a whole CMS page and you control the payload | TanStack |
+| `?asJson` | The whole resolved page object, unfiltered | Heavy | Legacy clients only | TanStack |
+
+## Invoke one loader or action
+
+**Invoke** calls a loader or action by its key over HTTP. A **loader** fetches data and an **action** changes something; both are registered under keys such as `site/loaders/product/details.ts` (your own, from [`generate`](/v7/generate)) or `vtex/loaders/intelligentSearch/productDetailsPage.ts` (from an [app](/v7/apps)). [Loaders and actions](/v7/loaders) explains how keys are registered.
+
+Send the props as the JSON body:
+
+```bash
+curl -X POST "https://www.example.com/deco/invoke/site/loaders/product/details.ts" -H "Content-Type: application/json" -d '{"slug":"linen-shirt"}'
+```
+
+The response is the loader's result as JSON. Add `?select=` with a comma-separated list of top-level fields to return only those fields; on an array result, it applies to each item. Your own loaders and actions, as registered by `generate`, answer to their key with or without the `.ts` suffix. An unknown key returns 404 with a hint to regenerate loaders.
+
+From browser code in your own site, the `invoke` proxy from `@decocms/blocks/sdk/invoke` makes the same request:
+
+```ts title="src/components/ProductPanel.tsx (excerpt)"
+import { invoke } from "@decocms/blocks/sdk/invoke";
+
+const details = await invoke.site.loaders.product.details({ slug: "linen-shirt" });
+```
+
+The proxy turns the property path into a key and posts to `/deco/invoke/<key>`. If that key returns 404, it retries once with `.ts` appended.
+
+Use `POST`. On Next.js the invoke endpoint accepts nothing else.
+
+## Pages as JSON with ?renderJson
+
+Append `?renderJson` to any page URL and the site resolves the page and returns it as a lean JSON document instead of HTML:
+
+```bash
+curl "https://www.example.com/summer-sale?renderJson"
+```
+
+```json title="Response"
+{
+  "name": "Summer sale",
+  "path": "/summer-sale",
+  "sections": [
+    { "component": "site/sections/Hero.tsx", "props": { "title": "Summer sale", "image": "https://…" } },
+    { "component": "site/sections/ProductShelf.tsx", "lazyUrl": "/summer-sale?renderJson&__section=1" }
+  ]
+}
+```
+
+Each section appears as `{ component, props }` with its props after [resolution](/v7/glossary) and its section loader. Framework fields whose names start with `__` are removed, and so are values shaped like [secrets](/v7/content).
+
+### Lazy sections
+
+A section the editor marked as deferred (⚡ in Studio) isn't resolved in the page response. It appears in its position as `{ component, lazyUrl }`. Fetch the `lazyUrl` with a plain `GET` when the client needs that section, for example as the user scrolls, and you get `{ component, props }` back. Treat `lazyUrl` as opaque: only the two shapes are the contract.
+
+### Shape each section's JSON
+
+A section controls its own JSON with an `export const renderJson` in its file. [`generate`](/v7/generate) picks the export up and setup applies it through the section conventions.
+
+```tsx title="src/sections/Analytics.tsx"
+// A web-only section: leave it out of the JSON entirely.
+// Its section loader doesn't run either.
+export const renderJson = false;
+```
+
+```tsx title="src/sections/Product/SearchResult.tsx"
+import { deepOmit } from "@decocms/blocks/sdk";
+import type { SectionProps } from "@decocms/blocks/types";
+
+// `loader` is this section's own loader export, defined in the same file.
+export const renderJson = (props: SectionProps<typeof loader>) =>
+  deepOmit(props, "storeConfig", "page.seo", "page.products.*.isVariantOf");
+```
+
+Without the export, the section is sent with all its resolved props. `deepOmit(value, ...paths)` returns a copy without the given dotted paths; `*` matches every element of an array or every value of an object.
+
+Sections that come from apps can't carry your export. Drop them by suffix of their key in the Site block's `renderJson.sectionsToIgnore`:
+
+```json title=".deco/blocks/Site.json (excerpt)"
+{
+  "renderJson": { "sectionsToIgnore": ["SeoV2.tsx", "Analytics.tsx"] }
+}
+```
+
+Prefer `export const renderJson = false` for your own sections, so the decision lives with the section.
+
+### Response details
+
+- `Content-Type: application/json`, with `Cache-Control: public, max-age=0, must-revalidate`.
+- An `ETag` computed over the body. Send it back in `If-None-Match` and an unchanged page answers `304 Not Modified`.
+- A path with no page answers HTTP 404 with the body `{ "status": 404, "notFound": true }`. So does a `lazyUrl` whose section no longer exists.
+- `OPTIONS` requests with `?renderJson` answer 204 with the CORS headers below.
+
+```ts title="A client fetching a page with revalidation"
+async function fetchPage(path: string, etag?: string) {
+  const res = await fetch(`https://www.example.com${path}?renderJson`, {
+    headers: etag ? { "If-None-Match": etag } : {},
+  });
+  if (res.status === 304) return null;
+  return { page: await res.json(), etag: res.headers.get("ETag") };
+}
+```
+
+## ?asJson (legacy)
+
+`?asJson` returns the whole resolved page object: every eager section with all its props, plus metadata meant for Studio. On listing and product pages it can be several megabytes. It exists for older clients; use `?renderJson` in new code. When a URL has both parameters, `?renderJson` wins.
+
+## Turning the endpoints on
+
+`?renderJson` and `?asJson` are served by the TanStack Worker entry. Both default to on in `createDecoWorkerEntry`, but sites created by the migration script set them to `false`. Enable the one you need:
+
+```ts title="src/worker-entry.ts (excerpt)"
+export default createDecoWorkerEntry(serverEntry, {
+  // ...admin, buildSegment
+  renderJson: true,
+  asJson: false,
+  pageJsonCors: ["https://app.example.com"],
+});
+```
+
+The Next.js binding doesn't serve page JSON. Invoke works on both bindings.
+
+### CORS
+
+`pageJsonCors` sets the cross-origin headers on `?renderJson` responses.
+
+| Value | Result |
+|---|---|
+| unset or `"*"` (default) | `Access-Control-Allow-Origin: *`, no credentials. Any origin can read the JSON without cookies. |
+| `string[]` | When the request's `Origin` is in the list, it's echoed back with `Access-Control-Allow-Credentials: true` and `Vary: Origin`. Other origins get no CORS headers. |
+| `false` | No CORS headers. Native apps don't need them; browsers can then only read it same-origin. |
+
+Allowed methods are `GET` and `OPTIONS`; allowed request headers are `Content-Type`, `If-None-Match` and `Authorization`; `ETag` is exposed to scripts. `?asJson` always answers with `Access-Control-Allow-Origin: *`.
+
+## Keep the contract stable
+
+A `renderJson` export is invisible to TypeScript and to the Studio schema. Renaming a prop or dropping a projection during a refactor raises no error anywhere; the JSON just changes. A released mobile app can't follow that change. So:
+
+- Keep a snapshot test of the projected JSON of each section the app renders.
+- Type each projection against the section's own props, as above, so a renamed field fails to compile.
+- Version the contract, and change the version before shipping a breaking change.
+
+## Related
+
+- [Loaders and actions](/v7/loaders) explains the keys that invoke calls.
+- [Section conventions](/v7/sections) lists `renderJson` with the other section exports.
+- [Deferred sections](/v7/rendering) explains what makes a section lazy.
+- [TanStack Start on Cloudflare Workers](/v7/tanstack) lists all Worker entry options.

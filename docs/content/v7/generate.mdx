@@ -1,0 +1,180 @@
+---
+title: Code generation
+nav: generate
+group: CLI
+order: 23
+description: What the generate command produces from your content and source, when each generator runs, how its cache works, and every flag.
+---
+
+# Code generation
+
+`generate` turns your content and your TypeScript into the files the runtime and Studio read: the bundled decofile, the section registry, the loader map, the schema and, on TanStack, typed server functions for app actions. It's one incremental command that runs six generators and skips any whose inputs haven't changed since the last run. Run it before every build, and whenever you add a section, loader or block file.
+
+## Add the script
+
+`generate` ships with `@decocms/blocks-cli`, usually a development dependency. It has no binary of its own; run it through `tsx` by file path:
+
+```json title="package.json (excerpt, TanStack)"
+{
+  "scripts": {
+    "generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --site my-store",
+    "build": "npm run generate && tsr generate && vite build"
+  }
+}
+```
+
+On Next.js, run it before `dev` and `build`:
+
+```json title="package.json (excerpt, Next.js)"
+{
+  "scripts": {
+    "generate": "tsx node_modules/@decocms/blocks-cli/scripts/generate.ts",
+    "predev": "npm run generate",
+    "prebuild": "npm run generate"
+  }
+}
+```
+
+Put every flag your site needs on this one line, so everyone runs the same command.
+
+During `vite dev`, the [TanStack Vite plugin](/v7/tanstack) runs parts of `generate` for you: it applies block edits live, regenerates sections, loaders and invoke when source files change, and rebuilds the schema after a short debounce. You still need the script for builds and CI.
+
+## The generators
+
+| Generator | Reads | Writes | Runs when |
+|---|---|---|---|
+| `blocks` | `.deco/blocks/*.json` | `.deco/blocks.gen.json` (the content) and `.deco/blocks.gen.ts` (a small stub) | `.deco/blocks` exists, and the site isn't Next.js (or `blocks.gen.json` already exists) |
+| `manifest` | `.deco/blocks/*.json` | `.deco/blocksManifest.gen.ts` | `.deco/blocks` exists, and the site is Next.js (or the manifest already exists) |
+| `sections` | `src/sections/**` | `.deco/sections.gen.ts` | `src/sections` exists |
+| `loaders` | `src/loaders/**`, `src/actions/**` | `.deco/loaders.gen.ts` | always (an empty map when the folders are missing) |
+| `invoke` | the VTEX app's action list | `src/server/invoke.gen.ts` | the VTEX app is installed, `@tanstack/react-start` is installed, and the site isn't Next.js |
+| `schema` | every `.ts`/`.tsx` under `src/`, `tsconfig.json`, installed `@decocms/apps-*` packages | `.deco/meta.gen.json` | `src/sections` and `tsconfig.json` exist |
+
+`generate` decides the site is Next.js when `@decocms/nextjs` is in your `package.json` dependencies, and TanStack when `@decocms/tanstack` is.
+
+### blocks
+
+The **decofile** is the site's content: a flat map from block name to JSON, stored as one file per block in `.deco/blocks/`. Each filename is the block name URL-encoded, plus `.json`. The `blocks` generator merges them into `.deco/blocks.gen.json`. The `.ts` stub next to it exports an empty object; the TanStack Vite plugin replaces it with the JSON in server builds and keeps it empty in client builds.
+
+Two extras happen on the way:
+
+- **CSV redirects.** A block of type `website/loaders/redirectsFromCsv.ts` points at a CSV file in `public/`. Its rows are read into the snapshot, and redirects authored in Studio take precedence over the CSV.
+- **Duplicate files.** When two files decode to the same block name, a fixed tie-break keeps one: a block with a `path` first, then the more URL-encoded file name, then the newer file. The generator prints which files to delete.
+
+### manifest
+
+Next.js sites get `.deco/blocksManifest.gen.ts` instead: a module that statically imports every block file. With `createNextSetup({ blocks, blocksDir: false })`, the bundler owns the content, so content edits hot-reload and builds include it. Adding or removing a block file needs a regeneration; editing one doesn't. See [Next.js App Router](/v7/nextjs).
+
+### sections
+
+Each file under `src/sections/` becomes a **section** with the key `site/sections/<path>`, for example `site/sections/Product/SearchResult.tsx`. The generator records each file's convention exports (`eager`, `layout`, `sync`, `cache`, `LoadingFallback`, `renderJson` and the rest) in `.deco/sections.gen.ts`, which setup passes to `applySectionConventions` or to `createNextSetup({ conventions })`. [Section conventions](/v7/sections) lists them all.
+
+With `--registry`, the file also exports `sectionImports`, a lazy map of every section keyed `./sections/<path>`. That stands in for Vite's `import.meta.glob` on Next.js. The registry is on by default for Next.js sites, and for sites whose existing `sections.gen.ts` already has it. Files ending in `.test`, `.spec`, `.stories` or `.gen` are skipped.
+
+### loaders
+
+Every file under `src/loaders/` and `src/actions/` with a default export is registered under `site/loaders/<path>` or `site/actions/<path>`, both with and without the `.ts` suffix. The map in `.deco/loaders.gen.ts` imports each file lazily. That's what lets content reference your loaders and lets [invoke](/v7/storefront-api) call them. [Loaders and actions](/v7/loaders) shows how the map is registered.
+
+- `--exclude` skips keys you wire by hand. It takes full keys, comma-separated, such as `site/loaders/search/legacySearch`; a match with or without `.ts` counts.
+- `--prune-by-decofile <dir>` emits only the loaders that some block in that directory references with `__resolveType`. Use it only if nothing calls your loaders from code.
+
+### invoke (TanStack only)
+
+TanStack Start only turns `createServerFn(...)` calls into server functions when they're declared at the top level of a module. `invoke` reads the action list the VTEX app publishes and writes one top-level server function per action into `src/server/invoke.gen.ts`, each forwarding the platform's cookies back to the browser. Client hooks such as the VTEX cart call these.
+
+- Keep the file in `src/`. Moved elsewhere, the server half of the functions can't be found.
+- Generic MasterData document operations are never generated as client-callable functions. Write a narrow action for the entity you need instead. See [VTEX](/v7/vtex).
+- `--apps-dir` points at the app package when it can't be found under `node_modules`.
+
+### schema
+
+The **schema** is the JSON Schema of your sections, loaders and pages, which Studio turns into forms. The generator reads your `Props` types and JSDoc with the TypeScript compiler and writes `.deco/meta.gen.json`, already combined with the framework's own types so the file is complete on its own. [Schema generation](/v7/schema) covers the tags and widget formats.
+
+Its inputs are deliberately broad: any type a `Props` type references can change the schema, so every source file under `src/` and the source of every installed `@decocms/apps-*` package count. `--skip-apps` skips the schema pass over your site's own app files in `src/apps/`.
+
+## Order
+
+The generators run in two stages:
+
+1. `blocks`, `manifest`, `sections`, `loaders` and `invoke` run concurrently.
+2. `schema` runs after them, because types can reach into the freshly written `invoke.gen.ts`.
+
+If any stage-1 generator fails, `schema` is skipped.
+
+## The cache
+
+`generate` skips a generator when nothing it reads has changed. It keeps two records.
+
+**The committed record, `.deco/generate.digests.json`.** One entry per generator: a hash over the content of every input file, the arguments, the installed `@decocms/*` versions and the CLI version. Content hashes don't depend on the machine, so a fresh clone or a CI run gets cache hits. Commit this file. A merge conflict in it is harmless: keep either side and run `generate` again.
+
+**The local memo, `.deco/.cache/stat-memo.json`.** It remembers each file's hash by size and modification time so unchanged files aren't rehashed. The folder carries its own `.gitignore`. It only saves time; it never decides whether a generator runs.
+
+A generator is skipped only when its record matches **and** all its outputs exist. Records are written only after a generator succeeds. `--force`, or deleting the digests file, rebuilds everything.
+
+## What to commit
+
+| File | Commit? |
+|---|---|
+| `.deco/blocks/*.json` | Yes. This is your content. |
+| `.deco/generate.digests.json` | Yes. |
+| `.deco/meta.gen.json` | Yes. Studio can read the schema on a fresh clone without a regeneration. |
+| `.deco/*.gen.ts`, `src/server/invoke.gen.ts` | Yes. |
+| `.deco/blocks.gen.json` | Optional. The migration scaffold ignores it, because one large single-line file conflicts on every content change; the build and the dev server regenerate it. |
+| `.deco/.cache/` | No. Ignored automatically. |
+
+Don't give one of your own generated files a name ending in `blocks.gen.ts`: the Vite plugin replaces any module with that name in client builds.
+
+## Flags
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--only <names>` | all | Considers only these generators (comma-separated). Also forces them to run when auto-detection would skip them. |
+| `--skip <names>` | none | Never runs these. Wins over everything else. |
+| `--force` | off | Ignores the cache. |
+| `--dry-run` | off | Prints what would run, be skipped (and why), or stay disabled, then exits. |
+| `--root <dir>` | current directory | Runs as if from `<dir>`. A bare path argument means the same. Use it for a sub-app in a monorepo. |
+| `--blocks-dir <dir>` | `.deco/blocks` | Block files, for `blocks` and `manifest`. |
+| `--sections-dir <dir>` | `src/sections` | Sections, for `sections` and `schema`. |
+| `--loaders-dir <dir>` | `src/loaders` | Loaders, for `loaders` and `schema`. |
+| `--actions-dir <dir>` | `src/actions` | Actions, for `loaders`. |
+| `--apps-dir <dir>` | the installed VTEX app | Where `invoke` finds the app's action list. |
+| `--registry`, `--no-registry` | auto | Turns the `sectionImports` registry on or off. |
+| `--exclude <keys>` | none | Full loader keys to leave out of the loader map. |
+| `--prune-by-decofile <dir>` | off | Emits only loaders referenced by blocks in `<dir>`. |
+| `--site <name>` | `storefront` | Site name written into the schema. |
+| `--namespace <ns>` | `site` | Namespace of your section and loader keys in the schema. |
+| `--platform <name>` | `cloudflare` | Platform recorded in the schema. `eitri` runs only `schema` and `blocks`; see [Eitri apps](/v7/eitri). |
+| `--skip-apps` | off | Skips the schema pass over `src/apps/`. |
+| `-h`, `--help` | | Prints usage. |
+
+Generator names are `blocks`, `manifest`, `sections`, `loaders`, `invoke` and `schema`. `--only` and `--skip` also accept `blocks-manifest` for `manifest` and `meta` for `schema`.
+
+Some common runs:
+
+```bash
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --dry-run
+```
+
+```bash
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --only schema --force
+```
+
+```bash
+npx tsx node_modules/@decocms/blocks-cli/scripts/generate.ts --root apps/storefront
+```
+
+## Output and exit codes
+
+Each generator logs one line, such as `[generate] sections 412ms (fresh)` or `[generate] loaders 3ms (cached)`, and a final `[generate] total … (N fresh, M cached)` follows.
+
+- Exit code `0`: every selected generator succeeded or was skipped.
+- Exit code `1`: at least one failed, or `--root` doesn't exist.
+
+The individual generator scripts next to `generate.ts` are implementation details. Call `generate`, and use `--only` to run one generator.
+
+## Related
+
+- [Project structure](/v7/project-structure) shows where each generated file sits.
+- [Schema generation](/v7/schema) explains what the schema generator reads from your types.
+- [Section conventions](/v7/sections) lists the exports the sections generator records.
+- [CLI reference](/v7/cli) covers the other commands in `@decocms/blocks-cli`.

@@ -1,0 +1,109 @@
+---
+title: Request context
+group: Core concepts
+order: 14
+description: Read the current request, its abort signal, device and request id from anywhere in server code with RequestContext, and set response headers from loaders and actions.
+---
+
+# Request context
+
+Loaders, matchers and helpers often need something about the current request (its URL, the visitor's device, whether the visitor has left) without it being passed down through every function. `RequestContext` from `@decocms/blocks/sdk/requestContext` gives server code that access. The binding opens a scope around each request, and anything that runs inside it can read the request's state.
+
+<Terms>
+  <Term name="Request scope">The span of one request, opened by the binding with `RequestContext.run(request, fn)`. Code running inside `fn`, including awaited calls, sees that request.</Term>
+  <Term name="Bag">A per-request key–value store for passing data from middleware to loaders.</Term>
+</Terms>
+
+## Read the request
+
+```ts title="src/actions/notifyMe.ts"
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+
+export interface Props {
+  email: string;
+  sku: string;
+}
+
+export default async function notifyMe(props: Props) {
+  const res = await RequestContext.fetch("https://api.example.com/back-in-stock", {
+    method: "POST",
+    body: JSON.stringify(props),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  RequestContext.responseHeaders.append("Set-Cookie", "notified=1; Path=/; Max-Age=86400");
+  return { ok: res.ok };
+}
+```
+
+Two things in that action come from the request context:
+
+- **`RequestContext.fetch`** is `fetch` with the request's abort signal attached. If the visitor disconnects, the upstream call is cancelled instead of running to completion for nobody. Pass your own `signal` to override it.
+- **`RequestContext.responseHeaders`** collects headers for the response. When the action is called through `/deco/invoke`, they're copied onto the HTTP response, `Set-Cookie` values included.
+
+This example assumes TanStack Start, where every request runs in a scope. On Next.js, see [Who opens the scope](#who-opens-the-scope).
+
+## The API
+
+| Member | Returns | Outside a request scope |
+|---|---|---|
+| `RequestContext.run(request, fn)` | Runs `fn` inside a new scope for `request` | (opens one) |
+| `RequestContext.current` | The scope's data, or `null` | `null` |
+| `RequestContext.request` | The `Request` | Throws |
+| `RequestContext.signal` | An `AbortSignal` that fires when the request is aborted | Throws |
+| `RequestContext.responseHeaders` | `Headers` to add to the response | Throws |
+| `RequestContext.requestId` | The request id: the incoming `x-request-id` header, else the platform's request id, else a random UUID | `null` |
+| `RequestContext.device` | `"mobile"` or `"desktop"`, from the user agent | `"desktop"` |
+| `RequestContext.isBot` | Whether the user agent looks like a crawler | `false` |
+| `RequestContext.elapsed` | Milliseconds since the request started | `0` |
+| `RequestContext.fetch(input, init?)` | `fetch` with the request's signal | Plain `fetch` |
+| `RequestContext.getBag<T>(key)` / `setBag(key, value)` | A per-request value | `undefined` / no-op |
+| `RequestContext.getAppState<T>(name)` | An installed app's configuration for this request | `undefined` |
+
+`getAppState` reads what an app put in the bag. For example, `RequestContext.getAppState<VtexState>("vtex")` returns the VTEX app's configuration, so a site loader can read the account name. See [Apps](/v7/apps).
+
+## Who opens the scope
+
+You don't call `run` yourself in a normal site. On TanStack Start, `createDecoWorkerEntry` opens a scope for every request before anything else runs, so route loaders, server functions, CMS resolution, section loaders and `/deco/invoke` handlers all see it.
+
+The Next.js binding doesn't open a scope, neither for page renders nor for its route handlers: React Server Components render a component's children after the call that started them returns, so a scope wrapped around the render wouldn't reach them. In Next.js server code, read request data with Next's own `headers()` and `cookies()`, and treat `RequestContext` accessors as being outside a scope: use `RequestContext.current` (which can be `null`) rather than the throwing getters. That includes loaders and actions called through `/deco/invoke`, where `RequestContext.responseHeaders` throws; return a `Response` from the handler instead when you need to set a cookie, since a single `/deco/invoke/<key>` call passes a returned `Response` through unchanged.
+
+If you write your own server or a test, wrap the work yourself:
+
+```ts title="A test or custom server"
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+
+const response = await RequestContext.run(request, () => handle(request));
+```
+
+<Callout type="warning">
+
+**Don't read `request`, `signal` or `responseHeaders` at module load.** Top-level code runs outside any request, so those getters throw. Read them inside the function that handles the request.
+
+**Don't keep request data in module-level variables.** One server instance handles many requests at once; anything specific to a visitor belongs in the request scope (the bag) or in function arguments.
+
+</Callout>
+
+## In the browser
+
+`RequestContext` is safe to import from code that also ends up in the browser bundle. Its storage is published with conditional exports: server runtimes (Cloudflare Workers, Node.js) get the real implementation built on `AsyncLocalStorage`, and browser bundles get a stub with the same shape that never holds a scope. In the browser every accessor behaves as outside a request scope: `current` is `null`, `device` is `"desktop"`, and the throwing getters throw.
+
+Don't import `node:async_hooks` (where `AsyncLocalStorage` lives) directly in code that can reach a `"use client"` file or a browser bundle; the browser build fails. Go through `RequestContext` instead.
+
+## On Cloudflare Workers
+
+`AsyncLocalStorage` is a Node.js API. On Workers it's available with the `nodejs_compat` compatibility flag, so your `wrangler.jsonc` needs it:
+
+```jsonc title="wrangler.jsonc (excerpt)"
+{
+  "compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"]
+}
+```
+
+Without the flag, request-scoped features (cookie forwarding, abort signals, device detection) stop working.
+
+## Next steps
+
+- [Loaders and actions](/v7/loaders): where request context is most used.
+- [Matchers and variants](/v7/variants): the matcher context, a separate object built from the same request.
+- [How v7 is built](/v7/internals): why the storage uses conditional exports.

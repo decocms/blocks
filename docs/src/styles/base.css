@@ -1,0 +1,51 @@
+/* ==========================================================================
+   Base layer: element defaults on top of Tailwind's preflight. Only what no single component owns.
+   ========================================================================== */
+html { scroll-padding-top: calc(var(--header-h) + 24px); }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+@supports (overflow: clip) { body { overflow-x: clip; } }
+button { cursor: pointer; }
+button, a, input { touch-action: manipulation; }
+::selection { background: var(--code-sel); color: var(--fg); }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+
+/* Mono text never uses ligatures (`=>`, `!==` stay as typed). */
+code, pre, kbd { font-family: var(--font-mono); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+kbd { font-size: 11px; font-weight: 500; line-height: 16px; }
+
+/* Inline code everywhere (docs, Roadmap, Home); code panels and mocks restyle `pre`. */
+:not(pre) > code {
+  font-size: .84em; font-weight: 400; line-height: 1; padding: .24em .44em; border-radius: 6px;
+  background: var(--code-inline); color: var(--fg); overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+:not(pre) > code.is-short { white-space: nowrap; }
+pre { margin: 0; font-family: var(--font-mono); font-size: 13px; line-height: 22px; tab-size: 2; font-variant-ligatures: none; color: var(--code-fg); }
+pre code { font: inherit; font-variant-ligatures: none; background: none; border: 0; padding: 0; color: inherit; white-space: pre; overflow-wrap: normal; }
+
+/* <Icon/> and <Mark/> render svg.icon: 16px unless a utility on the icon (size-3.5, …) says otherwise. */
+.icon { width: 16px; height: 16px; flex: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+@media print {
+  body { background: #fff; font-size: 11pt; line-height: 1.55; }
+  a { color: inherit !important; }
+  /* Code prints whole: no scroll box, long lines wrap (code panels, the walkthrough). */
+  pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; font-size: 8pt; line-height: 1.5; }
+  pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  @page { margin: 16mm 14mm; }
+}

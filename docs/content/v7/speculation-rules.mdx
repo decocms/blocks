@@ -1,0 +1,139 @@
+---
+title: Speculation rules
+group: Production
+order: 39
+description: Let the browser prefetch or prerender the next page before a click, on TanStack Start sites, without double-counting analytics.
+---
+
+# Speculation rules
+
+The browser's Speculation Rules API lets a page declare which links the visitor is likely to follow. The browser then fetches the next document, or renders it completely in a hidden tab, before the click, so the navigation is instant. `@decocms/tanstack` can emit these rules for you from version 7.48.0 on. They're off by default; this page explains when they help, how to turn them on, and what to check in your analytics first.
+
+## What it helps, and what it doesn't
+
+Speculation rules only help **document navigations**: a plain `<a href>` that makes the browser load a new HTML page. On a storefront that's typically the mega-menu, the footer and breadcrumbs.
+
+Links rendered with TanStack Router's `<Link>` gain nothing. The router intercepts the click and navigates on the client, so the browser never uses the document it prepared, and the work is wasted. That's why you should scope the rules to the containers whose links really leave the app, with `linkSelector`.
+
+The rules themselves are an inert JSON `<script type="speculationrules">` in the page's `<head>`. No framework JavaScript runs on the critical path.
+
+## Turn it on
+
+Set the `speculationRules` option of the Worker entry. It applies to the whole site:
+
+```ts title="src/worker-entry.ts"
+export default createDecoWorkerEntry(serverEntry, {
+  speculationRules: {
+    action: "prerender",
+    eagerness: "moderate",
+    linkSelector: "[data-prerender] a[href]",
+  },
+});
+```
+
+A root layout can override it with the `speculationRules` prop of `DecoRootLayout`:
+
+```tsx title="src/routes/__root.tsx"
+import { createRootRoute } from "@tanstack/react-router";
+import { DecoRootLayout } from "@decocms/tanstack";
+
+export const Route = createRootRoute({
+  component: () => (
+    <DecoRootLayout siteName="my-store" speculationRules={{ action: "prefetch", eagerness: "conservative" }} />
+  ),
+});
+```
+
+Without either, `DecoRootLayout` emits nothing.
+
+## Mark the right links
+
+`linkSelector` is an ordinary CSS selector that the browser matches against the page's anchors. `data-prerender` is just a naming convention: what matters is that the selector matches **only** anchors that navigate the whole document.
+
+With `linkSelector: "[data-prerender] a[href]"`, mark the containers:
+
+```tsx title="src/components/Footer/FooterLinks.tsx"
+import { Link } from "@tanstack/react-router";
+
+const institutional = [
+  { href: "/about", label: "About us" },
+  { href: "/returns-policy", label: "Returns policy" },
+];
+
+export function FooterLinks() {
+  return (
+    <footer>
+      {/* Plain anchors leave the app: candidates. */}
+      <nav data-prerender>
+        {institutional.map((link) => (
+          <a key={link.href} href={link.href}>
+            {link.label}
+          </a>
+        ))}
+      </nav>
+
+      {/* Router links navigate on the client: not marked. */}
+      <nav>
+        <Link to="/summer-sale">Summer sale</Link>
+      </nav>
+    </footer>
+  );
+}
+```
+
+The selector matches descendants, so a `data-prerender` on a wrapper that also contains router `<Link>`s makes those candidates too. Mark the specific `<nav>`, not the whole `<header>`. Selectors with `>` work.
+
+## Options
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `action` | `"prerender" \| "prefetch"` | `"prerender"` | `prerender` renders the whole page in a hidden document and runs its JavaScript: instant, more expensive, and it needs prerender-safe analytics. `prefetch` only downloads the HTML and runs nothing. |
+| `eagerness` | `"immediate" \| "eager" \| "moderate" \| "conservative"` | `"moderate"` | When to start. `immediate`: as soon as the rules are read. `eager`: on any sign of interest. `moderate`: on a hover of about 200 ms, or pointer down. `conservative`: on pointer down only. Move toward `conservative` if speculative load on your server grows. |
+| `linkSelector` | `string` | none | Which anchors are candidates. Without it, every internal link (`/*`) is. |
+| `excludeHrefMatches` | `string[]` | `[]` | Extra path patterns to exclude, added to the defaults. For example `["/*/p"]` skips product pages. |
+| `overrideDefaultExclusions` | `boolean` | `false` | Replace the default exclusions instead of adding to them. Only if none of the default paths exist on your site. |
+
+The types are exported from `@decocms/tanstack` as `SpeculationRulesConfig`, `SpeculationAction` and `SpeculationEagerness`.
+
+### Default exclusions
+
+These are always excluded unless you set `overrideDefaultExclusions: true`:
+
+```text
+/checkout*  /account*  /_secure/*  /login*  /logout*  /cart*  /api/*
+```
+
+They're pages with session side effects (prerendering `/cart` could change state) and proxied or API routes, which are never cached, so speculating on them is pure cost. The list mirrors the `private` [cache profile](/v7/caching) and is exported as `DEFAULT_EXCLUDED_HREF_MATCHES`.
+
+## Before you use `prerender`: analytics
+
+`prerender` runs the page's JavaScript in the hidden document, pixels included. An analytics loader that doesn't check for this fires once during the prerender and again when the visitor actually opens the page, so you count the pageview twice. If the prerendered page is never opened, you count a visit that didn't happen.
+
+The framework's own analytics are already safe. `DecoRootLayout` includes `ANALYTICS_SCRIPT`, the observer behind `data-event` attributes, which waits until the page is shown. For Google Tag Manager, use `gtmScript` from `@decocms/blocks/sdk/analytics`, which defers loading the container the same way:
+
+```tsx title="src/components/Analytics.tsx"
+import { gtmScript } from "@decocms/blocks/sdk/analytics";
+
+export function Analytics() {
+  return <script dangerouslySetInnerHTML={{ __html: gtmScript("GTM-XXXXXXX") }} />;
+}
+```
+
+For any other pixel, use the same guard: run its initialization only when `document.prerendering` is false, or after the `prerenderingchange` event.
+
+```js
+if (document.prerendering) {
+  document.addEventListener("prerenderingchange", initPixel, { once: true });
+} else {
+  initPixel();
+}
+```
+
+In development, with speculation rules on, the framework adds a script that logs a `console.error` naming any tracker that fired during a prerender. Turn the rules on in development first and clear those errors before shipping.
+
+`prefetch` runs no JavaScript, so it's the safe choice while your pixels haven't been checked.
+
+## Related
+
+- [TanStack Start on Cloudflare Workers](/v7/tanstack): the other Worker entry options.
+- [Images, scripts and UI helpers](/v7/components): `useSendEvent` and the `data-event` analytics helpers.

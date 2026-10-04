@@ -1,0 +1,106 @@
+---
+title: Migrating from v7
+nav: Migrating from v7
+group: Getting started
+order: 3
+description: Keep v7 content working with aliases, replace v7 loaders, actions, telemetry and analytics, and migrate saved content safely.
+---
+
+# Migrating from v7
+
+Your v7 store's saved pages refer to blocks like `site/sections/Product.tsx`, and its product shelf calls a VTEX loader from the [apps](/v7/apps). You want the new code without rewriting all that content.
+
+Saved content refers to your code by name: every block stores a type name in [`__resolveType`](/next/blocks#functions-as-blocks), references store saved block names, and inputs are stored by field name. Treat these names like database columns: once content uses them, changing one breaks that content.
+
+This page shows how to run the migration, how to keep old names working with aliases, what to do with v7 loaders and actions, what replaces v7's telemetry and analytics, how secrets move over, and a [checklist for moving content](#checklist-for-migrating-existing-content).
+
+## Run the migration
+
+The migration is an agent skill, `deco-v7-to-v8-migration`, in the `decocms/blocks` repository (`.agents/skills/deco-v7-to-v8-migration`). Point your coding agent at it, and it runs the migration script and walks you through what's left; or run the script yourself. Either way, first install the next major in your site (`npm install @decocms/blocks@^8.1`; not `^8`, because the `8.0.0` on npm is an accidental v7 build), and keep your v7 apps installed until the migration has run: it copies the loaders your content calls from them. Then, from your app root and on a clean working tree, run the script once from a checkout of `decocms/blocks` (clone it and run `bun install` there first):
+
+```bash
+DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root .
+```
+
+| Flag | What it does |
+|---|---|
+| `--root <dir>` | The app root, the folder with your site's `package.json`. Default: the current folder. |
+| `--decofile <file>` | Content to split into `.deco/blocks` when the site has none yet: the JSON your v7 site serves at `/.decofile`. |
+
+It changes your files in place and prints a report of what it did and what's left for you. It writes a block map that keeps your old type names as [aliases](#rename-a-type-with-an-alias), copies the [loaders](#loaders-actions-and-invoke) your content uses, re-encrypts [secrets](#secrets), and lists what it can't move by itself, such as [tag IDs](#telemetry-and-analytics). Review the diff and commit it like any other change.
+
+Next-major apps depend only on `@decocms/blocks`. Remove `@decocms/tanstack` or `@decocms/nextjs`, and `@decocms/blocks-admin`, from your dependencies: they stay on the 7.x line. What they did for your platform is now a few lines of your own code: upstream caching is a fetch you pass to a client (see [Upstream data](/next/caching#upstream-data)), and content in Workers KV is a small loader (see [Example: Workers KV](/next/api-reference#example-workers-kv)).
+
+Seven v7 type names have no alias in the next major, so the migration rewrites them in your saved content to a name that resolves the same way, with the same props:
+
+| v7 name | Saved as |
+|---|---|
+| `website/flags/multivariate/image.ts`, `website/flags/multivariate/message.ts`, `website/flags/multivariate/page.ts`, `$live/flags/multivariate.ts` | `website/flags/multivariate.ts` |
+| `$live/matchers/MatchAlways.ts` | `website/matchers/always.ts` |
+| `website/matchers/date.ts`, `$live/matchers/MatchDate.ts` | `date` |
+
+<h2 id="rename-a-type-with-an-alias">Rename a block type</h2>
+
+Aliases work for any rename, not only a v7 migration. An alias is another key in the [block map](/next/blocks#the-block-map) pointing at the same function. Content that stores the old name keeps working, and routing is unaffected because [`matchRoute`](/next/api-reference#matchroute-url-items) looks at each entry's `path` field (see [Pages and routing](/next/routing)), not its type name:
+
+```ts title=".deco/index.ts"
+import type { Blocks } from "@decocms/blocks";
+import productCard from "../src/product-card";
+
+export default {
+  "product-card": productCard,
+  "site/sections/Product.tsx": productCard,     // the name legacy content stores
+} satisfies Blocks;
+```
+
+Legacy page names such as `website/pages/Page.tsx` need no entry: the [CLI](/next/cli)'s alias table maps them to the [built-in `page`](/next/built-in-blocks#pages-and-redirects) (see [Site editor compatibility](/next/studio-compatibility)). Legacy `website/flags/multivariate.ts` blocks map to the built-in `multivariate`, and the alias bridge wraps each variant, a plain `value`, in a [`lazy` block](/next/lazy-blocks#write-a-lazy-block) on the way.
+
+An alias only works while both names take the same inputs. If the old shape differs, register a function under the old name that converts the old inputs and calls the new function, or migrate the content first. Here the old content called the title `name`:
+
+```ts
+type CardInput = Parameters<typeof productCard>[0];
+
+export default {
+  "product-card": productCard,
+  "site/sections/Product.tsx": ({ name, ...rest }: Omit<CardInput, "title"> & { name: string }) =>
+    productCard({ ...rest, title: name }),      // converts the old inputs
+} satisfies Blocks;
+```
+
+[`deco check`](/next/checking#what-deco-check-checks) rejects an alias that collides with a saved block's name.
+
+<h2 id="loaders-actions-and-invoke">Loaders, actions and invoke</h2>
+
+On [v7](/v7/loaders), saved content often calls loaders and actions that ship in Deco's [apps](/v7/apps), such as a VTEX product loader. In the next major the apps are thin [upstream clients](/next/upstream-clients) and ship no loaders, so the migration copies (vendors) the ones your site actually uses into your own code, rewritten over the clients, and registers each under its old type name as an [alias](#rename-a-type-with-an-alias). Content keeps resolving, and the copied code is yours to change from then on.
+
+v7's `/deco/invoke` endpoint (which ran loaders and actions over HTTP for the site editor and the browser) and `cachedLoader` (see [v7 caching](/v7/caching)) are gone. Call upstream clients from your framework's server functions or route handlers instead; upstream caching is a fetch your app passes to a client (see [Upstream data](/next/caching#upstream-data)).
+
+<h2 id="telemetry-and-analytics">Telemetry and analytics</h2>
+
+v7 configured telemetry with environment variables and shipped its analytics as components. In the next major, they're two separate parts of Deco CMS: telemetry is configured in code, and analytics is a built-in block.
+
+| v7 | Next major |
+|---|---|
+| The OpenTelemetry export, switched on with `DECO_OTEL` and the `DECO_OTEL_*` endpoint and header variables (see [v7 observability](/v7/observability)) | The [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) of `createCMS`: `{ endpoint, headers? }` for your own collector, or the standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` variables. Sampling moves to the [Telemetry saved block](/next/telemetry#telemetry-settings-are-content). |
+| Metrics Deco collected for your site in its own backend | `telemetry: { site, token }`, set explicitly (see [Hosted telemetry](/next/hosted-telemetry)) |
+| The `Stats` and `OneDollarStats` components, and the `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` variables | A saved block of the built-in [`analytics`](/next/analytics) type, which speaks the [One Dollar Stats](/next/analytics#one-dollar-stats) format. Rendering `AnalyticsScript` with it turns it on; its `enabled` field switches it off. |
+| The `Analytics` section with Google Tag Manager and GA4 tags | A tag manager block from your [platform template](/next/how-it-works#key-terms), owned by your site; the migration lists the tag IDs in its report. The built-in `analytics` block only counts page views, so it doesn't take them. |
+| Experiment results keyed on the random matcher's saved-block name | The `experiment` ID of the [A/B test](/next/matchers-and-variants#run-an-a-b-test); the migration copies the old name into it, so results carry over. |
+
+<h2 id="secrets">Secrets</h2>
+
+v7 saved credentials as `website/loaders/secret.ts` blocks, encrypted with the `DECO_CRYPTO_KEY` environment variable. The next major uses a key pair instead (see [Secrets](/next/built-in-blocks#secrets)), so the migration re-encrypts each secret once:
+
+1. [Create the key pair](/next/built-in-blocks#create-the-keys) and commit `.deco/secrets.pub`.
+2. Run the migration with `DECO_CRYPTO_KEY` set. It decrypts each v7 secret and saves it as a `secret` block encrypted with your public key, in the same commit as the rest of the content.
+3. Deploy with `DECO_SECRETS_KEY` set, then remove `DECO_CRYPTO_KEY`.
+
+## Checklist for migrating existing content
+
+1. **Keep existing names.** If the content stores file-path type names, register them as they are or alias them, including the app loaders and actions you vendored.
+2. **Check inputs.** Run [`deco check`](/next/checking): it validates every saved block against the [schema](/next/schema#from-types-to-forms) and lists each one that no longer fits. It can't see changed defaults, so review those yourself.
+3. **Migrate the content in one commit.** A script reads the JSON in `.deco/blocks`, rewrites it, and writes it back. The commit is a new [revision](/next/releases-and-deployment#what-a-revision-is) you can revert in one step. Keep fields the script doesn't recognize instead of deleting them, and report references to missing entries (`NOT_FOUND`) instead of dropping them.
+4. **Test the integration.** Load real pages against the migrated content: routes resolve, titles and SEO tags are right, blocks that load later (if your framework streams them) appear, failing blocks show their fallback, and navigation works.
+5. **Keep a rollback pair.** Keep the previous build plus the content revision it was tested with. Rolling back content alone can't bring back code you removed.
+
+Test behavior, not just schemas. A function can keep its input type and still change its output, defaults, or upstream calls.

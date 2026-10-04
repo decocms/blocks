@@ -1,6 +1,6 @@
 // AUTO-GENERATED shape, HAND-MAINTAINED file.
 // `scripts/generate-manifests.ts` was never ported into this repo (deferred in
-// docs/apps-monorepo-migration-plan.md); until it is, add new loaders/actions/
+// notes/apps-monorepo-migration-plan.md); until it is, add new loaders/actions/
 // sections here by hand. Checked into source control (see .gitignore's
 // `!packages/apps-*/src/manifest.gen.ts` negation).
 import * as actions_submitRating from "./actions/submitRating";
