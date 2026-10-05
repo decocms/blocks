@@ -102,7 +102,7 @@ The next major keeps site-wide settings in one saved block, `CMS`, of the built-
 
 | From | Into `CMS.json` |
 |---|---|
-| The v7 Site block's (`Site` or `site`) `previewHosts` | `preview.hosts`, entry for entry. v7 compared hosts exactly, port included, and so does an entry with a port here (see [Host patterns](/next/api-reference#host-patterns)). The rest of the Site block stays where it is. |
+| The v7 Site block's (`Site` or `site`) `previewHosts` | `preview.hosts`, entry for entry, each trimmed and lowercased as v7 compared it. v7 compared hosts exactly, port included, and so does an entry with a port here (see [Host patterns](/next/api-reference#host-patterns)). An entry that isn't a host is left out and listed in the report. On TanStack Start, v7 also allowed `<site>.deco.site` and `<site>.deco-cx.workers.dev` for the site named by `DECO_SITE_NAME`; the migration adds both when it finds the name in `wrangler.*`, `.env` or the Vite config, and lists them in the report when it doesn't. The rest of the Site block stays where it is. |
 | A literal `collectorAddress` on v7's `OneDollarStats` component in your code | `analytics.collector` |
 | A `Telemetry` saved block (type `telemetry`) from an earlier next-major prerelease | The `telemetry` section, field for field; the old file is deleted |
 | An `Analytics` saved block (type `analytics`) from an earlier next-major prerelease | The `analytics` section, field for field; the old file is deleted |

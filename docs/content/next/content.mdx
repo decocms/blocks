@@ -89,4 +89,4 @@ The exact `Loader` interface, `interval`, the loaders the framework ships, and a
 
 ## One instance per process
 
-`createCMS` returns the same instance for the same configuration, even if your bundle loads the package twice; see [One instance per process](/next/api-reference#one-instance-per-process).
+`createCMS` shares one instance for the same configuration, even if your bundle loads the package twice, and each call resolves with its own block map; see [One instance per process](/next/api-reference#one-instance-per-process).

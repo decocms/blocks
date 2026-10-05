@@ -128,7 +128,9 @@ Caching, ETags, and fallbacks live inside the CMS, which any number of clients s
 
 ## One instance per process
 
-`createCMS` instances (and hosted `remoteLoader` instances) are process-wide singletons. Each is stored on `globalThis` under a `Symbol.for("decocms.blocks…")` key derived from its configuration: the content's identity (for the content module, the `.deco` folder it was generated from; for a loader you write, the loader object; never the revision, so a hot reload that hands in new content keeps the same instance), and, with the hosted Deco CMS, also the site ID and token. So a package loaded twice, by two bundles or by a dev reload (hot module replacement, HMR), still shares one content cache and one schedule of `update()` checks. Different configurations, such as several sites in one app, get different instances. Calling it again with the same key but different options keeps the first instance and logs a warning that names the conflicting options. Tests can start clean:
+`createCMS` instances (and hosted `remoteLoader` instances) are process-wide singletons. Each is stored on `globalThis` under a `Symbol.for("decocms.blocks…")` key derived from its configuration: the content's identity (for the content module, the `.deco` folder it was generated from; for a loader you write, the loader object; never the revision, so a hot reload that hands in new content keeps the same instance), and, with the hosted Deco CMS, also the site ID and token. So a package loaded twice, by two bundles or by a dev reload (hot module replacement, HMR), still shares one content cache and one schedule of `update()` checks. Different configurations, such as several sites in one app, get different instances. Calling it again with the same key but different options keeps the first instance and logs a warning that names the conflicting options.
+
+Each call returns a handle on that shared instance holding the call's own `blocks`: the content, caps, telemetry and update checks are shared, and each handle resolves with the block map it was created with. So a second bundle in the same process, such as Next.js's `proxy.ts`, can import your `cms` without replacing the app's block map, and a hot reload's new map is used by the `cms` it returns. Calling it again with the same block map object returns the same handle. Tests can start clean:
 
 ```ts
 function resetForTests(): void;   // clears every stored instance
@@ -150,7 +152,8 @@ interface EffectiveSettings {
 }
 ```
 
-- **Always the release.** It reads the current release this server already has in memory, never a draft, so no draft can allow its own preview host or change what telemetry sends. It never fetches: at boot it reads the content module, and a newer release arrives with the next [background check](/next/hosted-releases-internals). With a [loader you write](/next/content#write-a-loader) that has no content in memory yet, it returns the defaults until the first release loads.
+- **Always the release.** It reads the current release this server already has in memory, never a draft, so no draft can allow its own preview host or change what telemetry sends. It never fetches: at boot it reads the content module, and a newer release arrives with the next [background check](/next/hosted-releases-internals). With a [loader you write](/next/content#write-a-loader) that has no content in memory yet, it returns the defaults until the first release loads; after that, an `update()` keeps the previous release's settings until the next release loads.
+- **Read-only.** The settings are frozen, since every caller gets the same object; copy them to change anything.
 - **Never rejects.** A missing `CMS` block, a block of another type, or a section that fails to resolve gives that section's defaults (still capped by code).
 - **Variants are picked per call.** The block resolves on each call, so a field with [variants](/next/matchers-and-variants#variants) is decided by its rules where you call it, in your request scope. Telemetry reads its section outside any request.
 
@@ -181,6 +184,7 @@ The rule in full:
 - **Ports are optional.** A pattern without a port matches any port. A pattern with one matches only a URL that names that port; URLs never name a default port, so write `example.com`, not `example.com:443`.
 - **IP addresses match exactly.** An IPv4 address, or an IPv6 address in brackets, can be a pattern, but never with a wildcard.
 - **Anything else isn't a pattern**, such as a scheme, a path, a space or an empty label. In code, `createCMS` throws; in content, the entry is left out.
+- **An unreadable URL matches only `"*"`.** That includes a URL with a username or password (`https://public.com@staging.example.com/`, which a forged `Host` header can produce in a URL built from it) and a hostname with an empty label (`a..example.com`).
 
 A content entry is **within** code's list when every host it matches is also matched by a code entry: `staging.example.com` is within `*.example.com`, `*.a.example.com` is within `*.example.com`, but `*.example.com` isn't within `*.a.example.com`. A content entry without a port is within only a code entry without a port, and `"*"` is within only `"*"`. An entry outside code's list is left out, so content can narrow where previews are allowed but never widen it.
 
