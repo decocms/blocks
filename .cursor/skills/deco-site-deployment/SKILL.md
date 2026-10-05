@@ -191,7 +191,7 @@ kubectl get secret state -n sites-<SITENAME> -o json \
 Extract, modify, and write back:
 
 ```bash
-SITENAME="fila-store"
+SITENAME="my-store"
 NS="sites-${SITENAME}"
 
 # 1. Extract current state
@@ -216,7 +216,7 @@ if [ -z "$ADMIN_API_KEY" ]; then
   exit 1
 fi
 
-SITENAME="fila-store"
+SITENAME="my-store"
 
 # Deploy to AWS
 curl -s --location "https://admin.deco.cx/live/invoke/deco-sites/admin/actions/hosting/deploy.ts" \
@@ -317,7 +317,7 @@ if [ -z "$ADMIN_API_KEY" ]; then
   exit 1
 fi
 
-SITENAME="fila-store"
+SITENAME="my-store"
 NS="sites-${SITENAME}"
 
 # Ask user which cluster to target, then set:
