@@ -1,620 +1,127 @@
 ---
 name: deco-migrate-script
-description: Automated migration script that converts Deco storefronts from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers. Runs 8 phases (analyze, scaffold, transform, cleanup, report, verify, bootstrap, compile). Use when running the migration script, debugging its output, extending it with new transforms, or understanding what it does. Located at packages/blocks-cli/scripts/migrate.ts in @decocms/blocks-cli.
-globs:
-  - "packages/blocks-cli/scripts/migrate.ts"
-  - "packages/blocks-cli/scripts/migrate/**/*"
+description: "Internals of the Fresh/Deno to TanStack Start migrator (deco-migrate) in @decocms/blocks-cli: code layout under packages/blocks-cli/scripts/migrate, MigrationContext, phases, transforms, templates, analyzers, smoke checks, Tailwind rename tables, deco-post-cleanup rules, tests. Use when editing or debugging anything under packages/blocks-cli/scripts/migrate* or adding a transform/rule. For running a migration on a site use tools-migrate-script (decocms/migrations)."
 ---
 
-# Deco Migration Script
+# Developing the migration script
 
-Automated TypeScript script that converts a Deco storefront from Fresh/Preact/Deno to TanStack Start/React/Cloudflare Workers in one pass.
+`deco-migrate` (`packages/blocks-cli/scripts/migrate.ts`, bin `deco-migrate`)
+converts a Fresh/Preact/Deno storefront to TanStack Start/React/Cloudflare
+Workers in one pass, in place on `--source`. This skill is for changing it.
+How to run it, what each phase does from the user's side, the flags, the
+`.deco-migrate.config.json` format and how to read `MIGRATION_REPORT.md` live
+in the **`tools-migrate-script`** skill in `decocms/migrations` — keep the two
+in step when a flag, phase or report section changes.
 
-## Quick Start
+| Reference | Load it when |
+|---|---|
+| [`references/extending.md`](./references/extending.md) | Adding a transform, template, smoke check or analyzer; the core types; debugging a transform at the code level |
 
-```bash
-# From the NEW site root (already has @decocms/blocks-cli linked/installed):
-npx tsx node_modules/@decocms/blocks-cli/scripts/migrate.ts --source /path/to/old-site
-
-# Dry run first:
-npx tsx node_modules/@decocms/blocks-cli/scripts/migrate.ts --source /path/to/old-site --dry-run --verbose
-```
-
-### Options
-
-| Flag | Description |
-|------|-------------|
-| `--source <dir>` | Source site directory (default: `.`) |
-| `--dry-run` | Preview changes without writing files |
-| `--verbose` | Show detailed per-file output |
-| `--strict` | Promote post-bootstrap typecheck/build failures from warnings to errors (exit 2) |
-| `--with-build` | After typecheck, also run `npx vite build` for full runtime validation (slower) |
-| `--no-compile` | Skip the post-bootstrap compile phase entirely |
-| `--help` | Show help |
-
-**CI usage:** pair `--strict` with `--with-build` to catch both type and runtime regressions before merge.
-
-### Per-site config: `.deco-migrate.config.json`
-
-Optional JSON file at the source root that customises the migration for sites whose section names don't match the reference-site-derived defaults baked into the script.
-
-```jsonc
-{
-  "sectionConventions": {
-    // Add to defaults — preferred for sites that share most defaults.
-    "extend": {
-      "sync": ["MyCustomShelf"],
-      "listingCache": ["MyCustomShelf"],
-      "staticCache": ["AboutUs", "PrivacyPolicy"]
-    }
-    // Or replace defaults entirely (rare):
-    // "replace": { "sync": [...], "eagerSync": [...], ... }
-  }
-}
-```
-
-**Categories:**
-- `eagerSync` — section files registered as both eager and sync (rendered above-the-fold, no client-defer).
-- `sync` — registered as sync only (server-side default applies for loading).
-- `listingCache` — emit `export const cache = "listing"` (medium TTL).
-- `staticCache` — emit `export const cache = "static"` (long TTL).
-
-When the file is absent the baked-in reference-site defaults apply, so existing migrations are unaffected.
-
-## Architecture
+## Code layout
 
 ```
-packages/blocks-cli/scripts/migrate.ts              ← Entry point, runs all phases
+packages/blocks-cli/scripts/migrate.ts   ← entry: arg parsing, phases 0–9, bootstrap, provisioning
 packages/blocks-cli/scripts/migrate/
-├── types.ts                    ← MigrationContext, FileRecord, DetectedPattern
-├── colors.ts                   ← Terminal output formatting
-├── phase-analyze.ts            ← Phase 1: scan source, detect patterns
-├── phase-scaffold.ts           ← Phase 2: generate config files
-├── phase-transform.ts          ← Phase 3: apply code transforms
-├── phase-cleanup.ts            ← Phase 4: delete old artifacts
-├── phase-report.ts             ← Phase 5: generate MIGRATION_REPORT.md
-├── phase-verify.ts             ← Phase 6: smoke tests
-├── phase-compile.ts            ← Phase 8: post-bootstrap tsc/vite-build
-├── transforms/                 ← Transform modules (applied in order)
-│   ├── imports.ts              ← 70+ import rewriting rules
-│   ├── jsx.ts                  ← JSX attribute fixes
-│   ├── fresh-apis.ts           ← Fresh framework API removal
-│   ├── ctx-compat.ts           ← Optional-chain section-loader ctx.* reads (#305)
-│   ├── deno-isms.ts            ← Deno-specific cleanup
-│   ├── dead-code.ts            ← Old cache/loader system removal
-│   └── tailwind.ts             ← Tailwind v3→v4 + DaisyUI v4→v5
-└── templates/                  ← Config file generators
-    ├── package-json.ts         ← Auto-fetches latest npm versions
-    ├── tsconfig.ts
-    ├── vite-config.ts
-    ├── wrangler.ts
-    ├── knip-config.ts
-    ├── routes.ts               ← __root, index, $, deco/* routes
-    ├── setup.ts                ← CMS block registry
-    └── server-entry.ts         ← server.ts + worker-entry.ts
+├── types.ts               ← MigrationContext, FileRecord, DetectedPattern, ReviewItem, TransformResult
+├── config.ts              ← .deco-migrate.config.json load/validate, resolveSectionConventions
+├── source-layout.ts       ← phase 0: classic / modern / mixed / empty
+├── colors.ts              ← terminal formatting
+├── delete-sets.ts         ← what cleanup deletes
+├── phase-analyze.ts       ← 1: scan source, categorise files, detect patterns, extract metadata
+├── phase-scaffold.ts      ← 2: generate config + infra files
+├── phase-transform.ts     ← 3: the transform pipeline, plus post-transform ~/islands/ repointing
+├── phase-cleanup.ts       ← 4: delete old artifacts, static/ → public/
+├── phase-report.ts        ← 5: MIGRATION_REPORT.md (isCssReviewItem feeds the CSS section)
+├── phase-verify.ts        ← 6: static smoke checks (critical / warning)
+├── phase-compile.ts       ← 8: tsc --noEmit, optional vite build, CSS compile check
+├── css-compile-check.ts   ← compiles app.css with the site's @tailwindcss/cli
+├── phase-cleanup-audit.ts ← 9: runs post-cleanup/ read-only (never --fix from here)
+├── analyzers/             ← tailwind-config, theme-extractor, section-metadata,
+│                            loader-inventory, island-classifier, htmx-analyze
+├── transforms/            ← imports (70+ rules), jsx, htmx-on-events, use-script-handlers,
+│                            fresh-apis, ctx-compat, dead-code, deno-isms, timer-types,
+│                            picture, tailwind, tailwind-renames, css, color-oklch,
+│                            section-conventions
+├── templates/             ← package-json (fetches latest npm versions), tsconfig,
+│                            vite-config, wrangler, knip-config, routes (__root, index,
+│                            $, deco/*), setup, server-entry (server.ts, worker-entry.ts,
+│                            runtime.ts), app-css, CI workflow ymls, hooks, commerce-*,
+│                            lib-utils, …
+└── post-cleanup/          ← rules.ts, runner.ts, shim-classify.ts (deco-post-cleanup)
 ```
 
-## Phases
-
-### Phase 1: Analyze
-
-Scans the source directory to build a `MigrationContext`:
-
-**Pattern detection** — 21 regex patterns:
-- `preact-hooks`, `preact-compat`, `preact-signals`
-- `fresh-runtime`, `fresh-head`, `fresh-islands`
-- `deco-hooks`, `deco-blocks`, `deco-types`
-- `apps-commerce`, `apps-website`, `apps-admin`
-- `site-alias` (`$store/`, `deco-sites/`, `site/`)
-- `class-attr`, `for-attr`, `svg-attrs`
-- `use-signal`, `use-computed`
-
-**File categorization**:
-- `section` — `src/sections/**/*.tsx`
-- `island` — `src/islands/**/*.tsx`
-- `component` — `src/components/**/*.tsx`
-- `sdk` — `src/sdk/**/*.ts`
-- `loader` — `src/loaders/**/*.ts`
-- `action` — `src/actions/**/*.ts`
-- `route` — `routes/**/*.ts` (marked for deletion)
-- `static` — `static/**/*` (marked for move → `public/`)
-- `config` — `deno.json`, `fresh.gen.ts`, etc. (marked for deletion)
-
-**Metadata extraction**:
-- Site name (from `deno.json` or directory name)
-- Platform (VTEX, Shopify, etc. from `apps/site.ts`)
-- GTM ID (from `routes/_app.tsx`)
-- Theme colors & fonts (from `.deco/blocks/` CMS JSON)
-- NPM dependencies (from `npm:` imports and import map)
-
-### Phase 2: Scaffold
-
-Generates 14+ configuration and infrastructure files:
-
-| File | Generator | Notes |
-|------|-----------|-------|
-| `package.json` | `templates/package-json.ts` | Auto-fetches latest npm versions, extracts deps from deno.json |
-| `tsconfig.json` | `templates/tsconfig.ts` | |
-| `vite.config.ts` | `templates/vite-config.ts` | Plugins, aliases, manual chunks, meta.gen stub |
-| `wrangler.jsonc` | `templates/wrangler.ts` | Cloudflare Worker config |
-| `knip.config.ts` | `templates/knip-config.ts` | Unused code detection |
-| `src/router.tsx` | `templates/routes.ts` | TanStack Router with search serialization |
-| `src/routes/__root.tsx` | `templates/routes.ts` | Layout + GTM + analytics + NavigationProgress |
-| `src/routes/index.tsx` | `templates/routes.ts` | Home page with CMS loader |
-| `src/routes/$.tsx` | `templates/routes.ts` | Catch-all CMS route |
-| `src/routes/deco/meta.ts` | `templates/routes.ts` | Admin schema endpoint |
-| `src/routes/deco/invoke.$.ts` | `templates/routes.ts` | RPC handler |
-| `src/routes/deco/render.ts` | `templates/routes.ts` | Preview renderer |
-| `src/server.ts` | `templates/server-entry.ts` | TanStack handler |
-| `src/worker-entry.ts` | `templates/server-entry.ts` | Cloudflare wrapper with admin handlers |
-| `src/setup.ts` | `templates/setup.ts` | CMS block registry via `import.meta.glob` |
-| `src/runtime.ts` | `templates/server-entry.ts` | Invoke proxy for RPC calls |
-| `src/styles/app.css` | inline | DaisyUI v5 CSS with extracted theme colors |
-
-### Phase 3: Transform
-
-Applies 7 transforms in sequence to every source file:
-
-#### 1. `imports.ts` — Import Rewriting (70+ rules)
-
-```
-preact/hooks     → react
-preact/compat    → react
-preact           → react
-@preact/signals  → @decocms/blocks/sdk/signal
-@deco/deco/hooks → @decocms/blocks/sdk/useScript
-@deco/deco/blocks→ @decocms/blocks/types
-apps/commerce/*  → @decocms/apps/commerce/*
-apps/website/*   → ~/components/ui/* or @decocms/apps/*
-site/*           → ~/*
-$store/*         → ~/*
-deco-sites/NAME/ → ~/
-```
-
-Also removes `npm:` prefix, handles relative imports to deleted SDK files (clx, useId, useOffer).
-
-#### 2. `jsx.ts` — JSX Compatibility
-
-```
-class=           → className=
-onInput=         → onChange=
-for=             → htmlFor= (on labels)
-tabindex=        → tabIndex=
-referrerpolicy=  → referrerPolicy=
-ComponentChildren→ ReactNode
-JSX.SVGAttributes→ React.SVGAttributes
-setTimeout       → window.setTimeout (type safety)
-```
-
-#### 3. `fresh-apis.ts` — Fresh Framework Removal
-
-- `asset(url)` → `url` (identity function)
-- `scriptAsDataURI()` → detection + warning
-- `<Head>` component → flagged for manual review
-- `defineApp()` → unwrapped
-- `IS_BROWSER` → `typeof window !== "undefined"`
-- `Context.active()` → removed
-
-#### 4. `ctx-compat.ts` — Section-loader `ctx` compatibility (#305)
-
-Runs only on files that export a `loader`. deco.cx section loaders use a
-3-arg `(props, req, ctx)` signature; the framework now supplies a real compat
-`ctx` (device, `invoke`, per-app state, `response.headers`) as the 3rd arg. But
-an app that isn't configured yields `undefined`, so a non-optional deep read
-(`ctx.salesforce.cartExtension[0]`) still throws and `withSectionLoader`'s
-try/catch silently drops the section's props (blank render).
-
-- Optional-chains every `ctx.*` read → `ctx?.salesforce?.cartExtension?.[0]`.
-- Leaves already-optional chains and assignment targets alone.
-- No-op on files without a `loader` export (so an unrelated `ctx`, e.g. a
-  canvas 2D context, is untouched).
-
-#### 5. `dead-code.ts` — Old Deco Patterns
-
-- Handles: `crypto.subtle.digestSync` (Deno-only → async)
-- Preserves: `invoke.*` calls (runtime.ts proxy)
-- Preserves: `export const cache` / `export const cacheKey` / `export const loader` — no longer dead; `cache`/`cacheKey` now drive single-flight dedup via `createLoaderEntry` (author must verify `cacheKey` is `(props, req)`)
-
-#### 6. `deno-isms.ts` — Deno Cleanup
-
-- `deno-lint-ignore` comments → removed
-- `npm:` prefix → removed
-- `@ts-ignore` → `@ts-expect-error`
-- `Deno.*` API usage → flagged
-- `/// <reference>` directives → removed
-
-#### 7. `tailwind.ts` — Tailwind v3→v4 + DaisyUI v4→v5
-
-Class rename tables live in one place, `transforms/tailwind-renames.ts` —
-`tailwind.ts` (className= rewriter), `templates/app-css.ts` (`@apply`
-rewriter), and the standalone `scripts/tailwind-lint.ts` shipped into
-migrated sites all import from it. They used to be three drifting copies;
-don't reintroduce a fourth by inlining a rename table anywhere else.
-
-**Tailwind class renames** (scale-shift entries applied via per-token map
-lookup, not sequential regex, so `shadow-sm→shadow-xs` and `shadow→shadow-sm`
-can't cascade):
-```
-flex-grow-0   → grow-0
-flex-shrink   → shrink
-decoration-clone → box-decoration-clone
-transform     → (removed, implicit in v4)
-filter        → (removed, implicit in v4)
-ring          → ring-3 (default changed)
-outline-none  → outline-hidden
-shadow-sm/shadow → shadow-xs/shadow-sm
-blur-sm/blur  → blur-xs/blur-sm
-rounded-sm/rounded → rounded-xs/rounded-sm
-drop-shadow-sm/drop-shadow → drop-shadow-xs/drop-shadow-sm
-bg-gradient-to-*  → bg-linear-to-*
-```
-
-**DaisyUI v4→v5 renames** (intentionally conservative — only confirmed 1:1
-renames are listed; structural breaks below have no mechanical rename):
-```
-badge-ghost   → badge-soft
-card-compact  → card-sm
-```
-
-**Arbitrary value simplification:**
-```
-px-[16px]     → px-4
-text-[12px]   → text-xs
-```
-
-**Opacity modifier consolidation:**
-```
-bg-black bg-opacity-20 → bg-black/20
-```
-
-**Critical z-index fix** (Tailwind v4 + React stacking contexts):
-- `-z-{n}` on `<img>` / `<Image>` → `z-0` + `inset-0`
-- Extracts `backgroundColor` into separate overlay div
-- Bumps content div to `relative z-20`
-
-**Flagged, not auto-fixed** (`detectDaisyUiV5StructuralIssues` /
-`detectLogicalPropertyConflict` in `transforms/tailwind-renames.ts`, surfaced
-as `MANUAL:`-prefixed notes that land in the migration report):
-- DaisyUI `.collapse`/`collapse-title`/`collapse-content` usage — broken
-  under Tailwind v4, needs a manual `<details>/<summary>` rewrite (gotcha #37)
-- `btn-group` / `form-control` — removed in DaisyUI v5 with no drop-in
-  class (gotcha #37)
-- `px-*`/`mx-*`/`py-*`/`my-*` mixed with their `pl-*`/`pr-*`/`mt-*`/`mb-*`
-  longhand siblings in the same className — v4's logical properties don't
-  cascade the same as v3's physical ones (gotcha #42)
-
-#### 6b. `tailwind-config.ts` analyzer + `app-css.ts` porting (decocms/blocks#369, gotcha #48)
-
-`analyzers/tailwind-config.ts` statically extracts the source site's
-`tailwind.config.ts` (`theme.extend.colors`, `theme.extend.fontFamily`,
-`theme.extend.screens`, top-level `safelist`) **during analyze, before the
-file is deleted in cleanup** — it used to be deleted unread, silently
-dropping every custom color/font/safelist entry the site defined. Extraction
-is ts-morph-based static analysis only (no code execution); anything built
-via a spread, function call, or imported constant becomes a `ReviewItem`
-instead of being guessed at.
-
-`templates/app-css.ts` then ports the result into the scaffolded
-`src/styles/app.css`: custom colors/fonts/breakpoints go into `@theme` as
-plain hex/CSS values (skipping any key that collides with a daisyUI
-semantic color), and literal safelist entries become a Tailwind v4
-`@source inline(...)` block. Safelist **regex** patterns have no v4
-equivalent and are flagged for manual conversion.
-
-`transforms/color-oklch.ts` closes gotcha #43 (SVG icons rendering solid
-black): if generated CSS emits `oklch(var(--x))` but `--x` was declared as
-hex rather than oklch coordinates, `oklch(#hex)` is invalid CSS and silently
-falls back to black. `fixOklchHexMismatches` finds every such mismatch in
-the generated stylesheet and converts the hex declaration to a genuine
-oklch triplet so the wrapper stays valid.
-
-`transforms/css.ts` covers two more CSS-only gotchas applied to the site's
-original custom CSS before it's appended to `app.css`:
-- `theme(colors.x.y)` (the removed v3 CSS helper) → `var(--color-x-y)`
-- a single-class rule under `@layer components { .foo { @apply ...; } }`
-  gets promoted to `@utility foo { ... }` (v4 requires `@utility` for a
-  custom class to stay `@apply`-able elsewhere — gotcha #49); compound
-  selectors can't be mechanically promoted and are flagged instead.
-
-**Real CSS compile check** (`css-compile-check.ts`, wired into
-`phase-compile.ts`): after `bun install`, the migration actually compiles
-`src/styles/app.css` with the site's own `@tailwindcss/cli` install (the
-official CLI, not the internal `@tailwindcss/node` API — more stable across
-versions). An unknown-utility-class error now fails migration/CI instead of
-shipping an unstyled page. It also does a best-effort, non-blocking scan for
-plain utility classes used in `src/` that produced no CSS output at all
-(the "silently skipped, no error" failure mode a compile error can't catch).
-
-**Why not `npx @tailwindcss/upgrade`?** The official Tailwind v4 upgrade
-codemod was evaluated and rejected for the pipeline: it requires an
-installed v3 Node project with a clean git tree, but the Fresh source is
-Deno (no package.json/node_modules), and running it against the *migrated*
-tree would mean synthesizing a throwaway v3 project that fights the
-scaffolded `vite.config.ts`/`app.css` — plus it has no stable programmatic
-API. Its rename table and config→CSS conversion semantics are mirrored
-manually instead (`transforms/tailwind-renames.ts`,
-`analyzers/tailwind-config.ts`), where Deno-specific quirks stay under our
-control.
-
-### Phase 4: Cleanup
-
-**Deletes directories:**
-- `islands/`, `routes/`, `apps/deco/`, `sdk/cart/`
-
-**Deletes root files:**
-- `deno.json`, `fresh.gen.ts`, `main.ts`, `dev.ts`, `tailwind.config.ts` (read by `analyzers/tailwind-config.ts` in the analyze phase first — see 6b — then deleted here, same as always), `runtime.ts`, `constants.ts`
-
-**Deletes SDK files** (now in @decocms/blocks or @decocms/apps):
-- `sdk/clx.ts`, `sdk/useId.ts`, `sdk/useOffer.ts`, `sdk/useVariantPossiblities.ts`, `sdk/usePlatform.tsx`
-
-**Moves:**
-- `static/` → `public/` (preserves directory structure)
-
-### Phase 5: Report
-
-Generates `MIGRATION_REPORT.md` with:
-- Summary table (files analyzed / scaffolded / transformed / deleted / moved)
-- Categorized file lists
-- Manual review items with severity
-- Dedicated **CSS Migration** section: tokens ported from `tailwind.config.ts`, a pointer to the real CSS compile check, and every CSS-specific manual-review finding filtered out of the general list (see `phase-report.ts`'s `isCssReviewItem`)
-- Always-check section (FormEmail, Slider, Theme, points to the CSS Migration section above)
-- Known issues (z-index stacking, opacity modifiers)
-- Framework findings (patterns to consolidate into @decocms/blocks)
-- Next steps
-
-### Phase 6: Verify
-
-18+ smoke tests in two tiers:
-
-**Critical (blocks migration):**
-- Scaffolded files exist (package.json, vite.config.ts, setup.ts, etc.)
-- Old artifacts removed (deno.json, fresh.gen.ts, etc.)
-- No preact imports remain
-- No `$fresh` imports remain
-- No relative imports to deleted SDK files
-- package.json has required dependencies
-
-**Warnings (manual review):**
-- No `class=` (should be `className=`)
-- No `for=` (should be `htmlFor=`)
-- No negative z-index on non-images
-- No HTMX attributes (`hx-*`)
-- No `site/` imports (should use `~/`)
-- No `.ts`/`.tsx` extensions in imports
-- `.gitignore` has new stack entries
-- `public/` has sprites.svg + favicon.ico
-
-### Phase 7: Bootstrap
-
-Runs automatically after all phases (skipped in `--dry-run`):
-1. `bun install`
-2. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-blocks.ts`
-3. `bunx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts` — emits `src/server/invoke.gen.ts` (top-level `createServerFn` declarations for every VTEX action, plus the `forwardResponseCookies()` Set-Cookie bridge). Without this step the site falls back to the `/deco/invoke/...` proxy and the cart breaks at `/checkout` after addItemToCart. See `.cursor/skills/deco-server-functions-invoke/troubleshooting.md` ("Cart 'forgets' items between requests") for the failure mode.
-4. `bunx tsr generate`
-
-### Phase 8: Compile
-
-Runs automatically after bootstrap (skipped in `--dry-run` or with `--no-compile`):
-
-1. `npx tsc --noEmit` — surfaces any typecheck regression introduced by the
-   transform pipeline. Output is captured and printed (truncated to ~50 lines)
-   so users can see the actual TypeScript diagnostics.
-2. `npx vite build` — only when `--with-build` is passed. Catches
-   runtime-only issues that escape typecheck (missing exports, broken
-   barrel files, server/client boundary violations).
-
-Failures are warnings by default — the migration completes and tells the
-user to inspect the diagnostics. With `--strict`, failures abort with
-exit code `2` so CI can fail the pipeline.
-
-Skipped automatically when `node_modules/` is missing (e.g. bootstrap
-failed before install). This is the gate that catches regressions like
-`#105 TS5097` (rewriter leaving `.ts` extensions in imports) or dead
-shim references that escape the static `phase-verify` checks.
-
-## Key Design Decisions
-
-### MigrationContext (types.ts)
-
-Central state object threaded through all phases:
-
-```typescript
-interface MigrationContext {
-  sourceDir: string;
-  dryRun: boolean;
-  verbose: boolean;
-  files: Map<string, FileRecord>;      // path → metadata + action
-  metadata: {
-    siteName: string;
-    platform: Platform;                  // vtex | shopify | wake | ...
-    gtmId?: string;
-    themeColors: Record<string, string>;
-    themeFonts: string[];
-    npmDeps: Map<string, string>;        // extracted from deno.json
-  };
-  report: {
-    scaffolded: string[];
-    transformed: string[];
-    deleted: string[];
-    moved: string[];
-    manualReview: { file: string; reason: string; severity: string }[];
-  };
-}
-```
-
-### FileRecord
-
-```typescript
-interface FileRecord {
-  relativePath: string;
-  category: "section" | "island" | "component" | "sdk" | "loader" | "action" | "route" | "static" | "config";
-  patterns: DetectedPattern[];           // which old-stack patterns were found
-  action: "transform" | "delete" | "move" | "scaffold" | "skip";
-  targetPath?: string;                   // for moves
-  notes: string[];                       // per-file migration notes
-}
-```
-
-### Platform Detection
-
-```typescript
-// From apps/site.ts or deno.json imports:
-type Platform = "vtex" | "shopify" | "wake" | "vnda" | "linx" | "nuvemshop" | "custom";
-```
-
-Platform affects: commerce type imports, loader registration, setup.ts template, API proxy configuration.
-
-## Extending the Script
-
-### Adding a New Transform
-
-1. Create `packages/blocks-cli/scripts/migrate/transforms/my-transform.ts`:
-
-```typescript
-import type { TransformResult } from "../types";
-
-export function myTransform(content: string, filePath: string): TransformResult {
-  let changed = false;
-  const notes: string[] = [];
-  let result = content;
-
-  // Apply your regex/string replacements
-  const next = result.replace(/oldPattern/g, "newPattern");
-  if (next !== result) {
-    changed = true;
-    notes.push("Replaced oldPattern → newPattern");
-    result = next;
-  }
-
-  return { content: result, changed, notes };
-}
-```
-
-2. Import and add to the pipeline in `phase-transform.ts`:
-
-```typescript
-import { myTransform } from "./transforms/my-transform";
-
-// In the transform pipeline array:
-const transforms = [imports, jsx, freshApis, deadCode, denoIsms, tailwind, myTransform];
-```
-
-### Adding a New Template
-
-1. Create `packages/blocks-cli/scripts/migrate/templates/my-file.ts`:
-
-```typescript
-import type { MigrationContext } from "../types";
-
-export function generateMyFile(ctx: MigrationContext): string {
-  return `// Generated by migration script
-export const siteName = "${ctx.metadata.siteName}";
-`;
-}
-```
-
-2. Call from `phase-scaffold.ts`:
-
-```typescript
-import { generateMyFile } from "./templates/my-file";
-writeScaffolded(ctx, "src/my-file.ts", generateMyFile(ctx));
-```
-
-### Adding a Smoke Test
-
-In `phase-verify.ts`:
-
-```typescript
-checks.push({
-  name: "No foo imports",
-  level: "critical",  // or "warning"
-  test: () => !grepFiles(ctx, /from ["']foo["']/).length,
-  message: "Found foo imports — should be replaced with bar",
-});
-```
-
-## Common Issues & Debugging
-
-### Script fails at Phase 1 (Analyze)
-
-**Cause**: Source directory structure doesn't match expected Deco layout.
-**Fix**: Ensure source has `src/sections/` or `sections/`, `deno.json` or `import_map.json`.
-
-### Transform misses some files
-
-**Cause**: Files outside standard directories (`src/`, `components/`, etc.).
-**Fix**: Check `phase-analyze.ts` categorization logic — add new glob patterns if needed.
-
-### Z-index stacking issues after migration
-
-**Cause**: Tailwind v4 changed stacking context behavior. The script auto-fixes `-z-{n}` on images but may miss custom patterns.
-**Fix**: Search for remaining `-z-` classes and apply the overlay div pattern from `transforms/tailwind.ts`.
-
-### Opacity modifier not consolidated
-
-**Cause**: Non-adjacent `bg-{color}` + `bg-opacity-{n}` pairs can't be safely consolidated.
-**Fix**: Check `MIGRATION_REPORT.md` for flagged opacity items and fix manually.
-
-### Bootstrap fails at generate-blocks
-
-**Cause**: Missing or malformed `.deco/blocks/*.json` files.
-**Fix**: Ensure `.deco/blocks/` was copied from source. Check JSON validity.
-
-### package.json has wrong versions
-
-**Cause**: npm registry fetch failed during scaffold.
-**Fix**: The script falls back to `"latest"` — run `npm install` manually and check for version conflicts.
-
-## Relationship to Manual Migration
-
-This script handles **Phases 0-6** of the [migration playbook](../deco-to-tanstack-migration/SKILL.md):
-- Phase 0 (Scaffold) → `phase-scaffold.ts`
-- Phase 1 (Imports) → `transforms/imports.ts`
-- Phase 2 (Signals) → `transforms/imports.ts` (bulk only — manual `useSignal` → `useState` still needed)
-- Phase 3 (Deco Framework) → `transforms/fresh-apis.ts` + `transforms/ctx-compat.ts` + `transforms/deno-isms.ts`
-- Phase 4 (Commerce) → `transforms/imports.ts`
-- Phase 6 (Islands) → `phase-cleanup.ts` (deletes directory, repoints imports)
-
-**Still manual after the script**:
-- Phase 5 (Platform Hooks) — `useCart`, `useUser`, `useWishlist` implementation
-- Phase 7-12 — Section registry tuning, route customization, matchers, async rendering, search
-
-The script gets you from "raw Fresh site" to "builds with `npm run build` and has ~0 old imports". Human work starts at runtime debugging and feature wiring.
-
-## Post-Migration Audit (`deco-post-cleanup`)
-
-After the migration script's compile phase passes, run the
-**`deco-post-cleanup`** audit to catch the residual cleanup the
-script leaves behind on existing-but-pre-framework-helpers sites:
+Phase 7 (bootstrap: `bun install`, `generate-blocks`, `generate-invoke`,
+`tsr generate`) and the control-plane/analytics provisioning live in
+`migrate.ts` itself, not in a phase file.
+
+## Where each playbook phase is implemented
+
+The script covers phases 0–6 of the manual playbook (`deco-to-tanstack-migration`):
+
+| Playbook phase | Implemented in |
+|---|---|
+| 0 Scaffold | `phase-scaffold.ts` + `templates/` |
+| 1 Imports | `transforms/imports.ts` |
+| 2 Signals | `transforms/imports.ts` — bulk only; `useSignal` → `useState` stays manual |
+| 3 Deco framework | `transforms/fresh-apis.ts`, `transforms/ctx-compat.ts`, `transforms/deno-isms.ts` |
+| 4 Commerce | `transforms/imports.ts` |
+| 6 Islands | `phase-cleanup.ts` (deletes the directory) + `phase-transform.ts` (repoints imports) |
+
+Platform hooks (5) and phases 7–12 are manual by design.
+
+## Rules that are easy to break
+
+- **One Tailwind rename table.** `transforms/tailwind-renames.ts` is imported by
+  `transforms/tailwind.ts` (`className=` rewriter), `templates/app-css.ts`
+  (`@apply` rewriter) and the standalone `scripts/tailwind-lint.ts` shipped into
+  migrated sites. They used to be three drifting copies — never inline a rename
+  table anywhere else. Scale-shift entries are applied by per-token map lookup,
+  not sequential regex, so `shadow-sm→shadow-xs` and `shadow→shadow-sm` cannot
+  cascade. DaisyUI renames stay conservative: confirmed 1:1 only; structural
+  breaks go through `detectDaisyUiV5StructuralIssues` /
+  `detectLogicalPropertyConflict` as `MANUAL:` notes.
+- **Read before delete.** `analyzers/tailwind-config.ts` extracts
+  `tailwind.config.ts` during analyze because cleanup deletes it (it used to be
+  deleted unread — #369). Extraction is ts-morph static analysis, never code
+  execution: spreads, calls and imported constants become `ReviewItem`s.
+- **Transition stubs throw.** Generated stubs (`templates/lib-utils.ts`) must
+  throw at runtime pointing at the canonical replacement, never return
+  `{}`/`null` — a silent stub typechecks and ships a broken cookie/segment path.
+- **The audit is read-only inside the migrator.** `phase-cleanup-audit.ts` never
+  passes `--fix`; auto-fix is opt-in through the standalone CLI only, to keep
+  the migration's mutation surface predictable. Detection in `post-cleanup/`
+  mirrors the post-migration cleanup checklist of the playbook — change both.
+- **Compile and audit are complementary.** `phase-compile` catches what `tsc`
+  sees (TS5097 from a leftover `.ts` extension, #105; missing exports). Silent
+  stubs have valid signatures, so only the audit's pattern matching finds them.
+  A new class of silent failure needs an audit rule, not a compile tweak.
+
+## Why not `npx @tailwindcss/upgrade`
+
+Evaluated and rejected for the pipeline. It needs an installed v3 Node project
+with a clean git tree, but the Fresh source is Deno (no `package.json` /
+`node_modules`); running it on the *migrated* tree would mean synthesizing a
+throwaway v3 project that fights the scaffolded `vite.config.ts`/`app.css`; and
+it has no stable programmatic API. Its rename table and config→CSS semantics
+are mirrored in `transforms/tailwind-renames.ts` and
+`analyzers/tailwind-config.ts` instead, where Deno-specific quirks stay under
+our control. The CSS compile check likewise shells out to `@tailwindcss/cli`
+rather than the internal `@tailwindcss/node` API, which is less stable across
+versions.
+
+## Tests
+
+Colocated `*.test.ts` next to the module under test (`scripts/migrate/**`).
+Coverage is partial — e.g. `phase-scaffold.ts`, `phase-transform.ts`, several
+transforms (`deno-isms`, `fresh-apis`, `dead-code`, `section-conventions`),
+analyzers and templates have no test file yet. Add one when you touch such a
+module. Run from the repo root:
 
 ```bash
-# Read-only audit (default)
-npx -p @decocms/blocks-cli deco-post-cleanup
-
-# Auto-fix the safe rules (dead-lib-shims, dead-runtime-shim, local-widgets-types)
-npx -p @decocms/blocks-cli deco-post-cleanup --fix
-
-# CI gate: auto-fix safe rules, exit 2 if any warnings remain
-npx -p @decocms/blocks-cli deco-post-cleanup --fix --strict
+bun run --filter @decocms/blocks-cli test
+# or one file
+bunx vitest run --root . packages/blocks-cli/scripts/migrate/transforms/ctx-compat.test.ts
 ```
 
-The audit covers 7 rules (delete dead lib shims, drop obsolete inline
-Vite plugins, delete dead `runtime.ts` invoke shim, delete site-local
-`withSiteGlobals` wrapper, repoint `~/lib/vtex-*` shim regressions,
-delete shadowed `widgets.ts`, surface orphan framework TODOs). The
-detection logic mirrors the canonical checklist at
-[`deco-to-tanstack-migration/references/post-migration-cleanup.md`](../deco-to-tanstack-migration/references/post-migration-cleanup.md).
-
-**Why `compile` and `audit` are complementary:**
-
-| Tool | Catches |
-|------|---------|
-| `phase-compile` (in this script) | TS5097, missing exports, type bugs — anything `tsc --noEmit` finds |
-| `deco-post-cleanup` (separate CLI) | Silent runtime stubs (e.g. dead `~/lib/vtex-*` shims that typecheck cleanly but resolve to `{}` at runtime) |
-
-`tsc` doesn't catch the silent-stub class of bug because the dead
-shim files have valid TypeScript signatures. The audit's pattern
-matches surface what compilation cannot.
-
-Source: `packages/blocks-cli/scripts/migrate-post-cleanup.ts` + `packages/blocks-cli/scripts/migrate/post-cleanup/`.
-Tests: `packages/blocks-cli/scripts/migrate/post-cleanup/runner.test.ts`.
+Post-cleanup: CLI `scripts/migrate-post-cleanup.ts`, logic
+`scripts/migrate/post-cleanup/`, tests in `post-cleanup/runner.test.ts`.

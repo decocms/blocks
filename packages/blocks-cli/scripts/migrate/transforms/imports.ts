@@ -90,7 +90,7 @@ const IMPORT_RULES: Array<[RegExp, string | null]> = [
   // no src/hooks/ dir and no ./hooks/* export; verified via `git log
   // --diff-filter=A -- '**/shopify/hooks/**'` returning nothing across all
   // history). The legacy migration reference
-  // (.agents/skills/deco-to-tanstack-migration/references/platform-hooks/README.md)
+  // (`target-tanstack-deco` skill in decocms/migrations, references/platform-hooks.md)
   // confirms Shopify's useCart/useUser/useWishlist were always meant to be
   // site-local no-op stubs, and templates/hooks.ts's generateHooks() still
   // scaffolds them at src/hooks/use{Cart,User,Wishlist}.ts for every

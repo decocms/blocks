@@ -73,7 +73,7 @@ const TODO_BLOCK = `${TODO_MARKER}
 // Fresh-only globals like \`globalThis.window.STOREFRONT\` or
 // \`useScript(...)\`. Verify each handler matches a TanStack Start
 // equivalent (state hook, platform hook, or server function) — see
-// .agents/skills/deco-to-tanstack-migration/references/htmx-rewrite.md
+// the source-deco-fresh skill (decocms/migrations), references/htmx-rewrite.md
 // § Pattern 1 (event-handler).`;
 
 /**

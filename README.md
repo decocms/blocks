@@ -89,7 +89,7 @@ examples/
 ├── tanstack-smoke/  Minimal TanStack consumer
 └── nextjs-smoke/    Minimal Next.js consumer
 docs/                Architecture, operations, troubleshooting, and guides
-.agents/skills/      Agent-assisted migration playbooks
+.agents/skills/      Framework and package skills (Claude Code reads them via .claude/skills)
 ```
 
 ## Packages
@@ -187,12 +187,12 @@ Choose the migration path based on the site's current stack:
 
 | From | To | Guide |
 | --- | --- | --- |
-| Fresh / Preact / Deno | TanStack Start / React / Workers | [`deco-to-tanstack-migration`](./.agents/skills/deco-to-tanstack-migration) |
-| Automated Fresh migration | TanStack Start / React / Workers | [`deco-migrate-script`](./.agents/skills/deco-migrate-script) |
-| `@decocms/start@6.x` + `@decocms/apps@5.x` | Split v7 TanStack packages | [`decocms-v6-to-v7-upgrade`](./.agents/skills/decocms-v6-to-v7-upgrade) |
-| `@decocms/start@5.x` Next tiers | Split Next.js packages | [`deco-next-package-migration`](./.agents/skills/deco-next-package-migration) |
+| Fresh / Preact / Deno | TanStack Start / React / Workers | `source-deco-fresh` + `target-tanstack-deco` |
+| Automated Fresh migration | TanStack Start / React / Workers | `tools-migrate-script` (the script itself: [`deco-migrate-script`](./.agents/skills/deco-migrate-script)) |
+| `@decocms/start@6.x` + `@decocms/apps@5.x` | Split v7 TanStack packages | `upgrades-decocms-v6-to-v7` |
+| `@decocms/start@5.x` Next tiers | Split Next.js packages | `upgrades-next-package-split` |
 
-These playbooks follow the Agent Skills format and can be used from Codex, Claude Code, Cursor, or another compatible agent.
+Migration playbooks live in the `decocms/migrations` repo and are referred to here by skill name. This repo's own skills, in [`.agents/skills`](./.agents/skills), document the framework and its packages as they are today.
 
 ## Development
 
