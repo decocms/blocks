@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import { Ajv, type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
+import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
 import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
@@ -69,6 +70,12 @@ function blockDefinitionName(schema: Json): string | null {
   const e = resolveTypeEnum(schema);
   return e && e.length === 1 && typeof schema.title === "string" && !schema.format ? e[0] : null;
 }
+
+/** Prerelease built-ins folded into the CMS settings block, with no alias. */
+const FOLDED_BUILT_INS: Record<string, string> = {
+  telemetry: `the built-in is now the telemetry section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
+  analytics: `the built-in is now the analytics section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
+};
 
 // ---------------------------------------------------------------------------
 // The validation document: the schema, with every field also accepting a block
@@ -481,7 +488,13 @@ class Checker {
 
     if (type === null) {
       if (!Object.hasOwn(this.saved.blocks, name)) {
-        this.report(ctx, path, `unknown block type "${name}"`);
+        this.report(
+          ctx,
+          path,
+          Object.hasOwn(FOLDED_BUILT_INS, name)
+            ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
+            : `unknown block type "${name}"`,
+        );
         return;
       }
       // A reference to a saved block: check what it resolves to against the field.
@@ -649,6 +662,15 @@ class Checker {
       if (!isBlock(entry)) {
         this.report(ctx, "", "missing __resolveType: a saved block names the function it calls");
         continue;
+      }
+      if (name === SETTINGS_BLOCK && entry.__resolveType !== SETTINGS_TYPE) {
+        this.report(
+          ctx,
+          "",
+          `"${SETTINGS_BLOCK}" is the name of the CMS settings block (type "${SETTINGS_TYPE}"); ` +
+            "this one is ignored as settings, so rename it",
+          "warning",
+        );
       }
       this.checkBlock(ctx, entry, "", null);
     }

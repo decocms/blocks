@@ -19,9 +19,6 @@ import { createInstrumentedFetch } from "../fetch";
 import * as v8 from "../index";
 import {
   createCMS,
-  DRAFT_COOKIE,
-  draftCookie,
-  draftPointer,
   formatDraftPointer,
   matchRoute,
   parseDraftPointer,
@@ -32,8 +29,14 @@ import * as secretsModule from "../secrets";
 import { encryptSecret } from "../secrets";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
 import { docsBlocks, docsSnapshot, hero, seo } from "../testFixtures";
-import type { Blocks, Loader, Redirect, Route, Snapshot } from "../types";
+import type { Blocks, Loader, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
+
+/** cms.draftPointer and cms.draftCookie, on a CMS with no settings: every host may preview. */
+const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
+const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
+const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
+const DRAFT_COOKIE = "deco-draft";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkgRoot = path.resolve(here, "../../..");
@@ -110,10 +113,7 @@ function exportedNames(source: string, from: string): string[] {
 // ---------------------------------------------------------------------------
 
 const DOCUMENTED_ROOT_VALUES = [
-  "DRAFT_COOKIE",
   "createCMS",
-  "draftCookie",
-  "draftPointer",
   "formatDraftPointer",
   "matchRoute",
   "parseDraftPointer",
@@ -136,6 +136,9 @@ const DOCUMENTED_ROOT_TYPES = [
   "Variant",
   "Telemetry",
   "Analytics",
+  "CMSSettings",
+  "EffectiveSettings",
+  "RequestLike",
   "Match",
   "Result",
   "CMSError",
@@ -214,7 +217,8 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
       "sig.ts": `
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
-  type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics } from "@decocms/blocks";
+  type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
+  type CMSSettings, type EffectiveSettings, type RequestLike } from "@decocms/blocks";
 import type { ReactNode } from "react";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -227,10 +231,17 @@ createCMS({ blocks, content });
 createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, secrets: { key: "k" }, site: "s", token: "t" });
 createCMS({ blocks, content, telemetry: { site: "s", token: "t", limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" } } });
+createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"] } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "forRelease" | "forDraft" | "forRevision" | "update">>();
+assert<Equal<keyof CMS, "forRelease" | "forDraft" | "forRevision" | "update" | "settings" | "draftPointer" | "draftCookie">>();
+assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
+assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
+assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
+assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string): string | null } }>>();
+assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
+assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
 assert<Equal<CMS["forRevision"], (revision: string) => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
@@ -778,38 +789,45 @@ if (pointer) console.log(\`previewing \${pointer.version} from \${pointer.host}\
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-35 draftPointer: URL first, then the cookie; null for neither or ?__draft=off", () => {
+  it("AR-35 draftPointer: URL first, then the cookie; null for neither or ?__draft=off", async () => {
     const cookie = { cookie: `${DRAFT_COOKIE}=${encodeURIComponent("h/c@v1")}` };
-    expect(draftPointer(new Request("https://s/x?__draft=h/u@v1", { headers: cookie }))).toBe(
+    expect(await draftPointer(new Request("https://s/x?__draft=h/u@v1", { headers: cookie }))).toBe(
       "h/u@v1",
     );
-    expect(draftPointer(new Request("https://s/x", { headers: cookie }))).toBe("h/c@v1");
-    expect(draftPointer(new Request("https://s/x"))).toBeNull();
-    expect(draftPointer(new Request("https://s/x?__draft=off", { headers: cookie }))).toBeNull();
+    expect(await draftPointer(new Request("https://s/x", { headers: cookie }))).toBe("h/c@v1");
+    expect(await draftPointer(new Request("https://s/x"))).toBeNull();
+    expect(
+      await draftPointer(new Request("https://s/x?__draft=off", { headers: cookie })),
+    ).toBeNull();
   });
 
-  it("AR-36 draftCookie: HttpOnly; Secure; SameSite=None; Partitioned; Path=/; off expires it; null otherwise", () => {
-    const set = draftCookie(new Request("https://s/x?__draft=h/u@v1"));
+  it("AR-36 draftCookie: HttpOnly; Secure; SameSite=None; Partitioned; Path=/; off expires it; null otherwise", async () => {
+    const set = await draftCookie(new Request("https://s/x?__draft=h/u@v1"));
     expect(set).toContain("deco-draft=");
     for (const attribute of ["HttpOnly", "Secure", "SameSite=None", "Partitioned", "Path=/"]) {
       expect(set).toContain(attribute);
     }
     expect(set).not.toContain("SameSite=Lax");
-    const off = draftCookie(new Request("https://s/x?__draft=off"));
+    const off = await draftCookie(new Request("https://s/x?__draft=off"));
     expect(off).toMatch(/Max-Age=0|Expires=/);
-    expect(draftCookie(new Request("https://s/x"))).toBeNull();
+    expect(await draftCookie(new Request("https://s/x"))).toBeNull();
     // An invalid ?__draft= gives null too.
-    expect(draftCookie(new Request("https://s/x?__draft=not-a-pointer"))).toBeNull();
+    expect(await draftCookie(new Request("https://s/x?__draft=not-a-pointer"))).toBeNull();
   });
 
-  it("AR-37 DRAFT_COOKIE is deco-draft", () => {
-    expect(DRAFT_COOKIE).toBe("deco-draft");
+  it("AR-37 the helpers are CMS methods; the package root has no free draftPointer, draftCookie or DRAFT_COOKIE", () => {
+    for (const name of ["draftPointer", "draftCookie", "DRAFT_COOKIE"]) {
+      expect(Object.keys(root)).not.toContain(name);
+    }
+    const cms = helpers();
+    expect(typeof cms.draftPointer).toBe("function");
+    expect(typeof cms.draftCookie).toBe("function");
   });
 
-  it("AR-38 both helpers take anything with url and headers", () => {
+  it("AR-38 both helpers take anything with url and headers", async () => {
     const like = { url: "https://s/x?__draft=h/u@v1", headers: new Headers() };
-    expect(draftPointer(like)).toBe("h/u@v1");
-    expect(draftCookie(like)).not.toBeNull();
+    expect(await draftPointer(like)).toBe("h/u@v1");
+    expect(await draftCookie(like)).not.toBeNull();
   });
 });
 
@@ -1165,10 +1183,10 @@ describe("AR-55 / AR-61 analytics", () => {
     expect(() => track("signup", { plan: "pro" })).not.toThrow();
   });
 
-  it("the analytics block fills the defaults", async () => {
+  it("the analytics section of cms.settings() fills the defaults", async () => {
     const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
-    const [value] = await cms.forRelease().resolve({ __resolveType: "analytics" });
-    expect(value).toEqual({ collector: expect.stringMatching(/^https:\/\//), enabled: true });
+    const { analytics } = await cms.settings();
+    expect(analytics).toEqual({ collector: expect.stringMatching(/^https:\/\//), enabled: true });
   });
 });
 
@@ -1211,7 +1229,7 @@ describe("AR-59 multivariate and lazy", () => {
   });
 });
 
-describe("AR-60 the Telemetry block: defaults and caps", () => {
+describe("AR-60 the telemetry section: defaults and caps", () => {
   it("defaults 0.05 / 0, capped by limits", async () => {
     const sent: string[] = [];
     vi.stubGlobal(
@@ -1223,15 +1241,11 @@ describe("AR-60 the Telemetry block: defaults and caps", () => {
     );
     const pipeline = (limits?: { errorSampleRate?: number; traceSampleRate?: number }) =>
       new TelemetryPipeline(resolveDestination({ endpoint: "https://otel.example", limits })!);
-    const withBlock = (block: Record<string, unknown>): Snapshot => ({
-      revision: `r-${JSON.stringify(block)}`,
-      blocks: { Telemetry: { __resolveType: "telemetry", ...block } },
-    });
     const random = vi.spyOn(Math, "random");
 
     // errorSampleRate 0.5 under the default limit 0.1: a draw of 0.2 is dropped, 0.09 kept.
     const capped = pipeline();
-    capped.useRelease(withBlock({ errorSampleRate: 0.5 }));
+    capped.apply({ errorSampleRate: 0.5 });
     random.mockReturnValue(0.2);
     capped.error("e", {});
     await capped.flush();
@@ -1244,7 +1258,7 @@ describe("AR-60 the Telemetry block: defaults and caps", () => {
     // Default errorSampleRate 0.05: 0.06 dropped.
     sent.length = 0;
     const defaults = pipeline({ errorSampleRate: 1 });
-    defaults.useRelease({ revision: "none", blocks: {} });
+    defaults.apply({});
     random.mockReturnValue(0.06);
     defaults.error("e", {});
     await defaults.flush();
@@ -1253,12 +1267,14 @@ describe("AR-60 the Telemetry block: defaults and caps", () => {
     // traceSampleRate defaults to 0 and is capped at limit 0.
     random.mockReturnValue(0);
     const traces = pipeline();
-    traces.useRelease(withBlock({ traceSampleRate: 1 }));
+    traces.apply({ traceSampleRate: 1 });
     expect(traces.sampleTrace()).toBe(false);
   });
 
   it("is always in the schema", () => {
-    expect(readSource("src/v8/cli/schema/builtinSchemas.ts")).toMatch(/telemetry/);
+    expect(readSource("src/v8/cli/schema/builtinSchemas.ts")).toMatch(
+      /"cms-settings"[\s\S]*telemetry/,
+    );
   });
 });
 
@@ -1348,28 +1364,30 @@ describe("RD-02 / RD-04 the draft client works like the release client", () => {
     (draft.blocks.SummerSEO as { title: string }).title = "Draft!";
     const load = vi.fn(async (pointer?: string | null) => (pointer ? draft : docsSnapshot()));
     const cms = createCMS({ blocks: docsBlocks(), content: { load } });
-    const pick = (request: Request) => {
-      const pointer = draftPointer(request);
+    const pick = async (request: Request) => {
+      const pointer = await cms.draftPointer(request);
       return pointer ? cms.forDraft(pointer) : cms.forRelease();
     };
     const pointer = "api.deco.example/drafts/acme/main@9f3c1a";
-    const [d] = await pick(new Request(`https://s/?__draft=${pointer}`)).resolve<{ title: string }>(
-      "SummerSEO",
-    );
+    const [d] = await (await pick(new Request(`https://s/?__draft=${pointer}`))).resolve<{
+      title: string;
+    }>("SummerSEO");
     expect(load).toHaveBeenCalledWith(pointer);
     expect(d?.title).toBe("Draft!");
-    const [r] = await pick(new Request("https://s/")).resolve<{ title: string }>("SummerSEO");
+    const [r] = await (await pick(new Request("https://s/"))).resolve<{ title: string }>(
+      "SummerSEO",
+    );
     expect(r?.title).toBe("Sunny!");
   });
 
   it("RD-04 snippet typechecks", () => {
     const errors = typecheck({
       "preview.ts": `
-import { createCMS, draftPointer, type Snapshot } from "@decocms/blocks";
+import { createCMS, type Snapshot } from "@decocms/blocks";
 declare const content: Snapshot;
 declare const request: Request;
 const cms = createCMS({ blocks: {}, content });
-const pointer = draftPointer(request);
+const pointer = await cms.draftPointer(request);
 const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 export { client };
 `,
@@ -1602,13 +1620,24 @@ export { views };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("RN-06 the SDK never sees the request: no requestScope, no Request/signal in createCMS or Client", () => {
+  it("RN-06 resolution never sees the request: no requestScope, no Request/signal in createCMS or Client; only the draft helpers read one", () => {
     const r = root as Record<string, unknown>;
     expect(Object.keys(r).filter((k) => /requestScope/i.test(k))).toEqual([]);
     expect(Object.keys(v8).filter((k) => /request/i.test(k))).toEqual([]);
     const types = readSource("src/v8/types.ts");
-    const cmsAndClient = types.slice(types.indexOf("export interface Client"));
-    expect(cmsAndClient).not.toMatch(/Request|signal/);
+    const section = (start: string) => {
+      const from = types.indexOf(start);
+      return types.slice(from, types.indexOf("\n}\n", from));
+    };
+    expect(section("export interface CMSConfig")).not.toMatch(/Request|signal/);
+    expect(section("export interface Client")).not.toMatch(/Request|signal/);
+    const cmsMethods = section("export interface CMS {")
+      .split("\n")
+      .filter((line) => /^\s{2}\w+\(/.test(line) && /Request|signal/.test(line));
+    expect(cmsMethods.map((line) => line.trim().split("(")[0])).toEqual([
+      "draftPointer",
+      "draftCookie",
+    ]);
   });
 });
 

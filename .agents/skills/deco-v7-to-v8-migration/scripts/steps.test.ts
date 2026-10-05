@@ -11,6 +11,7 @@ import { rewriteImports, V8_API } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport } from "./report";
 import { reencryptSecrets } from "./secrets";
+import { foldSiteSettings } from "./siteSettings";
 import { locateAppModule, vendorModule } from "./vendor";
 
 let root: string;
@@ -307,6 +308,16 @@ describe("imports", () => {
     ]);
   });
 
+  it("points prerelease draft helpers at the CMS methods", () => {
+    site({
+      "src/a.ts": 'import { createCMS, draftPointer, DRAFT_COOKIE } from "@decocms/blocks";\n',
+    });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    expect(report.manual).toHaveLength(1);
+    expect(report.manual[0]?.message).toContain("cms.draftPointer");
+  });
+
   it("reports every framework-binding import, kvLoader included: the next major has no binding", () => {
     site({
       "src/a.ts":
@@ -336,5 +347,213 @@ describe("the codemod's list of the root's next-major exports", () => {
       .filter(Boolean);
     expect(names.length).toBeGreaterThan(10);
     expect([...(V8_API["@decocms/blocks"] as Set<string>)].sort()).toEqual(names.sort());
+  });
+});
+
+describe("site settings", () => {
+  const read = (file: string) =>
+    JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks", file), "utf8"));
+  const exists = (file: string) => fs.existsSync(path.join(root, ".deco/blocks", file));
+  const snapshotDir = () =>
+    Object.fromEntries(
+      fs
+        .readdirSync(path.join(root, ".deco/blocks"))
+        .sort()
+        .map((f) => [f, fs.readFileSync(path.join(root, ".deco/blocks", f), "utf8")]),
+    );
+
+  it("folds a v7 site's preview hosts and OneDollarStats collector into CMS.json; a second run changes nothing", () => {
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        theme: { primary: "#000" },
+        previewHosts: ["staging.example.com", "localhost:5173"],
+      },
+      ".deco/blocks/pages-home.json": home,
+      "src/routes/__root.tsx": `import { OneDollarStats } from "@decocms/apps-website/components/OneDollarStats";
+export function Root() {
+  return <html><body><OneDollarStats collectorAddress="https://stats.example.com/events" /></body></html>;
+}
+`,
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(read("CMS.json")).toEqual({
+      __resolveType: "cms-settings",
+      preview: { hosts: ["staging.example.com", "localhost:5173"] },
+      analytics: { collector: "https://stats.example.com/events" },
+    });
+    // previewHosts moved; the rest of the Site block stays.
+    expect(read("site.json")).toEqual({
+      __resolveType: "site/apps/site.ts",
+      theme: { primary: "#000" },
+    });
+    expect(report.done.map((n) => n.subject)).toEqual([".deco/blocks/CMS.json"]);
+    const manual = report.manual.map((n) => n.subject);
+    expect(manual).toContain("DECO_ALLOWED_PREVIEW_HOSTS");
+    expect(manual).toContain("DECO_OTEL_* sampling");
+    expect(manual).toContain("DECO_ANALYTICS_ENABLED, ONEDOLLAR_ENABLED, ONEDOLLAR_COLLECTOR");
+    expect(manual).not.toContain("preview hosts");
+
+    const before = snapshotDir();
+    const again = createReport();
+    foldSiteSettings(root, again);
+    expect(snapshotDir()).toEqual(before);
+    expect(again.done).toEqual([]);
+  });
+
+  it("reads a Site block named Site, and collectorAddress={'…'}", () => {
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/Site.json": { __resolveType: "site/apps/site.ts", previewHosts: [] },
+      "src/app/layout.tsx": `<OneDollarStats collectorAddress={'https://c.example/e'} />`,
+    });
+    foldSiteSettings(root, createReport());
+    expect(read("CMS.json")).toEqual({
+      __resolveType: "cms-settings",
+      preview: { hosts: [] },
+      analytics: { collector: "https://c.example/e" },
+    });
+  });
+
+  it("folds prerelease Telemetry.json and Analytics.json field for field, variants included, and deletes them", () => {
+    const variants = {
+      __resolveType: "multivariate",
+      variants: [
+        {
+          rule: { __resolveType: "date", start: "2026-11-01" },
+          value: { __resolveType: "lazy", value: { __resolveType: "analytics", enabled: true } },
+        },
+        {
+          rule: { __resolveType: "always" },
+          value: { __resolveType: "lazy", value: { __resolveType: "analytics", enabled: false } },
+        },
+      ],
+    };
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/Telemetry.json": {
+        __resolveType: "telemetry",
+        enabled: true,
+        errorSampleRate: { __resolveType: "Rates" },
+        traceSampleRate: 0,
+      },
+      ".deco/blocks/Analytics.json": variants,
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(exists("Telemetry.json")).toBe(false);
+    expect(exists("Analytics.json")).toBe(false);
+    expect(read("CMS.json")).toEqual({
+      __resolveType: "cms-settings",
+      telemetry: { enabled: true, errorSampleRate: { __resolveType: "Rates" }, traceSampleRate: 0 },
+      analytics: {
+        __resolveType: "multivariate",
+        variants: [
+          {
+            rule: { __resolveType: "date", start: "2026-11-01" },
+            value: { __resolveType: "lazy", value: { enabled: true } },
+          },
+          {
+            rule: { __resolveType: "always" },
+            value: { __resolveType: "lazy", value: { enabled: false } },
+          },
+        ],
+      },
+    });
+    // A prerelease site with no preview hosts gets the behaviour-change note.
+    expect(report.manual.map((n) => n.subject)).toContain("preview hosts");
+    const before = snapshotDir();
+    foldSiteSettings(root, createReport());
+    expect(snapshotDir()).toEqual(before);
+  });
+
+  it("keeps what CMS.json already has, and adds only what's missing", () => {
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/CMS.json": {
+        __resolveType: "cms-settings",
+        preview: { hosts: ["kept.example.com"] },
+        telemetry: { metrics: false },
+      },
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        previewHosts: ["v7.example.com"],
+      },
+      ".deco/blocks/Telemetry.json": {
+        __resolveType: "telemetry",
+        metrics: true,
+        errorSampleRate: 0.01,
+      },
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(read("CMS.json")).toEqual({
+      __resolveType: "cms-settings",
+      preview: { hosts: ["kept.example.com"] },
+      telemetry: { metrics: false, errorSampleRate: 0.01 },
+    });
+    expect(exists("Telemetry.json")).toBe(false);
+    // The Site block's different list is left for a person, untouched.
+    expect(read("site.json").previewHosts).toEqual(["v7.example.com"]);
+    expect(report.manual.map((n) => n.subject)).toContain(".deco/blocks/site.json");
+  });
+
+  it("writes nothing when there's nothing to fold; a v7 Analytics section named Analytics is left alone", () => {
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/pages-home.json": home,
+      ".deco/blocks/Analytics.json": {
+        __resolveType: "website/sections/Analytics/Analytics.tsx",
+        trackingIds: ["GTM-1"],
+      },
+    });
+    const before = snapshotDir();
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(snapshotDir()).toEqual(before);
+    expect(report.done).toEqual([]);
+    expect(report.manual.map((n) => n.subject)).toContain("preview hosts");
+  });
+
+  it("never replaces a CMS block of another type; leftover telemetry/analytics blocks are reported", () => {
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/CMS.json": { __resolveType: "site/sections/Cms.tsx" },
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        previewHosts: ["a.example.com"],
+      },
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(read("CMS.json")).toEqual({ __resolveType: "site/sections/Cms.tsx" });
+    expect(report.done).toEqual([]);
+    expect(report.manual[0]?.message).toContain("rename");
+
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/OtherTelemetry.json": { __resolveType: "telemetry", enabled: false },
+    });
+    const leftovers = createReport();
+    foldSiteSettings(root, leftovers);
+    expect(exists("OtherTelemetry.json")).toBe(true);
+    expect(leftovers.manual.map((n) => n.subject)).toContain(".deco/blocks/OtherTelemetry.json");
+  });
+
+  it("several collectors, or one that isn't a literal, are left for a person", () => {
+    site({
+      "package.json": { name: "site" },
+      "src/a.tsx": `<OneDollarStats collectorAddress="https://a.example/e" />`,
+      "src/b.tsx": `<OneDollarStats collectorAddress="https://b.example/e" />`,
+      "src/c.tsx": "<OneDollarStats collectorAddress={env.COLLECTOR} />",
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(fs.existsSync(path.join(root, ".deco/blocks/CMS.json"))).toBe(false);
+    const subjects = report.manual.map((n) => n.subject);
+    expect(subjects).toContain("OneDollarStats collectorAddress");
+    expect(subjects).toContain("src/c.tsx");
   });
 });

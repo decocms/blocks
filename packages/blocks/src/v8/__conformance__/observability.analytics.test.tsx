@@ -82,18 +82,19 @@ function decode(src: string): any {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-const resolveAnalytics = async (block: Record<string, unknown>) => {
+const resolveAnalytics = async (section: Record<string, unknown>) => {
   const cms = createCMS({
     blocks: {},
-    content: { revision: "r", blocks: { Analytics: { __resolveType: "analytics", ...block } } },
+    content: {
+      revision: "r",
+      blocks: { CMS: { __resolveType: "cms-settings", analytics: section } },
+    },
   });
-  const [value, error] = await cms.forRelease().resolve<Analytics>("Analytics");
-  expect(error).toBeNull();
-  return value as Required<Analytics>;
+  return (await cms.settings()).analytics;
 };
 
-describe("the analytics block (analytics.mdx)", () => {
-  it("ana-01/ana-02/htel-04: {__resolveType: 'analytics'} resolves to settings with the hosted collector and enabled: true", async () => {
+describe("the analytics section of the CMS settings (analytics.mdx)", () => {
+  it("ana-01/ana-02/htel-04: the analytics section resolves to settings with the hosted collector and enabled: true", async () => {
     expect(await resolveAnalytics({})).toEqual({
       collector: HOSTED_ANALYTICS_COLLECTOR,
       enabled: true,
@@ -104,7 +105,7 @@ describe("the analytics block (analytics.mdx)", () => {
     });
   });
 
-  it("ana-02: the analytics block's props are collector and enabled only (no site ID)", async () => {
+  it("ana-02: the analytics section's fields are collector and enabled only (no site ID)", async () => {
     // The resolved settings carry nothing else either.
     expect(Object.keys(await resolveAnalytics({})).sort()).toEqual(["collector", "enabled"]);
   });
@@ -114,15 +115,10 @@ describe("the analytics block (analytics.mdx)", () => {
     expect(typeof analyticsModule.track).toBe("function");
   });
 
-  it('ana-04: resolve("Analytics") returns a tuple whose first element spreads into <AnalyticsScript />', async () => {
-    const cms = createCMS({
-      blocks: {},
-      content: { revision: "r", blocks: { Analytics: { __resolveType: "analytics" } } },
-    });
-    const result = await cms.forRelease().resolve("Analytics");
-    expect(Array.isArray(result)).toBe(true);
-    const [analytics] = result;
-    const html = renderToString(<AnalyticsScript {...(analytics as Analytics)} />);
+  it("ana-04: cms.settings().analytics spreads into <AnalyticsScript />, with no CMS block at all", async () => {
+    const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
+    const { analytics } = await cms.settings();
+    const html = renderToString(<AnalyticsScript {...analytics} />);
     expect(html).toContain("<script");
     expect(html).toContain(HOSTED_ANALYTICS_COLLECTOR);
   });
@@ -134,40 +130,37 @@ describe("the analytics block (analytics.mdx)", () => {
     expect(renderToStaticMarkup(<AnalyticsScript {...settings} />)).toBe("");
   });
 
-  it("ana-10: variants pick between analytics settings like any block", async () => {
+  it("ana-10: the section can have variants, picked when cms.settings() is called", async () => {
     const cms = createCMS({
       blocks: {},
       content: {
         revision: "r",
         blocks: {
-          Analytics: {
-            __resolveType: "multivariate",
-            variants: [
-              {
-                rule: { __resolveType: "never" },
-                value: {
-                  __resolveType: "lazy",
-                  value: { __resolveType: "analytics", collector: "https://a.example" },
+          CMS: {
+            __resolveType: "cms-settings",
+            analytics: {
+              __resolveType: "multivariate",
+              variants: [
+                {
+                  rule: { __resolveType: "never" },
+                  value: { __resolveType: "lazy", value: { collector: "https://a.example" } },
                 },
-              },
-              {
-                rule: { __resolveType: "always" },
-                value: {
-                  __resolveType: "lazy",
-                  value: { __resolveType: "analytics", enabled: false },
+                {
+                  rule: { __resolveType: "always" },
+                  value: { __resolveType: "lazy", value: { enabled: false } },
                 },
-              },
-            ],
+              ],
+            },
           },
         },
       },
     });
-    const [settings] = await cms.forRelease().resolve<Analytics>("Analytics");
-    expect(settings).toEqual({ collector: HOSTED_ANALYTICS_COLLECTOR, enabled: false });
+    const { analytics } = await cms.settings();
+    expect(analytics).toEqual({ collector: HOSTED_ANALYTICS_COLLECTOR, enabled: false });
   });
 
-  it("up-04: the framework ships always, never, date, multivariate and analytics built-ins", () => {
-    for (const name of ["always", "never", "date", "multivariate", "analytics"]) {
+  it("up-04: the framework ships always, never, date, multivariate and cms-settings built-ins", () => {
+    for (const name of ["always", "never", "date", "multivariate", "cms-settings"]) {
       expect(typeof builtIns[name]).toBe("function");
     }
   });

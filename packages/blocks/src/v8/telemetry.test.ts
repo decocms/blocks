@@ -74,7 +74,7 @@ function withTelemetryBlock(block: Record<string, unknown>): Snapshot {
   const snapshot = docsSnapshot();
   return {
     ...snapshot,
-    blocks: { ...snapshot.blocks, Telemetry: { __resolveType: "telemetry", ...block } },
+    blocks: { ...snapshot.blocks, CMS: { __resolveType: "cms-settings", telemetry: block } },
   };
 }
 

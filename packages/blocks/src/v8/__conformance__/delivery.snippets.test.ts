@@ -89,16 +89,16 @@ console.log((await loader.load()).revision);
 `,
 
   // HD-7: hosted-drafts.mdx, "Wire drafts into your app" (a plain request handler).
-  "drafts/handler.ts": `import { draftPointer, draftCookie, type Client } from "@decocms/blocks";
+  "drafts/handler.ts": `import type { Client } from "@decocms/blocks";
 import { cms } from "../hosted/cms";
 declare function render(client: Client, request: Request): Promise<Response>;
 
 export async function handle(request: Request) {
-  const pointer = draftPointer(request);               // from ?__draft= or the cookie; null on an ordinary request
+  const pointer = await cms.draftPointer(request);     // from ?__draft= or the cookie; null on an ordinary request
   const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
   const response = await render(client, request);      // your own function: list, matchRoute and resolve as usual
 
-  const cookie = draftCookie(request);
+  const cookie = await cms.draftCookie(request);
   if (cookie) response.headers.append("Set-Cookie", cookie);
   return response;
 }
@@ -106,11 +106,11 @@ export async function handle(request: Request) {
 
   // HD-9: hosted-drafts.mdx, Next.js proxy.ts.
   "next/src/proxy.ts": `import { NextResponse, type NextRequest } from "next/server";
-import { draftCookie } from "@decocms/blocks";
+import { cms } from "../../hosted/cms";
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = NextResponse.next();
-  const cookie = draftCookie(request);          // only set on the request the site editor opens; expiring when leaving preview
+  const cookie = await cms.draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
   if (cookie) response.headers.append("Set-Cookie", cookie);
   return response;
 }
@@ -118,36 +118,36 @@ export function proxy(request: NextRequest) {
 
   // HD-10: hosted-drafts.mdx, Next.js client.server.ts.
   "next/src/client.server.ts": `import "server-only";
-import { cookies } from "next/headers";
-import { DRAFT_COOKIE } from "@decocms/blocks";
+import { headers } from "next/headers";
 import { cms } from "../../hosted/cms";
 
-// The client for this request: a draft when the cookie holds a valid pointer, production otherwise.
+// The client for this request: a draft when the cookie holds a valid pointer on an allowed host, production otherwise.
 export async function client() {
-  const pointer = (await cookies()).get(DRAFT_COOKIE)?.value;
+  const h = await headers();
+  const pointer = await cms.draftPointer({ url: \`https://\${h.get("host")}/\`, headers: h });
   return pointer ? cms.forDraft(pointer) : cms.forRelease();
 }
 `,
 
   // HD-11: hosted-drafts.mdx, TanStack Start src/cms.ts (changes) and src/start.ts.
-  "tanstack/src/cms.ts": `import { createCMS, draftPointer } from "@decocms/blocks";
+  "tanstack/src/cms.ts": `import { createCMS } from "@decocms/blocks";
 import blocks from "../../.deco";
 import content from "../../.deco/blocks.gen";
 
 export const cms = createCMS({ blocks, content });
 
 // The client for this request: the draft it points at, or the current release.
-export const client = (request: Request) => {
-  const pointer = draftPointer(request);
+export const client = async (request: Request) => {
+  const pointer = await cms.draftPointer(request);
   return pointer ? cms.forDraft(pointer) : cms.forRelease();
 };
 `,
   "tanstack/src/start.ts": `import { createMiddleware, createStart } from "@tanstack/react-start";
-import { draftCookie } from "@decocms/blocks";
+import { cms } from "./cms";
 
 const draftCookieMiddleware = createMiddleware().server(async ({ request, next }) => {
   const result = await next();
-  const cookie = draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
+  const cookie = await cms.draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
   if (cookie) result.response.headers.append("Set-Cookie", cookie);
   return result;
 });
@@ -166,21 +166,25 @@ const pointer = new URL(url).searchParams.get("__draft");
 setClient(pointer ? cms.forDraft(pointer) : cms.forRelease());
 `,
 
-  // HD-18: hosted-drafts.mdx, "Who may preview" (previews on one host only).
-  "drafts/preview-host.ts": `import { draftPointer, draftCookie, type Client } from "@decocms/blocks";
-import { cms } from "../hosted/cms";
-declare function render(client: Client, request: Request): Promise<Response>;
+  // HD-18: hosted-drafts.mdx, "Who may preview" (narrowing previews further).
+  "drafts/preview-host.ts": `import { cms } from "../hosted/cms";
+declare function isEmployee(request: Request): boolean;
+declare const request: Request;
 
-export async function handle(request: Request) {
-  const mayPreview = new URL(request.url).host === "staging.store.example.com"; // your rule
-  const pointer = mayPreview ? draftPointer(request) : null;
-  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
-  const response = await render(client, request);      // your own function, as above
+const pointer = isEmployee(request) ? await cms.draftPointer(request) : null;   // isEmployee: your rule
+export { pointer };
+`,
 
-  const cookie = mayPreview ? draftCookie(request) : null;
-  if (cookie) response.headers.append("Set-Cookie", cookie);
-  return response;
-}
+  // RD-11: releases-and-drafts.mdx, "Allow previews per host" (code caps the list).
+  "drafts/preview-cap.ts": `import { createCMS } from "@decocms/blocks";
+import blocks from "../.deco";
+import content from "../.deco/blocks.gen";
+
+export const cms = createCMS({
+  blocks,
+  content,
+  preview: { hosts: ["*.example.com", "localhost:3000"] },   // the most content may allow
+});
 `,
 };
 
@@ -241,6 +245,7 @@ describe("hosted docs examples compile", () => {
     ["HD-11", "tanstack/src/start.ts"],
     ["HD-13", "drafts/native.ts"],
     ["HD-18", "drafts/preview-host.ts"],
+    ["RD-11", "drafts/preview-cap.ts"],
   ])("%s: %s", (_claim, file) => {
     expect(errorsIn(file)).toEqual([]);
   });

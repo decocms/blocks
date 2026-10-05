@@ -121,7 +121,7 @@ function withTelemetryBlock(block: Record<string, unknown>, revision = "rev-1"):
   const snapshot = docsSnapshot(revision);
   return {
     ...snapshot,
-    blocks: { ...snapshot.blocks, Telemetry: { __resolveType: "telemetry", ...block } },
+    blocks: { ...snapshot.blocks, CMS: { __resolveType: "cms-settings", telemetry: block } },
   };
 }
 
@@ -190,7 +190,7 @@ describe("the docs' snippets typecheck (conformance/observability)", () => {
   it("htel-01: the hosted-telemetry cms.ts compiles with site/token possibly undefined", () => {
     expect(errorsIn("hosted-cms.ts")).toBe("");
   });
-  it('ana-04: the analytics layout (`const [analytics] = …resolve<Analytics>("Analytics")`, `<AnalyticsScript {...analytics} />`) compiles', () => {
+  it("ana-04: the analytics layout (`const { analytics } = await cms.settings()`, `<AnalyticsScript {...analytics} />`) compiles", () => {
     expect(errorsIn("layout.tsx")).toBe("");
   });
   it("ana-08: the track() button compiles", () => {
@@ -419,8 +419,8 @@ describe("what's sent (telemetry.mdx)", () => {
     expect(sent.some((s) => s.url.endsWith("/v1/traces"))).toBe(false);
   });
 
-  // The first client of a release must already honour that release's Telemetry
-  // block: no warm-up request before the one that should be traced.
+  // The first client of a release must already honour that release's telemetry
+  // section: no warm-up request before the one that should be traced.
   it("tel-12: with limits and block traceSampleRate 1, block resolution and upstream spans are sent", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
@@ -506,15 +506,19 @@ describe("what's sent (telemetry.mdx)", () => {
 // telemetry.mdx › Telemetry settings are content
 // ---------------------------------------------------------------------------
 
-describe("the Telemetry block (telemetry.mdx)", () => {
-  it("tel-16/tel-21/ana-02: `telemetry` is always in the schema, with enabled, metrics, errorSampleRate, traceSampleRate and no destination fields", async () => {
+describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
+  it("tel-16/tel-21/ana-02: `cms-settings` is always in the schema, its telemetry section with enabled, metrics, errorSampleRate, traceSampleRate and no destination fields", async () => {
     const fixture = createFixture({
       ".deco/index.ts": "export default {};\n",
     });
     try {
       const { meta } = await generateSchema(decoPaths(fixture.root));
-      expect(meta.manifest.blocks.content.telemetry).toBeDefined();
-      const definition = meta.schema.definitions[toBase64("telemetry")] as any;
+      expect(meta.manifest.blocks.content["cms-settings"]).toBeDefined();
+      const settings = meta.schema.definitions[toBase64("cms-settings")] as any;
+      expect(Object.keys(settings.properties).sort()).toEqual(
+        ["__resolveType", "analytics", "preview", "telemetry"].sort(),
+      );
+      const definition = settings.properties.telemetry;
       const props = definition.properties ?? definition;
       const fields = Object.keys(
         JSON.stringify(definition).includes("errorSampleRate") ? props : {},
@@ -527,19 +531,18 @@ describe("the Telemetry block (telemetry.mdx)", () => {
         expect(JSON.stringify(definition)).not.toContain(`"${forbidden}"`);
       }
       expect(fields).not.toContain("endpoint");
-      // ana-02: the analytics form has collector and enabled only (no site ID).
-      const analytics = meta.schema.definitions[toBase64("analytics")] as any;
-      expect(
-        Object.keys(analytics.properties ?? {})
-          .filter((k) => k !== "__resolveType")
-          .sort(),
-      ).toEqual(["collector", "enabled"]);
+      // ana-02: the analytics section has collector and enabled only (no site ID).
+      const analytics = settings.properties.analytics;
+      expect(Object.keys(analytics.properties ?? {}).sort()).toEqual(["collector", "enabled"]);
+      // The old built-ins are gone, with no alias.
+      expect(meta.schema.definitions[toBase64("telemetry")]).toBeUndefined();
+      expect(meta.schema.definitions[toBase64("analytics")]).toBeUndefined();
     } finally {
       fixture.remove();
     }
   }, 60_000);
 
-  it("tel-17: defaults apply with no Telemetry block: enabled, metrics on, errorSampleRate 0.05, traces off", async () => {
+  it("tel-17: defaults apply with no CMS block: enabled, metrics on, errorSampleRate 0.05, traces off", async () => {
     const { sent } = collector();
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
@@ -558,10 +561,18 @@ describe("the Telemetry block (telemetry.mdx)", () => {
     expect(spans(sent)).toHaveLength(0);
   });
 
-  it("tel-17: {__resolveType: 'telemetry'} resolves to its arguments as saved (built-in-blocks)", async () => {
+  it("tel-17: {__resolveType: 'cms-settings'} returns its input with the telemetry defaults filled in (built-in-blocks)", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    const [value] = await cms.forRelease().resolve({ __resolveType: "telemetry", metrics: false });
-    expect(value).toEqual({ metrics: false });
+    const [value] = await cms.forRelease().resolve<{ telemetry: unknown }>({
+      __resolveType: "cms-settings",
+      telemetry: { metrics: false },
+    });
+    expect(value?.telemetry).toEqual({
+      enabled: true,
+      metrics: false,
+      errorSampleRate: 0.05,
+      traceSampleRate: 0,
+    });
   });
 
   it("tel-18: enabled: false switches all telemetry off", async () => {
@@ -593,7 +604,7 @@ describe("the Telemetry block (telemetry.mdx)", () => {
     expect(sent.some((s) => s.url.endsWith("/v1/logs"))).toBe(true);
   });
 
-  it("tel-20: deco content doesn't create .deco/blocks/Telemetry.json", () => {
+  it("tel-20: deco content doesn't create .deco/blocks/CMS.json", () => {
     const fixture = createFixture({
       ".deco/index.ts": "export default {};\n",
       ".deco/blocks/Home.json": { __resolveType: "page", name: "Home", path: "/", sections: [] },
@@ -605,13 +616,13 @@ describe("the Telemetry block (telemetry.mdx)", () => {
         stdio: "pipe",
       });
       expect(fixture.exists(".deco/blocks.gen.ts")).toBe(true);
-      expect(fixture.exists(".deco/blocks/Telemetry.json")).toBe(false);
+      expect(fixture.exists(".deco/blocks/CMS.json")).toBe(false);
     } finally {
       fixture.remove();
     }
   }, 60_000);
 
-  it("tel-21: a Telemetry block can't redirect telemetry (an endpoint field is ignored)", async () => {
+  it("tel-21: the telemetry section can't redirect telemetry (an endpoint field is ignored)", async () => {
     const { sent } = collector();
     const cms = createCMS({
       blocks: docsBlocks(),

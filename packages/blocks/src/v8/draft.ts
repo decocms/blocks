@@ -1,16 +1,18 @@
 /**
  * Draft pointers (see /next/api-reference#draft-pointers): the string
- * `<host[:port]><path[?query]>@<version>` that names a draft, and the two
- * helpers that carry one from a `?__draft=` link into a cookie.
+ * `<host[:port]><path[?query]>@<version>` that names a draft, and what
+ * `cms.draftPointer` and `cms.draftCookie` read and write to carry one from a
+ * `?__draft=` link into a cookie. The host check against the preview hosts is
+ * the CMS's: these read the request only.
  *
  * The query's reserved `__variant` parameters are the variants a preview
  * forces (`<block>@<path>=<index>`, URL-encoded, one per multivariate); the
  * parser lifts them out of `path` into `variants`.
  */
-import type { DraftPointer, ForcedVariant } from "./types.ts";
+import type { DraftPointer, ForcedVariant, RequestLike } from "./types.ts";
 
-/** The draft cookie's name, for frameworks whose cookie API has no Request (Next.js `cookies()`). */
-export const DRAFT_COOKIE = "deco-draft";
+/** The draft cookie's name. Not exported from the package: reading it directly would skip the host check. */
+const DRAFT_COOKIE = "deco-draft";
 
 const DRAFT_PARAM = "__draft";
 const DRAFT_OFF = "off";
@@ -135,15 +137,12 @@ function normalizeHost(authority: string): string | null {
   return `${host}:${port}`;
 }
 
-/** Anything with a `url` and `headers`: a fetch `Request`, a `NextRequest`, a framework wrapper. */
-export type RequestLike = Request | { url: string; headers: Headers };
-
 /**
  * The draft pointer a request carries: `?__draft=` from the URL first, then
  * the `deco-draft` cookie. `null` when neither is present, or when the URL
  * says `?__draft=off`. The value is returned as is; `cms.forDraft` validates it.
  */
-export function draftPointer(request: RequestLike): string | null {
+export function readDraftPointer(request: RequestLike): string | null {
   const param = draftParam(request);
   if (param === DRAFT_OFF) return null;
   if (param) return param;
@@ -161,12 +160,17 @@ export function draftPointer(request: RequestLike): string | null {
  * is `Secure; SameSite=None; Partitioned` (CHIPS): `SameSite=Lax` would never
  * be sent there. `HttpOnly` keeps page scripts from reading the pointer.
  */
-export function draftCookie(request: RequestLike): string | null {
+export function draftCookieFor(request: RequestLike): string | null {
   const param = draftParam(request);
   if (!param) return null;
   if (param === DRAFT_OFF) return serializeCookie("", ["Max-Age=0"]);
   if (parseDraftPointer(param) === null) return null;
   return serializeCookie(encodeURIComponent(param), []);
+}
+
+/** Whether the request's URL says `?__draft=off`: the cookie that ends a preview is set on any host. */
+export function endsPreview(request: RequestLike): boolean {
+  return draftParam(request) === DRAFT_OFF;
 }
 
 function serializeCookie(value: string, extra: string[]): string {

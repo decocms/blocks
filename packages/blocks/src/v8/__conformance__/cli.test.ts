@@ -2024,7 +2024,7 @@ describe("studio-compatibility.mdx", () => {
     );
     expect(Object.keys(g.pages)).toEqual(expect.arrayContaining(["page", "post"]));
     expect(Object.keys(g.redirects)).toContain("redirect");
-    expect(Object.keys(g.content)).toEqual(expect.arrayContaining(["seo", "hero", "telemetry"]));
+    expect(Object.keys(g.content)).toEqual(expect.arrayContaining(["seo", "hero", "cms-settings"]));
   });
 
   it("sc-02: a render-descriptor-returning function is a section", async () => {

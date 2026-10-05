@@ -15,9 +15,6 @@ import { computeContentRevision } from "../../protocol/canonical";
 import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
 import {
   createCMS,
-  DRAFT_COOKIE,
-  draftCookie,
-  draftPointer,
   formatDraftPointer,
   matchRoute,
   parseDraftPointer,
@@ -26,7 +23,13 @@ import {
 } from "../index";
 import { resolveDestination } from "../telemetry";
 import { docsBlocks, docsSnapshot, draftOverlayAssets } from "../testFixtures";
-import type { Loader, Snapshot } from "../types";
+import type { Loader, RequestLike, Snapshot } from "../types";
+
+/** cms.draftPointer and cms.draftCookie on a CMS with no settings: every host may preview. */
+const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
+const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
+const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
+const DRAFT_COOKIE = "deco-draft";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "https://delivery.decocms.com";
@@ -943,10 +946,8 @@ describe("hosted", () => {
     expect(destination?.endpoint).toMatch(/^https:\/\/[^/]*decocms\.com/);
     expect(destination?.headers.authorization).toBe(`Bearer ${TOKEN}`);
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    const [analytics] = await cms
-      .forRelease()
-      .resolve<{ collector: string }>({ __resolveType: "analytics" });
-    expect(analytics?.collector).toBe(HOSTED_ANALYTICS_COLLECTOR);
+    const { analytics } = await cms.settings();
+    expect(analytics.collector).toBe(HOSTED_ANALYTICS_COLLECTOR);
   });
 });
 
@@ -1253,7 +1254,7 @@ describe("hosted-publishing", () => {
 // ---------------------------------------------------------------------------
 
 describe("hosted-drafts", () => {
-  it("HD-1: pointer is <host><path>@<version>, version after the last @; format round-trips", () => {
+  it("HD-1: pointer is <host><path>@<version>, version after the last @; format round-trips", async () => {
     const raw = "api.deco.example/drafts/acme/feat-summer?token=abc@9f3c1a";
     const parsed = parseDraftPointer(raw);
     expect(parsed).toEqual({
@@ -1263,7 +1264,7 @@ describe("hosted-drafts", () => {
     });
     expect(formatDraftPointer(parsed!)).toBe(raw);
     const link = new URL(`https://store.example.com/summer?__draft=${encodeURIComponent(raw)}`);
-    expect(draftPointer(new Request(link))).toBe(raw);
+    expect(await draftPointer(new Request(link))).toBe(raw);
   });
 
   it("HD-2: forDraft fetches that version once and serves it from memory afterwards", async () => {
@@ -1320,26 +1321,26 @@ describe("hosted-drafts", () => {
     expect(listError?.code).toBe("LOADER_FAILED");
   });
 
-  it("HD-5: draftPointer reads ?__draft= or the cookie; draftCookie only answers ?__draft=", () => {
+  it("HD-5: draftPointer reads ?__draft= or the cookie; draftCookie only answers ?__draft=", async () => {
     const fromUrl = new Request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`);
-    expect(draftPointer(fromUrl)).toBe(POINTER);
-    expect(draftCookie(fromUrl)).toMatch(new RegExp(`^${DRAFT_COOKIE}=`));
+    expect(await draftPointer(fromUrl)).toBe(POINTER);
+    expect(await draftCookie(fromUrl)).toMatch(new RegExp(`^${DRAFT_COOKIE}=`));
     const fromCookie = new Request("https://s.example/", {
       headers: { cookie: `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}` },
     });
-    expect(draftPointer(fromCookie)).toBe(POINTER);
-    expect(draftCookie(fromCookie)).toBeNull();
+    expect(await draftPointer(fromCookie)).toBe(POINTER);
+    expect(await draftCookie(fromCookie)).toBeNull();
     const plain = new Request("https://s.example/");
-    expect(draftPointer(plain)).toBeNull();
-    expect(draftCookie(plain)).toBeNull();
+    expect(await draftPointer(plain)).toBeNull();
+    expect(await draftCookie(plain)).toBeNull();
   });
 
-  it("HD-6: ?__draft=off expires the cookie and reads no pointer", () => {
+  it("HD-6: ?__draft=off expires the cookie and reads no pointer", async () => {
     const off = new Request("https://s.example/?__draft=off", {
       headers: { cookie: `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}` },
     });
-    expect(draftPointer(off)).toBeNull();
-    expect(draftCookie(off)).toMatch(/Max-Age=0/);
+    expect(await draftPointer(off)).toBeNull();
+    expect(await draftCookie(off)).toMatch(/Max-Age=0/);
   });
 
   it("HD-7: the plain request handler example runs as written", async () => {
@@ -1354,10 +1355,10 @@ describe("hosted-drafts", () => {
     const render = async (client: ReturnType<typeof cms.forRelease>, _request: Request) =>
       new Response(await titleOf(client));
     async function handle(request: Request) {
-      const pointer = draftPointer(request);
+      const pointer = await cms.draftPointer(request);
       const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
       const response = await render(client, request);
-      const cookie = draftCookie(request);
+      const cookie = await cms.draftCookie(request);
       if (cookie) response.headers.append("Set-Cookie", cookie);
       return response;
     }
@@ -1382,9 +1383,8 @@ describe("hosted-drafts", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("HD-10: DRAFT_COOKIE is the cookie draftCookie writes and draftPointer reads", () => {
-    expect(DRAFT_COOKIE).toBe("deco-draft");
-    const set = draftCookie(
+  it("HD-10: deco-draft is the cookie draftCookie writes and draftPointer reads", async () => {
+    const set = await draftCookie(
       new Request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`),
     );
     expect(set?.startsWith(`${DRAFT_COOKIE}=`)).toBe(true);
@@ -1459,28 +1459,89 @@ describe("hosted-drafts", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("HD-18: the one-host example previews on that host only; every other host serves the release", async () => {
+  it("HD-18: preview hosts from the release's CMS block: a draft previews on staging only, every other host serves the release", async () => {
     const api = deliveryApi();
-    const POINTER = await api.draft({ set: { SummerSEO: seoEntry("Preview") } });
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
+    // The draft tries to allow its own host: settings come from the release, so it can't.
+    const POINTER = await api.draft({
+      set: {
+        SummerSEO: seoEntry("Preview"),
+        CMS: { __resolveType: "cms-settings", preview: { hosts: ["*"] } },
+      },
     });
-    const pick = (request: Request) => {
-      const mayPreview = new URL(request.url).host === "staging.store.example.com";
-      const pointer = mayPreview ? draftPointer(request) : null;
-      const cookie = mayPreview ? draftCookie(request) : null;
+    const release = docsSnapshot();
+    release.blocks.CMS = {
+      __resolveType: "cms-settings",
+      preview: { hosts: ["staging.store.example.com"] },
+    };
+    const cms = createCMS({ blocks: docsBlocks(), content: release, site: SITE, token: TOKEN });
+    const pick = async (request: Request) => {
+      const pointer = await cms.draftPointer(request);
+      const cookie = await cms.draftCookie(request);
       return { client: pointer ? cms.forDraft(pointer) : cms.forRelease(), cookie };
     };
     const q = `?__draft=${encodeURIComponent(POINTER)}`;
-    const staging = pick(new Request(`https://staging.store.example.com/${q}`));
+    const staging = await pick(new Request(`https://staging.store.example.com/${q}`));
     expect(await titleOf(staging.client)).toBe("Preview");
     expect(staging.cookie).not.toBeNull();
-    const live = pick(new Request(`https://store.example.com/${q}`));
+    // A preview of that draft doesn't change the settings either.
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.store.example.com"]);
+    const live = await pick(new Request(`https://store.example.com/${q}`));
     expect(await titleOf(live.client)).toBe("Sunny!");
     expect(live.cookie).toBeNull();
+    // A cookie set on staging is ignored on the public host too, without an error.
+    const withCookie = await pick(
+      new Request("https://store.example.com/", {
+        headers: { cookie: `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}` },
+      }),
+    );
+    expect(await titleOf(withCookie.client)).toBe("Sunny!");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// api-reference.mdx › cms.settings() with hosted releases
+// ---------------------------------------------------------------------------
+
+describe("CMS settings from hosted releases", () => {
+  const bundled = (): Snapshot => {
+    const snapshot = docsSnapshot();
+    snapshot.blocks.CMS = {
+      __resolveType: "cms-settings",
+      preview: { hosts: ["staging.example.com"] },
+      analytics: { collector: "https://bundled.example/events" },
+    };
+    return snapshot;
+  };
+
+  it("S-1: offline, at boot, settings come from the bundled content module, with no fetch", async () => {
+    const api = deliveryApi();
+    api.fail(true);
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE, token: TOKEN });
+    const settings = await cms.settings();
+    expect(settings.preview.hosts).toEqual(["staging.example.com"]);
+    expect(settings.analytics.collector).toBe("https://bundled.example/events");
+    expect(api.fetch).not.toHaveBeenCalled();
+    // Drafts are gated by them even while the Deco API can't be reached.
+    const link = `?__draft=${encodeURIComponent("delivery.decocms.com/x@v")}`;
+    expect(await cms.draftPointer(new Request(`https://www.example.com/${link}`))).toBeNull();
+    expect(api.fetch).not.toHaveBeenCalled();
+    // A request serves the bundled release; the failed background check changes nothing.
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    await flush(50);
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+  });
+
+  it("S-2: a newer release's settings arrive with the background check, never before", async () => {
+    const api = deliveryApi();
+    const next = await hashed("Published", {
+      CMS: { __resolveType: "cms-settings", preview: { hosts: ["www.example.com"] } },
+    });
+    api.publish(1, next);
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE, token: TOKEN });
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+    expect(api.fetch).not.toHaveBeenCalled();
+    expect(await cms.update()).toEqual({ updated: true });
+    expect((await cms.settings()).preview.hosts).toEqual(["www.example.com"]);
   });
 });
 

@@ -49,7 +49,7 @@ import {
 } from "./syntaxExamples";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const TEN = [
+const BUILT_INS = [
   "lazy",
   "multivariate",
   "always",
@@ -57,8 +57,7 @@ const TEN = [
   "date",
   "page",
   "redirect",
-  "telemetry",
-  "analytics",
+  "cms-settings",
   "secret",
 ];
 
@@ -270,10 +269,10 @@ describe("blocks", () => {
     expect(error?.code).toBe("UNKNOWN_BLOCK");
   });
 
-  it("blocks-13/builtin-01: exactly ten built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
-    expect(Object.keys(builtIns).sort()).toEqual([...TEN].sort());
+  it("blocks-13/builtin-01: exactly nine built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
+    expect(Object.keys(builtIns).sort()).toEqual([...BUILT_INS].sort());
     const client = clientWith({});
-    for (const name of TEN) {
+    for (const name of BUILT_INS) {
       const [, error] = await client.resolve({ __resolveType: name });
       expect(error?.code, name).not.toBe("UNKNOWN_BLOCK");
     }
@@ -711,17 +710,13 @@ describe("built-in blocks", () => {
     ]);
   });
 
-  it("builtin-08: telemetry returns its arguments as saved", async () => {
-    const args = { enabled: true, metrics: false, errorSampleRate: 0.5, traceSampleRate: 0 };
-    expect(await clientWith({}).resolve({ __resolveType: "telemetry", ...args })).toEqual([
-      args,
-      null,
-    ]);
-  });
-
-  it("builtin-09: analytics fills its defaults (the hosted collector, enabled)", async () => {
-    expect(await clientWith({}).resolve({ __resolveType: "analytics" })).toEqual([
-      { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true },
+  it("builtin-08/builtin-09: cms-settings returns its input with the telemetry and analytics defaults filled in", async () => {
+    const telemetry = { enabled: true, metrics: false, errorSampleRate: 0.5, traceSampleRate: 0 };
+    const preview = { hosts: ["staging.example.com"] };
+    expect(
+      await clientWith({}).resolve({ __resolveType: "cms-settings", preview, telemetry }),
+    ).toEqual([
+      { preview, telemetry, analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true } },
       null,
     ]);
     expect(HOSTED_ANALYTICS_COLLECTOR).toMatch(/^https:\/\//);
@@ -976,7 +971,10 @@ describe("secrets", () => {
         content: {
           revision: "r",
           blocks: {
-            Telemetry: { __resolveType: "telemetry", traceSampleRate: 1, errorSampleRate: 1 },
+            CMS: {
+              __resolveType: "cms-settings",
+              telemetry: { traceSampleRate: 1, errorSampleRate: 1 },
+            },
           },
         },
         secrets: { key: priv },

@@ -79,7 +79,7 @@ describe("groups", () => {
     expect(meta.manifest.blocks.pages.post).toBeDefined();
     expect(meta.manifest.blocks.pages.page).toBeDefined();
     expect(meta.manifest.blocks.content.menu).toBeDefined();
-    expect(meta.manifest.blocks.content.telemetry).toBeDefined();
+    expect(meta.manifest.blocks.content["cms-settings"]).toBeDefined();
   });
 
   it("puts every other function in loaders, multivariate and lazy included", () => {
@@ -282,7 +282,7 @@ describe("interchangeable blocks", () => {
 });
 
 describe("built-ins and aliases", () => {
-  it("adds the ten built-ins", () => {
+  it("adds the nine built-ins", () => {
     for (const name of [
       "lazy",
       "multivariate",
@@ -291,8 +291,7 @@ describe("built-ins and aliases", () => {
       "date",
       "page",
       "redirect",
-      "telemetry",
-      "analytics",
+      "cms-settings",
       "secret",
     ]) {
       expect(def(name), name).toBeDefined();

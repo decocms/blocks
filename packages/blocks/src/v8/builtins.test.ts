@@ -22,11 +22,11 @@ function client(blocks: Blocks = docsBlocks(), content: Snapshot = docsSnapshot(
 const lazyValue = (value: unknown) => ({ __resolveType: "lazy", value });
 
 describe("the built-in list", () => {
-  it("has the ten documented names", () => {
+  it("has the nine documented names", () => {
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "always",
-        "analytics",
+        "cms-settings",
         "date",
         "lazy",
         "multivariate",
@@ -34,7 +34,6 @@ describe("the built-in list", () => {
         "page",
         "redirect",
         "secret",
-        "telemetry",
       ].sort(),
     );
   });
@@ -43,8 +42,7 @@ describe("the built-in list", () => {
     for (const name of [
       "page",
       "redirect",
-      "telemetry",
-      "analytics",
+      "cms-settings",
       "always",
       "never",
       "date",
@@ -367,7 +365,7 @@ describe("page", () => {
   });
 });
 
-describe("redirect, telemetry, analytics", () => {
+describe("redirect, cms-settings", () => {
   it("redirect returns its arguments as saved, optional fields included", async () => {
     const saved = {
       from: "/old/:slug",
@@ -386,30 +384,34 @@ describe("redirect, telemetry, analytics", () => {
     ]);
   });
 
-  it("telemetry returns its arguments as saved", async () => {
-    const settings = { enabled: false, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 };
-    expect(await client({}).resolve({ __resolveType: "telemetry", ...settings })).toEqual([
-      settings,
+  it("cms-settings fills in the telemetry and analytics defaults and keeps preview as saved", async () => {
+    expect(await client({}).resolve({ __resolveType: "cms-settings" })).toEqual([
+      {
+        telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
+        analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true },
+      },
       null,
     ]);
-    expect(await client({}).resolve({ __resolveType: "telemetry" })).toEqual([{}, null]);
-  });
-
-  it("analytics fills in the defaults: the hosted collector and enabled", async () => {
-    expect(await client({}).resolve({ __resolveType: "analytics" })).toEqual([
-      { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true },
+    const saved = {
+      preview: { hosts: ["staging.example.com"] },
+      telemetry: { enabled: false, errorSampleRate: 0.5 },
+      analytics: { collector: "https://stats.example.com/events", enabled: false },
+    };
+    expect(await client({}).resolve({ __resolveType: "cms-settings", ...saved })).toEqual([
+      {
+        preview: { hosts: ["staging.example.com"] },
+        telemetry: { enabled: false, metrics: true, errorSampleRate: 0.5, traceSampleRate: 0 },
+        analytics: { collector: "https://stats.example.com/events", enabled: false },
+      },
       null,
     ]);
   });
 
-  it("analytics keeps a collector and enabled: false", async () => {
-    expect(
-      await client({}).resolve({
-        __resolveType: "analytics",
-        collector: "https://stats.example.com/events",
-        enabled: false,
-      }),
-    ).toEqual([{ collector: "https://stats.example.com/events", enabled: false }, null]);
+  it("telemetry and analytics are no longer built-ins (folded into cms-settings, no alias)", async () => {
+    for (const type of ["telemetry", "analytics"]) {
+      const [, error] = await client({}).resolve({ __resolveType: type });
+      expect(error?.code, type).toBe("UNKNOWN_BLOCK");
+    }
   });
 
   it("the hosted collector is an https URL", () => {

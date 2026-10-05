@@ -29,6 +29,20 @@ export function isLoader(content: unknown): content is Loader {
   );
 }
 
+/**
+ * An internal hook a built-in loader (`remoteLoader`) has: the release it
+ * would return right now, from memory, or `undefined` when that takes a load.
+ * `cms.settings()` reads through it, so it never fetches.
+ */
+export const PEEK_RELEASE: unique symbol = Symbol.for("decocms.blocks.peekRelease");
+
+/** The release a source holds in memory: the snapshot itself, or what a loader can peek. */
+export function peekRelease(source: Snapshot | Loader): Snapshot | undefined {
+  if (!isLoader(source)) return source;
+  const peek = (source as { [PEEK_RELEASE]?: () => Snapshot | undefined })[PEEK_RELEASE];
+  return typeof peek === "function" ? peek.call(source) : undefined;
+}
+
 export function isSnapshot(content: unknown): content is Snapshot {
   return (
     isPlainObject(content) &&
@@ -46,6 +60,8 @@ export class ContentStore {
     CACHED_DRAFTS,
   );
   readonly #served = new BoundedMap<string, Snapshot>(SERVED_REVISIONS);
+  /** The release this store last handed a client, for a loader that can't peek. */
+  #latest: Snapshot | undefined;
 
   constructor(source: Snapshot | Loader) {
     this.#source = source;
@@ -106,6 +122,15 @@ export class ContentStore {
     return entry.pending;
   }
 
+  /**
+   * The current release as it is in memory, without loading anything: the
+   * content module, what a built-in loader holds, or the release this store
+   * last loaded. `undefined` before a custom loader's first load.
+   */
+  current(): Snapshot | undefined {
+    return peekRelease(this.#source) ?? this.#latest;
+  }
+
   /** A release revision this store has served, or the release when it's unknown (drafts included). */
   revision(revision: string): Promise<Snapshot> {
     const served = this.#served.get(revision);
@@ -124,6 +149,7 @@ export class ContentStore {
         const updated = result?.updated === true;
         if (updated) {
           this.#release = undefined;
+          this.#latest = undefined;
           // A loader that ignores the pointer hands back the release as the
           // draft; that copy is as stale as the release now.
           this.#drafts.clear();
@@ -150,12 +176,14 @@ export class ContentStore {
       // The same loader (a hosted remoteLoader that adopted new fallback content): re-read it.
       // Cached drafts were layered over the old content, so they go too.
       this.#release = undefined;
+      this.#latest = undefined;
       this.#drafts.clear();
       return;
     }
     if (isSnapshot(previous)) this.#served.delete(previous.revision);
     this.#source = source;
     this.#release = undefined;
+    this.#latest = undefined;
     this.#drafts.clear();
   }
 
@@ -177,6 +205,7 @@ export class ContentStore {
   }
 
   #serve(snapshot: Snapshot): Snapshot {
+    this.#latest = snapshot;
     this.#served.set(snapshot.revision, snapshot);
     return snapshot;
   }

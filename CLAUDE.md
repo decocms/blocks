@@ -74,7 +74,7 @@ Each export is built from the source file below (`dist/<same path>.js`, see abov
 
 | Import path | File |
 |---|---|
-| `@decocms/blocks` | `src/index.ts` — the v8 runtime API only (`createCMS`, `matchRoute`, `remoteLoader`, `draftPointer`, `Blocks`, `Lazy`, …), re-exported from `src/v8/index.ts` as one explicit `export { … } from "./v8/index.ts"` block (a conformance test parses that form) |
+| `@decocms/blocks` | `src/index.ts` — the v8 runtime API only (`createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, …; the draft helpers are `cms.draftPointer`/`cms.draftCookie`, since they check the preview hosts in `cms.settings()`), re-exported from `src/v8/index.ts` as one explicit `export { … } from "./v8/index.ts"` block (a conformance test parses that form) |
 | `@decocms/blocks/analytics` | `src/v8/analytics.ts` — `AnalyticsScript`, `track` |
 | `@decocms/blocks/fetch` | `src/v8/fetch.ts` — `createInstrumentedFetch` |
 | `@decocms/blocks/secrets` | `src/v8/secrets.ts` |

@@ -182,6 +182,8 @@ beforeAll(async () => {
     __resolveType: "website/sections/Rendering/Lazy.tsx",
     section: { __resolveType: "site/sections/Hero.tsx", title: "Later" },
   });
+  // A prerelease next-major settings block: deco check fails on it until it's folded.
+  write(root, ".deco/blocks/Telemetry.json", { __resolveType: "telemetry", errorSampleRate: 0.01 });
   write(root, ".deco/meta.gen.json", { v7: true });
   write(root, ".deco/sections.gen.ts", "export {};\n");
 
@@ -268,6 +270,15 @@ describe("migrate", () => {
     expect(read(".deco/blocks/API_KEY.json")).not.toContain("s3cret-value");
   });
 
+  it("folds settings into the CMS block and deletes the prerelease block", () => {
+    expect(fs.existsSync(path.join(root, ".deco/blocks/Telemetry.json"))).toBe(false);
+    expect(JSON.parse(read(".deco/blocks/CMS.json"))).toEqual({
+      __resolveType: "cms-settings",
+      telemetry: { errorSampleRate: 0.01 },
+    });
+    expect(manual("settings").join("\n")).toContain("DECO_ALLOWED_PREVIEW_HOSTS");
+  });
+
   it("leaves a tree that passes deco schema, deco content and deco check", async () => {
     expect(await schema({ root, reporter: quiet })).toBe(0);
     expect(await content({ root, reporter: quiet })).toBe(0);
@@ -302,8 +313,11 @@ describe("migrate", () => {
 
   it("keeps an existing block map and copies on a second run", async () => {
     const before = read(".deco/index.ts");
+    const settings = read(".deco/blocks/CMS.json");
     const second = await migrate({ root });
     expect(read(".deco/index.ts")).toBe(before);
+    expect(read(".deco/blocks/CMS.json")).toBe(settings);
+    expect(second.done.filter((n) => n.step === "settings")).toEqual([]);
     expect(
       second.manual.some(
         (n) => n.subject === ".deco/index.ts" && n.message.startsWith("already exists"),

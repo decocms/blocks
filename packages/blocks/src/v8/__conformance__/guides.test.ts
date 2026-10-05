@@ -143,14 +143,13 @@ describe("quickstart", () => {
     expect(spy.mock.calls[0][0]).toEqual({ title: "hi" });
   });
 
-  it("qs-17/hiw-06/dd-03: exactly ten built-ins, the design-decisions nine plus secret, all resolvable", async () => {
+  it("qs-17/hiw-06/dd-03: exactly nine built-ins, all resolvable", async () => {
     const { builtIns } = await import("../builtins/index");
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "page",
         "redirect",
-        "telemetry",
-        "analytics",
+        "cms-settings",
         "always",
         "never",
         "date",
@@ -166,8 +165,7 @@ describe("quickstart", () => {
       ["date", {}],
       ["page", { name: "x", path: "/", sections: [] }],
       ["redirect", { from: "/a", to: "/b", permanent: false }],
-      ["telemetry", {}],
-      ["analytics", {}],
+      ["cms-settings", {}],
       ["multivariate", { variants: [] }],
     ] as const) {
       const [, error] = await client.resolve({ __resolveType: type, ...inputs });
@@ -619,19 +617,16 @@ describe("renames and migrations", () => {
     ).not.toThrow();
   });
 
-  it("mig-10/dd-16: the analytics block fills defaults; AnalyticsScript renders nothing when disabled", async () => {
-    const client = createCMS({
+  it("mig-10/dd-16: the analytics section fills defaults; AnalyticsScript renders nothing when disabled", async () => {
+    const cms = createCMS({
       blocks: {},
-      content: snap({ Analytics: { __resolveType: "analytics" } }),
-    }).forRelease();
-    const [settings, error] = await client.resolve<{ enabled: boolean; collector: string }>(
-      "Analytics",
-    );
-    expect(error).toBeNull();
-    expect(settings?.enabled).toBe(true);
-    expect(settings?.collector).toMatch(/^https:\/\//);
-    expect(AnalyticsScript({ ...settings, enabled: false })).toBeNull();
-    expect(AnalyticsScript(settings ?? {})).not.toBeNull();
+      content: snap({ CMS: { __resolveType: "cms-settings" } }),
+    });
+    const { analytics } = await cms.settings();
+    expect(analytics.enabled).toBe(true);
+    expect(analytics.collector).toMatch(/^https:\/\//);
+    expect(AnalyticsScript({ ...analytics, enabled: false })).toBeNull();
+    expect(AnalyticsScript(analytics)).not.toBeNull();
   });
 });
 
@@ -942,7 +937,9 @@ describe("design decisions", () => {
     try {
       const capped = createCMS({
         blocks: { broken },
-        content: snap({ Telemetry: { __resolveType: "telemetry", errorSampleRate: 1 } }),
+        content: snap({
+          CMS: { __resolveType: "cms-settings", telemetry: { errorSampleRate: 1 } },
+        }),
         telemetry: { endpoint: "https://otel.example.com", limits: { errorSampleRate: 0.1 } },
       });
       vi.spyOn(Math, "random").mockReturnValue(0.5); // inside the editor's 1, above code's 0.1
@@ -953,7 +950,7 @@ describe("design decisions", () => {
       const off = createCMS({
         blocks: { broken },
         content: snap({
-          Telemetry: { __resolveType: "telemetry", enabled: false, errorSampleRate: 1 },
+          CMS: { __resolveType: "cms-settings", telemetry: { enabled: false, errorSampleRate: 1 } },
         }),
         telemetry: { endpoint: "https://otel2.example.com", limits: { errorSampleRate: 1 } },
       });

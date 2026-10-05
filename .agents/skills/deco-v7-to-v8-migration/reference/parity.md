@@ -58,7 +58,7 @@ storefront-tanstack (`5a5a4d4`):
 
 blog-tanstack (`9e97455`):
 
-- **Collector beacons recorded as analytics**: the built-in analytics block sends One Dollar Stats beacons straight to the collector instead of loading the SDK; decode them into the same view/event records, and compare `location.pathname` without the query string.
+- **Collector beacons recorded as analytics**: `AnalyticsScript` sends One Dollar Stats beacons straight to the collector instead of loading the SDK; decode them into the same view/event records, and compare `location.pathname` without the query string.
 - **Real 404s** for unknown slugs and `/404` (v7 answered 200).
 
 A native app with a v7 binding (bundled JSON, native rendering; `reference/native-apps.md`), pending product-owner approval:

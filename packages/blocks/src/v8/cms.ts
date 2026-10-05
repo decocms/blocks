@@ -7,26 +7,53 @@
  * cache. See /next/api-reference#one-instance-per-process.
  */
 import { runInBackground } from "./background.ts";
+import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
 import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
-import { parseDraftPointer } from "./draft.ts";
+import { draftCookieFor, endsPreview, parseDraftPointer, readDraftPointer } from "./draft.ts";
+import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity.ts";
+import { isPlainObject } from "./json.ts";
 import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
-import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry.ts";
-import type { Blocks, Client, CMS, CMSConfig, Loader, Snapshot } from "./types.ts";
+import {
+  defaultSettings,
+  isStatic,
+  parseCodeHosts,
+  readSettings,
+  type SettingsCaps,
+} from "./settings.ts";
+import {
+  resolveDestination,
+  setCurrentTelemetry,
+  TelemetryPipeline,
+  telemetryLimits,
+} from "./telemetry.ts";
+import type {
+  Blocks,
+  Client,
+  CMS,
+  CMSConfig,
+  EffectiveSettings,
+  Loader,
+  RequestLike,
+  Snapshot,
+} from "./types.ts";
 import { forceVariants } from "./variants.ts";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
 const MIN_INTERVAL = 60_000;
 /** Each check runs one interval, plus or minus up to this much, after the previous one. */
 const JITTER = 10_000;
+/** How often telemetry reads its settings again when the release hasn't changed (date rules). */
+const TELEMETRY_SETTINGS_MS = 60_000;
 
 /** Options that must agree between two `createCMS` calls sharing an instance. */
 interface Fingerprint {
   interval: number;
   telemetry: string;
+  preview: string;
   secrets: string;
 }
 
@@ -39,6 +66,11 @@ class CMSInstance implements CMS {
   /** The built-ins with a `secret` that holds this instance's key (the first call's). */
   readonly #builtIns: Readonly<Blocks>;
   readonly #telemetry: TelemetryPipeline | undefined;
+  readonly #caps: SettingsCaps;
+  /** Settings of a `CMS` block with nothing to run, per release snapshot. */
+  #staticSettings = new WeakMap<Snapshot, EffectiveSettings>();
+  /** The release and time telemetry last read its section. */
+  #telemetryRead: { snapshot: Snapshot; at: number } | undefined;
   #blocks: Blocks;
   /**
    * When the next check is due. The first is on the first `forRelease()` or `forDraft()`, not
@@ -52,6 +84,10 @@ class CMSInstance implements CMS {
     this.#interval = interval;
     this.#store = new ContentStore(contentOf(config));
     this.fingerprint = fingerprintOf(config, interval);
+    this.#caps = {
+      hosts: parseCodeHosts(config.preview),
+      limits: telemetryLimits(config.telemetry),
+    };
     const destination = resolveDestination(config.telemetry, config.site);
     if (destination !== null) {
       this.#telemetry = new TelemetryPipeline(destination);
@@ -68,11 +104,35 @@ class CMSInstance implements CMS {
     const telemetry = this.#telemetry;
     if (telemetry === undefined) return this.#client(() => this.#store.release());
     return this.#client(() =>
-      this.#store.release().then((snapshot) => {
+      this.#store.release().then(async (snapshot) => {
         telemetry.useRelease(snapshot);
+        await this.#followTelemetrySettings(telemetry, snapshot);
         return snapshot;
       }),
     );
+  }
+
+  /**
+   * The release's settings, from memory: never a draft, never a fetch. The
+   * `CMS` block resolves on each call, so a field with variants is decided
+   * where it's called; one with nothing to run is resolved once per release.
+   */
+  settings(): Promise<EffectiveSettings> {
+    return this.#settingsOf(this.#store.current());
+  }
+
+  async draftPointer(request: RequestLike): Promise<string | null> {
+    const pointer = readDraftPointer(request);
+    if (pointer === null) return null;
+    return (await this.#previewAllowed(request)) ? pointer : null;
+  }
+
+  async draftCookie(request: RequestLike): Promise<string | null> {
+    const cookie = draftCookieFor(request);
+    if (cookie === null) return null;
+    // Ending a preview is allowed anywhere, so a cookie set before a host was removed still goes.
+    if (endsPreview(request)) return cookie;
+    return (await this.#previewAllowed(request)) ? cookie : null;
   }
 
   /**
@@ -102,6 +162,58 @@ class CMSInstance implements CMS {
   adopt(config: CMSConfig): void {
     this.#blocks = config.blocks;
     this.#store.replace(contentOf(config));
+    this.#staticSettings = new WeakMap();
+    this.#telemetryRead = undefined;
+  }
+
+  async #settingsOf(snapshot: Snapshot | undefined): Promise<EffectiveSettings> {
+    if (snapshot === undefined) return defaultSettings(this.#caps);
+    const cached = this.#staticSettings.get(snapshot);
+    if (cached !== undefined) return cached;
+    const settings = await readSettings(
+      snapshot,
+      () =>
+        new CMSClient({
+          load: () => Promise.resolve(snapshot),
+          blocks: this.#blocks,
+          builtIns: this.#builtIns,
+          onCollision: (name) => this.#warnCollision(name),
+        }),
+      this.#caps,
+    );
+    // A block map's own cms-settings function may answer differently per call.
+    const entry = snapshot.blocks[SETTINGS_BLOCK];
+    const fixed = !isPlainObject(entry) || isStatic(entry);
+    if (fixed && !Object.hasOwn(this.#blocks, SETTINGS_TYPE)) {
+      this.#staticSettings.set(snapshot, settings);
+    }
+    return settings;
+  }
+
+  /** Whether the release's preview hosts allow this request's host. */
+  async #previewAllowed(request: RequestLike): Promise<boolean> {
+    const { hosts } = (await this.settings()).preview;
+    const patterns = hosts
+      .map((raw) => parseHostPattern(raw))
+      .filter((pattern): pattern is HostPattern => pattern !== null);
+    return allowsHost(patterns, request.url);
+  }
+
+  /**
+   * Telemetry follows the release's `telemetry` section, read outside any
+   * request's choices: when the release changes (before its first client
+   * runs) and then at most once a minute, so date rules take effect.
+   */
+  async #followTelemetrySettings(telemetry: TelemetryPipeline, snapshot: Snapshot): Promise<void> {
+    const last = this.#telemetryRead;
+    const now = Date.now();
+    if (last?.snapshot === snapshot && now - last.at < TELEMETRY_SETTINGS_MS) return;
+    this.#telemetryRead = { snapshot, at: now };
+    const read = this.#settingsOf(snapshot).then((settings) => {
+      if (this.#telemetryRead?.snapshot === snapshot) telemetry.apply(settings.telemetry);
+    });
+    // A new release waits for its rates; a periodic re-read doesn't hold up the request.
+    if (last?.snapshot !== snapshot) await read;
   }
 
   #client(load: () => Promise<Snapshot>): Client {
@@ -186,6 +298,7 @@ function validate(config: CMSConfig): void {
       "createCMS: `content` must be the content module ({ revision, blocks }) or a loader with load()",
     );
   }
+  parseCodeHosts(config.preview);
 }
 
 function resolveInterval(configured: number | undefined): number {
@@ -221,6 +334,7 @@ function fingerprintOf(config: CMSConfig, interval: number): Fingerprint {
   return {
     interval,
     telemetry: stableJson(config.telemetry ?? null),
+    preview: stableJson(config.preview ?? null),
     secrets: config.secrets?.key ? fnv1a(config.secrets.key) : "",
   };
 }

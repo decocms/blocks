@@ -39,7 +39,7 @@ import {
   DRAFT_OVERLAY_FORMAT,
   type DraftOverlay,
 } from "./canonical.ts";
-import { BoundedMap, isSnapshot } from "./content.ts";
+import { BoundedMap, isSnapshot, PEEK_RELEASE, peekRelease } from "./content.ts";
 import { parseDraftPointer } from "./draft.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
@@ -92,6 +92,8 @@ class RemoteLoader implements Loader {
   readonly interval: number | undefined;
   #fallback: Snapshot | Loader;
   #fallbackRevision: string | undefined;
+  /** The fallback's content as last loaded, for a fallback that is itself a loader. */
+  #fallbackSnapshot: Snapshot | undefined;
   #current: Snapshot | undefined;
   #generation = -1;
   /** Authorized manifests, by overlay version and grant: a version alone unlocks nothing. */
@@ -115,6 +117,12 @@ class RemoteLoader implements Loader {
     if (fallback === this.#fallback) return;
     this.#fallback = fallback;
     this.#fallbackRevision = undefined;
+    this.#fallbackSnapshot = undefined;
+  }
+
+  /** What `load()` would return now, from memory only (see `peekRelease`). */
+  [PEEK_RELEASE](): Snapshot | undefined {
+    return this.#current ?? peekRelease(this.#fallback) ?? this.#fallbackSnapshot;
   }
 
   load(pointer?: string | null): Promise<Snapshot> {
@@ -153,7 +161,10 @@ class RemoteLoader implements Loader {
   async #loadFallback(): Promise<Snapshot> {
     const fallback = this.#fallback;
     const snapshot = isSnapshot(fallback) ? fallback : await (fallback as Loader).load();
-    if (fallback === this.#fallback) this.#fallbackRevision = snapshot.revision;
+    if (fallback === this.#fallback) {
+      this.#fallbackRevision = snapshot.revision;
+      this.#fallbackSnapshot = snapshot;
+    }
     return snapshot;
   }
 
@@ -333,6 +344,10 @@ class LocalLoader implements Loader {
 
   adopt(fallback: Snapshot | Loader): void {
     this.#fallback = fallback;
+  }
+
+  [PEEK_RELEASE](): Snapshot | undefined {
+    return peekRelease(this.#fallback);
   }
 
   load(pointer?: string | null): Promise<Snapshot> {

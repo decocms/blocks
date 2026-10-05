@@ -53,6 +53,7 @@ rm -rf .deco-migrate
 What it does, in order (`scripts/migrate.ts`):
 
 1. **content**: saved blocks into `.deco/blocks`, v7 generated files removed, v7 async-rendering wrappers (`website/sections/Rendering/Lazy.tsx`, `SingleDeferred.tsx`, `Deferred.tsx`) unwrapped to the sections they held (v8 has no async rendering), the seven legacy names outside the alias table rewritten (`reference/legacy-names.md`), A/B tests keyed on a random matcher get its saved-block name as `experiment`;
+   **settings**: site settings folded into the `CMS` block (`.deco/blocks/CMS.json`, type `cms-settings`): the v7 Site block's (`Site`/`site`) `previewHosts` → `preview.hosts` (the field moves, ports kept), a literal `collectorAddress` on `OneDollarStats` → `analytics.collector`, and an earlier prerelease's `Telemetry.json`/`Analytics.json` → their sections, field for field and variants included (the old files are deleted). It keeps what `CMS.json` already has, writes nothing when there's nothing to fold, and a second run changes nothing. The report lists the environment-only settings to move by hand (`DECO_ALLOWED_PREVIEW_HOSTS`, `DECO_OTEL_*` sampling, `DECO_ANALYTICS_ENABLED`/`ONEDOLLAR_ENABLED`/`ONEDOLLAR_COLLECTOR`);
 2. **secrets**: v7 secrets re-encrypted with `.deco/secrets.pub`;
 3. **block map**: `.deco/index.ts` with each block under a short name plus an alias under its v7 name, after vendoring the app loaders and actions the content calls into `src/vendor`;
 4. **imports**: the codemod over `src/` (`reference/import-map.md`);
@@ -71,7 +72,7 @@ The script prints **Done** and **Left to do**, grouped by step. Every "Left to d
 3. **Move framework code into the site** (`reference/gotchas.md`): edge cache, image, SEO/head, device detection, cookies, cart/user/wishlist flows, commerce loaders and converters.
 4. **Replace `/deco/invoke`** with server functions (TanStack `createServerFn`) or Next server actions/route handlers.
 5. **Fix the content `deco check` rejects**: fields no type declares, `.tsx`-named preview blocks, v7 app blocks (apps are code now), `requestToParam` blocks in string fields.
-6. **Telemetry and analytics**: the `telemetry` option of `createCMS` (`/next/telemetry`); the built-in analytics block with `AnalyticsScript`/`track` from `@decocms/blocks/analytics` (the report carries GTM/GA4 IDs over).
+6. **Telemetry, analytics and previews**: the `telemetry` option of `createCMS` (`/next/telemetry`), with switches and rates in the `telemetry` section of `CMS.json`; `AnalyticsScript` with `const { analytics } = await cms.settings()` and `track` from `@decocms/blocks/analytics`; drafts through `await cms.draftPointer(request)` / `cms.draftCookie(request)`, which serve the release on hosts outside `preview.hosts` (a v7 site with no allowed hosts had previews off; here every host may preview unless you list some, `/next/releases-and-drafts#allow-previews-per-host`). The report carries GTM/GA4 IDs over).
 
 ## Verify
 

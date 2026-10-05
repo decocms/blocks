@@ -130,7 +130,28 @@ export interface Variant<T> {
   value: Lazy<T>;
 }
 
-/** The `Telemetry` saved block's type (built-in `telemetry`). */
+/**
+ * The built-in `cms-settings` block's props: the type of the well-known saved
+ * block `CMS`. Every field is optional, and any field can have variants. Read
+ * it through `cms.settings()`, which fills in the defaults and applies code's
+ * caps (see /next/built-in-blocks#cms-settings).
+ */
+export interface CMSSettings {
+  /** Host patterns previews are allowed on, within `createCMS`'s `preview.hosts`. */
+  preview?: { hosts?: string[] };
+  telemetry?: Telemetry;
+  analytics?: Analytics;
+}
+
+/** What `cms.settings()` returns: every section, defaults filled in, caps applied. */
+export interface EffectiveSettings {
+  /** `["*"]` means every host; an empty list, none. */
+  preview: { hosts: string[] };
+  telemetry: Required<Telemetry>;
+  analytics: Required<Analytics>;
+}
+
+/** The `telemetry` section of the CMS settings. */
 export interface Telemetry {
   /** Default `true`; `false` switches telemetry off. */
   enabled?: boolean;
@@ -142,13 +163,16 @@ export interface Telemetry {
   traceSampleRate?: number;
 }
 
-/** The built-in `analytics` block's props. Separate from telemetry. */
+/** The `analytics` section of the CMS settings, and `AnalyticsScript`'s props. */
 export interface Analytics {
   /** An endpoint that accepts the One Dollar Stats format; default: the hosted Deco CMS collector. */
   collector?: string;
   /** Default `true`; `false` makes `AnalyticsScript` render nothing. */
   enabled?: boolean;
 }
+
+/** Anything with a `url` and `headers`: a fetch `Request`, a `NextRequest`, a framework wrapper. */
+export type RequestLike = Request | { url: string; headers: { get(name: string): string | null } };
 
 // ---------------------------------------------------------------------------
 // Results and errors
@@ -201,6 +225,11 @@ export interface CMSConfig {
   interval?: number;
   /** Where telemetry goes; see /next/telemetry. */
   telemetry?: false | TelemetryConfig;
+  /**
+   * The most content may allow previews on, in the host pattern format
+   * (/next/api-reference#host-patterns). Without it, content may allow any host.
+   */
+  preview?: { hosts?: string[] };
   /** The private key that decrypts `secret` blocks. */
   secrets?: { key?: string };
   /** Your site's ID, for hosted releases and drafts. */
@@ -250,4 +279,21 @@ export interface CMS {
   forRevision(revision: string): Client;
   /** Ask the content source for newer content now; never throws. */
   update(): Promise<{ updated: boolean }>;
+  /**
+   * The release's CMS settings (the saved block `CMS`), defaults filled in and
+   * code's caps applied. Reads the release already in memory, never a draft;
+   * never fetches, never rejects.
+   */
+  settings(): Promise<EffectiveSettings>;
+  /**
+   * The request's draft pointer: `?__draft=` first, then the `deco-draft`
+   * cookie. `null` when neither is present, for `?__draft=off`, and on a host
+   * outside `settings().preview.hosts`, where the request gets the release.
+   */
+  draftPointer(request: RequestLike): Promise<string | null>;
+  /**
+   * The `Set-Cookie` value that starts a preview (a valid `?__draft=` on an
+   * allowed host) or ends one (`?__draft=off`, on any host); `null` otherwise.
+   */
+  draftCookie(request: RequestLike): Promise<string | null>;
 }

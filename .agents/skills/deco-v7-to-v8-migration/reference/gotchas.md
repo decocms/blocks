@@ -38,7 +38,7 @@ v8 has no invoke endpoint. Every call the browser made through `/deco/invoke` be
 - **Keep per-visitor data out of the edge cache** (`844ce9f`): cache a GET server function only when its payload is page data; cart, user, wishlist, addresses answer `Cache-Control: private, no-store`, and the cache wrapper never stores such a response. Detect signed-in shoppers by the cookie the sign-in flow actually sets.
 - **One QueryClient per router**, never per isolate: a shared one leaks the previous request's cart and user.
 - v7's admin paths (`/deco/*`, `/live/*`, `/.decofile`) should answer 404, not a cacheable page.
-- Read drafts with `draftPointer()`.
+- Read drafts with `await cms.draftPointer(request)`; it ignores drafts on hosts outside `preview.hosts` (the `CMS` block, capped by `createCMS({ preview })`), so list your staging and dev hosts there.
 
 ## Next.js App Router
 
@@ -76,7 +76,7 @@ v8 ships no dev hook for content changes; two pieces of template code make a sav
 ## Telemetry and analytics
 
 - Telemetry: set `OTEL_EXPORTER_OTLP_ENDPOINT` to the OTLP collector and the auth header as the `OTEL_EXPORTER_OTLP_HEADERS` secret in production; send nothing in dev or parity runs (`89eae7d`).
-- Analytics: the built-in `analytics` block plus `AnalyticsScript`/`track` replace OneDollarStats; it sends collector beacons directly instead of loading the SDK (`4a50b13`, blog `9e97455`).
+- Analytics: `AnalyticsScript` with `(await cms.settings()).analytics` plus `track` replace OneDollarStats (the collector lives in the `analytics` section of `CMS.json`); it sends collector beacons directly instead of loading the SDK (`4a50b13`, blog `9e97455`).
 
 ## Dependencies
 

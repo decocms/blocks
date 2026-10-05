@@ -1,5 +1,5 @@
 /**
- * The forms of the ten built-in blocks (spec: built-in-blocks, and the types
+ * The forms of the nine built-in blocks (spec: built-in-blocks, and the types
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
@@ -15,8 +15,7 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   date: "matchers",
   page: "pages",
   redirect: "redirects",
-  telemetry: "content",
-  analytics: "content",
+  "cms-settings": "content",
   secret: "loaders",
 };
 
@@ -36,8 +35,11 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
   },
   page: { title: "Page", description: "A page at a URL" },
   redirect: { title: "Redirect", description: "Sends one URL to another" },
-  telemetry: { title: "Telemetry", description: "Telemetry switches and sample rates" },
-  analytics: { title: "Analytics", description: "Page view analytics settings" },
+  "cms-settings": {
+    title: "CMS settings",
+    description: "Preview hosts, telemetry and analytics: the saved block named CMS",
+    icon: "settings",
+  },
   secret: { title: "Secret", description: "An encrypted value, decrypted on the server" },
 };
 
@@ -157,34 +159,53 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
           discardQueryParameters: { type: "boolean", title: "Discard query parameters" },
         },
       };
-    case "telemetry":
+    case "cms-settings":
       return {
         type: "object",
         properties: {
-          enabled: { type: "boolean", title: "Enabled", default: true },
-          metrics: { type: "boolean", title: "Metrics", default: true },
-          errorSampleRate: {
-            type: "number",
-            title: "Error sample rate",
-            minimum: 0,
-            maximum: 1,
-            default: 0.05,
+          preview: {
+            type: "object",
+            title: "Preview",
+            properties: {
+              hosts: {
+                type: "array",
+                title: "Hosts",
+                description:
+                  "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, every host (or the hosts code allows).",
+                items: { type: "string" },
+              },
+            },
           },
-          traceSampleRate: {
-            type: "number",
-            title: "Trace sample rate",
-            minimum: 0,
-            maximum: 1,
-            default: 0,
+          telemetry: {
+            type: "object",
+            title: "Telemetry",
+            properties: {
+              enabled: { type: "boolean", title: "Enabled", default: true },
+              metrics: { type: "boolean", title: "Metrics", default: true },
+              errorSampleRate: {
+                type: "number",
+                title: "Error sample rate",
+                minimum: 0,
+                maximum: 1,
+                default: 0.05,
+              },
+              traceSampleRate: {
+                type: "number",
+                title: "Trace sample rate",
+                minimum: 0,
+                maximum: 1,
+                default: 0,
+              },
+            },
           },
-        },
-      };
-    case "analytics":
-      return {
-        type: "object",
-        properties: {
-          collector: { type: "string", title: "Collector" },
-          enabled: { type: "boolean", title: "Enabled", default: true },
+          analytics: {
+            type: "object",
+            title: "Analytics",
+            properties: {
+              collector: { type: "string", title: "Collector" },
+              enabled: { type: "boolean", title: "Enabled", default: true },
+            },
+          },
         },
       };
     case "secret":

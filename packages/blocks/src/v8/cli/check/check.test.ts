@@ -679,3 +679,63 @@ describe("deco check", () => {
     ).toBe(".deco/blocks/A.json\n  warning: x: m");
   });
 });
+
+describe("the CMS settings block", () => {
+  it("passes a CMS block with every section, variants included", () => {
+    expect(
+      run({
+        CMS: {
+          __resolveType: "cms-settings",
+          preview: { hosts: ["staging.example.com", "*.preview.example.com"] },
+          telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
+          analytics: {
+            __resolveType: "multivariate",
+            variants: [
+              {
+                rule: { __resolveType: "always" },
+                value: { __resolveType: "lazy", value: { enabled: false } },
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("reports out-of-range rates and unknown fields", () => {
+    expect(
+      lines(
+        run({
+          CMS: { __resolveType: "cms-settings", telemetry: { errorSampleRate: 2 }, nope: true },
+        }),
+      ),
+    ).toEqual(expect.arrayContaining([expect.stringContaining("telemetry.errorSampleRate")]));
+  });
+
+  it("a leftover telemetry or analytics block fails, pointing at the CMS block", () => {
+    const out = lines(
+      run({
+        Telemetry: { __resolveType: "telemetry", enabled: false },
+        Analytics: { __resolveType: "analytics" },
+      }),
+    );
+    expect(out).toHaveLength(2);
+    for (const line of out) {
+      expect(line).toMatch(
+        /unknown block type "(telemetry|analytics)": the built-in is now the \w+ section of the "CMS" block/,
+      );
+    }
+  });
+
+  it("warns about a CMS block of another type, which is ignored as settings", () => {
+    expect(lines(run({ CMS: hero }))).toEqual([
+      'CMS.json warning "CMS" is the name of the CMS settings block (type "cms-settings"); this one is ignored as settings, so rename it',
+    ]);
+  });
+
+  it("cms-settings is a reserved name", () => {
+    expect(lines(run({ "cms-settings": { __resolveType: "cms-settings" } }))).toEqual([
+      'cms-settings.json saved block "cms-settings" has the name of a built-in block',
+    ]);
+  });
+});

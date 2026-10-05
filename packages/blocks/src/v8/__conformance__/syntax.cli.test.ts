@@ -20,7 +20,7 @@ import { startServer } from "../cli/serve/server";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE = path.resolve(here, "../../..");
-const TEN = [
+const BUILT_INS = [
   "lazy",
   "multivariate",
   "always",
@@ -28,8 +28,7 @@ const TEN = [
   "date",
   "page",
   "redirect",
-  "telemetry",
-  "analytics",
+  "cms-settings",
   "secret",
 ];
 
@@ -213,13 +212,13 @@ describe("the .deco folder", () => {
 });
 
 describe("deco schema", () => {
-  it("blocks-13/builtin-01: all ten built-ins are in the schema, even with an empty block map", async () => {
+  it("blocks-13/builtin-01: all nine built-ins are in the schema, even with an empty block map", async () => {
     const empty = createFixture({ ".deco/index.ts": "export default {};\n" });
     try {
       const { code, out } = await deco(["schema"], empty.root);
       expect(code, out).toBe(0);
       const emptyMeta = JSON.parse(empty.read(".deco/schema.gen.json"));
-      for (const name of TEN) {
+      for (const name of BUILT_INS) {
         expect(emptyMeta.schema.definitions[toBase64(name)], name).toBeDefined();
       }
     } finally {
@@ -306,7 +305,7 @@ describe("deco check", () => {
   });
 
   it("builtin-26: no saved block can take a built-in's name", async () => {
-    for (const name of TEN) {
+    for (const name of BUILT_INS) {
       const { code, out } = await checkWith({ [name]: { __resolveType: "always" } });
       expect(code, name).toBe(1);
       expect(out).toContain(`saved block "${name}" has the name of a built-in block`);

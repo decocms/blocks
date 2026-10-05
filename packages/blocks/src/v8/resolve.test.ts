@@ -233,8 +233,7 @@ describe("the lookup rule — { ...savedBlocks, ...builtIns, ...blocks }", () =>
       "date",
       "page",
       "redirect",
-      "telemetry",
-      "analytics",
+      "cms-settings",
       "multivariate",
       "lazy",
     ]) {
