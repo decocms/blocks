@@ -42,7 +42,7 @@ Commands:
   schema    turn the types in .deco/index.ts into .deco/schema.gen.json
   content   turn .deco/blocks into the content module, .deco/blocks.gen.ts
   check     check that every saved block fits the schema (writes nothing)
-  serve     serve .deco to the site editor on this machine
+  serve     serve .deco to the site editor on this machine, at http://localhost:4545/rpc
 
 ${Object.values(COMMANDS)
   .map((c) => `  ${c.usage}`)

@@ -66,17 +66,22 @@ interface Reply {
 function request(
   method: string,
   pathname: string,
-  { body, headers = {} }: { body?: string | Buffer; headers?: Record<string, string> } = {},
+  {
+    body,
+    headers = {},
+    host = "127.0.0.1",
+  }: { body?: string | Buffer; headers?: Record<string, string>; host?: string } = {},
 ): Promise<Reply> {
   const port = server!.port;
+  const hostHeader = host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
-        host: "127.0.0.1",
+        host,
         port,
         method,
         path: pathname,
-        headers: { host: `127.0.0.1:${port}`, ...headers },
+        headers: { host: hostHeader, ...headers },
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -119,7 +124,7 @@ describe("starting", () => {
   it("prints the address, root, assets, app and site editor link", async () => {
     await start({ preview: "http://localhost:3001" });
     const text = out.text();
-    expect(text).toContain(`Deco server          http://127.0.0.1:${server!.port}/rpc`);
+    expect(text).toContain(`Deco server          http://localhost:${server!.port}/rpc`);
     expect(text).toContain("Root                 .   (.deco/schema.gen.json, 0 blocks)");
     expect(text).toContain("Assets               public/assets   (PUT /assets/<name>)");
     expect(text).toContain("Preview              http://localhost:3001");
@@ -155,8 +160,35 @@ describe("starting", () => {
     expect(warnings[0].message).not.toMatch(/token/i);
     // The site editor connects through loopback, never the wildcard address.
     expect(server!.siteEditorUrl).toBe(
-      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${server!.port}/rpc`)}`,
+      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://localhost:${server!.port}/rpc`)}`,
     );
+  });
+
+  it("listens on 127.0.0.1 and ::1 on one port, so localhost reaches it either way", async () => {
+    await start();
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
+    const v4 = await request("POST", "/rpc", { body, headers: json });
+    expect(v4.status).toBe(200);
+    let v6: Reply;
+    try {
+      v6 = await request("POST", "/rpc", { body, headers: json, host: "::1" });
+    } catch (error) {
+      // No IPv6 on this machine: the server skipped ::1.
+      expect((error as NodeJS.ErrnoException).code).toMatch(
+        /EADDRNOTAVAIL|EAFNOSUPPORT|ENETUNREACH/,
+      );
+      return;
+    }
+    expect(v6.status).toBe(200);
+    expect(v6.body.result.protocol).toBe("deco-content");
+  });
+
+  it("listens only on --host when given", async () => {
+    await start({ host: "127.0.0.1" });
+    expect(server!.endpoint).toBe(`http://127.0.0.1:${server!.port}/rpc`);
+    await expect(
+      request("POST", "/rpc", { body: "{}", headers: json, host: "::1" }),
+    ).rejects.toThrow();
   });
 
   it("reads --host case-insensitively", async () => {

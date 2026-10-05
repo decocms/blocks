@@ -10,7 +10,7 @@
  * import { describe, it } from "vitest";
  * import { defineConformanceSuite } from "@decocms/blocks/protocol/conformance";
  *
- * defineConformanceSuite({ describe, it }, { endpoint: "http://127.0.0.1:4545/rpc", token });
+ * defineConformanceSuite({ describe, it }, { endpoint: "http://localhost:4545/rpc", token });
  * ```
  *
  * or collect a report with `runConformance(options)`. The suite writes only

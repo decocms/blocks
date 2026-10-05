@@ -13,7 +13,7 @@ import {
 } from "./types.ts";
 
 export interface ContentClientOptions {
-  /** The endpoint URL, such as `http://127.0.0.1:4545/rpc`. */
+  /** The endpoint URL, such as `http://localhost:4545/rpc`. */
   endpoint: string | URL;
   /** Sent as `Authorization: Bearer <token>`. */
   token?: string;

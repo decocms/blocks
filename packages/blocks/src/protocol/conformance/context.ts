@@ -8,7 +8,7 @@ import { ContentProtocolError } from "../errors.ts";
 import type { DescribeResult } from "../types.ts";
 
 export interface ConformanceOptions {
-  /** The endpoint URL, such as `http://127.0.0.1:4545/rpc`. */
+  /** The endpoint URL, such as `http://localhost:4545/rpc`. */
   endpoint: string | URL;
   /** The bearer token the endpoint expects, if any. */
   token?: string;
@@ -35,7 +35,7 @@ export interface ConformanceOptions {
   schemaOverLimit?: boolean;
   /**
    * The URL prefix uploads are served under (`PUT <assetsEndpoint><name>`),
-   * such as `http://127.0.0.1:4545/assets/`. Leave out to skip the upload cases.
+   * such as `http://localhost:4545/assets/`. Leave out to skip the upload cases.
    */
   assetsEndpoint?: string | URL;
   /**

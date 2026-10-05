@@ -665,14 +665,14 @@ describe("cli.mdx", () => {
     }
     servers.push(s);
     expect(s.port).toBe(4545);
-    expect(s.endpoint).toBe("http://127.0.0.1:4545/rpc");
-    expect(log.text()).toContain("http://127.0.0.1:4545/rpc");
+    expect(s.endpoint).toBe("http://localhost:4545/rpc");
+    expect(log.text()).toContain("http://localhost:4545/rpc");
   });
 
-  it("cli-15: --host defaults to loopback; another address warns", async () => {
+  it("cli-15: --host defaults to loopback, shown as localhost; another address warns", async () => {
     const f = fixture();
     const loop = await serveFixture(f.root);
-    expect(loop.endpoint.startsWith("http://127.0.0.1:")).toBe(true);
+    expect(loop.endpoint.startsWith("http://localhost:")).toBe(true);
     expect(loop.log.lines.filter((l) => l.level === "warn")).toEqual([]);
 
     const open = await serveFixture(f.root, { host: "0.0.0.0" });
@@ -1260,11 +1260,11 @@ describe("site-editor.mdx", () => {
     const lines = s.log.lines.map((l) => l.message);
     const port = s.port;
     expect(lines).toEqual([
-      `Deco server          http://127.0.0.1:${port}/rpc`,
+      `Deco server          http://localhost:${port}/rpc`,
       "Root                 apps/storefront   (.deco/schema.gen.json, 2 blocks)",
       "Assets               apps/storefront/public/assets   (PUT /assets/<name>)",
       "Preview              http://localhost:5173",
-      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${port}/rpc`)}`,
+      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://localhost:${port}/rpc`)}`,
     ]);
     const url = new URL(s.siteEditorUrl);
     expect(url.search).toBe("");
