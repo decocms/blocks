@@ -89,7 +89,7 @@ Rollback uses the same propagation path as publishing. An active process sees it
 
 ## Exact draft previews
 
-A draft is delivered as an immutable **overlay**, not a complete release snapshot. Its version fixes the replacements and deletions; it does not fix the inherited production content. There is no `baseRevision` in the draft asset or pointer. The base is whatever production snapshot the preview server already has when this client first loads.
+A draft is delivered as an immutable **overlay**, not a complete release snapshot. Its version fixes the replacements and deletions; it does not fix the inherited production content. There is no `baseRevision` in the draft asset or pointer. The base is whatever production snapshot the server already has when this client first loads. There is no separate kind of preview server: a server renders a draft the same way it renders production, with the draft's overlay on top.
 
 ```json
 {
@@ -101,7 +101,7 @@ A draft is delivered as an immutable **overlay**, not a complete release snapsho
 
 Store the manifest at `/sites/<site>/drafts/<overlay-version>.json` and changed JSON blocks at `/sites/<site>/draft-blocks/<block-hash>.json`. Each manifest contains the complete cumulative set of draft overrides and tombstones, not a patch that requires replaying earlier draft versions. Generate disjoint `set` and `delete` sets. The overlay version hashes the canonical manifest; block hashes identify the canonical changed JSON. Production releases still use complete `{ revision, blocks }` assets.
 
-The SDK downloads the small manifest and only referenced block blobs missing from its bounded, site-scoped cache. A new save can reuse previously downloaded blobs. It never fetches a production revision just to align a preview, and never crawls GitHub. A cold server uses its normal production fallback, loading that fallback by its existing mechanism if necessary; there is no extra draft base fetch or release-refresh barrier.
+The SDK downloads the small manifest and only referenced block blobs missing from its bounded, site-scoped cache. A new save can reuse previously downloaded blobs. It never fetches a production revision just to align a draft, and never crawls GitHub. A cold server uses its normal production fallback, loading that fallback by its existing mechanism if necessary; there is no extra draft base fetch or release-refresh barrier.
 
 Capture that local production snapshot once for each draft client. Look up draft replacements first, treat tombstones as absent, and inherit all other blocks from the captured production map. Enumeration unions the names and filters deletions. Use a read-through view or persistent map sharing unchanged objects instead of deep-copying the full release. Do not mutate the production snapshot when applying an overlay or resolving its entries.
 

@@ -132,13 +132,25 @@ Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither n
 
 A revision on its own selects content but unlocks nothing; only a signed pointer reaches unpublished drafts.
 
-If a website wants to show drafts on its preview domain only, it checks the request's host before calling `forDraft`:
+Whether a request may preview at all is your app's rule. There is no separate preview server: the server that renders a draft is a production server, it renders the draft the same way it renders visitors, and it keeps picking up new releases either way. To allow previews on one host only, say a staging host, check the host before reading the pointer or setting the cookie, and every other host serves the release:
 
-```ts
-const host = new URL(request.url).host;
-const pointer = host === "preview.store.example.com" ? draftPointer(request) : null;
-const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+```ts title="Previews on one host only"
+import { draftPointer, draftCookie } from "@decocms/blocks";
+import { cms } from "./cms";
+
+export async function handle(request: Request) {
+  const mayPreview = new URL(request.url).host === "staging.store.example.com"; // your rule
+  const pointer = mayPreview ? draftPointer(request) : null;
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+  const response = await render(client, request);      // your own function, as above
+
+  const cookie = mayPreview ? draftCookie(request) : null;
+  if (cookie) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
 ```
+
+The rule can be anything your app knows about the request: a host, a header your CDN sets, a signed-in employee.
 
 <Callout type="warning">**The token is the only Deco credential.** The site ID isn't secret, and the site holds no other credential for Deco (the private key for [secrets](/next/built-in-blocks#secrets) is your own). An invalid or unexpected pointer never loads anything: the client returns an error, and your app decides what to show.</Callout>
 

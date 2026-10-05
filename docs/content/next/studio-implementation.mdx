@@ -144,7 +144,7 @@ Use configured R2 storage and CDN as the initial deployment target; keep the ass
 
 ## Draft overlay preparation
 
-Maintain the cumulative owned-file difference between the saved draft head and its internally recorded incorporated production commit. This control-plane metadata is necessary for Git synchronization; it is not sent as a `baseRevision` or imposed on preview servers. Normalize filename aliases using the shared key rule. Track deletions as tombstones and clear an override when the draft equals its incorporated production. Retain whole replacement entries for changed blocks; the draft wins simultaneous changes anywhere inside those files.
+Maintain the cumulative owned-file difference between the saved draft head and its internally recorded incorporated production commit. This control-plane metadata is necessary for Git synchronization; it is not sent as a `baseRevision` or imposed on the servers that render drafts. Normalize filename aliases using the shared key rule. Track deletions as tombstones and clear an override when the draft equals its incorporated production. Retain whole replacement entries for changed blocks; the draft wins simultaneous changes anywhere inside those files.
 
 Use write bodies from autosave and cached Git tree/blob identities to update the changed-entry index. On recovery or external updates, compare scoped tree metadata and read only missing changed bodies. Do not use a capped provider changed-file list as if it were complete: traverse the owned subtrees when comparison is truncated. Never crawl unrelated repo contents or rebuild a whole draft decofile merely to serve preview.
 
