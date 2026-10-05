@@ -124,7 +124,7 @@ export const DRAFT_OVERLAY_FORMAT = 1;
  * the complete, cumulative set of a draft's changes, never a patch over an
  * earlier version. `set` maps each changed entry's name to the block hash of
  * its JSON; `delete` names the entries the draft removed (tombstones). The two
- * are disjoint. There is no base revision: a preview server layers it over the
+ * are disjoint. There is no base revision: the server rendering the draft layers it over the
  * production content it already has.
  */
 export interface DraftOverlay {

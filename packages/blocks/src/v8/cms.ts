@@ -77,8 +77,8 @@ class CMSInstance implements CMS {
 
   /**
    * The draft, with the variants the pointer forces (even over a source with no
-   * drafts). A draft inherits local production, so it schedules the same
-   * background release check `forRelease()` does (never in front of the draft).
+   * drafts). A draft client is a production client reading a draft pointer, so
+   * it schedules the release check like any other client.
    */
   forDraft(pointer: string): Client {
     this.#scheduleUpdate();

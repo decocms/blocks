@@ -750,7 +750,7 @@ describe("draft overlays: expiry and refresh", () => {
     expect((await cms.forDraft(pointer).resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
   });
 
-  it("DO-18: a server that only serves drafts still picks up new releases, and later drafts inherit them", async () => {
+  it("DO-18: release checks don't depend on drafts: a draft client schedules the same check, and later drafts inherit the new release", async () => {
     const api = deliveryApi();
     api.publish(
       1,
@@ -764,7 +764,7 @@ describe("draft overlays: expiry and refresh", () => {
     expect((await first.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
       "Hello, world",
     ]); // cold: the fallback
-    await flush(); // the release check forDraft scheduled
+    await flush(); // the release check, scheduled by the draft client as by any client
     expect(api.manifestFetches()).toBe(1);
     const next = cms.forDraft(pointer);
     expect(await titleOf(next)).toBe("Draft");
@@ -1020,10 +1020,21 @@ describe("hosted-publishing", () => {
   });
 
   describe("check schedule", () => {
+    // Background work goes through the host hook so a tick awaits exactly the
+    // checks it scheduled: a timer-based flush can return before a loaded
+    // machine runs them, and the counts below would read one short.
+    const HOOK = Symbol.for("decocms.blocks.background");
+    const g = globalThis as { [HOOK]?: (task: () => Promise<void>) => void };
+    let background: Promise<void>[] = [];
     let now = 1_000_000;
     beforeEach(() => {
       now = 1_000_000;
       vi.spyOn(Date, "now").mockImplementation(() => now);
+      background = [];
+      g[HOOK] = (task) => void background.push(task());
+    });
+    afterEach(() => {
+      delete g[HOOK];
     });
 
     /** Creates a CMS over an updatable loader and returns a probe of when checks run. */
@@ -1036,7 +1047,7 @@ describe("hosted-publishing", () => {
         async tick(ms: number) {
           now += ms;
           cms.forRelease();
-          await flush();
+          await Promise.all(background.splice(0));
           return update.mock.calls.length;
         },
       };
@@ -1448,7 +1459,7 @@ describe("hosted-drafts", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("HD-18: the preview-domain example only reads the pointer on the preview host", async () => {
+  it("HD-18: the one-host example previews on that host only; every other host serves the release", async () => {
     const api = deliveryApi();
     const POINTER = await api.draft({ set: { SummerSEO: seoEntry("Preview") } });
     const cms = createCMS({
@@ -1458,15 +1469,18 @@ describe("hosted-drafts", () => {
       token: TOKEN,
     });
     const pick = (request: Request) => {
-      const host = new URL(request.url).host;
-      const pointer = host === "preview.store.example.com" ? draftPointer(request) : null;
-      return pointer ? cms.forDraft(pointer) : cms.forRelease();
+      const mayPreview = new URL(request.url).host === "staging.store.example.com";
+      const pointer = mayPreview ? draftPointer(request) : null;
+      const cookie = mayPreview ? draftCookie(request) : null;
+      return { client: pointer ? cms.forDraft(pointer) : cms.forRelease(), cookie };
     };
     const q = `?__draft=${encodeURIComponent(POINTER)}`;
-    expect(await titleOf(pick(new Request(`https://preview.store.example.com/${q}`)))).toBe(
-      "Preview",
-    );
-    expect(await titleOf(pick(new Request(`https://store.example.com/${q}`)))).toBe("Sunny!");
+    const staging = pick(new Request(`https://staging.store.example.com/${q}`));
+    expect(await titleOf(staging.client)).toBe("Preview");
+    expect(staging.cookie).not.toBeNull();
+    const live = pick(new Request(`https://store.example.com/${q}`));
+    expect(await titleOf(live.client)).toBe("Sunny!");
+    expect(live.cookie).toBeNull();
   });
 });
 

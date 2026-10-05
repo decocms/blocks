@@ -166,14 +166,21 @@ const pointer = new URL(url).searchParams.get("__draft");
 setClient(pointer ? cms.forDraft(pointer) : cms.forRelease());
 `,
 
-  // HD-18: hosted-drafts.mdx, "Who may preview" (preview domain only).
-  "drafts/preview-domain.ts": `import { draftPointer } from "@decocms/blocks";
+  // HD-18: hosted-drafts.mdx, "Who may preview" (previews on one host only).
+  "drafts/preview-host.ts": `import { draftPointer, draftCookie, type Client } from "@decocms/blocks";
 import { cms } from "../hosted/cms";
-declare const request: Request;
+declare function render(client: Client, request: Request): Promise<Response>;
 
-const host = new URL(request.url).host;
-const pointer = host === "preview.store.example.com" ? draftPointer(request) : null;
-export const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+export async function handle(request: Request) {
+  const mayPreview = new URL(request.url).host === "staging.store.example.com"; // your rule
+  const pointer = mayPreview ? draftPointer(request) : null;
+  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
+  const response = await render(client, request);      // your own function, as above
+
+  const cookie = mayPreview ? draftCookie(request) : null;
+  if (cookie) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
 `,
 };
 
@@ -233,7 +240,7 @@ describe("hosted docs examples compile", () => {
     ["HD-11", "tanstack/src/cms.ts"],
     ["HD-11", "tanstack/src/start.ts"],
     ["HD-13", "drafts/native.ts"],
-    ["HD-18", "drafts/preview-domain.ts"],
+    ["HD-18", "drafts/preview-host.ts"],
   ])("%s: %s", (_claim, file) => {
     expect(errorsIn(file)).toEqual([]);
   });

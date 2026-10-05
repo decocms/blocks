@@ -295,8 +295,22 @@ describe("one revision per client", () => {
 });
 
 describe("update() checks on an interval", () => {
-  /** Background work runs at an idle moment (here, a timer): give it a turn. */
-  const idle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  // Background work goes through the host hook, deferred to a timer so a
+  // request never runs it; `idle` waits for exactly what was scheduled (a
+  // fixed sleep could return first on a loaded machine and read a count short).
+  const HOOK = Symbol.for("decocms.blocks.background");
+  const g = globalThis as { [HOOK]?: (task: () => Promise<void>) => void };
+  let background: Promise<void>[] = [];
+  beforeEach(() => {
+    background = [];
+    g[HOOK] = (task) => {
+      background.push(new Promise((resolve) => setTimeout(resolve, 0)).then(task));
+    };
+  });
+  afterEach(() => {
+    delete g[HOOK];
+  });
+  const idle = () => Promise.all(background.splice(0));
 
   /** A CMS over a loader with update(), with the clock and the jitter under test control. */
   function scheduled(interval?: number, random = 0.5) {
