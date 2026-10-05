@@ -149,7 +149,8 @@ export class ContentStore {
         const updated = result?.updated === true;
         if (updated) {
           this.#release = undefined;
-          this.#latest = undefined;
+          // `#latest` stays: settings keep the release that was serving until
+          // the next one loads, never the defaults (which may allow every host).
           // A loader that ignores the pointer hands back the release as the
           // draft; that copy is as stale as the release now.
           this.#drafts.clear();

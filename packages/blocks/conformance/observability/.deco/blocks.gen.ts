@@ -7,7 +7,7 @@ const content: {
   revision: "rev-observability",
   root: "conformance/observability/.deco",
   blocks: {
-    Analytics: { __resolveType: "analytics" },
+    CMS: { __resolveType: "cms-settings", analytics: {} },
     Banner: { __resolveType: "promo-banner", title: "Sale", href: "/sale" },
   },
 };

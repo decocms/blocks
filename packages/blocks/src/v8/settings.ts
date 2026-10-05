@@ -114,9 +114,13 @@ function holdsBlock(value: unknown): boolean {
   return "__resolveType" in value || Object.values(value).some(holdsBlock);
 }
 
+/**
+ * The settings, deep-frozen: one object per release is handed to every caller,
+ * so a caller that writes to it would change it for every request.
+ */
 function effectiveSettings(value: Record<string, unknown>, caps: SettingsCaps): EffectiveSettings {
   const telemetry = telemetrySection(value.telemetry);
-  return {
+  return deepFreeze({
     preview: { hosts: effectiveHosts(value.preview, caps.hosts) },
     telemetry: {
       ...telemetry,
@@ -124,7 +128,15 @@ function effectiveSettings(value: Record<string, unknown>, caps: SettingsCaps): 
       traceSampleRate: Math.min(telemetry.traceSampleRate, caps.limits.traceSampleRate),
     },
     analytics: analyticsSection(value.analytics),
-  };
+  });
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
 }
 
 function effectiveHosts(preview: unknown, code: readonly HostPattern[] | undefined): string[] {

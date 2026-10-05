@@ -284,7 +284,8 @@ describe("migrate", () => {
     expect(await content({ root, reporter: quiet })).toBe(0);
     expect(check({ root, reporter: quiet })).toBe(0);
     expect(quiet.text).toEqual([]);
-  });
+    // deco schema runs the TypeScript compiler: seconds on a loaded machine.
+  }, 30_000);
 
   it("resolves the migrated content: v7 names through the aliases, the secret with the new key", async () => {
     await content({ root, reporter: quiet });

@@ -403,6 +403,90 @@ export function Root() {
     expect(again.done).toEqual([]);
   });
 
+  it("trims and lowercases v7's entries, and reports one that isn't a host", () => {
+    site({
+      "package.json": { name: "site" },
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        previewHosts: [
+          " Staging.Example.com ",
+          "localhost:3100",
+          "https://bad.example.com/",
+          "*.x.com",
+        ],
+      },
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(read("CMS.json").preview).toEqual({ hosts: ["staging.example.com", "localhost:3100"] });
+    const bad = report.manual.filter((n) => n.subject === ".deco/blocks/site.json");
+    expect(bad.map((n) => n.message).join("\n")).toContain("https://bad.example.com/");
+    expect(bad.map((n) => n.message).join("\n")).toContain("*.x.com");
+  });
+
+  it("on TanStack Start, adds the deco-hosted hosts v7 allowed for DECO_SITE_NAME", () => {
+    site({
+      "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
+      "wrangler.jsonc": `{ "vars": { "DECO_SITE_NAME": "acme" } }`,
+      ".env": "DECO_SITE_NAME=other\n",
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        previewHosts: ["staging.example.com", "acme.deco.site"],
+      },
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(read("CMS.json").preview).toEqual({
+      hosts: ["staging.example.com", "acme.deco.site", "acme.deco-cx.workers.dev"],
+    });
+    expect(report.manual.map((n) => n.subject)).not.toContain("preview hosts");
+    const before = snapshotDir();
+    foldSiteSettings(root, createReport());
+    expect(snapshotDir()).toEqual(before);
+  });
+
+  it("on TanStack Start without a site name, reports the deco-hosted hosts; a Next.js site never gets them", () => {
+    site({
+      "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        previewHosts: ["a.example.com"],
+      },
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    expect(read("CMS.json").preview).toEqual({ hosts: ["a.example.com"] });
+    const note = report.manual.find((n) => n.subject === "preview hosts");
+    expect(note?.message).toContain("<site>.deco.site");
+
+    fs.rmSync(root, { recursive: true, force: true });
+    site({
+      "package.json": { name: "site", dependencies: { "@decocms/nextjs": "7.0.0" } },
+      ".env": "DECO_SITE_NAME=acme\n",
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        previewHosts: ["a.example.com"],
+      },
+    });
+    const next = createReport();
+    foldSiteSettings(root, next);
+    expect(read("CMS.json").preview).toEqual({ hosts: ["a.example.com"] });
+    expect(next.manual.map((n) => n.subject)).not.toContain("preview hosts");
+  });
+
+  it("with no previewHosts on a named TanStack site, says v7 allowed only its deco-hosted hosts", () => {
+    site({
+      "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
+      ".env": "DECO_SITE_NAME=acme\n",
+      ".deco/blocks/pages-home.json": home,
+    });
+    const report = createReport();
+    foldSiteSettings(root, report);
+    const note = report.manual.find((n) => n.subject === "preview hosts");
+    expect(note?.message).toContain("acme.deco.site and acme.deco-cx.workers.dev");
+    expect(note?.message).not.toContain("kept previews off");
+  });
+
   it("reads a Site block named Site, and collectorAddress={'…'}", () => {
     site({
       "package.json": { name: "site" },

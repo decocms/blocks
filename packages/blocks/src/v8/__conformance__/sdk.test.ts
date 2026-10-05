@@ -14,6 +14,7 @@ import * as root from "../../index";
 import { generateSecretsKeyPair } from "../../protocol/__tests__/fixtures";
 import * as analyticsModule from "../analytics";
 import { AnalyticsScript, track } from "../analytics";
+import { instanceOf } from "../cms";
 import * as fetchModule from "../fetch";
 import { createInstrumentedFetch } from "../fetch";
 import * as v8 from "../index";
@@ -29,7 +30,7 @@ import * as secretsModule from "../secrets";
 import { encryptSecret } from "../secrets";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
 import { docsBlocks, docsSnapshot, hero, seo } from "../testFixtures";
-import type { Blocks, Loader, Redirect, RequestLike, Route, Snapshot } from "../types";
+import type { Blocks, CMS, Loader, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
 /** cms.draftPointer and cms.draftCookie, on a CMS with no settings: every host may preview. */
@@ -290,8 +291,8 @@ assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; alia
 });
 
 describe("AR-05 interval: default DECO_CONTENT_INTERVAL or 60 000, minimum 60 000", () => {
-  const intervalOf = (cms: unknown) =>
-    (cms as { fingerprint: { interval: number } }).fingerprint.interval;
+  const intervalOf = (cms: CMS) =>
+    (instanceOf(cms) as { fingerprint: { interval: number } }).fingerprint.interval;
 
   it("clamps a value below the minimum", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -698,8 +699,10 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
   it("same content module object -> same instance; different -> different", () => {
     const content = docsSnapshot();
     const a = createCMS({ blocks: docsBlocks(), content });
-    expect(createCMS({ blocks: docsBlocks(), content })).toBe(a);
-    expect(createCMS({ blocks: docsBlocks(), content, site: "acme", token: "t" })).not.toBe(a);
+    expect(instanceOf(createCMS({ blocks: docsBlocks(), content }))).toBe(instanceOf(a));
+    expect(
+      instanceOf(createCMS({ blocks: docsBlocks(), content, site: "acme", token: "t" })),
+    ).not.toBe(instanceOf(a));
   });
 
   it("a hot reload that hands in a new content module (new revision) keeps the instance", () => {
@@ -707,7 +710,7 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
     const before = { revision: "rev-1", blocks: {}, aliases: {}, root: "apps/site/.deco" };
     const after = { revision: "rev-2", blocks: {}, aliases: {}, root: "apps/site/.deco" };
     const a = createCMS({ blocks: {}, content: before });
-    expect(createCMS({ blocks: {}, content: after })).toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content: after }))).toBe(instanceOf(a));
   });
 
   it("the key is a Symbol.for('decocms.blocks…') on globalThis", () => {
@@ -722,7 +725,7 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = docsSnapshot();
     const a = createCMS({ blocks: {}, content });
-    expect(createCMS({ blocks: {}, content, interval: 120_000 })).toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content, interval: 120_000 }))).toBe(instanceOf(a));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("interval"));
   });
 

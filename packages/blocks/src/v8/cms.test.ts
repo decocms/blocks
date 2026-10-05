@@ -4,7 +4,7 @@
  * clients, loaders, drafts, revisions, update(), and one instance per process.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createCMS, resetForTests } from "./cms";
+import { createCMS, instanceOf, resetForTests } from "./cms";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
 import type { Loader, Snapshot } from "./types";
 
@@ -432,10 +432,30 @@ describe("update() checks on an interval", () => {
 });
 
 describe("one instance per process", () => {
+  it("two calls on one content root share the content but each resolves with its own block map", async () => {
+    // Next runs the proxy bundle in the app's process: its createCMS must not replace the app's map.
+    const content = { revision: "r1", root: ".deco", blocks: { Hero: { __resolveType: "hero" } } };
+    const app = createCMS({ blocks: { hero: () => "app" }, content });
+    const proxy = createCMS({ blocks: { hero: () => "proxy" }, content });
+    expect(instanceOf(proxy)).toBe(instanceOf(app));
+    expect(await app.forRelease().resolve("Hero")).toEqual(["app", null]);
+    expect(await proxy.forRelease().resolve("Hero")).toEqual(["proxy", null]);
+    expect(await app.forRevision("r1").resolve("Hero")).toEqual(["app", null]);
+    expect(await app.forDraft("anything").resolve("Hero")).toEqual(["app", null]);
+    // Still one store: an update through either is seen by both.
+    createCMS({
+      blocks: { hero: () => "proxy" },
+      content: { revision: "r2", root: ".deco", blocks: content.blocks },
+    });
+    expect(await app.forRelease().revision()).toBe("r2");
+  });
+
   it("the same config returns the same instance", () => {
     const blocks = docsBlocks();
     const content = docsSnapshot();
-    expect(createCMS({ blocks, content })).toBe(createCMS({ blocks, content }));
+    expect(instanceOf(createCMS({ blocks, content }))).toBe(
+      instanceOf(createCMS({ blocks, content })),
+    );
   });
 
   it("is keyed by the content's identity, never its revision (a hot reload keeps the instance and serves the new content)", async () => {
@@ -446,7 +466,7 @@ describe("one instance per process", () => {
     const next = { ...docsSnapshot("rev-2"), root: ".deco" };
     (next.blocks.SummerSEO as Record<string, unknown>).title = "Reloaded";
     const second = createCMS({ blocks: docsBlocks(), content: next });
-    expect(second).toBe(first);
+    expect(instanceOf(second)).toBe(instanceOf(first));
     expect(await first.forRelease().revision()).toBe("rev-2");
     expect((await first.forRelease().resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe(
       "Reloaded",
@@ -462,7 +482,7 @@ describe("one instance per process", () => {
       blocks: docsBlocks(),
       content: { ...docsSnapshot(), root: "sites/b/.deco" } as Snapshot,
     });
-    expect(a).not.toBe(b);
+    expect(instanceOf(a)).not.toBe(instanceOf(b));
   });
 
   it("two content modules without a root never share an instance", async () => {
@@ -471,10 +491,10 @@ describe("one instance per process", () => {
     const modB: Snapshot = { revision: "same", blocks: { Home: "B" } };
     const a = createCMS({ blocks: {}, content: modA });
     const b = createCMS({ blocks: {}, content: modB });
-    expect(a).not.toBe(b);
+    expect(instanceOf(a)).not.toBe(instanceOf(b));
     expect(await a.forRelease().resolve("Home")).toEqual(["A", null]);
     expect(await b.forRelease().resolve("Home")).toEqual(["B", null]);
-    expect(createCMS({ blocks: {}, content: modA })).toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content: modA }))).toBe(instanceOf(a));
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -496,19 +516,27 @@ describe("one instance per process", () => {
   it("a loader you write is identified by the loader object", () => {
     const one = draftLoader().loader;
     const two = draftLoader().loader;
-    expect(createCMS({ blocks: {}, content: one })).toBe(createCMS({ blocks: {}, content: one }));
-    expect(createCMS({ blocks: {}, content: one })).not.toBe(
-      createCMS({ blocks: {}, content: two }),
+    expect(instanceOf(createCMS({ blocks: {}, content: one }))).toBe(
+      instanceOf(createCMS({ blocks: {}, content: one })),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content: one }))).not.toBe(
+      instanceOf(createCMS({ blocks: {}, content: two })),
     );
   });
 
   it("with the hosted Deco CMS, the site ID and token are part of the key", () => {
     const content = docsSnapshot();
     const a = createCMS({ blocks: {}, content, site: "acme", token: "t1" });
-    expect(createCMS({ blocks: {}, content, site: "acme", token: "t1" })).toBe(a);
-    expect(createCMS({ blocks: {}, content, site: "other", token: "t1" })).not.toBe(a);
-    expect(createCMS({ blocks: {}, content, site: "acme", token: "t2" })).not.toBe(a);
-    expect(createCMS({ blocks: {}, content })).not.toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t1" }))).toBe(
+      instanceOf(a),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content, site: "other", token: "t1" }))).not.toBe(
+      instanceOf(a),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t2" }))).not.toBe(
+      instanceOf(a),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content }))).not.toBe(instanceOf(a));
   });
 
   it("never puts the token in the global symbol registry", () => {
@@ -528,7 +556,7 @@ describe("one instance per process", () => {
       interval: 120_000,
       telemetry: { endpoint: "https://otel.example.com" },
     });
-    expect(second).toBe(first);
+    expect(instanceOf(second)).toBe(instanceOf(first));
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain("interval");
     expect(warn.mock.calls[0]?.[0]).toContain("telemetry");
@@ -559,14 +587,14 @@ describe("one instance per process", () => {
       Symbol.keyFor(s)?.startsWith("decocms.blocks.cms:"),
     );
     expect(symbols).toHaveLength(1);
-    expect((globalThis as unknown as Record<symbol, unknown>)[symbols[0]!]).toBe(cms);
+    expect((globalThis as unknown as Record<symbol, unknown>)[symbols[0]!]).toBe(instanceOf(cms));
   });
 
   it("resetForTests clears every stored instance", () => {
     const content = docsSnapshot();
     const first = createCMS({ blocks: {}, content });
     resetForTests();
-    expect(createCMS({ blocks: {}, content })).not.toBe(first);
+    expect(instanceOf(createCMS({ blocks: {}, content }))).not.toBe(instanceOf(first));
     expect(
       Object.getOwnPropertySymbols(globalThis).filter((s) =>
         Symbol.keyFor(s)?.startsWith("decocms.blocks.cms:"),

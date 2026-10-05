@@ -156,6 +156,21 @@ describe("matching a request's host", () => {
   it("an empty list matches nothing", () => {
     expect(allowsHost([], "https://example.com/")).toBe(false);
   });
+
+  it("a URL with a username or password counts as unreadable (a forged Host header)", () => {
+    const list = ["staging.example.com"];
+    expect(allows(list, "https://public.com@staging.example.com/")).toBe(false);
+    expect(allows(list, "https://user:pass@staging.example.com/")).toBe(false);
+    expect(allows(list, "https://:pass@staging.example.com/")).toBe(false);
+    expect(allows(["*"], "https://public.com@staging.example.com/")).toBe(true);
+    expect(allows(list, "https://staging.example.com/")).toBe(true);
+  });
+
+  it("a hostname with an empty label matches no wildcard or name", () => {
+    expect(allows(["*.example.com"], "https://a..example.com/")).toBe(false);
+    expect(allows(["*.example.com"], "https://a.example.com/")).toBe(true);
+    expect(allows(["*"], "https://a..example.com/")).toBe(true);
+  });
 });
 
 describe("a content entry within code's entry", () => {

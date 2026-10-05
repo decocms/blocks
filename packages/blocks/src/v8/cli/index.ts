@@ -6,8 +6,9 @@
  *
  * The four commands and their options, plus what the one-time migration
  * (the `deco-v7-to-v8-migration` skill) reads: the built-in block names, the alias
- * table and the saved-blocks reader.
+ * table, the saved-blocks reader and the host-pattern parser.
  */
+export { formatHostPattern, type HostPattern, parseHostPattern } from "../hosts.ts";
 export { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "./builtins.ts";
 export { type CheckOptions, check } from "./check/index.ts";
 export { type ContentOptions, content, readSavedBlocks, type SavedBlocks } from "./content.ts";

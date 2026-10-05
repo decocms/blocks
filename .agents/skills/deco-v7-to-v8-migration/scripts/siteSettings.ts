@@ -5,7 +5,11 @@
  * `.deco/blocks/CMS.json`:
  *
  * - the v7 Site block's (`Site` or `site`) `previewHosts` → `preview.hosts`,
- *   entry for entry (the field moves; the rest of the Site block stays);
+ *   each entry trimmed and lowercased as v7 compared it (the field moves; the
+ *   rest of the Site block stays). An entry that isn't a host pattern is left
+ *   out and reported. On TanStack Start, v7 also allowed the site's
+ *   `<site>.deco.site` and `<site>.deco-cx.workers.dev` (from `DECO_SITE_NAME`):
+ *   they're added when the name is found, and reported when it isn't;
  * - a literal `collectorAddress` on v7's `OneDollarStats` component in
  *   `src/` → `analytics.collector`;
  * - a prerelease `Telemetry` / `Analytics` saved block (type `telemetry` /
@@ -18,7 +22,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { LEGACY_ALIASES } from "@decocms/blocks/cli";
+import { formatHostPattern, LEGACY_ALIASES, parseHostPattern } from "@decocms/blocks/cli";
 import { blockFileName, serializeBlock } from "@decocms/blocks/protocol/keys";
 import type { Report } from "./report";
 import { isPlainObject, type JsonObject, readContent } from "./walk";
@@ -83,6 +87,66 @@ function isPrereleaseBlock(node: unknown, type: string): boolean {
     const inner = isPlainObject(value) && value.__resolveType === "lazy" ? value.value : value;
     return isPlainObject(inner) && inner.__resolveType === type;
   });
+}
+
+/**
+ * Whether v7 ran on `@decocms/tanstack`, whose worker entry added the site's
+ * deco-hosted domains to the preview hosts. v7's Next.js binding never did.
+ */
+function isTanStackSite(root: string): boolean {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    return ["dependencies", "devDependencies"].some(
+      (field) => isPlainObject(pkg[field]) && Object.hasOwn(pkg[field], "@decocms/tanstack"),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The `DECO_SITE_NAME` v7's TanStack worker read: from the Workers vars in
+ * `wrangler.*` first, else from `.env`/`.dev.vars` and the Vite config's
+ * fallback. `undefined` when there's none, or several that disagree.
+ */
+function v7SiteName(root: string): { name?: string; candidates: string[] } {
+  const read = (file: string) => {
+    const full = path.join(root, file);
+    return fs.existsSync(full) ? fs.readFileSync(full, "utf8") : "";
+  };
+  const NAME = /^[a-z0-9][a-z0-9-]*$/;
+  const collect = (files: string[], pattern: RegExp) => {
+    const found = new Set<string>();
+    for (const file of files) {
+      for (const match of read(file).matchAll(pattern)) {
+        const name = match[1]?.trim().toLowerCase();
+        if (name && NAME.test(name)) found.add(name);
+      }
+    }
+    return [...found];
+  };
+  const fromWrangler = collect(
+    ["wrangler.jsonc", "wrangler.json", "wrangler.toml"],
+    /["']?DECO_SITE_NAME["']?\s*[:=]\s*["']([^"']+)["']/g,
+  );
+  const candidates =
+    fromWrangler.length > 0
+      ? fromWrangler
+      : [
+          ...new Set([
+            ...collect([".env", ".dev.vars"], /^\s*DECO_SITE_NAME\s*=\s*["']?([^"'\s#]+)/gm),
+            ...collect(
+              ["vite.config.ts", "vite.config.js", "vite.config.mts"],
+              /DECO_SITE_NAME\s*\|\|\s*["']([^"']+)["']/g,
+            ),
+          ]),
+        ];
+  return { name: candidates.length === 1 ? candidates[0] : undefined, candidates };
+}
+
+/** The hosts v7's TanStack worker always allowed for a named site. */
+function decoHostedHosts(site: string): string[] {
+  return [`${site}.deco.site`, `${site}.deco-cx.workers.dev`];
 }
 
 function listSources(dir: string): string[] {
@@ -167,12 +231,37 @@ export function foldSiteSettings(root: string, report: Report): void {
   /** Saved blocks to write back, without a field that moved. */
   const rewrite = new Map<string, JsonObject>();
 
-  // The v7 Site block's preview hosts.
+  // The v7 Site block's preview hosts, plus the deco-hosted ones v7's TanStack worker added.
+  const tanstack = isTanStackSite(root);
+  const siteName = tanstack ? v7SiteName(root) : { candidates: [] };
   let previewHosts: string[] | undefined;
   for (const name of SITE_BLOCKS) {
     const site = blocks[name];
     if (!site || !Array.isArray(site.previewHosts)) continue;
-    previewHosts = site.previewHosts.filter((h): h is string => typeof h === "string");
+    previewHosts = [];
+    for (const raw of site.previewHosts) {
+      // v7 trimmed and lowercased each entry and compared it to the request's host[:port].
+      const entry = typeof raw === "string" ? raw.trim().toLowerCase() : raw;
+      const pattern = typeof entry === "string" ? parseHostPattern(entry) : null;
+      if (pattern === null || pattern.kind === "any" || pattern.kind === "wildcard") {
+        report.manual.push({
+          step: "settings",
+          subject: `.deco/blocks/${files[name]}`,
+          message: `previewHosts entry ${JSON.stringify(raw)} isn't a host v7 could match; it was left out of CMS.json's preview.hosts, so add the host you meant by hand (/next/api-reference#host-patterns)`,
+        });
+        continue;
+      }
+      previewHosts.push(formatHostPattern(pattern));
+    }
+    if (tanstack && siteName.name) previewHosts.push(...decoHostedHosts(siteName.name));
+    previewHosts = [...new Set(previewHosts)];
+    if (tanstack && !siteName.name) {
+      report.manual.push({
+        step: "settings",
+        subject: "preview hosts",
+        message: `v7 also allowed previews on <site>.deco.site and <site>.deco-cx.workers.dev for the site named by DECO_SITE_NAME${siteName.candidates.length > 1 ? ` (found several: ${siteName.candidates.join(", ")})` : ""}; add the ones you use to CMS.json's preview.hosts (/next/releases-and-drafts#allow-previews-per-host)`,
+      });
+    }
     const folded = fold(settings, "preview", previewHosts, "hosts");
     const preview = settings.preview;
     const hosts = isPlainObject(preview) ? preview.hosts : undefined;
@@ -286,11 +375,15 @@ export function foldSiteSettings(root: string, report: Report): void {
     },
   );
   if (previewHosts === undefined && settings.preview === undefined && current === undefined) {
+    const v7Hosts = siteName.name
+      ? `only on ${decoHostedHosts(siteName.name).join(" and ")} (from DECO_SITE_NAME)`
+      : tanstack
+        ? "only on <site>.deco.site and <site>.deco-cx.workers.dev for the site named by DECO_SITE_NAME, or nowhere without one"
+        : "nowhere";
     report.manual.push({
       step: "settings",
       subject: "preview hosts",
-      message:
-        "v7 kept previews off on a site with no allowed hosts; the next major allows every host unless preview.hosts lists some, so add it to CMS.json if you relied on that (/next/releases-and-drafts#allow-previews-per-host)",
+      message: `with no previewHosts, v7 allowed previews ${v7Hosts}; the next major allows every host unless preview.hosts lists some, so add that list to CMS.json if you relied on it (/next/releases-and-drafts#allow-previews-per-host)`,
     });
   }
 }

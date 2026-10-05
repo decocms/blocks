@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOSTED_ANALYTICS_COLLECTOR } from "./builtins/data";
-import { createCMS, resetForTests } from "./cms";
+import { createCMS, instanceOf, resetForTests } from "./cms";
 import { currentTelemetry } from "./telemetry";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
 import type { EffectiveSettings, Loader, Snapshot } from "./types";
@@ -41,6 +41,26 @@ describe("cms.settings(): defaults", () => {
   it("with no CMS block, every default; every host may preview", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect(await cms.settings()).toEqual(DEFAULTS);
+  });
+
+  it("the settings are deep-frozen: one caller can't change them for every request", async () => {
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: withSettings({ preview: { hosts: ["staging.example.com"] } }),
+    });
+    const settings = await cms.settings();
+    expect(Object.isFrozen(settings)).toBe(true);
+    expect(Object.isFrozen(settings.preview)).toBe(true);
+    expect(Object.isFrozen(settings.preview.hosts)).toBe(true);
+    expect(Object.isFrozen(settings.telemetry)).toBe(true);
+    expect(Object.isFrozen(settings.analytics)).toBe(true);
+    expect(() => {
+      (settings.analytics as { enabled: boolean }).enabled = false;
+    }).toThrow(TypeError);
+    expect((await cms.settings()).analytics.enabled).toBe(true);
+    expect(
+      Object.isFrozen(await createCMS({ blocks: {}, content: docsSnapshot("r9") }).settings()),
+    ).toBe(true);
   });
 
   it("an empty CMS block is the defaults too", async () => {
@@ -294,6 +314,23 @@ describe("cms.settings(): always the release in memory", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("after a custom loader's update, the old release's settings hold until the next one loads", async () => {
+    let current = withSettings({ preview: { hosts: ["staging.example.com"] } }, "rev-1");
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: { load: async () => current, update: async () => ({ updated: true }) },
+    });
+    const link = `?__draft=${encodeURIComponent(POINTER)}`;
+    await cms.forRelease().revision();
+    current = withSettings({ preview: { hosts: ["next.example.com"] } }, "rev-2");
+    expect(await cms.update()).toEqual({ updated: true });
+    // Not the defaults (every host) in between: still the old release's hosts.
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+    expect(await cms.draftPointer(request(`https://www.example.com/${link}`))).toBeNull();
+    expect(await cms.forRelease().revision()).toBe("rev-2");
+    expect((await cms.settings()).preview.hosts).toEqual(["next.example.com"]);
+  });
+
   it("a draft that changes CMS changes neither the settings, nor its own preview gating", async () => {
     const release = withSettings({
       preview: { hosts: ["staging.example.com"] },
@@ -393,7 +430,7 @@ describe("cms.settings(): always the release in memory", () => {
     const cms = createCMS({ blocks: {}, content: first });
     expect((await cms.settings()).analytics.enabled).toBe(true);
     const second = { ...withSettings({ analytics: { enabled: false } }), root };
-    expect(createCMS({ blocks: {}, content: second })).toBe(cms);
+    expect(instanceOf(createCMS({ blocks: {}, content: second }))).toBe(instanceOf(cms));
     expect((await cms.settings()).analytics.enabled).toBe(false);
   });
 });

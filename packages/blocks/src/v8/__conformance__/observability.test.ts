@@ -20,7 +20,7 @@ import { createFixture } from "../cli/__tests__/fixture";
 import { decoPaths } from "../cli/root";
 import { generateSchema } from "../cli/schema/generate";
 import { toBase64 } from "../cli/schema/typeToSchema";
-import { createCMS, resetForTests } from "../cms";
+import { createCMS, instanceOf, resetForTests } from "../cms";
 import { createInstrumentedFetch } from "../fetch";
 import { currentTelemetry } from "../telemetry";
 import { docsBlocks, docsSnapshot } from "../testFixtures";
@@ -1008,7 +1008,7 @@ describe("caching (caching.mdx)", () => {
     const loader = { load, update: async () => ({ updated: false }) };
     const cmsA = a.createCMS({ blocks: docsBlocks(), content: loader });
     const cmsB = b.createCMS({ blocks: docsBlocks(), content: loader });
-    expect(cmsB).toBe(cmsA);
+    expect(instanceOf(cmsB)).toBe(instanceOf(cmsA));
     await cmsA.forRelease().resolve("SummerSEO");
     await cmsB.forRelease().resolve("SummerSEO");
     expect(load).toHaveBeenCalledTimes(1);

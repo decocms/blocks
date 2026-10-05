@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as root from "../../index";
 import { computeContentRevision } from "../../protocol/canonical";
 import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
+import { instanceOf } from "../cms";
 import {
   createCMS,
   formatDraftPointer,
@@ -1723,7 +1724,7 @@ describe("hosted-releases-internals", () => {
     };
     const a = createCMS(config);
     const b = createCMS({ ...config, content: { ...docsSnapshot(), root: ".deco" } });
-    expect(b).toBe(a);
+    expect(instanceOf(b)).toBe(instanceOf(a));
     const keys = Object.getOwnPropertySymbols(globalThis)
       .map((s) => Symbol.keyFor(s))
       .filter((k): k is string => typeof k === "string" && k.startsWith("decocms.blocks"));
@@ -1769,7 +1770,7 @@ describe("hosted-releases-internals", () => {
     const content = { ...docsSnapshot(), root: ".deco" };
     const a = createCMS({ blocks: docsBlocks(), content, interval: 60_000 });
     const b = createCMS({ blocks: docsBlocks(), content, interval: 120_000 });
-    expect(b).toBe(a);
+    expect(instanceOf(b)).toBe(instanceOf(a));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("interval"));
   });
 

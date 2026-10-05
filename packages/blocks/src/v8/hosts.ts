@@ -65,7 +65,7 @@ export function formatHostPattern(pattern: HostPattern): string {
 
 /**
  * Whether a request URL's host is one a pattern matches. A URL that can't be
- * read matches only `"*"`.
+ * read matches only `"*"`, and neither does a hostname with an empty label.
  */
 export function hostMatches(pattern: HostPattern, url: URL | null): boolean {
   if (pattern.kind === "any") return true;
@@ -73,6 +73,8 @@ export function hostMatches(pattern: HostPattern, url: URL | null): boolean {
   if (pattern.port !== undefined && pattern.port !== url.port) return false;
   let host = url.hostname.toLowerCase();
   if (host.endsWith(".")) host = host.slice(0, -1);
+  // An empty label (`a..example.com`) isn't a hostname any pattern names.
+  if (host.split(".").includes("")) return false;
   switch (pattern.kind) {
     case "name":
     case "ip":
@@ -82,7 +84,11 @@ export function hostMatches(pattern: HostPattern, url: URL | null): boolean {
   }
 }
 
-/** Whether a request may preview under this list: some pattern matches its URL's host. */
+/**
+ * Whether a request may preview under this list: some pattern matches its URL's
+ * host. A URL with a username or password (`https://public.com@staging.example.com/`,
+ * which a forged Host header can produce) counts as unreadable.
+ */
 export function allowsHost(patterns: readonly HostPattern[], requestUrl: string): boolean {
   let url: URL | null;
   try {
@@ -90,6 +96,7 @@ export function allowsHost(patterns: readonly HostPattern[], requestUrl: string)
   } catch {
     url = null;
   }
+  if (url !== null && (url.username !== "" || url.password !== "")) url = null;
   return patterns.some((pattern) => hostMatches(pattern, url));
 }
 

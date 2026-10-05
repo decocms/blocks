@@ -10,6 +10,7 @@ import { readResponseJson } from "../../protocol/client";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
 import { createContentHandler } from "../../protocol/server/handler";
 import { createMemoryStorage } from "../../protocol/storage/memory";
+import { instanceOf } from "../cms";
 import { createInstrumentedFetch } from "../fetch";
 import { createCMS, matchRoute, parseDraftPointer, resetForTests } from "../index";
 import { resolveDestination, setCurrentTelemetry } from "../telemetry";
@@ -449,7 +450,7 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
     const content = snap({});
     const a = createCMS({ blocks: {}, content, interval: 1000 });
     const b = createCMS({ blocks: {}, content, interval: 120_000 });
-    expect(b).toBe(a);
+    expect(instanceOf(b)).toBe(instanceOf(a));
     expect(warn.mock.calls.flat().join("\n")).toMatch(/interval/);
   });
 

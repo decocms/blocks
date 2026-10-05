@@ -57,7 +57,12 @@ interface Fingerprint {
   secrets: string;
 }
 
-class CMSInstance implements CMS {
+/**
+ * The state one content root shares across `createCMS` calls: the content
+ * store, caps, telemetry and secret key. Each call gets its own handle
+ * holding its own block map (see `CMSHandle`).
+ */
+class CMSInstance {
   readonly config: Readonly<CMSConfig>;
   readonly fingerprint: Fingerprint;
   readonly #store: ContentStore;
@@ -71,7 +76,8 @@ class CMSInstance implements CMS {
   #staticSettings = new WeakMap<Snapshot, EffectiveSettings>();
   /** The release and time telemetry last read its section. */
   #telemetryRead: { snapshot: Snapshot; at: number } | undefined;
-  #blocks: Blocks;
+  /** One handle per block map, so the same config returns the same object. */
+  readonly #handles = new WeakMap<Blocks, CMS>();
   /**
    * When the next check is due. The first is on the first `forRelease()` or `forDraft()`, not
    * at construction: Workers read `Date.now()` as 0 at module scope.
@@ -80,7 +86,6 @@ class CMSInstance implements CMS {
 
   constructor(config: CMSConfig, interval: number) {
     this.config = config;
-    this.#blocks = config.blocks;
     this.#interval = interval;
     this.#store = new ContentStore(contentOf(config));
     this.fingerprint = fingerprintOf(config, interval);
@@ -99,14 +104,14 @@ class CMSInstance implements CMS {
     this.#builtIns = Object.freeze({ ...builtIns, secret });
   }
 
-  forRelease(): Client {
+  forRelease(blocks: Blocks): Client {
     this.#scheduleUpdate();
     const telemetry = this.#telemetry;
-    if (telemetry === undefined) return this.#client(() => this.#store.release());
-    return this.#client(() =>
+    if (telemetry === undefined) return this.#client(blocks, () => this.#store.release());
+    return this.#client(blocks, () =>
       this.#store.release().then(async (snapshot) => {
         telemetry.useRelease(snapshot);
-        await this.#followTelemetrySettings(telemetry, snapshot);
+        await this.#followTelemetrySettings(blocks, telemetry, snapshot);
         return snapshot;
       }),
     );
@@ -117,22 +122,22 @@ class CMSInstance implements CMS {
    * `CMS` block resolves on each call, so a field with variants is decided
    * where it's called; one with nothing to run is resolved once per release.
    */
-  settings(): Promise<EffectiveSettings> {
-    return this.#settingsOf(this.#store.current());
+  settings(blocks: Blocks): Promise<EffectiveSettings> {
+    return this.#settingsOf(blocks, this.#store.current());
   }
 
-  async draftPointer(request: RequestLike): Promise<string | null> {
+  async draftPointer(blocks: Blocks, request: RequestLike): Promise<string | null> {
     const pointer = readDraftPointer(request);
     if (pointer === null) return null;
-    return (await this.#previewAllowed(request)) ? pointer : null;
+    return (await this.#previewAllowed(blocks, request)) ? pointer : null;
   }
 
-  async draftCookie(request: RequestLike): Promise<string | null> {
+  async draftCookie(blocks: Blocks, request: RequestLike): Promise<string | null> {
     const cookie = draftCookieFor(request);
     if (cookie === null) return null;
     // Ending a preview is allowed anywhere, so a cookie set before a host was removed still goes.
     if (endsPreview(request)) return cookie;
-    return (await this.#previewAllowed(request)) ? cookie : null;
+    return (await this.#previewAllowed(blocks, request)) ? cookie : null;
   }
 
   /**
@@ -140,17 +145,17 @@ class CMSInstance implements CMS {
    * drafts). A draft client is a production client reading a draft pointer, so
    * it schedules the release check like any other client.
    */
-  forDraft(pointer: string): Client {
+  forDraft(blocks: Blocks, pointer: string): Client {
     this.#scheduleUpdate();
     const variants = parseDraftPointer(pointer)?.variants;
-    if (variants === undefined) return this.#client(() => this.#store.draft(pointer));
-    return this.#client(() =>
+    if (variants === undefined) return this.#client(blocks, () => this.#store.draft(pointer));
+    return this.#client(blocks, () =>
       this.#store.draft(pointer).then((snapshot) => forceVariants(snapshot, variants)),
     );
   }
 
-  forRevision(revision: string): Client {
-    return this.#client(() => this.#store.revision(revision));
+  forRevision(blocks: Blocks, revision: string): Client {
+    return this.#client(blocks, () => this.#store.revision(revision));
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -158,15 +163,28 @@ class CMSInstance implements CMS {
     return this.#store.update();
   }
 
-  /** A later `createCMS` call with the same key hands in its (possibly hot-reloaded) map and content. */
+  /** The handle for a block map: this instance, resolving with that map. */
+  handle(blocks: Blocks): CMS {
+    let handle = this.#handles.get(blocks);
+    if (handle === undefined) {
+      handle = new CMSHandle(this, blocks);
+      this.#handles.set(blocks, handle);
+    }
+    return handle;
+  }
+
+  /**
+   * A later `createCMS` call with the same key hands in its (possibly
+   * hot-reloaded) content. Its block map stays with its own handle: another
+   * bundle in the same process (Next's proxy) must not replace the app's.
+   */
   adopt(config: CMSConfig): void {
-    this.#blocks = config.blocks;
     this.#store.replace(contentOf(config));
     this.#staticSettings = new WeakMap();
     this.#telemetryRead = undefined;
   }
 
-  async #settingsOf(snapshot: Snapshot | undefined): Promise<EffectiveSettings> {
+  async #settingsOf(blocks: Blocks, snapshot: Snapshot | undefined): Promise<EffectiveSettings> {
     if (snapshot === undefined) return defaultSettings(this.#caps);
     const cached = this.#staticSettings.get(snapshot);
     if (cached !== undefined) return cached;
@@ -175,7 +193,7 @@ class CMSInstance implements CMS {
       () =>
         new CMSClient({
           load: () => Promise.resolve(snapshot),
-          blocks: this.#blocks,
+          blocks,
           builtIns: this.#builtIns,
           onCollision: (name) => this.#warnCollision(name),
         }),
@@ -184,15 +202,15 @@ class CMSInstance implements CMS {
     // A block map's own cms-settings function may answer differently per call.
     const entry = snapshot.blocks[SETTINGS_BLOCK];
     const fixed = !isPlainObject(entry) || isStatic(entry);
-    if (fixed && !Object.hasOwn(this.#blocks, SETTINGS_TYPE)) {
+    if (fixed && !Object.hasOwn(blocks, SETTINGS_TYPE)) {
       this.#staticSettings.set(snapshot, settings);
     }
     return settings;
   }
 
   /** Whether the release's preview hosts allow this request's host. */
-  async #previewAllowed(request: RequestLike): Promise<boolean> {
-    const { hosts } = (await this.settings()).preview;
+  async #previewAllowed(blocks: Blocks, request: RequestLike): Promise<boolean> {
+    const { hosts } = (await this.settings(blocks)).preview;
     const patterns = hosts
       .map((raw) => parseHostPattern(raw))
       .filter((pattern): pattern is HostPattern => pattern !== null);
@@ -204,22 +222,26 @@ class CMSInstance implements CMS {
    * request's choices: when the release changes (before its first client
    * runs) and then at most once a minute, so date rules take effect.
    */
-  async #followTelemetrySettings(telemetry: TelemetryPipeline, snapshot: Snapshot): Promise<void> {
+  async #followTelemetrySettings(
+    blocks: Blocks,
+    telemetry: TelemetryPipeline,
+    snapshot: Snapshot,
+  ): Promise<void> {
     const last = this.#telemetryRead;
     const now = Date.now();
     if (last?.snapshot === snapshot && now - last.at < TELEMETRY_SETTINGS_MS) return;
     this.#telemetryRead = { snapshot, at: now };
-    const read = this.#settingsOf(snapshot).then((settings) => {
+    const read = this.#settingsOf(blocks, snapshot).then((settings) => {
       if (this.#telemetryRead?.snapshot === snapshot) telemetry.apply(settings.telemetry);
     });
     // A new release waits for its rates; a periodic re-read doesn't hold up the request.
     if (last?.snapshot !== snapshot) await read;
   }
 
-  #client(load: () => Promise<Snapshot>): Client {
+  #client(blocks: Blocks, load: () => Promise<Snapshot>): Client {
     return new CMSClient({
       load,
-      blocks: this.#blocks,
+      blocks,
       builtIns: this.#builtIns,
       onCollision: (name) => this.#warnCollision(name),
       telemetry: this.#telemetry?.forClient(),
@@ -251,9 +273,67 @@ class CMSInstance implements CMS {
   }
 }
 
+/** `Symbol.for`, so a second copy of this module still reads it. */
+const INSTANCE = Symbol.for("decocms.blocks.cms.instance");
+
 /**
- * Creates the CMS, or returns the instance this configuration already has.
- * Create it once, at module scope, and ask it for a client per request.
+ * What `createCMS` returns: the shared instance plus the block map of this
+ * call. Every handle on one content root shares its content, caps, telemetry
+ * and secret key; each resolves with the block map it was created with.
+ */
+class CMSHandle implements CMS {
+  readonly #instance: CMSInstance;
+  readonly #blocks: Blocks;
+
+  constructor(instance: CMSInstance, blocks: Blocks) {
+    this.#instance = instance;
+    this.#blocks = blocks;
+  }
+
+  /** The shared instance (tests use it to tell whether two handles share one). */
+  get [INSTANCE](): CMSInstance {
+    return this.#instance;
+  }
+
+  forRelease(): Client {
+    return this.#instance.forRelease(this.#blocks);
+  }
+
+  forDraft(pointer: string): Client {
+    return this.#instance.forDraft(this.#blocks, pointer);
+  }
+
+  forRevision(revision: string): Client {
+    return this.#instance.forRevision(this.#blocks, revision);
+  }
+
+  update(): Promise<{ updated: boolean }> {
+    return this.#instance.update();
+  }
+
+  settings(): Promise<EffectiveSettings> {
+    return this.#instance.settings(this.#blocks);
+  }
+
+  draftPointer(request: RequestLike): Promise<string | null> {
+    return this.#instance.draftPointer(this.#blocks, request);
+  }
+
+  draftCookie(request: RequestLike): Promise<string | null> {
+    return this.#instance.draftCookie(this.#blocks, request);
+  }
+}
+
+/** The shared instance behind a `createCMS` result; `undefined` for anything else. */
+export function instanceOf(cms: CMS): object | undefined {
+  const instance = (cms as unknown as Record<symbol, unknown>)[INSTANCE];
+  return instance instanceof Object ? instance : undefined;
+}
+
+/**
+ * Creates the CMS: a handle on the one instance this content root has in the
+ * process, holding this call's block map. Create it once, at module scope, and
+ * ask it for a client per request.
  */
 export function createCMS(config: CMSConfig): CMS {
   validate(config);
@@ -266,11 +346,11 @@ export function createCMS(config: CMSConfig): CMS {
   if (existing instanceof Object && typeof existing.adopt === "function") {
     warnOnConflict(existing.fingerprint, fingerprintOf(config, interval));
     existing.adopt(config);
-    return existing;
+    return existing.handle(config.blocks);
   }
   const instance = new CMSInstance(config, interval);
   store[key] = instance;
-  return instance;
+  return instance.handle(config.blocks);
 }
 
 /** Clears every stored CMS instance, so a test starts clean. */

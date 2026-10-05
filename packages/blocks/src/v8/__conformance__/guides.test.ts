@@ -25,6 +25,7 @@ import {
 import { AnalyticsScript } from "@decocms/blocks/analytics";
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { instanceOf } from "../cms";
 import { resolveDestination } from "../telemetry";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -710,7 +711,7 @@ describe("troubleshooting", () => {
     const content = { ...snap({}), root: ".deco" };
     const first = createCMS({ blocks: {}, content, telemetry: false });
     const second = createCMS({ blocks: {}, content, telemetry: { endpoint: "https://x.example" } });
-    expect(second).toBe(first);
+    expect(instanceOf(second)).toBe(instanceOf(first));
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/different options/));
   });
 
@@ -787,7 +788,7 @@ describe("internals", () => {
     const copy = (await import(
       /* @vite-ignore */ `../cms?copy=${Date.now()}`
     )) as typeof import("../cms");
-    expect(copy.createCMS({ blocks: {}, content })).toBe(first);
+    expect(instanceOf(copy.createCMS({ blocks: {}, content }))).toBe(instanceOf(first));
     const r1 = remoteLoader(content, { site: "s", token: "t" });
     const copyRemote = (await import(
       /* @vite-ignore */ `../remoteLoader?copy=${Date.now()}`
