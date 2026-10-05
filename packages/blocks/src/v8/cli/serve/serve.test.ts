@@ -158,6 +158,10 @@ describe("starting", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0].message).toMatch(/other machines on the network can reach this server/);
     expect(warnings[0].message).not.toMatch(/token/i);
+    // The site editor connects through loopback, never the wildcard address.
+    expect(server!.siteEditorUrl).toBe(
+      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${server!.port}/rpc`)}`,
+    );
     const describe = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
     for (const host of [`0.0.0.0:${server!.port}`, `localhost:${server!.port}`]) {
       const reply = await request("POST", "/rpc", { body: describe, headers: { ...json, host } });
@@ -168,6 +172,11 @@ describe("starting", () => {
       headers: { ...json, host: "evil.com" },
     });
     expect(evil.status).toBe(403);
+  });
+
+  it("reads --host case-insensitively", async () => {
+    await start({ host: "LOCALHOST" });
+    expect(out.lines.filter((l) => l.level === "warn")).toEqual([]);
   });
 
   it("defaults the app to the Vite config's port, read as text, else 5173", async () => {
@@ -202,6 +211,16 @@ describe("the security checks", () => {
     });
     expect(evil.status).toBe(403);
     expect(evil.headers["access-control-allow-origin"]).toBeUndefined();
+    await request("POST", "/rpc", {
+      body: "{}",
+      headers: { ...json, origin: "https://evil.example" },
+    });
+    const refusals = out.lines.filter(
+      (l) => l.level === "warn" && /refused a request/.test(l.message),
+    );
+    expect(refusals.map((l) => l.message)).toEqual([
+      "refused a request from https://evil.example; to allow it, pass --allow-origin https://evil.example",
+    ]);
     for (const origin of [STUDIO, "http://localhost:8000"]) {
       const ok = await request("POST", "/rpc", {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),

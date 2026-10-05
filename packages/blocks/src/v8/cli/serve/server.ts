@@ -112,7 +112,7 @@ function previewUrl(input: string): string {
 export async function startServer(options: ServeOptions = {}): Promise<RunningServer> {
   const reporter = options.reporter ?? consoleReporter;
   const paths = decoPaths(findDecoRoot(options));
-  const host = options.host ?? DEFAULT_HOST;
+  const host = (options.host ?? DEFAULT_HOST).toLowerCase();
   const requestedPort = options.port ?? DEFAULT_PORT;
   const readOnly = options.readOnly ?? false;
   const preview = previewUrl(options.preview ?? defaultPreviewUrl(paths.root));
@@ -164,6 +164,9 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     return hosts;
   };
 
+  // Each refused origin is logged once: the browser hides the 403 behind a
+  // network error, so this line is the only sign the server is running.
+  const refusedOrigins = new Set<string>();
   const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     const cors: Record<string, string> = {};
@@ -179,6 +182,12 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       }
       if (origin !== undefined) {
         if (!allowedOrigins.has(origin)) {
+          if (!refusedOrigins.has(origin)) {
+            refusedOrigins.add(origin);
+            reporter.warn(
+              `refused a request from ${origin}; to allow it, pass --allow-origin ${origin}`,
+            );
+          }
           return refuse(403, ErrorCode.Forbidden, `origin ${origin} isn't allowed`);
         }
         cors["access-control-allow-origin"] = origin;
@@ -225,11 +234,16 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
 
   const displayHost = host.includes(":") ? `[${host}]` : host;
   const endpoint = `http://${displayHost}:${port}/rpc`;
-  const siteEditorUrl = `${STUDIO_ORIGIN}/site-editor#endpoint=${encodeURIComponent(endpoint)}`;
+  // The site editor connects only through loopback; a wildcard address
+  // listens there too, so its link uses 127.0.0.1.
+  const wildcard = host === "0.0.0.0" || host === "::";
+  const linkEndpoint = wildcard ? `http://127.0.0.1:${port}/rpc` : endpoint;
+  const siteEditorUrl = `${STUDIO_ORIGIN}/site-editor#endpoint=${encodeURIComponent(linkEndpoint)}`;
 
   if (!LOOPBACK.has(host)) {
     reporter.warn(
-      `warning: listening on ${host}: other machines on the network can reach this server and read and write the content`,
+      `warning: listening on ${host}: other machines on the network can reach this server and read and write the content` +
+        (wildcard ? "" : "; the site editor connects only through 127.0.0.1/localhost"),
     );
   }
   const schemaFile = fs.existsSync(paths.schema)
