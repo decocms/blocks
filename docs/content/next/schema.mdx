@@ -105,6 +105,16 @@ export interface PromoBannerProps {
 
 becomes a form with a *Headline* text box limited to 60 characters, an *Image* picker, a *Link* field and an optional *Ends on* date picker.
 
+**`@format` on a type alias.** Write the tag once on a type alias and every field of that type gets the widget, including `Color | null` and each item of a `Color[]`. A field's own `@format` wins.
+
+```ts title="src/widgets.ts"
+/** @format color */
+export type Color = string;              // background?: Color is a color picker
+
+/** @format color */
+export type TextTone = "black" | "white"; // a select of these two values, marked as colors
+```
+
 **Options are written into the schema.** A union of string literals, a TypeScript `enum` and an `@options` list all become an `enum` in the schema, so the site editor shows a select without asking your site for the options. A picker whose options come from a function shows a text field, since the site editor never runs your code (see [What works without your code](/next/site-editor#what-works-without-your-code)).
 
 ## Data-only blocks

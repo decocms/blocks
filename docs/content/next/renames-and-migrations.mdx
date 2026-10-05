@@ -39,6 +39,15 @@ Seven v7 type names have no alias in the next major, so the migration rewrites t
 | `$live/matchers/MatchAlways.ts` | `website/matchers/always.ts` |
 | `website/matchers/date.ts`, `$live/matchers/MatchDate.ts` | `date` |
 
+The next major has no async rendering. v7 could defer a section behind a wrapper block, and the migration removes those wrappers from your saved content, pages and saved blocks alike, putting in each one's place the section it held, with its props unchanged:
+
+| v7 wrapper | Becomes |
+|---|---|
+| `website/sections/Rendering/Lazy.tsx`, `website/sections/Rendering/SingleDeferred.tsx` (`{ "section": … }`) | its `section` |
+| `website/sections/Rendering/Deferred.tsx` (`{ "sections": [ … ] }`) | its `sections`, in place in the list that held it |
+
+The wrapper's own options (`loading`, `display`, `behavior`) go with it. Blocks resolve on the server, so what used to arrive after the page is in the first HTML. A wrapper that held several sections where only one block fits is reported for you to unwrap by hand. Running the migration again changes nothing.
+
 <h2 id="rename-a-type-with-an-alias">Rename a block type</h2>
 
 Aliases work for any rename, not only a v7 migration. An alias is another key in the [block map](/next/blocks#the-block-map) pointing at the same function. Content that stores the old name keeps working, and routing is unaffected because [`matchRoute`](/next/api-reference#matchroute-url-items) looks at each entry's `path` field (see [Pages and routing](/next/routing)), not its type name:
