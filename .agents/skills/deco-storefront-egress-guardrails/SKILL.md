@@ -1,6 +1,6 @@
 ---
 name: deco-storefront-egress-guardrails
-description: Find, fix and prevent the storefront patterns that silently burn origin egress and edge cache hit rate on Deco sites (TanStack Start on @decocms/tanstack, and legacy Fresh/Deno). Use when a site's origin/bandwidth cost is high, a PLP/PDP is never a cache HIT, pages are megabytes of HTML, tracking params (gclid/utm) show up in cached pages, the cache is split per region, or when reviewing a PR/migration for these regressions. Ships a zero-dependency HTML anatomy script.
+description: "Audit for storefront patterns that burn origin egress and edge cache hit rate on deco sites (@decocms/tanstack; legacy Fresh/Deno too), with a zero-dependency HTML anatomy script. Use when origin egress or bandwidth cost spikes, HTML of a PLP/PDP/home is megabytes (oversized SSR payload), a PLP/PDP never gets a cache HIT, gclid/utm tracking params leak into cached pages, the cache is split per region, or when reviewing a PR or migration for these regressions."
 ---
 
 # Storefront egress guardrails
@@ -14,7 +14,7 @@ Order matters: check the ones that make pages *uncacheable* first. A 6 MB page
 served from the edge costs nothing at the origin; a 150 KB page that is never
 cached costs on every visit.
 
-Related skills: `deco-edge-caching` (profiles, TTLs, purge), `deco-vtex-fetch-cache`
+Related skills: `deco-caching` (every cache layer: profiles, TTLs, purge), `apps-vtex`
 (loader-level VTEX caching), `deco-performance-audit` (CDN numbers first). The
 Fresh-specific counterpart lives in decocms/skills as `deco-storefront-egress-audit`.
 

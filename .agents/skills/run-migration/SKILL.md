@@ -1,6 +1,6 @@
 ---
 name: run-migration
-description: Run the Fresh/Deno → TanStack Start migrator from this repo against a target site workspace. Resets the target to its Fresh/Deno state (origin/main), then runs the local migration script. Use for testing the migrator on real sites. For sites ALREADY on TanStack that just need the @decocms/start@6.x → split-7.x package upgrade, use the upgrades-decocms-v6-to-v7 skill (decocms/migrations) instead.
+description: "Dev loop for the migrator in this repo: reset a target site workspace to its Fresh/Deno state (origin/main) and run the local packages/blocks-cli migrate script against it. Use when testing a migrator change on a real site, or asked to 'run the migration' on a site from here. Not for sites already on TanStack that only need the @decocms/start 6.x → 7.x upgrade (use upgrades-decocms-v6-to-v7 in decocms/migrations)."
 ---
 
 # Run Deco Migration (Fresh/Deno → TanStack)

@@ -8,7 +8,7 @@ import { DEFAULT_EXPECTED_SECTIONS } from "../actions/checkout";
 body: JSON.stringify({ expectedOrderFormSections: DEFAULT_EXPECTED_SECTIONS })
 ```
 
-**Full list** — `DEFAULT_EXPECTED_SECTIONS` in `actions/checkout.ts` is now an alias of `SECTIONS_FULL` from `@decocms/apps-commerce/types` (the "which sections" list lives there, alongside the smaller `SECTIONS_MINIMAL` / `SECTIONS_DRAWER` presets that Cart v2 uses — see the `vtex-cart-v2` skill). The values are unchanged:
+**Full list** — `DEFAULT_EXPECTED_SECTIONS` in `actions/checkout.ts` is now an alias of `SECTIONS_FULL` from `@decocms/apps-commerce/types` (the "which sections" list lives there, alongside the smaller `SECTIONS_MINIMAL` / `SECTIONS_DRAWER` presets that Cart v2 uses — see [`cart-contract.md`](./cart-contract.md)). The values are unchanged:
 
 ```typescript
 export const DEFAULT_EXPECTED_SECTIONS = [

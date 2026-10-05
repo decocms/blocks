@@ -126,7 +126,20 @@ If you're the one wiring up a new site and hit one of these, the fix belongs in 
 
 ## Skills: what lives here, what lives elsewhere
 
-One folder, `.agents/skills/`, and only skills that describe the framework and its packages **as they are today** (routes, caching, invoke, the migrate script's internals, apps-vtex cart, …). Claude Code discovers them through the `.claude/skills` symlink. Gate: `bun run skills:check && bun run skills:readme` (copied from `decocms/migrations` — SKILL.md ≤10KB as an index, references ≤15KB, generated index; CI in `.github/workflows/skills-check.yml`). New skill: `cp -r .agents/skills/template .agents/skills/<name>`.
+One folder, `.agents/skills/`, and only skills that describe the framework and its packages **as they are today** (one skill per package or concern). Claude Code discovers them through the `.claude/skills` symlink. Gate: `bun run skills:check && bun run skills:readme` (copied from `decocms/migrations` — SKILL.md ≤10KB as an index, references ≤15KB, generated index; CI in `.github/workflows/skills-check.yml`). New skill: `cp -r .agents/skill-template .agents/skills/<name>`.
+
+**Load the skill before editing or debugging what it covers** — they hold the constraints the code alone doesn't show:
+
+| Touching / debugging | Skill |
+|---|---|
+| `packages/apps-vtex/**`, cart (`useCart`, `createCart`, orderForm), VTEX cookies/auth, sales channel | `apps-vtex` |
+| Any cache layer: `workerEntry.ts`, `sdk/cacheHeaders.ts`, `sdk/cachedLoader.ts`, `sdk/fetchCache.ts`, layout caches in `cms/resolve.ts`/`cms/sectionLoaders.ts`, `staleTime`/`gcTime`, `X-Cache` | `deco-caching` |
+| A site's `src/routes/*`, `cmsRouteConfig`, admin route configs, SEO/head | `deco-cms-route-config` |
+| `invoke.gen.ts`/`invoke.ts`, `createServerFn`, CORS on cart/checkout | `deco-server-functions-invoke` |
+| Origin egress / cache hit rate / HTML size audits | `deco-storefront-egress-guardrails` |
+| `packages/blocks-cli/scripts/migrate*` | `deco-migrate-script` (code), `run-migration` (try it on a site) |
+
+Writing a skill: the `description` is the only thing the model reads before deciding to load it — lead with the package, then "Use when …" with the symbols, file paths, error strings and symptoms someone would actually type. Keep it quoted (the check enforces it). Prefer adding a `references/` file to an existing package skill over a new skill: every skill's description sits in context all the time.
 
 Everything else has another home — refer to it by skill **name**, never by path (those repos are private):
 

@@ -1,8 +1,3 @@
----
-name: deco-apps-vtex-review
-description: Audit checklist for the VTEX integration in @decocms/apps-vtex (packages/apps-vtex, the TanStack/Next-agnostic port of deco-cx/apps vtex). Covers Set-Cookie propagation (vtexFetchWithCookies → RequestContext → invoke.gen.ts forwardResponseCookies and @decocms/blocks-admin's /deco/invoke), VtexIdclientAutCookie headers (buildAuthCookieHeader), expectedOrderFormSections, salesChannel (sc) injection, Intelligent Search session cookies, HttpOnly auth, hooks/transform/schema.org parity with deco-cx/apps, and the validation greps. Load when reviewing or porting apps-vtex code, when the cart empties after add-to-cart, when logged-in calls 401/403, when prices or products are wrong for a sales channel, or when cart responses are missing sections.
----
-
 # VTEX apps-vtex Review & Fix
 
 Comprehensive audit checklist for the VTEX integration in `@decocms/apps-vtex` (source: `packages/apps-vtex/src/` in this repo — formerly the `vtex/` folder of the separate `@decocms/apps-start` package). Use after porting or when debugging issues. Paths below are relative to `packages/apps-vtex/src/`.
@@ -35,7 +30,7 @@ packages/apps-vtex/src/
 │   ├── workflow.ts         # workflowProduct, workflowProducts
 │   ├── search.ts           # getTopSearches, getProductIdByTerm
 │   └── (more)
-├── inline-loaders/         # TanStack-compatible loaders for sections
+│   (no inline-loaders/ dir — `@decocms/apps-vtex/inline-loaders/*` is an exports-map alias onto loaders/intelligentSearch/*, loaders/legacy/relatedProductsLoader, loaders/minicart, etc.)
 ├── hooks/                  # useCart, useUser, useWishlist, createUse* factories, createCart / cartQuery (Cart v2)
 └── utils/
     ├── transform.ts        # Canonical VTEX→schema.org mapping
@@ -47,16 +42,16 @@ packages/apps-vtex/src/
     └── enrichment.ts       # withSimulation
 ```
 
-## When to load what
+## Audit references
 
 | Reference | Load it when |
 |---|---|
-| [`references/cookie-propagation.md`](./references/cookie-propagation.md) | Cart empties after add-to-cart, `/checkout` opens a fresh order, or you're auditing how `Set-Cookie` reaches the browser (both bridges, the `entries()` collapse pitfall) |
-| [`references/auth-cookies.md`](./references/auth-cookies.md) | Logged-in VTEX IO GraphQL calls fail, hardcoded `VtexIdclientAutCookie` strings, or client code trying to read the HttpOnly auth cookie |
-| [`references/expected-order-form-sections.md`](./references/expected-order-form-sections.md) | OrderForm comes back missing totals/shipping/etc. — the sections list and where it must be sent |
-| [`references/sales-channel.md`](./references/sales-channel.md) | Wrong prices, ORD027, or products invisible for a sales channel — where `sc` is injected |
-| [`references/intelligent-search-cookies.md`](./references/intelligent-search-cookies.md) | Intelligent Search results/personalization off — `vtex_is_session` / `vtex_is_anonymous` |
-| [`references/deco-cx-apps-parity.md`](./references/deco-cx-apps-parity.md) | Checking hooks, `transform.ts` exports and PDP/PLP schema.org shapes against deco-cx/apps |
+| [`audit-cookie-propagation.md`](./audit-cookie-propagation.md) | Cart empties after add-to-cart, `/checkout` opens a fresh order, or you're auditing how `Set-Cookie` reaches the browser (both bridges, the `entries()` collapse pitfall) |
+| [`audit-auth-cookies.md`](./audit-auth-cookies.md) | Logged-in VTEX IO GraphQL calls fail, hardcoded `VtexIdclientAutCookie` strings, or client code trying to read the HttpOnly auth cookie |
+| [`audit-expected-order-form-sections.md`](./audit-expected-order-form-sections.md) | OrderForm comes back missing totals/shipping/etc. — the sections list and where it must be sent |
+| [`audit-sales-channel.md`](./audit-sales-channel.md) | Wrong prices, ORD027, or products invisible for a sales channel — where `sc` is injected |
+| [`audit-intelligent-search-cookies.md`](./audit-intelligent-search-cookies.md) | Intelligent Search results/personalization off — `vtex_is_session` / `vtex_is_anonymous` |
+| [`audit-deco-cx-apps-parity.md`](./audit-deco-cx-apps-parity.md) | Checking hooks, `transform.ts` exports and PDP/PLP schema.org shapes against deco-cx/apps |
 
 ## Audit checklist (one line each — details in the references)
 

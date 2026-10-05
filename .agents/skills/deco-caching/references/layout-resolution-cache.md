@@ -2,11 +2,11 @@
 
 Caches the fully resolved CMS output for layout sections. This is the most impactful layer because layout sections often contain embedded commerce loaders (Header with product shelves) that make expensive API calls.
 
-Source: `resolvedLayoutCache` / `resolvedLayoutInflight` in `packages/blocks/src/cms/resolve.ts`. Which sections count as layout: see `registering-layout-sections.md`.
+Source: `resolvedLayoutCache` / `resolvedLayoutInflight` in `packages/blocks/src/cms/resolve.ts`. Which sections count as layout: see `layout-registering-sections.md`.
 
 ## How It Works
 
-The snippets below show the control flow. Two details differ in the current code: the store is `createCacheStore("resolved-layouts")` (a bounded in-memory tier, optionally backed by the shared CacheStorage), not a bare `Map`, with a `RESOLVE_CACHE_TTL` of 5 minutes; and the cache key is `layoutCacheKey(blockKey, matcherCtx)` = `<blockKey>::<device>`, where `blockKey` is the top-level block reference (e.g. `"Header - 01"`), not the final section path. See `registering-layout-sections.md` for why device is in the key.
+The snippets below show the control flow. Two details differ in the current code: the store is `createCacheStore("resolved-layouts")` (a bounded in-memory tier, optionally backed by the shared CacheStorage), not a bare `Map`, with a `RESOLVE_CACHE_TTL` of 5 minutes; and the cache key is `layoutCacheKey(blockKey, matcherCtx)` = `<blockKey>::<device>`, where `blockKey` is the top-level block reference (e.g. `"Header - 01"`), not the final section path. See `layout-registering-sections.md` for why device is in the key.
 
 In `resolveDecoPage`, before resolving each raw section:
 

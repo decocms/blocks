@@ -104,7 +104,7 @@ loader: async ({ params, deps }) => {
 },
 ```
 
-(`loadCmsPage` takes `{ path, resolveGlobals }`; the inflight dedup key inside it is the **full** path including the query string — see `deco-cms-layout-caching`.)
+(`loadCmsPage` takes `{ path, resolveGlobals }`; the inflight dedup key inside it is the **full** path including the query string — see `deco-caching` → `references/route-page-inflight-dedup.md`.)
 
 ### Cache Headers — Dynamic per Page Type
 
@@ -130,7 +130,7 @@ The `cacheProfile` is determined by `detectCacheProfile(basePath)` inside `loadC
 | `/` | static | 15 min |
 | Everything else | listing | 2 min |
 
-Evaluated top to bottom, after any site `registerCachePattern` (which can never turn a private path public). Full list and rationale: `PRIVATE_SEGMENTS` / `builtinPatterns` in `packages/blocks/src/sdk/cacheHeaders.ts`, and the `deco-edge-caching` skill.
+Evaluated top to bottom, after any site `registerCachePattern` (which can never turn a private path public). Full list and rationale: `PRIVATE_SEGMENTS` / `builtinPatterns` in `packages/blocks/src/sdk/cacheHeaders.ts`, and the `deco-caching` skill (`references/edge-cache-profiles.md`).
 
 ### Head/SEO — Automatic from CMS `page.seo` + Section Registry
 

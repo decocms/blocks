@@ -1,9 +1,6 @@
----
-name: vtex-cart-v2
-description: Cart v2 for VTEX storefronts in @decocms/apps-vtex (contract types in @decocms/apps-commerce/types/cart) — lazy cart creation, per-operation sections (what VTEX computes) vs projection (what the browser receives), the cart/* loaders, the *V2 checkout actions, the createCart hook factory and the optional createCartQuery (TanStack Query) adapter. Framework-agnostic; covers wiring in TanStack Start (@decocms/tanstack, generated invoke) and Next.js (@decocms/nextjs, handleInvoke). Load when building or refactoring a minicart/badge/add-to-cart to cut VTEX cart traffic, choosing a projection, wiring createCart into a site, or migrating component by component off the legacy useCart/createUseCart.
----
-
 # VTEX Cart v2 — Modular, Granular, Framework-Agnostic
+
+Contract types live in `@decocms/apps-commerce/types/cart`; loaders, `*V2` actions and hooks in `@decocms/apps-vtex`. Framework-agnostic: wiring covers TanStack Start (`@decocms/tanstack`, generated invoke) and Next.js (`@decocms/nextjs`, `handleInvoke`).
 
 ## The problem with the legacy cart
 
@@ -30,17 +27,17 @@ The legacy VTEX cart (`loaders/cart.ts`, `hooks/useCart.ts`, `hooks/createUseCar
 
 ---
 
-## When to load what
+## Cart v2 references
 
 | Reference | Load it when |
 |---|---|
-| [`references/contract.md`](./references/contract.md) | Choosing a `projection` or `sections` preset — the types, what each returns, the badge/toast/drawer rule of thumb |
-| [`references/loaders.md`](./references/loaders.md) | Reading cart data: `cart/summary`, `cart/full`, `cart/shipping`, `cart/gifts`, `cart/attachments` — inputs, outputs, which sections each asks for |
-| [`references/actions.md`](./references/actions.md) | Calling the `*V2` mutations directly — options and the server-side projection step |
-| [`references/hooks.md`](./references/hooks.md) | Using `createCart` hooks (`useCartSummary`, `useAddToCart`, `useCart`, `useShipping`, `useGifts`, `useAttachments`, `resetCart`) and what `add()` does step by step |
-| [`references/react-query-adapter.md`](./references/react-query-adapter.md) | The site already uses `@tanstack/react-query` and wants `createCartQuery` instead of the singleton factory |
-| [`references/wiring.md`](./references/wiring.md) | Making `invoke.vtex.actions.*V2` and `invoke.vtex.loaders.cart.*` exist in a TanStack Start or Next.js site |
-| [`references/migrating-from-legacy.md`](./references/migrating-from-legacy.md) | Moving a live site off `useCart`/`createUseCart` without a diverging badge |
+| [`cart-contract.md`](./cart-contract.md) | Choosing a `projection` or `sections` preset — the types, what each returns, the badge/toast/drawer rule of thumb |
+| [`cart-loaders.md`](./cart-loaders.md) | Reading cart data: `cart/summary`, `cart/full`, `cart/shipping`, `cart/gifts`, `cart/attachments` — inputs, outputs, which sections each asks for |
+| [`cart-actions.md`](./cart-actions.md) | Calling the `*V2` mutations directly — options and the server-side projection step |
+| [`cart-hooks.md`](./cart-hooks.md) | Using `createCart` hooks (`useCartSummary`, `useAddToCart`, `useCart`, `useShipping`, `useGifts`, `useAttachments`, `resetCart`) and what `add()` does step by step |
+| [`cart-react-query-adapter.md`](./cart-react-query-adapter.md) | The site already uses `@tanstack/react-query` and wants `createCartQuery` instead of the singleton factory |
+| [`cart-wiring.md`](./cart-wiring.md) | Making `invoke.vtex.actions.*V2` and `invoke.vtex.loaders.cart.*` exist in a TanStack Start or Next.js site |
+| [`cart-migrating-from-legacy.md`](./cart-migrating-from-legacy.md) | Moving a live site off `useCart`/`createUseCart` without a diverging badge |
 
 ## Traffic impact summary
 
@@ -55,16 +52,16 @@ The legacy VTEX cart (`loaders/cart.ts`, `hooks/useCart.ts`, `hooks/createUseCar
 | Visitor lands, no add | **0** | 0 |
 | Add to cart (default) | 1 `addItemsToCartV2` with **3 sections** | `{ totalItems, total, items:[slim] }` — ~1 KB |
 | Open drawer | 1 `cart/full` with **9 sections** | Full Minicart — ~10 KB |
-| Shipping estimate (after caching) | 0 (cache hit) | `{ postalCode, options }` — ~1 KB |
+| Shipping estimate (cache hit) | 0 | `{ postalCode, options }` — ~1 KB |
 
-The shipping cache hit is client-side today — `createCartQuery`'s `useShipping` is keyed by `{ postalCode, items }` with a 5 min `staleTime`; the server-side loader does not cache yet (issue #373).
+Shipping is cached at two layers: client-side, `createCartQuery`'s `useShipping` is keyed by `{ postalCode, items }` with a 5 min `staleTime`; server-side, `cart/shipping` goes through `getShippingSimulation` (`loaders/cart/shipping.ts`), which caches the simulation response body for 5 min keyed on `{account, salesChannel, items, postalCode, country}` (issue #373).
 
 ---
 
 ## Constraints and footguns
 
 - **`vtexFetchWithCookies` is mandatory for all cart mutations.** `vtexFetch` / `vtexCachedFetch` must not be used — they do not rotate `checkout.vtex.com` / `CheckoutOrderFormOwnership` cookies, causing the storefront's cart to drift from VTEX's server-side state.
-- **Shipping simulation is not cached yet.** `simulateCart` is a POST that rotates cookies — a bespoke cache layer is required. Tracked at [issue #373](https://github.com/decocms/blocks/issues/373).
+- **Shipping simulation has its own cache, not `vtexCachedFetch`.** `simulateCart` is a POST that rotates cookies, so `utils/simulationCache.ts` stores only the response body (never cookies) in an in-process Map (500 entries); sites can inject a shared Cloudflare Cache API / KV implementation via `setSimulationCache`. Done in [issue #373](https://github.com/decocms/blocks/issues/373).
 - **`createCart` is a factory; call it once.** Each call produces an independent module-singleton. Calling it inside a component creates a new singleton per render — always call at module scope.
 - **`projection: "none"` + `projection: "minicart"` in the same add**: pick one. `"none"` discards the server response; `"minicart"` uses it to populate the drawer. They cannot be combined.
 - The legacy `useCart`, `createUseCart`, `loaders/cart.ts`, and `loaders/minicart.ts` are untouched. Cart v2 is additive — migrate gradually per component.

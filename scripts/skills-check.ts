@@ -81,7 +81,13 @@ function readFrontmatter(text: string): { data: Record<string, string> } | { err
     const m = raw.match(/^([A-Za-z][\w-]*):\s?(.*)$/);
     if (m) {
       key = m[1];
-      data[key] = m[2].trim().replace(/^["']|["']$/g, "");
+      const raw = m[2].trim();
+      // Local addition (not in decocms/migrations): an unquoted value starting
+      // with `@`/backtick or containing `: ` is invalid YAML. Claude Code
+      // tolerates it; stricter agents drop the skill silently.
+      if (!/^["']/.test(raw) && (/^[@`]/.test(raw) || raw.includes(": ")))
+        return { error: `\`${key}\` must be quoted — unquoted it is invalid YAML (leading @/backtick or ": ")` };
+      data[key] = raw.replace(/^["']|["']$/g, "");
     } else if (key && /^\s+\S/.test(raw)) {
       data[key] += ` ${raw.trim()}`; // folded continuation
     } else {

@@ -1,6 +1,6 @@
 ---
 name: deco-server-functions-invoke
-description: How server functions (invoke) work in TanStack Start storefronts built on @decocms/tanstack — the @decocms/blocks-cli generate-invoke stage that turns @decocms/apps-vtex's invoke.ts into top-level createServerFn declarations in the site's src/server/invoke.gen.ts. Covers why createServerFn must be top-level (the root cause of CORS errors on VTEX calls), the three-layer architecture (apps-vtex pure functions, blocks-cli generator, site invoke.gen.ts + hand-written invoke.ts), Set-Cookie forwarding so the cart keeps its orderForm, and the comparison with deco-cx/deco's Proxy+HTTP invoke. Load when cart/checkout calls hit VTEX from the browser with CORS errors, the cart "forgets" items, an invoke.vtex.actions.X is missing, the generator fails, or you are adding a server action or wiring invoke on a new site.
+description: "Server functions (invoke) on @decocms/tanstack: the @decocms/blocks-cli generate stage that turns @decocms/apps-vtex invoke.ts into top-level createServerFn declarations in the site's src/server/invoke.gen.ts, plus the hand-written src/server/invoke.ts. Use when touching invoke.gen.ts/invoke.ts or invoke.vtex.*, when cart/checkout calls hit VTEX from the browser with CORS errors, the cart forgets items (Set-Cookie not forwarded), an invoke action is missing, createServerFn is not top-level, or the generator fails."
 ---
 
 # Deco Server Functions & Invoke

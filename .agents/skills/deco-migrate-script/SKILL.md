@@ -1,6 +1,6 @@
 ---
 name: deco-migrate-script
-description: Developing the Fresh/Deno to TanStack Start migrator (deco-migrate) in @decocms/blocks-cli — its code layout under packages/blocks-cli/scripts/migrate, the MigrationContext it threads through phases, how to add or extend a transform, template, analyzer, phase or smoke check, the single-source rules (Tailwind rename tables), the deco-post-cleanup audit internals, and the tests. Use when changing the migrator or debugging it at the code level. For RUNNING a migration (flags, phases from the user side, reading the report, what is manual afterwards) use the tools-migrate-script skill in decocms/migrations.
+description: "Internals of the Fresh/Deno to TanStack Start migrator (deco-migrate) in @decocms/blocks-cli: code layout under packages/blocks-cli/scripts/migrate, MigrationContext, phases, transforms, templates, analyzers, smoke checks, Tailwind rename tables, deco-post-cleanup rules, tests. Use when editing or debugging anything under packages/blocks-cli/scripts/migrate* or adding a transform/rule. For running a migration on a site use tools-migrate-script (decocms/migrations)."
 ---
 
 # Developing the migration script

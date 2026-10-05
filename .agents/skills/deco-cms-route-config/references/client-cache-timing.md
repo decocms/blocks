@@ -27,7 +27,7 @@ stale the moment the client hydrates. That fires a second
 loader — doubling origin load on every first navigation (decocms/blocks#355).
 With `Infinity` the router never time-refetches in-memory data; `gcTime` bounds
 how long it lives in memory, and data freshness is the edge cache's job (see
-`deco-edge-caching`).
+`deco-caching`).
 
 The profile objects still carry a `client.staleTime` (5 min / 1 min / 1 min /
 30 s for static / product / listing / search). `routeCacheDefaults` ignores it

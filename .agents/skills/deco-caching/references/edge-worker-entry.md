@@ -81,6 +81,8 @@ The hash is resolved automatically by `decoVitePlugin()` at build time and injec
 
 `createDecoWorkerEntry` reads `env.BUILD_HASH` first (explicit override path, e.g. `wrangler deploy --var BUILD_HASH:foo`) and falls back to the `__DECO_BUILD_HASH__` constant. Sites running `decoVitePlugin()` get the behaviour for free — **no per-site dashboard, `wrangler.jsonc`, or `--var` configuration required**.
 
+Underneath the `__v` param, stored entries go through `createResponseCache` (`@decocms/blocks/sdk/responseCache`), whose key is scoped by `[origin, BUILD_HASH, decofile revision]` — so a CMS publish that reaches an isolate (new `getRevision()`) also starts a fresh namespace there, as does the request-scoped `cacheStorage` scope used by the layout and SWR caches (`swr-fetch-cache.md`). `createResponseCache.put` refuses anything without a `max-age`, anything `private`/`no-store`/`no-cache`, and any response carrying `Set-Cookie`. By default the backing store is `caches.default`; the `cacheStorage: (env, request) => CacheStorage` option replaces it (and also becomes the shared tier for the in-memory caches).
+
 The active version is exposed on every cached response via the `X-Cache-Version` header for observability. Confirm a new deploy is shipping the right hash with:
 
 ```bash

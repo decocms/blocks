@@ -18,8 +18,6 @@ Client `staleTime` is `Infinity` in production for every profile (5s in dev) —
 
 ## URL-to-Profile Detection (built-in)
 
-| URL Pattern | Detected Profile |
-|-------------|-----------------|
 Evaluated in this order (first match wins):
 
 | URL Pattern | Detected Profile |

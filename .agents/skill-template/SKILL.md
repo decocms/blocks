@@ -1,6 +1,6 @@
 ---
 name: template
-description: Copy this folder to start a new skill. Replace this description with a specific one — it is the only thing an agent reads when deciding whether to load the skill, so say what it covers AND when to reach for it.
+description: "Copy this folder to start a new skill. Replace this description with a specific one — it is the only thing an agent reads when deciding whether to load the skill, so say what it covers AND when to reach for it."
 ---
 
 # <Skill name>

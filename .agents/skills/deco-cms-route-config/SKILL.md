@@ -1,6 +1,6 @@
 ---
 name: deco-cms-route-config
-description: CMS-driven routes for TanStack Start sites on @decocms/tanstack — cmsRouteConfig ($.tsx catch-all), cmsHomeRouteConfig (index.tsx), the admin protocol route factories (decoMetaRouteConfig/decoRenderRouteConfig/decoInvokeRouteConfig), and the SEO/section primitives they use from @decocms/blocks/cms. Covers route options, ignoreSearchParams for variant selection, per-page cache headers, client staleTime/gcTime (routeCacheDefaults), head/SEO generation from page.seo and registered SEO sections, __root.tsx, and what is and is not exported. Load when creating or migrating a site's route files, when variant clicks or hydration trigger extra server fetches, when a route 500s with "cannot have both an 'id' and a 'path'", when SEO tags are missing from SSR HTML, or when an import from @decocms/tanstack does not resolve.
+description: "@decocms/tanstack route files for a TanStack Start site: cmsRouteConfig ($.tsx catch-all), cmsHomeRouteConfig (index.tsx), __root.tsx, the admin protocol routes (decoMetaRouteConfig/decoRenderRouteConfig/decoInvokeRouteConfig), ignoreSearchParams, routeCacheDefaults (staleTime/gcTime), head/SEO from page.seo. Use when creating or editing src/routes/*, when a variant click or hydration triggers an extra server fetch, a route 500s with 'cannot have both an 'id' and a 'path'', SEO tags are missing from SSR HTML, or an import from @decocms/tanstack does not resolve."
 ---
 
 # CMS Route Configuration in @decocms/tanstack
@@ -57,6 +57,5 @@ src/routes/__root.tsx     ×         Site-specific (fonts, theme, CSS)
 | Skill | Purpose |
 |-------|---------|
 | `deco-variant-selection-perf` | Variant selection optimization using replaceState |
-| `deco-cms-layout-caching` | Layout section caching in CMS resolve |
-| `deco-edge-caching` | Cloudflare edge caching with workerEntry |
+| `deco-caching` | Every cache layer: edge (workerEntry), route, page in-flight dedup, layout caches, loader + SWR caches |
 | `deco-to-tanstack-migration` (decocms/migrations) | Fresh → TanStack Start migration playbook (broader architecture map, phase-based) |

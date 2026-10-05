@@ -42,7 +42,7 @@ await invoke.vtex.loaders.cart.shipping({
 });
 ```
 
-> **Note on caching**: shipping options for a fixed `{ items, postalCode }` are not user-personalized, but `simulateCart` is a POST that rotates cookies. A bespoke cache layer is tracked at [GitHub issue #373](https://github.com/decocms/blocks/issues/373) — caching is not implemented yet.
+> **Note on caching**: shipping options for a fixed `{ items, postalCode }` are not user-personalized, but `simulateCart` is a POST that rotates cookies, so it can't go through `vtexCachedFetch`. The bespoke layer from [GitHub issue #373](https://github.com/decocms/blocks/issues/373) is implemented: the loader runs `getShippingSimulation`, which caches only the response body (5 min default, `ttlSeconds` overrides) keyed on `{account, salesChannel, items, postalCode, country}` via `utils/simulationCache.ts` (in-process by default; inject a shared one with `setSimulationCache`). See [`fetch-cache.md`](./fetch-cache.md).
 
 ### `vtex/loaders/cart/gifts` — selectable gifts / promotions
 
