@@ -427,6 +427,45 @@ export const badge = (): Badge => ({ label: "" });`,
   }, 30_000);
 });
 
+describe("@format on a type alias", () => {
+  it("gives every field of an imported alias its format: plain, optional, nullable, listed, a select", async () => {
+    const fixture = createFixture({
+      "src/widgets.ts": `
+/** @format color */
+export type Paint = string;
+/** @format color */
+export type TextTone = "black" | "white";
+export type Plain = string;`,
+      "src/banner.ts": `
+import type { Paint, Plain, TextTone } from "./widgets";
+export interface Props {
+  background: Paint;
+  border?: Paint | null;
+  stripes?: Paint[];
+  titleTone?: TextTone;
+  /** @format textarea */
+  note?: Paint;
+  plain?: Plain;
+}
+export const banner = (props: Props) => ({ component: "banner", props });`,
+      ".deco/index.ts": `import { banner } from "../src/banner"; export default { banner };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const p = m.schema.definitions[`${b64("banner")}@Props`]?.properties;
+      expect(p, Object.keys(m.schema.definitions).join(" ")).toBeDefined();
+      expect(p.background).toEqual({ type: "string", format: "color", title: "Background" });
+      expect(p.border).toMatchObject({ type: "string", format: "color", nullable: true });
+      expect(p.stripes.items).toEqual({ type: "string", format: "color" });
+      expect(p.titleTone).toMatchObject({ enum: ["black", "white"], format: "color" });
+      expect(p.note.format).toBe("textarea");
+      expect(p.plain.format).toBeUndefined();
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
 describe("imported maps", () => {
   it("follows a spread app map, the later key winning", async () => {
     const fixture = createFixture({

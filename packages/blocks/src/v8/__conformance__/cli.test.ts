@@ -172,11 +172,15 @@ export interface Seo { title: string; description: string }
 export interface Post extends Route { body: string }
 export interface Hero { title: string }
 export enum Tone { Light = "light", Dark = "dark" }
+/** @format color */
+export type BrandColor = string;
+/** @format color */
+export type TextTone = "black" | "white";
 `,
   "src/sections.tsx": `
 import type { ReactNode } from "react";
 import type { Lazy, Secret } from "@decocms/blocks";
-import type { Hero, Post, Product, Seo, Tone } from "./model";
+import type { BrandColor, Hero, Post, Product, Seo, TextTone, Tone } from "./model";
 
 export interface AllProps {
   text: string;
@@ -222,6 +226,11 @@ export interface AllProps {
   fTextarea?: string;
   /** @format color */
   fColor?: string;
+  brand?: BrandColor;
+  textTone?: TextTone | null;
+  palette?: BrandColor[];
+  /** @format textarea */
+  notes?: BrandColor;
   /** @format image-uri */
   fImage?: string;
   /** @options ["sm", "md", "lg"] */
@@ -968,6 +977,14 @@ describe("schema.mdx", () => {
     expect(p.fTextarea.format).toBe("textarea");
     expect(p.fColor.format).toBe("color");
     expect(p.fImage.format).toBe("image-uri");
+  });
+
+  it("sch-26: @format on a type alias reaches every field of that type, a select included", () => {
+    const p = propsOf("everything").properties;
+    expect(p.brand).toMatchObject({ type: "string", format: "color" });
+    expect(p.textTone).toMatchObject({ type: "string", enum: ["black", "white"], format: "color" });
+    expect(p.palette.items).toMatchObject({ type: "string", format: "color" });
+    expect(p.notes.format).toBe("textarea"); // the field's own tag wins
   });
 
   it("sch-18 / sch-21: @options, literal unions and enums all become a JSON Schema enum", () => {

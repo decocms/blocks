@@ -338,6 +338,33 @@ export class TsNode {
     return texts;
   }
 
+  /**
+   * The `@format` on the type alias this annotation names: `Color`,
+   * `Color | null` and `Color[]` (then `items` is set) all give `Color`'s.
+   * Read from the alias's declaration, since the checker drops an alias of a
+   * primitive (`type Color = string` is just `string`).
+   */
+  getAliasFormat(): { format: string; items: boolean } | undefined {
+    const ts = this.ctx.ts;
+    const checker = this.ctx.checker;
+    const node = this.compilerNode as TS.TypeNode;
+    for (const member of ts.isUnionTypeNode(node) ? node.types : [node]) {
+      const items = ts.isArrayTypeNode(member);
+      const target = items ? member.elementType : member;
+      if (!ts.isTypeReferenceNode(target)) continue;
+      let symbol = checker.getSymbolAtLocation(target.typeName);
+      if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+      const decl = symbol?.declarations?.find(ts.isTypeAliasDeclaration);
+      if (!decl) continue;
+      for (const tag of ts.getJSDocTags(decl)) {
+        if (tag.tagName.text !== "format") continue;
+        const format = ts.getTextOfJSDocComment(tag.comment)?.trim();
+        if (format) return { format, items };
+      }
+    }
+    return undefined;
+  }
+
   /** Whether `other` is this node or inside it. */
   contains(other: TsNode): boolean {
     const a = this.compilerNode;

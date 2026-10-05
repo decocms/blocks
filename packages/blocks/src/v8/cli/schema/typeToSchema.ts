@@ -231,6 +231,20 @@ function applyWidgetFormat(schema: any, typeHint: string): void {
   }
 }
 
+/**
+ * `@format` written on a type alias (`/** @format color *\/ type Color = string`)
+ * reaches every field of that type, a literal select included; a field's own
+ * `@format` still wins, since its tags apply afterwards.
+ */
+function applyAliasFormat(
+  schema: any,
+  alias: { format: string; items: boolean } | undefined,
+): void {
+  if (!alias) return;
+  const target = alias.items ? schema.items : schema;
+  if (target?.type === "string") target.format ??= FORMAT_ALIASES[alias.format] ?? alias.format;
+}
+
 // ---------------------------------------------------------------------------
 // Recognizing the framework's own types
 // ---------------------------------------------------------------------------
@@ -703,7 +717,10 @@ export function typeToJsonSchema(
         }
 
         const schema = fieldSchema(propType, typeHint, ctx, visited);
-        if (typeNode) orderEnumByHint(schema, typeNode.getAliasDeclarationTexts().join("\n"));
+        if (typeNode) {
+          orderEnumByHint(schema, typeNode.getAliasDeclarationTexts().join("\n"));
+          applyAliasFormat(schema, typeNode.getAliasFormat());
+        }
         if (schema.anyOf && schema.anyOf[0]?.$ref === resolvableRef().$ref) {
           // A block-ref field: nullability lives on the wrapper.
           if (isNullableHint(optional, typeHint)) schema.nullable = true;
