@@ -145,7 +145,7 @@ export const TEXT_SIZE_MAP: Record<string, string> = {
 };
 
 export interface GotchaFinding {
-  /** Gotcha number in the deco-to-tanstack-migration skill's css-styling.md */
+  /** Gotcha number in the target-tanstack-deco skill's references/styling.md (decocms/migrations) */
   gotcha: number;
   message: string;
 }

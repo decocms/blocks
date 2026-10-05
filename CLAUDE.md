@@ -10,7 +10,7 @@ This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo housing the
 
 ## Migration tooling policy (constitutional)
 
-This repo also hosts the migration scripts + skills that move Deco storefronts from Fresh/Deno to TanStack Start. That work is governed by signed-off architectural decisions (D1–D5) and a strict priority order — see [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc) (always-loaded) and [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) (full record). Defer to the plan when in doubt. This governs the migration *scripts and skills*, not the package split itself.
+This repo also hosts the migration scripts (the skills now live in `decocms/migrations`) that move Deco storefronts from Fresh/Deno to TanStack Start. That work is governed by signed-off architectural decisions (D1–D5) and a strict priority order — see [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc) (always-loaded) and [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) (full record). Defer to the plan when in doubt. This governs the migration *scripts and skills*, not the package split itself.
 
 ## Tech Stack
 
@@ -45,10 +45,7 @@ packages/
 examples/
 ├── tanstack-smoke/   real TanStack Start app consuming runtime+admin+tanstack
 └── next-smoke/       real Next.js app consuming runtime+admin+next
-.agents/skills/
-├── deco-to-tanstack-migration/   Fresh/Preact/Deno -> TanStack Start (site-code migration)
-├── deco-migrate-script/          the automated 8-phase script backing the above
-└── deco-next-package-migration/  old single-package @decocms/start -> the split, for Next.js sites
+.agents/skills/        framework + package skills (index: .agents/skills/README.md); .claude/skills is a symlink to it
 ```
 
 **The dependency graph is one-way and load-bearing.** `runtime` never imports from `admin`/`cli`/`tanstack`/`next`. `tanstack` and `next` never import from each other. When splitting a concern between packages, check which side of this graph it belongs on before writing code — a circular need (Phase 1's `createSiteSetup` originally needed both runtime-only and admin-only options) is resolved by splitting the function, not by adding a back-edge.
@@ -127,15 +124,16 @@ A few symbols have real, intended-for-external-use implementations that aren't r
 
 If you're the one wiring up a new site and hit one of these, the fix belongs in the package (add the export), not another copy-pasted local shim — check this list first.
 
-## Migration Skills
+## Skills: what lives here, what lives elsewhere
 
-Three, each with a distinct scope:
+One folder, `.agents/skills/`, and only skills that describe the framework and its packages **as they are today** (routes, caching, invoke, the migrate script's internals, apps-vtex cart, …). Claude Code discovers them through the `.claude/skills` symlink. Gate: `bun run skills:check && bun run skills:readme` (copied from `decocms/migrations` — SKILL.md ≤10KB as an index, references ≤15KB, generated index; CI in `.github/workflows/skills-check.yml`). New skill: `cp -r .agents/skills/template .agents/skills/<name>`.
 
-1. **`deco-to-tanstack-migration`** (`.agents/skills/`) — the site-code migration playbook, Fresh/Preact/Deno → TanStack Start/React/Workers. Import rewrites, Deco-framework elimination, commerce type migration, platform hooks (useCart/useUser/useWishlist), Vite config, documented gotchas.
-2. **`deco-migrate-script`** — the automated script backing (1): 8 phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap → compile), invoked via `@decocms/blocks-cli`'s `scripts/migrate.ts`.
-3. **`deco-next-package-migration`** — a different migration: moving a site *off the old single-package `@decocms/start`* (the abandoned `/next`, `/core`, `/node` tiers specifically) *onto the current split*, for sites building on `@decocms/nextjs`. Has its own import-mapping reference and worked `setup.ts`/admin-routes templates, proven end-to-end against a real production Next.js site.
+Everything else has another home — refer to it by skill **name**, never by path (those repos are private):
 
-Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework* (Fresh → TanStack), the third migrates a site's *package dependency* on an already-TanStack-or-Next site.
+- **`decocms/migrations`** — anything that only makes sense with a "before" and an "after": the Fresh → TanStack playbook (`source-deco-fresh`, `target-tanstack-deco`), running the migrator (`tools-migrate-script`), package upgrades (`upgrades-decocms-v6-to-v7`, `upgrades-next-package-split`), known issues by subject (`knowledge-known-issues`).
+- **`decocms/skills`** — generic craft true regardless of migration: incidents, perf audits, e2e, memory debugging, deployment.
+
+`deco-migrate-script` (here) is for *developing* the migrator in `@decocms/blocks-cli`; `tools-migrate-script` (migrations) is for *running* it on a site. Don't re-create a moved playbook here.
 
 ## Cache & upstream observability (apps must follow this to be covered)
 

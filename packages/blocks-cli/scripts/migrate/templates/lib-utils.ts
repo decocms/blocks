@@ -52,7 +52,7 @@ const STUB =
   "[deco-migrate] \`~/lib/vtex-transform.toProduct\` is a generated stub. " +
   "Replace with: import { toProduct } from '@decocms/apps-vtex/utils/transform' " +
   "(canonical signature: \`toProduct(product, sku, level, options)\`). " +
-  "Run \`deco-post-cleanup --fix\` or see the deco-to-tanstack-migration skill " +
+  "Run \`deco-post-cleanup --fix\` or see the target-tanstack-deco skill " +
   "(post-migration-cleanup § 5).";
 
 export function toProduct(_vtexProduct: any, ..._rest: any[]): Product {
@@ -68,7 +68,7 @@ const STUB_GET_IS_COOKIES =
   "[deco-migrate] \`~/lib/vtex-intelligent-search.getISCookiesFromBag\` is a " +
   "generated stub. Refactor: extract IS cookies from " +
   "\`request.headers.get('cookie')\` directly. The bag-based lookup mechanism " +
-  "does not exist on TanStack Start. See the deco-to-tanstack-migration " +
+  "does not exist on TanStack Start. See the target-tanstack-deco " +
   "skill (post-migration-cleanup § 5).";
 
 export function getISCookiesFromBag(_req?: any): Record<string, string> {
@@ -127,7 +127,7 @@ const STUB_WITH_SEGMENT_COOKIE =
   "stub. Replace with: import { withSegmentCookie } from " +
   "'@decocms/apps-vtex/utils/segment' (canonical signature: " +
   "\`withSegmentCookie(segment, headers?)\`). Run \`deco-post-cleanup --fix\` " +
-  "or see the deco-to-tanstack-migration skill.";
+  "or see the target-tanstack-deco skill.";
 
 export function getSegmentFromBag(_req?: any): Record<string, unknown> | null {
   throw new Error(STUB_GET_SEGMENT_FROM_BAG);

@@ -1,0 +1,30 @@
+name: skills-check
+
+# Same gate as decocms/migrations: frontmatter, size budgets, dead links,
+# one SKILL.md per skill, and a generated index that must not go stale.
+# No install needed — the scripts only use node:fs / node:path.
+
+on:
+  pull_request:
+    paths:
+      - ".agents/skills/**"
+      - "scripts/skills-*.ts"
+      - ".github/workflows/skills-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".agents/skills/**"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - run: bun run skills:check
+      - run: bun run skills:readme:check

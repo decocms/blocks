@@ -82,7 +82,7 @@ Options:
   --help, -h       Show this help
 
 The output is read-only. Codemods that rewrite htmx to React are a
-planned follow-up — see the deco-to-tanstack-migration skill for the
+planned follow-up — see the source-deco-fresh skill (decocms/migrations) for the
 per-pattern rewrite recipes.
 `);
 }
