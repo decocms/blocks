@@ -89,9 +89,18 @@ export interface ReadParams {
 
 export type SchemaGetParams = ReadParams;
 
+/**
+ * `schema: null` (with `version: null`) means the site has no schema yet:
+ * neither `.deco/schema.gen.json` nor `.deco/meta.gen.json` exists. It's a
+ * normal state, not an error: `blocks.list` and `blocks.apply` work without a
+ * schema, so a client still lists and edits the blocks (without typed forms)
+ * and keeps polling until a schema appears. There's no version to send as
+ * `ifNoneMatch`, so the poll reads it unconditionally; the answer is tiny.
+ */
 export type SchemaGetResult =
   | { notModified: true; version: string }
-  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta };
+  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta }
+  | { notModified: false; version: null; resolvedRef: string | null; schema: null };
 
 export type BlocksListParams = ReadParams;
 

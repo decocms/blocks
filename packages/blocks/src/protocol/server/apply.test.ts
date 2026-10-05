@@ -107,7 +107,7 @@ describe("the schema a write depends on", () => {
     });
     const { version } = await client.schemaGet();
     const error = await rejects(
-      client.blocksApply({ set: { a: {} }, ifSchemaMatch: version }),
+      client.blocksApply({ set: { a: {} }, ifSchemaMatch: version ?? undefined }),
       ErrorCode.Conflict,
     );
     expect(error.data).toEqual({ schema: { expected: version, actual: expect.any(String) } });
@@ -120,7 +120,7 @@ describe("the schema a write depends on", () => {
     const { version } = await client.schemaGet();
     await client.blocksApply({ set: { a: {} } });
     await client.blocksApply({ delete: ["a"] });
-    await client.blocksApply({ delete: ["b"], ifSchemaMatch: version });
+    await client.blocksApply({ delete: ["b"], ifSchemaMatch: version ?? undefined });
     // A set depends on the schema (the secret guard); a plain delete doesn't.
     expect(attempts).toEqual([version, undefined]);
   });

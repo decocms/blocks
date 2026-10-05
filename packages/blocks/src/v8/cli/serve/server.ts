@@ -207,7 +207,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     ? ".deco/schema.gen.json"
     : fs.existsSync(paths.legacySchema)
       ? ".deco/meta.gen.json"
-      : "no schema: run deco schema";
+      : "no schema yet: run deco schema for typed forms";
   const count = Object.keys(readSavedBlocks(paths.blocks).blocks).length;
   const description = await storage.describe();
   const label = (name: string) => name.padEnd(21);

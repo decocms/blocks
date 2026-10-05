@@ -1755,10 +1755,18 @@ describe("content-protocol.mdx", () => {
     });
   });
 
-  it("cp-31: no schema file gives NotFound", async () => {
+  it("cp-31: no schema file gives schema: null, and blocks still list and save", async () => {
     const f = fixture();
     const s1 = await serveFixture(f.root);
-    expect((await call(s1, "schema.get")).error.code).toBe(ErrorCode.NotFound);
+    expect((await call(s1, "schema.get")).result).toEqual({
+      notModified: false,
+      version: null,
+      resolvedRef: null,
+      schema: null,
+    });
+    const block = { __resolveType: "site/sections/Hero.tsx", title: "Hi", items: [{ n: 1 }] };
+    expect((await call(s1, "blocks.apply", { set: { cp31: block } })).result).toBeTruthy();
+    expect((await call(s1, "blocks.list")).result.blocks.cp31).toEqual(block);
   });
 
   it("cp-32: a Secret field holding a plain string is InvalidBlock", async () => {
@@ -1917,6 +1925,7 @@ describe("content-protocol.mdx", () => {
       "apply/set-wins",
       "apply/if-match",
       "apply/schema-precondition",
+      "schema/absent",
       "idempotency/retry",
       "idempotency/simultaneous",
       "idempotency/restart",

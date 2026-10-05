@@ -289,6 +289,7 @@ export const writeCases: ConformanceCase[] = [
       }
       if (ctx.options.hasSchema === false) return ctx.skip("no schema");
       const { version } = await ctx.client.schemaGet();
+      assert(version !== null, "the endpoint has a schema");
       const error = await expectError(
         ctx.client.blocksApply({ set: { [name]: {} }, ifSchemaMatch: `${version}-old` }),
         ErrorCode.Conflict,

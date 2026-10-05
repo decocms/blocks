@@ -63,18 +63,36 @@ export const readCases: ConformanceCase[] = [
     id: "schema/read",
     title: "schema.get returns the schema and a version, and 'not modified' for that version",
     async run(ctx) {
-      if (ctx.options.hasSchema === false) {
-        await expectError(ctx.client.schemaGet(), ErrorCode.NotFound, "no schema");
-        return;
-      }
+      if (ctx.options.hasSchema === false) return ctx.skip("no schema (see schema/absent)");
       const first = await ctx.client.schemaGet();
-      assert(!first.notModified, "the first read returns the schema");
+      assert(!first.notModified && first.schema !== null, "the first read returns the schema");
       assert(typeof first.version === "string" && first.version.length > 0, "a version");
       assert(typeof first.schema === "object" && first.schema !== null, "a schema object");
       const again = await ctx.client.schemaGet({ ifNoneMatch: first.version });
       assertEqual(again, { notModified: true, version: first.version }, "the conditional read");
       const stale = await ctx.client.schemaGet({ ifNoneMatch: `${first.version}-stale` });
       assert(!stale.notModified, "another version returns the schema");
+    },
+  },
+  {
+    id: "schema/absent",
+    title: "without a schema, schema.get is schema: null (not an error) and blocks still list",
+    async run(ctx) {
+      if (ctx.options.hasSchema !== false) return ctx.skip("the endpoint has a schema");
+      const result = await ctx.client.schemaGet();
+      const d = await ctx.describe();
+      assertEqual(
+        result,
+        {
+          notModified: false,
+          version: null,
+          resolvedRef: d.refs === null ? null : result.notModified ? null : result.resolvedRef,
+          schema: null,
+        },
+        "the no-schema result",
+      );
+      const list = await ctx.client.blocksList();
+      assert(!list.notModified, "blocks.list returns the map without a schema");
     },
   },
   {
@@ -112,7 +130,7 @@ export const readCases: ConformanceCase[] = [
           : [
               {
                 method: "schema.get" as const,
-                params: { ifNoneMatch: (await ctx.client.schemaGet()).version },
+                params: { ifNoneMatch: (await ctx.client.schemaGet()).version ?? undefined },
               },
               ...calls,
             ],

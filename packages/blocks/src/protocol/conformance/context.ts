@@ -23,7 +23,7 @@ export interface ConformanceOptions {
   secretField?: { blockType: string; field: string };
   /** The `.deco/secrets.pub` content the endpoint should report, if the harness wrote one. */
   secretsPublicKey?: string;
-  /** Whether the endpoint has a schema (default true). `false` checks NotFound instead. */
+  /** Whether the endpoint has a schema (default true). `false` checks the `schema: null` result instead. */
   hasSchema?: boolean;
   /**
    * The endpoint serves a schema larger than its `limits.maxSchemaBytes`, so

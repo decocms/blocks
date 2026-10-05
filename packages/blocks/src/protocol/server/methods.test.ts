@@ -54,7 +54,7 @@ describe("schema.get", () => {
       resolvedRef: null,
       schema: schemaFixture,
     });
-    expect(await client.schemaGet({ ifNoneMatch: first.version })).toEqual({
+    expect(await client.schemaGet({ ifNoneMatch: first.version ?? undefined })).toEqual({
       notModified: true,
       version: first.version,
     });
@@ -66,8 +66,38 @@ describe("schema.get", () => {
     expect(!result.notModified && result.schema).toEqual({ v7: true });
   });
 
-  it("is NotFound without a schema", async () => {
+  it("reports 'no schema yet' as schema: null, not an error", async () => {
     const { client } = setup({ state: { schema: null } });
+    expect(await client.schemaGet()).toEqual({
+      notModified: false,
+      version: null,
+      resolvedRef: null,
+      schema: null,
+    });
+  });
+
+  it("serves the schema once it appears, and null again once it's gone", async () => {
+    const { client, storage } = setup({ state: { schema: null } });
+    expect((await client.schemaGet()).version).toBeNull();
+    storage.setSchema(schemaFixture);
+    const first = await client.schemaGet();
+    expect(first).toMatchObject({ notModified: false, schema: schemaFixture });
+    expect(typeof first.version).toBe("string");
+    storage.setSchema(null);
+    expect(await client.schemaGet()).toMatchObject({ version: null, schema: null });
+  });
+
+  it("lists, reads and writes blocks without a schema", async () => {
+    const { client } = setup({ state: { schema: null } });
+    const block = { __resolveType: "site/sections/Hero.tsx", title: "Hi", n: 1, ok: true };
+    const { versions } = await client.blocksApply({ set: { hero: block } });
+    const list = await client.blocksList();
+    expect(!list.notModified && list.blocks).toEqual({ hero: block });
+    expect(!list.notModified && list.versions.hero).toBe(versions.hero);
+  });
+
+  it("is NotFound without a .deco folder, schema or not", async () => {
+    const { client } = setup({ state: { schema: null, hasDecoFolder: false } });
     await rejects(client.schemaGet(), ErrorCode.NotFound);
   });
 
@@ -421,12 +451,12 @@ describe("blocks.apply", () => {
       const { version } = await client.schemaGet();
       storage.setSchema({ ...schemaFixture, changed: true });
       const error = await rejects(
-        client.blocksApply({ set: { a: {} }, ifSchemaMatch: version }),
+        client.blocksApply({ set: { a: {} }, ifSchemaMatch: version ?? undefined }),
         ErrorCode.Conflict,
       );
       expect(error.data).toEqual({ schema: { expected: version, actual: expect.any(String) } });
       const fresh = await client.schemaGet();
-      await client.blocksApply({ set: { a: {} }, ifSchemaMatch: fresh.version });
+      await client.blocksApply({ set: { a: {} }, ifSchemaMatch: fresh.version ?? undefined });
     });
 
     it("rechecks every guard after storage moved under a commit attempt", async () => {

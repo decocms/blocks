@@ -2,7 +2,7 @@
  * The three read methods: `describe`, `schema.get` and `blocks.list`.
  */
 import { publicKeyDerFromPem } from "../../ciphertext.ts";
-import { limitExceeded, notFound, unavailable } from "../../errors.ts";
+import { limitExceeded, unavailable } from "../../errors.ts";
 import {
   ASSETS_URL_PREFIX,
   type BlocksListResult,
@@ -106,7 +106,10 @@ export async function schemaGet(core: Core, params: ReadParams): Promise<SchemaG
   const limits = core.limits(description);
   const stored = await core.storage.readSchema({ ref: params.ref });
   if (stored === null) {
-    throw notFound("no schema: neither .deco/schema.gen.json nor .deco/meta.gen.json exists");
+    // No schema yet is a state, not an error. The snapshot still refuses a
+    // site with no .deco folder (NotFound) and reports the resolved branch.
+    const snapshot = await core.storage.snapshot({ ref: params.ref });
+    return { notModified: false, version: null, resolvedRef: snapshot.resolvedRef, schema: null };
   }
   if (params.ifNoneMatch !== undefined && params.ifNoneMatch === stored.version) {
     return { notModified: true, version: stored.version };
