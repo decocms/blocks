@@ -84,7 +84,8 @@ function describe(): {
 
 function schemaGet(params?: { ref?: string; ifNoneMatch?: string }):
   | { notModified: true; version: string }
-  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta };
+  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta }
+  | { notModified: false; version: null; resolvedRef: string | null; schema: null };   // no schema yet
 
 function blocksList(params?: { ref?: string; ifNoneMatch?: string }):
   | { notModified: true; revision: string; resolvedRef: string | null }
@@ -104,6 +105,12 @@ function blocksApply(params: {
 ```
 
 Versions and revisions are opaque strings defined by each storage (a git blob hash on GitHub and on disk), compared only for equality and never across servers. Everything else is fixed inside the root: `blocks.list` and `blocks.apply` read and write `<root>/.deco/blocks`, and `schema.get` reads `<root>/.deco/schema.gen.json`, falling back to `<root>/.deco/meta.gen.json`, and parses it before serving, so a file caught mid-write is never served torn. With branches, a read of a branch that doesn't exist yet returns the default branch's content (reported in `resolvedRef`), and the first write creates the branch.
+
+### No schema yet
+
+A site whose schema isn't generated yet (`deco schema` hasn't run) is a normal state, not an error. `schema.get` returns `schema: null` with `version: null`, and `blocks.list` and `blocks.apply` work as usual: without a schema there's no secret guard to apply and no `ifSchemaMatch` to send (one that's sent conflicts, with `actual: null`). There's no version to poll with, so the client polls `schema.get` without `ifNoneMatch` until a schema appears; the answer is a few bytes. The site editor lists every saved block meanwhile, grouped by `__resolveType`, and opens each one as plain fields inferred from its JSON, with a banner that says how to generate the forms. A site with no `.deco` folder at all is still NotFound.
+
+`describe` doesn't report whether a schema exists: answering would mean reading the whole schema on every `describe`, and `schema.get` already says so in a few bytes.
 
 `blocks.apply` is the only write:
 
@@ -144,7 +151,7 @@ After its own write, a client adopts the returned revision, so its next poll is 
 
 | Code | Name | When |
 |---|---|---|
-| -32001 | NotFound | No schema, no `.deco` folder at all (the site editor's "not a Deco site"), or a branch that can't be created |
+| -32001 | NotFound | No `.deco` folder at all (the site editor's "not a Deco site"), or a branch that can't be created. No schema isn't an error: see [No schema yet](#no-schema-yet) |
 | -32002 | Conflict | An `ifMatch` or `ifSchemaMatch` precondition failed |
 | -32003 | InvalidBlock | A name or value breaks the rules below, or a `Secret` field holds anything but a `secret` block with a well-formed `ciphertext` (the secret guard) |
 | -32005 | ReadOnly | A write to a read-only endpoint |
