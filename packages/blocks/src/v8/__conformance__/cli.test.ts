@@ -101,7 +101,6 @@ function rpcCall(server: RunningServer, body: unknown, headers: Record<string, s
   return raw(server.endpoint, {
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${server.token}`,
       ...headers,
     },
     body: JSON.stringify(body),
@@ -137,7 +136,7 @@ async function serveFixture(
   options: Parameters<typeof startServer>[0] = {},
 ): Promise<RunningServer & { log: ReturnType<typeof recorder> }> {
   const log = recorder();
-  const s = await startServer({ cwd: root, port: 0, token: "t0k3n", reporter: log, ...options });
+  const s = await startServer({ cwd: root, port: 0, reporter: log, ...options });
   servers.push(s);
   return Object.assign(s, { log });
 }
@@ -634,8 +633,6 @@ describe("cli.mdx", () => {
         "127.0.0.1",
         "--preview",
         "localhost:8001",
-        "--token",
-        "t",
         "--allow-origin",
         "https://a",
         "--allow-origin",
@@ -649,12 +646,11 @@ describe("cli.mdx", () => {
       port: "1",
       host: "127.0.0.1",
       preview: "localhost:8001",
-      token: "t",
       "allow-origin": ["https://a", "https://b"],
       assets: "static",
       "read-only": true,
     });
-    for (const flag of ["--watch", "--studio", "--open", "--cors"]) {
+    for (const flag of ["--watch", "--studio", "--open", "--cors", "--token"]) {
       const r = await deco(["serve", flag], f.root);
       expect(r.code).toBe(1);
       expect(r.out).toContain(`unknown flag ${flag}`);
@@ -666,7 +662,7 @@ describe("cli.mdx", () => {
     const log = recorder();
     let s: RunningServer;
     try {
-      s = await startServer({ cwd: f.root, reporter: log, token: "x" });
+      s = await startServer({ cwd: f.root, reporter: log });
     } catch (error) {
       // Something else holds 4545 on this machine: the error names the port.
       expect(String(error)).toContain("port 4545 is in use");
@@ -686,7 +682,7 @@ describe("cli.mdx", () => {
 
     const open = await serveFixture(f.root, { host: "0.0.0.0" });
     const warns = open.log.lines.filter((l) => l.level === "warn").map((l) => l.message);
-    expect(warns.join("\n")).toMatch(/other machines can reach this server/);
+    expect(warns.join("\n")).toMatch(/other machines on the network can reach this server/);
   });
 
   it("cli-16: --preview defaults to the Vite config's port, else http://localhost:5173", async () => {
@@ -707,24 +703,33 @@ describe("cli.mdx", () => {
     });
   });
 
-  it("cli-17: --token / DECO_SERVE_TOKEN fix the token; otherwise random per run", async () => {
+  it("cli-17: deco serve has no token: no Authorization, DECO_SERVE_TOKEN ignored, none in the link", async () => {
     const f = fixture();
-    const a = await serveFixture(f.root, { token: "abc" });
-    expect(a.token).toBe("abc");
-    expect((await call(a, "describe")).result.protocol).toBe("deco-content");
-
-    const b = await serveFixture(f.root, { token: undefined, env: { DECO_SERVE_TOKEN: "abc" } });
-    expect(b.token).toBe("abc");
-    const ok = await raw(b.endpoint, {
-      headers: { "content-type": "application/json", authorization: "Bearer abc" },
+    process.env.DECO_SERVE_TOKEN = "abc";
+    let a: Awaited<ReturnType<typeof serveFixture>>;
+    try {
+      a = await serveFixture(f.root);
+    } finally {
+      delete process.env.DECO_SERVE_TOKEN;
+    }
+    expect("token" in a).toBe(false);
+    expect(a.siteEditorUrl).toBe(
+      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(a.endpoint)}`,
+    );
+    expect(a.log.text()).not.toMatch(/token/i);
+    const plain = await raw(a.endpoint, {
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
-    expect(ok.json().result.protocol).toBe("deco-content");
-
-    const c = await serveFixture(f.root, { token: undefined, env: {} });
-    const d = await serveFixture(f.root, { token: undefined, env: {} });
-    expect(c.token).not.toBe(d.token);
-    expect(c.token.length).toBeGreaterThanOrEqual(32);
+    expect(plain.status).toBe(200);
+    expect(plain.json().result.protocol).toBe("deco-content");
+    // An Authorization header is neither needed nor checked.
+    const stray = await rpcCall(
+      a,
+      { jsonrpc: "2.0", id: 1, method: "describe" },
+      { authorization: "Bearer anything" },
+    );
+    expect(stray.status).toBe(200);
   });
 
   it("cli-18 / cp-42: --allow-origin is repeatable; other origins are refused", async () => {
@@ -755,7 +760,7 @@ describe("cli.mdx", () => {
     const s = await serveFixture(f.root, { assets: "static/img" });
     const r = await raw(s.endpoint.replace("/rpc", "/assets/x.png"), {
       method: "PUT",
-      headers: { "content-type": "image/png", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "image/png" },
       body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
     });
     expect(r.status).toBeGreaterThanOrEqual(200);
@@ -776,7 +781,7 @@ describe("cli.mdx", () => {
     expect(f.exists(".deco/blocks/A.json")).toBe(false);
     const up = await raw(s.endpoint.replace("/rpc", "/assets/x.png"), {
       method: "PUT",
-      headers: { "content-type": "image/png", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "image/png" },
       body: Buffer.from([1, 2, 3]),
     });
     expect(up.status).toBeGreaterThanOrEqual(400);
@@ -1267,10 +1272,7 @@ describe("site-editor.mdx", () => {
       ".deco/blocks/B.json": { __resolveType: "page", name: "B", path: "/b" },
     });
     fs.writeFileSync(path.join(appRoot, ".deco/schema.gen.json"), "{}\n");
-    const s = await serveFixture(path.join(appRoot, "src"), {
-      env: {},
-      token: "secret-token",
-    });
+    const s = await serveFixture(path.join(appRoot, "src"));
     expect(repo).toBeTruthy();
     const lines = s.log.lines.map((l) => l.message);
     const port = s.port;
@@ -1279,11 +1281,11 @@ describe("site-editor.mdx", () => {
       "Root                 apps/storefront   (.deco/schema.gen.json, 2 blocks)",
       "Assets               apps/storefront/public/assets   (PUT /assets/<name>)",
       "Preview              http://localhost:5173",
-      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${port}/rpc`)}&token=secret-token`,
+      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${port}/rpc`)}`,
     ]);
     const url = new URL(s.siteEditorUrl);
     expect(url.search).toBe("");
-    expect(url.hash).toContain("token=secret-token");
+    expect(url.hash).not.toContain("token");
   });
 
   it("se-02: the RPC endpoint is /rpc; other paths 404", async () => {
@@ -1291,7 +1293,7 @@ describe("site-editor.mdx", () => {
     const s = await serveFixture(f.root);
     expect((await call(s, "describe")).result.protocol).toBe("deco-content");
     const other = await raw(s.endpoint.replace("/rpc", "/api"), {
-      headers: { "content-type": "application/json", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
     expect(other.status).toBe(404);
@@ -1341,10 +1343,10 @@ describe("site-editor.mdx", () => {
   it("se-05 / cp-45: uploads never reuse a name", async () => {
     const f = fixture();
     const s = await serveFixture(f.root);
-    const put = (body: Buffer, type = "image/jpeg", token = s.token, name = "summer-banner.jpg") =>
+    const put = (body: Buffer, type = "image/jpeg", name = "summer-banner.jpg") =>
       raw(s.endpoint.replace("/rpc", `/assets/${name}`), {
         method: "PUT",
-        headers: { "content-type": type, authorization: `Bearer ${token}` },
+        headers: { "content-type": type },
         body,
       });
     const ok = (status: number) => status >= 200 && status < 300;
@@ -1357,13 +1359,12 @@ describe("site-editor.mdx", () => {
     expect(second.json().path).toMatch(/^\/assets\/summer-banner.+\.jpg$/);
     expect(f.read("public/assets/summer-banner.jpg")).toBe("first");
     expect(ok((await put(Buffer.from("<p>"), "text/html")).status)).toBe(false);
-    expect((await put(Buffer.from("x"), "image/jpeg", "wrong")).status).toBe(401);
     for (const [type, name] of [
       ["video/mp4", "clip.mp4"],
       ["font/woff2", "brand.woff2"],
       ["application/pdf", "terms.pdf"],
     ]) {
-      expect(ok((await put(Buffer.from("x"), type, s.token, name)).status), type).toBe(true);
+      expect(ok((await put(Buffer.from("x"), type, name)).status), type).toBe(true);
     }
     const max = (await call(s, "describe")).result.assets.maxBytes;
     expect(typeof max).toBe("number");
@@ -1454,7 +1455,6 @@ describe("content-protocol.mdx", () => {
     expect(batch.json().map((r: Json) => r.id)).toEqual([1, 2]);
     const get = await raw(s.endpoint, {
       method: "GET",
-      headers: { authorization: `Bearer ${s.token}` },
     });
     expect(get.status).toBeGreaterThanOrEqual(400);
   });
@@ -1481,25 +1481,23 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp06.json")).toBe(false);
   });
 
-  it("cp-07 / cp-41: 401 for a bad token, 413 for an oversized body, 200 for a conflict", async () => {
+  it("cp-07 / cp-41: deco serve never answers 401; 413 for an oversized body, 200 for a conflict", async () => {
     const noAuth = await raw(s.endpoint, {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
-    expect(noAuth.status).toBe(401);
-    expect(noAuth.json().error.code).toBe(ErrorCode.Unauthorized);
-    const bad = await rpcCall(
+    expect(noAuth.status).toBe(200);
+    const stray = await rpcCall(
       s,
       { jsonrpc: "2.0", id: 1, method: "describe" },
-      {
-        authorization: "Bearer nope",
-      },
+      { authorization: "Bearer nope" },
     );
-    expect(bad.status).toBe(401);
+    expect(stray.status).toBe(200);
+    expect(stray.json().error).toBeUndefined();
     // fetch, like a browser: Node's raw http client sees the early 413 as a reset.
     const huge = await fetch(s.endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
@@ -1861,9 +1859,14 @@ describe("content-protocol.mdx", () => {
     const headers = (host: string) => ({
       host,
       "content-type": "application/json",
-      authorization: `Bearer ${s.token}`,
     });
-    expect((await raw(s.endpoint, { headers: headers("attacker.com"), body })).status).toBe(403);
+    for (const bad of [
+      "attacker.com",
+      "127.0.0.1.attacker.com",
+      `127.0.0.1.attacker.com:${s.port}`,
+    ]) {
+      expect((await raw(s.endpoint, { headers: headers(bad), body })).status, bad).toBe(403);
+    }
     expect((await raw(s.endpoint, { headers: headers(`127.0.0.1:${s.port}`), body })).status).toBe(
       200,
     );
@@ -1874,7 +1877,7 @@ describe("content-protocol.mdx", () => {
 
   it("cp-44: non-JSON Content-Type on /rpc is refused", async () => {
     const r = await raw(s.endpoint, {
-      headers: { "content-type": "text/plain", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "text/plain" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
     expect(r.status).toBe(415);
@@ -1976,7 +1979,6 @@ describe("content-protocol.mdx", () => {
     const report = await runConformance({
       endpoint: s1.endpoint,
       assetsEndpoint: s1.endpoint.replace("/rpc", "/assets/"),
-      token: s1.token,
       secretField: { blockType: "hero", field: "apiKey" },
       secretsPublicKey: publicKeyPem,
     } as never);

@@ -412,9 +412,7 @@ describe("deco serve", () => {
     const server = await startServer({
       cwd: site.root,
       port: 0,
-      token: "t",
       reporter: recorder(),
-      env: {},
     });
     try {
       const body: any = await new Promise((resolve, reject) => {
@@ -426,7 +424,6 @@ describe("deco serve", () => {
             path: "/rpc",
             headers: {
               host: `127.0.0.1:${server.port}`,
-              authorization: "Bearer t",
               "content-type": "application/json",
             },
           },

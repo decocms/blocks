@@ -4,17 +4,20 @@
  *
  * The content protocol is `@decocms/blocks/protocol`'s `createContentHandler`
  * (at `/rpc`) and `createAssetHandler` (at `/assets/<name>`) over the
- * filesystem storage; they own the bearer token, `Content-Type`, size limits
- * and upload rules. This file is the Node HTTP layer and the checks that
+ * filesystem storage; they own `Content-Type`, size limits and upload rules.
+ * `deco serve` has no token: it is protected by where it listens and by the
+ * checks below. This file is the Node HTTP layer and the checks that
  * depend on where it runs:
  *
- * - Listens on 127.0.0.1 unless `--host` says otherwise (with a warning).
+ * - Listens on 127.0.0.1 unless `--host` says otherwise (with a warning:
+ *   nothing else protects it then).
  * - Browser requests are accepted only from the site editor's origins and
  *   `--allow-origin`; CORS and Chrome's local-network preflights are answered.
  * - Any `Host` other than the server's own address is refused (DNS rebinding).
+ * - A request without `Origin` (curl, a script) is accepted: a local process
+ *   can already edit the files.
  * - Every save regenerates `.deco/blocks.gen.ts`.
  */
-import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -52,19 +55,16 @@ export interface ServeOptions {
   host?: string;
   /** The local app the site editor previews: `localhost:8001` or a full loopback URL. */
   preview?: string;
-  token?: string;
   allowOrigins?: string[];
   /** The upload folder, relative to the folder that contains `.deco`. */
   assets?: string;
   readOnly?: boolean;
   reporter?: Reporter;
-  env?: NodeJS.ProcessEnv;
 }
 
 export interface RunningServer {
   /** The content protocol endpoint, `http://127.0.0.1:4545/rpc`. */
   endpoint: string;
-  token: string;
   siteEditorUrl: string;
   port: number;
   close(): Promise<void>;
@@ -111,20 +111,10 @@ function previewUrl(input: string): string {
 /** Start the server; resolves once it listens. */
 export async function startServer(options: ServeOptions = {}): Promise<RunningServer> {
   const reporter = options.reporter ?? consoleReporter;
-  const env = options.env ?? process.env;
   const paths = decoPaths(findDecoRoot(options));
   const host = options.host ?? DEFAULT_HOST;
   const requestedPort = options.port ?? DEFAULT_PORT;
   const readOnly = options.readOnly ?? false;
-  if (options.token !== undefined && options.token.trim() === "") {
-    throw new CliError("--token can't be empty: pass a token, or leave it out for a random one");
-  }
-  if (options.token === undefined && env.DECO_SERVE_TOKEN?.trim() === "") {
-    throw new CliError(
-      "DECO_SERVE_TOKEN can't be empty: set a token, or unset it for a random one",
-    );
-  }
-  const token = options.token ?? env.DECO_SERVE_TOKEN ?? randomBytes(32).toString("base64url");
   const preview = previewUrl(options.preview ?? defaultPreviewUrl(paths.root));
   const allowedOrigins = new Set(
     [...STUDIO_ORIGINS, ...(options.allowOrigins ?? [])].map((o) => o.replace(/\/+$/, "")),
@@ -161,12 +151,11 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     },
   };
   const rpc = createContentHandler(storage, {
-    token,
     server: { name: "deco-cli", version: packageVersion() },
     preview: { url: preview },
     onError: (error) => reporter.warn(String((error as Error)?.message ?? error)),
   });
-  const assets = createAssetHandler(storage, { token });
+  const assets = createAssetHandler(storage);
 
   let port = requestedPort;
   const allowedHosts = () => {
@@ -198,7 +187,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       if (req.method === "OPTIONS") {
         const preflight: Record<string, string> = {
           "access-control-allow-methods": "POST, PUT, OPTIONS",
-          "access-control-allow-headers": "authorization, content-type",
+          "access-control-allow-headers": "content-type",
           "access-control-max-age": "600",
         };
         // Chrome's Local Network Access / Private Network Access preflight.
@@ -236,11 +225,11 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
 
   const displayHost = host.includes(":") ? `[${host}]` : host;
   const endpoint = `http://${displayHost}:${port}/rpc`;
-  const siteEditorUrl = `${STUDIO_ORIGIN}/site-editor#endpoint=${encodeURIComponent(endpoint)}&token=${encodeURIComponent(token)}`;
+  const siteEditorUrl = `${STUDIO_ORIGIN}/site-editor#endpoint=${encodeURIComponent(endpoint)}`;
 
   if (!LOOPBACK.has(host)) {
     reporter.warn(
-      `warning: listening on ${host}: other machines can reach this server (the token still applies)`,
+      `warning: listening on ${host}: other machines on the network can reach this server and read and write the content`,
     );
   }
   const schemaFile = fs.existsSync(paths.schema)
@@ -263,7 +252,6 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
 
   return {
     endpoint,
-    token,
     siteEditorUrl,
     port,
     close: () =>

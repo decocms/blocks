@@ -24,13 +24,12 @@ const COMMANDS: Record<string, { usage: string; flags: Record<string, FlagKind> 
   check: { usage: "deco check   [--root <dir>]", flags: { root: "string" } },
   serve: {
     usage:
-      "deco serve   [--root <dir>] [--port <n>] [--host <addr>] [--preview <host:port|url>] [--token <t>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]",
+      "deco serve   [--root <dir>] [--port <n>] [--host <addr>] [--preview <host:port|url>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]",
     flags: {
       root: "string",
       port: "string",
       host: "string",
       preview: "string",
-      token: "string",
       "allow-origin": "list",
       assets: "string",
       "read-only": "boolean",
@@ -213,7 +212,6 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
           port,
           host: flags.host as string | undefined,
           preview: flags.preview as string | undefined,
-          token: flags.token as string | undefined,
           allowOrigins: flags["allow-origin"] as string[] | undefined,
           assets: flags.assets as string | undefined,
           readOnly: Boolean(flags["read-only"]),

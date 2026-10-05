@@ -167,7 +167,7 @@ describe("runCli", () => {
       stop = resolve;
     });
     const out = recorder();
-    const done = runCli(["serve", "--port", "0", "--token", "t"], {
+    const done = runCli(["serve", "--port", "0"], {
       cwd: fixture.root,
       reporter: out,
       until,

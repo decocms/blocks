@@ -36,7 +36,6 @@ afterEach(async () => {
   fixture?.remove();
 });
 
-const TOKEN = "test-token";
 const STUDIO = "https://studio.decocms.com";
 const hero = { __resolveType: "hero", title: "Summer", size: "md" };
 
@@ -51,9 +50,7 @@ async function start(
   server = await startServer({
     cwd: fixture.root,
     port: 0,
-    token: TOKEN,
     reporter: out,
-    env: {},
     ...options,
   });
   return server;
@@ -69,7 +66,11 @@ interface Reply {
 function request(
   method: string,
   pathname: string,
-  { body, headers = {} }: { body?: string | Buffer; headers?: Record<string, string> } = {},
+  {
+    body,
+    headers = {},
+    noHost = false,
+  }: { body?: string | Buffer; headers?: Record<string, string>; noHost?: boolean } = {},
 ): Promise<Reply> {
   const port = server!.port;
   return new Promise((resolve, reject) => {
@@ -79,7 +80,8 @@ function request(
         port,
         method,
         path: pathname,
-        headers: { host: `127.0.0.1:${port}`, ...headers },
+        headers: noHost ? headers : { host: `127.0.0.1:${port}`, ...headers },
+        setHost: !noHost,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -103,7 +105,7 @@ function request(
   });
 }
 
-const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+const json = { "content-type": "application/json" };
 let nextId = 1;
 async function rpc(method: string, params?: unknown, headers: Record<string, string> = {}) {
   const reply = await request("POST", "/rpc", {
@@ -113,7 +115,7 @@ async function rpc(method: string, params?: unknown, headers: Record<string, str
       method,
       ...(params === undefined ? {} : { params }),
     }),
-    headers: { ...auth, ...headers },
+    headers: { ...json, ...headers },
   });
   return reply.body;
 }
@@ -127,23 +129,45 @@ describe("starting", () => {
     expect(text).toContain("Assets               public/assets   (PUT /assets/<name>)");
     expect(text).toContain("Preview              http://localhost:3001");
     expect(server!.siteEditorUrl).toBe(
-      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(server!.endpoint)}&token=${TOKEN}`,
+      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(server!.endpoint)}`,
     );
+    expect(text).toContain(`Site editor          ${server!.siteEditorUrl}`);
   });
 
-  it("uses DECO_SERVE_TOKEN, else a random token per run", async () => {
-    await start({ token: undefined, env: { DECO_SERVE_TOKEN: "from-env" } });
-    expect(server!.token).toBe("from-env");
-    await server!.close();
-    server = await startServer({ cwd: fixture.root, port: 0, reporter: out, env: {} });
-    expect(server.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  it("has no token: nothing about one in its output, and DECO_SERVE_TOKEN is ignored", async () => {
+    process.env.DECO_SERVE_TOKEN = "from-env";
+    try {
+      await start();
+    } finally {
+      delete process.env.DECO_SERVE_TOKEN;
+    }
+    expect("token" in server!).toBe(false);
+    expect(server!.siteEditorUrl).not.toMatch(/token/i);
+    expect(out.text()).not.toMatch(/token/i);
+    const reply = await request("POST", "/rpc", {
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
+      headers: { ...json, authorization: "Bearer from-env" },
+    });
+    expect(reply.status).toBe(200);
+    expect(reply.body.result.protocol).toBe("deco-content");
   });
 
-  it("warns when listening beyond loopback", async () => {
+  it("warns when listening beyond loopback, and accepts its own Host there", async () => {
     await start({ host: "0.0.0.0" });
-    expect(
-      out.lines.some((l) => l.level === "warn" && /other machines can reach/.test(l.message)),
-    ).toBe(true);
+    const warnings = out.lines.filter((l) => l.level === "warn");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toMatch(/other machines on the network can reach this server/);
+    expect(warnings[0].message).not.toMatch(/token/i);
+    const describe = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
+    for (const host of [`0.0.0.0:${server!.port}`, `localhost:${server!.port}`]) {
+      const reply = await request("POST", "/rpc", { body: describe, headers: { ...json, host } });
+      expect(reply.status, host).toBe(200);
+    }
+    const evil = await request("POST", "/rpc", {
+      body: describe,
+      headers: { ...json, host: "evil.com" },
+    });
+    expect(evil.status).toBe(403);
   });
 
   it("defaults the app to the Vite config's port, read as text, else 5173", async () => {
@@ -167,13 +191,6 @@ describe("starting", () => {
       await expect(start({ preview: bad })).rejects.toThrow(/--preview must be a local address/);
     }
   });
-
-  it("refuses an empty token", async () => {
-    await expect(start({ token: "" })).rejects.toThrow(/--token can't be empty/);
-    await expect(start({ token: undefined, env: { DECO_SERVE_TOKEN: "  " } })).rejects.toThrow(
-      /DECO_SERVE_TOKEN can't be empty/,
-    );
-  });
 });
 
 describe("the security checks", () => {
@@ -181,21 +198,31 @@ describe("the security checks", () => {
     await start({ allowOrigins: ["http://localhost:8000"] });
     const evil = await request("POST", "/rpc", {
       body: "{}",
-      headers: { ...auth, origin: "https://evil.example" },
+      headers: { ...json, origin: "https://evil.example" },
     });
     expect(evil.status).toBe(403);
     expect(evil.headers["access-control-allow-origin"]).toBeUndefined();
     for (const origin of [STUDIO, "http://localhost:8000"]) {
       const ok = await request("POST", "/rpc", {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
-        headers: { ...auth, origin },
+        headers: { ...json, origin },
       });
       expect(ok.status).toBe(200);
       expect(ok.headers["access-control-allow-origin"]).toBe(origin);
     }
   });
 
-  it("answers the CORS and local-network preflight without a token", async () => {
+  it("accepts a request without Origin (a local process)", async () => {
+    await start();
+    const reply = await request("POST", "/rpc", {
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
+      headers: json,
+    });
+    expect(reply.status).toBe(200);
+    expect(reply.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("answers the CORS and local-network preflight", async () => {
     await start();
     const reply = await request("OPTIONS", "/rpc", {
       headers: {
@@ -207,21 +234,44 @@ describe("the security checks", () => {
     expect(reply.status).toBe(204);
     expect(reply.headers["access-control-allow-origin"]).toBe(STUDIO);
     expect(reply.headers["access-control-allow-private-network"]).toBe("true");
-    expect(reply.headers["access-control-allow-headers"]).toContain("authorization");
+    expect(reply.headers["access-control-allow-headers"]).toBe("content-type");
+    const foreign = await request("OPTIONS", "/rpc", {
+      headers: {
+        origin: "https://evil.example",
+        "access-control-request-method": "POST",
+        "access-control-request-private-network": "true",
+      },
+    });
+    expect(foreign.status).toBe(403);
+    expect(foreign.headers["access-control-allow-private-network"]).toBeUndefined();
   });
 
   it("rejects any Host but its own address (DNS rebinding)", async () => {
     await start();
-    const reply = await request("POST", "/rpc", {
-      body: "{}",
-      headers: { ...auth, host: "evil.example" },
+    const port = server!.port;
+    const describe = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
+    for (const host of [
+      "evil.com",
+      `evil.com:${port}`,
+      "127.0.0.1.evil.com",
+      `127.0.0.1.evil.com:${port}`,
+      `localhost:${port + 1}`,
+    ]) {
+      const reply = await request("POST", "/rpc", { body: describe, headers: { ...json, host } });
+      expect(reply.status, host).toBe(403);
+    }
+    const missing = await request("POST", "/rpc", { body: describe, headers: json, noHost: true });
+    // Node's HTTP server answers 400 before the handler runs: HTTP/1.1 requires Host.
+    expect(missing.status).toBe(400);
+    const upload = await request("PUT", "/assets/a.png", {
+      body: Buffer.from([1]),
+      headers: { "content-type": "image/png", host: "evil.com" },
     });
-    expect(reply.status).toBe(403);
-    const localhost = await request("POST", "/rpc", {
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
-      headers: { ...auth, host: `localhost:${server!.port}` },
-    });
-    expect(localhost.status).toBe(200);
+    expect(upload.status).toBe(403);
+    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]) {
+      const reply = await request("POST", "/rpc", { body: describe, headers: { ...json, host } });
+      expect(reply.status, host).toBe(200);
+    }
   });
 });
 
@@ -257,9 +307,7 @@ describe("the content protocol", () => {
       cwd: fixture.root,
       root: "apps/storefront",
       port: 0,
-      token: TOKEN,
       reporter: out,
-      env: {},
     });
     const { result } = await rpc("describe");
     expect(result.root).toBe("apps/storefront");
@@ -306,7 +354,7 @@ describe("uploads", () => {
   const put = (name: string, type = "image/png", body: Buffer = png) =>
     request("PUT", `/assets/${name}`, {
       body,
-      headers: { authorization: `Bearer ${TOKEN}`, "content-type": type },
+      headers: { "content-type": type },
     });
 
   it("writes the file into public/assets and answers with the path the field stores", async () => {
@@ -358,7 +406,7 @@ describe("the content protocol's conformance suite, against deco serve", () => {
   beforeAll(async () => {
     ({ publicKeyPem } = await sealSecret("x"));
     site = createFixture({ ".deco/schema.gen.json": meta, ".deco/secrets.pub": publicKeyPem });
-    const options = { cwd: site.root, port: 0, token: TOKEN, reporter: recorder(), env: {} };
+    const options = { cwd: site.root, port: 0, reporter: recorder() };
     running = await startServer(options);
     readOnly = await startServer({ ...options, readOnly: true });
   });
@@ -371,7 +419,6 @@ describe("the content protocol's conformance suite, against deco serve", () => {
   const optionsFor = (server: () => RunningServer) => () => ({
     endpoint: server().endpoint,
     assetsEndpoint: server().endpoint.replace(/\/rpc$/, "/assets/"),
-    token: TOKEN,
     secretField: { blockType: "hero", field: "apiKey" },
     secretsPublicKey: publicKeyPem,
   });
