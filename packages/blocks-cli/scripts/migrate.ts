@@ -298,7 +298,10 @@ function bootstrap(ctx: { sourceDir: string }) {
 /** A site slug: lower-case, the shape SITE_CREATE itself enforces. */
 const SITE_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 
-const CONTROL_PLANE_URL = "https://control-plane.decocms.com";
+// control-plane.decocms.com has no DNS record; with it as the default, provisioning
+// failed on every run that did not override DECO_CONTROL_PLANE_URL, as a fetch error the
+// phase prints as a warning and moves past. This is the host that serves /mcp.
+const CONTROL_PLANE_URL = "https://control-plane.infra.deco.cx";
 
 /** `owner/name` of the repo in `dir`, from its `origin` remote, or null. */
 function repoFullName(dir: string): string | null {
