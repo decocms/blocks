@@ -26,7 +26,7 @@ packages/apps-vtex/src/
 │   ├── cart.ts             # getCart (OrderForm)
 │   ├── cart/               # Cart v2 loaders: summary, full, shipping, gifts, attachments
 │   ├── catalog.ts          # searchProducts, getCrossSelling, getCategoryTree
-│   ├── legacy.ts           # legacyProductDetailsPage, legacyProductList, legacyPLP, legacySuggestions
+│   ├── legacy.ts           # legacyProductDetailsPage, legacyProductList, legacyProductListingPage, legacySuggestions
 │   ├── workflow.ts         # workflowProduct, workflowProducts
 │   ├── search.ts           # getTopSearches, getProductIdByTerm
 │   └── (more)

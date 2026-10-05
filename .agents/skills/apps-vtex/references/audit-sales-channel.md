@@ -23,8 +23,10 @@ Missing `sc` causes wrong prices, ORD027, or invisible products.
 **Audit**:
 
 ```bash
-rg "catalog_system/pub/products/search|buscaautocomplete|orderForm" packages/apps-vtex/src/ | rg -v "sc="
+rg -n -C4 "catalog_system/pub/products/search|buscaautocomplete|orderForm" packages/apps-vtex/src/ --glob '!**/__tests__/**'
 ```
+
+Read each callsite with its context — `sc` is often added on another line (`appendSc(params)`, `scParam()`, `params.set("sc", …)`, `buildSearchParams()`), so a same-line `sc=` filter flags valid code.
 
 
 ## Fix: Missing salesChannel in catalog

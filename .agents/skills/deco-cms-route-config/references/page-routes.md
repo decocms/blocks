@@ -13,10 +13,10 @@ The catch-all route handles all CMS-managed pages (PDP, PLP, institutional pages
 import { createFileRoute } from "@tanstack/react-router";
 import {
   cmsRouteConfig,
-  loadDeferredSection,
   DecoPageRenderer,
   NotFoundPage,
 } from "@decocms/tanstack";
+import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
 import type { ResolvedSection, DeferredSection } from "@decocms/blocks/cms";
 
 const routeConfig = cmsRouteConfig({
@@ -52,7 +52,7 @@ function CmsPage() {
       sections={data.resolvedSections ?? []}
       deferredSections={data.deferredSections ?? []}
       pagePath={actualPath}
-      loadDeferredSectionFn={(d) => loadDeferredSection({ data: d }) as Promise<ResolvedSection | null>}
+      loadDeferredSectionFn={deferredSectionLoader}
     />
   );
 }
@@ -162,9 +162,9 @@ Hardcoded to `/` path — no params, no deps.
 import { createFileRoute } from "@tanstack/react-router";
 import {
   cmsHomeRouteConfig,
-  loadDeferredSection,
   DecoPageRenderer,
 } from "@decocms/tanstack";
+import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
 import type { ResolvedSection, DeferredSection } from "@decocms/blocks/cms";
 
 export const Route = createFileRoute("/")({
@@ -188,7 +188,7 @@ function HomePage() {
       sections={data.resolvedSections ?? []}
       deferredSections={data.deferredSections ?? []}
       pagePath="/"
-      loadDeferredSectionFn={(d) => loadDeferredSection({ data: d }) as Promise<ResolvedSection | null>}
+      loadDeferredSectionFn={deferredSectionLoader}
     />
   );
 }

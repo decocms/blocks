@@ -55,7 +55,7 @@ For sites with known institutional/static pages that would otherwise get the con
 // setup.ts
 import { registerCachePattern } from "@decocms/blocks/sdk/cacheHeaders";
 
-// Institutional pages — content changes rarely, promote to 24h edge TTL
+// Institutional pages — content changes rarely, promote to the `static` profile (15 min edge fresh TTL)
 registerCachePattern({
   test: (p) =>
     p.startsWith("/institucional") ||
@@ -64,7 +64,6 @@ registerCachePattern({
     p.startsWith("/termos-") ||
     p === "/fale-conosco" ||
     p === "/trabalhe-conosco" ||
-    p === "/cadastro" ||
     p === "/televendas",
   profile: "static",
 });

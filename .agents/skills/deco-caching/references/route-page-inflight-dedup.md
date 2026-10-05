@@ -38,6 +38,8 @@ Two more parts of the key, both because this map is module-global and the shared
 - `__nav:` prefix — an SSR request and a client-navigation request for the same path never share a promise; they are the pair whose `derivePageUrl` inputs differ most.
 - `|noGlobals` suffix — a `resolveGlobals: false` request never shares a promise with a `resolveGlobals: true` one.
 
+This is **not** full request-context isolation: two concurrent same-path requests with different cookies, User-Agent (device) or geo still share one promise, and the loser receives the winner's `pageUrl` / `flags` / `device`. The code comment in `cmsRoute.ts` acknowledges this as a known pre-existing hole.
+
 ## Symptom: `staleTime: 0` causes re-fetch despite `loaderDeps` filtering
 
 In dev mode, if `routeCacheDefaults` returns `{ staleTime: 0, gcTime: 0 }`, TanStack Router always re-fetches even when `loaderDeps` returns the same deps.

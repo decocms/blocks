@@ -52,5 +52,5 @@ see the `deco-caching` skill.
 
 - Anything that mutates cart/session/auth goes through `vtexFetchWithCookies`, never `vtexFetch` / `vtexCachedFetch` — the cached path drops `Set-Cookie` and the cart drifts from VTEX.
 - `Set-Cookie` is copied onto the HTTP response with `Headers.getSetCookie()`, never `entries()`/`forEach` (they collapse N cookies into one the browser discards).
-- `VtexIdclientAutCookie` is defined only in `utils/vtexId.ts`; it is HttpOnly, so auth status comes from `/api/sessions`, not `document.cookie`.
+- The `VtexIdclientAutCookie` constant lives in `utils/vtexId.ts`; `utils/cookieSanitizer.ts` (forwarding allowlist), `utils/cookies.ts` and `utils/authHelpers.ts` (parsers) also match the name — change them together. It is HttpOnly, so auth status comes from `/api/sessions`, not `document.cookie`.
 - Only cache responses that are identical for every shopper given the URL.

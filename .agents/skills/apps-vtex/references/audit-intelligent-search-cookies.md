@@ -20,11 +20,19 @@ const vtexIsSession = cookies.get("vtex_is_session") ?? crypto.randomUUID();
 const vtexIsAnonymous = cookies.get("vtex_is_anonymous") ?? crypto.randomUUID();
 ```
 
-Pass to `intelligentSearch()` via `opts.cookieHeader`:
+Pass to `intelligentSearch()` via `opts.cookieHeader`. An explicit
+`cookieHeader` **replaces** the request's `vtex_segment` cookie that
+`intelligentSearch()` forwards by default (`regionId` still goes on the query
+string), so carry the segment along:
 
 ```typescript
+const segment = cookies.get("vtex_segment"); // same request cookies as above
 const data = await intelligentSearch<T>(path, params, {
-  cookieHeader: `vtex_is_session=${session}; vtex_is_anonymous=${anonymous}`,
+  cookieHeader: [
+    `vtex_is_session=${session}`,
+    `vtex_is_anonymous=${anonymous}`,
+    segment && `vtex_segment=${segment}`,
+  ].filter(Boolean).join("; "),
   locale: "pt-BR",
 });
 ```

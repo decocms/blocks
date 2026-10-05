@@ -55,9 +55,9 @@ export default createDecoWorkerEntry(serverEntry, {
 3. **Per-URL profiles** — `detectCacheProfile(url)` selects the right Cache-Control
 4. **Immutable static assets** — `/_build/assets/*-{hash}.*` get `immutable, max-age=31536000`
 5. **Private path protection** — strips public Cache-Control from cart/checkout/account responses
-6. **Cache API TTL fix** — stores with `max-age={sMaxAge}` since Cache API ignores `s-maxage`
+6. **Cache API TTL fix** — Cache API ignores `s-maxage`, so entries are stored with `max-age = edge.fresh + max(edge.swr, edge.sie)` (retention, not freshness); the worker decides HIT / STALE-HIT / STALE-ERROR from the entry's `X-Deco-Stored-At` age against the profile's edge windows
 7. **Purge API** — `POST /_cache/purge` with bearer token (`PURGE_TOKEN` env by default, `purgeTokenEnv` to rename, `false` to disable) to invalidate paths; `POST /_cache/purge-loaders` clears the in-memory loader cache of the serving isolate
-8. **Diagnostic headers** — `X-Cache: HIT|STALE-HIT|STALE-ERROR|MISS|BYPASS`, `X-Cache-Profile: {profile}`, `X-Cache-Version`, and `X-Cache-Store: skipped-tracking` when a response was served but deliberately not stored
+8. **Diagnostic headers** — `X-Cache: HIT|STALE-HIT|STALE-ERROR|MISS|BYPASS`, `X-Cache-Profile: {profile}`, `X-Cache-Version` (HTML responses only — server-fn responses don't carry it), and `X-Cache-Store: skipped-tracking` when a response was served but deliberately not stored
 
 
 ## Tracking Params, Geo and Cache Poisoning
@@ -83,7 +83,7 @@ The hash is resolved automatically by `decoVitePlugin()` at build time and injec
 
 Underneath the `__v` param, stored entries go through `createResponseCache` (`@decocms/blocks/sdk/responseCache`), whose key is scoped by `[origin, BUILD_HASH, decofile revision]` — so a CMS publish that reaches an isolate (new `getRevision()`) also starts a fresh namespace there, as does the request-scoped `cacheStorage` scope used by the layout and SWR caches (`swr-fetch-cache.md`). `createResponseCache.put` refuses anything without a `max-age`, anything `private`/`no-store`/`no-cache`, and any response carrying `Set-Cookie`. By default the backing store is `caches.default`; the `cacheStorage: (env, request) => CacheStorage` option replaces it (and also becomes the shared tier for the in-memory caches).
 
-The active version is exposed on every cached response via the `X-Cache-Version` header for observability. Confirm a new deploy is shipping the right hash with:
+The active version is exposed on HTML responses (not `/_serverFn` ones) via the `X-Cache-Version` header for observability. Confirm a new deploy is shipping the right hash with:
 
 ```bash
 curl -sI https://www.example.com/ | grep -i x-cache-version

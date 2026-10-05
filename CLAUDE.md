@@ -126,7 +126,7 @@ If you're the one wiring up a new site and hit one of these, the fix belongs in 
 
 ## Skills: what lives here, what lives elsewhere
 
-One folder, `.agents/skills/`, and only skills that describe the framework and its packages **as they are today** (one skill per package or concern). Claude Code discovers them through the `.claude/skills` symlink. Gate: `bun run skills:check && bun run skills:readme` (copied from `decocms/migrations` — SKILL.md ≤10KB as an index, references ≤15KB, generated index; CI in `.github/workflows/skills-check.yml`). New skill: `cp -r .agents/skill-template .agents/skills/<name>`.
+One folder, `.agents/skills/`, and only skills that describe the framework and its packages **as they are today** (one skill per package or concern). Claude Code discovers them through the `.claude/skills` symlink. Gate: `bun run skills:check && bun run skills:readme:check` (regenerate the index with `bun run skills:readme`) (copied from `decocms/migrations` — SKILL.md ≤10KB as an index, references ≤15KB, generated index; CI in `.github/workflows/skills-check.yml`). New skill: `cp -r .agents/skill-template .agents/skills/<name>`.
 
 **Load the skill before editing or debugging what it covers** — they hold the constraints the code alone doesn't show:
 

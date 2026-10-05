@@ -3,9 +3,9 @@ name: deco-caching
 description: "Every cache layer of a deco storefront (@decocms/blocks, @decocms/tanstack): worker-entry edge cache and profiles, route staleTime/gcTime, page in-flight dedup, layout caches, loader cache, SWR upstream cache. Use when touching createDecoWorkerEntry, cacheHeaders, detectCacheProfile, routeCacheDefaults, staleTime, gcTime, createCachedLoader, createFetchCache, registerLayoutSections, X-Cache, Cache-Control or /_cache/purge; or when a page is a cache MISS/never HITs, a TTL is wrong, private data is cached, the same upstream call (e.g. a Header/Footer shelf hitting VTEX intelligent search) fires on every navigation, staleTime/gcTime values are asked about, a layout shows another visitor's variant, you need to purge, or the loader cache eats memory."
 ---
 
-# Deco caching — every layer, in request order
+# Deco caching — every layer
 
-A deco storefront on Cloudflare Workers has six caches between the visitor and the commerce API. Each keys on something different, so a bug in one looks like a bug in another. Find the layer by symptom (table below), then load only its reference.
+A deco storefront on Cloudflare Workers has six caches between the visitor and the commerce API (on SPA navigation the Route layer answers first, before any request reaches the edge). Each keys on something different, so a bug in one looks like a bug in another. Find the layer by symptom (table below), then load only its reference.
 
 ## The layer stack
 
@@ -48,7 +48,7 @@ Origin cost / egress audit (HTML size, tracking params, region splits, PR checkl
 
 ## Key constraints
 
-- **Cache API ignores `s-maxage`** — the factory uses `max-age` equal to `sMaxAge` when storing in Cache API
+- **Cache API ignores `s-maxage`** — the factory stores entries with `max-age = edge.fresh + max(edge.swr, edge.sie)` (the full retention window, not the fresh TTL); the worker enforces fresh vs. stale windows itself from `X-Deco-Stored-At`
 - **In-memory loader cache is ephemeral** — resets when Workers isolates recycle (~30s idle)
 - **Device keys add a query param** — `__cf_device=mobile|desktop` is appended to cache keys, so purging must clear both
 - **Non-200 responses are never cached** — only 200 OK goes into Cache API

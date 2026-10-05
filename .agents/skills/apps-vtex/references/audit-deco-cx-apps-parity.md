@@ -7,7 +7,7 @@ Compare with original `deco-cx/apps` hooks:
 | Hook | Must Have |
 |------|-----------|
 | `useCart` | `addItems`, `updateQuantity`, `removeItem`, `addCoupons`, `fetchCart` |
-| `useUser` | Server-side session check via `/api/sessions` |
+| `useUser` | Session check via a cookie-authenticated `/api/sessions` fetch (`credentials: "include"`) |
 | `useWishlist` | `add`, `remove`, `toggle`, `isInWishlist` |
 
 
@@ -30,4 +30,4 @@ Critical: `seller: sellerId` (not `sellerName`) in `buildOffer`.
 | Page | Required Structure |
 |------|--------------------|
 | PDP | `ProductDetailsPage` with `breadcrumbList` + `product` (via `toProductPage`) + `seo` |
-| PLP | `ProductListingPage` with `BreadcrumbList` + `filters` + `products` + `pageInfo` + `sortOptions` + `seo` |
+| PLP | `ProductListingPage` with `breadcrumb` (a `BreadcrumbList`) + `filters` + `products` + `pageInfo` + `sortOptions` + `seo` |

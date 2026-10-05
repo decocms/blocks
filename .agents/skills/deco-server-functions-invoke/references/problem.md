@@ -139,11 +139,11 @@ If you see the raw code, the compiler didn't transform it. Possible causes:
 - The Vite plugin is not loaded (check `vite.config.ts` has `tanstackStart()`)
 - The `createServerFn` is not at top-level (check the generated code)
 
-## Server Logs Don't Show VTEX Calls
+## Telling server-side calls from browser-direct calls
 
-**Symptom**: When clicking add to cart, no `[vtex] POST ...` lines appear in the terminal.
+The VTEX client does not log each request, so an empty terminal proves nothing. Use the browser DevTools **Network** tab while clicking add to cart:
 
-**Cause**: The calls are going directly from the browser, not through the server.
+- Requests to `/_serverFn/...` on your own origin → the RPC path works (VTEX is called server-to-server).
+- Requests to `*.vtexcommercestable.com.br` / `*.myvtex.com` / `/api/checkout/...` on the VTEX host → the call runs in the browser.
 
-**Fix**: Same as CORS fix above — ensure `invoke.gen.ts` is being used.
-
+**Fix** for the second case: same as the CORS fix above — ensure `invoke.gen.ts` is being used.

@@ -7,7 +7,8 @@ Five loaders, each requesting only the sections it needs. All registered in the 
 ```ts
 // Returns CartSummary: { orderFormId, totalItems, total }
 // No VTEX call if there is no orderForm cookie.
-await invoke.vtex.loaders.cart.summary({ data: { orderFormId?: string } });
+// data: { orderFormId?: string } — omit it to read the request cookie
+await invoke.vtex.loaders.cart.summary({ data: {} });
 ```
 
 Use case: SSR-hydrating the cart badge on first load. If the cookie is absent, returns `{ orderFormId: null, totalItems: 0, total: 0 }` without hitting VTEX.
@@ -17,14 +18,9 @@ Use case: SSR-hydrating the cart badge on first load. If the cookie is absent, r
 ```ts
 // Returns Minicart<OrderForm | null>
 // Requests SECTIONS_DRAWER only (9 sections, not 15).
+// data (all optional): { orderFormId, freeShippingTarget, locale, checkoutHref, enableCoupon }
 await invoke.vtex.loaders.cart.full({
-  data: {
-    orderFormId?: string;
-    freeShippingTarget?: number;
-    locale?: string;
-    checkoutHref?: string;
-    enableCoupon?: boolean;
-  }
+  data: { freeShippingTarget: 15000, locale: "pt-BR", checkoutHref: "/checkout", enableCoupon: true },
 });
 ```
 
@@ -33,12 +29,9 @@ await invoke.vtex.loaders.cart.full({
 ```ts
 // Returns CartShipping: { postalCode, options: ShippingOption[] }
 // Prices in major units. SLAs deduplicated across all line items.
+// data: { items: Array<{ id: string | number; quantity: number; seller: string }>; postalCode: string; country?: string }
 await invoke.vtex.loaders.cart.shipping({
-  data: {
-    items: Array<{ id: string | number; quantity: number; seller: string }>;
-    postalCode: string;
-    country?: string;
-  }
+  data: { items: [{ id: "123", quantity: 1, seller: "1" }], postalCode: "01310-100", country: "BRA" },
 });
 ```
 
@@ -49,7 +42,8 @@ await invoke.vtex.loaders.cart.shipping({
 ```ts
 // Returns CartGifts: { orderFormId, selectableGifts, ratesAndBenefits }
 // Requests only ["items", "ratesAndBenefitsData", "messages"].
-await invoke.vtex.loaders.cart.gifts({ data: { orderFormId?: string } });
+// data: { orderFormId?: string }
+await invoke.vtex.loaders.cart.gifts({ data: {} });
 ```
 
 ### `vtex/loaders/cart/attachments` — item attachments
@@ -57,5 +51,6 @@ await invoke.vtex.loaders.cart.gifts({ data: { orderFormId?: string } });
 ```ts
 // Returns CartItemAttachments: { orderFormId, itemIndex, attachments, attachmentOfferings }
 // Requests only ["items"].
-await invoke.vtex.loaders.cart.attachments({ data: { orderFormId?: string; itemIndex?: number } });
+// data: { orderFormId?: string; itemIndex: number } — itemIndex is required (selects the line)
+await invoke.vtex.loaders.cart.attachments({ data: { itemIndex: 0 } });
 ```

@@ -4,6 +4,15 @@
 
 Server actions in Deco storefronts follow a three-layer pattern where commerce functions are pure, the framework provides the transport bridge, and the site has a generated file that wires them together.
 
+| File | Location | Rule |
+|------|----------|------|
+| `invoke.ts` (source of truth) | `packages/apps-vtex/src/invoke.ts` (`@decocms/apps-vtex`) | Declares the actions the generator parses; pure functions live in `@decocms/apps-vtex/actions/*` |
+| `generate-invoke.ts` | `packages/blocks-cli/scripts/` (`@decocms/blocks-cli`) | Build-time generator, run as the `invoke` stage of `npm run generate` |
+| `invoke.gen.ts` | Site `src/server/` | Generated — regenerated, **never hand-edited** |
+| `invoke.ts` | Site `src/server/` | Hand-written, **never regenerated** — merges `vtexActions` with site actions; this is what components and hooks import (`~/server/invoke`) |
+
+The two site files are not competing approaches: codegen covers the canonical VTEX surface, the hand-written file is the extension point on top (Layer 3.5 below).
+
 ## Layer 1: Pure Functions (`@decocms/apps-vtex`)
 
 Commerce actions are regular async functions with no framework dependencies:
@@ -27,7 +36,7 @@ These functions:
 - Can be tested independently
 - Are the same for any framework (Fresh, TanStack, etc.)
 
-The `invoke.ts` in `@decocms/apps-vtex` serves as the **declaration file** — it lists which functions should be exposed as server actions, their input/output types, and whether to unwrap the result (`unwrap: true`). It lives in this monorepo at `packages/apps-vtex/src/invoke.ts` (the commerce apps were folded in from the old separate `@decocms/apps` / `apps-start` repo), so you can `grep` it here. The generator (Layer 2) resolves it from the installed `@decocms/apps-vtex` (or, as a legacy fallback, a sibling `../apps-start/vtex` checkout) at generate time.
+The `invoke.ts` in `@decocms/apps-vtex` serves as the **declaration file** — it lists which functions should be exposed as server actions, their input/output types, and whether to unwrap the result (`unwrap: true`). It lives in this monorepo at `packages/apps-vtex/src/invoke.ts` (the commerce apps were folded in from the old separate `@decocms/apps` / `apps-start` repo), so you can `grep` it here. The generator (Layer 2) resolves it from the installed `@decocms/apps-vtex` at generate time (a sibling `../apps-start/vtex` checkout is a legacy fallback only when `generate-invoke.ts` is run directly; `npm run generate` needs `--apps-dir` for it — see `generator.md`).
 
 ## Layer 2: Generator (`@decocms/blocks-cli`)
 
@@ -114,7 +123,15 @@ export const invoke = {
 
 Components and hooks (including the `createUseCart`/`createUseUser`/`createUseWishlist` factories from `@decocms/apps-vtex/hooks`) import `invoke` from **`~/server/invoke`** — the hand-written composition file — not directly from `~/server/invoke.gen`. This isn't a duplicate or competing pattern with `generate-invoke.ts`; it's the documented extension point (`invoke.gen.ts`'s own header comment says exactly this: "Site-specific extensions: import { vtexActions } from this file and merge with your own actions in a separate invoke.ts").
 
-**Full authoring reference for that hand-written layer** — `.inputValidator()` requirements, the `Promise<any>` return-type workaround, stripping non-serializable loader fields — lives in the `deco-to-tanstack-migration` skill's `references/server-functions/README.md` (lives in decocms/migrations). That doc doesn't mention `forwardResponseCookies()`; if a hand-written action calls `vtexFetchWithCookies` (any cart/session-mutating VTEX call), call `forwardResponseCookies()` after the `await`, same as the generator does — otherwise you'll hit the cookie-collapse bug in `cookie-forwarding.md`.
+**Full authoring reference for that hand-written layer** — `.inputValidator()` requirements, the `Promise<any>` return-type workaround, stripping non-serializable loader fields — lives in the `deco-to-tanstack-migration` skill's `references/server-functions/README.md` (lives in decocms/migrations). That doc doesn't mention cookie forwarding; if a hand-written action calls `vtexFetchWithCookies` (any cart/session-mutating VTEX call), forward the captured `Set-Cookie`s after the `await`, same as the generated handlers do — otherwise you'll hit the cookie-collapse bug in `cookie-forwarding.md`. The generated `forwardResponseCookies()` is a **module-private** function in `invoke.gen.ts` (not exported), so `invoke.ts` can't import it. Use the public helper instead, which takes the cookie list explicitly:
+
+```typescript
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+import { forwardResponseCookies } from "@decocms/tanstack/sdk/cookiePassthrough";
+
+// inside the handler, after `await`ing the VTEX call:
+forwardResponseCookies(RequestContext.current?.responseHeaders.getSetCookie() ?? []);
+```
 
 ## Comparison: deco-cx/deco vs @decocms/tanstack
 

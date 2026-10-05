@@ -24,7 +24,7 @@ the VTEX binding.
 
 | Constant | Value | Why |
 |---|---|---|
-| `FETCH_CACHE_MAX_ENTRIES` | 500 | Bounded memory; oldest `createdAt` evicted first |
+| `FETCH_CACHE_MAX_ENTRIES` | 500 | Bounded memory; least-recently-used entry evicted first (a hit moves the key to the tail) |
 | `FETCH_CACHE_FRESH_TTL_MS.success` | 180_000 (3 min) | Catalog/price data needn't be second-fresh |
 | `FETCH_CACHE_FRESH_TTL_MS.notFound` | 10_000 (10 s) | A just-published SKU shouldn't 404 for long |
 | `FETCH_CACHE_FRESH_TTL_MS.serverError` | 0 | 5xx is never a good hit |
@@ -45,7 +45,7 @@ vtexCachedFetch<T>(path, init?, { cacheTTL?: number }?): Promise<T | null>
 - Cache key = the full sanitized URL (`baseUrl()` + path, or the path itself if it starts with `http`).
 - Sends `authHeaders()` and, unless `init.headers` already has a `cookie`, the request's `vtex_segment` cookie — Legacy Catalog gates regional seller availability on it, so cached PDP/shelf lookups see the same regionalization as the rest of the stack. Note the segment cookie is **not** part of the cache key; regionalization that must split the cache has to show up in the URL (e.g. `sc`, `regionId`).
 - `cacheTTL` maps to the shared `ttl` option (overrides the status-based fresh TTL). `cacheTTL: 0` is falsy and is ignored — it does not disable caching.
-- Returns `null` for a cached non-2xx (404). 5xx throws. Callers handle both.
+- Returns `null` for every non-2xx below 500; only 404 is cached by default (10 s), other 4xx get a 0 TTL and refetch next time (unless `cacheTTL` is set, which caches them too). 5xx throws. Callers handle both.
 - Non-GET falls through to `vtexFetch` (returns `T`, no cache).
 
 `intelligentSearch()` adds `sc`, `locale`, `regionId` to the URL before keying,

@@ -23,9 +23,10 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Copied from decocms/migrations scripts/skills-check.ts — keep in sync there.
-const root = new URL("../.agents/skills/", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../.agents/skills/", import.meta.url));
 
 /**
  * Floor on discovery. A scan that finds nothing satisfies every check below
@@ -107,6 +108,20 @@ if (skills.length < MIN_SKILLS) {
   process.exit(1);
 }
 
+/**
+ * 4: every relative `](path.md)` link resolves next to the file that has it.
+ * Local change vs decocms/migrations: also checks SKILL.md (the index — its
+ * links are the primary navigation) and nested paths like `references/x.md`;
+ * the original matched only `./x.md` and skipped SKILL.md.
+ */
+function checkLinks(file: string) {
+  const re = /\]\((?!https?:|mailto:|#|\/)([^)\s#]+\.md)(?:#[^)]*)?\)/g;
+  for (const m of readFileSync(file, "utf8").matchAll(re)) {
+    if (!existsSync(join(dirname(file), m[1])))
+      problems.push(`${relative(root, file)}: relative link does not resolve → ${m[1]}`);
+  }
+}
+
 let filesChecked = 0;
 
 for (const skill of skills) {
@@ -173,12 +188,10 @@ for (const skill of skills) {
         );
       }
 
-      for (const match of readFileSync(p, "utf8").match(/\]\((\.\/[A-Za-z0-9._-]+\.md)\)/g) ?? []) {
-        const target = join(dirname(p), match.slice(2, -1));
-        if (!existsSync(target)) problems.push(`${rel}: relative link does not resolve → ${match.slice(2, -1)}`);
-      }
+      checkLinks(p);
     }
   };
+  checkLinks(skillMd);
   walk(dir);
 }
 

@@ -33,14 +33,14 @@ Request → Layout cache (5 min TTL)
             └→ MISS → actual VTEX API call
 ```
 
-This means even after the layout cache expires, the underlying API data may still be fresh in the fetch cache. The two caches work together:
+Both are populated on the same miss, so when the 5 min layout entry expires the 3 min fetch entry is already **stale** — but still inside its stale-if-error window, so the re-run loader gets a `STALE-HIT` (served immediately, one background refresh), not an upstream wait. The caches work together:
 
 | Layer | TTL | Scope |
 |-------|-----|-------|
 | Layout resolution cache | 5 min | Full section output (props + enrichment) |
 | Layout section loader cache | 5 min | Section loader output only |
 | `fetchWithCache` SWR | 3 min | Individual HTTP responses |
-| `cachedLoader` SWR | 30-120s | Commerce loader results |
+| `cachedLoader` SWR | 30s–5 min (profile `loader.fresh`) | Commerce loader results |
 
 ### Cart Cross-Selling on PLP — Not an Issue
 

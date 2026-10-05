@@ -25,9 +25,12 @@ data with `updatedAt: 0`, so any finite `staleTime` makes the SSR data look
 stale the moment the client hydrates. That fires a second
 `/_serverFn/loadCmsPage` request — a separate Worker isolate that re-runs every
 loader — doubling origin load on every first navigation (decocms/blocks#355).
-With `Infinity` the router never time-refetches in-memory data; `gcTime` bounds
-how long it lives in memory, and data freshness is the edge cache's job (see
-`deco-caching`).
+With `Infinity` the router never time-refetches in-memory data. `gcTime` only
+starts counting once the route match becomes **inactive** (navigated away from);
+data for the route currently on screen is not bounded or refreshed by it. The
+edge cache (see `deco-caching`) only governs freshness when a new loader request
+actually happens — a navigation after the match was GC'd, a fresh page load, or
+an explicit `router.invalidate()`.
 
 The profile objects still carry a `client.staleTime` (5 min / 1 min / 1 min /
 30 s for static / product / listing / search). `routeCacheDefaults` ignores it

@@ -50,7 +50,9 @@ function isRawSectionLayout(section: RawSection): string | null {
   let current = section;
   for (let depth = 0; depth < 5; depth++) {
     const resolveType = current.__resolveType;
-    if (isLayoutSection(resolveType)) return resolveType;
+    // Return the TOP-LEVEL ref ("Header - 01"), not the terminal component path,
+    // so two block refs to the same component never share a cache entry.
+    if (isLayoutSection(resolveType)) return section.__resolveType;
     const block = decofileData?.[resolveType];
     if (!block || typeof block !== "object") return null;
     current = block as RawSection;

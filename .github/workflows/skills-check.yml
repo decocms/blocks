@@ -9,11 +9,14 @@ on:
     paths:
       - ".agents/skills/**"
       - "scripts/skills-*.ts"
+      - "package.json"
       - ".github/workflows/skills-check.yml"
   push:
     branches: [main]
     paths:
       - ".agents/skills/**"
+      - "scripts/skills-*.ts"
+      - "package.json"
 
 permissions:
   contents: read

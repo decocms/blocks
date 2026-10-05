@@ -4,7 +4,7 @@ Cart v2 is **additive** — the legacy `useCart` / `createUseCart` keep working 
 
 Recommended order, component by component:
 
-1. **Badge + add-to-cart together** → `useCartSummary` + `useAddToCart`. Migrate these as a pair: the badge's source of truth must be the same singleton that `add()` reconciles into. This is also where you get the biggest win — the eager on-mount cart creation disappears.
+1. **Badge + add-to-cart together** → `useCartSummary` + `useAddToCart`. Migrate these as a pair: the badge's source of truth must be the same singleton that `add()` reconciles into. This is also where you get the biggest win — the eager on-mount cart creation disappears. Caveat: `createCart` never hydrates the summary on its own — `useCartSummary` starts at `0` for a returning shopper who already has an `orderFormId` cookie, until an `add()` / drawer mutation reconciles it or `useCart({ include: { full: true } })` loads `cart/full`. `createCart` has no setter to seed it from `cart/summary`, so if the badge must be right on first paint either enable `include.full` when the `orderFormId` cookie exists (one `cart/full` call) or use `createCartQuery`, whose `useCartSummary({ enabled: true })` calls `cart/summary`.
 2. **Drawer** → `useCart({ include: { full: open } })`. Replace the legacy drawer's `fetchCart`/`getOrCreateCart` reads. `updateQuantity` / `removeItem` / `addCoupon` return the projected `Minicart`.
 3. **On-demand extras** → `useShipping`, `useGifts`, `useAttachments`. These had no legacy equivalent as separate reads; wire them where the drawer previously pulled everything at once.
 

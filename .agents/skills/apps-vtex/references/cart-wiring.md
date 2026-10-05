@@ -16,4 +16,6 @@ The generated handler automatically calls `forwardResponseCookies()`, so the VTE
 
 ## Wiring in Next.js
 
-Loaders and actions are called through `handleInvoke` (mounted at `app/deco/[[...deco]]/route.ts`). No extra generator step: `invoke.vtex.loaders.cart.*` and `invoke.vtex.actions.*V2` resolve via the manifest registered in `setupApps`. Cookie forwarding is handled by `vtexFetchWithCookies` inside each action.
+Loaders and actions are called through `handleInvoke` (mounted at `app/deco/[[...deco]]/route.ts`). No extra generator step: `invoke.vtex.loaders.cart.*` and `invoke.vtex.actions.*V2` resolve via the manifest registered in `setupApps`.
+
+**Cookie forwarding does not work here today.** `vtexFetchWithCookies` reads the browser `Cookie` from `RequestContext.request` and writes upstream `Set-Cookie` to `RequestContext.responseHeaders`, and `handleInvoke` copies them back via `RequestContext.current` — but `@decocms/nextjs`'s route handlers call `handleInvoke(request)` without entering `RequestContext.run`, so there is no context: the upstream call goes out without the shopper's cookies and the `checkout.vtex.com` / `CheckoutOrderFormOwnership` rotations never reach the browser. Until the binding wraps invoke dispatch, wrap it in the site's `route.ts`: `export const POST = (req: Request) => RequestContext.run(req, () => handlers.POST(req))` (`RequestContext` from `@decocms/blocks/sdk/requestContext`).

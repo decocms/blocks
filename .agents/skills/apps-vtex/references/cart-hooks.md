@@ -14,13 +14,13 @@ export const {
 } = createCart({ invoke });
 ```
 
-Optional params:
+Optional params (`CreateCartOptions`):
 
 ```ts
 createCart({
   invoke,
-  orderFormCookieName?: string,   // default: "checkout.vtex.com__orderFormId"
-  orderFormCookieMaxAge?: number,  // default: 7 days in seconds
+  orderFormCookieName: "checkout.vtex.com__orderFormId", // optional; this is the default
+  orderFormCookieMaxAge: 7 * 24 * 3600,                  // optional; default 7 days (seconds)
 });
 ```
 
@@ -59,18 +59,20 @@ function BuyButton({ id, seller }: { id: string; seller: string }) {
 What happens on `add(...)`:
 1. **Optimistic**: badge counter incremented immediately.
 2. `ensureOrderFormId()` — checks cookie/state; calls `getOrCreateCartV2` only if no cart exists yet (lazy).
-3. `addItemsToCartV2` called with `SECTIONS_MINIMAL` + the requested `projection`.
+3. `addItemsToCartV2` called with the requested `projection` and `sections` (`useAddToCart({ sections })`); when `sections` is omitted the action uses `defaultSectionsFor(projection)` — `SECTIONS_MINIMAL` for the default `summary+items`, `SECTIONS_DRAWER` for `minicart`, `SECTIONS_FULL` for `raw`.
 4. **Reconcile**: projected server response updates badge (or full minicart if `projection: "minicart"`).
 5. On error: optimistic increment rolled back and the error re-thrown.
 
-**`add()` returns the projected payload** — so you can drive a toast / analytics without a second fetch. With the default `summary+items`, the returned object is `{ totalItems, total, items: [slim] }`:
+**`add()` returns the projected payload** — so you can drive a toast / analytics without a second fetch. It is typed as the whole `VtexCartProjectionResult` union, so narrow it to the shape of the projection you asked for. With the default `summary+items` that is `CartSummaryWithItems` (`{ orderFormId, totalItems, total, items: CartItemSlim[] }`):
 
 ```tsx
+import type { CartSummaryWithItems } from "@decocms/apps-commerce/types/cart";
+
 const { add } = useAddToCart(); // default "summary+items"
 
 async function onClick() {
-  const res = await add({ id, seller }); // res: { totalItems, total, items: [{ item_name, image, price, item_variant, quantity }] }
-  const added = res.items?.[0];
+  const res = (await add({ id, seller })) as CartSummaryWithItems;
+  const added = res.items[0];
   if (added) toast(`Added: ${added.item_name}`, { image: added.image });
 }
 ```

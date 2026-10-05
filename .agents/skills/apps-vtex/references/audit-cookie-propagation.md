@@ -14,7 +14,7 @@ export async function vtexFetchWithCookies<T>(
 It returns the parsed body (`T`) directly and does the cookie work itself, through `RequestContext` (`@decocms/blocks/sdk/requestContext`):
 
 - reads the browser's `Cookie` header from `RequestContext.request`, sanitizes it (the VTEX gateway 503s on non-ASCII cookie values that third-party tags sometimes write) and forwards it upstream;
-- appends every upstream `Set-Cookie` to `RequestContext.responseHeaders`;
+- appends every upstream `Set-Cookie` to `RequestContext.responseHeaders` **except** `vtex_is_session` / `vtex_is_anonymous` (the middleware owns those — don't expect them on an action response);
 - the invoke handler (generated `invoke.gen.ts` or `/deco/invoke`) then copies those onto the HTTP response — the two bridges below.
 
 This mirrors deco-cx/deco's `proxySetCookie(response.headers, ctx.response.headers)`.
@@ -51,7 +51,7 @@ import { vtexFetchWithCookies } from "../client";
 const orderForm = await vtexFetchWithCookies<OrderForm>(url, opts);
 ```
 
-**Where required**: `checkout.ts` (all cart mutations), `session.ts` (create/edit), `auth.ts` (signIn, logout).
+**Where required**: `checkout.ts` (all cart mutations), `session.ts` (create/edit), `auth.ts` (every call that hits VTEX ID: `startAuthentication`, `classicSignIn`, `accessKeySignIn`, `refreshToken`, `recoveryPassword`, `resetPassword`, `sendEmailVerification`). `auth.ts` `logout()` makes no upstream request — it only returns the cookie names to clear, so there is nothing for `vtexFetchWithCookies` to capture.
 
 **Where NOT needed**: Read-only loaders, GraphQL queries.
 

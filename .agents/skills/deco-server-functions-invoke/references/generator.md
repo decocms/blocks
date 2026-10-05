@@ -9,7 +9,7 @@ This moved from the old single-package `@decocms/start/scripts/generate-invoke.t
 
 ## What It Does
 
-1. Finds `@decocms/apps-vtex`'s `invoke.ts` (source: `packages/apps-vtex/src/invoke.ts` in this monorepo; resolved from the installed package, at its root or under `src/`, with a legacy `../apps-start/vtex` checkout as last resort)
+1. Finds `@decocms/apps-vtex`'s `invoke.ts` (source: `packages/apps-vtex/src/invoke.ts` in this monorepo; resolved from the installed package, at its root or under `src/`, with a legacy `../apps-start/vtex` checkout as last resort). **That legacy fallback exists only when the script is run directly by path.** The orchestrator (`npm run generate`) resolves only the installed package or an explicit `--apps-dir`; with neither, it *skips* the invoke stage (logging "no apps invoke.ts found") and `invoke.gen.ts` is not regenerated — so a site relying on a sibling `../apps-start/vtex` checkout must pass `npm run generate -- --apps-dir ../apps-start/vtex`
 2. Parses it with `ts-morph` to extract action definitions
 3. For each action, extracts: name, import source, imported function, input type, return type, unwrap flag, call body
 4. Generates `src/server/invoke.gen.ts` with:
@@ -35,7 +35,7 @@ npx tsx node_modules/@decocms/blocks-cli/scripts/generate-invoke.ts --apps-dir .
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--out-file` | `src/server/invoke.gen.ts` | Output file path |
-| `--apps-dir` | Auto-detected (installed `@decocms/apps-vtex`, then `../apps-start/vtex`) | Path to the directory holding the apps `invoke.ts` |
+| `--apps-dir` | Auto-detected (installed `@decocms/apps-vtex`, then `../apps-start/vtex` — the latter only for direct script runs, not via `npm run generate`) | Path to the directory holding the apps `invoke.ts` |
 
 ## How It Parses invoke.ts
 
@@ -147,6 +147,14 @@ Two things every earlier version of this doc was missing, both load-bearing:
 
 Handlers whose action wasn't parseable are emitted as throwing stubs (`// TODO: could not auto-generate ${name} — add manually`) rather than silently omitted — check the generator's console warnings after running it.
 
+## Setup for a New Site
+
+1. Add the `generate` script (see "Integration with Build Pipeline" below) and run `npm run generate` — its invoke stage writes `src/server/invoke.gen.ts`.
+2. Hand-write `src/server/invoke.ts` merging `vtexActions` with site actions (`architecture.md`'s "Layer 3.5").
+3. Call it from components: `import { invoke } from "~/server/invoke"; await invoke.vtex.actions.addItemsToCart({ data: { orderFormId, orderItems } });`
+
+Re-run `npm run generate` whenever actions are added to `packages/apps-vtex/src/invoke.ts`, action signatures (input/return types) change, or the `@decocms/apps-vtex` dependency is updated.
+
 ## Adding New Actions
 
 1. Add the pure function to `packages/apps-vtex/src/actions/{module}.ts` (published as `@decocms/apps-vtex/actions/{module}`)
@@ -170,7 +178,7 @@ return unwrapResult(result);  // returns OrderForm, not { data: OrderForm, setCo
 
 ## Site-Local Composition (`invoke.ts`)
 
-`generate-invoke.ts` only emits the canonical VTEX action set. Sites needing custom/site-specific server functions write those by hand in `src/server/invoke.ts`, importing and spreading `vtexActions` from the generated file. That hand-written layer follows the same `.inputValidator()` + `Promise<any>` pattern documented in the `deco-to-tanstack-migration` skill's `references/server-functions/README.md` (lives in decocms/migrations) — but must additionally call `forwardResponseCookies()` for any action touching VTEX cookies, matching what the generator does. See `architecture.md`'s "Layer 3.5" for the full example.
+`generate-invoke.ts` only emits the canonical VTEX action set. Sites needing custom/site-specific server functions write those by hand in `src/server/invoke.ts`, importing and spreading `vtexActions` from the generated file. That hand-written layer follows the same `.inputValidator()` + `Promise<any>` pattern documented in the `deco-to-tanstack-migration` skill's `references/server-functions/README.md` (lives in decocms/migrations) — but must additionally forward `Set-Cookie`s for any action touching VTEX cookies. The generated `forwardResponseCookies()` is private to `invoke.gen.ts`; use the public `forwardResponseCookies(cookies)` from `@decocms/tanstack/sdk/cookiePassthrough` (snippet in `architecture.md`'s "Layer 3.5"). See `architecture.md`'s "Layer 3.5" for the full example.
 
 ## Integration with Build Pipeline
 

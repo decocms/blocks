@@ -59,16 +59,7 @@ These come from Header product shelves being re-resolved on every navigation.
 
 ### Error: `isLayoutSection is not a function`
 
-The `isLayoutSection` function must be exported from `@decocms/blocks/cms`:
-
-```typescript
-// packages/blocks/src/cms/index.ts
-export {
-  isLayoutSection,
-  registerLayoutSections,
-  unregisterLayoutSections,
-} from "./sectionLoaders";
-```
+`isLayoutSection` is already exported from `@decocms/blocks/cms` (`packages/blocks/src/cms/index.ts`). If it is missing, check the installed `@decocms/blocks` version (or linked checkout) and that you import from `@decocms/blocks/cms`, not a deep or `/cms/client` path.
 
 ### Error: Layout sections cached but still showing stale content
 

@@ -30,7 +30,7 @@ export const DEFAULT_EXPECTED_SECTIONS = [
 ];
 ```
 
-**Audit**: Check `loaders/cart.ts` and `hooks/useCart.ts` — both must send this body. Also used in `actions/checkout.ts` (all cart mutations). Note `hooks/useCart.ts` keeps its own local copy of the list (it's client code and doesn't import `actions/checkout`) — check it hasn't drifted from `SECTIONS_FULL`. The Cart v2 actions (`*V2`) intentionally send fewer sections; that's not this bug.
+**Audit**: Check `loaders/cart.ts` and `hooks/useCart.ts` — both must send this body. In `actions/checkout.ts` it is sent by `getOrCreateCart`, the offering/attachment/selectable-gift actions and every `*V2` action — **not** by the legacy `addItemsToCart`, `updateCartItems`, `removeAllItems`, `addCouponToCart` (nor `updateItemPrice`, `updateOrderFormProfile`, `clearOrderFormMessages`), whose bodies carry only their payload. Treat those as known gaps, not as covered. Note `hooks/useCart.ts` keeps its own local copy of the list (it's client code and doesn't import `actions/checkout`) — check it hasn't drifted from `SECTIONS_FULL`. The Cart v2 actions (`*V2`) intentionally send fewer sections; that's not this bug.
 
 
 ## Fix: Missing expectedOrderFormSections

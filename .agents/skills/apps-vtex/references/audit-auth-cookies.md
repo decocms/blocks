@@ -20,6 +20,8 @@ export function buildAuthCookieHeader(authCookie: string, account: string): stri
 }
 ```
 
+A value that already contains `=` passes through **unchanged** — a formatted header holding only `VtexIdclientAutCookie_{account}=…` does not gain the unsuffixed variant. Formatted inputs must already carry both cookies; normalize suffixed-only strings with `ensureUnsuffixedAuthCookie` (`utils/cookies.ts`, as `actions/address.ts` does) first.
+
 **Use the centralized helper**:
 
 ```typescript
@@ -35,6 +37,7 @@ Files that use this pattern:
 - `actions/address.ts` — gql helper
 - `actions/misc.ts` — gql helper
 - `actions/newsletter.ts` — gql helper
+- `actions/orders.ts` — cancelOrder
 - `actions/profile.ts` — gql helper
 - `actions/wishlist.ts` — buildCookieHeader
 - `actions/session.ts` — deleteSession
@@ -57,7 +60,7 @@ Any match outside `vtexId.ts` (except JSDoc comments) is a bug. (Cookie *parsers
 `VtexIdclientAutCookie` is HttpOnly — **cannot** be read via `document.cookie`.
 
 **Wrong**: Client-side hooks checking `document.cookie` for auth status.
-**Correct**: `useUser` calls `/api/sessions?items=profile.email` server-side.
+**Correct**: `useUser` fetches `/api/sessions?items=profile.email` from the browser with `credentials: "include"` — the browser attaches the HttpOnly cookie itself, so JS never has to read it.
 
 ```typescript
 // useUser.ts — correct pattern

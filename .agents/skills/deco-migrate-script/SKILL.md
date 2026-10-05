@@ -111,8 +111,11 @@ versions.
 
 ## Tests
 
-Colocated `*.test.ts` next to each phase, transform, template, analyzer and
-post-cleanup module (`scripts/migrate/**`). Run from the repo root:
+Colocated `*.test.ts` next to the module under test (`scripts/migrate/**`).
+Coverage is partial — e.g. `phase-scaffold.ts`, `phase-transform.ts`, several
+transforms (`deno-isms`, `fresh-apis`, `dead-code`, `section-conventions`),
+analyzers and templates have no test file yet. Add one when you touch such a
+module. Run from the repo root:
 
 ```bash
 bun run --filter @decocms/blocks-cli test

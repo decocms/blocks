@@ -19,8 +19,8 @@ import { SECTIONS_MINIMAL, SECTIONS_DRAWER, SECTIONS_FULL, defaultSectionsFor } 
 
 | Preset | Sections | Use |
 |---|---|---|
-| `SECTIONS_MINIMAL` | `items, totalizers, messages` | All mutations by default |
-| `SECTIONS_DRAWER` | 9 sections (+ sellers, marketing, shipping…) | `cart/full` loader |
+| `SECTIONS_MINIMAL` | `items, totalizers, messages` | Default for `none` / `summary` / `summary+items` |
+| `SECTIONS_DRAWER` | 9 sections (+ sellers, marketing, shipping…) | `cart/full` loader; default for `minicart` |
 | `SECTIONS_FULL` | All 15 | Legacy parity / `projection: "raw"` |
 
 `defaultSectionsFor(projection)` returns the right preset if you don't specify sections explicitly.

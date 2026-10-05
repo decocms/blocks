@@ -108,7 +108,10 @@ writeFile(ctx, "src/my-file.ts", generateMyFile(ctx));
 ## Adding a smoke check
 
 Append to the exported `checks` array in `phase-verify.ts`. `severity: "error"`
-fails the run (exit 2); `"warning"` lands in manual review.
+fails the run (exit 2); a failed `"warning"` is only printed to the console
+(`⚠`) — `verify()` runs after the report is written and never adds it to
+`ctx.manualReviewItems`. If it needs to reach `MIGRATION_REPORT.md`, push a
+`ReviewItem` from an earlier phase instead.
 
 ```typescript
 {
@@ -141,10 +144,10 @@ phase 9 always runs it read-only.
 
 | Symptom | Where to look |
 |---|---|
-| Aborts at phase 0/1 on a real Deco site | `source-layout.ts` (layout detection) and the categorisation in `phase-analyze.ts` — the source should have `sections/` or `src/sections/` and `deno.json` or `import_map.json` |
+| Aborts at phase 0 on a real Deco site | `source-layout.ts` — only `mixed` (recognised dirs both at root and under `src/`) or `empty` (none of `sections/`, `islands/`, `components/`, `loaders/`, `actions/` holding files, at root or under `src/`) abort; no Deno config is required. `phase-analyze.ts` reads `deno.json` (not `import_map.json`) for imports/platform detection |
 | Some files are never transformed | `phase-analyze.ts` categorisation — the file sits outside a recognised directory; add the glob |
 | z-index stacking still broken | `transforms/tailwind.ts` only fixes `-z-{n}` on images (overlay-div pattern); a new pattern is a new rule there |
-| Opacity modifier not consolidated | By design for non-adjacent `bg-{color}` + `bg-opacity-{n}` — they are flagged, not merged |
+| Opacity modifier not consolidated | `fixOrphanedOpacity()` in `transforms/tailwind.ts` merges `{bg,text,border,ring,divide,placeholder}-opacity-{n}` into the last base color of the same prefix in the class list (adjacency doesn't matter; `hover:`/`focus:`/`active:` only). It is left as-is when no base color is in the same class string or the variant is unsupported (e.g. `md:`, `group-hover:`) — that is a gap to fix there, not by design |
 | Bootstrap fails at generate-blocks | Missing or malformed `.deco/blocks/*.json` in the source — not a migrator bug unless the source is valid |
 | `package.json` pins `"latest"` | The npm registry fetch in `templates/package-json.ts` failed; it falls back to `"latest"` |
 | A typecheck regression only shows in phase 8 | A transform produced invalid TS that `phase-verify` cannot see (e.g. #105, `.ts` extensions) — add a verify check or fix the transform |
