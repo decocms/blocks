@@ -91,7 +91,7 @@ deco check [--root <dir>]
 ## `deco serve`
 
 ```bash
-deco serve [--root <dir>] [--port <n>] [--host <addr>] [--preview <host:port|url>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]
+deco serve [--root <dir>] [--port <n>] [--host <addr>] [--preview <host:port|url>] [--assets <dir>] [--read-only]
 ```
 
 `deco serve` is the local server the site editor uses to edit the files on your machine, over the [content protocol](/next/content-protocol): it reads and writes `.deco/blocks`, reads `.deco/schema.gen.json`, and accepts uploads into `public/assets/` (or `--assets`). It tells the site editor which root it serves through the content protocol's `describe`. The flow is in [Edit on your machine](/next/site-editor#edit-on-your-machine). It takes:
@@ -100,6 +100,7 @@ deco serve [--root <dir>] [--port <n>] [--host <addr>] [--preview <host:port|url
 - `--port <n>`: the port to listen on (default 4545).
 - `--host <addr>`: the address to listen on. The default is 127.0.0.1. Any other address prints a warning: the server has no authentication, so other machines on your network can then read and write your content. The site editor still connects only through `127.0.0.1` or `localhost`: with `0.0.0.0` the printed link uses `127.0.0.1`, and with a specific network address the link doesn't work. How the server is protected is in [The local server](/next/content-protocol#the-local-server).
 - `--preview <host:port|url>`: your running dev app, which the site editor shows in its Preview tab, as `localhost:8001` or a full URL such as `http://127.0.0.1:3000/en/`. It must be on your machine (`localhost`, `127.0.0.1` or `::1`). By default, the `server.port` from your Vite config (read as text, never run), else `http://localhost:5173`. The server prints it as `Preview` and reports it in `describe` (see [The four methods](/next/content-protocol#the-four-methods)).
-- `--allow-origin <origin>`: another browser origin allowed to call the server, besides the site editor's (repeatable). The server logs each origin it refuses once, with the `--allow-origin` to pass: a browser shows a refused request as a network error, so the site editor can't tell it from a stopped server.
 - `--assets <dir>`: the folder the site editor's uploads are written to, relative to the folder that contains `.deco` (default `public/assets`). The field always stores `/assets/<name>`, whatever this folder is, so a folder you pass must be served at `/assets/`; see [Images and other uploads](/next/site-editor#images-and-other-uploads).
 - `--read-only`: serve the content without accepting writes or uploads.
+
+<Callout type="warning">**`deco serve` has no authentication and answers any website.** Any page open in your browser can read and write your content through it, so run it only while you're editing and stop it when you're done. `--host` also exposes it to your network.</Callout>
