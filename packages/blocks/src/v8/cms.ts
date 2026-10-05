@@ -343,7 +343,13 @@ export function createCMS(config: CMSConfig): CMS {
   const key = Symbol.for(INSTANCE_PREFIX + identityOf(config));
   const store = globalThis as unknown as Record<symbol, CMSInstance | undefined>;
   const existing = store[key];
-  if (existing instanceof Object && typeof existing.adopt === "function") {
+  // An instance an older copy of this package stored (a dev reload across
+  // versions) has no handles: it's replaced rather than adopted.
+  if (
+    existing instanceof Object &&
+    typeof existing.adopt === "function" &&
+    typeof existing.handle === "function"
+  ) {
     warnOnConflict(existing.fingerprint, fingerprintOf(config, interval));
     existing.adopt(config);
     return existing.handle(config.blocks);

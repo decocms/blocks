@@ -590,6 +590,19 @@ describe("one instance per process", () => {
     expect((globalThis as unknown as Record<symbol, unknown>)[symbols[0]!]).toBe(instanceOf(cms));
   });
 
+  it("an instance an older copy of the package stored (no handles) is replaced, not adopted", async () => {
+    const content = { revision: "r1", root: ".deco-old", blocks: { Home: "home" } };
+    createCMS({ blocks: {}, content });
+    const key = Object.getOwnPropertySymbols(globalThis).find((s) =>
+      Symbol.keyFor(s)?.startsWith("decocms.blocks.cms:"),
+    )!;
+    const store = globalThis as unknown as Record<symbol, unknown>;
+    store[key] = { adopt: () => {}, fingerprint: {} };
+    const cms = createCMS({ blocks: {}, content });
+    expect(await cms.forRelease().resolve("Home")).toEqual(["home", null]);
+    expect(store[key]).toBe(instanceOf(cms));
+  });
+
   it("resetForTests clears every stored instance", () => {
     const content = docsSnapshot();
     const first = createCMS({ blocks: {}, content });
