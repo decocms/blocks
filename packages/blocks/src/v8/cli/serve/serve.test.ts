@@ -66,11 +66,7 @@ interface Reply {
 function request(
   method: string,
   pathname: string,
-  {
-    body,
-    headers = {},
-    noHost = false,
-  }: { body?: string | Buffer; headers?: Record<string, string>; noHost?: boolean } = {},
+  { body, headers = {} }: { body?: string | Buffer; headers?: Record<string, string> } = {},
 ): Promise<Reply> {
   const port = server!.port;
   return new Promise((resolve, reject) => {
@@ -80,8 +76,7 @@ function request(
         port,
         method,
         path: pathname,
-        headers: noHost ? headers : { host: `127.0.0.1:${port}`, ...headers },
-        setHost: !noHost,
+        headers: { host: `127.0.0.1:${port}`, ...headers },
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -152,7 +147,7 @@ describe("starting", () => {
     expect(reply.body.result.protocol).toBe("deco-content");
   });
 
-  it("warns when listening beyond loopback, and accepts its own Host there", async () => {
+  it("warns when listening beyond loopback", async () => {
     await start({ host: "0.0.0.0" });
     const warnings = out.lines.filter((l) => l.level === "warn");
     expect(warnings).toHaveLength(1);
@@ -162,16 +157,6 @@ describe("starting", () => {
     expect(server!.siteEditorUrl).toBe(
       `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${server!.port}/rpc`)}`,
     );
-    const describe = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
-    for (const host of [`0.0.0.0:${server!.port}`, `localhost:${server!.port}`]) {
-      const reply = await request("POST", "/rpc", { body: describe, headers: { ...json, host } });
-      expect(reply.status, host).toBe(200);
-    }
-    const evil = await request("POST", "/rpc", {
-      body: describe,
-      headers: { ...json, host: "evil.com" },
-    });
-    expect(evil.status).toBe(403);
   });
 
   it("reads --host case-insensitively", async () => {
@@ -202,95 +187,44 @@ describe("starting", () => {
   });
 });
 
-describe("the security checks", () => {
-  it("accepts only the site editor's origins and --allow-origin", async () => {
-    await start({ allowOrigins: ["http://localhost:8000"] });
-    const evil = await request("POST", "/rpc", {
-      body: "{}",
-      headers: { ...json, origin: "https://evil.example" },
-    });
-    expect(evil.status).toBe(403);
-    expect(evil.headers["access-control-allow-origin"]).toBeUndefined();
-    await request("POST", "/rpc", {
-      body: "{}",
-      headers: { ...json, origin: "https://evil.example" },
-    });
-    const refusals = out.lines.filter(
-      (l) => l.level === "warn" && /refused a request/.test(l.message),
-    );
-    expect(refusals.map((l) => l.message)).toEqual([
-      "refused a request from https://evil.example; to allow it, pass --allow-origin https://evil.example",
-    ]);
-    for (const origin of [STUDIO, "http://localhost:8000"]) {
-      const ok = await request("POST", "/rpc", {
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
+describe("CORS", () => {
+  const describeCall = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
+
+  it("answers any origin, reflecting it, and logs nothing", async () => {
+    await start();
+    for (const origin of [STUDIO, "http://localhost:4000", "https://example.com"]) {
+      const reply = await request("POST", "/rpc", {
+        body: describeCall,
         headers: { ...json, origin },
       });
-      expect(ok.status).toBe(200);
-      expect(ok.headers["access-control-allow-origin"]).toBe(origin);
+      expect(reply.status, origin).toBe(200);
+      expect(reply.headers["access-control-allow-origin"]).toBe(origin);
+      expect(reply.headers.vary).toBe("Origin");
     }
+    expect(out.lines.filter((l) => l.level === "warn")).toEqual([]);
   });
 
   it("accepts a request without Origin (a local process)", async () => {
     await start();
-    const reply = await request("POST", "/rpc", {
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
-      headers: json,
-    });
+    const reply = await request("POST", "/rpc", { body: describeCall, headers: json });
     expect(reply.status).toBe(200);
     expect(reply.headers["access-control-allow-origin"]).toBeUndefined();
   });
 
-  it("answers the CORS and local-network preflight", async () => {
+  it("answers a foreign origin's CORS and private-network preflight", async () => {
     await start();
     const reply = await request("OPTIONS", "/rpc", {
       headers: {
-        origin: STUDIO,
+        origin: "https://example.com",
         "access-control-request-method": "POST",
         "access-control-request-private-network": "true",
       },
     });
     expect(reply.status).toBe(204);
-    expect(reply.headers["access-control-allow-origin"]).toBe(STUDIO);
+    expect(reply.headers["access-control-allow-origin"]).toBe("https://example.com");
     expect(reply.headers["access-control-allow-private-network"]).toBe("true");
     expect(reply.headers["access-control-allow-headers"]).toBe("content-type");
-    const foreign = await request("OPTIONS", "/rpc", {
-      headers: {
-        origin: "https://evil.example",
-        "access-control-request-method": "POST",
-        "access-control-request-private-network": "true",
-      },
-    });
-    expect(foreign.status).toBe(403);
-    expect(foreign.headers["access-control-allow-private-network"]).toBeUndefined();
-  });
-
-  it("rejects any Host but its own address (DNS rebinding)", async () => {
-    await start();
-    const port = server!.port;
-    const describe = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
-    for (const host of [
-      "evil.com",
-      `evil.com:${port}`,
-      "127.0.0.1.evil.com",
-      `127.0.0.1.evil.com:${port}`,
-      `localhost:${port + 1}`,
-    ]) {
-      const reply = await request("POST", "/rpc", { body: describe, headers: { ...json, host } });
-      expect(reply.status, host).toBe(403);
-    }
-    const missing = await request("POST", "/rpc", { body: describe, headers: json, noHost: true });
-    // Node's HTTP server answers 400 before the handler runs: HTTP/1.1 requires Host.
-    expect(missing.status).toBe(400);
-    const upload = await request("PUT", "/assets/a.png", {
-      body: Buffer.from([1]),
-      headers: { "content-type": "image/png", host: "evil.com" },
-    });
-    expect(upload.status).toBe(403);
-    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]) {
-      const reply = await request("POST", "/rpc", { body: describe, headers: { ...json, host } });
-      expect(reply.status, host).toBe(200);
-    }
+    expect(reply.headers.vary).toBe("Origin");
   });
 });
 

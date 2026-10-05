@@ -20,7 +20,7 @@ v8 has no binding for them, and needs none. The app keeps reading its JSON. Only
 5. **The block map isn't auto-discovered.** v7 listed every file under `sections/` as a section. In v8, a section that isn't in `.deco/index.ts` has no editor form. Say so in the app's AGENTS.md or contributor docs: a new section goes in the block map **and** in the app's component table.
    - Remove files that only hold shared types (`types.ts`) from the block map. They were never sections.
 6. **Studio.**
-   - `deco serve --allow-origin <studio origin>` serves the editor. Without that flag, a local Studio can't reach it.
+   - `deco serve` serves the editor, from Studio at any origin (local or hosted).
    - Expect an empty preview pane: there's no web renderer. Ignore the dev-server URL that `deco serve` prints, which is a default.
    - A save rewrites the whole block file as formatted JSON, so compact inline objects become multi-line. Before the first editor session, commit a one-time reformat (`deco serve`'s formatting) so later diffs show only the edited fields.
 

@@ -376,12 +376,12 @@ describe("serve flags", () => {
   );
 
   it(
-    "tr-16: --allow-origin admits another origin, and local-network preflights are answered",
+    "tr-16: any origin is answered, and local-network preflights too",
     async () => {
       const p = project();
       fs.mkdirSync(path.join(p.root, ".git"));
       p.write(".deco/schema.gen.json", {});
-      const s = await serve(p, ["--port", "0", "--allow-origin", "https://editor.example.com"]);
+      const s = await serve(p, ["--port", "0"]);
       const reply = await fetch(s.endpoint, {
         method: "OPTIONS",
         headers: {

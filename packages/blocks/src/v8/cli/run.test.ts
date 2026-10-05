@@ -20,15 +20,11 @@ describe("flags", () => {
       root: "apps/a",
       watch: true,
     });
-    expect(
-      parseFlags("serve", [
-        "--port=5000",
-        "--allow-origin",
-        "http://a",
-        "--allow-origin=http://b",
-        "--read-only",
-      ]),
-    ).toEqual({ port: "5000", "allow-origin": ["http://a", "http://b"], "read-only": true });
+    expect(parseFlags("serve", ["--port=5000", "--host", "0.0.0.0", "--read-only"])).toEqual({
+      port: "5000",
+      host: "0.0.0.0",
+      "read-only": true,
+    });
   });
 
   it.each([

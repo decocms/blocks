@@ -10,7 +10,7 @@ import { reportSchema, schema, writeSchema } from "./schema/index.ts";
 import { serve, startServer } from "./serve/server.ts";
 import { watchFiles, watchTree } from "./watch.ts";
 
-type FlagKind = "string" | "boolean" | "list";
+type FlagKind = "string" | "boolean";
 
 const COMMANDS: Record<string, { usage: string; flags: Record<string, FlagKind> }> = {
   schema: {
@@ -24,13 +24,12 @@ const COMMANDS: Record<string, { usage: string; flags: Record<string, FlagKind> 
   check: { usage: "deco check   [--root <dir>]", flags: { root: "string" } },
   serve: {
     usage:
-      "deco serve   [--root <dir>] [--port <n>] [--host <addr>] [--preview <host:port|url>] [--allow-origin <origin>]… [--assets <dir>] [--read-only]",
+      "deco serve   [--root <dir>] [--port <n>] [--host <addr>] [--preview <host:port|url>] [--assets <dir>] [--read-only]",
     flags: {
       root: "string",
       port: "string",
       host: "string",
       preview: "string",
-      "allow-origin": "list",
       assets: "string",
       "read-only": "boolean",
     },
@@ -77,8 +76,7 @@ export function parseFlags(command: string, args: string[]): ParsedFlags {
         throw new CliError(`--${name} needs a value`);
       i++;
     }
-    if (kind === "list") flags[name] = [...((flags[name] as string[]) ?? []), value];
-    else flags[name] = value;
+    flags[name] = value;
   }
   return flags;
 }
@@ -212,7 +210,6 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
           port,
           host: flags.host as string | undefined,
           preview: flags.preview as string | undefined,
-          allowOrigins: flags["allow-origin"] as string[] | undefined,
           assets: flags.assets as string | undefined,
           readOnly: Boolean(flags["read-only"]),
         };

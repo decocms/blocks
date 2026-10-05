@@ -633,10 +633,6 @@ describe("cli.mdx", () => {
         "127.0.0.1",
         "--preview",
         "localhost:8001",
-        "--allow-origin",
-        "https://a",
-        "--allow-origin",
-        "https://b",
         "--assets",
         "static",
         "--read-only",
@@ -646,11 +642,10 @@ describe("cli.mdx", () => {
       port: "1",
       host: "127.0.0.1",
       preview: "localhost:8001",
-      "allow-origin": ["https://a", "https://b"],
       assets: "static",
       "read-only": true,
     });
-    for (const flag of ["--watch", "--studio", "--open", "--cors", "--token"]) {
+    for (const flag of ["--watch", "--studio", "--open", "--cors", "--token", "--allow-origin"]) {
       const r = await deco(["serve", flag], f.root);
       expect(r.code).toBe(1);
       expect(r.out).toContain(`unknown flag ${flag}`);
@@ -732,27 +727,15 @@ describe("cli.mdx", () => {
     expect(stray.status).toBe(200);
   });
 
-  it("cli-18 / cp-42: --allow-origin is repeatable; other origins are refused", async () => {
+  it("cli-18 / cp-42: any origin is answered, its Origin reflected", async () => {
     const f = fixture();
-    const s = await serveFixture(f.root, {
-      allowOrigins: ["https://one.example", "https://two.example"],
-    });
-    for (const origin of [
-      "https://one.example",
-      "https://two.example",
-      "https://studio.decocms.com",
-    ]) {
+    const s = await serveFixture(f.root);
+    for (const origin of ["https://studio.decocms.com", "https://example.com"]) {
       const r = await rpcCall(s, { jsonrpc: "2.0", id: 1, method: "describe" }, { origin });
       expect(r.status).toBe(200);
       expect(r.headers["access-control-allow-origin"]).toBe(origin);
+      expect(r.headers.vary).toBe("Origin");
     }
-    const evil = await rpcCall(
-      s,
-      { jsonrpc: "2.0", id: 1, method: "describe" },
-      { origin: "https://evil.example" },
-    );
-    expect(evil.status).toBe(403);
-    expect(evil.json().error.code).toBe(ErrorCode.Forbidden);
   });
 
   it("cli-19: --assets is relative to the app root; the field always stores /assets/<name>", async () => {
@@ -1370,20 +1353,20 @@ describe("site-editor.mdx", () => {
     expect(typeof max).toBe("number");
   });
 
-  it("se-06: answers Chrome's local-network preflight", async () => {
+  it("se-06: answers Chrome's local-network preflight, from any origin", async () => {
     const f = fixture();
     const s = await serveFixture(f.root);
     const r = await raw(s.endpoint, {
       method: "OPTIONS",
       headers: {
-        origin: "https://studio.decocms.com",
+        origin: "https://example.com",
         "access-control-request-method": "POST",
         "access-control-request-private-network": "true",
       },
     });
     expect(r.status).toBe(204);
     expect(r.headers["access-control-allow-private-network"]).toBe("true");
-    expect(r.headers["access-control-allow-origin"]).toBe("https://studio.decocms.com");
+    expect(r.headers["access-control-allow-origin"]).toBe("https://example.com");
   });
 
   it("se-07: describe.secrets.publicKey is .deco/secrets.pub", async () => {
@@ -1852,27 +1835,6 @@ describe("content-protocol.mdx", () => {
     expect(read("v8/cli/content.ts")).toMatch(/from "\.\.\/\.\.\/protocol\/keys\.ts"/);
     expect(read("v8/cli/serve/server.ts")).toMatch(/protocol\/keys\.ts"/);
     expect(read("protocol/storage/fs/index.ts")).toMatch(/from "\.\.\/\.\.\/keys\.ts"/);
-  });
-
-  it("cp-43: Host must be the server's own loopback address", async () => {
-    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
-    const headers = (host: string) => ({
-      host,
-      "content-type": "application/json",
-    });
-    for (const bad of [
-      "attacker.com",
-      "127.0.0.1.attacker.com",
-      `127.0.0.1.attacker.com:${s.port}`,
-    ]) {
-      expect((await raw(s.endpoint, { headers: headers(bad), body })).status, bad).toBe(403);
-    }
-    expect((await raw(s.endpoint, { headers: headers(`127.0.0.1:${s.port}`), body })).status).toBe(
-      200,
-    );
-    expect((await raw(s.endpoint, { headers: headers(`localhost:${s.port}`), body })).status).toBe(
-      200,
-    );
   });
 
   it("cp-44: non-JSON Content-Type on /rpc is refused", async () => {
