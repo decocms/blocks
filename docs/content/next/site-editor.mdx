@@ -28,11 +28,11 @@ To edit the app running on your machine:
 2. Run `npx @decocms/blocks serve`. It finds the nearest `.deco/` (or takes `--root`) and prints a link to the site editor:
 
    ```text
-   Deco server          http://127.0.0.1:4545/rpc
+   Deco server          http://localhost:4545/rpc
    Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
    Assets               apps/storefront/public/assets   (PUT /assets/<name>)
    Preview              http://localhost:5173
-   Site editor          https://studio.decocms.com/site-editor#endpoint=http%3A%2F%2F127.0.0.1%3A4545%2Frpc
+   Site editor          https://studio.decocms.com/site-editor#endpoint=http%3A%2F%2Flocalhost%3A4545%2Frpc
    ```
 
 3. Open the link. The Preview tab loads the address printed as `Preview`: the port from your Vite config, else `http://localhost:5173`. If your app runs elsewhere, pass it, such as `npx @decocms/blocks serve --preview localhost:8001`.
