@@ -4,12 +4,12 @@ nav: Built-in blocks
 group: Blocks
 kind: docs
 order: 6
-description: Ten functions every block map gets for free (lazy, multivariate, always, never, date, page, redirect, telemetry, analytics and secret), and how to replace or change one.
+description: Nine functions every block map gets for free (lazy, multivariate, always, never, date, page, redirect, cms-settings and secret), and how to replace or change one.
 ---
 
 # Built-in blocks
 
-Almost every site needs pages, redirects and an if/else. Instead of writing those functions yourself, Deco CMS adds ten of them to your [block map](/next/blocks#the-block-map). You don't import or list them, and they're always in the schema and the registry, so a built-in never fails with `UNKNOWN_BLOCK`.
+Almost every site needs pages, redirects and an if/else. Instead of writing those functions yourself, Deco CMS adds nine of them to your [block map](/next/blocks#the-block-map). You don't import or list them, and they're always in the schema and the registry, so a built-in never fails with `UNKNOWN_BLOCK`.
 
 This page lists the built-ins, what each one takes and returns, and how to replace one or change the fields editors see. It's a quick list: each built-in is explained on the page where you'll use it, linked in the last column.
 
@@ -22,8 +22,7 @@ This page lists the built-ins, what each one takes and returns, and how to repla
 | `date` | `start`, `end` | `true` from `start` until `end` | [Matchers and variants](/next/matchers-and-variants#built-in-matchers) |
 | `page` | `name`, `path`, `seo`, `sections` | The page, fully resolved | [Pages and routing](/next/routing) |
 | `redirect` | `from`, `to`, `permanent`, `status`, `discardQueryParameters` | Its arguments, as saved | [Pages and routing](/next/routing) |
-| `telemetry` | Telemetry settings | Its arguments, as saved | [Telemetry](/next/telemetry#telemetry-settings-are-content) |
-| `analytics` | `collector`, `enabled` | Its arguments, with defaults filled in | [Analytics](/next/analytics) |
+| `cms-settings` | `preview`, `telemetry`, `analytics` | Its arguments, with defaults filled in | [CMS settings](#cms-settings) below |
 | `secret` | `ciphertext` | The decrypted string, on the server only | [Secrets](#secrets) below |
 
 ## Language built-ins
@@ -45,12 +44,35 @@ These five are part of how blocks evaluate, so every site gets the same ones:
 
 [Pages and routing](/next/routing) shows how to find the page for a URL and turn redirects into responses.
 
-## Telemetry and analytics
+## CMS settings
 
-These two are separate features:
+Marketing wants page views to go to their own collector, and the team wants drafts to open only on the staging host. Both are site-wide settings editors can see and change, so they live in one place: a [saved block](/next/saved-blocks) named `CMS`, whose type is the built-in `cms-settings`.
 
-- **`telemetry`** is the type of the well-known `Telemetry` [saved block](/next/saved-blocks), which holds your site's telemetry switches and sample rates. It returns its arguments as saved; [Telemetry settings are content](/next/telemetry#telemetry-settings-are-content) lists the fields.
-- **`analytics`** takes `collector` and `enabled`, both optional, and returns them with the defaults filled in (the hosted Deco CMS collector, and `true`). Save one, resolve it in your layout and pass it to `AnalyticsScript`; see [Analytics](/next/analytics).
+```json title=".deco/blocks/CMS.json"
+{
+  "__resolveType": "cms-settings",
+  "preview":   { "hosts": ["staging.example.com"] },
+  "telemetry": { "enabled": true, "metrics": true, "errorSampleRate": 0.05, "traceSampleRate": 0 },
+  "analytics": { "enabled": true, "collector": "https://stats.example.com/events" }
+}
+```
+
+Settings are split between code and content:
+
+- **Code says where things go, and how far content may go.** [`createCMS`](/next/api-reference#createcms-config) holds destinations and secrets, such as your telemetry collector and its token, and the caps: the highest sample rates content may set, and the hosts content may allow previews on. Code changes with a deploy.
+- **Content says what's on, and how much.** The `CMS` block holds the switches, the sample rates, the analytics collector and the preview hosts, within those caps. It ships like any other content, and editors change it in [the site editor](/next/site-editor#settings).
+
+The block has three sections, each with its own page:
+
+| Section | Fields | Defaults | More in |
+| --- | --- | --- | --- |
+| `preview` | `hosts` | Every host, or the hosts code allows | [Allow previews per host](/next/releases-and-drafts#allow-previews-per-host) |
+| `telemetry` | `enabled`, `metrics`, `errorSampleRate`, `traceSampleRate` | `true`, `true`, `0.05`, `0` | [Telemetry settings are content](/next/telemetry#telemetry-settings-are-content) |
+| `analytics` | `enabled`, `collector` | `true`, the hosted Deco CMS collector | [Analytics](/next/analytics) |
+
+Every field is optional, and so is the block: without it, every default applies. `deco content` doesn't create it; save it from the site editor, or add the file, when you want to change something. Like any field, a section or a single setting can have [variants](/next/matchers-and-variants#variants), such as analytics switched on only during a campaign.
+
+Your code reads the settings with [`cms.settings()`](/next/api-reference#cms-settings), which returns every section with the defaults filled in and the caps applied. It always reads the release, never a draft, so a draft can't allow its own preview host or change what telemetry sends. Telemetry, analytics and the draft helpers all read the settings this way.
 
 ## Secrets
 
@@ -135,4 +157,4 @@ export default { seo, hero, page } satisfies Blocks;
 
 Nothing is lost: arguments resolve before the function runs, so returning `props` gives the same resolved page as the built-in, `seo` and `sections` included, plus `theme`. You read it in the result of `client.resolve`, as `page.theme`, and [`deco schema`](/next/schema) gives editors a *theme* select on every page.
 
-No saved block can be called `page`, `redirect`, `telemetry`, `analytics`, `always`, `never`, `date`, `multivariate`, `lazy` or `secret` (see [Names](/next/saved-blocks#names)).
+No saved block can be called `page`, `redirect`, `cms-settings`, `always`, `never`, `date`, `multivariate`, `lazy` or `secret` (see [Names](/next/saved-blocks#names)).

@@ -32,13 +32,13 @@ To edit the app running on your machine:
    Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
    Assets               apps/storefront/public/assets   (PUT /assets/<name>)
    Preview              http://localhost:5173
-   Site editor          https://<studio-origin>/site-editor#endpoint=…&token=…
+   Site editor          https://<studio-origin>/site-editor#endpoint=…
    ```
 
 3. Open the link. The Preview tab loads the address printed as `Preview`: the port from your Vite config, else `http://localhost:5173`. If your app runs elsewhere, pass it, such as `npx @decocms/blocks serve --preview localhost:8001`.
 4. The first time, Chrome asks whether the site editor may reach a server on your machine (Local Network Access). Allow it.
 
-Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) after every save, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and answers only requests carrying its token (see [The local server](/next/content-protocol#the-local-server)). Its flags, such as `--port` and `--preview`, are in the [CLI reference](/next/cli#deco-serve).
+Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) after every save, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and needs no token: it answers browser requests only from the site editor, and only when addressed by its own loopback address (see [The local server](/next/content-protocol#the-local-server)). The site editor remembers the server, so opening `/site-editor` again reconnects to it, and if you restart `deco serve` it waits for the server and reconnects on its own. Its flags, such as `--port` and `--preview`, are in the [CLI reference](/next/cli#deco-serve).
 
 ## Images and other uploads
 
@@ -60,6 +60,12 @@ Because the site editor never runs your code, a few things that depend on it wor
 - **Pickers whose options come from your code** show the options written into the schema, otherwise a text field (see [Widgets](/next/schema#widgets)).
 - **Secret fields** are write-only: the site editor encrypts what an editor types with your public key, `.deco/secrets.pub`, and never shows the saved value (see [Secrets](/next/built-in-blocks#secrets)).
 - **Fetching data and installing apps from the site editor:** older Deco sites could run data loaders and install commerce apps from the site editor; here those live in your code. Add platform clients in code (see [Calling APIs](/next/upstream-clients)). These are different from [content loaders](/next/content#write-a-loader), which deliver your saved blocks.
+
+## Settings
+
+The site editor's **Settings** entry opens your site's [CMS settings](/next/built-in-blocks#cms-settings): one form with the hosts previews are allowed on, the telemetry switches and sample rates, and where analytics sends page views. Until someone saves it, the form shows the defaults, and the first save creates `.deco/blocks/CMS.json`. It's an ordinary saved block, so the change ships like any other content, and you can review it in the diff.
+
+Settings take effect from the release, not from a draft: previewing a draft never changes its own preview hosts, telemetry or analytics. What code allows still wins, such as the highest sample rates or the hosts previews may ever use (see [Allow previews per host](/next/releases-and-drafts#allow-previews-per-host)).
 
 ## Saved blocks and variants in the site editor
 

@@ -31,7 +31,7 @@ The group names are the site editor's, inherited from the Fresh and Deno framewo
 | `loaders` | Every other block function, such as one that fetches products. The site editor calls these loaders, after the Fresh and Deno name for data functions; they have nothing to do with where your content comes from. This includes the built-ins `multivariate` and `lazy`. The site editor recognizes `lazy` by name and never offers it as a pick: it only writes it around a value in a `Lazy<T>` field. | Data fields that can point at a function |
 | `pages` | The built-in `page` (or your override of it) and [data-only blocks](/next/schema#data-only-blocks) whose type extends `Route`, like `post` | The page list, "new page", the URL field |
 | `redirects` | The built-in `redirect` | The redirects screen |
-| `content` | Every other data-only block (a function that returns its input), including the built-in `telemetry` | Plain entries: navigation menus, settings, email templates |
+| `content` | Every other data-only block (a function that returns its input), including the built-in `cms-settings` | Plain entries: navigation menus, settings, email templates |
 
 ```json title=".deco/schema.gen.json, abridged"
 {
@@ -88,6 +88,16 @@ One difference remains: redirects created in the site editor are saved in the ol
 ```
 
 [`matchRoute`](/next/api-reference#matchroute-url-items) accepts both. A legacy `"type": "permanent"` is a 301 and `"temporary"` a 307, as before, and `discardQueryParameters` carries over, so no live redirect changes its status code or query handling. The site editor decides whether a key is a block type or a saved block by looking it up in the manifest, so a site can drop the aliases once its content is migrated.
+
+## The Settings entry
+
+The site editor's **Settings** entry is the one screen found by a saved block's name rather than by a type: it opens the saved block named `CMS`, whose type is the built-in `cms-settings` (see [CMS settings](/next/built-in-blocks#cms-settings)). There's no marker in the schema and no list of settings types; the form is the `cms-settings` definition the schema already carries, like any other type's.
+
+- **When `CMS` exists**, the entry opens it like any saved block, and saves go through `blocks.apply` with the block's version in `ifMatch`, as every save does.
+- **When it doesn't**, the form starts from the defaults in the schema, and the first save creates it with one `blocks.apply` that sets `CMS` with `ifMatch: { "CMS": null }`, so two editors saving at once can't overwrite each other: the second gets a conflict and reloads the block (see [The content protocol](/next/content-protocol)).
+- **A `CMS` of another type** isn't settings: [`cms.settings()`](/next/api-reference#cms-settings) ignores it and returns the defaults, and the Settings entry never replaces it. Rename that block to free the name.
+
+The protocol has no methods for settings; they're content like any other.
 
 ## Variant tabs
 

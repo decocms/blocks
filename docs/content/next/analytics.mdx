@@ -3,46 +3,29 @@ title: Analytics
 nav: Analytics
 group: Telemetry & analytics
 order: 22
-description: Privacy-friendly page views, with no cookies, from a built-in block compatible with One Dollar Stats.
+description: Privacy-friendly page views, with no cookies, compatible with One Dollar Stats, with settings kept in the CMS settings block.
 ---
 
 # Analytics
 
 Marketing wants to know which landing page the Black Friday banner sends people to, without a cookie banner or a third-party tag manager.
 
-Deco CMS includes small, open-source web analytics compatible with [One Dollar Stats](https://onedollarstats.com). It counts page views without cookies, and it's a [built-in block](/next/built-in-blocks), `analytics`, so you add it like any other block and editors can change it in [the site editor](/next/site-editor). This page shows how to add it, where page views go, how to send your own events and how to turn it off.
+Deco CMS includes small, open-source web analytics compatible with [One Dollar Stats](https://onedollarstats.com). It counts page views without cookies, and its settings are content: the `analytics` section of your site's [CMS settings](/next/built-in-blocks#cms-settings), so editors can change them in [the site editor](/next/site-editor#settings). This page shows how to add it, where page views go, how to send your own events and how to turn it off.
 
-Analytics has nothing to do with [telemetry](/next/telemetry): telemetry is errors, metrics and traces from your servers, configured in code, while analytics is page views from the browser, configured in this block.
+Analytics has nothing to do with [telemetry](/next/telemetry): telemetry is errors, metrics and traces from your servers, while analytics is page views from the browser. They only share the settings block, each in its own section.
 
 ## Add analytics to your site
 
-### 1. Save an `analytics` block
+### 1. Render the script
 
-Save a block whose type is the built-in `analytics`. With no arguments, it uses the defaults:
-
-```json title=".deco/blocks/Analytics.json"
-{ "__resolveType": "analytics" }
-```
-
-Like any [saved block](/next/saved-blocks), it's a JSON file in your repository, and the site editor shows it as a form.
-
-The `analytics` block holds settings, not a script: it returns its arguments with the defaults filled in. To send page views to your own collector, set `collector`:
-
-```json title=".deco/blocks/Analytics.json"
-{ "__resolveType": "analytics", "collector": "https://stats.example.com/events" }
-```
-
-### 2. Render the script
-
-Resolve the block in your root layout and pass the settings to `AnalyticsScript`, from `@decocms/blocks/analytics`, so every page gets it:
+Read the settings with [`cms.settings()`](/next/api-reference#cms-settings) in your root layout and pass the `analytics` section to `AnalyticsScript`, from `@decocms/blocks/analytics`, so every page gets it:
 
 ```tsx title="app/layout.tsx"
-import type { Analytics } from "@decocms/blocks";
 import { AnalyticsScript } from "@decocms/blocks/analytics";
 import { cms } from "../cms";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const [analytics] = await cms.forRelease().resolve<Analytics>("Analytics");   // the settings, defaults filled in
+  const { analytics } = await cms.settings();   // the release's settings, defaults filled in
 
   return (
     <html lang="en">
@@ -55,11 +38,26 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 }
 ```
 
-It works the same on every framework, since the block returns plain settings. In the browser, the script sends a page view on every navigation: the path without its query string, the referrer and the hostname.
+That's all it takes: with no settings saved, the defaults apply, and page views go to the hosted Deco CMS collector (which counts them for [connected](/next/hosted#connect-your-site) sites; otherwise, set `collector` below). It works the same on every framework, since `cms.settings()` returns plain values. In the browser, the script sends a page view on every navigation: the path without its query string, the referrer and the hostname.
 
-## Props
+### 2. Choose where page views go (optional)
 
-| Prop | Default | What it does |
+To send page views to your own collector, set `collector` in the `analytics` section, in the site editor's **Settings** or by hand:
+
+```json title=".deco/blocks/CMS.json"
+{
+  "__resolveType": "cms-settings",
+  "analytics": { "collector": "https://stats.example.com/events" }
+}
+```
+
+The settings come from the release your servers serve, never from a draft: a change ships like any other content, and previewing a draft doesn't change where page views go.
+
+## Settings
+
+The `analytics` section's fields, which are also `AnalyticsScript`'s props:
+
+| Field | Default | What it does |
 |---|---|---|
 | `collector` | The hosted Deco CMS collector | The endpoint page views go to: One Dollar Stats' collector or any endpoint that accepts its format. |
 | `enabled` | `true` | `AnalyticsScript` renders nothing when `false`. |
@@ -84,13 +82,16 @@ Ecommerce events, such as a product view or a purchase, belong to your [platform
 
 ## Turn it off
 
-Set `enabled` to `false`, in the site editor or by hand:
+Set `enabled` to `false` in the `analytics` section, in the site editor or by hand:
 
-```json title=".deco/blocks/Analytics.json"
-{ "__resolveType": "analytics", "enabled": false }
+```json title=".deco/blocks/CMS.json"
+{
+  "__resolveType": "cms-settings",
+  "analytics": { "enabled": false }
+}
 ```
 
-It's a content edit, so it ships like any other, and switching it back on is the same one-field commit. Because it's a block, you can also pick between settings with [variants](/next/matchers-and-variants), to switch it on only during a campaign, for example.
+It's a content edit, so it ships like any other, and switching it back on is the same one-field commit. Like any field, the section can have [variants](/next/matchers-and-variants), to switch analytics on only during a campaign, for example. `cms.settings()` picks the variant when your layout calls it, so its rules see the request the way your other matchers do.
 
 ## One Dollar Stats
 

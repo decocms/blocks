@@ -30,24 +30,23 @@ If the overlay can't be fetched, the client's calls return an error instead of s
 
 ## Wire drafts into your app
 
-Picking the client from [`draftPointer(request)`](/next/api-reference#draft-pointers) is the two-line pattern in [Preview](/next/releases-and-drafts#preview). The hosted flow adds a cookie: the pointer is only in the URL of the first page the site editor opens, so that response sets a cookie and every link the editor clicks stays in preview. `draftCookie(request)` returns the `Set-Cookie` value for that response, and `null` on every other request; `draftPointer` reads the query parameter or the cookie:
+Picking the client from [`cms.draftPointer(request)`](/next/api-reference#draft-pointers) is the two-line pattern in [Preview](/next/releases-and-drafts#preview). The hosted flow adds a cookie: the pointer is only in the URL of the first page the site editor opens, so that response sets a cookie and every link the editor clicks stays in preview. `cms.draftCookie(request)` returns the `Set-Cookie` value for that response, and `null` on every other request; `cms.draftPointer` reads the query parameter or the cookie:
 
 ```ts title="A plain request handler"
-import { draftPointer, draftCookie } from "@decocms/blocks";
 import { cms } from "./cms";
 
 export async function handle(request: Request) {
-  const pointer = draftPointer(request);               // from ?__draft= or the cookie; null on an ordinary request
+  const pointer = await cms.draftPointer(request);     // from ?__draft= or the cookie; null on an ordinary request
   const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
   const response = await render(client, request);      // your own function: list, matchRoute and resolve as usual
 
-  const cookie = draftCookie(request);
+  const cookie = await cms.draftCookie(request);
   if (cookie) response.headers.append("Set-Cookie", cookie);
   return response;
 }
 ```
 
-The site editor ends a preview by opening the site with `?__draft=off`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code.
+The site editor ends a preview by opening the site with `?__draft=off`; `draftCookie` returns an expiring cookie for that, so the same lines cover leaving preview. The parameter and cookie names never appear in your code, and both helpers apply your [preview hosts](/next/releases-and-drafts#allow-previews-per-host): on any other host, the request gets the release.
 
 Without a [site ID and token](/next/hosted#connect-your-site), the CMS reads the [content module](/next/content#the-content-module), which has no drafts, so it ignores the pointer: you're already looking at your files. With them, your dev server still serves your local files to ordinary requests, and a `?__draft=` link loads the draft from the Deco API (see [Local files win in development](/next/hosted#connect-your-site)). That's why the same code serves previews and visitors everywhere. A draft is just another set of calls run by the same code; to serve drafts from somewhere other than the hosted Deco CMS, see [Write a loader](/next/content#write-a-loader).
 
@@ -57,27 +56,27 @@ In the [Next.js guide](/next/nextjs), the cookie and the client split across two
 
 ```ts title="src/proxy.ts"
 import { NextResponse, type NextRequest } from "next/server";
-import { draftCookie } from "@decocms/blocks";
+import { cms } from "./cms";
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = NextResponse.next();
-  const cookie = draftCookie(request);          // only set on the request the site editor opens; expiring when leaving preview
+  const cookie = await cms.draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
   if (cookie) response.headers.append("Set-Cookie", cookie);
   return response;
 }
 ```
 
-And `client()` reads the cookie with `cookies()`, since a Server Component has no request:
+And `client()` reads the pointer from the request headers, since a Server Component has no request. `headers()` carries the cookie and the host, which is all `draftPointer` needs:
 
 ```ts title="src/client.server.ts"
 import "server-only";
-import { cookies } from "next/headers";
-import { DRAFT_COOKIE } from "@decocms/blocks";
+import { headers } from "next/headers";
 import { cms } from "./cms";
 
-// The client for this request: a draft when the cookie holds a valid pointer, production otherwise.
+// The client for this request: a draft when the cookie holds a valid pointer on an allowed host, production otherwise.
 export async function client() {
-  const pointer = (await cookies()).get(DRAFT_COOKIE)?.value;
+  const h = await headers();
+  const pointer = await cms.draftPointer({ url: `https://${h.get("host")}/`, headers: h });
   return pointer ? cms.forDraft(pointer) : cms.forRelease();
 }
 ```
@@ -89,11 +88,9 @@ Nothing else in the guide changes: every page already gets its client from `clie
 In the [TanStack Start guide](/next/tanstack-start-descriptors), `client(request)` in `src/cms.ts` reads the pointer from the URL or the cookie:
 
 ```ts title="src/cms.ts (changes)"
-import { createCMS, draftPointer } from "@decocms/blocks";
-
 // The client for this request: the draft it points at, or the current release.
-export const client = (request: Request) => {
-  const pointer = draftPointer(request);
+export const client = async (request: Request) => {
+  const pointer = await cms.draftPointer(request);
   return pointer ? cms.forDraft(pointer) : cms.forRelease();
 };
 ```
@@ -102,11 +99,11 @@ Start's request middleware runs around every request, so it appends the cookie t
 
 ```ts title="src/start.ts"
 import { createMiddleware, createStart } from "@tanstack/react-start";
-import { draftCookie } from "@decocms/blocks";
+import { cms } from "./cms";
 
 const draftCookieMiddleware = createMiddleware().server(async ({ request, next }) => {
   const result = await next();
-  const cookie = draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
+  const cookie = await cms.draftCookie(request);   // only set on the request the site editor opens; expiring when leaving preview
   if (cookie) result.response.headers.append("Set-Cookie", cookie);
   return result;
 });
@@ -132,25 +129,13 @@ Anyone can put `?__draft=` in a URL, so the CMS checks two things, and neither n
 
 A revision on its own selects content but unlocks nothing; only a signed pointer reaches unpublished drafts.
 
-Whether a request may preview at all is your app's rule. There is no separate preview server: the server that renders a draft is a production server, it renders the draft the same way it renders visitors, and it keeps picking up new releases either way. To allow previews on one host only, say a staging host, check the host before reading the pointer or setting the cookie, and every other host serves the release:
+Where previews may happen is a setting, not code you write. There is no separate preview server: the server that renders a draft is a production server, it renders the draft the same way it renders visitors, and it keeps picking up new releases either way. To keep drafts on a staging host and off your public domain, list the hosts in the `preview` section of your CMS settings, optionally capped in `createCMS` (see [Allow previews per host](/next/releases-and-drafts#allow-previews-per-host)). On any other host, `cms.draftPointer` and `cms.draftCookie` ignore the draft, and the request gets the release. The list is read from the release, so a draft can't allow its own host.
 
-```ts title="Previews on one host only"
-import { draftPointer, draftCookie } from "@decocms/blocks";
-import { cms } from "./cms";
+That check keeps drafts out of public caches and search results, but it isn't what protects them: the signed, expiring token is. To narrow previews further, on something your app knows about the request, such as a header your CDN sets or a signed-in employee, check it before calling the helpers:
 
-export async function handle(request: Request) {
-  const mayPreview = new URL(request.url).host === "staging.store.example.com"; // your rule
-  const pointer = mayPreview ? draftPointer(request) : null;
-  const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
-  const response = await render(client, request);      // your own function, as above
-
-  const cookie = mayPreview ? draftCookie(request) : null;
-  if (cookie) response.headers.append("Set-Cookie", cookie);
-  return response;
-}
+```ts
+const pointer = isEmployee(request) ? await cms.draftPointer(request) : null;   // isEmployee: your rule
 ```
-
-The rule can be anything your app knows about the request: a host, a header your CDN sets, a signed-in employee.
 
 <Callout type="warning">**The token is the only Deco credential.** The site ID isn't secret, and the site holds no other credential for Deco (the private key for [secrets](/next/built-in-blocks#secrets) is your own). An invalid or unexpected pointer never loads anything: the client returns an error, and your app decides what to show.</Callout>
 

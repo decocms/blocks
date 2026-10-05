@@ -10,7 +10,7 @@ description: Send your site's telemetry to the hosted Deco CMS collector with a 
 
 You want upstream latency and error rates for your site, but you don't want to run a collector or a dashboard. The hosted Deco CMS runs one for you.
 
-[Telemetry](/next/telemetry) is open source and can go to any OpenTelemetry collector. This page shows how to send it to the hosted Deco CMS instead, and what you get there. Page views are [analytics](/next/analytics), which is separate: the `analytics` block sends to the hosted collector by default.
+[Telemetry](/next/telemetry) is open source and can go to any OpenTelemetry collector. This page shows how to send it to the hosted Deco CMS instead, and what you get there. Page views are [analytics](/next/analytics), which is separate: by default, analytics sends to the hosted collector.
 
 ## Turn it on
 
@@ -36,4 +36,4 @@ The hosted Deco CMS collects and shows, for your site, the [measurements](/next/
 
 ## Settings
 
-What's sent and how often is the same as with any collector: the [`Telemetry` saved block](/next/telemetry#telemetry-settings-are-content) holds the switches and sample rates, and [`limits`](/next/telemetry#sampling) in code cap them.
+What's sent and how often is the same as with any collector: the `telemetry` section of the [`CMS` block](/next/telemetry#telemetry-settings-are-content) holds the switches and sample rates, and [`limits`](/next/telemetry#sampling) in code cap them.

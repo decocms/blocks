@@ -3,7 +3,7 @@ title: Migrating from v7
 nav: Migrating from v7
 group: Getting started
 order: 3
-description: Keep v7 content working with aliases, replace v7 loaders, actions, telemetry and analytics, and migrate saved content safely.
+description: Keep v7 content working with aliases, replace v7 loaders, actions, telemetry and analytics, fold site settings into the CMS block, and migrate saved content safely.
 ---
 
 # Migrating from v7
@@ -27,7 +27,7 @@ DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/
 | `--root <dir>` | The app root, the folder with your site's `package.json`. Default: the current folder. |
 | `--decofile <file>` | Content to split into `.deco/blocks` when the site has none yet: the JSON your v7 site serves at `/.decofile`. |
 
-It changes your files in place and prints a report of what it did and what's left for you. It writes a block map that keeps your old type names as [aliases](#rename-a-type-with-an-alias), copies the [loaders](#loaders-actions-and-invoke) your content uses, re-encrypts [secrets](#secrets), and lists what it can't move by itself, such as [tag IDs](#telemetry-and-analytics). Review the diff and commit it like any other change.
+It changes your files in place and prints a report of what it did and what's left for you. It writes a block map that keeps your old type names as [aliases](#rename-a-type-with-an-alias), copies the [loaders](#loaders-actions-and-invoke) your content uses, re-encrypts [secrets](#secrets), folds your site's settings into the [`CMS` block](#site-settings), and lists what it can't move by itself, such as [tag IDs](#telemetry-and-analytics). Review the diff and commit it like any other change.
 
 Next-major apps depend only on `@decocms/blocks`. Remove `@decocms/tanstack` or `@decocms/nextjs`, and `@decocms/blocks-admin`, from your dependencies: they stay on the 7.x line. What they did for your platform is now a few lines of your own code: upstream caching is a fetch you pass to a client (see [Upstream data](/next/caching#upstream-data)), and content in Workers KV is a small loader (see [Example: Workers KV](/next/api-reference#example-workers-kv)).
 
@@ -86,15 +86,38 @@ v7's `/deco/invoke` endpoint (which ran loaders and actions over HTTP for the si
 
 <h2 id="telemetry-and-analytics">Telemetry and analytics</h2>
 
-v7 configured telemetry with environment variables and shipped its analytics as components. In the next major, they're two separate parts of Deco CMS: telemetry is configured in code, and analytics is a built-in block.
+v7 configured telemetry with environment variables and shipped its analytics as components. In the next major, they're two separate parts of Deco CMS: code says where each one sends, and the [`CMS` block](/next/built-in-blocks#cms-settings) holds their switches and rates.
 
 | v7 | Next major |
 |---|---|
-| The OpenTelemetry export, switched on with `DECO_OTEL` and the `DECO_OTEL_*` endpoint and header variables (see [v7 observability](/v7/observability)) | The [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) of `createCMS`: `{ endpoint, headers? }` for your own collector, or the standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` variables. Sampling moves to the [Telemetry saved block](/next/telemetry#telemetry-settings-are-content). |
+| The OpenTelemetry export, switched on with `DECO_OTEL` and the `DECO_OTEL_*` endpoint and header variables (see [v7 observability](/v7/observability)) | The [`telemetry` option](/next/telemetry#choose-where-telemetry-goes) of `createCMS`: `{ endpoint, headers? }` for your own collector, or the standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` variables. Sampling moves to the `telemetry` section of the [`CMS` block](/next/telemetry#telemetry-settings-are-content). |
 | Metrics Deco collected for your site in its own backend | `telemetry: { site, token }`, set explicitly (see [Hosted telemetry](/next/hosted-telemetry)) |
-| The `Stats` and `OneDollarStats` components, and the `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` variables | A saved block of the built-in [`analytics`](/next/analytics) type, which speaks the [One Dollar Stats](/next/analytics#one-dollar-stats) format. Rendering `AnalyticsScript` with it turns it on; its `enabled` field switches it off. |
-| The `Analytics` section with Google Tag Manager and GA4 tags | A tag manager block from your [platform template](/next/how-it-works#key-terms), owned by your site; the migration lists the tag IDs in its report. The built-in `analytics` block only counts page views, so it doesn't take them. |
+| The `Stats` and `OneDollarStats` components, and the `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` variables | `AnalyticsScript` in your root layout, with the `analytics` section of [`cms.settings()`](/next/analytics), which speaks the [One Dollar Stats](/next/analytics#one-dollar-stats) format. Rendering it turns analytics on; the section's `enabled` field switches it off. |
+| The `Analytics` section with Google Tag Manager and GA4 tags | A tag manager block from your [platform template](/next/how-it-works#key-terms), owned by your site; the migration lists the tag IDs in its report. Built-in analytics only counts page views, so it doesn't take them. |
 | Experiment results keyed on the random matcher's saved-block name | The `experiment` ID of the [A/B test](/next/matchers-and-variants#run-an-a-b-test); the migration copies the old name into it, so results carry over. |
+
+<h2 id="site-settings">Site settings</h2>
+
+The next major keeps site-wide settings in one saved block, `CMS`, of the built-in type [`cms-settings`](/next/built-in-blocks#cms-settings). The migration folds what it finds into `.deco/blocks/CMS.json`, keeping anything already there, and writes nothing when there's nothing to fold:
+
+| From | Into `CMS.json` |
+|---|---|
+| The v7 Site block's (`Site` or `site`) `previewHosts` | `preview.hosts`, entry for entry. v7 compared hosts exactly, port included, and so does an entry with a port here (see [Host patterns](/next/api-reference#host-patterns)). The rest of the Site block stays where it is. |
+| A literal `collectorAddress` on v7's `OneDollarStats` component in your code | `analytics.collector` |
+| A `Telemetry` saved block (type `telemetry`) from an earlier next-major prerelease | The `telemetry` section, field for field; the old file is deleted |
+| An `Analytics` saved block (type `analytics`) from an earlier next-major prerelease | The `analytics` section, field for field; the old file is deleted |
+
+Variants come along unchanged: a saved block that was a `multivariate` becomes the same `multivariate` in its section. The `telemetry` and `analytics` built-ins are gone, with no alias, so a leftover block of either type fails [`deco check`](/next/checking) until it's folded. Running the migration again changes nothing.
+
+Settings v7 read from your hosting environment never reach the repository, so the report lists them for you to move by hand:
+
+- `DECO_ALLOWED_PREVIEW_HOSTS` replaced the Site block's list. Put its hosts in `CMS.json`'s `preview.hosts`, or, to make them the most content may allow, in [`preview.hosts`](/next/releases-and-drafts#allow-previews-per-host) of `createCMS`. Its `none` is an empty list.
+- `DECO_OTEL_*` sampling variables become the `telemetry` section's rates, within the [`limits`](/next/telemetry#sampling) in code.
+- `DECO_ANALYTICS_ENABLED` and `ONEDOLLAR_ENABLED` become the `analytics` section's `enabled`, and `ONEDOLLAR_COLLECTOR` its `collector`.
+
+A v7 site with no allowed hosts had draft preview off. In the next major, previews work on every host unless you list some, so add `preview.hosts` if you relied on that.
+
+Where you render analytics, replace the resolved `Analytics` block with the settings: `const { analytics } = await cms.settings()`, then `<AnalyticsScript {...analytics} />` (see [Analytics](/next/analytics#1-render-the-script)).
 
 <h2 id="secrets">Secrets</h2>
 

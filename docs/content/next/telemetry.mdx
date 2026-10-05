@@ -3,7 +3,7 @@ title: Telemetry
 nav: Telemetry
 group: Telemetry & analytics
 order: 21
-description: Send errors, metrics and traces from your servers to your own OpenTelemetry collector or to the hosted Deco CMS, with switches and sample rates kept in a saved block.
+description: Send errors, metrics and traces from your servers to your own OpenTelemetry collector or to the hosted Deco CMS, with switches and sample rates kept in the CMS settings block.
 ---
 
 # Telemetry
@@ -53,19 +53,21 @@ The top-level `site` and `token` options load [hosted releases and drafts](/next
 
 That's everything the SDK measures. The requests your site serves and its page cache belong to your web framework, so measure them with its OpenTelemetry setup (Next.js has [`instrumentation.ts`](https://nextjs.org/docs/app/guides/open-telemetry); on Cloudflare Workers, turn on Workers observability). Point it at the same collector and both show up side by side.
 
-A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. The `cached` label tells you whether a response came from a [cache](/next/caching#upstream-data), so hit rates show up next to latency. Page views from the browser aren't telemetry: they're [analytics](/next/analytics), a separate built-in block.
+A retried request counts once, with the number of retries as the `retries` label, so retries don't inflate request counts. The `cached` label tells you whether a response came from a [cache](/next/caching#upstream-data), so hit rates show up next to latency. Page views from the browser aren't telemetry: they're [analytics](/next/analytics), a separate feature with its own section in the same settings block.
 
 ## Telemetry settings are content
 
-How much is sent is a setting editors can see and change. It lives in a well-known [saved block](/next/saved-blocks#save-a-block) named `Telemetry`, whose type is the [built-in `telemetry` block](/next/built-in-blocks#telemetry-and-analytics), so it's always in the schema and [the site editor](/next/site-editor) shows it as a form:
+How much is sent is a setting editors can see and change. It lives in the `telemetry` section of your site's [CMS settings](/next/built-in-blocks#cms-settings): the saved block named `CMS`, whose type is the built-in `cms-settings`, so it's always in the schema and [the site editor](/next/site-editor#settings) shows it as a form under **Settings**:
 
-```json title=".deco/blocks/Telemetry.json"
+```json title=".deco/blocks/CMS.json"
 {
-  "__resolveType": "telemetry",
-  "enabled": true,
-  "metrics": true,
-  "errorSampleRate": 0.05,
-  "traceSampleRate": 0
+  "__resolveType": "cms-settings",
+  "telemetry": {
+    "enabled": true,
+    "metrics": true,
+    "errorSampleRate": 0.05,
+    "traceSampleRate": 0
+  }
 }
 ```
 
@@ -76,7 +78,9 @@ How much is sent is a setting editors can see and change. It lives in a well-kno
 | `errorSampleRate` | `0.05` | The share of error logs sent (5%). |
 | `traceSampleRate` | `0` | The share of requests traced. |
 
-The block is optional: without it, the defaults above apply. `deco content` doesn't create it; add the file when you want to change something. Switching telemetry off is a commit to this file, made in the site editor or by hand, and it ships like any other content. The destination and its credentials never go here: content is edited in the site editor and shipped in releases, so secrets stay in code.
+The block and the section are optional: without them, the defaults above apply. `deco content` doesn't create the block; save it from the site editor, or add the file, when you want to change something. Switching telemetry off is a commit to this file, made in the site editor or by hand, and it ships like any other content. The destination and its credentials never go here: content is edited in the site editor and shipped in releases, so secrets stay in code.
+
+Telemetry follows the release your servers serve. A new release with a changed `telemetry` section takes effect when the server picks it up, and a [draft](/next/releases-and-drafts#drafts) never changes what's sent, even while someone previews it. A section with [variants](/next/matchers-and-variants#variants) is read outside any request, so pick between them with date rules, not request rules.
 
 ## Sampling
 
@@ -86,7 +90,7 @@ Telemetry is sampled and aggregated, so its cost stays flat as traffic grows:
 - **Error logs are sampled** at `errorSampleRate`, so a burst of identical errors sends a few examples, not thousands.
 - **Sending never delays a response.** Batches go out in the background, and a collector that's down only loses that batch (see [How telemetry is sent](/next/telemetry-internals#sending-in-the-background)).
 
-Code caps what content can raise. The sample rates in the `Telemetry` block are limited by `limits` on the `telemetry` option, so an editor can't increase what leaves your servers for a third party:
+Code caps what content can raise. The sample rates in the `telemetry` section are limited by `limits` on the `telemetry` option, so an editor can't increase what leaves your servers for a third party:
 
 ```ts
 telemetry: {
@@ -140,7 +144,7 @@ The wrapped function keeps its props type, so its form doesn't change, and it re
 
 | Symptom | What to check |
 |---|---|
-| Nothing reaches the collector | Check that `telemetry` is set (or `OTEL_EXPORTER_OTLP_ENDPOINT`), and that the [`Telemetry` block](#telemetry-settings-are-content), if you have one, isn't `enabled: false`. Metrics are sent in batches, so expect a short delay. |
+| Nothing reaches the collector | Check that `telemetry` is set (or `OTEL_EXPORTER_OTLP_ENDPOINT`), and that the [`telemetry` section](#telemetry-settings-are-content) of the `CMS` block, if you have one, isn't `enabled: false`. Metrics are sent in batches, so expect a short delay. |
 | Only some errors arrive | Error logs are sampled at `errorSampleRate`, capped by [`limits`](#sampling). |
 | Upstream calls missing | Only requests made through `createInstrumentedFetch` are measured; check that your client uses it (see [Calling APIs](/next/upstream-clients)). |
 | Prometheus shows odd counters | Metrics use delta temporality; see [Metrics](/next/telemetry-internals#metrics). |

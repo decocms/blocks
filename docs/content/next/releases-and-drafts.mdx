@@ -39,12 +39,10 @@ The content module has no drafts: it ignores the pointer, so `forDraft` acts lik
 
 ## Preview
 
-Preview is your real app rendering a draft instead of the release. It isn't a separate feature. In your route or page handler (see [Rendering](/next/rendering)), read the pointer from the request with [`draftPointer`](/next/api-reference#draft-pointers) and pick the client:
+Preview is your real app rendering a draft instead of the release. It isn't a separate feature. In your route or page handler (see [Rendering](/next/rendering)), read the pointer from the request with [`cms.draftPointer`](/next/api-reference#draft-pointers) and pick the client:
 
 ```ts
-import { draftPointer } from "@decocms/blocks";
-
-const pointer = draftPointer(request);   // from ?__draft= or the draft cookie; null otherwise
+const pointer = await cms.draftPointer(request);   // from ?__draft= or the draft cookie; null otherwise, and on hosts previews aren't allowed on
 const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 ```
 
@@ -65,6 +63,33 @@ The site editor's variant tabs work this way: picking the second variant of the 
 A link can force any variant. That's fine because [variants are not access control](/next/matchers-and-variants#run-an-a-b-test): every variant must be fine to show.
 
 <Hosted to="/next/hosted-drafts" label="Previewing drafts">**Drafts on your real site.** With the hosted Deco CMS, the site editor opens your real site with a `?__draft=` link and the draft renders in place, with no preview deployment. Only pointers signed by the site editor reach unpublished drafts.</Hosted>
+
+## Allow previews per host
+
+Your store has a public domain and a staging host, and drafts belong only on staging: a draft on the public domain could land in your CDN's cache or in a search engine's index. List the hosts previews are allowed on in the `preview` section of your [CMS settings](/next/built-in-blocks#cms-settings), in the site editor's **Settings** or by hand:
+
+```json title=".deco/blocks/CMS.json"
+{
+  "__resolveType": "cms-settings",
+  "preview": { "hosts": ["staging.example.com", "*.preview.example.com"] }
+}
+```
+
+On any other host, `cms.draftPointer` returns `null` and the request gets the release, so a `?__draft=` link there shows published content instead of an error. Without the block, or without `hosts`, every host may preview. An empty list turns previews off everywhere. If you set a list, include the host your dev server runs on, such as `localhost:5173`, so the site editor's previews keep working on your machine.
+
+- **The list comes from the release.** A draft can't add its own host: the CMS reads `preview.hosts` from the release your server already has, never from the draft being previewed. A changed list takes effect when the release that carries it does.
+- **Code can cap the list.** To keep content from ever allowing a host, such as your public domain, give `createCMS` the most content may allow. Content can then only narrow it, and with no `preview` section, code's list applies:
+
+  ```ts title="cms.ts"
+  export const cms = createCMS({
+    blocks,
+    content,
+    preview: { hosts: ["*.example.com", "localhost:3000"] },   // the most content may allow
+  });
+  ```
+
+  With this cap, content can allow `staging.example.com` or `localhost:3000`, but an entry such as `store.attacker.com` is left out. The exact rule for `*`, ports and look-alike hosts is in [Host patterns](/next/api-reference#host-patterns).
+- **It's not access control.** Who may see a draft is decided by the signed, expiring grant inside each pointer (see [Who may preview](/next/hosted-drafts#who-may-preview)). The host list keeps drafts off domains, caches and search results where they don't belong.
 
 ## Checking changes without a draft loader
 
