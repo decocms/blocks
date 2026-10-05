@@ -32,13 +32,13 @@ To edit the app running on your machine:
    Root                 apps/storefront   (.deco/schema.gen.json, 214 blocks)
    Assets               apps/storefront/public/assets   (PUT /assets/<name>)
    Preview              http://localhost:5173
-   Site editor          https://<studio-origin>/site-editor#endpoint=…
+   Site editor          https://studio.decocms.com/site-editor#endpoint=http%3A%2F%2F127.0.0.1%3A4545%2Frpc
    ```
 
 3. Open the link. The Preview tab loads the address printed as `Preview`: the port from your Vite config, else `http://localhost:5173`. If your app runs elsewhere, pass it, such as `npx @decocms/blocks serve --preview localhost:8001`.
 4. The first time, Chrome asks whether the site editor may reach a server on your machine (Local Network Access). Allow it.
 
-Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) after every save, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine and needs no token: it answers browser requests only from the site editor, and only when addressed by its own loopback address (see [The local server](/next/content-protocol#the-local-server)). The site editor remembers the server, so opening `/site-editor` again reconnects to it, and if you restart `deco serve` it waits for the server and reconnects on its own. Its flags, such as `--port` and `--preview`, are in the [CLI reference](/next/cli#deco-serve).
+Each save writes `.deco/blocks` and your app hot-reloads. The server regenerates the [content module](/next/content#the-content-module) after every save, so you don't need `deco content --watch` as well. Nothing is committed: review the diff and commit it like any other change. The server only listens on your machine: it answers browser requests only from the site editor, and only when addressed by its own loopback address (see [The local server](/next/content-protocol#the-local-server)). The site editor remembers the server, so opening `/site-editor` again reconnects to it, and if you restart `deco serve` it waits for the server and reconnects on its own. Its flags, such as `--port` and `--preview`, are in the [CLI reference](/next/cli#deco-serve).
 
 ## Images and other uploads
 
