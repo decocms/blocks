@@ -5,7 +5,7 @@ description: Moves a v7 Deco site (@decocms/blocks 7.x with @decocms/tanstack or
 
 # Deco v7 → v8 Migration
 
-Moves a v7 site onto the next major in two parts: a script that does the mechanical, content-safe part in one pass, and a list of manual steps it prints. Proven on `deco-sites/storefront-tanstack` (Shopify, TanStack Start) and `deco-sites/blog-tanstack` (TanStack Start).
+Moves a v7 site onto the next major in two parts: a script that does the mechanical, content-safe part in one pass, and a list of manual steps it prints. Proven on `deco-sites/storefront-tanstack` (Shopify, TanStack Start), `deco-sites/blog-tanstack` (TanStack Start) and a Next.js App Router storefront on VTEX.
 
 The spec is the docs page **Migrating from v7** (`/next/renames-and-migrations`). When this skill and the docs disagree, the docs win.
 
@@ -66,7 +66,7 @@ The script prints **Done** and **Left to do**, grouped by step. Every "Left to d
 
 ## Manual steps (what the report leaves)
 
-1. **Dependencies.** Depend on `@decocms/blocks@^8.1` and the v8 `@decocms/apps-<platform>` client. Remove `@decocms/tanstack`/`@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce`, `@decocms/apps-website` and `@decocms/apps-blog` once nothing imports them, and drop the v7 codegen from `build`.
+1. **Dependencies.** Depend on `@decocms/blocks@^8.1` and the v8 `@decocms/apps-<platform>` client. Remove `@decocms/tanstack`/`@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce`, `@decocms/apps-website` and `@decocms/apps-blog` once nothing imports them, and drop the v7 codegen from `build`. On Next.js, add `@decocms/blocks` to `transpilePackages` in `next.config`: the `8.1.0-next.*` prereleases publish TypeScript source (`exports` → `src/*.ts`), v7's `withDeco` wrapper used to add it, and without it a clean install fails `next build` with `Module parse failed: Unexpected token`.
 2. **Render pages with `createCMS`.** Follow the framework guide (`/next/tanstack-start-descriptors`, `/next/nextjs`): `createCMS` over the content, `matchRoute`, one promise per block, a view registry. Delete the v7 setup files, admin routes and `/deco/*` handlers.
 3. **Move framework code into the site** (`reference/gotchas.md`): edge cache, image, SEO/head, device detection, cookies, cart/user/wishlist flows, commerce loaders and converters.
 4. **Replace `/deco/invoke`** with server functions (TanStack `createServerFn`) or Next server actions/route handlers.
@@ -79,6 +79,8 @@ The script prints **Done** and **Left to do**, grouped by step. Every "Left to d
 bunx deco schema && bunx deco content && bunx deco check   # 0 errors
 bun run typecheck && bun run build
 ```
+
+Run it once more **without any local link** (a `decocms/blocks` checkout linked into `node_modules` ships compiled `dist/`, the npm package may not): a clean `install --frozen-lockfile && build` from the committed lockfile, the way CI and the deploy run it. Then `git diff .deco/schema.gen.json`: the build regenerates it, so commit what the committed dependency's CLI writes, or every clean build leaves the tree dirty. If it differs from the linked checkout's, check both against v7's forms; when the published one is the worse, list a follow-up to bump once the fix is released.
 
 Then compare the migrated site with the v7 one page by page (a parity harness: SSR HTML, JSON-LD, analytics calls, cache headers, third-party requests). Compare the editor forms as well (v7 `meta.gen.json` vs v8 `schema.gen.json`): many differences are stale v7 files or v7 heuristics v8 drops on purpose, a few are CLI bugs to fix. Encode every difference the product owner approves as an explicit rule, never a blanket ignore. Keep explained-but-unapproved ones as `pending`, and have a strict compare fail on them (`reference/parity.md`).
 

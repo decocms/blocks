@@ -1,11 +1,12 @@
 # Gotchas from the site migrations
 
-Learned on `deco-sites/storefront-tanstack` (Shopify) and `deco-sites/blog-tanstack`. Commit hashes refer to those repos.
+Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack` and a Next.js storefront on VTEX (private, so no hashes). Commit hashes refer to the two public repos.
 
 ## Before you run the script
 
 - **Install `@decocms/blocks@^8.1` first** (`^8` resolves to the accidental v7 build published as `8.0.0`). A v7 site already has `@decocms/blocks@7`, which has no `/cli` or `/protocol/keys`; the script fails to import. Keep v7 `@decocms/apps-*` installed until after the run: vendoring copies from them.
 - **Commit the script's output unedited** (`046de4d`, `de03793`), then do the manual work in follow-up commits.
+- **The script vendors every app loader the content calls**, including ones the v7 site never ran (a v7 Next.js site resolved many VTEX loader blocks to `null`). Check which ones actually rendered before keeping a vendored copy; delete the rest along with the saved blocks nothing references.
 
 ## Rendering
 
@@ -26,6 +27,7 @@ v8 has no framework binding and its apps are thin clients. What `@decocms/tansta
 - **Cookies and request state**: pass the request and response headers explicitly, or use a site-owned `AsyncLocalStorage`, instead of v7's `RequestContext`.
 - **Cart, user, wishlist, sign-in flows and commerce loaders**: vendored next to the loaders the script copied, sending through the v8 client.
 - **Section loaders** run inside their block functions.
+- **Error reporting.** v7's `onResolveError` hook sent every failed section or loader to the site's exception reporting. v8 has no hook: `client.resolve` returns `[value, error]`, and a section loader that throws is caught in its block function. Report both explicitly there (same attributes as before, so dashboards keep working); `console.error` alone only reaches the SDK's sampled log export.
 
 ## `/deco/invoke` → server functions
 
@@ -37,6 +39,25 @@ v8 has no invoke endpoint. Every call the browser made through `/deco/invoke` be
 - **One QueryClient per router**, never per isolate: a shared one leaks the previous request's cart and user.
 - v7's admin paths (`/deco/*`, `/live/*`, `/.decofile`) should answer 404, not a cacheable page.
 - Read drafts with `draftPointer()`.
+
+## Next.js App Router
+
+- **`transpilePackages: ['@decocms/blocks']`** while the published package ships `.ts` source (see SKILL.md, step 1). A linked local checkout ships `dist/` and hides this; so does every parity run made against it.
+- **Drafts on static pages.** `force-static`/ISR pages get stubbed `cookies()`, so they can't read the draft pointer. Divert drafted requests (`?__draft=` or the draft cookie) in `proxy.ts` onto a dynamic route group that binds the pointer, and 404 direct hits on that internal route. Send `Cache-Control: no-store, private` and `X-Robots-Tag: noindex` on both signals.
+- **List pages once per revision.** `list('page')` expands every page's saved-block references; on a site with hundreds of pages that is tens of milliseconds of CPU. Keep the routable list per revision (a revision never changes, a draft has its own) and hand the same array to `matchRoute` so it reuses its lookup. Health and readiness probes go through the same cache, never a fresh `list`.
+- **Head meta order.** If v7 emitted `theme-color`/`color-scheme` after the root layout's metas on some routes, that was a race with Next's viewport resolution. To keep the order deterministic, render those tags from the segment layout (React hoists in tree order) rather than approving a reorder.
+- **Jest** is CJS-only: transform `@decocms/blocks` (ESM) with ts-jest and keep it out of `transformIgnorePatterns`. When mocking a site module in a test, spread `jest.requireActual` so sibling exports other code imports stay real.
+
+## Hosted releases and bundled content
+
+With `site` and `token` set on `createCMS`, a published release goes live without a deploy, but only for what reads through the CMS client. Before turning it on, grep for direct imports of `.deco/blocks/*.json` (redirects, proxy tables, config blocks) and for build-time scripts that read `.deco/blocks`: those stay on the last deploy. v7 behaved the same, so it isn't a parity break; route them through the client or document the limitation and keep hosted releases off until you do.
+
+## v7 leftovers to delete
+
+- Env vars and comments for the v7 admin protocol (`DANGEROUSLY_ALLOW_PUBLIC_ACCESS`, admin public keys) and for settings that lived in the v7 `site` app block.
+- Middleware/proxy exclusions for `/deco`, `/live` and `/.decofile`: those routes are gone, and keeping them special only hides that they now 404.
+- Add the new env vars (`DECO_SITE`, `DECO_SITE_TOKEN`) to the site's env example, marked secret, and blank them in parity runs.
+- **Editor settings that disappear with the `site` block.** Deleting the v7 `site` app block (apps are code now) also deletes any setting editors changed there, such as draft preview hosts. Moving it to code or env is fine, but it is an editor-visible change: list it for the product owner.
 
 ## Content
 

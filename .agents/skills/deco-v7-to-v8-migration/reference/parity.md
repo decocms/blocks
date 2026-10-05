@@ -15,6 +15,13 @@ A difference you've explained but the product owner hasn't approved yet still ne
 
 Never hide a pending entry: the compare summary and the PR list every one.
 
+## Running it
+
+- **Build against what ships.** Do the final compare on a build from the committed lockfile, not a linked local checkout: a published package can differ (source vs compiled output, older CLI).
+- **ISR and prerendered routes.** Pages prerendered at build time with `revalidate` were stale when the baseline recorded them. Compare a build older than the longest `revalidate`, or those cases differ only in `x-nextjs-cache`/`x-nextjs-prerender`.
+- **Flakes.** Rerun a single failing case (`--only <case>`) before treating it as a regression, and avoid running two harnesses on one machine at once: font rasterization under load produced one-off weight diffs.
+- **Not covered by pixels.** Name what the cases don't exercise (draft rendering through the pointer, coupons, region pricing, signed-in shoppers, device-only variants on per-request pages, hosted releases) in the PR so it gets a manual check.
+
 ## Editor-form differences (v7 `meta.gen.json` → v8 `schema.gen.json`)
 
 Compare each section's form, not just the content. Sort each difference into one of three causes before you approve or fix it.
@@ -25,6 +32,9 @@ Compare each section's form, not just the content. Sort each difference into one
 - **"Select from saved" on every list.** v7 offered it on every array. v8 offers it only where a saved block fits the field's type. Check that no content uses it, and whether the renderer could even resolve a saved block there.
 - **A color picker from a substring.** v7 added the color widget whenever the type's *name* contained `Color`, even on a plain string-literal union such as a black/white choice. v8 keeps the dropdown. Existing values still validate.
 - **Every file under `sections/` as a section.** v7 listed helper files (shared `types.ts`) as sections. v8 lists only what the block map declares.
+- **Dynamic option pickers.** v7's `@format dynamic-options` fields ran a site loader through `/deco/invoke` to suggest values as the editor typed. The v8 site editor never runs site code, so they become text fields (`/next/schema`). Make sure the field still accepts what an editor would type (a bare ID, a plain place name), update copy that promises suggestions, and list each field for approval.
+- **Page form order and labels.** A site page type that `extends Route` and adds `seo`/`sections` lists its own fields first and labels `seo` as "Seo". Redeclare `name` and `path` (with their `@title`) before them and give `seo` an explicit `@title SEO` to keep v7's form.
+- **The rich-text widget from a substring.** v7 gave the rich-text editor to any type whose name contained `RichText` (`PromoRichText`). v8 matches the alias name as a whole word. When editors rely on the toolbar, keep it by naming the alias `RichText` in the site rather than approving its loss.
 
 **3. CLI fidelity bugs: fix them in the CLI, don't approve them.** If your `@decocms/blocks` predates these fixes, you'll see:
 - a literal union's dropdown in TypeScript's internal order instead of the source order;
@@ -32,6 +42,8 @@ Compare each section's form, not just the content. Sort each difference into one
 - `Record<string, any>` offering "Select from saved" and every block type.
 
 Upgrade to a release that includes them rather than approving the differences.
+
+**Literal order depends on the v7 generator.** Check the site's own v7 `meta.gen.json` before calling an order a bug. Deno-era generators wrote a union's values in source order. `@decocms/blocks-cli` 7 (TanStack and Next.js sites) took the TypeScript checker's order, which is source order unless the same literals already appeared in another type (`'both' | 'desktop' | 'mobile'` came out `desktop, mobile, both`). On such a site the source-order fix reorders those dropdowns relative to v7. That's a stable, intended order, but it's still an editor-visible change, so list it for approval.
 
 ## Approved so far
 
