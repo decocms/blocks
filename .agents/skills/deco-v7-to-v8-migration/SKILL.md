@@ -52,7 +52,7 @@ rm -rf .deco-migrate
 
 What it does, in order (`scripts/migrate.ts`):
 
-1. **content**: saved blocks into `.deco/blocks`, v7 generated files removed, the seven legacy names outside the alias table rewritten (`reference/legacy-names.md`), A/B tests keyed on a random matcher get its saved-block name as `experiment`;
+1. **content**: saved blocks into `.deco/blocks`, v7 generated files removed, v7 async-rendering wrappers (`website/sections/Rendering/Lazy.tsx`, `SingleDeferred.tsx`, `Deferred.tsx`) unwrapped to the sections they held (v8 has no async rendering), the seven legacy names outside the alias table rewritten (`reference/legacy-names.md`), A/B tests keyed on a random matcher get its saved-block name as `experiment`;
 2. **secrets**: v7 secrets re-encrypted with `.deco/secrets.pub`;
 3. **block map**: `.deco/index.ts` with each block under a short name plus an alias under its v7 name, after vendoring the app loaders and actions the content calls into `src/vendor`;
 4. **imports**: the codemod over `src/` (`reference/import-map.md`);

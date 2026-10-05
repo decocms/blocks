@@ -10,7 +10,7 @@ Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack
 
 ## Rendering
 
-- **Lazy wrappers render normally.** v7's `website/sections/Rendering/Lazy.tsx` (and `Deferred`/`SingleDeferred`) is registered as a block that renders its section. Blocks resolve on the server, so content that used to arrive after hydration (JSON-LD in particular) is now in the first SSR HTML. That is an approved parity difference, not a bug (`5a5a4d4`).
+- **v8 has no async rendering; the script removes it.** v7's `website/sections/Rendering/Lazy.tsx` and `SingleDeferred.tsx` (`{ section }`) and `Deferred.tsx` (`{ sections: [...] }`) are unwrapped in the saved content: each wrapper becomes the section(s) it held, with their props, and its own options (`loading`, `display`, `behavior`) go. Don't register a block under those names. Content that used to arrive after hydration (JSON-LD in particular) is now in the first SSR HTML. That is an approved parity difference, not a bug (`5a5a4d4`). A wrapper the script reports (several sections where one block goes) is unwrapped by hand.
 - **Blocks that render nothing** (theme fonts, SEO sections' `jsonLD`): wrap their data arguments in `lazy` in content so nothing is fetched for them (`9a097a1`).
 - **Awaited blocks are an exception.** The TanStack guide keeps block promises unawaited. A site whose blocks only read in-memory content may await them so every section lands in the first HTML chunk and the hero preload stays in `<head>`; stop awaiting a block once it fetches upstream (blog `dee30a5`).
 - **Section keys and wrappers.** Keep v7's `<section id data-manifest-key>` wrapper and section keys so CSS and client state survive navigations (`5bcc12b`, `0512e60`).

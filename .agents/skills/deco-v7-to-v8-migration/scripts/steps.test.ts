@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { decofileEntries, moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
@@ -26,6 +27,78 @@ function site(files: Record<string, string | object>): string {
 }
 
 const home = { __resolveType: "website/pages/Page.tsx", name: "Home", path: "/", sections: [] };
+
+describe("async rendering", () => {
+  const LAZY = "website/sections/Rendering/Lazy.tsx";
+  const DEFERRED = "website/sections/Rendering/Deferred.tsx";
+  // storefront-tanstack's home: a ProductShelfTabbed behind v7's Lazy wrapper.
+  const shelf = {
+    __resolveType: "site/sections/Product/ProductShelfTabbed.tsx",
+    title: "Hottest Deals",
+    tabs: [
+      {
+        title: "Accessories",
+        products: { __resolveType: "shopify/loaders/ProductList.ts", props: { count: 10 } },
+      },
+    ],
+  };
+  const hero = { __resolveType: "site/sections/Hero.tsx", title: "Hi" };
+  const footer = { __resolveType: "Footer" };
+
+  it("replaces each wrapper with the section(s) it held, props untouched; a second run changes nothing", () => {
+    site({
+      ".deco/blocks/pages-home.json": {
+        ...home,
+        sections: [
+          { __resolveType: LAZY, section: shelf, loading: "lazy" },
+          { __resolveType: DEFERRED, sections: [hero, { __resolveType: LAZY, section: footer }] },
+          { __resolveType: "website/sections/Rendering/SingleDeferred.tsx", section: hero },
+          { __resolveType: LAZY },
+        ],
+      },
+      ".deco/blocks/Lazy%20Footer.json": { __resolveType: LAZY, section: footer },
+      ".deco/blocks/Banner.json": {
+        __resolveType: "site/sections/Banner.tsx",
+        slot: { __resolveType: LAZY, section: hero },
+      },
+      ".deco/blocks/Plain.json": hero,
+    });
+    const report = createReport();
+    unwrapAsyncRendering(root, report);
+    const read = (file: string) =>
+      JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks", file), "utf8"));
+    // In a list, a Deferred gives way to all its sections in place; an empty wrapper goes.
+    expect(read("pages-home.json").sections).toEqual([shelf, hero, footer, hero]);
+    expect(read("Lazy%20Footer.json")).toEqual(footer);
+    expect(read("Banner.json")).toEqual({ __resolveType: "site/sections/Banner.tsx", slot: hero });
+    expect(report.done.map((n) => n.subject).sort()).toEqual([
+      "Banner.json",
+      "Lazy%20Footer.json",
+      "pages-home.json",
+    ]);
+    expect(report.manual).toEqual([]);
+
+    const again = createReport();
+    unwrapAsyncRendering(root, again);
+    expect(again).toEqual({ done: [], manual: [] });
+  });
+
+  it("reports a wrapper holding several sections where one block goes, unwrapping inside it", () => {
+    site({
+      ".deco/blocks/Slot.json": {
+        __resolveType: DEFERRED,
+        sections: [{ __resolveType: LAZY, section: hero }, footer],
+      },
+    });
+    const report = createReport();
+    unwrapAsyncRendering(root, report);
+    expect(JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks/Slot.json"), "utf8"))).toEqual({
+      __resolveType: DEFERRED,
+      sections: [hero, footer],
+    });
+    expect(report.manual.map((n) => n.subject)).toEqual([`${DEFERRED} (in Slot.json)`]);
+  });
+});
 
 describe("content", () => {
   it("reads a decofile flat or under blocks", () => {

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * End to end: a small v7 site (sections, an app loader its content calls, a
- * v7 secret, a type with no v8 equivalent) goes through `migrate`, then
+ * v7 secret, v7 async-rendering wrappers) goes through `migrate`, then
  * through `deco schema`, `deco content` and `deco check`, and its content
  * resolves with `createCMS`.
  */
@@ -152,7 +152,7 @@ beforeAll(async () => {
   );
 
   // v7 content: a page with both sections, the shelf fed by the app loader, a
-  // v7 secret, a Lazy wrapper (no v8 equivalent) and v7's generated files.
+  // v7 secret, Lazy wrappers (no async rendering in v8) and v7's generated files.
   const crypto7 = await v7CryptoKey();
   process.env.DECO_CRYPTO_KEY = crypto7.env;
   const keys = await keyPair();
@@ -165,8 +165,11 @@ beforeAll(async () => {
     sections: [
       { __resolveType: "site/sections/Hero.tsx", title: "Welcome" },
       {
-        __resolveType: "site/sections/Shelf.tsx",
-        items: { __resolveType: "acme/loaders/ItemList.ts", query: "shirt", count: 3 },
+        __resolveType: "website/sections/Rendering/Lazy.tsx",
+        section: {
+          __resolveType: "site/sections/Shelf.tsx",
+          items: { __resolveType: "acme/loaders/ItemList.ts", query: "shirt", count: 3 },
+        },
       },
     ],
   });
@@ -220,11 +223,17 @@ describe("migrate", () => {
     expect(fs.existsSync(path.join(root, "src/vendor/acme/loaders/Unused.ts"))).toBe(false);
   });
 
-  it("reports a type with no v8 equivalent instead of registering it", () => {
-    expect(read(".deco/index.ts")).not.toContain("Rendering/Lazy");
-    expect(manual("block map").join("\n")).toContain(
-      "website/sections/Rendering/Lazy.tsx (in Lazy%20Hero.json): v7's Lazy section wrapper",
-    );
+  it("unwraps v7 Lazy wrappers to the section they held, in pages and saved blocks", () => {
+    expect(read(".deco/index.ts")).not.toContain("Rendering/");
+    expect(JSON.parse(read(".deco/blocks/Lazy%20Hero.json"))).toEqual({
+      __resolveType: "site/sections/Hero.tsx",
+      title: "Later",
+    });
+    expect(JSON.parse(read(".deco/blocks/pages-home.json")).sections[1]).toEqual({
+      __resolveType: "site/sections/Shelf.tsx",
+      items: { __resolveType: "acme/loaders/ItemList.ts", query: "shirt", count: 3 },
+    });
+    expect(manual("block map").join("\n")).not.toContain("Rendering/");
   });
 
   it("rewrites the imports that have a v8 equivalent and reports the rest", () => {
@@ -259,16 +268,9 @@ describe("migrate", () => {
     expect(read(".deco/blocks/API_KEY.json")).not.toContain("s3cret-value");
   });
 
-  it("leaves a tree that passes deco schema, deco content and (after the reported fix) deco check", async () => {
+  it("leaves a tree that passes deco schema, deco content and deco check", async () => {
     expect(await schema({ root, reporter: quiet })).toBe(0);
     expect(await content({ root, reporter: quiet })).toBe(0);
-    // The one reported item: the Lazy wrapper has no block. Drop that entry, as a person would.
-    expect(check({ root, reporter: quiet })).toBe(1);
-    expect(quiet.text.join("\n")).toContain(
-      'unknown block type "website/sections/Rendering/Lazy.tsx"',
-    );
-    fs.rmSync(path.join(root, ".deco/blocks/Lazy%20Hero.json"));
-    quiet.text.length = 0;
     expect(check({ root, reporter: quiet })).toBe(0);
     expect(quiet.text).toEqual([]);
   });
