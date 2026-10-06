@@ -70,7 +70,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /(^|\/)(invoke|createInvoke)$|\/sdk\/invoke/,
-    "/deco/invoke is gone: call upstream clients from server functions or route handlers (/next/renames-and-migrations#loaders-actions-and-invoke)",
+    "/deco/invoke is gone: one server function per loader or action, imported by each call site, never a rebuilt invoke tree (/next/renames-and-migrations#loaders-actions-and-invoke)",
   ],
   [
     /^@decocms\/blocks-admin(\/|$)/,
