@@ -2,7 +2,7 @@ import type { Product } from "@decocms/apps-commerce/types";
 import { getShopifyClient } from "../client";
 import { ProductsByCollection, SearchProducts } from "../utils/storefront/queries";
 import { type ProductShopify, toProduct } from "../utils/transform";
-import type { Metafield } from "../utils/types";
+import type { LanguageContextArgs, Metafield } from "../utils/types";
 import {
 	type CollectionSortKeys,
 	type SearchSortKeys,
@@ -31,7 +31,7 @@ export interface FilterProps {
 	variantOptions?: { name: string; value: string }[];
 }
 
-export type Props = {
+export type Props = LanguageContextArgs & {
 	props: QueryProps | CollectionProps;
 	filters?: FilterProps;
 	metafields?: Metafield[];
@@ -51,6 +51,7 @@ export default async function productListLoader(
 	const count = props.count ?? 12;
 	const metafields = expandedProps.metafields || [];
 	const sort = props.sort ?? "";
+	const { languageCode, countryCode } = expandedProps;
 
 	const filters: Record<string, unknown>[] = [];
 	for (const tag of expandedProps.filters?.tags ?? []) {
@@ -78,6 +79,8 @@ export default async function productListLoader(
 			query: props.query,
 			productFilters: filters,
 			identifiers: metafields,
+			languageCode,
+			countryCode,
 			...searchSortShopify[sort],
 		});
 		shopifyProducts = data.search;
@@ -89,6 +92,8 @@ export default async function productListLoader(
 			handle: (props as CollectionProps).collection,
 			filters,
 			identifiers: metafields,
+			languageCode,
+			countryCode,
 			...sortShopify[sort],
 		});
 		shopifyProducts = data.collection?.products;

@@ -208,17 +208,12 @@ export const toProduct = (
 			const hasReferenceImage = reference && "image" in reference;
 			const referenceImageUrl = hasReferenceImage ? reference.image?.url : null;
 
-			const hasEdges = references?.edges && references.edges.length > 0;
-			const edgeImages = hasEdges
-				? references!.edges.map((edge) =>
-						edge.node && "image" in edge.node ? edge.node.image?.url : null,
-					)
-				: null;
+			const edgeImages = (references?.edges ?? [])
+				.map((edge) => (edge.node && "image" in edge.node ? edge.node.image?.url : null))
+				.filter((url): url is string => !!url);
 
-			const rawValue = referenceImageUrl || edgeImages || value;
-			const valueToReturn = Array.isArray(rawValue)
-				? JSON.stringify(rawValue)
-				: (rawValue ?? undefined);
+			const valueToReturn =
+				referenceImageUrl ?? (edgeImages.length > 0 ? edgeImages.join(",") : value);
 
 			return {
 				"@type": "PropertyValue",

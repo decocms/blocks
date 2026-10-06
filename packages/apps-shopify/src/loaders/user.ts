@@ -37,3 +37,6 @@ export default async function userLoader(requestHeaders: Headers): Promise<Shopi
 		return null;
 	}
 }
+
+// User-specific response; must not be cached/shared.
+export const cache = "no-store";
