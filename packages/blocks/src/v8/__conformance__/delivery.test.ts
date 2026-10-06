@@ -780,6 +780,26 @@ describe("draft previews", () => {
     expect(entry).toEqual({ __resolveType: "seo", title: "Odd", description: "d" });
     expect(({} as Record<string, unknown>).title).toBeUndefined();
   });
+
+  it("DP-21: a response that was redirected anyway (a fetch polyfill ignoring redirect: manual) is refused", async () => {
+    const changes = { format: 1, set: { SummerSEO: seoEntry("Elsewhere") }, delete: [] };
+    const redirected = (url: string, flag: boolean) => {
+      const response = Response.json(changes);
+      Object.defineProperty(response, "redirected", { value: flag });
+      Object.defineProperty(response, "url", { value: url });
+      return response;
+    };
+    for (const [url, flag] of [
+      ["https://evil.example/changes", false],
+      [`https://${STUDIO_HOST}/elsewhere`, true],
+    ] as const) {
+      resetForTests();
+      const api = deliveryApi();
+      const pointer = api.draft({});
+      api.respond("summer-sale", () => redirected(url, flag));
+      expect({ url, ...(await failed(cmsOf().forDraft(pointer))) }).toEqual({ url, ...FAILED });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

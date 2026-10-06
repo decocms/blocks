@@ -7,7 +7,7 @@
  * - `GET https://<host><path>&v=<version>`: plain `http` only for loopback
  *   hosts. The pointer's `__variant` parameters are already gone (the parser
  *   lifts them out), no cookies or credentials are sent, and redirects aren't
- *   followed.
+ *   followed (a response that was redirected anyway is refused).
  * - Only a 200 is accepted, within 10 s and up to 16 MiB, shaped exactly
  *   `{ format: 1, set: { <name>: <block JSON> }, delete: [<name>…] }` with
  *   `set` and `delete` disjoint.
@@ -35,7 +35,7 @@ export interface DraftChanges {
 export function draftChangesUrl(pointer: DraftPointer): string {
   const scheme = isLoopback(pointer.host) ? "http" : "https";
   const separator = pointer.path.includes("?") ? "&" : "?";
-  return `${scheme}://${pointer.host}${pointer.path}${separator}v=${pointer.version}`;
+  return `${scheme}://${pointer.host}${pointer.path}${separator}v=${encodeURIComponent(pointer.version)}`;
 }
 
 /** Fetches a draft's changes; rejects on a host outside `sources` (without fetching) or on any failure. */
@@ -54,6 +54,12 @@ export async function fetchDraftChanges(
     redirect: "manual",
     signal: timeoutSignal(TIMEOUT_MS),
   });
+  // Some fetch polyfills (React Native, whatwg-fetch) ignore `redirect: "manual"`
+  // and follow anyway: refuse a response that came from anywhere else.
+  if (response.redirected || (response.url && !allowsHost(sources, response.url))) {
+    await response.body?.cancel();
+    throw new Error("draft changes: the pointer's address redirected; nothing was read");
+  }
   if (response.status !== 200) {
     await response.body?.cancel();
     throw new Error(`draft changes: HTTP ${response.status}`);
