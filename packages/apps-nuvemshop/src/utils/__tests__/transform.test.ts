@@ -27,7 +27,7 @@ describe("toProduct", () => {
       productID: "1612648502",
       sku: "1612648502",
       name: "P / Azul e Preto",
-      url: `${ORIGIN}/produtos/camisa-xadrez-lenhador-azul/?variant=1612648502`,
+      url: `${ORIGIN}/produtos/camisa-xadrez-lenhador-azul?variant=1612648502`,
       category: "Camisas",
       additionalProperty: [
         { "@type": "PropertyValue", name: "Tamanho", value: "P", valueReference: "SPECIFICATION" },
@@ -82,7 +82,7 @@ describe("toProduct", () => {
         "@type": "ProductGroup",
         productGroupID: "372190453",
         name: "Camisa Xadrez Lenhador Azul",
-        url: `${ORIGIN}/produtos/camisa-xadrez-lenhador-azul/`,
+        url: `${ORIGIN}/produtos/camisa-xadrez-lenhador-azul`,
       },
     });
     expect(product.isVariantOf!.hasVariant).toHaveLength(8);
@@ -181,11 +181,11 @@ describe("toBreadcrumbList", () => {
       "@type": "BreadcrumbList",
       numberOfItems: 2,
       itemListElement: [
-        { "@type": "ListItem", name: "Calçados", item: `${ORIGIN}/calcados/`, position: 1 },
+        { "@type": "ListItem", name: "Calçados", item: `${ORIGIN}/calcados`, position: 1 },
         {
           "@type": "ListItem",
           name: "Masculino",
-          item: `${ORIGIN}/calcados/masculino/`,
+          item: `${ORIGIN}/calcados/masculino`,
           position: 2,
         },
       ],
@@ -205,7 +205,7 @@ describe("toProductPage", () => {
     expect(page.seo).toEqual({
       title: "Camisa Xadrez Lenhador Azul",
       description: expect.stringMatching(/^Camisa xadrez de flanela macia/),
-      canonical: `${ORIGIN}/produtos/camisa-xadrez-lenhador-azul/`,
+      canonical: `${ORIGIN}/produtos/camisa-xadrez-lenhador-azul`,
     });
     expect(page.seo!.description).not.toMatch(/<\w+/);
   });

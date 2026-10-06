@@ -17,7 +17,7 @@ export default async function suggestions(props: Props, req?: Request): Promise<
   if (!query) return null;
   const products = await productList({ ...props, query, count: props.count ?? 6 }, req);
   return {
-    searches: [{ term: query, href: `/search/?q=${encodeURIComponent(query)}` }],
+    searches: [{ term: query, href: `/search?q=${encodeURIComponent(query)}` }],
     products,
     hits: products.length,
   };
