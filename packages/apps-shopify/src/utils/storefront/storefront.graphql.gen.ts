@@ -57,6 +57,7 @@ export type ProductRecommendationsQueryVariables = { productId: string };
 // Search/Collection types
 export type InputMaybe<T> = T | null | undefined;
 export type ProductCollectionSortKeys = string;
+export type CollectionSortKeys = string;
 export type SearchSortKeys = string;
 // Loose shape derived from the only consumers in
 // `shopify/utils/utils.ts` (filterToObject + getFiltersByUrl). Keeps
@@ -126,4 +127,5 @@ export type ShopMetafieldsArgs = {
 
 // Order/Admin types
 export type CountryCode = string;
+export type LanguageCode = string;
 export type Maybe<T> = T | null;

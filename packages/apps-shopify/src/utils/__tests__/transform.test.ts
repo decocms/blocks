@@ -129,6 +129,56 @@ describe("toProduct", () => {
 	});
 });
 
+describe("toProduct metafields", () => {
+	const metafieldValue = (metafield: NonNullable<ProductShopify["metafields"]>[number]) => {
+		const product = makeProduct({ metafields: [metafield] });
+		const result = toProduct(product, product.variants.nodes[0], new URL("https://example.com"));
+		return result.additionalProperty?.find((p) => p.name === "care")?.value;
+	};
+
+	it("uses the reference image url when present", () => {
+		expect(
+			metafieldValue({
+				key: "care",
+				namespace: "custom",
+				type: "file_reference",
+				value: "gid://shopify/MediaImage/1",
+				reference: { image: { url: "https://cdn.shopify.com/care.png" } },
+			}),
+		).toBe("https://cdn.shopify.com/care.png");
+	});
+
+	it("joins list reference images with commas, skipping empty ones", () => {
+		expect(
+			metafieldValue({
+				key: "care",
+				namespace: "custom",
+				type: "list.file_reference",
+				value: "[]",
+				references: {
+					edges: [
+						{ node: { image: { url: "https://cdn.shopify.com/a.png" } } },
+						{ node: {} },
+						{ node: { image: { url: "https://cdn.shopify.com/b.png" } } },
+					],
+				},
+			}),
+		).toBe("https://cdn.shopify.com/a.png,https://cdn.shopify.com/b.png");
+	});
+
+	it("falls back to the raw value when references carry no images", () => {
+		expect(
+			metafieldValue({
+				key: "care",
+				namespace: "custom",
+				type: "list.product_reference",
+				value: '["gid://shopify/Product/2"]',
+				references: { edges: [{ node: {} }] },
+			}),
+		).toBe('["gid://shopify/Product/2"]');
+	});
+});
+
 describe("toProductPage", () => {
 	it("creates a full ProductDetailsPage", () => {
 		const product = makeProduct();

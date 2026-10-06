@@ -5,6 +5,10 @@ import type {
 	OrderFinancialStatus,
 	OrderFulfillmentStatus,
 } from "./enums";
+import type {
+	LanguageCode,
+	CountryCode as StorefrontCountryCode,
+} from "./storefront/storefront.graphql.gen";
 
 type Attribute = {
 	key: string;
@@ -188,4 +192,23 @@ export interface UnitPriceMeasurement {
 export interface Metafield {
 	namespace: string;
 	key: string;
+}
+
+/**
+ * Shopify `@inContext` directive args. Omitted values fall back to the
+ * store's primary market and language.
+ */
+export interface LanguageContextArgs {
+	/**
+	 * @title Language Code
+	 * @description Language code for the storefront API
+	 * @example "EN" for English, "FR" for French, etc.
+	 */
+	languageCode?: LanguageCode;
+	/**
+	 * @title Country Code
+	 * @description Country code for the storefront API. Must match an active market in Shopify Admin.
+	 * @example "US" for United States, "FR" for France, etc.
+	 */
+	countryCode?: StorefrontCountryCode;
 }
