@@ -46,13 +46,16 @@ describe("applyListing — facets", () => {
 
   it("adds/removes values in the theme's pipe-joined format", () => {
     const cor = (qs: string) => toggle(run(qs).filters, "Cor").values;
-    const url = (qs: string, value: string) => decodeURIComponent(cor(qs).find((v) => v.value === value)!.url);
+    const url = (qs: string, value: string) =>
+      decodeURIComponent(cor(qs).find((v) => v.value === value)!.url);
     expect(url("?Cor=Cinza", "Azul e Preto")).toBe(`${ORIGIN}/camisas/?Cor=Cinza|Azul+e+Preto`);
     expect(url("?Cor=Cinza|Azul+e+Preto", "Cinza")).toBe(`${ORIGIN}/camisas/?Cor=Azul+e+Preto`);
-    expect(cor("?Cor=Cinza|Azul+e+Preto").filter((v) => v.selected).map((v) => v.value).sort()).toEqual([
-      "Azul e Preto",
-      "Cinza",
-    ]);
+    expect(
+      cor("?Cor=Cinza|Azul+e+Preto")
+        .filter((v) => v.selected)
+        .map((v) => v.value)
+        .sort(),
+    ).toEqual(["Azul e Preto", "Cinza"]);
   });
 
   it("shows the card on the variant that matches the selected filter", () => {
