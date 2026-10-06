@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Conformance: the docs (blocks-site docs/content/next: api-reference,
+ * Conformance: the docs (deco-sites/docs-tanstack src/content/docs/en/storefront/blocks/next: api-reference,
  * content, releases-and-drafts, routing, router-internals, rendering) are the
  * source of truth. Each `describe` names the claim it checks. A failing test
  * here is a gap between the docs and the code, to be fixed in one of them.

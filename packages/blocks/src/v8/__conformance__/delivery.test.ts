@@ -2,8 +2,8 @@
 /**
  * Docs conformance: content-delivery, draft-synchronization,
  * releases-and-deployment, hosted, hosted-publishing, hosted-drafts and
- * hosted-releases-internals (docs/content/next/*.mdx on the blocks-site
- * branch). Each test names the claim it checks (CD-*, RD-*, H-*, HP-*, HD-*,
+ * hosted-releases-internals (src/content/docs/en/storefront/blocks/next/*.mdx in
+ * deco-sites/docs-tanstack). Each test names the claim it checks (CD-*, RD-*, H-*, HP-*, HD-*,
  * HRI-*). A failing test is a claim the code doesn't meet yet.
  */
 import fs from "node:fs";

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
- * Conformance, second pass: claims from the docs (blocks-site
- * docs/content/next) that the other conformance files test weakly or not at
+ * Conformance, second pass: claims from the docs (deco-sites/docs-tanstack
+ * src/content/docs/en/storefront/blocks/next) that the other conformance files test weakly or not at
  * all. Each `it` quotes the page and the claim it checks.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

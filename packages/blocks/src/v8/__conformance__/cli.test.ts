@@ -3,9 +3,9 @@
  * Docs conformance: the `deco` CLI, `deco schema`, `deco check`, `deco serve`
  * and the content protocol as the local server exposes it.
  *
- * Source of truth: docs/content/next/{cli,schema,checking,site-editor,
- * content-protocol,studio-compatibility,studio-implementation}.mdx on the
- * blocks-site `docs/blocks-site` branch. Each test is named after the claim it
+ * Source of truth: src/content/docs/en/storefront/blocks/next/{cli,schema,checking,site-editor,
+ * content-protocol,studio-compatibility,studio-implementation}.mdx in
+ * deco-sites/docs-tanstack. Each test is named after the claim it
  * checks (cli-01, sch-03, …). Tests for claims the code doesn't meet yet are
  * left failing on purpose: the fix step turns them green.
  */
