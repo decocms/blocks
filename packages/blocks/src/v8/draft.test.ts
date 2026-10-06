@@ -9,7 +9,7 @@ import type { RequestLike } from "./types";
 const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
 const draftPointer = (request: RequestLike) => cms.draftPointer(request);
 const draftCookie = (request: RequestLike) => cms.draftCookie(request);
-const DRAFT_COOKIE = "deco-draft";
+const DRAFT_COOKIE = "__deco_draft";
 
 const POINTER = "api.deco.example/drafts/acme/main?token=abc.def-ghi@9f3c1a";
 
@@ -224,7 +224,7 @@ describe("draftPointer", () => {
     ).toBe(POINTER);
   });
 
-  it("then reads the deco-draft cookie", async () => {
+  it("then reads the __deco_draft cookie", async () => {
     expect(
       await draftPointer(
         request("https://store.example.com/summer", `theme=dark; ${DRAFT_COOKIE}=${encoded}; x=1`),
@@ -269,9 +269,9 @@ describe("draftPointer", () => {
     expect(await draftPointer({ url: "/relative?__draft=x", headers: new Headers() })).toBe("x");
   });
 
-  it("ignores a cookie whose name only ends with deco-draft", async () => {
+  it("ignores a cookie whose name only ends with __deco_draft", async () => {
     expect(
-      await draftPointer(request("https://s.example/", `not-deco-draft=${encoded}`)),
+      await draftPointer(request("https://s.example/", `not__deco_draft=${encoded}`)),
     ).toBeNull();
   });
 

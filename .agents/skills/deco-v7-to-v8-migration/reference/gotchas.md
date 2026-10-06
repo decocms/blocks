@@ -95,7 +95,7 @@ v8 ships no dev hook for content changes; two pieces of template code make a sav
 
 ## Telemetry and analytics
 
-- Telemetry: set `OTEL_EXPORTER_OTLP_ENDPOINT` to the OTLP collector and the auth header as the `OTEL_EXPORTER_OTLP_HEADERS` secret in production; send nothing in dev or parity runs (`89eae7d`).
+- Telemetry: set `OTEL_EXPORTER_OTLP_ENDPOINT` to the OTLP collector and the auth header as the `OTEL_EXPORTER_OTLP_HEADERS` secret in production; send nothing in dev or parity runs (`89eae7d`). v7's `DECO_OTEL_{METRICS,LOGS,TRACES}_ENDPOINT`, `DECO_OTEL_HEADERS` and `DECO_OTEL_AUTH_TOKEN` keep working as aliases (the standard name wins when both are set), so a site's existing variables don't need renaming.
 - `service.version` comes from `DECO_COMMIT_SHA` (or another host's commit variable). Workers have none at runtime: set it from the build's commit (a Vite `define`) before `createCMS`. v7 read the deployment id from the `CF_VERSION_METADATA` binding.
 - **v7 Workers bindings with no v8 writer.** v7's `instrumentWorker` wrote per-route request counts, edge cache hit/miss and request duration to an Analytics Engine dataset (`DECO_METRICS`) and read `CF_VERSION_METADATA`; v8 has no metric API for them. Don't keep the bindings as dead config, and don't drop them silently: list each by name (and the edge layer's `deco.cache.requests` counter) as a product decision in the PR, since the dashboards built on them go dark.
 - Analytics: `AnalyticsScript` with `(await cms.settings()).analytics` plus `track` replace OneDollarStats (the collector lives in the `analytics` section of `CMS.json`); it sends collector beacons directly instead of loading the SDK (`4a50b13`, blog `9e97455`).

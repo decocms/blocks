@@ -38,7 +38,7 @@ describe("validateParams", () => {
     expect(code(() => validateParams("blocks.apply", { ifMatch: { a: 1 } }))).toBe(
       ErrorCode.InvalidParams,
     );
-    expect(code(() => validateParams("blocks.apply", { requestKey: "" }))).toBe(
+    expect(code(() => validateParams("blocks.apply", { ifMatch: { a: "" } }))).toBe(
       ErrorCode.InvalidParams,
     );
     expect(code(() => validateParams("blocks.list", { ifNoneMatch: 5 }))).toBe(

@@ -37,7 +37,7 @@ import { typecheck } from "./typecheck";
 const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
 const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
 const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
-const DRAFT_COOKIE = "deco-draft";
+const DRAFT_COOKIE = "__deco_draft";
 
 /** A fake Studio holding one draft that retitles SummerSEO; returns its pointer and the stubbed fetch. */
 function studioDraft(title = "Draft!") {
@@ -244,7 +244,8 @@ createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, secrets
 createCMS({ blocks, content, telemetry: { site: "s", token: "t", limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" } } });
 createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"] } });
-createCMS({ blocks, content, preview: { sources: ["studio.decocms.com", "studio.example.com"] } });
+// @ts-expect-error draft hosts come from DECO_PREVIEW_API_DOMAINS, not code
+createCMS({ blocks, content, preview: { sources: ["studio.example.com"] } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
@@ -428,7 +429,7 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     expect(listError?.code).toBe("LOADER_FAILED");
   });
 
-  it("a pointer that doesn't parse, or names a host outside preview.sources, is LOADER_FAILED with no fetch", async () => {
+  it("a pointer that doesn't parse, or names a host outside the preview API domains, is LOADER_FAILED with no fetch", async () => {
     const { fetch } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     for (const pointer of ["garbage", "api.deco.example/drafts/acme/main@9f3c1a"]) {
@@ -823,7 +824,7 @@ if (pointer) console.log(\`previewing \${pointer.version} from \${pointer.host}\
 
   it("AR-36 draftCookie: HttpOnly; Secure; SameSite=None; Partitioned; Path=/; off expires it; null otherwise", async () => {
     const set = await draftCookie(new Request("https://s/x?__draft=h/u@v1"));
-    expect(set).toContain("deco-draft=");
+    expect(set).toContain("__deco_draft=");
     for (const attribute of ["HttpOnly", "Secure", "SameSite=None", "Partitioned", "Path=/"]) {
       expect(set).toContain(attribute);
     }

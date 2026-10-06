@@ -12,7 +12,7 @@
 import type { DraftPointer, ForcedVariant, RequestLike } from "./types.ts";
 
 /** The draft cookie's name. Not exported from the package: reading it directly would skip the host check. */
-const DRAFT_COOKIE = "deco-draft";
+const DRAFT_COOKIE = "__deco_draft";
 
 const DRAFT_PARAM = "__draft";
 const DRAFT_OFF = "off";
@@ -157,7 +157,7 @@ function normalizeIPv6Host(authority: string): string | null {
 
 /**
  * The draft pointer a request carries: `?__draft=` from the URL first, then
- * the `deco-draft` cookie. `null` when neither is present, or when the URL
+ * the `__deco_draft` cookie. `null` when neither is present, or when the URL
  * says `?__draft=off`. The value is returned as is; `cms.forDraft` validates it.
  */
 export function readDraftPointer(request: RequestLike): string | null {

@@ -2,7 +2,7 @@
  * `createAssetHandler(storage)`: uploads beside the content protocol.
  *
  * Uploads aren't one of the four methods. The site editor sends each file to
- * `PUT /assets/<name>` with the same auth as the protocol; on that path the
+ * `PUT /assets/<name>`; on that path the
  * file's own image, video, font or PDF content type is accepted instead of
  * JSON, and the name's extension must match it (`banner.html` sent as
  * `image/png` is refused; a name without an extension gets the type's). SVG
@@ -21,21 +21,16 @@ import {
 import {
   type ContentProtocolError,
   ErrorCode,
-  forbidden,
   invalidRequest,
   limitExceeded,
   readOnly,
-  unauthorized,
   unsupported,
 } from "../errors.ts";
 import type { ContentStorage } from "../storage.ts";
 import { ASSETS_URL_PREFIX } from "../types.ts";
-import { type AuthOptions, assertAuthOptions, authenticate } from "./auth.ts";
 import { BodyEncodingError, BodyTooLargeError, jsonResponse, readBody } from "./http.ts";
 
 const STATUS: Record<number, number> = {
-  [ErrorCode.Unauthorized]: 401,
-  [ErrorCode.Forbidden]: 403,
   [ErrorCode.ReadOnly]: 403,
   [ErrorCode.Unsupported]: 404,
   [ErrorCode.LimitExceeded]: 413,
@@ -44,13 +39,12 @@ const STATUS: Record<number, number> = {
 
 export type AssetHandler = (request: Request) => Promise<Response>;
 
-export type AssetHandlerOptions = AuthOptions & AssetTypeOptions;
+export type AssetHandlerOptions = AssetTypeOptions;
 
 export function createAssetHandler(
   storage: ContentStorage,
   options: AssetHandlerOptions = {},
 ): AssetHandler {
-  assertAuthOptions(options);
   const fail = (request: Request, error: ContentProtocolError, status?: number) =>
     jsonResponse(
       request,
@@ -69,10 +63,6 @@ export function createAssetHandler(
         },
       );
     }
-    const auth = await authenticate(request, options);
-    if (!auth.ok)
-      return fail(request, auth.reason === "unauthorized" ? unauthorized() : forbidden());
-
     const description = await storage.describe();
     if (description.readOnly) return fail(request, readOnly());
     if (description.assets === null || !storage.putAsset) {

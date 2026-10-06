@@ -9,7 +9,8 @@ import { ErrorCode } from "../errors";
 import type { ContentStorage } from "../storage";
 import { StorageNotFoundError, StorageUnavailableError } from "../storage";
 import { createMemoryStorage } from "../storage/memory";
-import { DEFAULT_LIMITS, MAX_BATCH_CALLS } from "../types";
+import { MAX_BATCH_CALLS } from "../types";
+import { MAX_REQUEST_BYTES } from "./core";
 import { createContentHandler } from "./handler";
 
 const URL_ = "http://test.local/rpc";
@@ -81,48 +82,11 @@ describe("HTTP", () => {
     expect(response.body.error.code).toBe(ErrorCode.InvalidBlock);
   });
 
-  it("refuses a missing or invalid bearer token with HTTP 401", async () => {
-    const { handler } = setup({ token: "s3cret" });
-    const attempts: Record<string, string>[] = [
-      {},
-      { authorization: "Bearer nope" },
-      { authorization: "Basic s3cret" },
-    ];
-    for (const headers of attempts) {
-      const response = await call(handler, rpc(1, "describe"), headers);
-      expect(response.status).toBe(401);
-      expect(response.body).toEqual({
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: ErrorCode.Unauthorized, message: "missing or invalid bearer token" },
-      });
-    }
-    const ok = await call(handler, rpc(1, "describe"), { authorization: "Bearer s3cret" });
-    expect(ok.status).toBe(200);
-    expect(ok.body.result.protocol).toBe("deco-content");
-  });
-
-  it("checks the token before reading the body", async () => {
-    const { handler } = setup({ token: "t" });
-    const response = await call(handler, "{not json");
-    expect(response.status).toBe(401);
-  });
-
-  it("maps authorize() outcomes: forbidden is a JSON-RPC error with HTTP 200", async () => {
-    const { handler } = setup({
-      authorize: (r) => (r.headers.get("x-user") === "ok" ? true : "forbidden"),
-    });
-    const denied = await call(handler, rpc(1, "describe"));
-    expect(denied.status).toBe(200);
-    expect(denied.body.error.code).toBe(ErrorCode.Forbidden);
-    expect((await call(handler, rpc(1, "describe"), { "x-user": "ok" })).body.result).toBeDefined();
-    const { handler: unauthorized } = setup({ authorize: () => false });
-    expect((await call(unauthorized, rpc(1, "describe"))).status).toBe(401);
-  });
-
-  it("refuses a body over maxRequestBytes with HTTP 413, whatever Content-Length says", async () => {
-    const { handler } = setup({ limits: { maxRequestBytes: 1024 } });
-    const big = JSON.stringify(rpc(1, "blocks.apply", { set: { a: { t: "x".repeat(2000) } } }));
+  it("refuses a body over the request size limit with HTTP 413, whatever Content-Length says", async () => {
+    const { handler } = setup();
+    const big = JSON.stringify(
+      rpc(1, "blocks.apply", { set: { a: { t: "x".repeat(MAX_REQUEST_BYTES) } } }),
+    );
     const response = await call(handler, big);
     expect(response.status).toBe(413);
     expect(response.body.error.code).toBe(ErrorCode.LimitExceeded);
@@ -140,7 +104,7 @@ describe("HTTP", () => {
   });
 
   it("decompresses gzip request bodies, and gzip can't bypass the limit", async () => {
-    const { handler } = setup({ limits: { maxRequestBytes: 4096 } });
+    const { handler } = setup();
     const gzip = async (text: string) =>
       new Uint8Array(
         await new Response(
@@ -152,9 +116,9 @@ describe("HTTP", () => {
       "deco-content",
     );
     const bomb = await gzip(
-      JSON.stringify(rpc(1, "blocks.apply", { set: { a: { t: "x".repeat(100_000) } } })),
+      JSON.stringify(rpc(1, "blocks.apply", { set: { a: { t: "x".repeat(MAX_REQUEST_BYTES) } } })),
     );
-    expect(bomb.byteLength).toBeLessThan(4096);
+    expect(bomb.byteLength).toBeLessThan(MAX_REQUEST_BYTES / 100);
     expect((await call(handler, bomb, { "content-encoding": "gzip" })).status).toBe(413);
     expect((await call(handler, "{}", { "content-encoding": "br" })).status).toBe(415);
     expect(
@@ -276,35 +240,6 @@ describe("batches", () => {
     expect(items[1].error.code).toBe(ErrorCode.InvalidBlock);
     expect(Object.keys(storage.dump().files)).toEqual(["kept.json"]);
   });
-
-  it("bound the aggregate response: later reads answer LimitExceeded, writes still run", async () => {
-    const { handler, storage } = setup({ limits: { maxBatchResponseBytes: 3000 } });
-    storage.setFile("big.json", JSON.stringify({ t: "x".repeat(1500) }));
-    const items = (
-      await call(handler, [
-        rpc(1, "blocks.list", {}),
-        rpc(2, "blocks.list", {}),
-        rpc(3, "blocks.apply", { set: { w: {} } }),
-        rpc(4, "blocks.list", {}),
-        rpc(5, "blocks.list", { ifNoneMatch: "stale" }),
-      ])
-    ).body as any[];
-    expect(items[0].result.blocks.big).toBeDefined();
-    expect(items[1].error.code).toBe(ErrorCode.LimitExceeded);
-    expect(items[2].result.versions.w).toEqual(expect.any(String));
-    expect(items[3].error.code).toBe(ErrorCode.LimitExceeded);
-    expect(items[4].error.code).toBe(ErrorCode.LimitExceeded);
-    expect(storage.dump().files["w.json"]).toBeDefined();
-  });
-
-  it("bound a single response too", async () => {
-    const { handler, storage } = setup({ limits: { maxBatchResponseBytes: 1000 } });
-    storage.setFile("big.json", JSON.stringify({ t: "x".repeat(1500) }));
-    expect((await call(handler, rpc(9, "blocks.list", {}))).body).toMatchObject({
-      id: 9,
-      error: { code: ErrorCode.LimitExceeded },
-    });
-  });
 });
 
 describe("storage failures", () => {
@@ -346,18 +281,13 @@ describe("storage failures", () => {
 });
 
 describe("describe", () => {
-  it("reports the storage, the effective limits and the features", async () => {
+  it("reports the storage and the features", async () => {
     const storage = createMemoryStorage({
       state: { secretsPublicKey: PUBLIC_KEY },
-      description: {
-        kind: "working-tree",
-        root: "apps/storefront",
-        limits: { maxOpsPerApply: 100 },
-      },
+      description: { kind: "working-tree", root: "apps/storefront" },
     });
     const handler = createContentHandler(storage, {
       server: { name: "deco-cli", version: "8.0.0" },
-      limits: { maxBlockBytes: 2048, maxListBytes: DEFAULT_LIMITS.maxListBytes * 2 },
       preview: { url: "http://localhost:5173" },
     });
     const { result } = (await call(handler, rpc(1, "describe"))).body;
@@ -369,10 +299,7 @@ describe("describe", () => {
       readOnly: false,
       root: "apps/storefront",
       schemaFormat: "deco-meta@1",
-      refs: null,
-      writes: { idempotency: { retentionMs: 86_400_000 }, schemaPreconditions: true },
       pollIntervalMs: 2000,
-      limits: { ...DEFAULT_LIMITS, maxOpsPerApply: 100, maxBlockBytes: 2048 },
       preview: { url: "http://localhost:5173" },
       assets: { dir: "public/assets", urlPrefix: "/assets/", maxBytes: 25 * 1024 * 1024 },
       secrets: { publicKey: PUBLIC_KEY },
@@ -407,10 +334,6 @@ describe("describe", () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
-  it("refuses an empty token at construction, so it can't lock every client out", () => {
-    expect(() => createContentHandler(createMemoryStorage(), { token: "" })).toThrow(TypeError);
-  });
-
   it("polls a git storage every 30 seconds by default", async () => {
     const handler = createContentHandler(createMemoryStorage({ description: { kind: "git" } }));
     expect((await call(handler, rpc(1, "describe"))).body.result.pollIntervalMs).toBe(30000);
@@ -422,12 +345,5 @@ describe("describe", () => {
     expect(result.readOnly).toBe(true);
     expect(result.assets).toBeNull();
     expect(result.secrets).toBeNull();
-  });
-
-  it("advertises idempotency only when the storage keeps receipts", async () => {
-    const storage = createMemoryStorage();
-    const noReceipts: ContentStorage = { ...storage, getReceipt: undefined };
-    const handler = createContentHandler(noReceipts);
-    expect((await call(handler, rpc(1, "describe"))).body.result.writes.idempotency).toBeNull();
   });
 });

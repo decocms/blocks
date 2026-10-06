@@ -30,33 +30,6 @@ export const MAX_BATCH_CALLS = 10;
 /** The URL prefix every uploaded asset is stored under in a field. */
 export const ASSETS_URL_PREFIX = "/assets/";
 
-export interface Limits {
-  /** Names (set plus delete) in one `blocks.apply`. */
-  maxOpsPerApply: number;
-  /** Bytes of one stored entry. */
-  maxBlockBytes: number;
-  /** Bytes of one HTTP request body, uncompressed. */
-  maxRequestBytes: number;
-  /** Uncompressed bytes of the whole block list. */
-  maxListBytes: number;
-  /** Uncompressed bytes of the schema. */
-  maxSchemaBytes: number;
-  /** Uncompressed bytes of a whole batch response. */
-  maxBatchResponseBytes: number;
-}
-
-const MiB = 1024 * 1024;
-
-/** The protocol's default limits. A storage or a server can lower them. */
-export const DEFAULT_LIMITS: Readonly<Limits> = Object.freeze({
-  maxOpsPerApply: 500,
-  maxBlockBytes: 1 * MiB,
-  maxRequestBytes: 8 * MiB,
-  maxListBytes: 16 * MiB,
-  maxSchemaBytes: 16 * MiB,
-  maxBatchResponseBytes: 32 * MiB,
-});
-
 export type StorageKind = "working-tree" | "git";
 
 export interface DescribeResult {
@@ -69,12 +42,8 @@ export interface DescribeResult {
   /** The app root: the folder that contains `.deco/`, relative to the repository root. */
   root: string;
   schemaFormat: typeof SCHEMA_FORMAT;
-  /** Branches; `null` on the local server. */
-  refs: null | { default: string; autoCreate: boolean };
-  writes: { idempotency: null | { retentionMs: number }; schemaPreconditions: boolean };
   /** Local: 2000; git: 30000, plus on window focus. */
   pollIntervalMs: number;
-  limits: Limits;
   /**
    * The app the site editor shows in its Preview tab (and where "open the real
    * page" points); the local server reports `deco serve --preview`. `null`: no preview.
@@ -94,7 +63,6 @@ export interface DecoMeta {
 }
 
 export interface ReadParams {
-  ref?: string;
   ifNoneMatch?: string;
 }
 
@@ -142,11 +110,6 @@ export type BlocksListResult =
     };
 
 export interface BlocksApplyParams {
-  ref?: string;
-  /** Retry the same logical write; only when advertised. */
-  requestKey?: string;
-  /** Reject if the schema changed; only when advertised. */
-  ifSchemaMatch?: string;
   /** Whole-entry replace (create or update). */
   set?: Record<string, Record<string, unknown>>;
   /** A missing name counts as deleted. */

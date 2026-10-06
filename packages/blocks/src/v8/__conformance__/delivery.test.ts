@@ -30,7 +30,7 @@ import type { Loader, RequestLike, Snapshot } from "../types";
 const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
 const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
 const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
-const DRAFT_COOKIE = "deco-draft";
+const DRAFT_COOKIE = "__deco_draft";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "https://delivery.decocms.com";
@@ -431,7 +431,7 @@ describe("draft previews", () => {
     expect(revision).not.toBe("rev-1");
   });
 
-  it("DP-5: only studio.decocms.com by default; any other host, or a look-alike, is refused before anything is fetched", async () => {
+  it("DP-5: only *.decocms.com and loopback hosts by default; any other host, or a look-alike, is refused before anything is fetched", async () => {
     const api = deliveryApi();
     const cms = cmsOf();
     const changes = "/api/acme/decofile/store/summer-sale/changes?token=t";
@@ -439,13 +439,9 @@ describe("draft previews", () => {
       `evil.example${changes}@1`,
       `studio.decocms.com.evil.example${changes}@1`,
       `evil.example/studio.decocms.com${changes}@1`,
-      `evil-studio.decocms.com${changes}@1`,
-      `api.studio.decocms.com${changes}@1`,
+      `evil-decocms.com${changes}@1`,
       `decocms.com${changes}@1`,
-      `delivery.decocms.com${changes}@1`,
-      `localhost:4000${changes}@1`,
-      `127.0.0.1${changes}@1`,
-      `[::1]:4000${changes}@1`,
+      `studio.decocms.com:8443${changes}@1`,
       `169.254.169.254/latest/meta-data?x=1@1`,
       `studio.decocms.com@evil.example${changes}@1`,
       `https://studio.decocms.com${changes}@1`,
@@ -462,22 +458,20 @@ describe("draft previews", () => {
     expect(await titleOf(cms.forDraft(upper))).toBe("Draft");
   });
 
-  it("DP-6: preview.sources in createCMS replaces the default; it's code only, and an invalid pattern throws", async () => {
+  it("DP-6: DECO_PREVIEW_API_DOMAINS replaces the default list; content can't widen it", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const own = cmsOf({ preview: { sources: ["studio.example.com"] } });
-    expect(await failed(own.forDraft(pointer))).toEqual(FAILED);
+    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "studio.example.com");
+    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
     expect(api.fetch).not.toHaveBeenCalled();
     resetForTests();
-    const both = cmsOf({ preview: { sources: ["studio.decocms.com", "studio.example.com"] } });
-    expect(await titleOf(both.forDraft(pointer))).toBe("Draft");
-    // Content can't widen it: the CMS block has no say over sources.
+    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", " .decocms.com , studio.example.com ");
+    expect(await titleOf(cmsOf().forDraft(pointer))).toBe("Draft");
+    // Content can't widen it: the CMS block has no say over where drafts come from.
     resetForTests();
+    vi.unstubAllEnvs();
     const release = docsSnapshot();
-    release.blocks.CMS = {
-      __resolveType: "cms-settings",
-      preview: { hosts: ["*"], sources: ["evil.example"] },
-    };
+    release.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["*"] } };
     const fromContent = cmsOf({ content: release });
     expect(
       await failed(
@@ -485,12 +479,9 @@ describe("draft previews", () => {
       ),
     ).toEqual(FAILED);
     expect(api.requests.filter((r) => r.url.includes("evil.example"))).toEqual([]);
-    for (const bad of [["https://studio.example.com"], ["studio.example.com/x"], "studio"]) {
-      expect(() => cmsOf({ preview: { sources: bad as never } })).toThrow(/preview\.sources/);
-    }
   });
 
-  it("DP-7: HTTPS, except plain HTTP for localhost, *.localhost, 127.0.0.1 and [::1]", async () => {
+  it("DP-7: HTTPS, except plain HTTP for localhost, *.localhost, 127.0.0.1 and [::1]; a port only on those and local.studio.decocms.com", async () => {
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -499,25 +490,15 @@ describe("draft previews", () => {
         return Response.json({ format: 1, set: {}, delete: [] });
       }),
     );
-    const cms = cmsOf({
-      preview: {
-        sources: [
-          "localhost",
-          "127.0.0.1",
-          "studio.localhost",
-          "[::1]",
-          "studio.example.com",
-          "*.lan.example",
-        ],
-      },
-    });
+    const cms = cmsOf();
     for (const host of [
       "localhost:4000",
       "studio.localhost",
       "127.0.0.1:4000",
       "[::1]:4000",
-      "studio.example.com",
-      "studio.lan.example",
+      "local.studio.decocms.com:4000",
+      "studio.decocms.com",
+      "pr-12.pr.studio.decocms.com",
     ]) {
       expect((await cms.forDraft(`${host}/changes?token=t@v1`).revision()).endsWith("~v1")).toBe(
         true,
@@ -528,8 +509,9 @@ describe("draft previews", () => {
       "http://studio.localhost/changes?token=t&v=v1",
       "http://127.0.0.1:4000/changes?token=t&v=v1",
       "http://[::1]:4000/changes?token=t&v=v1",
-      "https://studio.example.com/changes?token=t&v=v1",
-      "https://studio.lan.example/changes?token=t&v=v1",
+      "https://local.studio.decocms.com:4000/changes?token=t&v=v1",
+      "https://studio.decocms.com/changes?token=t&v=v1",
+      "https://pr-12.pr.studio.decocms.com/changes?token=t&v=v1",
     ]);
   });
 
@@ -1399,14 +1381,14 @@ describe("hosted-drafts", () => {
     expect(api.requests.map((r) => new URL(r.url).host)).toEqual([STUDIO_HOST]);
   });
 
-  it("HD-10: deco-draft is the cookie draftCookie writes and draftPointer reads", async () => {
+  it("HD-10: __deco_draft is the cookie draftCookie writes and draftPointer reads", async () => {
     const set = await draftCookie(
       new Request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`),
     );
     expect(set?.startsWith(`${DRAFT_COOKIE}=`)).toBe(true);
   });
 
-  it("HD-12: examples never spell __draft or deco-draft", () => {
+  it("HD-12: examples never spell __draft or __deco_draft", () => {
     const examples = path.resolve(HERE, "../../../../../examples");
     const hits: string[] = [];
     const walk = (dir: string) => {
@@ -1416,7 +1398,7 @@ describe("hosted-drafts", () => {
         if (entry.isDirectory()) walk(full);
         else if (/\.(ts|tsx)$/.test(entry.name)) {
           const text = fs.readFileSync(full, "utf8");
-          if (/__draft|deco-draft/.test(text)) hits.push(full);
+          if (/__draft|__deco_draft/.test(text)) hits.push(full);
         }
       }
     };

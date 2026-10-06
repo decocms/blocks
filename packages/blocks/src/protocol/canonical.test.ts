@@ -1,14 +1,7 @@
 // @vitest-environment node
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import {
-  APPLY_DIGEST_DOMAIN,
-  applyRequestDigest,
-  CanonicalJsonError,
-  canonicalJson,
-  computeContentRevision,
-  sha256Hex,
-} from "./canonical";
+import { CanonicalJsonError, canonicalJson, computeContentRevision, sha256Hex } from "./canonical";
 import { contentHashFixtures } from "./conformance/contentHashFixtures";
 
 describe("canonicalJson", () => {
@@ -66,13 +59,6 @@ describe("hashing", () => {
     expect(await sha256Hex("abc")).toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     );
-  });
-
-  it("binds a request digest to every parameter, with a domain prefix", async () => {
-    const a = await applyRequestDigest({ set: { x: { v: 1 } }, requestKey: "k" });
-    expect(a).toBe(await applyRequestDigest({ requestKey: "k", set: { x: { v: 1 } } }));
-    expect(a).not.toBe(await applyRequestDigest({ set: { x: { v: 2 } }, requestKey: "k" }));
-    expect(a).toBe(await sha256Hex(`${APPLY_DIGEST_DOMAIN}{"requestKey":"k","set":{"x":{"v":1}}}`));
   });
 });
 

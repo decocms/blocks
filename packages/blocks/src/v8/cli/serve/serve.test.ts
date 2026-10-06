@@ -261,7 +261,7 @@ describe("CORS", () => {
 });
 
 describe("the content protocol", () => {
-  it("describes the endpoint: working tree, root, limits, assets and the secrets key", async () => {
+  it("describes the endpoint: working tree, root, assets and the secrets key", async () => {
     const { publicKeyPem } = await sealSecret("x");
     await start({ preview: "http://localhost:3000/" }, { ".deco/secrets.pub": publicKeyPem });
     const { result } = await rpc("describe");
@@ -273,10 +273,7 @@ describe("the content protocol", () => {
       readOnly: false,
       root: ".",
       schemaFormat: "deco-meta@1",
-      refs: null,
-      writes: { idempotency: null, schemaPreconditions: true },
       pollIntervalMs: 2000,
-      limits: { maxOpsPerApply: 500, maxBlockBytes: 1048576, maxRequestBytes: 8388608 },
       preview: { url: "http://localhost:3000" },
       assets: { dir: "public/assets", urlPrefix: "/assets/", maxBytes: 25 * 1024 * 1024 },
       secrets: { publicKey: publicKeyPem },

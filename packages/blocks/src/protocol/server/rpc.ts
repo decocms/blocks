@@ -4,10 +4,6 @@
  * - Every request has an `id`; one without is rejected rather than run.
  * - A batch runs in order, returns results in order, holds at most 10 calls,
  *   and isn't atomic.
- * - The aggregate response is bounded: once it would pass
- *   `maxBatchResponseBytes`, later reads answer LimitExceeded instead.
- * - A write's response is never replaced, alone or in a batch: the write has
- *   landed, and answering LimitExceeded would tell the client it hadn't.
  */
 import {
   type ContentProtocolError,
@@ -21,8 +17,6 @@ import { MAX_BATCH_CALLS, METHOD_NAMES, type MethodName, type RpcId } from "../t
 import { type Core, toProtocolError } from "./core.ts";
 import { blocksApply } from "./methods/apply.ts";
 import { blocksList, describe, schemaGet } from "./methods/read.ts";
-
-const utf8 = new TextEncoder();
 
 type Envelope = { id: RpcId; method: MethodName; params: unknown };
 
@@ -52,7 +46,7 @@ function parseEnvelope(
   return { id, method: raw.method, params: raw.params };
 }
 
-async function run(core: Core, envelope: Envelope, scope: string): Promise<unknown> {
+async function run(core: Core, envelope: Envelope): Promise<unknown> {
   switch (envelope.method) {
     case "describe":
       validateParams("describe", envelope.params);
@@ -62,24 +56,18 @@ async function run(core: Core, envelope: Envelope, scope: string): Promise<unkno
     case "blocks.list":
       return blocksList(core, validateParams("blocks.list", envelope.params));
     case "blocks.apply":
-      return blocksApply(core, validateParams("blocks.apply", envelope.params), scope);
+      return blocksApply(core, validateParams("blocks.apply", envelope.params));
   }
-}
-
-/** True for a well-formed `blocks.apply` request. */
-function isWrite(value: unknown): boolean {
-  const envelope = parseEnvelope(value);
-  return !("error" in envelope) && envelope.method === "blocks.apply";
 }
 
 const errorResponse = (id: RpcId | null, error: ContentProtocolError) =>
   JSON.stringify({ jsonrpc: "2.0", id, error: error.toJSON() });
 
-async function call(core: Core, value: unknown, scope: string): Promise<string> {
+async function call(core: Core, value: unknown): Promise<string> {
   const envelope = parseEnvelope(value);
   if ("error" in envelope) return errorResponse(envelope.id, envelope.error);
   try {
-    const result = await run(core, envelope, scope);
+    const result = await run(core, envelope);
     return JSON.stringify({ jsonrpc: "2.0", id: envelope.id, result });
   } catch (error) {
     const known = toProtocolError(error);
@@ -93,17 +81,8 @@ async function call(core: Core, value: unknown, scope: string): Promise<string> 
  * Runs a parsed request body (one request object or a batch array) and
  * returns the serialized response body.
  */
-export async function dispatch(core: Core, body: unknown, scope: string, maxResponseBytes: number) {
-  if (!Array.isArray(body)) {
-    const response = await call(core, body, scope);
-    if (isWrite(body) || utf8.encode(response).byteLength <= maxResponseBytes) return response;
-    return errorResponse(
-      parseEnvelope(body).id,
-      limitExceeded(`the response is over ${maxResponseBytes} bytes`, {
-        limit: "maxBatchResponseBytes",
-      }),
-    );
-  }
+export async function dispatch(core: Core, body: unknown): Promise<string> {
+  if (!Array.isArray(body)) return call(core, body);
   if (body.length === 0) return errorResponse(null, invalidRequest("an empty batch"));
   if (body.length > MAX_BATCH_CALLS) {
     return errorResponse(
@@ -112,25 +91,6 @@ export async function dispatch(core: Core, body: unknown, scope: string, maxResp
     );
   }
   const responses: string[] = [];
-  let total = 2; // the brackets
-  for (const item of body) {
-    const envelope = parseEnvelope(item);
-    const id = envelope.id;
-    const overBudget = () =>
-      errorResponse(
-        id,
-        limitExceeded(`the batch response is over ${maxResponseBytes} bytes`, {
-          limit: "maxBatchResponseBytes",
-        }),
-      );
-    // Writes always run, so a batch never drops a save; reads stop once over budget.
-    const write = !("error" in envelope) && envelope.method === "blocks.apply";
-    let response =
-      !write && total > maxResponseBytes ? overBudget() : await call(core, item, scope);
-    const bytes = utf8.encode(response).byteLength + (responses.length ? 1 : 0);
-    if (total + bytes > maxResponseBytes && !write) response = overBudget();
-    total += utf8.encode(response).byteLength + (responses.length ? 1 : 0);
-    responses.push(response);
-  }
+  for (const item of body) responses.push(await call(core, item));
   return `[${responses.join(",")}]`;
 }

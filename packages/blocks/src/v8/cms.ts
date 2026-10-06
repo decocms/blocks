@@ -21,7 +21,6 @@ import {
   defaultSettings,
   isStatic,
   parseCodeHosts,
-  parseCodeSources,
   readSettings,
   type SettingsCaps,
 } from "./settings.ts";
@@ -73,8 +72,6 @@ class CMSInstance {
   readonly #builtIns: Readonly<Blocks>;
   readonly #telemetry: TelemetryPipeline | undefined;
   readonly #caps: SettingsCaps;
-  /** The hosts a draft pointer may name (`preview.sources`): code only, never content. */
-  readonly #sources: readonly HostPattern[];
   /** Settings of a `CMS` block with nothing to run, per release snapshot. */
   #staticSettings = new WeakMap<Snapshot, EffectiveSettings>();
   /** The release and time telemetry last read its section. */
@@ -96,7 +93,6 @@ class CMSInstance {
       hosts: parseCodeHosts(config.preview),
       limits: telemetryLimits(config.telemetry),
     };
-    this.#sources = parseCodeSources(config.preview);
     const destination = resolveDestination(config.telemetry, config.site);
     if (destination !== null) {
       this.#telemetry = new TelemetryPipeline(destination);
@@ -151,7 +147,7 @@ class CMSInstance {
    */
   forDraft(blocks: Blocks, pointer: string): Client {
     this.#scheduleUpdate();
-    const load = () => this.#store.draft(pointer, this.#sources);
+    const load = () => this.#store.draft(pointer);
     const variants = parseDraftPointer(pointer)?.variants;
     if (variants === undefined) return this.#client(blocks, load);
     return this.#client(blocks, () => load().then((snapshot) => forceVariants(snapshot, variants)));
@@ -388,7 +384,6 @@ function validate(config: CMSConfig): void {
     );
   }
   parseCodeHosts(config.preview);
-  parseCodeSources(config.preview);
 }
 
 function resolveInterval(configured: number | undefined): number {

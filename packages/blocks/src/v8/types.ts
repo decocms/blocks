@@ -234,11 +234,6 @@ export interface CMSConfig {
      * (/next/api-reference#host-patterns). Without it, content may allow any host.
      */
     hosts?: string[];
-    /**
-     * The hosts a draft pointer may name, in the host pattern format; code
-     * only, never content. Default `["studio.decocms.com"]`.
-     */
-    sources?: string[];
   };
   /** The private key that decrypts `secret` blocks. */
   secrets?: { key?: string };
@@ -285,7 +280,9 @@ export interface CMS {
   forRelease(): Client;
   /**
    * A client reading the draft a pointer names: its changes, fetched from a
-   * host in `preview.sources`, over this server's production content.
+   * preview API domain (`*.decocms.com` and loopback by default;
+   * `DECO_PREVIEW_API_DOMAINS` replaces the list), over this server's
+   * production content.
    */
   forDraft(pointer: string): Client;
   /** A client pinned to a revision this CMS has served; an unknown revision behaves like the release. */
@@ -299,7 +296,7 @@ export interface CMS {
    */
   settings(): Promise<EffectiveSettings>;
   /**
-   * The request's draft pointer: `?__draft=` first, then the `deco-draft`
+   * The request's draft pointer: `?__draft=` first, then the `__deco_draft`
    * cookie. `null` when neither is present, for `?__draft=off`, and on a host
    * outside `settings().preview.hosts`, where the request gets the release.
    */

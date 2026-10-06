@@ -13,14 +13,10 @@ import type { BlocksApplyParams, MethodName, ReadParams } from "./types.ts";
 const opaque = z.string().min(1).max(1024);
 
 const readParams = z.strictObject({
-  ref: z.string().min(1).max(255).optional(),
   ifNoneMatch: opaque.optional(),
 });
 
 const applyParams = z.strictObject({
-  ref: z.string().min(1).max(255).optional(),
-  requestKey: z.string().min(1).max(256).optional(),
-  ifSchemaMatch: opaque.optional(),
   // Entry shapes are checked later and reported as InvalidBlock, all at once.
   set: z.record(z.string(), z.unknown()).optional(),
   delete: z.array(z.string()).optional(),

@@ -1,7 +1,9 @@
 /**
  * Content-protocol errors. Every failure travels as a JSON-RPC 2.0 `error`
- * object (HTTP 200), except a missing or invalid bearer token (401) and a body
- * over the size limit (413), which apply to the whole batch.
+ * object (HTTP 200), except a body over the size limit (413), which applies
+ * to the whole batch. `Unauthorized` and `Forbidden` are for the server that
+ * mounts the handler and authenticates its callers (Studio's session); the
+ * handler itself never raises them.
  */
 
 export const ErrorCode = {
@@ -41,8 +43,7 @@ export interface VersionMismatch {
 
 /** `error.data` of a Conflict (-32002). */
 export interface ConflictData {
-  entries?: Record<string, VersionMismatch>;
-  schema?: { expected: string; actual: string | null };
+  entries: Record<string, VersionMismatch>;
 }
 
 /** One rule a `blocks.apply` breaks. */
@@ -134,9 +135,3 @@ export const parseError = () => new ContentProtocolError(ErrorCode.ParseError, "
 
 export const internalError = () =>
   new ContentProtocolError(ErrorCode.InternalError, "internal error");
-
-export const unauthorized = () =>
-  new ContentProtocolError(ErrorCode.Unauthorized, "missing or invalid bearer token");
-
-export const forbidden = () =>
-  new ContentProtocolError(ErrorCode.Forbidden, "not allowed for this project");

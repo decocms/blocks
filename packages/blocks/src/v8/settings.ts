@@ -46,23 +46,9 @@ export function parseCodeHosts(preview: CMSConfig["preview"]): HostPattern[] | u
   return parseCodePatterns(preview, "hosts");
 }
 
-/** The hosts a draft pointer may name when code sets no `preview.sources`. */
-export const DEFAULT_SOURCES: readonly string[] = ["studio.decocms.com"];
-
-/**
- * Code's `preview.sources`, parsed, or the default (`studio.decocms.com`).
- * Throws a `TypeError` like {@link parseCodeHosts}.
- */
-export function parseCodeSources(preview: CMSConfig["preview"]): HostPattern[] {
-  return (
-    parseCodePatterns(preview, "sources") ??
-    DEFAULT_SOURCES.map((raw) => parseHostPattern(raw) as HostPattern)
-  );
-}
-
 function parseCodePatterns(
   preview: CMSConfig["preview"],
-  field: "hosts" | "sources",
+  field: "hosts",
 ): HostPattern[] | undefined {
   if (preview === undefined || preview === null) return undefined;
   if (typeof preview !== "object") {

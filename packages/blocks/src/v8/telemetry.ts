@@ -3,8 +3,10 @@
  * /next/telemetry and /next/telemetry-internals.
  *
  * - **Where** comes from code: `createCMS({ telemetry })`, or the standard
- *   `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_EXPORTER_OTLP_HEADERS` when it's left
- *   out. `false` sends nothing.
+ *   `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_EXPORTER_OTLP_HEADERS` (and the
+ *   per-signal `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_ENDPOINT`) when it's
+ *   left out. v7's `DECO_OTEL_*` names are read as aliases; the standard name
+ *   wins when both are set. `false` sends nothing.
  * - **How much** comes from content: the `telemetry` section of the CMS
  *   settings (`cms.settings()`, the release's `CMS` block), capped by
  *   `telemetry.limits`. The CMS reads it outside any request, when the
@@ -49,8 +51,13 @@ export function telemetryLimits(config: false | TelemetryConfig | undefined): {
 
 type Attributes = Record<string, string | number | boolean | undefined>;
 
+type Signal = "metrics" | "logs" | "traces";
+
 interface Destination {
+  /** The base URL each signal's `/v1/<signal>` is appended to; `""` with per-signal URLs only. */
   endpoint: string;
+  /** Full per-signal URLs, used as they are (the `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` form). */
+  signals?: Partial<Record<Signal, string>>;
   headers: Record<string, string>;
   site?: string;
   limits: { errorSampleRate: number; traceSampleRate: number };
@@ -99,12 +106,7 @@ export function resolveDestination(
   site?: string,
 ): Destination | null {
   if (config === false) return null;
-  if (config === undefined || config === null) {
-    const endpoint = readEnv("OTEL_EXPORTER_OTLP_ENDPOINT");
-    if (!endpoint) return null;
-    const headers = parseKeyValues(readEnv("OTEL_EXPORTER_OTLP_HEADERS"));
-    return { endpoint, headers, site, limits: DEFAULT_LIMITS };
-  }
+  if (config === undefined || config === null) return destinationFromEnv(site);
   const limits = telemetryLimits(config);
   if ("endpoint" in config) {
     if (typeof config.endpoint !== "string" || !config.endpoint) return null;
@@ -117,6 +119,46 @@ export function resolveDestination(
     site: config.site,
     limits,
   };
+}
+
+/** v7's names for the standard OTLP variables, read when the standard one is unset. */
+const V7_ALIASES = {
+  OTEL_EXPORTER_OTLP_HEADERS: "DECO_OTEL_HEADERS",
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "DECO_OTEL_METRICS_ENDPOINT",
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "DECO_OTEL_LOGS_ENDPOINT",
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "DECO_OTEL_TRACES_ENDPOINT",
+} as const;
+
+/** The standard variable, else its v7 alias. */
+function readOtlpEnv(name: keyof typeof V7_ALIASES | "OTEL_EXPORTER_OTLP_ENDPOINT") {
+  return (
+    readEnv(name) ||
+    (name in V7_ALIASES ? readEnv(V7_ALIASES[name as keyof typeof V7_ALIASES]) : undefined)
+  );
+}
+
+/**
+ * The destination the environment names: the standard OTLP variables, with
+ * v7's `DECO_OTEL_*` names as aliases. `DECO_OTEL_AUTH_TOKEN` (v7's secret
+ * for the collector) becomes the `authorization` header unless the headers
+ * set one. `null` when no endpoint is set.
+ */
+function destinationFromEnv(site: string | undefined): Destination | null {
+  const endpoint = readOtlpEnv("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "";
+  const signals: Partial<Record<Signal, string>> = {};
+  for (const signal of ["metrics", "logs", "traces"] as const) {
+    const url = readOtlpEnv(
+      `OTEL_EXPORTER_OTLP_${signal.toUpperCase() as Uppercase<Signal>}_ENDPOINT`,
+    );
+    if (url) signals[signal] = url;
+  }
+  if (!endpoint && Object.keys(signals).length === 0) return null;
+  const token = readEnv("DECO_OTEL_AUTH_TOKEN");
+  const headers = {
+    ...(token ? { authorization: token } : {}),
+    ...parseKeyValues(readOtlpEnv("OTEL_EXPORTER_OTLP_HEADERS")),
+  };
+  return { endpoint, signals, headers, site, limits: DEFAULT_LIMITS };
 }
 
 export class TelemetryPipeline {
@@ -273,7 +315,7 @@ export class TelemetryPipeline {
       const byName = new Map<string, Histogram[]>();
       for (const h of histograms) byName.set(h.name, [...(byName.get(h.name) ?? []), h]);
       sends.push(
-        this.#send("/v1/metrics", {
+        this.#send("metrics", {
           resourceMetrics: [
             {
               resource,
@@ -307,7 +349,7 @@ export class TelemetryPipeline {
     }
     if (logs.length > 0) {
       sends.push(
-        this.#send("/v1/logs", {
+        this.#send("logs", {
           resourceLogs: [
             {
               resource,
@@ -331,7 +373,7 @@ export class TelemetryPipeline {
     if (spans.length > 0) {
       const kinds = { internal: 1, server: 2, client: 3 };
       sends.push(
-        this.#send("/v1/traces", {
+        this.#send("traces", {
           resourceSpans: [
             {
               resource,
@@ -401,8 +443,11 @@ export class TelemetryPipeline {
     };
   }
 
-  async #send(path: string, payload: unknown): Promise<void> {
-    const url = this.#destination.endpoint.replace(/\/+$/, "") + path;
+  async #send(signal: Signal, payload: unknown): Promise<void> {
+    const { endpoint, signals } = this.#destination;
+    const url =
+      signals?.[signal] ?? (endpoint ? `${endpoint.replace(/\/+$/, "")}/v1/${signal}` : "");
+    if (!url) return; // this signal has no destination
     const { body, gzipped } = await gzip(JSON.stringify(payload));
     const headers: Record<string, string> = {
       ...this.#destination.headers,

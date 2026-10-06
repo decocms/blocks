@@ -114,6 +114,38 @@ describe("where telemetry goes", () => {
     });
   });
 
+  it("reads v7's DECO_OTEL_* names as aliases; the standard name wins when both are set", () => {
+    vi.stubEnv("DECO_OTEL_METRICS_ENDPOINT", `${ENDPOINT}/v1/metrics`);
+    vi.stubEnv("DECO_OTEL_LOGS_ENDPOINT", `${ENDPOINT}/v1/logs`);
+    vi.stubEnv("DECO_OTEL_TRACES_ENDPOINT", `${ENDPOINT}/v1/traces`);
+    vi.stubEnv("DECO_OTEL_HEADERS", "x-team=v7");
+    vi.stubEnv("DECO_OTEL_AUTH_TOKEN", "Bearer v7");
+    expect(resolveDestination(undefined)).toMatchObject({
+      endpoint: "",
+      signals: {
+        metrics: `${ENDPOINT}/v1/metrics`,
+        logs: `${ENDPOINT}/v1/logs`,
+        traces: `${ENDPOINT}/v1/traces`,
+      },
+      headers: { "x-team": "v7", authorization: "Bearer v7" },
+    });
+    vi.stubEnv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "https://std.example/m");
+    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-team=std,authorization=Bearer%20std");
+    expect(resolveDestination(undefined)).toMatchObject({
+      signals: { metrics: "https://std.example/m", logs: `${ENDPOINT}/v1/logs` },
+      headers: { "x-team": "std", authorization: "Bearer std" },
+    });
+  });
+
+  it("sends a signal to its own URL, and drops a signal with no destination", async () => {
+    const { sent } = collector();
+    vi.stubEnv("DECO_OTEL_METRICS_ENDPOINT", "https://ingest.example/v1/metrics");
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    await upstream("https://search.example/q");
+    await runBackground();
+    expect(sent.map((s) => s.url)).toEqual(["https://ingest.example/v1/metrics"]);
+  });
+
   it("top-level site and token never turn telemetry on", async () => {
     const { fetch } = collector();
     createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });

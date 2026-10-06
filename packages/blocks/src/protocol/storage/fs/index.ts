@@ -35,7 +35,6 @@ import {
   type StoredFileBody,
   type StoredSchema,
 } from "../../storage.ts";
-import type { Limits } from "../../types.ts";
 import { gitBlobHash, revisionOf } from "./hash.ts";
 import { withCommitLock } from "./lock.ts";
 import { applyFileChange, sweepStaleTransactions } from "./transaction.ts";
@@ -57,8 +56,6 @@ export interface FsStorageOptions {
   assetsMaxBytes?: number;
   /** Overrides the poll interval (default 2000 ms). */
   pollIntervalMs?: number;
-  /** Lowers the protocol's limits. */
-  limits?: Partial<Limits>;
   /** How long a commit waits for another process's lock (default 10 s). */
   lockTimeoutMs?: number;
 }
@@ -227,16 +224,13 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
         kind: "working-tree",
         root: relativeRoot,
         readOnly,
-        refs: null,
         assets: readOnly
           ? null
           : {
               dir: toPosix(relative(base, assetsDir)) || ".",
               maxBytes: options.assetsMaxBytes ?? DEFAULT_ASSETS_MAX_BYTES,
             },
-        idempotency: null,
         pollIntervalMs: options.pollIntervalMs ?? 2000,
-        limits: options.limits,
       };
     },
 
@@ -270,8 +264,6 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
 
     async commit(attempt): Promise<CommitResult> {
       if (readOnly) throw new StorageUnavailableError("the storage is read-only");
-      if (attempt.receipt)
-        throw new StorageUnavailableError("the filesystem storage keeps no receipts");
       for (const file of [
         ...Object.keys(attempt.put),
         ...attempt.delete,

@@ -455,7 +455,7 @@ describe("cms.draftPointer and cms.draftCookie on a host outside the list", () =
     preview: { hosts: ["staging.example.com", "*.preview.example.com"] },
   });
   const pointer = encodeURIComponent(POINTER);
-  const cookie = `deco-draft=${pointer}`;
+  const cookie = `__deco_draft=${pointer}`;
 
   it("ignore the parameter and the cookie: the request gets the release, never an error", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: settings });
@@ -487,7 +487,7 @@ describe("cms.draftPointer and cms.draftCookie on a host outside the list", () =
       `https://pr-12.preview.example.com/?__draft=${pointer}`,
     ]) {
       expect(await cms.draftPointer(request(url)), url).toBe(POINTER);
-      expect(await cms.draftCookie(request(url)), url).toMatch(/^deco-draft=/);
+      expect(await cms.draftCookie(request(url)), url).toMatch(/^__deco_draft=/);
     }
     expect(await cms.draftPointer(request("https://staging.example.com/", cookie))).toBe(POINTER);
   });

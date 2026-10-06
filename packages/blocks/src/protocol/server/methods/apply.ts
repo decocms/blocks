@@ -7,27 +7,23 @@
  * 3. `set` wins when a name is in both `set` and `delete`.
  * 4. Validated first: names, value shapes, sizes and the secret guard are
  *    checked before anything is written, and every violation is reported.
- * 5. Preconditions are optional: a failed `ifMatch` (or `ifSchemaMatch`)
- *    writes nothing and returns a Conflict; without them the last writer wins.
+ * 5. Preconditions are optional: a failed `ifMatch` writes nothing and
+ *    returns a Conflict; without one the last writer wins.
  *
  * 6. Two spellings of one name are one entry: a guard compares against the
  *    entry under any spelling, and the result reports `null` for every other
  *    spelling the commit deleted.
  *
- * A commit attempt that finds storage moved (files, the schema, or a request
- * key reserved meanwhile) is retried against a new snapshot after a jittered
+ * A commit attempt that finds storage moved (files or the schema) is retried against a new snapshot after a jittered
  * backoff, rechecking every guard, up to `maxCommitAttempts` times.
  */
-import { applyRequestDigest, canonicalJson } from "../../canonical.ts";
 import {
   type BlockViolation,
   conflict,
   invalidBlock,
-  invalidParams,
   limitExceeded,
   readOnly,
   unavailable,
-  unsupported,
   type VersionMismatch,
 } from "../../errors.ts";
 import {
@@ -41,11 +37,10 @@ import {
   spellingKey,
 } from "../../keys.ts";
 import { checkSecrets } from "../../secrets.ts";
-import type { StorageDescription, StoredReceipt } from "../../storage.ts";
-import type { BlocksApplyParams, BlocksApplyResult, DecoMeta, Limits } from "../../types.ts";
+import type { BlocksApplyParams, BlocksApplyResult, DecoMeta } from "../../types.ts";
 import { type LoadedContent, type LoadedEntry, loadCurrentContent } from "../content.ts";
-import type { Core } from "../core.ts";
-import { parseSchema, readSchema } from "./read.ts";
+import { type Core, MAX_BLOCK_BYTES, MAX_OPS_PER_APPLY } from "../core.ts";
+import { parseSchema } from "./read.ts";
 
 const utf8 = new TextEncoder();
 
@@ -56,13 +51,13 @@ interface NormalizedApply {
   ifMatch: Array<[name: string, version: string | null]>;
 }
 
-function normalize(params: BlocksApplyParams, limits: Limits): NormalizedApply {
+function normalize(params: BlocksApplyParams): NormalizedApply {
   const set = Object.entries(params.set ?? {});
   const setNames = new Set(set.map(([name]) => name));
   const deleteNames = [...new Set(params.delete ?? [])].filter((name) => !setNames.has(name));
   const ops = set.length + deleteNames.length;
-  if (ops > limits.maxOpsPerApply) {
-    throw limitExceeded(`${ops} names in one blocks.apply; the limit is ${limits.maxOpsPerApply}`, {
+  if (ops > MAX_OPS_PER_APPLY) {
+    throw limitExceeded(`${ops} names in one blocks.apply; the limit is ${MAX_OPS_PER_APPLY}`, {
       limit: "maxOpsPerApply",
     });
   }
@@ -70,7 +65,7 @@ function normalize(params: BlocksApplyParams, limits: Limits): NormalizedApply {
 }
 
 /** Checks everything that doesn't depend on stored content. */
-function validateStatic(apply: NormalizedApply, limits: Limits, meta: DecoMeta | null) {
+function validateStatic(apply: NormalizedApply, meta: DecoMeta | null) {
   const violations: BlockViolation[] = [];
   const bodies = new Map<string, string>();
   const bySpelling = new Map<string, string>();
@@ -91,11 +86,11 @@ function validateStatic(apply: NormalizedApply, limits: Limits, meta: DecoMeta |
       continue;
     }
     const body = serializeBlock(value);
-    if (utf8.encode(body).byteLength > limits.maxBlockBytes) {
+    if (utf8.encode(body).byteLength > MAX_BLOCK_BYTES) {
       violations.push({
         name,
         rule: "too-large",
-        message: `the entry is over ${limits.maxBlockBytes} bytes`,
+        message: `the entry is over ${MAX_BLOCK_BYTES} bytes`,
       });
       continue;
     }
@@ -231,12 +226,8 @@ function resultFromVersions(
   return { revision, versions };
 }
 
-function receiptResult(apply: NormalizedApply, receipt: StoredReceipt): BlocksApplyResult {
-  return resultFromVersions(apply, receipt.revision, receipt.versions, receipt.deleted ?? []);
-}
-
-async function loadSchema(core: Core, params: BlocksApplyParams, limits: Limits) {
-  const stored = await readSchema(core, params.ref, limits.maxSchemaBytes);
+async function loadSchema(core: Core) {
+  const stored = await core.storage.readSchema();
   if (stored === null) return { version: null, meta: null };
   if (core.parsedSchema?.version !== stored.version) {
     core.parsedSchema = { version: stored.version, meta: parseSchema(stored.text) };
@@ -244,67 +235,19 @@ async function loadSchema(core: Core, params: BlocksApplyParams, limits: Limits)
   return { version: stored.version, meta: core.parsedSchema.meta };
 }
 
-function checkFeatures(description: StorageDescription, core: Core, params: BlocksApplyParams) {
-  if (description.readOnly) throw readOnly();
-  core.checkRef(description, params.ref);
-  if (params.requestKey !== undefined && (!description.idempotency || !core.storage.getReceipt)) {
-    throw unsupported("this endpoint doesn't support request keys; omit requestKey");
-  }
-}
-
 export async function blocksApply(
   core: Core,
   params: BlocksApplyParams,
-  scope: string,
 ): Promise<BlocksApplyResult> {
   const description = await core.description();
-  checkFeatures(description, core, params);
-  if (params.requestKey === undefined) return applyOnce(core, params, description, null);
-
-  const digest = await applyRequestDigest(params);
-  const key = canonicalJson([scope, description.root, params.ref ?? null, params.requestKey]);
-  // Simultaneous duplicates: wait for the first, then find its receipt.
-  for (let pending = core.inflight.get(key); pending; pending = core.inflight.get(key)) {
-    await pending.catch(() => {});
-  }
-  const run = applyOnce(core, params, description, { key, digest });
-  core.inflight.set(key, run);
-  try {
-    return await run;
-  } finally {
-    if (core.inflight.get(key) === run) core.inflight.delete(key);
-  }
-}
-
-async function applyOnce(
-  core: Core,
-  params: BlocksApplyParams,
-  description: StorageDescription,
-  receipt: { key: string; digest: string } | null,
-): Promise<BlocksApplyResult> {
-  const limits = core.limits(description);
-  const apply = normalize(params, limits);
+  if (description.readOnly) throw readOnly();
+  const apply = normalize(params);
 
   for (let attempt = 1; attempt <= core.maxCommitAttempts; attempt++) {
-    // Receipts for completed identical requests resolve before any guard is rechecked.
-    if (receipt) {
-      const stored = await core.storage.getReceipt!(receipt.key);
-      if (stored) {
-        if (stored.digest !== receipt.digest) {
-          throw invalidParams("requestKey was already used for a different request");
-        }
-        return receiptResult(apply, stored);
-      }
-    }
-
-    const schema = await loadSchema(core, params, limits);
-    if (params.ifSchemaMatch !== undefined && params.ifSchemaMatch !== schema.version) {
-      throw conflict({ schema: { expected: params.ifSchemaMatch, actual: schema.version } });
-    }
-    const { violations, bodies } = validateStatic(apply, limits, schema.meta);
-    const { snapshot, content } = await loadCurrentContent(core.storage, params.ref, {
+    const schema = await loadSchema(core);
+    const { violations, bodies } = validateStatic(apply, schema.meta);
+    const { snapshot, content } = await loadCurrentContent(core.storage, {
       readAll: false,
-      limits,
       cache: core.cache,
     });
     const bySpelling = entriesBySpelling(content!);
@@ -315,19 +258,16 @@ async function applyOnce(
     if (mismatches) throw conflict({ entries: mismatches });
 
     const { put, delete: deletes, expected } = plan(content!, bySpelling, apply, bodies);
-    if (Object.keys(put).length === 0 && deletes.length === 0 && !receipt) {
+    if (Object.keys(put).length === 0 && deletes.length === 0) {
       return resultFromVersions(apply, snapshot.revision, {}, []);
     }
-    // The schema the guards and the secret check used must still be current at commit time.
-    const dependsOnSchema = params.ifSchemaMatch !== undefined || apply.set.length > 0;
+    // The schema the secret check used must still be current at commit time.
     const result = await core.storage.commit({
-      ref: params.ref,
       base: snapshot,
       put,
       delete: deletes,
       expected,
-      ...(dependsOnSchema ? { expectedSchemaVersion: schema.version } : {}),
-      receipt: receipt ?? undefined,
+      ...(apply.set.length > 0 ? { expectedSchemaVersion: schema.version } : {}),
     });
     if (result.status === "committed") {
       return resultFromVersions(apply, result.revision, result.versions, deletes);

@@ -2,7 +2,7 @@
  * The three read methods: `describe`, `schema.get` and `blocks.list`.
  */
 import { publicKeyDerFromPem } from "../../ciphertext.ts";
-import { limitExceeded, unavailable } from "../../errors.ts";
+import { unavailable } from "../../errors.ts";
 import {
   ASSETS_URL_PREFIX,
   type BlocksListResult,
@@ -52,13 +52,7 @@ export async function describe(core: Core): Promise<DescribeResult> {
     readOnly,
     root: description.root,
     schemaFormat: SCHEMA_FORMAT,
-    refs: description.refs,
-    writes: {
-      idempotency: core.storage.getReceipt ? description.idempotency : null,
-      schemaPreconditions: true,
-    },
     pollIntervalMs: core.pollIntervalMs(description),
-    limits: core.limits(description),
     preview: core.options.preview ?? null,
     assets:
       readOnly || description.assets === null
@@ -70,20 +64,6 @@ export async function describe(core: Core): Promise<DescribeResult> {
           },
     secrets: publicKey === null ? null : { publicKey },
   };
-}
-
-/** Reads and parses the schema, enforcing the schema byte limit. */
-export async function readSchema(
-  core: Core,
-  ref: string | undefined,
-  maxSchemaBytes: number,
-): Promise<{ version: string; resolvedRef: string | null; text: string } | null> {
-  const stored = await core.storage.readSchema({ ref });
-  if (stored === null) return null;
-  if (new TextEncoder().encode(stored.text).byteLength > maxSchemaBytes) {
-    throw limitExceeded(`the schema is over ${maxSchemaBytes} bytes`, { limit: "maxSchemaBytes" });
-  }
-  return stored;
 }
 
 /** Parses schema text; a file caught mid-write is reported as Unavailable, never served torn. */
@@ -101,23 +81,15 @@ export function parseSchema(text: string): DecoMeta {
 }
 
 export async function schemaGet(core: Core, params: ReadParams): Promise<SchemaGetResult> {
-  const description = await core.description();
-  core.checkRef(description, params.ref);
-  const limits = core.limits(description);
-  const stored = await core.storage.readSchema({ ref: params.ref });
+  const stored = await core.storage.readSchema();
   if (stored === null) {
     // No schema yet is a state, not an error. The snapshot still refuses a
     // site with no .deco folder (NotFound) and reports the resolved branch.
-    const snapshot = await core.storage.snapshot({ ref: params.ref });
+    const snapshot = await core.storage.snapshot();
     return { notModified: false, version: null, resolvedRef: snapshot.resolvedRef, schema: null };
   }
   if (params.ifNoneMatch !== undefined && params.ifNoneMatch === stored.version) {
     return { notModified: true, version: stored.version };
-  }
-  if (new TextEncoder().encode(stored.text).byteLength > limits.maxSchemaBytes) {
-    throw limitExceeded(`the schema is over ${limits.maxSchemaBytes} bytes`, {
-      limit: "maxSchemaBytes",
-    });
   }
   return {
     notModified: false,
@@ -128,13 +100,9 @@ export async function schemaGet(core: Core, params: ReadParams): Promise<SchemaG
 }
 
 export async function blocksList(core: Core, params: ReadParams): Promise<BlocksListResult> {
-  const description = await core.description();
-  core.checkRef(description, params.ref);
-  const limits = core.limits(description);
   const { snapshot, content } = await loadCurrentContent(
     core.storage,
-    params.ref,
-    { readAll: true, limits, cache: core.cache },
+    { readAll: true, cache: core.cache },
     (s) => params.ifNoneMatch !== undefined && params.ifNoneMatch === s.revision,
   );
   if (content === null) {

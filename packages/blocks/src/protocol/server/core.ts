@@ -1,13 +1,7 @@
 /**
  * The shared state of one content handler: its storage, options and caches.
  */
-import {
-  ContentProtocolError,
-  invalidBlock,
-  notFound,
-  unavailable,
-  unsupported,
-} from "../errors.ts";
+import { ContentProtocolError, invalidBlock, notFound, unavailable } from "../errors.ts";
 import { blockNameFromFile } from "../keys.ts";
 import {
   type ContentStorage,
@@ -16,15 +10,21 @@ import {
   StorageNotFoundError,
   StorageUnavailableError,
 } from "../storage.ts";
-import { DEFAULT_LIMITS, type DecoMeta, type Limits } from "../types.ts";
-import type { AuthOptions } from "./auth.ts";
+import type { DecoMeta } from "../types.ts";
 import { BodyCache } from "./bodyCache.ts";
 
-export interface ContentHandlerOptions extends AuthOptions {
+const MiB = 1024 * 1024;
+
+/** `blocks.apply`'s own guards: names (set plus delete) in one call. Internal, not advertised. */
+export const MAX_OPS_PER_APPLY = 500;
+/** Bytes of one stored entry. */
+export const MAX_BLOCK_BYTES = 1 * MiB;
+/** Bytes of one HTTP request body, uncompressed. */
+export const MAX_REQUEST_BYTES = 8 * MiB;
+
+export interface ContentHandlerOptions {
   /** Reported by `describe`, such as `{ name: "deco-cli", version: "8.0.0" }`. */
   server?: { name: string; version: string };
-  /** Lowers the protocol's default limits. Higher values are ignored. */
-  limits?: Partial<Limits>;
   /** Overrides the poll interval the storage suggests. */
   pollIntervalMs?: number;
   /** The app the site editor previews, reported by `describe` (`{ url }`). */
@@ -48,8 +48,6 @@ const DEFAULT_RETRY_DELAY = { minMs: 50, maxMs: 200 };
 
 export class Core {
   readonly cache: BodyCache;
-  /** Requests in flight per scoped request key, so simultaneous duplicates commit once. */
-  readonly inflight = new Map<string, Promise<unknown>>();
   /** The last parsed schema, by version: the secret guard reads it on every write. */
   parsedSchema: { version: string; meta: DecoMeta } | null = null;
 
@@ -75,30 +73,10 @@ export class Core {
     return this.storage.describe();
   }
 
-  /** The effective limits: the lowest of the defaults, the storage's and the options'. */
-  limits(description: StorageDescription): Limits {
-    const out = { ...DEFAULT_LIMITS };
-    for (const source of [description.limits, this.options.limits]) {
-      if (!source) continue;
-      for (const key of Object.keys(out) as (keyof Limits)[]) {
-        const value = source[key];
-        if (typeof value === "number" && value > 0 && value < out[key]) out[key] = value;
-      }
-    }
-    return out;
-  }
-
   pollIntervalMs(description: StorageDescription): number {
     return (
       this.options.pollIntervalMs ?? description.pollIntervalMs ?? DEFAULT_POLL_MS[description.kind]
     );
-  }
-
-  /** Refuses a `ref` on a storage without branches. */
-  checkRef(description: StorageDescription, ref: string | undefined): void {
-    if (ref !== undefined && description.refs === null) {
-      throw unsupported("this endpoint has no branches; omit ref");
-    }
   }
 }
 

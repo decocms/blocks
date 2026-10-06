@@ -4,29 +4,21 @@
  *
  * `POST <endpoint>` with `Content-Type: application/json` and a body that's
  * one request object or a batch array. Errors come back in the JSON-RPC
- * `error` object with HTTP 200, except a missing or invalid bearer token (401)
- * and a body over the size limit (413), which apply to the whole batch, and
- * requests that aren't the protocol at all: a method other than POST (405),
+ * `error` object with HTTP 200, except a body over the size limit (413),
+ * which applies to the whole batch, and requests that aren't the protocol at all: a method other than POST (405),
  * or a body that isn't JSON or uses an unsupported encoding (415). Those carry
  * a JSON-RPC error body too, with a `null` id.
  * Responses are gzip-compressed when the request accepts it.
  *
  * The handler is path-agnostic: mount it where the endpoint lives (`/rpc` on
- * the local server). Transport security that depends on where it runs — CORS,
- * `Host` checks, Chrome's local-network preflight — belongs to the server
- * that mounts it (`deco serve`).
+ * the local server). The handler doesn't authenticate: who may call it, and
+ * transport security that depends on where it runs — CORS, `Host` checks,
+ * Chrome's local-network preflight — belong to the server that mounts it
+ * (`deco serve` on loopback; Studio behind its own session).
  */
-import {
-  type ContentProtocolError,
-  forbidden,
-  invalidRequest,
-  limitExceeded,
-  parseError,
-  unauthorized,
-} from "../errors.ts";
+import { type ContentProtocolError, invalidRequest, limitExceeded, parseError } from "../errors.ts";
 import type { ContentStorage } from "../storage.ts";
-import { assertAuthOptions, authenticate } from "./auth.ts";
-import { type ContentHandlerOptions, Core } from "./core.ts";
+import { type ContentHandlerOptions, Core, MAX_REQUEST_BYTES } from "./core.ts";
 import {
   BodyEncodingError,
   BodyTooLargeError,
@@ -45,20 +37,11 @@ export function createContentHandler(
   storage: ContentStorage,
   options: ContentHandlerOptions = {},
 ): ContentHandler {
-  assertAuthOptions(options);
   const core = new Core(storage, options);
 
   return async (request) => {
     if (request.method !== "POST") {
       return jsonResponse(request, errorBody(invalidRequest("use POST")), 405, { allow: "POST" });
-    }
-    const auth = await authenticate(request, options);
-    if (!auth.ok) {
-      return auth.reason === "unauthorized"
-        ? jsonResponse(request, errorBody(unauthorized()), 401, {
-            "www-authenticate": 'Bearer realm="deco-content"',
-          })
-        : jsonResponse(request, errorBody(forbidden()));
     }
     if (!isJsonContentType(request)) {
       return jsonResponse(
@@ -68,16 +51,15 @@ export function createContentHandler(
       );
     }
 
-    const limits = core.limits(await core.description());
     let bytes: Uint8Array;
     try {
-      bytes = await readBody(request, limits.maxRequestBytes);
+      bytes = await readBody(request, MAX_REQUEST_BYTES);
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
         return jsonResponse(
           request,
           errorBody(
-            limitExceeded(`the request body is over ${limits.maxRequestBytes} bytes`, {
+            limitExceeded(`the request body is over ${MAX_REQUEST_BYTES} bytes`, {
               limit: "maxRequestBytes",
             }),
           ),
@@ -96,7 +78,6 @@ export function createContentHandler(
     } catch {
       return jsonResponse(request, errorBody(parseError()));
     }
-    const response = await dispatch(core, body, auth.scope, limits.maxBatchResponseBytes);
-    return jsonResponse(request, response);
+    return jsonResponse(request, await dispatch(core, body));
   };
 }

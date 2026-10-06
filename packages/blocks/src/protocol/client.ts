@@ -15,8 +15,6 @@ import {
 export interface ContentClientOptions {
   /** The endpoint URL, such as `http://localhost:4545/rpc`. */
   endpoint: string | URL;
-  /** Sent as `Authorization: Bearer <token>`. */
-  token?: string;
   /** Extra headers on every request. */
   headers?: Record<string, string>;
   /** A fetch implementation (defaults to the global one). */
@@ -100,7 +98,6 @@ export function createContentClient(options: ContentClientOptions): ContentClien
       accept: "application/json",
       ...options.headers,
     };
-    if (options.token !== undefined) headers.authorization = `Bearer ${options.token}`;
     const response = await doFetch(
       new Request(options.endpoint, { method: "POST", headers, body: JSON.stringify(body) }),
     );

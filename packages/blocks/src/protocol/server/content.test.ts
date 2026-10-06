@@ -40,7 +40,7 @@ describe("a file that changes while bodies are read", () => {
     });
     const result = await list(storage);
     expect(result.blocks.b).toEqual({ v: 2 });
-    const fresh = await storage.snapshot({});
+    const fresh = await storage.snapshot();
     expect(result.revision).toBe(fresh.revision);
     expect(result.versions.b).toBe(fresh.files.find((f) => f.file === "b.json")!.version);
   });
@@ -91,7 +91,7 @@ describe("a file that changes while bodies are read", () => {
     });
     const result = await list(storage);
     expect(Object.keys(result.blocks)).toEqual(["a"]);
-    expect(result.revision).toBe((await storage.snapshot({})).revision);
+    expect(result.revision).toBe((await storage.snapshot()).revision);
   });
 
   it("detects the race with a storage whose readFiles returns changed content", async () => {

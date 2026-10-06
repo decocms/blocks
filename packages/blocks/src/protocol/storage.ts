@@ -10,7 +10,7 @@
  *
  * Browser-safe: types and small error classes only.
  */
-import type { Limits, StorageKind } from "./types.ts";
+import type { StorageKind } from "./types.ts";
 
 /** What a storage tells `describe`. */
 export interface StorageDescription {
@@ -18,19 +18,10 @@ export interface StorageDescription {
   /** The app root, relative to the repository root (`"."` when they're the same). */
   root: string;
   readOnly: boolean;
-  /** Branch support; `null` when the storage has no refs (`ref` params are then Unsupported). */
-  refs: null | { default: string; autoCreate: boolean };
   /** Where uploads go; `null` when read-only or uploads go elsewhere. */
   assets: null | { dir: string; maxBytes: number };
-  /**
-   * Durable request-key receipts. Advertise only when `getReceipt` is
-   * implemented and `commit` persists `attempt.receipt` with the mutation.
-   */
-  idempotency: null | { retentionMs: number };
   /** Overrides the poll interval (default: 2000 for a working tree, 30000 for git). */
   pollIntervalMs?: number;
-  /** Lowers the protocol's default limits. Higher values are ignored. */
-  limits?: Partial<Limits>;
 }
 
 /** One saved-block file in a snapshot. */
@@ -47,7 +38,7 @@ export interface StorageFile {
 export interface StorageSnapshot {
   /** An opaque revision of the whole set, compared only for equality. */
   revision: string;
-  /** The ref actually read (it can differ from the requested one); `null` without refs. */
+  /** The branch actually read, for a storage that reads one; `null` for a working tree. */
   resolvedRef: string | null;
   files: StorageFile[];
 }
@@ -72,21 +63,8 @@ export interface StoredSchema {
   resolvedRef: string | null;
 }
 
-/** A durable receipt for one `blocks.apply` request key. */
-export interface StoredReceipt {
-  /** The canonical digest of the request the key was first used with. */
-  digest: string;
-  /** The revision that commit produced. */
-  revision: string;
-  /** The versions of the files that commit wrote. */
-  versions: Record<string, string>;
-  /** The files that commit deleted (`attempt.delete`), so a replay reports the same names. */
-  deleted?: string[];
-}
-
 /** One atomic commit attempt. */
 export interface CommitAttempt {
-  ref?: string;
   /** The snapshot the core validated against. */
   base: StorageSnapshot;
   /** Files to write, by file name, with their full content. */
@@ -101,19 +79,11 @@ export interface CommitAttempt {
   expected: Record<string, string | null>;
   /**
    * The schema version the core validated against (`null` = no schema), when
-   * the write depends on it (`ifSchemaMatch`, or the secret guard). When set,
+   * the write depends on it (the secret guard checks `set` against it). When set,
    * a storage MUST reject the attempt as stale if the schema's version at
    * commit time differs, checked atomically with `expected`.
    */
   expectedSchemaVersion?: string | null;
-  /**
-   * Persist this receipt atomically with the mutation (only when idempotency
-   * is advertised). The key also reserves the request: a storage MUST reject
-   * the attempt as stale when a receipt for `receipt.key` already exists,
-   * including one written concurrently by another replica, so two requests
-   * with the same key never both commit.
-   */
-  receipt?: { key: string; digest: string };
 }
 
 export type CommitResult =
@@ -129,9 +99,9 @@ export interface ContentStorage {
   describe(): StorageDescription | Promise<StorageDescription>;
   /**
    * Lists the saved-block files. Throws `StorageNotFoundError` when there's no
-   * `.deco` folder at all, or the ref can't be read.
+   * `.deco` folder at all.
    */
-  snapshot(options: { ref?: string }): Promise<StorageSnapshot>;
+  snapshot(): Promise<StorageSnapshot>;
   /**
    * Reads file bodies (UTF-8 text) from a snapshot, each with the version of
    * the bytes read. A file that vanished is left out. A storage that can't
@@ -140,18 +110,16 @@ export interface ContentStorage {
    */
   readFiles(snapshot: StorageSnapshot, files: string[]): Promise<Record<string, StoredFileBody>>;
   /** Reads `schema.gen.json`, falling back to `meta.gen.json`; `null` when neither exists. */
-  readSchema(options: { ref?: string }): Promise<StoredSchema | null>;
+  readSchema(): Promise<StoredSchema | null>;
   /** Reads `<root>/.deco/secrets.pub`; `null` without one. */
   readSecretsPublicKey(): Promise<string | null>;
   /** One all-or-nothing commit attempt; durable when it resolves. */
   commit(attempt: CommitAttempt): Promise<CommitResult>;
-  /** Looks up a receipt by its scoped key; `null` when unknown or expired. */
-  getReceipt?(key: string): Promise<StoredReceipt | null>;
   /** Stores an uploaded file, never overwriting one; returns the stored file name. */
   putAsset?(name: string, body: Uint8Array): Promise<{ name: string }>;
 }
 
-/** Thrown by a storage when there's no `.deco` folder, or a ref can't be read or created. */
+/** Thrown by a storage when there's no `.deco` folder. */
 export class StorageNotFoundError extends Error {
   constructor(message: string) {
     super(message);

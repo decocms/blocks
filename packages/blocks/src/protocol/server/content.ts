@@ -4,11 +4,12 @@
  * Shared by `blocks.list` (which needs every body) and `blocks.apply` (which
  * needs bodies only to break ties between spellings).
  */
-import { limitExceeded, unavailable } from "../errors.ts";
+import { unavailable } from "../errors.ts";
 import { entryHasPath, fullyDecodeFileName, isBlockFileName, resolveSpellings } from "../keys.ts";
 import type { ContentStorage, StorageFile, StorageSnapshot } from "../storage.ts";
-import type { Diagnostic, Limits } from "../types.ts";
+import type { Diagnostic } from "../types.ts";
 import { type BodyCache, type ParsedBody, parseBody } from "./bodyCache.ts";
+import { MAX_BLOCK_BYTES } from "./core.ts";
 
 export interface LoadedEntry {
   file: string;
@@ -38,14 +39,13 @@ export interface LoadedContent {
 interface Options {
   /** Read every body (`blocks.list`), not only the ones that break ties. */
   readAll: boolean;
-  limits: Limits;
   cache: BodyCache;
 }
 
 async function loadContent(
   storage: ContentStorage,
   snapshot: StorageSnapshot,
-  { readAll, limits, cache }: Options,
+  { readAll, cache }: Options,
 ): Promise<LoadedContent> {
   const files = snapshot.files.filter((f) => isBlockFileName(f.file));
   const groups = new Map<string, StorageFile[]>();
@@ -60,34 +60,26 @@ async function loadContent(
   let moved = false;
   const parsed = new Map<string, ParsedBody>();
   const toRead: StorageFile[] = [];
-  let knownBytes = 0;
   for (const group of groups.values()) {
     if (!readAll && group.length < 2) continue;
     for (const file of group) {
-      // An existing file over maxBlockBytes is unreadable, like invalid JSON: it's
+      // An existing file over MAX_BLOCK_BYTES is unreadable, like invalid JSON: it's
       // left out of the map and reported as a `too-large` diagnostic, so one
       // oversized hand edit can't take the whole editor down. The map plus its
-      // diagnostics still accounts for every file in the snapshot; only the
-      // aggregate (maxListBytes) answers LimitExceeded.
-      if (file.size !== undefined && file.size > limits.maxBlockBytes) {
+      // diagnostics still accounts for every file in the snapshot.
+      if (file.size !== undefined && file.size > MAX_BLOCK_BYTES) {
         parsed.set(file.file, {
           ok: false,
           kind: "too-large",
           bytes: file.size,
-          message: `the file is over ${limits.maxBlockBytes} bytes`,
+          message: `the file is over ${MAX_BLOCK_BYTES} bytes`,
         });
         continue;
       }
-      knownBytes += file.size ?? 0;
       const hit = cache.get(file.file, file.version);
       if (hit) parsed.set(file.file, hit);
       else toRead.push(file);
     }
-  }
-  if (readAll && knownBytes > limits.maxListBytes) {
-    throw limitExceeded(`the block list is over ${limits.maxListBytes} bytes`, {
-      limit: "maxListBytes",
-    });
   }
   if (toRead.length > 0) {
     const bodies = await storage.readFiles(
@@ -100,7 +92,7 @@ async function loadContent(
         moved = true; // vanished since the snapshot
         continue;
       }
-      const body = parseBody(read.text, limits.maxBlockBytes);
+      const body = parseBody(read.text, MAX_BLOCK_BYTES);
       // Cache under the version of the bytes actually read, never the snapshot's.
       cache.set(file.file, read.version, body);
       if (read.version !== file.version) {
@@ -126,11 +118,6 @@ async function loadContent(
     }
     bytes += body.bytes;
     candidates.push({ ...file, hasPath: entryHasPath(body.value), value: body.value });
-  }
-  if (readAll && bytes > limits.maxListBytes) {
-    throw limitExceeded(`the block list is over ${limits.maxListBytes} bytes`, {
-      limit: "maxListBytes",
-    });
   }
 
   const entries = new Map<string, LoadedEntry>();
@@ -161,12 +148,11 @@ const MAX_SNAPSHOT_READS = 3;
  */
 export async function loadCurrentContent(
   storage: ContentStorage,
-  ref: string | undefined,
   options: Options,
   shortCircuit?: (snapshot: StorageSnapshot) => boolean,
 ): Promise<{ snapshot: StorageSnapshot; content: LoadedContent | null }> {
   for (let read = 1; read <= MAX_SNAPSHOT_READS; read++) {
-    const snapshot = await storage.snapshot({ ref });
+    const snapshot = await storage.snapshot();
     if (shortCircuit?.(snapshot)) return { snapshot, content: null };
     const content = await loadContent(storage, snapshot, options);
     if (!content.moved) return { snapshot, content };

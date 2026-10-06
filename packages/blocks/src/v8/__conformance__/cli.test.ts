@@ -783,7 +783,6 @@ describe("cli.mdx", () => {
     expect(d.root).toBe("apps/storefront");
     expect(d.server.name).toBe("deco-cli");
     expect(d.kind).toBe("working-tree");
-    expect(d.refs).toBeNull();
     expect(d.pollIntervalMs).toBe(2000);
     expect(d.assets.dir).toBe("apps/storefront/public/assets");
     expect(d.preview).toEqual({ url: "http://localhost:3001" });
@@ -1574,10 +1573,7 @@ describe("content-protocol.mdx", () => {
         "readOnly",
         "root",
         "schemaFormat",
-        "refs",
-        "writes",
         "pollIntervalMs",
-        "limits",
         "preview",
         "assets",
         "secrets",
@@ -1588,17 +1584,6 @@ describe("content-protocol.mdx", () => {
     expect(typeof d.version.minor).toBe("number");
     expect(Object.keys(d.server).sort()).toEqual(["name", "version"]);
     expect(d.schemaFormat).toBe("deco-meta@1");
-    expect(Object.keys(d.writes).sort()).toEqual(["idempotency", "schemaPreconditions"]);
-    expect(Object.keys(d.limits).sort()).toEqual(
-      [
-        "maxOpsPerApply",
-        "maxBlockBytes",
-        "maxRequestBytes",
-        "maxListBytes",
-        "maxSchemaBytes",
-        "maxBatchResponseBytes",
-      ].sort(),
-    );
     expect(Object.keys(d.assets).sort()).toEqual(["dir", "maxBytes", "urlPrefix"]);
     expect(d.assets.urlPrefix).toBe("/assets/");
   });
@@ -1673,9 +1658,11 @@ describe("content-protocol.mdx", () => {
     expect((await call(s1, "schema.get")).result.schema).not.toHaveProperty("blocksMajor");
   });
 
-  it("cp-17: ref on the local server is Unsupported", async () => {
-    expect((await call(s, "blocks.list", { ref: "main" })).error.code).toBe(ErrorCode.Unsupported);
-    expect((await call(s, "schema.get", { ref: "main" })).error.code).toBe(ErrorCode.Unsupported);
+  it("cp-17: the protocol has no ref parameter; one is an unknown parameter", async () => {
+    expect((await call(s, "blocks.list", { ref: "main" })).error.code).toBe(
+      ErrorCode.InvalidParams,
+    );
+    expect((await call(s, "schema.get", { ref: "main" })).error.code).toBe(ErrorCode.InvalidParams);
   });
 
   it("cp-18 / cp-21: validation first, every violation at once, nothing written", async () => {
@@ -1728,34 +1715,12 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp24new.json")).toBe(true);
   });
 
-  it("cp-25: unadvertised requestKey / ifSchemaMatch are rejected, not ignored", async () => {
-    const d = (await call(s, "describe")).result;
-    if (d.writes.idempotency === null) {
-      const r = await call(s, "blocks.apply", { set: { cp25: entry("cp25") }, requestKey: "k1" });
-      expect(r.error.code).toBe(ErrorCode.Unsupported);
-      expect(app.exists(".deco/blocks/cp25.json")).toBe(false);
+  it("cp-25: unknown parameters (requestKey, ifSchemaMatch, ref) are rejected, not ignored", async () => {
+    for (const param of ["requestKey", "ifSchemaMatch", "ref"]) {
+      const r = await call(s, "blocks.apply", { set: { cp25: entry("cp25") }, [param]: "x" });
+      expect(r.error.code).toBe(ErrorCode.InvalidParams);
     }
-    if (d.writes.schemaPreconditions === false) {
-      const r = await call(s, "blocks.apply", { set: { cp25: entry("cp25") }, ifSchemaMatch: "v" });
-      expect(r.error.code).toBe(ErrorCode.Unsupported);
-    }
-  });
-
-  it("cp-27: ifSchemaMatch mismatch is a Conflict with schema versions (when advertised)", async () => {
-    const d = (await call(s, "describe")).result;
-    expect(d.writes.schemaPreconditions).toBe(true);
-    const { version } = (await call(s, "schema.get")).result;
-    const r = await call(s, "blocks.apply", {
-      set: { cp27: entry("cp27") },
-      ifSchemaMatch: `${version}-old`,
-    });
-    expect(r.error.code).toBe(ErrorCode.Conflict);
-    expect(r.error.data.schema).toEqual({ expected: `${version}-old`, actual: version });
-    const ok = await call(s, "blocks.apply", {
-      set: { cp27: entry("cp27") },
-      ifSchemaMatch: version,
-    });
-    expect(ok.result).toBeDefined();
+    expect(app.exists(".deco/blocks/cp25.json")).toBe(false);
   });
 
   it("cp-28 / cp-29: the poll batch, and adopting the own write's revision", async () => {
@@ -1814,16 +1779,8 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp32.json")).toBe(false);
   });
 
-  it("cp-33 / si-05 / si-06: default limits", async () => {
-    const { limits } = (await call(s, "describe")).result;
-    expect(limits).toEqual({
-      maxOpsPerApply: 500,
-      maxBlockBytes: 1024 * 1024,
-      maxRequestBytes: 8 * 1024 * 1024,
-      maxListBytes: 16 * 1024 * 1024,
-      maxSchemaBytes: 16 * 1024 * 1024,
-      maxBatchResponseBytes: 32 * 1024 * 1024,
-    });
+  it("cp-33 / si-05 / si-06: blocks.apply takes at most 500 names; describe advertises no limits", async () => {
+    expect((await call(s, "describe")).result.limits).toBeUndefined();
     const set = Object.fromEntries(
       Array.from({ length: 501 }, (_, i) => [`cp33-${i}`, { __resolveType: "page" }]),
     );
@@ -1961,13 +1918,8 @@ describe("content-protocol.mdx", () => {
       "apply/atomic-set-delete",
       "apply/set-wins",
       "apply/if-match",
-      "apply/schema-precondition",
+      "apply/unknown-params",
       "schema/absent",
-      "idempotency/retry",
-      "idempotency/simultaneous",
-      "idempotency/restart",
-      "idempotency/tenant-isolation",
-      "limits/list-bytes",
       "limits/request-bytes",
     ]) {
       expect(ids).toContain(id);
@@ -2238,14 +2190,8 @@ export default { page } satisfies Blocks;
 // ===========================================================================
 
 describe("studio-implementation.mdx", () => {
-  it("si-02 / si-03 / si-04: canonical hashing, goldens and a separate request-digest domain", async () => {
-    const {
-      canonicalJson,
-      computeContentRevision,
-      applyRequestDigest,
-      APPLY_DIGEST_DOMAIN,
-      sha256Hex,
-    } = await import("@decocms/blocks/protocol");
+  it("si-02 / si-03 / si-04: canonical hashing and goldens", async () => {
+    const { canonicalJson, computeContentRevision } = await import("@decocms/blocks/protocol");
     expect(canonicalJson({ b: 1, a: [2, 1], "10": 0, "9": 0 })).toBe(
       '{"10":0,"9":0,"a":[2,1],"b":1}',
     );
@@ -2253,15 +2199,6 @@ describe("studio-implementation.mdx", () => {
     for (const bad of [undefined, Number.NaN, () => 1, 1n]) {
       expect(() => canonicalJson({ x: bad }), String(bad)).toThrow();
     }
-    const blocks = { a: { __resolveType: "x" } };
-    expect(await computeContentRevision(blocks)).not.toBe(
-      await applyRequestDigest({ set: blocks }),
-    );
-    expect(APPLY_DIGEST_DOMAIN).toMatch(/blocks\.apply/);
-    expect(await applyRequestDigest({ set: blocks })).toBe(
-      await sha256Hex(APPLY_DIGEST_DOMAIN + canonicalJson({ set: blocks })),
-    );
-
     const { contentHashFixtures } = await import("@decocms/blocks/protocol/conformance");
     expect(contentHashFixtures.length).toBeGreaterThan(0);
     for (const fx of contentHashFixtures as any[]) {

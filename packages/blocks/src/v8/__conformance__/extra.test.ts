@@ -463,9 +463,11 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
       new Request(url, { headers: cookie ? { cookie } : {} });
     const cms = createCMS({ blocks: {}, content: { revision: "x24", blocks: {} } });
     expect(
-      await cms.draftPointer(req("https://s.example/?__draft=off", "deco-draft=h/p@v")),
+      await cms.draftPointer(req("https://s.example/?__draft=off", "__deco_draft=h/p@v")),
     ).toBeNull();
-    expect(await cms.draftPointer(req("https://s.example/", "deco-draft=h%2Fp%40v"))).toBe("h/p@v");
+    expect(await cms.draftPointer(req("https://s.example/", "__deco_draft=h%2Fp%40v"))).toBe(
+      "h/p@v",
+    );
     expect(await cms.draftCookie(req("https://s.example/?__draft=off"))).toMatch(/Max-Age=0/);
     expect(await cms.draftCookie(req("https://s.example/"))).toBeNull();
     expect(parseDraftPointer("https://h.example/p@v")).toBeNull();

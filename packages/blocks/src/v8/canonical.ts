@@ -104,14 +104,3 @@ export const CONTENT_HASH_FORMAT = 1;
 export async function computeContentRevision(blocks: Record<string, unknown>): Promise<string> {
   return sha256Hex(canonicalJson(blocks));
 }
-
-/** The domain prefix of `blocks.apply` request digests, so they never equal another hash. */
-export const APPLY_DIGEST_DOMAIN = "deco-content/blocks.apply@1\n";
-
-/**
- * The digest a request key is bound to: SHA-256 over the domain prefix and
- * the canonical JSON of every supplied parameter.
- */
-export function applyRequestDigest(params: object): Promise<string> {
-  return sha256Hex(APPLY_DIGEST_DOMAIN + canonicalJson(params));
-}

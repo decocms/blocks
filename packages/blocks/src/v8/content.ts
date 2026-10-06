@@ -12,7 +12,6 @@
 import { formatDraftPointer, parseDraftPointer } from "./draft.ts";
 import { type DraftChanges, fetchDraftChanges, LOCAL_VERSION, layerDraft } from "./draftChanges.ts";
 import { errors, isResolutionError } from "./errors.ts";
-import type { HostPattern } from "./hosts.ts";
 import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
 
@@ -99,14 +98,14 @@ export class ContentStore {
   }
 
   /**
-   * The draft a pointer names: its changes, fetched from a host in `sources`,
+   * The draft a pointer names: its changes, fetched from a preview API domain,
    * layered over the release. A pointer that doesn't parse, or any failure, is
    * `LOADER_FAILED`, never a silent fallback to the release. A pointer whose
    * version is `local` names no draft: the release, with nothing fetched. The
    * changes are keyed by the pointer without its `__variant` parameters (every
    * variant of one draft shares one fetch) and reused for a minute.
    */
-  draft(pointer: string, sources: readonly HostPattern[]): Promise<Snapshot> {
+  draft(pointer: string): Promise<Snapshot> {
     const parsed = parseDraftPointer(pointer);
     if (parsed === null) {
       return Promise.reject(errors.loaderFailed(`invalid draft pointer "${truncate(pointer)}"`));
@@ -117,7 +116,7 @@ export class ContentStore {
     let entry = this.#drafts.get(key);
     if (entry === undefined || Date.now() - entry.at >= DRAFT_TTL_MS) {
       const fetched: CachedDraft = {
-        changes: fetchDraftChanges(parsed, sources).catch((error: unknown) => {
+        changes: fetchDraftChanges(parsed).catch((error: unknown) => {
           throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
         }),
         at: Date.now(),

@@ -1,8 +1,7 @@
 /**
  * An in-memory `ContentStorage` (internal; not a package subpath).
  *
- * A reference implementation of the storage contract, including durable
- * request-key receipts persisted atomically with each commit, and a fixture
+ * A reference implementation of the storage contract, and a fixture
  * for tests: its state can be dumped and restored to simulate a restart, and
  * hooks let a test change files between a snapshot and a commit. Browser-safe.
  */
@@ -18,11 +17,8 @@ import {
   StorageNotFoundError,
   type StorageSnapshot,
   type StoredFileBody,
-  type StoredReceipt,
   type StoredSchema,
 } from "../storage.ts";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Everything a memory storage holds; JSON-serializable, so it survives a "restart". */
 export interface MemoryStorageState {
@@ -33,7 +29,6 @@ export interface MemoryStorageState {
   /** The content of `meta.gen.json`, the fallback schema, or `null`. */
   legacySchema?: string | null;
   secretsPublicKey: string | null;
-  receipts: Record<string, StoredReceipt & { createdAt: number }>;
   assets: Record<string, string>;
   /** `false` simulates an app root with no `.deco` folder at all. */
   hasDecoFolder: boolean;
@@ -43,8 +38,6 @@ export interface MemoryStorageOptions {
   state?: Partial<MemoryStorageState>;
   /** Overrides parts of what `describe` reports. */
   description?: Partial<StorageDescription>;
-  /** Clock for receipt retention (default `Date.now`). */
-  now?: () => number;
   /** Runs after each file body is read; a test can change files here, mid-read. */
   afterRead?: (file: string, storage: MemoryStorage) => void | Promise<void>;
   /** Runs before each commit attempt's checks; a test can change files here. */
@@ -65,13 +58,11 @@ export interface MemoryStorage extends ContentStorage {
 const version = (content: string) => sha256Hex(content);
 
 export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryStorage {
-  const now = options.now ?? Date.now;
   const state: MemoryStorageState = structuredClone({
     files: {},
     schema: null,
     legacySchema: null,
     secretsPublicKey: null,
-    receipts: {},
     assets: {},
     hasDecoFolder: true,
     ...options.state,
@@ -80,9 +71,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     kind: "git",
     root: ".",
     readOnly: false,
-    refs: null,
     assets: { dir: "public/assets", maxBytes: 25 * 1024 * 1024 },
-    idempotency: { retentionMs: DAY_MS },
     ...options.description,
   };
   let commits = 0;
@@ -118,7 +107,6 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
       if (!isBlockFileName(file)) throw new StorageInvalidFileError(file);
     }
     if (!state.hasDecoFolder) throw new StorageNotFoundError("no .deco folder");
-    if (attempt.receipt && state.receipts[attempt.receipt.key]) return { status: "stale" };
     if (
       attempt.expectedSchemaVersion !== undefined &&
       (await schemaVersion()) !== attempt.expectedSchemaVersion
@@ -138,15 +126,6 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     for (const [file, v] of Object.entries(written)) versions.set(file, v);
     for (const file of attempt.delete) if (!(file in attempt.put)) versions.delete(file);
     const revision = await revisionOf(versions);
-    if (attempt.receipt) {
-      state.receipts[attempt.receipt.key] = {
-        digest: attempt.receipt.digest,
-        revision,
-        versions: written,
-        deleted: [...attempt.delete],
-        createdAt: now(),
-      };
-    }
     commits++;
     return { status: "committed", revision, versions: written };
   }
@@ -199,20 +178,6 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
       const run = commitQueue.then(() => commitNow(attempt));
       commitQueue = run.catch(() => {});
       return run;
-    },
-
-    async getReceipt(key) {
-      const receipt = state.receipts[key];
-      if (!receipt) return null;
-      if (
-        description.idempotency &&
-        now() - receipt.createdAt > description.idempotency.retentionMs
-      ) {
-        delete state.receipts[key];
-        return null;
-      }
-      const { createdAt: _createdAt, ...stored } = receipt;
-      return stored;
     },
 
     async putAsset(name, body) {

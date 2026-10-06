@@ -18,8 +18,6 @@
  * are outside the protocol (see /next/content-delivery#draft-previews).
  */
 export {
-  APPLY_DIGEST_DOMAIN,
-  applyRequestDigest,
   CanonicalJsonError,
   CONTENT_HASH_FORMAT,
   canonicalJson,
