@@ -38,6 +38,8 @@ export default async function productListingPage(
       "@type": "ProductListingPage",
       ...listing,
       ...withPageType(listing.pageInfo, "Search"),
+      // /search/products takes no sort_by, so best-selling can't be honoured.
+      sortOptions: listing.sortOptions.filter((o) => o.value !== "best-selling"),
       breadcrumb: { "@type": "BreadcrumbList", itemListElement: [], numberOfItems: 0 },
       seo: {
         title: term,

@@ -83,6 +83,9 @@ describe("productListingPage", () => {
     expect(lastUrl("/search/products").searchParams.get("q")).toBe("vestido");
     expect(plp!.products).toHaveLength(searchFixture.data.length);
     expect(plp!.pageInfo.pageTypes).toEqual(["Search"]);
+    // /search/products takes no sort_by, so best-selling can't be honoured there
+    expect(plp!.sortOptions.map((o) => o.value)).not.toContain("best-selling");
+    expect(lastUrl("/search/products").searchParams.has("sort_by")).toBe(false);
   });
 
   it("accepts a CMS-pinned categoryId and returns null for unknown categories", async () => {
