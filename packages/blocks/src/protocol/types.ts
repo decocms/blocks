@@ -10,6 +10,17 @@ export const PROTOCOL_VERSION = { major: 1, minor: 0 } as const;
 
 export const SCHEMA_FORMAT = "deco-meta@1";
 
+/**
+ * The Blocks major a generated schema declares, as its top-level
+ * `blocksMajor`. `deco schema` writes it and `deco check` requires it. It is
+ * the package's major version, not the full version string, and it is the
+ * only signal a host such as the site editor should read to tell a v8 site
+ * from a v7 one: the schema's file name (`schema.gen.json` or
+ * `meta.gen.json`) doesn't tell. A schema without it, or with another value,
+ * is not a v8 schema.
+ */
+export const BLOCKS_MAJOR = 8;
+
 /** The path the local server (`deco serve`) mounts the endpoint at. */
 export const RPC_PATH = "/rpc";
 

@@ -19,6 +19,7 @@ import { gunzipSync } from "node:zlib";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorCode } from "../../protocol/errors";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
+import { BLOCKS_MAJOR } from "../../protocol/types";
 import {
   createFixture,
   type Fixture,
@@ -975,6 +976,17 @@ describe("schema.mdx", () => {
     expect(p.notes.format).toBe("textarea"); // the field's own tag wins
   });
 
+  it('sch-27: the schema declares a top-level "blocksMajor": 8, the package major', () => {
+    expect(meta.blocksMajor).toBe(8);
+    expect(meta.blocksMajor).toBe(BLOCKS_MAJOR);
+    // The major, not the version string. A published build's package.json
+    // major must agree with it (the source tree sits at 0.0.0).
+    const version: string = JSON.parse(
+      fs.readFileSync(path.join(PKG, "package.json"), "utf8"),
+    ).version;
+    if (version !== "0.0.0") expect(Number(version.split(".")[0])).toBe(BLOCKS_MAJOR);
+  });
+
   it("sch-18 / sch-21: @options, literal unions and enums all become a JSON Schema enum", () => {
     const p = propsOf("everything").properties;
     expect(p.picked).toMatchObject({ type: "string", enum: ["sm", "md", "lg"] });
@@ -1241,6 +1253,21 @@ describe("checking.mdx", () => {
     }).forRelease();
     expect(await cms.resolve("H")).toEqual([{ hero: "x" }, null]);
   });
+
+  it('chk-16: deco check rejects a schema without "blocksMajor": 8 and says to run deco schema', async () => {
+    const f = fixture(STORE_FILES);
+    expect((await deco(["schema"], f.root)).code).toBe(0);
+    expect(JSON.parse(f.read(".deco/schema.gen.json")).blocksMajor).toBe(8);
+    expect((await deco(["check"], f.root)).code).toBe(0);
+    const { blocksMajor: _, ...legacy } = JSON.parse(f.read(".deco/schema.gen.json"));
+    for (const schema of [legacy, { ...legacy, blocksMajor: 7 }]) {
+      f.write(".deco/schema.gen.json", schema);
+      const r = await deco(["check"], f.root);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('expected "blocksMajor": 8');
+      expect(r.out).toContain("run deco schema");
+    }
+  }, 60_000);
 });
 
 // ===========================================================================
@@ -1634,6 +1661,16 @@ describe("content-protocol.mdx", () => {
     const torn = await call(s1, "schema.get");
     expect(torn.result).toBeUndefined();
     expect(torn.error).toBeDefined();
+  });
+
+  it('cp-51: schema.get serves "blocksMajor" untouched, and a schema without it as it is', async () => {
+    const served = (await call(s, "schema.get")).result.schema;
+    expect(served.blocksMajor).toBe(8);
+    expect(served).toEqual(JSON.parse(app.read(".deco/schema.gen.json")));
+    const f = fixture();
+    f.write(".deco/meta.gen.json", { manifest: { blocks: {} }, schema: { definitions: {} } });
+    const s1 = await serveFixture(f.root);
+    expect((await call(s1, "schema.get")).result.schema).not.toHaveProperty("blocksMajor");
   });
 
   it("cp-17: ref on the local server is Unsupported", async () => {

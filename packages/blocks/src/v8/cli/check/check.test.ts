@@ -671,6 +671,29 @@ describe("deco check", () => {
     }
   });
 
+  it('requires "blocksMajor": 8 at the top of the schema, with a guided message', () => {
+    expect(meta.blocksMajor).toBe(8);
+    const fixture = createFixture({ ".deco/schema.gen.json": meta });
+    try {
+      const { blocksMajor: _, ...missing } = meta;
+      for (const [schema, found] of [
+        [missing, 'no top-level "blocksMajor"'],
+        [{ ...meta, blocksMajor: 7 }, '"blocksMajor": 7'],
+        [{ ...meta, blocksMajor: "8" }, '"blocksMajor": "8"'],
+        [{ ...meta, blocksMajor: null }, '"blocksMajor": null'],
+      ] as const) {
+        fixture.write(".deco/schema.gen.json", schema);
+        expect(() => check({ cwd: fixture.root, reporter: recorder() })).toThrow(
+          new RegExp(`${found}; expected "blocksMajor": 8\\. .*run deco schema to regenerate it`),
+        );
+      }
+      fixture.write(".deco/schema.gen.json", meta);
+      expect(check({ cwd: fixture.root, reporter: recorder() })).toBe(0);
+    } finally {
+      fixture.remove();
+    }
+  });
+
   it("formats warnings with a prefix", () => {
     expect(
       formatProblems([

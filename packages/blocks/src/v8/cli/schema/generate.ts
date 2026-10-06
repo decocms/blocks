@@ -12,7 +12,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { SCHEMA_FORMAT } from "../../../protocol/types.ts";
+import { BLOCKS_MAJOR, SCHEMA_FORMAT } from "../../../protocol/types.ts";
 import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "../builtins.ts";
 import { CliError, type DecoPaths, packageVersion } from "../root.ts";
 import {
@@ -51,6 +51,8 @@ type ManifestEntry = { $ref: string; namespace: string };
 
 export interface DecoMeta {
   major: 1;
+  /** The Blocks major that generated this schema; `deco check` requires it. */
+  blocksMajor: typeof BLOCKS_MAJOR;
   version: string;
   namespace: string;
   site: string;
@@ -424,6 +426,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
 
   const meta: DecoMeta = {
     major: 1,
+    blocksMajor: BLOCKS_MAJOR,
     version: packageVersion(),
     namespace: "site",
     site: siteName(paths.root),
