@@ -4,7 +4,7 @@ import productList from "./productList";
 
 export interface Props extends PageProps {
   query?: string;
-  /** @default 4 */
+  /** @default 6 (same as the theme's search suggestions) */
   count?: number;
 }
 
@@ -15,7 +15,7 @@ export interface Props extends PageProps {
 export default async function suggestions(props: Props, req?: Request): Promise<Suggestion | null> {
   const query = props.query?.trim();
   if (!query) return null;
-  const products = await productList({ ...props, query, count: props.count ?? 4 }, req);
+  const products = await productList({ ...props, query, count: props.count ?? 6 }, req);
   return {
     searches: [{ term: query, href: `/search/?q=${encodeURIComponent(query)}` }],
     products,

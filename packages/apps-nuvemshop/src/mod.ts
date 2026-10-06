@@ -32,6 +32,7 @@ export async function configure(
     token: token || undefined,
     apiVersion: block.apiVersion as string | undefined,
     currency: block.currency as string | undefined,
+    defaultSort: block.defaultSort as string | undefined,
   };
   configureNuvemshop(config);
 

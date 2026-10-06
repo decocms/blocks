@@ -16,16 +16,24 @@ import type { NuvemshopProduct, NuvemshopVariant } from "./types";
 
 export const LISTING_WINDOW = 200;
 
+/**
+ * The theme's `sort_by` values (so `?sort_by=alpha-ascending` links keep
+ * working), plus `discount-descending`, which the core doesn't offer.
+ * The theme's "user" (merchant's manual order) isn't in the API, so it's not
+ * offered; `?sort_by=user` falls back to the default sort.
+ */
 export const SORT_OPTIONS: SortOption[] = [
-  { value: "relevance", label: "Relevância" },
   { value: "best-selling", label: "Mais vendidos" },
-  { value: "created-descending", label: "Lançamentos" },
   { value: "price-ascending", label: "Menor preço" },
   { value: "price-descending", label: "Maior preço" },
+  { value: "alpha-ascending", label: "A - Z" },
+  { value: "alpha-descending", label: "Z - A" },
+  { value: "created-descending", label: "Mais recentes" },
+  { value: "created-ascending", label: "Mais antigos" },
   { value: "discount-descending", label: "Maior desconto" },
-  { value: "name-ascending", label: "A - Z" },
-  { value: "name-descending", label: "Z - A" },
 ];
+
+export const SORT_PARAM = "sort_by";
 
 type Selection = Map<string, Set<string>>;
 
@@ -59,13 +67,21 @@ function variantMatches(p: NuvemshopProduct, v: NuvemshopVariant, sel: Selection
 const matchingVariants = (p: NuvemshopProduct, sel: Selection, skip?: string) =>
   visibleVariants(p).filter((v) => variantMatches(p, v, sel, skip));
 
-const sorters: Record<string, (a: NuvemshopProduct, b: NuvemshopProduct) => number> = {
-  "price-ascending": (a, b) => minPrice(a) - minPrice(b),
-  "price-descending": (a, b) => minPrice(b) - minPrice(a),
-  "discount-descending": (a, b) => maxDiscount(b) - maxDiscount(a),
-  "name-ascending": (a, b) => a.name.localeCompare(b.name),
-  "name-descending": (a, b) => b.name.localeCompare(a.name),
-  "created-descending": (a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+type Compare = (a: NuvemshopProduct, b: NuvemshopProduct) => number;
+
+/** Newest first; created_at has second precision, so ids break same-second ties. */
+const newest: Compare = (a, b) =>
+  (b.created_at ?? "").localeCompare(a.created_at ?? "") || b.id - a.id;
+
+// Ties fall back to newest-first, as in the theme.
+const sorters: Record<string, Compare> = {
+  "price-ascending": (a, b) => minPrice(a) - minPrice(b) || newest(a, b),
+  "price-descending": (a, b) => minPrice(b) - minPrice(a) || newest(a, b),
+  "discount-descending": (a, b) => maxDiscount(b) - maxDiscount(a) || newest(a, b),
+  "alpha-ascending": (a, b) => a.name.localeCompare(b.name) || newest(a, b),
+  "alpha-descending": (a, b) => b.name.localeCompare(a.name) || newest(a, b),
+  "created-descending": newest,
+  "created-ascending": (a, b) => -newest(a, b),
 };
 
 function withParams(url: URL, mutate: (p: URLSearchParams) => void) {
@@ -78,6 +94,8 @@ function withParams(url: URL, mutate: (p: URLSearchParams) => void) {
 export interface ListingOptions extends TransformOptions {
   /** Products per page. */
   count: number;
+  /** Sort applied without (or with an unknown) `sort_by`. Unset = keep the API order (search relevance). */
+  defaultSort?: string;
 }
 
 export function applyListing(source: NuvemshopProduct[], url: URL, opts: ListingOptions) {
@@ -94,7 +112,7 @@ export function applyListing(source: NuvemshopProduct[], url: URL, opts: Listing
   const inPrice = (p: NuvemshopProduct) => minPrice(p) >= lo && minPrice(p) <= hi;
 
   const filtered = products.filter((p) => inPrice(p) && matchingVariants(p, sel).length > 0);
-  const sorter = sorters[url.searchParams.get("sort") ?? ""];
+  const sorter = sorters[url.searchParams.get(SORT_PARAM) ?? ""] ?? sorters[opts.defaultSort ?? ""];
   if (sorter) filtered.sort(sorter);
 
   // Facet counts ignore their own attribute's selection (standard facet UX).

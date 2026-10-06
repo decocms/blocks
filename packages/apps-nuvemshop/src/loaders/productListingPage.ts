@@ -1,6 +1,6 @@
 import type { ProductListingPage } from "@decocms/apps-commerce/types";
 import { getNuvemshopConfig, nuvemshopGet } from "../client";
-import { applyListing, LISTING_WINDOW } from "../utils/listing";
+import { applyListing, LISTING_WINDOW, SORT_PARAM } from "../utils/listing";
 import { originOf, type PageProps, pageUrlOf } from "../utils/request";
 import { categoryChain, categoryPath, toBreadcrumbList } from "../utils/transform";
 import type { NuvemshopCategory, NuvemshopList, NuvemshopProduct } from "../utils/types";
@@ -24,8 +24,8 @@ export default async function productListingPage(
 ): Promise<ProductListingPage | null> {
   const url = pageUrlOf(props, req);
   const origin = originOf(props, req);
-  const { currency } = getNuvemshopConfig();
   const term = (props.query ?? url.searchParams.get("q") ?? "").trim();
+  const { currency, defaultSort = "created-descending" } = getNuvemshopConfig();
   const opts = { origin, currency, count: props.count ?? 24 };
 
   if (term) {
@@ -39,7 +39,11 @@ export default async function productListingPage(
       ...listing,
       ...withPageType(listing.pageInfo, "Search"),
       // /search/products takes no sort_by, so best-selling can't be honoured.
-      sortOptions: listing.sortOptions.filter((o) => o.value !== "best-selling"),
+      // Search keeps the API's relevance order by default; it can't do best-selling (no sort_by).
+      sortOptions: [
+        { value: "relevance", label: "Relevância" },
+        ...listing.sortOptions.filter((o) => o.value !== "best-selling"),
+      ],
       breadcrumb: { "@type": "BreadcrumbList", itemListElement: [], numberOfItems: 0 },
       seo: {
         title: term,
@@ -61,13 +65,13 @@ export default async function productListingPage(
   const categories = all?.data ?? [category];
   const leaf = categories.find((c) => c.id === category.id) ?? category;
 
-  const sort = url.searchParams.get("sort");
+  const sort = url.searchParams.get(SORT_PARAM);
   const list = await nuvemshopGet<NuvemshopList<NuvemshopProduct>>("/products", {
     category_id: category.id,
     per_page: LISTING_WINDOW,
     sort_by: sort === "best-selling" ? sort : undefined,
   });
-  const listing = applyListing(list?.data ?? [], url, opts);
+  const listing = applyListing(list?.data ?? [], url, { ...opts, defaultSort });
 
   return {
     "@type": "ProductListingPage",

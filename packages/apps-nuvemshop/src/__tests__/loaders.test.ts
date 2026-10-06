@@ -12,6 +12,7 @@ import categories from "../loaders/categories";
 import productDetailsPage from "../loaders/productDetailsPage";
 import productList from "../loaders/productList";
 import productListingPage from "../loaders/productListingPage";
+import relatedProducts from "../loaders/relatedProducts";
 import shippingOptions from "../loaders/shippingOptions";
 import suggestions from "../loaders/suggestions";
 
@@ -72,9 +73,9 @@ describe("productListingPage", () => {
   });
 
   it("asks the API for best-selling order (the only sort it must do itself)", async () => {
-    await productListingPage({ __pageUrl: `${SITE}/camisas/?sort=best-selling` });
+    await productListingPage({ __pageUrl: `${SITE}/camisas/?sort_by=best-selling` });
     expect(lastUrl("/products").searchParams.get("sort_by")).toBe("best-selling");
-    await productListingPage({ __pageUrl: `${SITE}/camisas/?sort=price-ascending` });
+    await productListingPage({ __pageUrl: `${SITE}/camisas/?sort_by=price-ascending` });
     expect(lastUrl("/products").searchParams.has("sort_by")).toBe(false);
   });
 
@@ -85,6 +86,7 @@ describe("productListingPage", () => {
     expect(plp!.pageInfo.pageTypes).toEqual(["Search"]);
     // /search/products takes no sort_by, so best-selling can't be honoured there
     expect(plp!.sortOptions.map((o) => o.value)).not.toContain("best-selling");
+    expect(plp!.sortOptions[0]).toEqual({ value: "relevance", label: "Relevância" });
     expect(lastUrl("/search/products").searchParams.has("sort_by")).toBe(false);
   });
 
@@ -136,6 +138,36 @@ describe("productList", () => {
   it("searches by term", async () => {
     await productList({ query: "vestido", count: 4 });
     expect(lastUrl("/search/products").searchParams.get("q")).toBe("vestido");
+  });
+});
+
+describe("relatedProducts", () => {
+  it("follows the theme: same category, without the product itself, in-stock first", async () => {
+    const outOfStock = {
+      ...browseFixture.data[1],
+      variants: browseFixture.data[1].variants.map((v) => ({ ...v, stock: 0 })),
+    };
+    fetchMock
+      .mockImplementationOnce(async () => json(productFixture))
+      .mockImplementationOnce(async () =>
+        json({
+          ...browseFixture,
+          data: [browseFixture.data[0], outOfStock, browseFixture.data[2]],
+        }),
+      );
+    const related = await relatedProducts({ slug: "camisa-xadrez-lenhador-azul" });
+    expect(lastUrl("/products").searchParams.get("category_id")).toBe(String(camisas.id));
+    expect(related.map((p) => p.isVariantOf!.productGroupID)).toEqual([
+      String(browseFixture.data[2].id), // in stock
+      String(outOfStock.id), // refill with out-of-stock
+    ]);
+  });
+
+  it("caps at count and returns [] for an unknown product", async () => {
+    expect(await relatedProducts({ slug: "camisa-xadrez-lenhador-azul", count: 1 })).toHaveLength(
+      1,
+    );
+    expect(await relatedProducts({ slug: "nope" })).toEqual([]);
   });
 });
 

@@ -13,6 +13,7 @@ export { default as categories } from "./loaders/categories";
 export { default as productDetailsPage } from "./loaders/productDetailsPage";
 export { default as productList } from "./loaders/productList";
 export { default as productListingPage } from "./loaders/productListingPage";
+export { default as relatedProducts } from "./loaders/relatedProducts";
 export { default as shippingOptions } from "./loaders/shippingOptions";
 export { default as suggestions } from "./loaders/suggestions";
 export { configure } from "./mod";

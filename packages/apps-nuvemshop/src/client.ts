@@ -27,6 +27,11 @@ export interface NuvemshopConfig {
   baseUrl?: string;
   /** Currency of the store's prices (the API doesn't return one). Default "BRL". */
   currency?: string;
+  /**
+   * Category default sort (a theme `sort_by` value). The API doesn't expose a
+   * category's configured sort and returns oldest-first. Default "created-descending".
+   */
+  defaultSort?: string;
 }
 
 /**

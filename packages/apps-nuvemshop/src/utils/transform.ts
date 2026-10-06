@@ -137,6 +137,7 @@ export function toProduct(
           .filter(Boolean)
           .map((t) => prop("TAG", t, "TAG")),
         ...(product.custom_fields ?? []).map((f) => prop(f.key, f.value, "CUSTOM_FIELD")),
+        ...(product.free_shipping ? [prop("freeShipping", "true", "SHIPPING")] : []),
       ],
     },
     offers: {

@@ -86,20 +86,63 @@ describe("applyListing — facets", () => {
 
 describe("applyListing — sort", () => {
   const ids = (qs: string) => run(qs).products.map((p) => p.offers!.lowPrice);
-  it("sorts in memory by price, name and discount; relevance keeps API order", () => {
+  it("sorts in memory by price, name and discount; no sort keeps the API order", () => {
     expect(ids("")).toEqual([189.9, 169.9, 89.9]);
-    expect(ids("?sort=price-ascending")).toEqual([89.9, 169.9, 189.9]);
-    expect(ids("?sort=price-descending")).toEqual([189.9, 169.9, 89.9]);
-    expect(run("?sort=name-ascending").products.map((p) => p.isVariantOf!.name)).toEqual([
+    expect(ids("?sort_by=price-ascending")).toEqual([89.9, 169.9, 189.9]);
+    expect(ids("?sort_by=price-descending")).toEqual([189.9, 169.9, 89.9]);
+    expect(run("?sort_by=alpha-ascending").products.map((p) => p.isVariantOf!.name)).toEqual([
       "Camisa Flanela Montanha",
       "Camisa Xadrez Lenhador Azul",
       "Camiseta Gamer Preta Estampada",
     ]);
-    expect(ids("?sort=discount-descending")[0]).toBe(169.9);
+    expect(ids("?sort_by=discount-descending")[0]).toBe(169.9);
   });
-  it("lists every sort option with a pt-BR label", () => {
+  it("uses the theme's sort_by values so migrated links keep sorting", () => {
     expect(run().sortOptions).toBe(SORT_OPTIONS);
-    expect(SORT_OPTIONS.map((o) => o.value)).toContain("best-selling");
+    expect(SORT_OPTIONS.map((o) => o.value)).toEqual([
+      "best-selling",
+      "price-ascending",
+      "price-descending",
+      "alpha-ascending",
+      "alpha-descending",
+      "created-descending",
+      "created-ascending",
+      "discount-descending",
+    ]);
+    const names = (qs: string) => run(qs).products.map((p) => p.isVariantOf!.name);
+    expect(names("?sort_by=alpha-descending")[0]).toBe("Camiseta Gamer Preta Estampada");
+    // created_at order (fixture products share a timestamp → stable API order)
+    expect(names("?sort_by=created-ascending")).toHaveLength(3);
+  });
+});
+
+describe("applyListing — default order and ties (theme parity)", () => {
+  const at = (p: NuvemshopProduct, created_at: string, price?: string) => ({
+    ...p,
+    created_at,
+    variants: p.variants!.map((v) => (price ? { ...v, price, promotional_price: null } : v)),
+  });
+  const older = at(products[0], "2026-01-01T00:00:00+0000", "100.00");
+  const newer = at(products[2], "2026-02-01T00:00:00+0000", "100.00");
+  const list = (qs: string, defaultSort?: string) =>
+    applyListing([older, newer], new URL(`${ORIGIN}/c/${qs}`), {
+      origin: ORIGIN,
+      count: 24,
+      defaultSort,
+    }).products.map((p) => p.isVariantOf!.productGroupID);
+
+  it("applies the configured default sort when there's no sort_by (or an unknown one, e.g. 'user')", () => {
+    expect(list("", "created-descending")).toEqual([String(newer.id), String(older.id)]);
+    expect(list("?sort_by=user", "created-descending")).toEqual([
+      String(newer.id),
+      String(older.id),
+    ]);
+    expect(list("")).toEqual([String(older.id), String(newer.id)]); // no default → API order
+  });
+
+  it("breaks price ties newest-first like the theme", () => {
+    expect(list("?sort_by=price-ascending")).toEqual([String(newer.id), String(older.id)]);
+    expect(list("?sort_by=price-descending")).toEqual([String(newer.id), String(older.id)]);
   });
 });
 

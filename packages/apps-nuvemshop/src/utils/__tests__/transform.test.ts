@@ -146,6 +146,17 @@ describe("toProduct", () => {
     });
   });
 
+  it("flags free shipping (the theme's shipping label) only when the product has it", () => {
+    const flag = (free_shipping: boolean) =>
+      toProduct({ ...raw, free_shipping }, raw.variants![0], {
+        origin: ORIGIN,
+      }).isVariantOf!.additionalProperty.filter((p) => p.valueReference === "SHIPPING");
+    expect(flag(true)).toEqual([
+      { "@type": "PropertyValue", name: "freeShipping", value: "true", valueReference: "SHIPPING" },
+    ]);
+    expect(flag(false)).toEqual([]);
+  });
+
   it("honours a configured currency", () => {
     expect(
       toProduct(raw, raw.variants![0], { origin: ORIGIN, currency: "ARS" }).offers!.priceCurrency,
