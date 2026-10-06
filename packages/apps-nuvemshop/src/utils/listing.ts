@@ -4,8 +4,8 @@
  * The Storefront API (v2026-11) has no facets and only three sorts, while the
  * Nuvemshop core already filters by variant values and price. Until the API
  * exposes those, we fetch a window of products and compute everything here.
- * URL params mirror the core theme (`?Cor=Vermelho&min_price=100`) so links
- * keep working after a migration.
+ * URL params mirror the core theme (`?Cor=Vermelho|Preto&min_price=100`, values
+ * OR-ed with "|") so links keep working after a migration.
  *
  * ponytail: correct only while the category/search fits in one API page
  * (≤200 products, `LISTING_WINDOW`). Switch to native API facets when they ship.
@@ -28,6 +28,11 @@ export const SORT_OPTIONS: SortOption[] = [
 ];
 
 type Selection = Map<string, Set<string>>;
+
+/** The theme joins multiple values of one filter with "|" (`?Cor=Vermelho|Preto`). */
+const VALUE_SEPARATOR = "|";
+const valuesOf = (params: URLSearchParams, attr: string) =>
+  (params.get(attr) ?? "").split(VALUE_SEPARATOR).filter(Boolean);
 
 const visibleVariants = (p: NuvemshopProduct) =>
   (p.variants ?? []).filter((v) => v.visible !== false);
@@ -81,7 +86,7 @@ export function applyListing(source: NuvemshopProduct[], url: URL, opts: Listing
 
   const sel: Selection = new Map();
   for (const attr of attributes) {
-    const values = url.searchParams.getAll(attr);
+    const values = valuesOf(url.searchParams, attr);
     if (values.length) sel.set(attr, new Set(values));
   }
   const lo = Number(url.searchParams.get("min_price") ?? Number.NEGATIVE_INFINITY);
@@ -115,9 +120,10 @@ export function applyListing(source: NuvemshopProduct[], url: URL, opts: Listing
         quantity,
         selected: selected.has(value),
         url: withParams(url, (p) => {
-          const rest = p.getAll(attr).filter((v) => v !== value);
-          p.delete(attr);
-          for (const v of selected.has(value) ? rest : [...rest, value]) p.append(attr, v);
+          const rest = valuesOf(p, attr).filter((v) => v !== value);
+          const next = selected.has(value) ? rest : [...rest, value];
+          if (next.length) p.set(attr, next.join(VALUE_SEPARATOR));
+          else p.delete(attr);
         }),
       })),
     };
