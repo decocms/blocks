@@ -5,38 +5,39 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCMS, instanceOf, resetForTests } from "./cms";
-import { docsBlocks, docsSnapshot } from "./testFixtures";
+import { docsBlocks, docsSnapshot, fakeStudio } from "./testFixtures";
 import type { Loader, Snapshot } from "./types";
-
-const POINTER = "api.deco.example/drafts/acme/main?token=abc@9f3c1a";
 
 beforeEach(() => resetForTests());
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
-function draftSnapshot(): Snapshot {
-  return {
-    revision: "draft-9f3c1a",
-    blocks: {
-      SummerSEO: { __resolveType: "seo", title: "Draft title", description: "Draft" },
-    },
-  };
+const DRAFT_SEO = { __resolveType: "seo", title: "Draft title", description: "Draft" };
+
+/** A fake Studio with one saved draft: its pointer, and the fetch the CMS makes. */
+function studioDraft() {
+  const studio = fakeStudio();
+  const fetch = vi.fn(studio.fetch);
+  vi.stubGlobal("fetch", fetch);
+  const pointer = studio.draft({ set: { SummerSEO: DRAFT_SEO }, delete: ["HelloWorld"] });
+  return { studio, fetch, pointer };
 }
 
-/** A loader serving the release and one draft, recording every call. */
-function draftLoader(overrides: Partial<Loader> = {}) {
-  const calls: (string | null | undefined)[] = [];
+/** A loader recording every load. */
+function countingLoader(overrides: Partial<Loader> = {}) {
+  let loads = 0;
   const loader: Loader = {
-    async load(pointer) {
-      calls.push(pointer);
-      return pointer ? draftSnapshot() : docsSnapshot();
+    async load() {
+      loads++;
+      return docsSnapshot();
     },
     ...overrides,
   };
-  return { loader, calls };
+  return { loader, loads: () => loads };
 }
 
 describe("createCMS with the content module", () => {
@@ -49,13 +50,16 @@ describe("createCMS with the content module", () => {
     expect(await client.revision()).toBe("rev-1");
   });
 
-  it("forDraft acts like forRelease: the content module has no drafts and ignores the pointer", async () => {
+  it("forDraft layers the draft's changes over the content module, with no site or token", async () => {
+    const { pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    for (const pointer of [POINTER, "not a pointer", ""]) {
-      const [seo, error] = await cms.forDraft(pointer).resolve("SummerSEO");
-      expect(error).toBeNull();
-      expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
-    }
+    const draft = cms.forDraft(pointer);
+    expect(await draft.resolve("SummerSEO")).toEqual([
+      { title: "Draft title", description: "Draft" },
+      null,
+    ]);
+    expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
+    expect((await draft.resolve("HomePage"))[1]).toBeNull(); // inherited
   });
 
   it("update() reports nothing new: a snapshot never changes", async () => {
@@ -72,44 +76,26 @@ describe("createCMS with the content module", () => {
 });
 
 describe("loaders", () => {
-  it("load() with no argument is the release", async () => {
-    const { loader, calls } = draftLoader();
+  it("load() is the release; a draft is layered over what it returned", async () => {
+    const { pointer } = studioDraft();
+    const { loader, loads } = countingLoader();
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     const [seo] = await cms.forRelease().resolve("SummerSEO");
     expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
-    expect(calls).toEqual([undefined]);
-  });
-
-  it("forDraft passes the pointer to load(pointer) and reads the draft", async () => {
-    const { loader, calls } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const client = cms.forDraft(POINTER);
-    const [seo, error] = await client.resolve("SummerSEO");
-    expect(error).toBeNull();
-    expect(seo).toEqual({ title: "Draft title", description: "Draft" });
-    expect(calls).toEqual([POINTER]);
-    expect(await client.revision()).toBe("draft-9f3c1a");
-  });
-
-  it("a draft client never mixes in published entries", async () => {
-    const { loader } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const [, error] = await cms.forDraft(POINTER).resolve("HomePage");
-    expect(error?.code).toBe("NOT_FOUND");
+    const client = cms.forDraft(pointer);
+    expect((await client.resolve("SummerSEO"))[0]).toEqual({
+      title: "Draft title",
+      description: "Draft",
+    });
+    expect(await client.revision()).toBe("rev-1~9f3c1a");
+    expect(loads()).toBe(2); // a loader without update() is asked per client
   });
 
   it("a failing draft makes every call on that client return [null, LOADER_FAILED]", async () => {
-    const boom = new Error("403 from the draft host");
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: {
-        async load(pointer) {
-          if (pointer) throw boom;
-          return docsSnapshot();
-        },
-      },
-    });
-    const client = cms.forDraft(POINTER);
+    const { studio, pointer } = studioDraft();
+    studio.respond("summer-sale", () => new Response("down", { status: 502 }));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const client = cms.forDraft(pointer);
     const [v1, e1] = await client.resolve("SummerSEO");
     const [v2, e2] = await client.list("page");
     const [v3, e3] = await client.resolve({ title: "literal" });
@@ -119,7 +105,8 @@ describe("loaders", () => {
       [v3, e3],
     ] as const) {
       expect(value).toBeNull();
-      expect(error).toMatchObject({ code: "LOADER_FAILED", cause: boom });
+      expect(error).toMatchObject({ code: "LOADER_FAILED" });
+      expect(String((error?.cause as Error)?.message)).toContain("HTTP 502");
     }
     await expect(client.revision()).rejects.toMatchObject({ code: "LOADER_FAILED" });
     // …and the release is unaffected.
@@ -127,14 +114,14 @@ describe("loaders", () => {
   });
 
   it("a pointer that doesn't parse is LOADER_FAILED, never a silent fallback to the release", async () => {
-    const { loader, calls } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
+    const { fetch } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     for (const bad of ["https://evil.example/x@1", "no-path@1", "host/path", "", "a b/x@1"]) {
       const [value, error] = await cms.forDraft(bad).resolve("SummerSEO");
       expect(value, bad).toBeNull();
       expect(error?.code, bad).toBe("LOADER_FAILED");
     }
-    expect(calls).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("a loader that returns something other than a snapshot is LOADER_FAILED", async () => {
@@ -204,34 +191,39 @@ describe("loaders", () => {
     expect(update).toHaveBeenCalledTimes(1);
   });
 
-  it("an update drops cached drafts, so a loader that ignores the pointer can't serve a stale release", async () => {
+  it("an update drops fetched drafts, and the next draft client follows the new release", async () => {
+    const { fetch, pointer } = studioDraft();
     let revision = "r1";
-    const load = vi.fn(async () => ({ revision, blocks: { Name: revision } }));
     const cms = createCMS({
       blocks: {},
-      content: { load, update: async () => ({ updated: true }) },
+      content: {
+        load: async () => ({ revision, blocks: { Name: revision } }),
+        update: async () => ({ updated: true }),
+      },
     });
-    expect(await cms.forDraft(POINTER).resolve("Name")).toEqual(["r1", null]);
+    expect(await cms.forDraft(pointer).resolve("Name")).toEqual(["r1", null]);
     revision = "r2";
     await cms.update();
-    expect(await cms.forDraft(POINTER).resolve("Name")).toEqual(["r2", null]);
+    expect(await cms.forDraft(pointer).resolve("Name")).toEqual(["r2", null]);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("an update that finds nothing new keeps cached drafts", async () => {
-    const { loader, calls } = draftLoader({ update: async () => ({ updated: false }) });
+  it("an update that finds nothing new keeps fetched drafts", async () => {
+    const { fetch, pointer } = studioDraft();
+    const { loader } = countingLoader({ update: async () => ({ updated: false }) });
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    await cms.forDraft(POINTER).resolve("SummerSEO");
+    await cms.forDraft(pointer).resolve("SummerSEO");
     await cms.update();
-    await cms.forDraft(POINTER).resolve("SummerSEO");
-    expect(calls).toEqual([POINTER]);
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("drafts are cached per pointer (the version is immutable)", async () => {
-    const { loader, calls } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    await cms.forDraft(POINTER).resolve("SummerSEO");
-    await cms.forDraft(POINTER).resolve("SummerSEO");
-    expect(calls).toEqual([POINTER]);
+  it("drafts are fetched once per pointer within a minute", async () => {
+    const { fetch, pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -273,10 +265,10 @@ describe("one revision per client", () => {
   });
 
   it("forRevision never reaches a draft: a draft revision behaves like the release", async () => {
-    const { loader } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    expect(await cms.forDraft(POINTER).revision()).toBe("draft-9f3c1a");
-    const client = cms.forRevision("draft-9f3c1a");
+    const { pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    expect(await cms.forDraft(pointer).revision()).toBe("rev-1~9f3c1a");
+    const client = cms.forRevision("rev-1~9f3c1a");
     expect(await client.revision()).toBe("rev-1");
     expect(await client.resolve("SummerSEO")).toEqual([
       { title: "Sunny!", description: "Light layers for long days." },
@@ -441,7 +433,7 @@ describe("one instance per process", () => {
     expect(await app.forRelease().resolve("Hero")).toEqual(["app", null]);
     expect(await proxy.forRelease().resolve("Hero")).toEqual(["proxy", null]);
     expect(await app.forRevision("r1").resolve("Hero")).toEqual(["app", null]);
-    expect(await app.forDraft("anything").resolve("Hero")).toEqual(["app", null]);
+    expect(await app.forDraft("localhost:4547/@local").resolve("Hero")).toEqual(["app", null]);
     // Still one store: an update through either is seen by both.
     createCMS({
       blocks: { hero: () => "proxy" },
@@ -514,8 +506,8 @@ describe("one instance per process", () => {
   });
 
   it("a loader you write is identified by the loader object", () => {
-    const one = draftLoader().loader;
-    const two = draftLoader().loader;
+    const one = countingLoader().loader;
+    const two = countingLoader().loader;
     expect(instanceOf(createCMS({ blocks: {}, content: one }))).toBe(
       instanceOf(createCMS({ blocks: {}, content: one })),
     );

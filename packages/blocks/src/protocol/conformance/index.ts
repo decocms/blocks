@@ -28,12 +28,7 @@ import { writeCases } from "./cases/writes.ts";
 import { ConformanceContext, type ConformanceOptions, SkipCase } from "./context.ts";
 
 export type { ConformanceCase } from "./cases/types.ts";
-export {
-  type ContentHashFixture,
-  contentHashFixtures,
-  type DraftOverlayFixture,
-  draftOverlayFixtures,
-} from "./contentHashFixtures.ts";
+export { type ContentHashFixture, contentHashFixtures } from "./contentHashFixtures.ts";
 export type { ConformanceOptions } from "./context.ts";
 
 /** Every conformance case, in the order they run. */

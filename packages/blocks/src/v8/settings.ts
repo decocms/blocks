@@ -43,20 +43,41 @@ const SECTIONS = ["preview", "telemetry", "analytics"] as const;
  * a list of host patterns: that's a bug in the app, not in content.
  */
 export function parseCodeHosts(preview: CMSConfig["preview"]): HostPattern[] | undefined {
+  return parseCodePatterns(preview, "hosts");
+}
+
+/** The hosts a draft pointer may name when code sets no `preview.sources`. */
+export const DEFAULT_SOURCES: readonly string[] = ["studio.decocms.com"];
+
+/**
+ * Code's `preview.sources`, parsed, or the default (`studio.decocms.com`).
+ * Throws a `TypeError` like {@link parseCodeHosts}.
+ */
+export function parseCodeSources(preview: CMSConfig["preview"]): HostPattern[] {
+  return (
+    parseCodePatterns(preview, "sources") ??
+    DEFAULT_SOURCES.map((raw) => parseHostPattern(raw) as HostPattern)
+  );
+}
+
+function parseCodePatterns(
+  preview: CMSConfig["preview"],
+  field: "hosts" | "sources",
+): HostPattern[] | undefined {
   if (preview === undefined || preview === null) return undefined;
   if (typeof preview !== "object") {
     throw new TypeError("createCMS: `preview` must be an object, such as { hosts: [...] }");
   }
-  const { hosts } = preview;
-  if (hosts === undefined) return undefined;
-  if (!Array.isArray(hosts)) {
-    throw new TypeError("createCMS: `preview.hosts` must be a list of host patterns");
+  const list = preview[field];
+  if (list === undefined) return undefined;
+  if (!Array.isArray(list)) {
+    throw new TypeError(`createCMS: \`preview.${field}\` must be a list of host patterns`);
   }
-  return hosts.map((raw) => {
+  return list.map((raw) => {
     const pattern = parseHostPattern(raw);
     if (pattern === null) {
       throw new TypeError(
-        `createCMS: ${JSON.stringify(raw)} in preview.hosts isn't a host pattern ` +
+        `createCMS: ${JSON.stringify(raw)} in preview.${field} isn't a host pattern ` +
           "(see /next/api-reference#host-patterns)",
       );
     }

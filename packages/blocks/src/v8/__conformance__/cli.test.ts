@@ -2317,15 +2317,26 @@ describe("studio-implementation.mdx", () => {
       expect(await loader.update!()).toEqual({ updated: true });
     });
 
-    it("si-10: an exact overlay version is fetched; a missing one is an error, not the head", async () => {
+    it("si-10: a draft's changes apply to the production this server has; no matching base is fetched", async () => {
       const fallback = await snap("bundled");
-      const loader = remoteLoader(fallback, { site: "acme", token: "t" }) as Loader;
-      const version = "e".repeat(64);
-      await expect(
-        loader.load(`delivery.decocms.com/sites/acme/drafts?grant=g@${version}`),
-      ).rejects.toThrow(new RegExp(`draft overlay ${version}: HTTP 404`));
-      // Before any release check, the bundled fallback is served.
-      expect(await loader.load()).toBe(fallback);
+      const published = await snap("published");
+      publish(1, published);
+      gates.set(`/sites/acme/revisions/${published.revision}.json`, new Promise(() => {})); // never arrives
+      const studio = "https://studio.decocms.com/api/acme/decofile/store/b/changes";
+      const fetch = globalThis.fetch;
+      const urls: string[] = [];
+      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+        urls.push(String(input));
+        return String(input).startsWith(studio)
+          ? Response.json({ format: 1, set: { New: { __resolveType: "seo" } }, delete: [] })
+          : fetch(input);
+      });
+      const cms = createCMS({ blocks: {}, content: fallback, site: "acme", token: "t" });
+      const draft = cms.forDraft("studio.decocms.com/api/acme/decofile/store/b/changes?token=x@c1");
+      const [entry] = await draft.resolve("S", { run: false });
+      expect(entry).toEqual(fallback.blocks.S); // the bundled release, never waiting for the new one
+      expect(urls.filter((url) => url.startsWith(studio))).toHaveLength(1);
+      expect(urls.filter((url) => url.includes("/revisions/"))).toHaveLength(0);
     });
   });
 });

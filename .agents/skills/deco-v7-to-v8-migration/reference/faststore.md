@@ -22,7 +22,7 @@ FastStore's CMS pages are SSG and its CLI forbids `middleware`/`proxy` and `/api
 ## Preview hosts and draft sources
 
 - `preview.hosts` in `CMS.json` must list the dev host (`localhost`) as well as the store's hosts, within the code cap in `createCMS({ preview })`. v8 ignores v7's `DECO_ALLOWED_PREVIEW_HOSTS`: remove it from env files and harness env too.
-- A site loader that fetches a draft from the host in the pointer must allow only deco-operated domains in production. Loopback (`localhost`, `127.0.0.1`) is for a Studio on the developer's machine: leave it out of the production defaults, or a pointer makes the server fetch its own ports.
+- Drafts need no site loader: `cms.forDraft` fetches the pointer itself, only from hosts in `createCMS({ preview: { sources } })` (default `studio.decocms.com`; v7's `DECO_PREVIEW_API_DOMAINS` is ignored). Delete any draft-fetching loader the site kept from v7. Add a loopback Studio (`localhost:4000`) to `sources` in development only, or a pointer makes a production server fetch its own ports.
 - If the site keeps v7's policy that a draft that fails to load falls back to the release, write that down: the docs say a failed draft is an error.
 
 ## Content imported from FastStore's CMS

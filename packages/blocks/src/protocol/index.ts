@@ -14,10 +14,8 @@
  *
  * The SDK's runtime never imports the protocol, so it never reaches an app
  * bundle. The canonical hash it re-exports is the SDK's own dependency-free
- * leaf module (see ./canonical.ts), including the draft overlay hashes
- * (`computeBlockHash`, `computeOverlayVersion`). Draft overlays themselves,
- * preview grants and the draft lifecycle are outside the protocol: overlays
- * are delivery assets (see /next/content-delivery#exact-draft-previews).
+ * leaf module (see ./canonical.ts). Draft previews and the draft lifecycle
+ * are outside the protocol (see /next/content-delivery#draft-previews).
  */
 export {
   APPLY_DIGEST_DOMAIN,
@@ -25,11 +23,7 @@ export {
   CanonicalJsonError,
   CONTENT_HASH_FORMAT,
   canonicalJson,
-  computeBlockHash,
   computeContentRevision,
-  computeOverlayVersion,
-  DRAFT_OVERLAY_FORMAT,
-  type DraftOverlay,
   sha256Hex,
 } from "./canonical.ts";
 export {

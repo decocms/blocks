@@ -4,7 +4,7 @@
  * releases-and-deployment, hosted, hosted-publishing, hosted-drafts and
  * hosted-releases-internals (src/content/docs/en/storefront/blocks/next/*.mdx in
  * deco-sites/docs-tanstack). Each test names the claim it checks (CD-*, RD-*, H-*, HP-*, HD-*,
- * HRI-*). A failing test is a claim the code doesn't meet yet.
+ * HRI-*, DP-*). A failing test is a claim the code doesn't meet yet.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -23,7 +23,7 @@ import {
   resetForTests,
 } from "../index";
 import { resolveDestination } from "../telemetry";
-import { docsBlocks, docsSnapshot, draftOverlayAssets } from "../testFixtures";
+import { docsBlocks, docsSnapshot, fakeStudio, STUDIO_HOST, STUDIO_TOKEN } from "../testFixtures";
 import type { Loader, RequestLike, Snapshot } from "../types";
 
 /** cms.draftPointer and cms.draftCookie on a CMS with no settings: every host may preview. */
@@ -34,14 +34,13 @@ const DRAFT_COOKIE = "deco-draft";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "https://delivery.decocms.com";
-const HOST = new URL(ORIGIN).host;
 const SITE = "acme";
 const TOKEN = "site-token";
 const MANIFEST_URL = `${ORIGIN}/sites/acme/channels/production.json`;
 /** A pointer string, for the cookie and parsing claims; drafts that load come from api.draft(). */
-const POINTER = `${HOST}/drafts/acme/feat-summer?token=abc@9f3c1a`;
-/** The grant the site editor signs into a pointer's query; the fake API accepts only it. */
-const GRANT = "token=abc";
+const POINTER = `${STUDIO_HOST}/api/acme/decofile/store/summer-sale/changes?token=abc@9f3c1a`;
+/** Where the fake Studio answers drafts. */
+const STUDIO = `https://${STUDIO_HOST}`;
 
 const remote = (fallback: Snapshot | Loader) =>
   remoteLoader(fallback, { site: SITE, token: TOKEN }) as Loader;
@@ -90,46 +89,33 @@ function deferred(): Deferred {
 const seoEntry = (title: string) => ({ __resolveType: "seo", title, description: "d" });
 
 /**
- * A fake delivery API: a channel manifest, immutable revision assets, and
- * draft overlay assets that need the site token and the grant.
+ * A fake delivery API (a channel manifest and immutable revision assets) and
+ * a fake Studio API answering draft pointers (see testFixtures' fakeStudio).
  */
 function deliveryApi() {
+  const studio = fakeStudio();
   const assets = new Map<string, unknown>();
   const gates = new Map<string, Deferred>();
   let manifest: Record<string, unknown> | undefined;
   let failAll = false;
-  /** What an authorized overlay manifest response says about caching (the grant's remaining life). */
-  let manifestCaching = "private, max-age=3600";
-  let grantsExpired = false;
-  const requests: { url: string; headers: Record<string, string> }[] = [];
+  const requests: { url: string; headers: Record<string, string>; init?: RequestInit }[] = [];
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
-    requests.push({ url, headers });
+    requests.push({ url, headers, init });
     if (failAll) throw new TypeError("fetch failed");
+    await gates.get(new URL(url).pathname)?.promise;
+    if (url.startsWith(`${STUDIO}/`)) return studio.fetch(url, init);
     if (!url.startsWith(ORIGIN)) return new Response("wrong host", { status: 599 });
-    const pathname = url.slice(ORIGIN.length);
-    const p = pathname.split("?")[0] ?? "";
-    await gates.get(p)?.promise;
+    const p = url.slice(ORIGIN.length).split("?")[0] ?? "";
     if (url === MANIFEST_URL) {
       if (!manifest) return new Response("missing", { status: 404 });
       return Response.json(manifest);
     }
-    if (/^\/sites\/[^/]+\/(drafts|draft-blocks)\//.test(p)) {
-      const query = pathname.includes("?") ? pathname.slice(pathname.indexOf("?") + 1) : "";
-      if (headers.authorization !== `Bearer ${TOKEN}` || query !== GRANT || grantsExpired) {
-        return new Response("forbidden", { status: 403, headers: { "cache-control": "no-store" } });
-      }
-    }
     if (assets.has(p)) {
       const body = assets.get(p);
       if (body instanceof Response) return body;
-      const caching = p.includes("/drafts/")
-        ? manifestCaching
-        : p.includes("/draft-blocks/")
-          ? "private, max-age=31536000, immutable"
-          : undefined;
-      return Response.json(body, caching ? { headers: { "cache-control": caching } } : undefined);
+      return Response.json(body);
     }
     return new Response("not found", { status: 404 });
   });
@@ -157,14 +143,11 @@ function deliveryApi() {
     asset(p: string, body: unknown) {
       assets.set(p, body);
     },
-    /** Prepares a draft overlay's assets and returns the pointer the site editor would sign. */
-    async draft(changes: { set?: Record<string, unknown>; delete?: string[] }, grant = GRANT) {
-      const prepared = await draftOverlayAssets(SITE, changes);
-      for (const [p, body] of prepared.assets) assets.set(p, body);
-      return `${HOST}/sites/${SITE}/drafts?${grant}@${prepared.version}`;
-    },
-    draftFetches: () =>
-      requests.filter((r) => /\/sites\/acme\/(drafts|draft-blocks)\//.test(r.url)),
+    /** Saves a draft branch's changes on the fake Studio; returns the pointer it would mint. */
+    draft: studio.draft,
+    /** Answers a draft branch with this response instead. */
+    respond: studio.respond,
+    draftFetches: () => requests.filter((r) => r.url.startsWith(`${STUDIO}/`)),
     gate(p: string) {
       const d = deferred();
       gates.set(p, d);
@@ -172,14 +155,6 @@ function deliveryApi() {
     },
     fail(value: boolean) {
       failAll = value;
-    },
-    /** The Cache-Control an authorized overlay manifest is served with. */
-    manifestCaching(value: string) {
-      manifestCaching = value;
-    },
-    /** From now on every draft read is refused, as after the grant's expiry. */
-    expireGrants() {
-      grantsExpired = true;
     },
     assetFetches: () => requests.filter((r) => r.url.includes("/revisions/")).length,
     manifestFetches: () => requests.filter((r) => r.url === MANIFEST_URL).length,
@@ -197,17 +172,25 @@ const titleOf = async (client: ReturnType<ReturnType<typeof createCMS>["forRelea
 // ---------------------------------------------------------------------------
 
 describe("content-delivery", () => {
-  it("CD-1: the SDK never calls GitHub; every fetch goes to the delivery origin", async () => {
-    const source = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
-    expect(source).not.toMatch(/github/i);
+  it("CD-1: the SDK never calls GitHub; releases come from the delivery origin, drafts from the pointer's Studio host", async () => {
+    for (const file of ["../remoteLoader.ts", "../draftChanges.ts"]) {
+      expect(fs.readFileSync(path.join(HERE, file), "utf8")).not.toMatch(/github/i);
+    }
     const api = deliveryApi();
     api.publish(1, await hashed("Published"));
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const loader = remote(docsSnapshot());
-    await loader.update?.();
-    await loader.load(pointer);
-    expect(api.requests.length).toBeGreaterThan(0);
-    for (const { url } of api.requests) expect(url.startsWith(`${ORIGIN}/`)).toBe(true);
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: SITE,
+      token: TOKEN,
+    });
+    await cms.update();
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    const urls = api.requests.map((r) => r.url);
+    expect(urls.filter((url) => url.startsWith(`${ORIGIN}/`))).toHaveLength(2); // manifest, release
+    expect(urls.filter((url) => url.startsWith(`${STUDIO}/`))).toHaveLength(1);
+    expect(urls).toHaveLength(3);
   });
 
   it("CD-3: one canonical hash, insertion-order independent, shared by the CLI and remoteLoader", async () => {
@@ -306,28 +289,6 @@ describe("content-delivery", () => {
     expect(await titleOf(cms.forRelease())).toBe("A");
   });
 
-  it("CD-14: a draft is the exact overlay its version names: manifest, then changed blocks, from the site's delivery paths", async () => {
-    const api = deliveryApi();
-    const older = await api.draft({ set: { SummerSEO: seoEntry("Draft v1") } });
-    await api.draft({ set: { SummerSEO: seoEntry("Newer save") } });
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
-    expect(await titleOf(cms.forDraft(older))).toBe("Draft v1"); // never the newer save
-    const version = parseDraftPointer(older)!.version;
-    const hash = (await draftOverlayAssets(SITE, { set: { SummerSEO: seoEntry("Draft v1") } }))
-      .overlay.set.SummerSEO;
-    // (The release check forDraft schedules runs beside it, in the background.)
-    expect(api.draftFetches().map((r) => r.url)).toEqual([
-      `${ORIGIN}/sites/acme/drafts/${version}.json?${GRANT}`,
-      `${ORIGIN}/sites/acme/draft-blocks/${hash}.json?${GRANT}`,
-    ]);
-    for (const r of api.requests) expect(r.headers.authorization).toBe(`Bearer ${TOKEN}`);
-  });
-
   it("CD-16: the SDK bounds the snapshot size it accepts (stops reading an oversized asset)", async () => {
     const api = deliveryApi();
     const CHUNK = new Uint8Array(1024 * 1024).fill(0x20); // JSON whitespace
@@ -351,165 +312,98 @@ describe("content-delivery", () => {
     // Rejected by a size bound, not after buffering and failing to parse all of it.
     expect(pulled).toBeLessThan(TOTAL_MB);
   }, 60_000);
-
-  it("CD-16: drafts kept in memory are bounded (old versions are evicted; their blocks stay cached)", async () => {
-    const api = deliveryApi();
-    const pointers: string[] = [];
-    for (let i = 0; i < 40; i++) {
-      pointers.push(
-        await api.draft({ set: { SummerSEO: seoEntry("Draft") }, delete: [`Gone${i}`] }),
-      );
-    }
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
-    for (const pointer of pointers) await titleOf(cms.forDraft(pointer));
-    expect(api.requests.filter((r) => r.url.includes("/draft-blocks/"))).toHaveLength(1);
-    const before = api.requests.length;
-    await titleOf(cms.forDraft(pointers[0]!));
-    // The first manifest was evicted and fetched again; its changed block is still cached.
-    expect(api.requests.slice(before).map((r) => r.url)).toEqual([
-      `${ORIGIN}/sites/acme/drafts/${parseDraftPointer(pointers[0])!.version}.json?${GRANT}`,
-    ]);
-  });
 });
 
 // ---------------------------------------------------------------------------
-// content-delivery.mdx#exact-draft-previews, hosted-drafts.mdx,
-// hosted-releases-internals.mdx, studio-implementation.mdx: draft overlays
+// content-delivery.mdx#draft-previews, hosted-drafts.mdx#who-may-preview:
+// a draft pointer names Studio's API, which answers only the changes
 // ---------------------------------------------------------------------------
 
-describe("draft overlays", () => {
-  const hostedCMS = (content: Snapshot | Loader = docsSnapshot()) =>
-    createCMS({ blocks: docsBlocks(), content, site: SITE, token: TOKEN });
+/** A body that streams `mb` MiB of JSON whitespace after `[`, counting what was pulled. */
+function hugeBody(mb: number) {
+  const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+  const state = { pulled: 0 };
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (state.pulled === 0) controller.enqueue(new TextEncoder().encode("["));
+      if (state.pulled >= mb) return controller.close();
+      state.pulled++;
+      controller.enqueue(chunk);
+    },
+  });
+  return { body, state };
+}
 
-  it("DO-1: the manifest is { format: 1, set: { name: blockHash }, delete: [...] }, under the hash of its canonical JSON", async () => {
+describe("draft previews", () => {
+  const cmsOf = (options: Partial<Parameters<typeof createCMS>[0]> = {}) =>
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), ...options });
+  const failed = async (client: ReturnType<ReturnType<typeof createCMS>["forDraft"]>) => {
+    const [value, error] = await client.resolve("SummerSEO");
+    const [list, listError] = await client.list("seo");
+    return { value, code: error?.code, list, listCode: listError?.code };
+  };
+  const FAILED = { value: null, code: "LOADER_FAILED", list: null, listCode: "LOADER_FAILED" };
+
+  it("DP-1: GET https://<host><path>&v=<version>: forced variants removed, no cookies or credentials, fetched once", async () => {
     const api = deliveryApi();
-    const pointer = await api.draft({
-      set: { SummerSEO: seoEntry("Draft") },
-      delete: ["HelloWorld"],
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const withVariant = formatDraftPointer({
+      ...parseDraftPointer(pointer)!,
+      variants: [{ block: "Home", path: "", index: 1 }],
     });
-    await hostedCMS().forDraft(pointer).revision();
-    const version = parseDraftPointer(pointer)!.version;
-    const response = await api.fetch(`${ORIGIN}/sites/acme/drafts/${version}.json?${GRANT}`, {
-      headers: { authorization: `Bearer ${TOKEN}` },
-    });
-    const manifest = await response.json();
-    expect(Object.keys(manifest).sort()).toEqual(["delete", "format", "set"]);
-    expect(manifest.format).toBe(1);
-    expect(manifest.delete).toEqual(["HelloWorld"]);
-    expect(manifest).not.toHaveProperty("baseRevision");
-    expect(await computeContentRevision(manifest)).toBe(version); // SHA-256 of canonical JSON
+    const cms = cmsOf({ site: SITE, token: TOKEN });
+    expect(await titleOf(cms.forDraft(withVariant))).toBe("Draft");
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    const [request, ...more] = api.draftFetches();
+    expect(more).toEqual([]);
+    expect(request!.url).toBe(
+      `${STUDIO}/api/acme/decofile/store/summer-sale/changes?token=${STUDIO_TOKEN}&v=9f3c1a`,
+    );
+    expect(request!.headers).not.toHaveProperty("cookie");
+    expect(request!.headers).not.toHaveProperty("authorization"); // never the site token
+    expect(request!.init?.credentials).not.toBe("include");
+    expect(request!.init?.redirect).toBe("manual");
   });
 
-  it("DO-2: a draft never fetches a production revision to align; the release check it schedules never runs in front of it", async () => {
+  it("DP-2: set replaces production's block whole, delete removes it, every other block is production's", async () => {
     const api = deliveryApi();
-    api.publish(1, await hashed("Published"));
-    const channel = api.gate("/sites/acme/channels/production.json"); // the background check hangs
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = hostedCMS();
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft"); // a cold server: the fallback is the base
-    expect(api.assetFetches()).toBe(0);
-    expect(api.manifestFetches()).toBeLessThanOrEqual(1); // scheduled beside the draft, still pending
-    channel.resolve();
-  });
-
-  it("DO-3: a new save downloads its small manifest and only the changed blocks missing from the cache", async () => {
-    const api = deliveryApi();
-    const cms = hostedCMS();
-    const first = await api.draft({
+    const production = docsSnapshot();
+    const before = JSON.stringify(production);
+    const pointer = api.draft({
       set: {
-        SummerSEO: seoEntry("Draft"),
-        HomePage: { __resolveType: "page", name: "Home", path: "/", sections: [] },
-      },
-    });
-    await titleOf(cms.forDraft(first));
-    expect(api.requests.filter((r) => r.url.includes("/draft-blocks/"))).toHaveLength(2);
-    const before = api.draftFetches().length;
-    const second = await api.draft({
-      set: {
-        SummerSEO: seoEntry("Draft, edited"),
-        HomePage: { __resolveType: "page", name: "Home", path: "/", sections: [] },
-      },
-    });
-    expect(await titleOf(cms.forDraft(second))).toBe("Draft, edited");
-    const urls = api
-      .draftFetches()
-      .slice(before)
-      .map((r) => r.url);
-    expect(urls).toHaveLength(2);
-    expect(urls[0]).toContain("/drafts/");
-    expect(urls[1]).toContain("/draft-blocks/"); // only SummerSEO's new hash
-  });
-
-  it("DO-4: lookups read replacements first, tombstones are absent, everything else is inherited", async () => {
-    const api = deliveryApi();
-    const pointer = await api.draft({
-      set: {
-        SummerSEO: seoEntry("Draft"),
+        SummerSEO: { __resolveType: "seo", title: "Draft" }, // no description: never merged
         NewPost: { __resolveType: "post", name: "New", path: "/blog/new", date: "2026-10-01" },
       },
       delete: ["HelloWorld", "LegacySummer"],
     });
-    const draft = hostedCMS().forDraft(pointer);
-    expect(await titleOf(draft)).toBe("Draft");
+    const draft = cmsOf({ content: production }).forDraft(pointer);
+    expect(await draft.resolve("SummerSEO", { run: false })).toEqual([
+      { __resolveType: "seo", title: "Draft" },
+      null,
+    ]);
     expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
     expect((await draft.resolve("LegacySummer"))[1]?.code).toBe("NOT_FOUND");
-    const [product] = await draft.resolve("CurrentProduct");
-    expect(product).toEqual({ name: "Summer shirt", slug: "summer-shirt" });
-    // Enumeration is the union of names minus deletions.
+    const [card] = await draft.resolve("SummerCard", { run: false });
+    expect(card).toEqual({
+      __resolveType: "product-card",
+      title: "Summer collection",
+      product: { __resolveType: "catalog-product", slug: "summer-shirt" },
+    });
+    // list: production's names plus set's, minus delete.
     const [posts] = await draft.list<{ name: string }>("post");
     expect(posts?.map((post) => post.name)).toEqual(["New"]);
     expect(await draft.list("redirect")).toEqual([[], null]);
+    const [pages] = await draft.list<{ name: string }>("page");
+    expect(pages?.map((page) => page.name).sort()).toEqual(["Home", "Summer campaign"]);
+    expect(JSON.stringify(production)).toBe(before); // never mutated
   });
 
-  it("DO-5: an edited draft block wins in full; production changes inside it are not merged", async () => {
+  it("DP-3: a client captures production once; the next client gets the new release and fetches the draft again", async () => {
     const api = deliveryApi();
-    const production = await hashed("Published", {
-      SummerSEO: {
-        __resolveType: "seo",
-        title: "Published",
-        description: "new production description",
-      },
-    });
-    api.publish(1, production);
-    const cms = hostedCMS();
-    await cms.update();
-    const pointer = await api.draft({
-      set: { SummerSEO: { __resolveType: "seo", title: "Draft" } },
-    });
-    const [entry] = await cms.forDraft(pointer).resolve("SummerSEO", { run: false });
-    expect(entry).toEqual({ __resolveType: "seo", title: "Draft" });
-  });
-
-  it("DO-6: the overlay is layered over shared production objects, and production is never mutated", async () => {
-    const api = deliveryApi();
-    const fallback = docsSnapshot();
-    const before = JSON.stringify(fallback);
-    const loader = remote(fallback);
-    const pointer = await api.draft({
-      set: { SummerSEO: seoEntry("Draft") },
-      delete: ["HelloWorld"],
-    });
-    const view = await loader.load(pointer);
-    expect(view.blocks.SummerCard).toBe(fallback.blocks.SummerCard);
-    expect(view.blocks).not.toHaveProperty("HelloWorld");
-    expect(JSON.stringify(fallback)).toBe(before);
-    expect(await loader.load()).toBe(fallback);
-  });
-
-  it("DO-7: a client captures production once; the next client inherits a newer release without downloading the draft again", async () => {
-    const api = deliveryApi();
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = hostedCMS();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE, token: TOKEN });
     const first = cms.forDraft(pointer);
     expect(await titleOf(first)).toBe("Draft");
-    const firstRevision = await first.revision();
-    const fetches = api.draftFetches().length;
-
     api.publish(
       1,
       await hashed("Published", {
@@ -518,168 +412,309 @@ describe("draft overlays", () => {
     );
     await cms.update();
     const [oldPosts] = await first.list<{ name: string }>("post");
-    expect(oldPosts?.map((p) => p.name)).toEqual(["Hello, world"]); // in flight: its captured base
-
+    expect(oldPosts?.map((p) => p.name)).toEqual(["Hello, world"]); // its captured base
     const next = cms.forDraft(pointer);
     expect(await titleOf(next)).toBe("Draft");
     const [newPosts] = await next.list<{ name: string }>("post");
     expect(newPosts?.map((p) => p.name)).toEqual(["Republished"]);
-    expect(api.draftFetches().length).toBe(fetches); // manifest and block from cache
-    expect(await next.revision()).not.toBe(firstRevision);
+    expect(api.draftFetches()).toHaveLength(2); // dropped when the release changed
+    expect(await next.revision()).not.toBe(await first.revision());
   });
 
-  it("DO-8: the draft revision is an opaque identity of (captured production, overlay version), not a release hash", async () => {
+  it("DP-4: the draft's revision is an opaque identity of the production revision and the version", async () => {
     const api = deliveryApi();
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const fallback = docsSnapshot();
-    const view = await remote(fallback).load(pointer);
-    const version = parseDraftPointer(pointer)!.version;
-    expect(view.revision).not.toBe(fallback.revision);
-    expect(view.revision).toContain(fallback.revision);
-    expect(view.revision).toContain(version);
-    expect(view.revision).not.toBe(await computeContentRevision(view.blocks));
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const draft = cmsOf().forDraft(pointer);
+    const revision = await draft.revision();
+    expect(revision).toContain("rev-1");
+    expect(revision).toContain("9f3c1a");
+    expect(revision).not.toBe("rev-1");
   });
 
-  it("DO-9: every draft read carries the site token and the pointer's grant; a version alone unlocks nothing", async () => {
+  it("DP-5: only studio.decocms.com by default; any other host, or a look-alike, is refused before anything is fetched", async () => {
     const api = deliveryApi();
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = hostedCMS();
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-    for (const r of api.draftFetches()) {
-      expect(r.headers.authorization).toBe(`Bearer ${TOKEN}`);
-      expect(r.url.endsWith(`?${GRANT}`)).toBe(true);
+    const cms = cmsOf();
+    const changes = "/api/acme/decofile/store/summer-sale/changes?token=t";
+    for (const pointer of [
+      `evil.example${changes}@1`,
+      `studio.decocms.com.evil.example${changes}@1`,
+      `evil.example/studio.decocms.com${changes}@1`,
+      `evil-studio.decocms.com${changes}@1`,
+      `api.studio.decocms.com${changes}@1`,
+      `decocms.com${changes}@1`,
+      `delivery.decocms.com${changes}@1`,
+      `localhost:4000${changes}@1`,
+      `127.0.0.1${changes}@1`,
+      `[::1]:4000${changes}@1`,
+      `169.254.169.254/latest/meta-data?x=1@1`,
+      `studio.decocms.com@evil.example${changes}@1`,
+      `https://studio.decocms.com${changes}@1`,
+      `studio.decocms.com//evil.example/x@1`,
+      `studio.decocms.com\\@evil.example/x@1`,
+    ]) {
+      expect({ pointer, ...(await failed(cms.forDraft(pointer))) }).toEqual({ pointer, ...FAILED });
     }
-    // The same overlay version with a forged grant: the manifest is asked for again, and refused.
-    const forged = pointer.replace(GRANT, "token=forged");
-    const [value, error] = await cms.forDraft(forged).resolve("SummerSEO");
-    expect(value).toBeNull();
-    expect(error?.code).toBe("LOADER_FAILED");
-    expect(api.requests.at(-1)?.url).toContain("token=forged");
+    expect(api.fetch).not.toHaveBeenCalled();
+    // The host is compared lowercase, so an uppercase pointer still reaches Studio.
+    const upper = api
+      .draft({ set: { SummerSEO: seoEntry("Draft") } })
+      .replace(STUDIO_HOST, STUDIO_HOST.toUpperCase());
+    expect(await titleOf(cms.forDraft(upper))).toBe("Draft");
   });
 
-  it("DO-10: missing, unauthorized or invalid overlay assets fail the draft client, never showing published content", async () => {
-    const cases: [string, (api: ReturnType<typeof deliveryApi>) => Promise<string>][] = [
-      ["no manifest", async () => `${HOST}/sites/acme/drafts?${GRANT}@${"c".repeat(64)}`],
-      [
-        "unauthorized",
-        async (api) => api.draft({ set: { SummerSEO: seoEntry("D") } }, "token=nope"),
-      ],
-      [
-        "a missing changed block",
-        async (api) => {
-          const p = await api.draft({ set: { SummerSEO: seoEntry("D") } });
-          const { overlay } = await draftOverlayAssets(SITE, { set: { SummerSEO: seoEntry("D") } });
-          api.asset(
-            `/sites/acme/draft-blocks/${overlay.set.SummerSEO}.json`,
-            new Response("gone", { status: 404 }),
-          );
-          return p;
-        },
-      ],
-      [
-        "a changed block that doesn't match its hash",
-        async (api) => {
-          const p = await api.draft({ set: { SummerSEO: seoEntry("D") } });
-          const { overlay } = await draftOverlayAssets(SITE, { set: { SummerSEO: seoEntry("D") } });
-          api.asset(`/sites/acme/draft-blocks/${overlay.set.SummerSEO}.json`, seoEntry("Tampered"));
-          return p;
-        },
-      ],
-      [
-        "a manifest that doesn't match its version",
-        async (api) => {
-          const p = await api.draft({ set: { SummerSEO: seoEntry("D") } });
-          const version = parseDraftPointer(p)!.version;
-          api.asset(`/sites/acme/drafts/${version}.json`, {
-            format: 1,
-            set: {},
-            delete: ["SummerSEO"],
-          });
-          return p;
-        },
-      ],
-      [
-        "an unknown format",
-        async (api) => publishManifest(api, { format: 2, set: {}, delete: [] }),
-      ],
-      [
-        "an unexpected field",
-        async (api) => publishManifest(api, { format: 1, set: {}, delete: [], baseRevision: "x" }),
-      ],
-      [
-        "set and delete overlapping",
-        async (api) =>
-          publishManifest(api, { format: 1, set: { A: "d".repeat(64) }, delete: ["A"] }),
-      ],
-      [
-        "a malformed block hash",
-        async (api) => publishManifest(api, { format: 1, set: { A: "../x" }, delete: [] }),
-      ],
-    ];
-    for (const [label, prepare] of cases) {
+  it("DP-6: preview.sources in createCMS replaces the default; it's code only, and an invalid pattern throws", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const own = cmsOf({ preview: { sources: ["studio.example.com"] } });
+    expect(await failed(own.forDraft(pointer))).toEqual(FAILED);
+    expect(api.fetch).not.toHaveBeenCalled();
+    resetForTests();
+    const both = cmsOf({ preview: { sources: ["studio.decocms.com", "studio.example.com"] } });
+    expect(await titleOf(both.forDraft(pointer))).toBe("Draft");
+    // Content can't widen it: the CMS block has no say over sources.
+    resetForTests();
+    const release = docsSnapshot();
+    release.blocks.CMS = {
+      __resolveType: "cms-settings",
+      preview: { hosts: ["*"], sources: ["evil.example"] },
+    };
+    const fromContent = cmsOf({ content: release });
+    expect(
+      await failed(
+        fromContent.forDraft("evil.example/api/acme/decofile/store/x/changes?token=t@1"),
+      ),
+    ).toEqual(FAILED);
+    expect(api.requests.filter((r) => r.url.includes("evil.example"))).toEqual([]);
+    for (const bad of [["https://studio.example.com"], ["studio.example.com/x"], "studio"]) {
+      expect(() => cmsOf({ preview: { sources: bad as never } })).toThrow(/preview\.sources/);
+    }
+  });
+
+  it("DP-7: HTTPS, except plain HTTP for localhost, *.localhost, 127.0.0.1 and [::1]", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        urls.push(String(input));
+        return Response.json({ format: 1, set: {}, delete: [] });
+      }),
+    );
+    const cms = cmsOf({
+      preview: {
+        sources: [
+          "localhost",
+          "127.0.0.1",
+          "studio.localhost",
+          "[::1]",
+          "studio.example.com",
+          "*.lan.example",
+        ],
+      },
+    });
+    for (const host of [
+      "localhost:4000",
+      "studio.localhost",
+      "127.0.0.1:4000",
+      "[::1]:4000",
+      "studio.example.com",
+      "studio.lan.example",
+    ]) {
+      expect((await cms.forDraft(`${host}/changes?token=t@v1`).revision()).endsWith("~v1")).toBe(
+        true,
+      );
+    }
+    expect(urls).toEqual([
+      "http://localhost:4000/changes?token=t&v=v1",
+      "http://studio.localhost/changes?token=t&v=v1",
+      "http://127.0.0.1:4000/changes?token=t&v=v1",
+      "http://[::1]:4000/changes?token=t&v=v1",
+      "https://studio.example.com/changes?token=t&v=v1",
+      "https://studio.lan.example/changes?token=t&v=v1",
+    ]);
+  });
+
+  it("DP-8: only a 200 is accepted: an error status, or a redirect, is a failed draft", async () => {
+    for (const status of [201, 204, 301, 302, 400, 401, 403, 404, 413, 500, 502]) {
       resetForTests();
       const api = deliveryApi();
-      api.publish(1, await hashed("Published"));
-      const cms = hostedCMS();
-      await cms.update();
-      const client = cms.forDraft(await prepare(api));
-      const [value, error] = await client.resolve("SummerSEO");
-      expect({ label, value, code: error?.code }).toEqual({
-        label,
-        value: null,
-        code: "LOADER_FAILED",
-      });
-      expect((await client.list("seo"))[1]?.code).toBe("LOADER_FAILED");
+      const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+      api.respond("summer-sale", () =>
+        status === 204
+          ? new Response(null, { status })
+          : new Response(JSON.stringify({ format: 1, set: {}, delete: [] }), {
+              status,
+              headers: status >= 300 && status < 400 ? { location: "https://evil.example/" } : {},
+            }),
+      );
+      const cms = cmsOf();
+      await cms.forRelease().revision();
+      expect({ status, ...(await failed(cms.forDraft(pointer))) }).toEqual({ status, ...FAILED });
+      expect(api.requests.filter((r) => r.url.includes("evil.example"))).toEqual([]);
     }
   });
 
-  it("DO-11: a failed overlay isn't cached: once its assets are ready, the next client loads it", async () => {
+  it("DP-9: a response over 16 MiB is refused while it downloads", async () => {
     const api = deliveryApi();
-    const { version, assets } = await draftOverlayAssets(SITE, {
-      set: { SummerSEO: seoEntry("Ready") },
+    const pointer = api.draft({});
+    const { body, state } = hugeBody(64);
+    api.respond("summer-sale", () => new Response(body));
+    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
+    expect(state.pulled).toBeLessThanOrEqual(18);
+    // A declared length over the limit isn't read at all.
+    resetForTests();
+    const declared = deliveryApi();
+    const big = declared.draft({});
+    const huge = hugeBody(64);
+    declared.respond(
+      "summer-sale",
+      () => new Response(huge.body, { headers: { "content-length": String(17 * 1024 * 1024) } }),
+    );
+    expect(await failed(cmsOf().forDraft(big))).toEqual(FAILED);
+    expect(huge.state.pulled).toBeLessThanOrEqual(1);
+  }, 60_000);
+
+  it("DP-10: a response that doesn't arrive within 10 seconds is a failed draft", async () => {
+    const timeouts: number[] = [];
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return controller.signal;
     });
-    const pointer = `${HOST}/sites/acme/drafts?${GRANT}@${version}`;
-    const cms = hostedCMS();
-    expect((await cms.forDraft(pointer).resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED"); // preparing
-    for (const [p, body] of assets) api.asset(p, body);
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Ready");
+    let started!: () => void;
+    const fetching = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: unknown, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            started();
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
+    const client = cmsOf().forDraft(POINTER);
+    const result = failed(client);
+    await fetching;
+    expect(timeouts).toEqual([10_000]);
+    controller.abort(new DOMException("timed out", "TimeoutError"));
+    expect(await result).toEqual(FAILED);
   });
 
-  it("DO-12: a pointer into another site's drafts, or with a version that isn't an overlay hash, is refused without a fetch", async () => {
-    const api = deliveryApi();
-    const cms = hostedCMS();
-    for (const pointer of [
-      `${HOST}/sites/other/drafts?${GRANT}@${"a".repeat(64)}`,
-      `${HOST}/sites/acme/drafts/x?${GRANT}@${"a".repeat(64)}`,
-      `${HOST}/sites/acme/drafts?${GRANT}@9f3c1a`,
-    ]) {
-      expect((await cms.forDraft(pointer).resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
+  it("DP-11: the shape is checked: exactly format 1, set and delete, disjoint", async () => {
+    const bodies: unknown[] = [
+      { format: 2, set: {}, delete: [] },
+      { set: {}, delete: [] },
+      { format: 1, set: {}, delete: [], baseRevision: "x" },
+      { format: 1, set: [], delete: [] },
+      { format: 1, set: null, delete: [] },
+      { format: 1, set: {} },
+      { format: 1, set: {}, delete: "HelloWorld" },
+      { format: 1, set: {}, delete: [1] },
+      { format: 1, set: {}, delete: ["A", "A"] },
+      { format: 1, set: { A: seoEntry("x") }, delete: ["A"] },
+      [{ format: 1, set: {}, delete: [] }],
+      "changes",
+      null,
+    ];
+    for (const body of [...bodies, "not json"]) {
+      resetForTests();
+      const api = deliveryApi();
+      const pointer = api.draft({});
+      api.respond("summer-sale", () =>
+        body === "not json" ? new Response("{oops") : Response.json(body),
+      );
+      expect({ body, ...(await failed(cmsOf().forDraft(pointer))) }).toEqual({ body, ...FAILED });
     }
+  });
+
+  it("DP-12: a failed draft is LOADER_FAILED on every call, never published content, and isn't reused", async () => {
+    const api = deliveryApi();
+    api.publish(1, await hashed("Release"));
+    const cms = cmsOf({ site: SITE, token: TOKEN });
+    await cms.update();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    api.respond("summer-sale", () => new Response("bad gateway", { status: 502 }));
+    const client = cms.forDraft(pointer);
+    expect(await failed(client)).toEqual(FAILED);
+    await expect(client.revision()).rejects.toMatchObject({ code: "LOADER_FAILED" });
+    const [, error] = await client.resolve("SummerSEO");
+    expect(String((error?.cause as Error | undefined)?.message)).toContain("HTTP 502");
+    api.respond("summer-sale", () =>
+      Response.json({ format: 1, set: { SummerSEO: seoEntry("Back") }, delete: [] }),
+    );
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Back");
+    expect(api.draftFetches()).toHaveLength(2);
+  });
+
+  it("DP-13: an expired or wrong token gets no content", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } }, { token: "expired" });
+    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
+    expect(api.draftFetches()).toHaveLength(1);
+  });
+
+  it("DP-14: a fetched draft is reused for up to a minute per pointer, at most three per CMS", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const api = deliveryApi();
+    const pointer = (branch: string) =>
+      api.draft({ set: { SummerSEO: seoEntry(branch) } }, { branch });
+    const cms = cmsOf();
+    expect(await titleOf(cms.forDraft(pointer("a")))).toBe("a");
+    now += 59_000;
+    expect(await titleOf(cms.forDraft(pointer("a")))).toBe("a");
+    expect(api.draftFetches()).toHaveLength(1);
+    now += 2_000;
+    await titleOf(cms.forDraft(pointer("a")));
+    expect(api.draftFetches()).toHaveLength(2); // a minute passed: fetched (and its token checked) again
+    for (const branch of ["b", "c", "d"]) await titleOf(cms.forDraft(pointer(branch)));
+    expect(api.draftFetches()).toHaveLength(5);
+    await titleOf(cms.forDraft(pointer("a"))); // the fourth evicted the oldest
+    expect(api.draftFetches()).toHaveLength(6);
+    await titleOf(cms.forDraft(pointer("d")));
+    expect(api.draftFetches()).toHaveLength(6);
+  });
+
+  it("DP-15: drafts need no site or token, and never send them", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    expect(await titleOf(cmsOf().forDraft(pointer))).toBe("Draft");
+    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([STUDIO_HOST]);
+    resetForTests();
+    const hosted = deliveryApi();
+    const hostedPointer = hosted.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    expect(await titleOf(cmsOf({ site: SITE, token: TOKEN }).forDraft(hostedPointer))).toBe(
+      "Draft",
+    );
+    for (const r of hosted.draftFetches()) expect(r.headers.authorization).toBeUndefined();
+  });
+
+  it("DP-16: a pointer whose version is local names no draft: nothing is fetched, forced variants apply", async () => {
+    const api = deliveryApi();
+    const content = docsSnapshot();
+    content.blocks.Banner = {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "always" }, value: "spring" },
+        { rule: { __resolveType: "never" }, value: "summer" },
+      ],
+    };
+    const cms = cmsOf({ content });
+    const local = formatDraftPointer({
+      host: "localhost:4547",
+      path: "/",
+      version: "local",
+      variants: [{ block: "Banner", path: "", index: 1 }],
+    });
+    expect(await cms.forDraft(local).resolve("Banner")).toEqual(["summer", null]);
+    expect(await titleOf(cms.forDraft("localhost:4547/@local"))).toBe("Sunny!");
+    expect(await cms.forDraft("localhost:4547/@local").revision()).toBe("rev-1");
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("DO-13: a draft's assets over 64 MB are refused while they download", async () => {
-    const api = deliveryApi();
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Huge") } });
-    const { overlay } = await draftOverlayAssets(SITE, { set: { SummerSEO: seoEntry("Huge") } });
-    const CHUNK = new Uint8Array(1024 * 1024).fill(0x20);
-    let pulled = 0;
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (pulled === 0) controller.enqueue(new TextEncoder().encode("["));
-        if (pulled >= 192) return controller.close();
-        pulled++;
-        controller.enqueue(CHUNK);
-      },
-    });
-    api.asset(`/sites/acme/draft-blocks/${overlay.set.SummerSEO}.json`, new Response(body));
-    expect((await hostedCMS().forDraft(pointer).resolve("SummerSEO"))[1]?.code).toBe(
-      "LOADER_FAILED",
-    );
-    expect(pulled).toBeLessThan(192);
-  }, 60_000);
-
-  it("DO-14: forced variants (__variant in the pointer) apply on top of the overlay; every variant shares one load", async () => {
+  it("DP-17: forced variants apply on top of the draft's changes; every variant shares one fetch", async () => {
     const api = deliveryApi();
     const banner = {
       __resolveType: "multivariate",
@@ -688,73 +723,27 @@ describe("draft overlays", () => {
         { rule: { __resolveType: "never" }, value: "draft summer" },
       ],
     };
-    const pointer = await api.draft({ set: { Banner: banner } });
+    const pointer = api.draft({ set: { Banner: banner } });
     const parsed = parseDraftPointer(pointer)!;
-    const cms = hostedCMS();
+    const cms = cmsOf();
     const forced = (index: number) =>
       formatDraftPointer({ ...parsed, variants: [{ block: "Banner", path: "", index }] });
     expect(await cms.forDraft(forced(1)).resolve("Banner")).toEqual(["draft summer", null]);
     expect(await cms.forDraft(forced(0)).resolve("Banner")).toEqual(["draft fallback", null]);
     expect(await cms.forDraft(pointer).resolve("Banner")).toEqual([undefined, null]); // the rules
-    expect(api.draftFetches()).toHaveLength(2);
-  });
-});
-
-describe("draft overlays: expiry and refresh", () => {
-  const hostedCMS = () =>
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE, token: TOKEN });
-  let now = 1_000_000;
-  beforeEach(() => {
-    now = 1_000_000;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
+    expect(api.draftFetches()).toHaveLength(1);
   });
 
-  it("DO-15: an authorized manifest is cached only for its response's max-age, so an expired grant fails on a warm server", async () => {
+  it("DP-18: empty changes (a branch before its first save) show production", async () => {
     const api = deliveryApi();
-    api.manifestCaching("private, max-age=120");
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const loader = remote(docsSnapshot());
-    await loader.load(pointer);
-    now += 119_000;
-    await loader.load(pointer);
-    expect(api.draftFetches()).toHaveLength(2); // manifest and block, once
-    now += 2_000;
-    api.expireGrants();
-    await expect(loader.load(pointer)).rejects.toThrow(/HTTP 403/);
+    const pointer = api.draft({}, { branch: "not-saved-yet" });
+    const cms = cmsOf();
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Sunny!");
+    const [pages] = await cms.forDraft(pointer).list("page");
+    expect(pages).toHaveLength(2);
   });
 
-  it("DO-16: a manifest served without max-age, or with no-store, is asked for on every load", async () => {
-    for (const caching of ["private", "no-store, max-age=60"]) {
-      resetForTests();
-      const api = deliveryApi();
-      api.manifestCaching(caching);
-      const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-      const loader = remote(docsSnapshot());
-      await loader.load(pointer);
-      await loader.load(pointer);
-      const version = parseDraftPointer(pointer)!.version;
-      expect(api.draftFetches().filter((r) => r.url.includes(`/drafts/${version}`))).toHaveLength(
-        2,
-      );
-      expect(api.draftFetches()).toHaveLength(3); // the block came from the cache
-    }
-  });
-
-  it("DO-17: a CMS reuses a loaded draft for at most a minute, then loads it again (and its grant is checked)", async () => {
-    const api = deliveryApi();
-    api.manifestCaching("private, max-age=30");
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = hostedCMS();
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-    now += 59_000;
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft"); // reused, though the manifest's max-age passed
-    expect(api.draftFetches()).toHaveLength(2);
-    now += 2_000;
-    api.expireGrants();
-    expect((await cms.forDraft(pointer).resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
-  });
-
-  it("DO-18: release checks don't depend on drafts: a draft client schedules the same check, and later drafts inherit the new release", async () => {
+  it("DP-19: release checks don't depend on drafts: a draft client schedules the same check, never in front of it", async () => {
     const api = deliveryApi();
     api.publish(
       1,
@@ -762,31 +751,36 @@ describe("draft overlays: expiry and refresh", () => {
         HelloWorld: { __resolveType: "post", name: "Republished", path: "/x", date: "2026-10-02" },
       }),
     );
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = hostedCMS();
+    const channel = api.gate("/sites/acme/channels/production.json"); // the background check hangs
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE, token: TOKEN });
     const first = cms.forDraft(pointer);
     expect((await first.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
       "Hello, world",
-    ]); // cold: the fallback
-    await flush(); // the release check, scheduled by the draft client as by any client
-    expect(api.manifestFetches()).toBe(1);
+    ]); // cold: the fallback is the base
+    expect(api.assetFetches()).toBe(0);
+    expect(api.manifestFetches()).toBeLessThanOrEqual(1); // scheduled beside the draft, still pending
+    channel.resolve();
+    await flush();
     const next = cms.forDraft(pointer);
     expect(await titleOf(next)).toBe("Draft");
     expect((await next.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
       "Republished",
     ]);
   });
-});
 
-/** Stores a hand-written manifest under its real version, so only its shape is wrong. */
-async function publishManifest(
-  api: ReturnType<typeof deliveryApi>,
-  manifest: Record<string, unknown>,
-): Promise<string> {
-  const version = await computeContentRevision(manifest);
-  api.asset(`/sites/acme/drafts/${version}.json`, manifest);
-  return `${HOST}/sites/acme/drafts?${GRANT}@${version}`;
-}
+  it("DP-20: an entry named __proto__ in set stays an entry", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({
+      set: JSON.parse(
+        '{"__proto__": {"__resolveType": "seo", "title": "Odd", "description": "d"}}',
+      ),
+    });
+    const [entry] = await cmsOf().forDraft(pointer).resolve("__proto__", { run: false });
+    expect(entry).toEqual({ __resolveType: "seo", title: "Odd", description: "d" });
+    expect(({} as Record<string, unknown>).title).toBeUndefined();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // releases-and-deployment.mdx
@@ -844,7 +838,7 @@ describe("releases-and-deployment", () => {
 
   it("RD-7: a revision unlocks nothing: forRevision(<draft revision>) never reaches the draft", async () => {
     const api = deliveryApi();
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Secret draft") } });
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Secret draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -909,7 +903,7 @@ describe("hosted", () => {
     vi.stubEnv("NODE_ENV", "development");
     const api = deliveryApi();
     api.publish(1, await hashed("Published"));
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -1268,9 +1262,9 @@ describe("hosted-drafts", () => {
     expect(await draftPointer(new Request(link))).toBe(raw);
   });
 
-  it("HD-2: forDraft fetches that version once and serves it from memory afterwards", async () => {
+  it("HD-2: forDraft fetches the pointer once and serves it from memory afterwards", async () => {
     const api = deliveryApi();
-    const pointer = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -1279,12 +1273,12 @@ describe("hosted-drafts", () => {
     });
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-    expect(api.draftFetches()).toHaveLength(2); // one manifest, one changed block
+    expect(api.draftFetches()).toHaveLength(1);
   });
 
   it("HD-3: a draft holds only changed blocks and deletions; every other block is inherited", async () => {
     const api = deliveryApi();
-    const pointer = await api.draft({
+    const pointer = api.draft({
       set: { SummerSEO: seoEntry("Draft") },
       delete: ["HelloWorld"],
     });
@@ -1306,14 +1300,14 @@ describe("hosted-drafts", () => {
   });
 
   it("HD-4: a draft that can't be fetched is an error, never published content", async () => {
-    deliveryApi(); // no such overlay: 404
+    deliveryApi(); // the token in POINTER isn't the one the fake Studio signed: 401
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
       token: TOKEN,
     });
-    const client = cms.forDraft(`${HOST}/sites/acme/drafts?${GRANT}@${"a".repeat(64)}`);
+    const client = cms.forDraft(POINTER);
     const [value, error] = await client.resolve("SummerSEO");
     expect(value).toBeNull();
     expect(error?.code).toBe("LOADER_FAILED");
@@ -1346,7 +1340,7 @@ describe("hosted-drafts", () => {
 
   it("HD-7: the plain request handler example runs as written", async () => {
     const api = deliveryApi();
-    const POINTER = await api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const POINTER = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -1377,11 +1371,12 @@ describe("hosted-drafts", () => {
     expect(await visitor.text()).toBe("Sunny!");
   });
 
-  it("HD-8: without site and token, forDraft reads the content module (no fetch, no error)", async () => {
+  it("HD-8: without site and token, forDraft layers the draft over the content module; only Studio is asked", async () => {
     const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    expect(await titleOf(cms.forDraft(POINTER))).toBe("Sunny!");
-    expect(api.fetch).not.toHaveBeenCalled();
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([STUDIO_HOST]);
   });
 
   it("HD-10: deco-draft is the cookie draftCookie writes and draftPointer reads", async () => {
@@ -1411,7 +1406,7 @@ describe("hosted-drafts", () => {
 
   it("HD-13: forDraft takes only the pointer string (the React Native example)", async () => {
     const api = deliveryApi();
-    const POINTER = await api.draft({ set: { SummerSEO: seoEntry("Mobile draft") } });
+    const POINTER = api.draft({ set: { SummerSEO: seoEntry("Mobile draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -1452,7 +1447,7 @@ describe("hosted-drafts", () => {
       site: SITE,
       token: TOKEN,
     });
-    for (const pointer of ["garbage", "https://x/y@1", "@1", `${HOST}/x@`]) {
+    for (const pointer of ["garbage", "https://x/y@1", "@1", `${STUDIO_HOST}/x@`]) {
       const [value, error] = await cms.forDraft(pointer).list("seo");
       expect(value).toBeNull();
       expect(error?.code).toBe("LOADER_FAILED");
@@ -1463,7 +1458,7 @@ describe("hosted-drafts", () => {
   it("HD-18: preview hosts from the release's CMS block: a draft previews on staging only, every other host serves the release", async () => {
     const api = deliveryApi();
     // The draft tries to allow its own host: settings come from the release, so it can't.
-    const POINTER = await api.draft({
+    const POINTER = api.draft({
       set: {
         SummerSEO: seoEntry("Preview"),
         CMS: { __resolveType: "cms-settings", preview: { hosts: ["*"] } },
@@ -1709,8 +1704,9 @@ describe("hosted-releases-internals", () => {
       token: TOKEN,
     });
     await cms.update();
-    const unprepared = `${HOST}/sites/acme/drafts?${GRANT}@${"b".repeat(64)}`;
-    const [value, error] = await cms.forDraft(unprepared).resolve("SummerSEO");
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    api.respond("summer-sale", () => new Response("no such project", { status: 404 }));
+    const [value, error] = await cms.forDraft(pointer).resolve("SummerSEO");
     expect(value).toBeNull();
     expect(error?.code).toBe("LOADER_FAILED");
   });

@@ -884,19 +884,18 @@ describe("design decisions", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
-  it("dd-11: content can be a Loader with load(pointer?) and optional update()", async () => {
-    const pointers: unknown[] = [];
+  it("dd-11: content can be a Loader with load() and optional update()", async () => {
+    const calls: unknown[][] = [];
     const loader: Loader = {
-      load: async (pointer) => {
-        pointers.push(pointer);
+      load: async (...args: unknown[]) => {
+        calls.push(args);
         return snap({});
       },
     };
     const cms = createCMS({ blocks: {}, content: loader });
     await cms.forRelease().revision();
-    await cms.forDraft("localhost:8000/x@v1").revision();
-    expect(pointers[0] ?? null).toBeNull();
-    expect(pointers[1]).toBe("localhost:8000/x@v1");
+    await cms.forDraft("localhost:8000/x@local").revision(); // deco serve's pointer: no draft
+    expect(calls).toEqual([[], []]);
   });
 
   it("dd-12: a request never waits for update()", async () => {

@@ -128,6 +128,7 @@ function plainVariant({ block, path, index }: ForcedVariant): ForcedVariant {
 }
 
 function normalizeHost(authority: string): string | null {
+  if (authority.startsWith("[")) return normalizeIPv6Host(authority);
   const parts = authority.toLowerCase().split(":");
   if (parts.length > 2) return null;
   const [host, port] = parts;
@@ -135,6 +136,23 @@ function normalizeHost(authority: string): string | null {
   if (port === undefined) return host;
   if (!PORT_RE.test(port) || Number(port) > 65535) return null;
   return `${host}:${port}`;
+}
+
+/** `[addr]` or `[addr]:port`, the address in the compressed, lowercase form a URL gives it. */
+function normalizeIPv6Host(authority: string): string | null {
+  const end = authority.indexOf("]");
+  const address = authority.slice(0, end + 1);
+  const rest = authority.slice(end + 1);
+  if (end === -1 || !/^\[[0-9a-fA-F:.]+\]$/.test(address)) return null;
+  if (rest !== "" && (!rest.startsWith(":") || !PORT_RE.test(rest.slice(1)))) return null;
+  if (rest !== "" && Number(rest.slice(1)) > 65535) return null;
+  let host: string;
+  try {
+    host = new URL(`http://${address}/`).hostname;
+  } catch {
+    return null;
+  }
+  return `${host}${rest}`;
 }
 
 /**

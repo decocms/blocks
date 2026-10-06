@@ -3,23 +3,31 @@
  * the caches every client shares, and the release revisions this process has
  * served. Clients only ever see whole `{ revision, blocks }` snapshots.
  *
- * Drafts are never recorded as served: `forRevision(revision)` takes a
- * revision string a client may hand back, so it must only ever reach published
- * content, never a draft someone loaded with a pointer.
+ * A draft is the release with a draft's changes layered over it (see
+ * ./draftChanges.ts). Drafts are never recorded as served:
+ * `forRevision(revision)` takes a revision string a client may hand back, so
+ * it must only ever reach published content, never a draft someone loaded
+ * with a pointer.
  */
 import { formatDraftPointer, parseDraftPointer } from "./draft.ts";
+import { type DraftChanges, fetchDraftChanges, LOCAL_VERSION, layerDraft } from "./draftChanges.ts";
 import { errors, isResolutionError } from "./errors.ts";
+import type { HostPattern } from "./hosts.ts";
 import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
 
 const SERVED_REVISIONS = 16;
-/** Composed drafts kept per CMS (see /next/studio-implementation's initial limits). */
+/** Fetched drafts kept per CMS. */
 const CACHED_DRAFTS = 3;
-/**
- * How long a loaded draft is reused before `load(pointer)` runs again, so a
- * loader's own checks (a hosted grant's expiry) apply on a warm server too.
- */
+/** How long a fetched draft is reused before it's fetched again, so its token is checked again. */
 const DRAFT_TTL_MS = 60_000;
+
+/** A fetched draft, and the views of it over each release it was layered on. */
+interface CachedDraft {
+  changes: Promise<DraftChanges>;
+  at: number;
+  views: WeakMap<Snapshot, Snapshot>;
+}
 
 export function isLoader(content: unknown): content is Loader {
   return (
@@ -56,9 +64,7 @@ export class ContentStore {
   #source: Snapshot | Loader;
   #release: Promise<Snapshot> | undefined;
   #updating: Promise<{ updated: boolean }> | undefined;
-  readonly #drafts = new BoundedMap<string, { pending: Promise<Snapshot>; at: number }>(
-    CACHED_DRAFTS,
-  );
+  readonly #drafts = new BoundedMap<string, CachedDraft>(CACHED_DRAFTS);
   readonly #served = new BoundedMap<string, Snapshot>(SERVED_REVISIONS);
   /** The release this store last handed a client, for a loader that can't peek. */
   #latest: Snapshot | undefined;
@@ -80,9 +86,9 @@ export class ContentStore {
   release(): Promise<Snapshot> {
     const source = this.#source;
     if (!isLoader(source)) return Promise.resolve(this.#serve(source));
-    if (!this.updatable) return this.#load(source, null).then((snapshot) => this.#serve(snapshot));
+    if (!this.updatable) return this.#load(source).then((snapshot) => this.#serve(snapshot));
     if (this.#release === undefined) {
-      const pending = this.#load(source, null).then((snapshot) => this.#serve(snapshot));
+      const pending = this.#load(source).then((snapshot) => this.#serve(snapshot));
       this.#release = pending;
       // A failed load isn't cached: the next client tries again.
       pending.catch(() => {
@@ -93,33 +99,46 @@ export class ContentStore {
   }
 
   /**
-   * The draft a pointer names. A snapshot has no drafts and ignores the
-   * pointer. A loader gets `load(pointer)` only for a pointer that parses,
-   * formatted again without its `__variant` parameters (so every variant of
-   * one draft shares one load); anything else is `LOADER_FAILED`, never a
-   * silent fallback to the release. A loaded draft is reused for a minute.
+   * The draft a pointer names: its changes, fetched from a host in `sources`,
+   * layered over the release. A pointer that doesn't parse, or any failure, is
+   * `LOADER_FAILED`, never a silent fallback to the release. A pointer whose
+   * version is `local` names no draft: the release, with nothing fetched. The
+   * changes are keyed by the pointer without its `__variant` parameters (every
+   * variant of one draft shares one fetch) and reused for a minute.
    */
-  draft(pointer: string): Promise<Snapshot> {
-    const source = this.#source;
-    if (!isLoader(source)) return this.release();
+  draft(pointer: string, sources: readonly HostPattern[]): Promise<Snapshot> {
     const parsed = parseDraftPointer(pointer);
     if (parsed === null) {
       return Promise.reject(errors.loaderFailed(`invalid draft pointer "${truncate(pointer)}"`));
     }
-    // The draft itself, without the variants a preview forces: those apply per client.
-    const key = formatDraftPointer({
-      host: parsed.host,
-      path: parsed.path,
-      version: parsed.version,
+    if (parsed.version === LOCAL_VERSION) return this.release();
+    const { host, path, version } = parsed;
+    const key = formatDraftPointer({ host, path, version });
+    let entry = this.#drafts.get(key);
+    if (entry === undefined || Date.now() - entry.at >= DRAFT_TTL_MS) {
+      const fetched: CachedDraft = {
+        changes: fetchDraftChanges(parsed, sources).catch((error: unknown) => {
+          throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
+        }),
+        at: Date.now(),
+        views: new WeakMap(),
+      };
+      this.#drafts.set(key, fetched);
+      // A failure isn't reused: the next client fetches again.
+      fetched.changes.catch(() => {
+        if (this.#drafts.get(key) === fetched) this.#drafts.delete(key);
+      });
+      entry = fetched;
+    }
+    const { changes, views } = entry;
+    return Promise.all([this.release(), changes]).then(([base, draft]) => {
+      let view = views.get(base);
+      if (view === undefined) {
+        view = layerDraft(base, draft, version);
+        views.set(base, view);
+      }
+      return view;
     });
-    const cached = this.#drafts.get(key);
-    if (cached !== undefined && Date.now() - cached.at < DRAFT_TTL_MS) return cached.pending;
-    const entry = { pending: this.#load(source, key), at: Date.now() };
-    this.#drafts.set(key, entry);
-    entry.pending.catch(() => {
-      if (this.#drafts.get(key) === entry) this.#drafts.delete(key);
-    });
-    return entry.pending;
   }
 
   /**
@@ -151,8 +170,7 @@ export class ContentStore {
           this.#release = undefined;
           // `#latest` stays: settings keep the release that was serving until
           // the next one loads, never the defaults (which may allow every host).
-          // A loader that ignores the pointer hands back the release as the
-          // draft; that copy is as stale as the release now.
+          // Drafts are fetched again, so a preview follows the release too.
           this.#drafts.clear();
         }
         return { updated };
@@ -175,7 +193,6 @@ export class ContentStore {
     const previous = this.#source;
     if (source === previous) {
       // The same loader (a hosted remoteLoader that adopted new fallback content): re-read it.
-      // Cached drafts were layered over the old content, so they go too.
       this.#release = undefined;
       this.#latest = undefined;
       this.#drafts.clear();
@@ -188,16 +205,13 @@ export class ContentStore {
     this.#drafts.clear();
   }
 
-  async #load(loader: Loader, pointer: string | null): Promise<Snapshot> {
+  async #load(loader: Loader): Promise<Snapshot> {
     let snapshot: unknown;
     try {
-      snapshot = pointer === null ? await loader.load() : await loader.load(pointer);
+      snapshot = await loader.load();
     } catch (error) {
       if (isResolutionError(error)) throw error;
-      throw errors.loaderFailed(
-        pointer === null ? "the content loader failed" : "the draft couldn't load",
-        error,
-      );
+      throw errors.loaderFailed("the content loader failed", error);
     }
     if (!isSnapshot(snapshot)) {
       throw errors.loaderFailed("the content loader returned something other than a snapshot");

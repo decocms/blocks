@@ -2,7 +2,6 @@
  * The docs' running examples (blocks, saved blocks, how resolution works,
  * routing), as one block map and one content module, shared by the v8 tests.
  */
-import { computeBlockHash, computeOverlayVersion, type DraftOverlay } from "./canonical";
 import type { Blocks, Snapshot } from "./types";
 
 export const seo = (props: { title: string; description: string }) => ({ ...props });
@@ -86,25 +85,53 @@ export function docsSnapshot(revision = "rev-1"): Snapshot {
   };
 }
 
+/** The host and token of the fake Studio API below. */
+export const STUDIO_HOST = "studio.decocms.com";
+export const STUDIO_TOKEN = "signed-token";
+
 /**
- * The delivery assets of a hosted draft overlay (see
- * /next/content-delivery#exact-draft-previews), as the site editor prepares
- * them: each changed entry under its block hash, then the manifest under its
- * overlay version. Paths are relative to the delivery origin.
+ * A fake Studio API answering draft pointers the way the docs describe
+ * (/next/content-delivery#draft-previews): per draft branch, the changes
+ * compared with production, behind the token Studio signed. Hand `fetch` to
+ * `vi.stubGlobal("fetch", …)`.
  */
-export async function draftOverlayAssets(
-  site: string,
-  changes: { set?: Record<string, unknown>; delete?: string[] },
-): Promise<{ version: string; overlay: DraftOverlay; assets: Map<string, unknown> }> {
-  const assets = new Map<string, unknown>();
-  const set: Record<string, string> = {};
-  for (const [name, entry] of Object.entries(changes.set ?? {})) {
-    const hash = await computeBlockHash(entry);
-    Object.defineProperty(set, name, { value: hash, enumerable: true }); // even "__proto__"
-    assets.set(`/sites/${site}/draft-blocks/${hash}.json`, entry);
-  }
-  const overlay: DraftOverlay = { format: 1, set, delete: changes.delete ?? [] };
-  const version = await computeOverlayVersion(overlay);
-  assets.set(`/sites/${site}/drafts/${version}.json`, overlay);
-  return { version, overlay, assets };
+export function fakeStudio() {
+  const branches = new Map<string, { set?: Record<string, unknown>; delete?: string[] }>();
+  const overrides = new Map<string, () => Response>();
+  const requests: { url: string; init: RequestInit | undefined }[] = [];
+  const PATH = /^\/api\/acme\/decofile\/store\/([^/]+)\/changes$/;
+  const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input));
+    requests.push({ url: url.href, init });
+    const branch = PATH.exec(url.pathname)?.[1];
+    if (url.host !== STUDIO_HOST || branch === undefined) {
+      return new Response("not found", { status: 404 });
+    }
+    const override = overrides.get(branch);
+    if (override) return override();
+    if (url.searchParams.get("token") !== STUDIO_TOKEN) {
+      return Response.json({ error: "invalid token" }, { status: 401 });
+    }
+    const changes = branches.get(branch) ?? {};
+    return Response.json(
+      { format: 1, set: changes.set ?? {}, delete: changes.delete ?? [] },
+      { headers: { "cache-control": "no-store", "access-control-allow-origin": "*" } },
+    );
+  };
+  return {
+    fetch,
+    requests,
+    /** Saves a draft branch's changes and returns the pointer Studio would mint for them. */
+    draft(
+      changes: { set?: Record<string, unknown>; delete?: string[] },
+      { branch = "summer-sale", version = "9f3c1a", token = STUDIO_TOKEN } = {},
+    ): string {
+      branches.set(branch, changes);
+      return `${STUDIO_HOST}/api/acme/decofile/store/${branch}/changes?token=${token}@${version}`;
+    },
+    /** Answers a branch with this response instead. */
+    respond(branch: string, response: () => Response) {
+      overrides.set(branch, response);
+    },
+  };
 }

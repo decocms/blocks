@@ -115,39 +115,3 @@ export const APPLY_DIGEST_DOMAIN = "deco-content/blocks.apply@1\n";
 export function applyRequestDigest(params: object): Promise<string> {
   return sha256Hex(APPLY_DIGEST_DOMAIN + canonicalJson(params));
 }
-
-/** The version of the draft overlay manifest format below. */
-export const DRAFT_OVERLAY_FORMAT = 1;
-
-/**
- * A draft overlay manifest (see /next/content-delivery#exact-draft-previews):
- * the complete, cumulative set of a draft's changes, never a patch over an
- * earlier version. `set` maps each changed entry's name to the block hash of
- * its JSON; `delete` names the entries the draft removed (tombstones). The two
- * are disjoint. There is no base revision: the server rendering the draft layers it over the
- * production content it already has.
- */
-export interface DraftOverlay {
-  format: typeof DRAFT_OVERLAY_FORMAT;
-  set: Record<string, string>;
-  delete: string[];
-}
-
-/**
- * The block hash of one changed entry: SHA-256 over its canonical JSON,
- * lowercase hex. A draft block asset is stored under it
- * (`/sites/<site>/draft-blocks/<block-hash>.json`), and the SDK checks every
- * asset it downloads hashes to its name.
- */
-export function computeBlockHash(entry: unknown): Promise<string> {
-  return sha256Hex(canonicalJson(entry));
-}
-
-/**
- * The overlay version: SHA-256 over the manifest's canonical JSON, lowercase
- * hex. The manifest is stored under it (`/sites/<site>/drafts/<version>.json`)
- * and a draft pointer names it after its `@`.
- */
-export function computeOverlayVersion(overlay: DraftOverlay): Promise<string> {
-  return sha256Hex(canonicalJson(overlay));
-}

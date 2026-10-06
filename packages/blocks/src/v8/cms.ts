@@ -21,6 +21,7 @@ import {
   defaultSettings,
   isStatic,
   parseCodeHosts,
+  parseCodeSources,
   readSettings,
   type SettingsCaps,
 } from "./settings.ts";
@@ -72,6 +73,8 @@ class CMSInstance {
   readonly #builtIns: Readonly<Blocks>;
   readonly #telemetry: TelemetryPipeline | undefined;
   readonly #caps: SettingsCaps;
+  /** The hosts a draft pointer may name (`preview.sources`): code only, never content. */
+  readonly #sources: readonly HostPattern[];
   /** Settings of a `CMS` block with nothing to run, per release snapshot. */
   #staticSettings = new WeakMap<Snapshot, EffectiveSettings>();
   /** The release and time telemetry last read its section. */
@@ -93,6 +96,7 @@ class CMSInstance {
       hosts: parseCodeHosts(config.preview),
       limits: telemetryLimits(config.telemetry),
     };
+    this.#sources = parseCodeSources(config.preview);
     const destination = resolveDestination(config.telemetry, config.site);
     if (destination !== null) {
       this.#telemetry = new TelemetryPipeline(destination);
@@ -141,17 +145,16 @@ class CMSInstance {
   }
 
   /**
-   * The draft, with the variants the pointer forces (even over a source with no
-   * drafts). A draft client is a production client reading a draft pointer, so
-   * it schedules the release check like any other client.
+   * The draft, with the variants the pointer forces (even for a `local`
+   * pointer, which names no draft). A draft client is a production client
+   * reading a draft pointer, so it schedules the release check like any other.
    */
   forDraft(blocks: Blocks, pointer: string): Client {
     this.#scheduleUpdate();
+    const load = () => this.#store.draft(pointer, this.#sources);
     const variants = parseDraftPointer(pointer)?.variants;
-    if (variants === undefined) return this.#client(blocks, () => this.#store.draft(pointer));
-    return this.#client(blocks, () =>
-      this.#store.draft(pointer).then((snapshot) => forceVariants(snapshot, variants)),
-    );
+    if (variants === undefined) return this.#client(blocks, load);
+    return this.#client(blocks, () => load().then((snapshot) => forceVariants(snapshot, variants)));
   }
 
   forRevision(blocks: Blocks, revision: string): Client {
@@ -366,7 +369,7 @@ export function resetForTests(): void {
   setCurrentTelemetry(undefined);
 }
 
-/** With `site` and `token`, the content is the fallback of hosted releases and drafts. */
+/** With `site` and `token`, the content is the fallback of hosted releases. */
 function contentOf(config: CMSConfig): Snapshot | Loader {
   if (!config.site || !config.token) return config.content;
   return remoteLoader(config.content, { site: config.site, token: config.token });
@@ -385,6 +388,7 @@ function validate(config: CMSConfig): void {
     );
   }
   parseCodeHosts(config.preview);
+  parseCodeSources(config.preview);
 }
 
 function resolveInterval(configured: number | undefined): number {

@@ -30,6 +30,15 @@ describe("parseDraftPointer", () => {
     });
   });
 
+  it("accepts a bracketed IPv6 host, with or without a port, in a URL's form", () => {
+    expect(parseDraftPointer("[::1]:4000/changes?token=t@v1")).toEqual({
+      host: "[::1]:4000",
+      path: "/changes?token=t",
+      version: "v1",
+    });
+    expect(parseDraftPointer("[0:0:0:0:0:0:0:1]/x@v1")?.host).toBe("[::1]");
+  });
+
   it("lowercases the host and keeps path and version as they are", () => {
     expect(parseDraftPointer("API.Deco.Example/Drafts/X?T=Y@AbC_1.2-3")).toEqual({
       host: "api.deco.example",
@@ -66,6 +75,10 @@ describe("parseDraftPointer", () => {
     ["whitespace", "api.deco.example/drafts/x y@v1"],
     ["a fragment", "api.deco.example/drafts/x#frag@v1"],
     ["a double slash path", "api.deco.example//evil.example/x@v1"],
+    ["an unclosed IPv6 bracket", "[::1/x@v1"],
+    ["a name in brackets", "[evil.example]/x@v1"],
+    ["junk after an IPv6 bracket", "[::1]evil.example/x@v1"],
+    ["an IPv6 port out of range", "[::1]:70000/x@v1"],
     ["something absurdly long", `api.deco.example/${"a".repeat(5000)}@v1`],
   ];
   for (const [label, raw] of invalid) {

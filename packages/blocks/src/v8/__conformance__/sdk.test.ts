@@ -29,8 +29,8 @@ import {
 import * as secretsModule from "../secrets";
 import { encryptSecret } from "../secrets";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
-import { docsBlocks, docsSnapshot, hero, seo } from "../testFixtures";
-import type { Blocks, CMS, Loader, Redirect, RequestLike, Route, Snapshot } from "../types";
+import { docsBlocks, docsSnapshot, fakeStudio, hero, seo } from "../testFixtures";
+import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
 /** cms.draftPointer and cms.draftCookie, on a CMS with no settings: every host may preview. */
@@ -38,6 +38,17 @@ const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helper
 const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
 const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
 const DRAFT_COOKIE = "deco-draft";
+
+/** A fake Studio holding one draft that retitles SummerSEO; returns its pointer and the stubbed fetch. */
+function studioDraft(title = "Draft!") {
+  const studio = fakeStudio();
+  const fetch = vi.fn(studio.fetch);
+  vi.stubGlobal("fetch", fetch);
+  const pointer = studio.draft({
+    set: { SummerSEO: { __resolveType: "seo", title, description: "Light layers for long days." } },
+  });
+  return { studio, fetch, pointer };
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkgRoot = path.resolve(here, "../../..");
@@ -233,6 +244,7 @@ createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, secrets
 createCMS({ blocks, content, telemetry: { site: "s", token: "t", limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" } } });
 createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"] } });
+createCMS({ blocks, content, preview: { sources: ["studio.decocms.com", "studio.example.com"] } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
@@ -257,7 +269,7 @@ assert<Equal<ListOptions<number>, { where?: (entry: number) => boolean; sort?: (
 assert<Equal<Block, { __resolveType: string; [input: string]: unknown }>>();
 assert<Equal<BlockFunction, (inputs: any) => unknown | Promise<unknown>>>();
 assert<Equal<Blocks, Record<string, BlockFunction>>>();
-assert<Equal<Loader["load"], (pointer?: string | null) => Promise<Snapshot>>>();
+assert<Equal<Loader["load"], () => Promise<Snapshot>>>();
 assert<Equal<Route, { name: string; path: string }>>();
 assert<Equal<Seo, { title: string; description: string }>>();
 assert<Equal<Page, { name: string; path: string; seo?: Seo; sections: ReactNode[] }>>();
@@ -353,10 +365,17 @@ describe("AR-08 site and token load hosted content only, never telemetry", () =>
     const fetch = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetch);
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
-    const [seo] = await cms.forDraft("delivery.decocms.com/drafts/acme/x@v1").resolve("SummerSEO");
+    const [seo] = await cms.forRelease().resolve("SummerSEO");
     expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
     expect(await cms.update()).toEqual({ updated: false });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("drafts don't need site or token", async () => {
+    const { pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const [seo] = await cms.forDraft(pointer).resolve<{ title: string }>("SummerSEO");
+    expect(seo?.title).toBe("Draft!");
   });
 
   it("site and token with telemetry omitted and no OTEL env: no telemetry", async () => {
@@ -386,38 +405,38 @@ describe("AR-09 / AR-56 secrets", () => {
 });
 
 describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
-  it("a snapshot source ignores the pointer: forDraft reads the release", async () => {
+  it("forDraft layers the pointer's changes over the content module", async () => {
+    const { pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    const draft = cms.forDraft("api.deco.example/drafts/acme/main@9f3c1a");
-    expect(await draft.resolve("SummerSEO")).toEqual(await cms.forRelease().resolve("SummerSEO"));
-    expect(await draft.revision()).toBe("rev-1");
+    const draft = cms.forDraft(pointer);
+    expect((await draft.resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("Draft!");
+    expect((await draft.resolve("HomePage"))[1]).toBeNull();
+    expect(await draft.revision()).toBe("rev-1~9f3c1a");
   });
 
-  it("a draft whose load(pointer) fails makes every call return LOADER_FAILED with the cause", async () => {
-    const cause = new Error("storage down");
-    const loader: Loader = {
-      load: async (pointer) => {
-        if (pointer) throw cause;
-        return docsSnapshot();
-      },
-    };
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const client = cms.forDraft("api.deco.example/drafts/acme/main@9f3c1a");
+  it("a draft whose changes can't be fetched makes every call return LOADER_FAILED with the cause", async () => {
+    const { studio, pointer } = studioDraft();
+    studio.respond("summer-sale", () => new Response("down", { status: 502 }));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const client = cms.forDraft(pointer);
     const [value, error] = await client.resolve("SummerSEO");
     expect(value).toBeNull();
-    expect(error).toMatchObject({ code: "LOADER_FAILED", cause });
+    expect(error?.code).toBe("LOADER_FAILED");
+    expect(String((error?.cause as Error | undefined)?.message)).toContain("HTTP 502");
     const [list, listError] = await client.list("page");
     expect(list).toBeNull();
     expect(listError?.code).toBe("LOADER_FAILED");
   });
 
-  it("a pointer that doesn't parse makes every call return LOADER_FAILED; load(pointer) is never called", async () => {
-    const load = vi.fn(async () => docsSnapshot());
-    const cms = createCMS({ blocks: docsBlocks(), content: { load } });
-    const client = cms.forDraft("garbage");
-    expect((await client.resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
-    expect((await client.list("page"))[1]?.code).toBe("LOADER_FAILED");
-    expect(load).not.toHaveBeenCalledWith("garbage");
+  it("a pointer that doesn't parse, or names a host outside preview.sources, is LOADER_FAILED with no fetch", async () => {
+    const { fetch } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    for (const pointer of ["garbage", "api.deco.example/drafts/acme/main@9f3c1a"]) {
+      const client = cms.forDraft(pointer);
+      expect((await client.resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
+      expect((await client.list("page"))[1]?.code).toBe("LOADER_FAILED");
+    }
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("a snapshot source has no scheduled checks", async () => {
@@ -496,21 +515,18 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
     expect([value, error]).toEqual(["spring", null]);
   });
 
-  it("a loader gets the pointer without them, once for every variant of one draft", async () => {
-    const load = vi.fn(async (_pointer?: string | null) => content());
-    const cms = createCMS({ blocks: docsBlocks(), content: { load } });
+  it("a draft is fetched without them, once for every variant of one draft", async () => {
+    const { fetch, pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: content() });
     const draft = (index: number) =>
       formatDraftPointer({
-        host: "api.deco.example",
-        path: "/drafts/acme/main?token=t",
-        version: "9f3c1a",
+        ...parseDraftPointer(pointer)!,
         variants: [{ block: "Banner", path: "", index }],
       });
     expect((await cms.forDraft(draft(1)).resolve("Banner"))[0]).toBe("summer");
     expect((await cms.forDraft(draft(0)).resolve("Banner"))[0]).toBe("spring");
-    expect(load.mock.calls.filter(([p]) => p)).toEqual([
-      ["api.deco.example/drafts/acme/main?token=t@9f3c1a"],
-    ]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]![0])).not.toContain("__variant");
   });
 });
 
@@ -608,17 +624,17 @@ describe("AR-17 clients are cheap: the content cache lives in the CMS", () => {
 });
 
 describe("AR-18 / AR-19 content: a snapshot or any loader", () => {
-  it("accepts both; load() for the release, load(pointer) for a draft", async () => {
+  it("accepts both; load() takes no argument, and a draft is layered over what it returned", async () => {
     const fromSnapshot = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect((await fromSnapshot.forRelease().resolve("SummerSEO"))[1]).toBeNull();
 
-    const load = vi.fn(async (_pointer?: string | null) => docsSnapshot());
+    const { pointer } = studioDraft();
+    const load = vi.fn(async () => docsSnapshot());
     const cms = createCMS({ blocks: docsBlocks(), content: { load } });
     await cms.forRelease().resolve("SummerSEO");
-    expect(load).toHaveBeenLastCalledWith();
-    const pointer = "api.deco.example/drafts/acme/main@9f3c1a";
-    await cms.forDraft(pointer).resolve("SummerSEO");
-    expect(load).toHaveBeenLastCalledWith(pointer);
+    const [seo] = await cms.forDraft(pointer).resolve<{ title: string }>("SummerSEO");
+    expect(seo?.title).toBe("Draft!");
+    for (const call of load.mock.calls) expect(call).toEqual([]);
   });
 });
 
@@ -629,8 +645,10 @@ describe("AR-22 remoteLoader", () => {
     expect(await remoteLoader(fallback, { site: "", token: "" }).load()).toBe(fallback);
   });
 
-  it("createCMS builds it when site and token are set: forDraft reaches the Deco API", async () => {
-    const fetch = vi.fn(async () => new Response("nope", { status: 404 }));
+  it("createCMS builds it when site and token are set: update() reaches the Deco API", async () => {
+    const fetch = vi.fn(
+      async (_input: string | URL | Request) => new Response("nope", { status: 404 }),
+    );
     vi.stubGlobal("fetch", fetch);
     const cms = createCMS({
       blocks: docsBlocks(),
@@ -638,11 +656,10 @@ describe("AR-22 remoteLoader", () => {
       site: "acme",
       token: "t",
     });
-    const [, error] = await cms
-      .forDraft(`delivery.decocms.com/sites/acme/drafts?grant=g@${"e".repeat(64)}`)
-      .resolve("SummerSEO");
-    expect(error?.code).toBe("LOADER_FAILED");
-    expect(fetch).toHaveBeenCalled();
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "https://delivery.decocms.com/sites/acme/channels/production.json",
+    );
   });
 });
 
@@ -1362,20 +1379,17 @@ describe("AR-64 / AR-65 error codes and paths", () => {
 // ---------------------------------------------------------------------------
 
 describe("RD-02 / RD-04 the draft client works like the release client", () => {
-  it("forDraft passes the pointer to load(pointer); draftPointer picks the client", async () => {
-    const draft = docsSnapshot("draft-1");
-    (draft.blocks.SummerSEO as { title: string }).title = "Draft!";
-    const load = vi.fn(async (pointer?: string | null) => (pointer ? draft : docsSnapshot()));
-    const cms = createCMS({ blocks: docsBlocks(), content: { load } });
+  it("forDraft reads the draft the pointer names; draftPointer picks the client", async () => {
+    const { pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const pick = async (request: Request) => {
       const pointer = await cms.draftPointer(request);
       return pointer ? cms.forDraft(pointer) : cms.forRelease();
     };
-    const pointer = "api.deco.example/drafts/acme/main@9f3c1a";
-    const [d] = await (await pick(new Request(`https://s/?__draft=${pointer}`))).resolve<{
+    const link = `https://s/?__draft=${encodeURIComponent(pointer)}`;
+    const [d] = await (await pick(new Request(link))).resolve<{
       title: string;
     }>("SummerSEO");
-    expect(load).toHaveBeenCalledWith(pointer);
     expect(d?.title).toBe("Draft!");
     const [r] = await (await pick(new Request("https://s/"))).resolve<{ title: string }>(
       "SummerSEO",

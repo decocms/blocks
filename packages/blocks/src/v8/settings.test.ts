@@ -8,10 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOSTED_ANALYTICS_COLLECTOR } from "./builtins/data";
 import { createCMS, instanceOf, resetForTests } from "./cms";
 import { currentTelemetry } from "./telemetry";
-import { docsBlocks, docsSnapshot } from "./testFixtures";
-import type { EffectiveSettings, Loader, Snapshot } from "./types";
+import { docsBlocks, docsSnapshot, fakeStudio } from "./testFixtures";
+import type { EffectiveSettings, Snapshot } from "./types";
 
-const POINTER = "api.deco.example/drafts/acme/main?token=abc@9f3c1a";
+const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
 const DEFAULTS: EffectiveSettings = {
   preview: { hosts: ["*"] },
   telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
@@ -336,38 +336,53 @@ describe("cms.settings(): always the release in memory", () => {
       preview: { hosts: ["staging.example.com"] },
       analytics: { enabled: true },
     });
-    const draft = withSettings(
-      { preview: { hosts: ["*"] }, analytics: { enabled: false } },
-      "draft-1",
-    );
-    const loader: Loader = { load: async (pointer) => (pointer ? draft : release) };
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
+    const studio = fakeStudio();
+    vi.stubGlobal("fetch", vi.fn(studio.fetch));
+    const pointer = studio.draft({
+      set: {
+        CMS: {
+          __resolveType: "cms-settings",
+          preview: { hosts: ["*"] },
+          analytics: { enabled: false },
+        },
+      },
+    });
+    const cms = createCMS({ blocks: docsBlocks(), content: release });
     await cms.forRelease().revision();
-    expect(await cms.forDraft(POINTER).revision()).toBe("draft-1");
-    const settings = await cms.settings();
+    const [saved] = await cms
+      .forDraft(pointer)
+      .resolve<{ preview: unknown }>("CMS", { run: false });
+    expect(saved?.preview).toEqual({ hosts: ["*"] }); // the draft has it…
+    const settings = await cms.settings(); // …the settings don't
     expect(settings.preview.hosts).toEqual(["staging.example.com"]);
     expect(settings.analytics.enabled).toBe(true);
-    const link = `?__draft=${encodeURIComponent(POINTER)}`;
+    const link = `?__draft=${encodeURIComponent(pointer)}`;
     expect(await cms.draftPointer(request(`https://store.example.com/${link}`))).toBeNull();
-    expect(await cms.draftPointer(request(`https://staging.example.com/${link}`))).toBe(POINTER);
+    expect(await cms.draftPointer(request(`https://staging.example.com/${link}`))).toBe(pointer);
   });
 
   it("a draft that changes CMS doesn't change telemetry", async () => {
+    const studio = fakeStudio();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(null)),
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
+        String(input).startsWith("https://studio.decocms.com/")
+          ? studio.fetch(input, init)
+          : new Response(null),
+      ),
     );
     vi.spyOn(Math, "random").mockReturnValue(0);
     const release = withSettings({ telemetry: { traceSampleRate: 0 } });
-    const draft = withSettings({ telemetry: { traceSampleRate: 1 } }, "draft-1");
-    const loader: Loader = { load: async (pointer) => (pointer ? draft : release) };
+    const pointer = studio.draft({
+      set: { CMS: { __resolveType: "cms-settings", telemetry: { traceSampleRate: 1 } } },
+    });
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: loader,
+      content: release,
       telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
     });
     await cms.forRelease().revision();
-    await cms.forDraft(POINTER).resolve("SummerSEO");
+    expect((await cms.forDraft(pointer).resolve("SummerSEO"))[1]).toBeNull();
     expect(currentTelemetry()?.sampleTrace()).toBe(false);
   });
 

@@ -410,18 +410,22 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
   it("X21 api-reference: forRevision pins to a served revision; an unknown revision (or a draft's) behaves like the release", async () => {
     let current = docsSnapshot("rev-1");
     const loader: Loader = {
-      load: async (pointer) => (pointer ? docsSnapshot("draft-rev") : current),
+      load: async () => current,
       update: async () => ({ updated: true }),
     };
+    vi.stubGlobal("fetch", async () => Response.json({ format: 1, set: {}, delete: [] }));
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     expect(await cms.forRelease().revision()).toBe("rev-1");
-    expect(await cms.forDraft("api.deco.example/drafts/x@v1").revision()).toBe("draft-rev");
+    const draftRevision = await cms
+      .forDraft("studio.decocms.com/api/acme/decofile/store/x/changes?token=t@v1")
+      .revision();
+    expect(draftRevision).toBe("rev-1~v1");
     current = docsSnapshot("rev-2");
     await cms.update();
     expect(await cms.forRelease().revision()).toBe("rev-2");
     expect(await cms.forRevision("rev-1").revision()).toBe("rev-1");
     expect(await cms.forRevision("nope").revision()).toBe("rev-2");
-    expect(await cms.forRevision("draft-rev").revision()).toBe("rev-2");
+    expect(await cms.forRevision(draftRevision).revision()).toBe("rev-2");
   });
 
   it("X22 api-reference › Loaders: a loader without update() is asked on every client; update() never throws", async () => {
