@@ -1,6 +1,6 @@
 # Gotchas from the site migrations
 
-Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack`, a Next.js storefront on VTEX and a TanStack Start storefront on VTEX (both private, so no hashes). Commit hashes refer to the two public repos.
+Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack`, a Next.js storefront on VTEX, a TanStack Start storefront on VTEX and a non-ejected FastStore storefront on VTEX (the last three private, so no hashes; FastStore specifics are in `faststore.md`). Commit hashes refer to the two public repos.
 
 ## Before you run the script
 
@@ -57,6 +57,7 @@ v8 has no invoke endpoint. Every call the browser made through `/deco/invoke` be
 ## Next.js App Router
 
 - **`transpilePackages: ['@decocms/blocks']`** while the published package ships `.ts` source (see SKILL.md, step 1). A linked local checkout ships `dist/` and hides this; so does every parity run made against it.
+- **Drafts on Pages Router SSG pages** (no proxy available, as on FastStore): Next 16's compiled pages runtimes inline `tryGetPreviewData`, so a `require.cache` patch never runs. See `faststore.md`.
 - **Drafts on static pages.** `force-static`/ISR pages get stubbed `cookies()`, so they can't read the draft pointer. Divert drafted requests (`?__draft=` or the draft cookie) in `proxy.ts` onto a dynamic route group that binds the pointer, and 404 direct hits on that internal route. Send `Cache-Control: no-store, private` and `X-Robots-Tag: noindex` on both signals.
 - **List pages once per revision.** `list('page')` expands every page's saved-block references; on a site with hundreds of pages that is tens of milliseconds of CPU. Keep the routable list per revision (a revision never changes, a draft has its own) and hand the same array to `matchRoute` so it reuses its lookup. Health and readiness probes go through the same cache, never a fresh `list`.
 - **Head meta order.** If v7 emitted `theme-color`/`color-scheme` after the root layout's metas on some routes, that was a race with Next's viewport resolution. To keep the order deterministic, render those tags from the segment layout (React hoists in tree order) rather than approving a reorder.
@@ -77,6 +78,9 @@ With `site` and `token` set on `createCMS`, a published release goes live withou
 
 ## Content
 
+- **`deco check` in the build gates the deploy.** Once `build` runs it, a Studio save or a content importer that writes something check rejects fails the next deploy. Make importers emit check-clean content (and run `deco check` at their end), and say in the README that the gate exists.
+- **Don't let rendering depend on undeclared `__`-prefixed fields.** `deco check` accepts `_`/`$`/`@` keys, but the docs say the site editor keeps only declared fields, and whether those keys survive a save isn't documented. Routing data (a page type) belongs in a declared field.
+- **Case-only name pairs.** Two saved blocks whose names differ only by letter case can't coexist on macOS disks; v7 silently bundled one. Check which one content references, keep it, and fail the build on such a pair (reading the git index too). v8's write path refuses new ones; `deco content`/`deco check` don't flag an existing pair.
 - `deco check` rejects fields no type declares, `.tsx`-named preview blocks and dangling references: delete or type them (`9a097a1`, `ffa866a`).
 - v7 app blocks (`deco-shopify`, `deco-blog`, `site`) go: apps are code now, configured from env (e.g. `SHOPIFY_STORE_NAME`). Don't re-encrypt secrets runtime code never reads.
 - `website/functions/requestToParam.ts` in a string field becomes the page's route `param` (`/:slug`) the block reads itself.
