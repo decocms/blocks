@@ -5,7 +5,7 @@ import { isAvailable, pickVariant, toProduct } from "../utils/transform";
 import type { NuvemshopList, NuvemshopProduct } from "../utils/types";
 
 export interface Props extends PageProps {
-  /** @description Product handle or id. Defaults to the `/produtos/<handle>/` URL segment. */
+  /** @description Product handle or id. Defaults to the `/produtos/<handle>` URL segment (trailing slash optional). */
   slug?: string;
   /** @default 8 */
   count?: number;

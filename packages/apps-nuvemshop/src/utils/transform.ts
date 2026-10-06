@@ -18,8 +18,11 @@ export interface TransformOptions {
 const IN_STOCK = "https://schema.org/InStock";
 const OUT_OF_STOCK = "https://schema.org/OutOfStock";
 
-// Nuvemshop's own URL scheme — kept so migrated stores don't break SEO links.
-export const productPath = (handle: string) => `/produtos/${handle}/`;
+// Nuvemshop's URL scheme without the trailing slash: createDecoRouter strips it
+// (TanStack's default), so `/produtos/x/` would answer with a redirect and a
+// canonical pointing at it would never be a 200. Old slashed links still land
+// via that redirect, and the loaders accept both forms.
+export const productPath = (handle: string) => `/produtos/${handle}`;
 
 const money = (v: string | null | undefined) => (v == null || v === "" ? undefined : Number(v));
 
@@ -176,7 +179,7 @@ export function categoryChain(
 }
 
 export const categoryPath = (chain: NuvemshopCategory[]) =>
-  `/${chain.map((c) => c.handle).join("/")}/`;
+  `/${chain.map((c) => c.handle).join("/")}`;
 
 export function toBreadcrumbList(
   leaf: NuvemshopCategory | undefined,

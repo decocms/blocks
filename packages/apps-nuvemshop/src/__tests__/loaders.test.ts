@@ -66,10 +66,10 @@ describe("productListingPage", () => {
     expect(lastUrl("/products").searchParams.get("per_page")).toBe("200");
     expect(plp!.products).toHaveLength(1);
     expect(plp!.breadcrumb.itemListElement).toEqual([
-      { "@type": "ListItem", name: "Camisas", item: `${SITE}/camisas/`, position: 1 },
+      { "@type": "ListItem", name: "Camisas", item: `${SITE}/camisas`, position: 1 },
     ]);
     expect(plp!.pageInfo.pageTypes).toEqual(["Category"]);
-    expect(plp!.seo).toMatchObject({ title: "Camisas", canonical: `${SITE}/camisas/` });
+    expect(plp!.seo).toMatchObject({ title: "Camisas", canonical: `${SITE}/camisas` });
   });
 
   it("asks the API for best-selling order (the only sort it must do itself)", async () => {
@@ -106,7 +106,7 @@ describe("productDetailsPage", () => {
     });
     expect(pdp!.product.productID).toBe("1612648511");
     expect(pdp!.product.url).toBe(
-      `${SITE}/produtos/camisa-xadrez-lenhador-azul/?variant=1612648511`,
+      `${SITE}/produtos/camisa-xadrez-lenhador-azul?variant=1612648511`,
     );
   });
 
@@ -183,10 +183,10 @@ describe("categories", () => {
   it("builds a navigation tree with nested URLs", async () => {
     const tree = await categories({}, new Request(`${SITE}/`));
     const calcados = tree.find((c) => c.name === "Calçados")!;
-    expect(calcados.url).toBe(`${SITE}/calcados/`);
+    expect(calcados.url).toBe(`${SITE}/calcados`);
     expect(calcados.children!.map((c) => c.url)).toEqual([
-      `${SITE}/calcados/masculino/`,
-      `${SITE}/calcados/feminino/`,
+      `${SITE}/calcados/masculino`,
+      `${SITE}/calcados/feminino`,
     ]);
     expect(tree.some((c) => c.name === "Masculino")).toBe(false);
   });
