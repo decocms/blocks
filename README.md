@@ -122,6 +122,7 @@ All packages are versioned and released in lockstep.
 | [`@decocms/apps-shopify`](./packages/apps-shopify) | Shopify. |
 | [`@decocms/apps-magento`](./packages/apps-magento) | Magento. |
 | [`@decocms/apps-salesforce`](./packages/apps-salesforce) | Salesforce Commerce Cloud. |
+| [`@decocms/apps-nuvemshop`](./packages/apps-nuvemshop) | Nuvemshop (Tiendanube) headless Storefront API. |
 | [`@decocms/apps-algolia`](./packages/apps-algolia) | Algolia search. |
 | [`@decocms/apps-blog`](./packages/apps-blog) | Blog content and CMS integration. |
 | [`@decocms/apps-resend`](./packages/apps-resend) | Resend transactional email. |

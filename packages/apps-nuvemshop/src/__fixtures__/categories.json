@@ -1,0 +1,63 @@
+{
+  "data": [
+    {
+      "id": 41376194,
+      "name": "Camisas",
+      "handle": "camisas",
+      "parent": null,
+      "subcategories": [],
+      "description": "",
+      "seo_title": "",
+      "seo_description": ""
+    },
+    {
+      "id": 41376195,
+      "name": "Vestidos",
+      "handle": "vestidos",
+      "parent": null,
+      "subcategories": [],
+      "description": "",
+      "seo_title": "",
+      "seo_description": ""
+    },
+    {
+      "id": 41376197,
+      "name": "Calçados",
+      "handle": "calcados",
+      "parent": null,
+      "subcategories": [
+        41376198,
+        41376199
+      ],
+      "description": "",
+      "seo_title": "",
+      "seo_description": ""
+    },
+    {
+      "id": 41376198,
+      "name": "Masculino",
+      "handle": "masculino",
+      "parent": 41376197,
+      "subcategories": [],
+      "description": "",
+      "seo_title": "",
+      "seo_description": ""
+    },
+    {
+      "id": 41376199,
+      "name": "Feminino",
+      "handle": "feminino",
+      "parent": 41376197,
+      "subcategories": [],
+      "description": "",
+      "seo_title": "",
+      "seo_description": ""
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 200,
+    "total": 5,
+    "total_pages": 1
+  }
+}
