@@ -1,0 +1,199 @@
+{
+  "id": 296114659,
+  "name": "Cadeira Freedom",
+  "handle": "cadeira-freedom",
+  "description": "<p>Cadeira ergonômica com encosto reclinável.</p>",
+  "images": [
+    {
+      "id": 987025135,
+      "src": "https://cdn.example.com/products/ca3186f247dfeeb411fd08b8709c058-2de62a8eace3217c2217588225505387-1024-1024.jpg",
+      "alt": "Cadeira ergonômica Freedom com estofado marrom e estrutura branca, com rodas para mobilidade",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025928,
+      "src": "https://cdn.example.com/products/b1dc08503e123833c72259703a915b9-d302a062937284415f17588225988200-1024-1024.jpg",
+      "alt": "Cadeira ergonômica Freedom com assento e encosto cinza escuro e base branca com rodízios",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025134,
+      "src": "https://cdn.example.com/products/63906a3320a879fdd12314a65c2da84-c5b0aba8d5e16a429617588225504194-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 1126804011,
+      "src": "https://cdn.example.com/products/dimensoes-freedom-bf6142824e918b1c0617721972082523-1024-1024.jpg",
+      "alt": "",
+      "height": 1500,
+      "width": 1500
+    },
+    {
+      "id": 987025117,
+      "src": "https://cdn.example.com/products/9856aeacb9b7e7ee477e1d0ab28bfcc-96dd78cb0213a7e66917588225499616-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025115,
+      "src": "https://cdn.example.com/products/99c99a8fc954feee4cc92ff649ae5cc-daef110dfaa77351f817588225498568-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025114,
+      "src": "https://cdn.example.com/products/7e57f5b1da7240cd09d8fa84b2b588c-b332218cca10e07c5117588225497708-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025128,
+      "src": "https://cdn.example.com/products/5a4a0393e162ad463687a7f6238e711-352eb2cf05afd4ef0a17588225502422-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025905,
+      "src": "https://cdn.example.com/products/d8485528a0e82f517cd319e68176e5f-a2e0f7c22a244231fe17588225981493-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 1106281200,
+      "src": "https://cdn.example.com/products/freedom-gato-6fce0629d90092640317703892407376-1024-1024.png",
+      "alt": "Cadeira Freedom ergonômica marrom em ambiente moderno com um gato deitado no apoio para os pés e um notebook sobre a parte traseira da cadeira. ESTUDANDO DE MEDICINA",
+      "height": 1025,
+      "width": 1024
+    },
+    {
+      "id": 987025921,
+      "src": "https://cdn.example.com/products/97cdf8c81a9bd64ce3fe0a756174202-07b2d050a6ec06890717588225985854-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025916,
+      "src": "https://cdn.example.com/products/2906f4c2199556245795e447abb9c76-abf80c79646abf772217588225984321-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    },
+    {
+      "id": 987025909,
+      "src": "https://cdn.example.com/products/52c990ebc0b355004cdc65e8bc50fcd-e2310791e9798b2a4117588225982097-1024-1024.jpg",
+      "alt": "",
+      "height": 1600,
+      "width": 1600
+    }
+  ],
+  "variants": [
+    {
+      "id": 1322141554,
+      "image_id": 987025135,
+      "product_id": 296114659,
+      "position": 1,
+      "price": "3499.00",
+      "price_without_taxes": null,
+      "compare_at_price": "3499.00",
+      "promotional_price": "3149.10",
+      "stock_management": true,
+      "stock": 2,
+      "weight": "24.000",
+      "width": "56.00",
+      "height": "52.00",
+      "depth": "46.00",
+      "sku": "EC-FRDM-BR",
+      "values": ["Marrom"],
+      "barcode": null,
+      "mpn": null,
+      "age_group": null,
+      "gender": null,
+      "created_at": "2025-09-24T21:52:35+0000",
+      "updated_at": "2026-09-14T14:23:11+0000",
+      "cost": null,
+      "visible": true,
+      "inventory_levels": [
+        {
+          "id": 952639018,
+          "variant_id": 1322141554,
+          "location_id": "01H6MX0ZSE5XD7ZYM6MXWPSDKG",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": 1322141564,
+      "image_id": 987025928,
+      "product_id": 296114659,
+      "position": 2,
+      "price": "3499.00",
+      "price_without_taxes": null,
+      "compare_at_price": "3499.00",
+      "promotional_price": "3149.10",
+      "stock_management": true,
+      "stock": 11,
+      "weight": "24.000",
+      "width": "56.00",
+      "height": "52.00",
+      "depth": "46.00",
+      "sku": "EC-FRDM-GY",
+      "values": ["Cinza"],
+      "barcode": null,
+      "mpn": null,
+      "age_group": null,
+      "gender": null,
+      "created_at": "2025-09-24T21:52:35+0000",
+      "updated_at": "2026-09-15T14:48:03+0000",
+      "cost": null,
+      "visible": true,
+      "inventory_levels": [
+        {
+          "id": 952639030,
+          "variant_id": 1322141564,
+          "location_id": "01H6MX0ZSE5XD7ZYM6MXWPSDKG",
+          "stock": 11
+        }
+      ]
+    }
+  ],
+  "brand": "ACME",
+  "tags": "",
+  "categories": [
+    {
+      "id": 20024336,
+      "name": "Cadeiras Ergonômicas",
+      "handle": "cadeiras-ergonomicas",
+      "parent": null,
+      "google_shopping_category": "Móveis > Móveis para escritório > Cadeiras de escritório"
+    },
+    {
+      "id": 20024339,
+      "name": "Relacionados SD",
+      "handle": "relacionados-sd",
+      "parent": null,
+      "google_shopping_category": ""
+    }
+  ],
+  "attributes": ["Cor da base"],
+  "seo_title": "Cadeira Ergônomica Freedom: Se movimente com seu pet",
+  "seo_description": "Descubra a Cadeira Freedom: conforto ajustável, movimento ativo e espaço para seu pet. Trabalhe e relaxe com saúde. Compre agora e transforme seu dia!",
+  "free_shipping": false,
+  "video_url": null,
+  "created_at": "2025-09-24T21:52:35+0000",
+  "custom_fields": [
+    {
+      "key": "manual",
+      "value": "https://files.example.com/manuals/ergonomic-chair-freedom-pt.pdf"
+    }
+  ]
+}
