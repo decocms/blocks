@@ -52,7 +52,8 @@ export const PRODUCT_FIELDS = [
 ].join(",");
 
 /** The default category selection also lacks `parent`, which breaks trees and breadcrumbs. */
-export const CATEGORY_FIELDS = "id,name,handle,parent,subcategories,description,seo_title,seo_description";
+export const CATEGORY_FIELDS =
+  "id,name,handle,parent,subcategories,description,seo_title,seo_description";
 
 const DEFAULT_FIELDS: [RegExp, string][] = [
   [/^\/(search\/)?products(\/|$)/, PRODUCT_FIELDS],

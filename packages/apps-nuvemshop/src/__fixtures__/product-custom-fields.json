@@ -113,9 +113,7 @@
       "height": "52.00",
       "depth": "46.00",
       "sku": "EC-FRDM-BR",
-      "values": [
-        "Marrom"
-      ],
+      "values": ["Marrom"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -149,9 +147,7 @@
       "height": "52.00",
       "depth": "46.00",
       "sku": "EC-FRDM-GY",
-      "values": [
-        "Cinza"
-      ],
+      "values": ["Cinza"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -188,9 +184,7 @@
       "google_shopping_category": ""
     }
   ],
-  "attributes": [
-    "Cor da base"
-  ],
+  "attributes": ["Cor da base"],
   "seo_title": "Cadeira Ergônomica Freedom: Se movimente com seu pet",
   "seo_description": "Descubra a Cadeira Freedom: conforto ajustável, movimento ativo e espaço para seu pet. Trabalhe e relaxe com saúde. Compre agora e transforme seu dia!",
   "free_shipping": false,

@@ -36,10 +36,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-1-P",
-      "values": [
-        "P",
-        "Azul e Preto"
-      ],
+      "values": ["P", "Azul e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -73,10 +70,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-1-M",
-      "values": [
-        "M",
-        "Azul e Preto"
-      ],
+      "values": ["M", "Azul e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -110,10 +104,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-1-G",
-      "values": [
-        "G",
-        "Azul e Preto"
-      ],
+      "values": ["G", "Azul e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -147,10 +138,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-1-GG",
-      "values": [
-        "GG",
-        "Azul e Preto"
-      ],
+      "values": ["GG", "Azul e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -184,10 +172,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-2-P",
-      "values": [
-        "P",
-        "Vermelho e Preto"
-      ],
+      "values": ["P", "Vermelho e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -221,10 +206,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-2-M",
-      "values": [
-        "M",
-        "Vermelho e Preto"
-      ],
+      "values": ["M", "Vermelho e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -258,10 +240,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-2-G",
-      "values": [
-        "G",
-        "Vermelho e Preto"
-      ],
+      "values": ["G", "Vermelho e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -295,10 +274,7 @@
       "height": "0.00",
       "depth": "0.00",
       "sku": "MD001-2-GG",
-      "values": [
-        "GG",
-        "Vermelho e Preto"
-      ],
+      "values": ["GG", "Vermelho e Preto"],
       "barcode": null,
       "mpn": null,
       "age_group": null,
@@ -328,10 +304,7 @@
       "google_shopping_category": ""
     }
   ],
-  "attributes": [
-    "Tamanho",
-    "Cor"
-  ],
+  "attributes": ["Tamanho", "Cor"],
   "seo_title": "",
   "seo_description": "",
   "free_shipping": false,

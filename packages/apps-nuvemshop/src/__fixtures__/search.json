@@ -38,10 +38,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-1-PP",
-          "values": [
-            "PP",
-            "Verde"
-          ],
+          "values": ["PP", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -75,10 +72,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-1-P",
-          "values": [
-            "P",
-            "Verde"
-          ],
+          "values": ["P", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -112,10 +106,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-1-M",
-          "values": [
-            "M",
-            "Verde"
-          ],
+          "values": ["M", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -149,10 +140,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-1-G",
-          "values": [
-            "G",
-            "Verde"
-          ],
+          "values": ["G", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -186,10 +174,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-2-PP",
-          "values": [
-            "PP",
-            "Terracota"
-          ],
+          "values": ["PP", "Terracota"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -223,10 +208,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-2-P",
-          "values": [
-            "P",
-            "Terracota"
-          ],
+          "values": ["P", "Terracota"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -260,10 +242,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-2-M",
-          "values": [
-            "M",
-            "Terracota"
-          ],
+          "values": ["M", "Terracota"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -297,10 +276,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD028-2-G",
-          "values": [
-            "G",
-            "Terracota"
-          ],
+          "values": ["G", "Terracota"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -330,10 +306,7 @@
           "google_shopping_category": ""
         }
       ],
-      "attributes": [
-        "Tamanho",
-        "Cor"
-      ],
+      "attributes": ["Tamanho", "Cor"],
       "seo_title": "",
       "seo_description": "",
       "free_shipping": false,
@@ -378,10 +351,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-1-PP",
-          "values": [
-            "PP",
-            "Estampado"
-          ],
+          "values": ["PP", "Estampado"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -415,10 +385,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-1-P",
-          "values": [
-            "P",
-            "Estampado"
-          ],
+          "values": ["P", "Estampado"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -452,10 +419,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-1-M",
-          "values": [
-            "M",
-            "Estampado"
-          ],
+          "values": ["M", "Estampado"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -489,10 +453,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-1-G",
-          "values": [
-            "G",
-            "Estampado"
-          ],
+          "values": ["G", "Estampado"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -526,10 +487,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-2-PP",
-          "values": [
-            "PP",
-            "Verde"
-          ],
+          "values": ["PP", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -563,10 +521,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-2-P",
-          "values": [
-            "P",
-            "Verde"
-          ],
+          "values": ["P", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -600,10 +555,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-2-M",
-          "values": [
-            "M",
-            "Verde"
-          ],
+          "values": ["M", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -637,10 +589,7 @@
           "height": "0.00",
           "depth": "0.00",
           "sku": "MD018-2-G",
-          "values": [
-            "G",
-            "Verde"
-          ],
+          "values": ["G", "Verde"],
           "barcode": null,
           "mpn": null,
           "age_group": null,
@@ -670,10 +619,7 @@
           "google_shopping_category": ""
         }
       ],
-      "attributes": [
-        "Tamanho",
-        "Cor"
-      ],
+      "attributes": ["Tamanho", "Cor"],
       "seo_title": "",
       "seo_description": "",
       "free_shipping": false,
