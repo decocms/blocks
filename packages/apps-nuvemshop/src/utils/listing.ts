@@ -22,7 +22,17 @@ export const LISTING_WINDOW = 200;
  * The theme's "user" (merchant's manual order) isn't in the API, so it's not
  * offered; `?sort_by=user` falls back to the default sort.
  */
-export const SORT_OPTIONS: SortOption[] = [
+export type SortValue =
+  | "best-selling"
+  | "price-ascending"
+  | "price-descending"
+  | "alpha-ascending"
+  | "alpha-descending"
+  | "created-descending"
+  | "created-ascending"
+  | "discount-descending";
+
+export const SORT_OPTIONS: (SortOption & { value: SortValue })[] = [
   { value: "best-selling", label: "Mais vendidos" },
   { value: "price-ascending", label: "Menor preço" },
   { value: "price-descending", label: "Maior preço" },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getNuvemshopConfig } from "../client";
-import { configure } from "../mod";
+import NuvemshopApp, { configure, type Props } from "../mod";
 import { nuvemshopOperationRouter } from "../utils/operationRouter";
 
 const noSecret = async () => null;
@@ -31,6 +31,25 @@ describe("configure", () => {
     });
     expect(envKey).toBe("NUVEMSHOP_STOREFRONT_TOKEN");
     expect(getNuvemshopConfig().token).toBe("tok");
+  });
+});
+
+describe("CMS Props (admin form for the deco-nuvemshop block)", () => {
+  it("is the shape configure() reads, and is the default export's input", async () => {
+    const props: Props = {
+      storeId: "8336778",
+      currency: "ARS",
+      defaultSort: "price-ascending",
+      apiVersion: "v2026-11",
+    };
+    expect(NuvemshopApp(props)).toEqual({ state: props });
+    await configure({ ...props }, noSecret);
+    expect(getNuvemshopConfig()).toMatchObject({
+      storeId: "8336778",
+      currency: "ARS",
+      defaultSort: "price-ascending",
+      apiVersion: "v2026-11",
+    });
   });
 });
 
