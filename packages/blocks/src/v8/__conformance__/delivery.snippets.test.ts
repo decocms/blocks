@@ -172,14 +172,14 @@ export { pointer };
 `,
 
   // DP-6: content-delivery.mdx, "Draft previews" (where draft pointers may point).
-  "drafts/api-domains.ts": `import { createCMS } from "@decocms/blocks";
+  "drafts/draft-hosts.ts": `import { createCMS } from "@decocms/blocks";
 import blocks from "../.deco";
 import content from "../.deco/blocks.gen";
 
 export const cms = createCMS({
   blocks,
   content,
-  preview: { apiDomains: [".decocms.com", "drafts.example.com"] },   // replaces the defaults
+  preview: { draftHosts: [".decocms.com", "drafts.example.com"] },   // replaces the defaults
 });
 `,
 
@@ -254,7 +254,7 @@ describe("hosted docs examples compile", () => {
     ["HD-13", "drafts/native.ts"],
     ["HD-18", "drafts/preview-host.ts"],
     ["RD-11", "drafts/preview-cap.ts"],
-    ["DP-6", "drafts/api-domains.ts"],
+    ["DP-6", "drafts/draft-hosts.ts"],
   ])("%s: %s", (_claim, file) => {
     expect(errorsIn(file)).toEqual([]);
   });

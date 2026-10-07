@@ -138,10 +138,16 @@ describe("where telemetry goes", () => {
   });
 
   it("a top-level token turns it on to the hosted collector; telemetry: false opts out", async () => {
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), token: "tok" });
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });
     expect(currentTelemetry()).toBeDefined();
     resetForTests();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), token: "tok", telemetry: false });
+    createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: "acme",
+      token: "tok",
+      telemetry: false,
+    });
     expect(currentTelemetry()).toBeUndefined();
   });
 });

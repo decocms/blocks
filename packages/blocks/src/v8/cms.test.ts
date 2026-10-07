@@ -270,35 +270,6 @@ describe("one revision per client", () => {
     expect(await cms.forRelease().resolve("Name")).toEqual(["r2", null]);
   });
 
-  it("forRevision pins a revision this CMS has served; an unknown one behaves like the release", async () => {
-    let revision = "r1";
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: {
-        load: async () => ({ revision, blocks: { Name: revision } }),
-        update: async () => ({ updated: true }),
-      },
-    });
-    expect(await cms.forRelease().revision()).toBe("r1");
-    revision = "r2";
-    await cms.update();
-    expect(await cms.forRelease().revision()).toBe("r2");
-    expect(await cms.forRevision("r1").resolve("Name")).toEqual(["r1", null]);
-    expect(await cms.forRevision("never-served").revision()).toBe("r2");
-  });
-
-  it("forRevision never reaches a draft: a draft revision behaves like the release", async () => {
-    const { pointer } = studioDraft();
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    expect(await cms.forDraft(pointer).revision()).toBe('rev-1~"etag-1"');
-    const client = cms.forRevision('rev-1~"etag-1"');
-    expect(await client.revision()).toBe("rev-1");
-    expect(await client.resolve("SummerSEO")).toEqual([
-      { title: "Sunny!", description: "Light layers for long days." },
-      null,
-    ]);
-  });
-
   it("a client loads its content once, lazily, on first use", async () => {
     const load = vi.fn(async () => docsSnapshot());
     const cms = createCMS({ blocks: docsBlocks(), content: { load } });
@@ -451,7 +422,6 @@ describe("one instance per process", () => {
     expect(instanceOf(proxy)).toBe(instanceOf(app));
     expect(await app.forRelease().resolve("Hero")).toEqual(["app", null]);
     expect(await proxy.forRelease().resolve("Hero")).toEqual(["proxy", null]);
-    expect(await app.forRevision("r1").resolve("Hero")).toEqual(["app", null]);
     expect(await app.forDraft("localhost:4547/@local").resolve("Hero")).toEqual(["app", null]);
     // Still one store: an update through either is seen by both.
     createCMS({
@@ -521,7 +491,6 @@ describe("one instance per process", () => {
       content: { revision: "r1", root: ".deco", blocks: { Home: "after" } },
     });
     expect(await cms.forRelease().resolve("Home")).toEqual(["after", null]);
-    expect(await cms.forRevision("r1").resolve("Home")).toEqual(["after", null]);
   });
 
   it("a loader you write is identified by the loader object", () => {
@@ -640,8 +609,8 @@ describe("one instance per process", () => {
   });
 });
 
-describe("preview.apiDomains", () => {
-  it("replaces the default preview API domains a draft pointer's host must fall under", async () => {
+describe("preview.draftHosts", () => {
+  it("replaces the default draft hosts a draft pointer's host must fall under", async () => {
     const fetch = vi.fn(async (_input: string | URL | Request) =>
       Response.json({ set: {}, delete: [] }),
     );
@@ -654,7 +623,7 @@ describe("preview.apiDomains", () => {
     const own = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
-      preview: { apiDomains: [" Drafts.Example.com "] },
+      preview: { draftHosts: [" Drafts.Example.com "] },
     });
     expect((await own.forDraft(pointer).resolve("SummerSEO"))[1]).toBeNull();
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
@@ -674,15 +643,33 @@ describe("preview.apiDomains", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("throws a TypeError at createCMS on anything but a list of domains", () => {
-    for (const apiDomains of ["a.example", [""], [1], null]) {
+  it("throws a TypeError at createCMS on anything but a list of hosts", () => {
+    for (const draftHosts of ["a.example", [""], [1], null]) {
       expect(() =>
         createCMS({
           blocks: {},
           content: docsSnapshot(),
-          preview: { apiDomains: apiDomains as never },
+          preview: { draftHosts: draftHosts as never },
         }),
       ).toThrow(TypeError);
     }
+  });
+});
+
+describe("site and token", () => {
+  it("token without site throws a configuration error", () => {
+    expect(() => createCMS({ blocks: {}, content: docsSnapshot(), token: "tok" })).toThrow(
+      new TypeError("createCMS: token needs site: pass both, or site alone"),
+    );
+  });
+
+  it("accepts site with token, site alone, or neither", () => {
+    expect(() =>
+      createCMS({ blocks: {}, content: docsSnapshot(), site: "acme", token: "tok" }),
+    ).not.toThrow();
+    resetForTests();
+    expect(() => createCMS({ blocks: {}, content: docsSnapshot(), site: "acme" })).not.toThrow();
+    resetForTests();
+    expect(() => createCMS({ blocks: {}, content: docsSnapshot() })).not.toThrow();
   });
 });

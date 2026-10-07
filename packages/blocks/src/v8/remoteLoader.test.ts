@@ -314,15 +314,16 @@ describe("remoteLoader with createCMS", () => {
     expect(seo?.title).toBe("Published");
   });
 
-  it("a token without site doesn't turn on releases: the content is read as is", async () => {
+  it("a token without site is a configuration error, before anything is fetched", async () => {
     const api = delivery();
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: bundled(),
-      token: "t",
-      telemetry: false,
-    });
-    expect(await cms.update()).toEqual({ updated: false });
+    expect(() =>
+      createCMS({
+        blocks: docsBlocks(),
+        content: bundled(),
+        token: "t",
+        telemetry: false,
+      }),
+    ).toThrow("token needs site: pass both, or site alone");
     expect(api.fetch).not.toHaveBeenCalled();
   });
 

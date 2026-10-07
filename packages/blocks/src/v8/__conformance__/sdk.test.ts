@@ -243,15 +243,15 @@ createCMS({ blocks, content });
 createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, secrets: { key: "k" }, site: "s", token: "t" });
 createCMS({ blocks, content, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" }, resource: { "service.version": "abc" } } });
-createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"], apiDomains: [".decocms.com"] } });
-// @ts-expect-error draft hosts are preview.apiDomains
+createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"], draftHosts: [".decocms.com"] } });
+// @ts-expect-error draft hosts are preview.draftHosts
 createCMS({ blocks, content, preview: { sources: ["studio.example.com"] } });
 // @ts-expect-error the telemetry: { site, token } form is gone: site and token are top-level
 createCMS({ blocks, content, telemetry: { site: "s", token: "t" } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "forRelease" | "forDraft" | "forRevision" | "update" | "settings" | "draftPointer" | "draftCookie">>();
+assert<Equal<keyof CMS, "forRelease" | "forDraft" | "update" | "settings" | "draftPointer" | "draftCookie">>();
 assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
 assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
@@ -259,7 +259,6 @@ assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string):
 assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
-assert<Equal<CMS["forRevision"], (revision: string) => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
 assert<Equal<keyof Client, "resolve" | "list" | "revision">>();
 assert<Equal<Client["revision"], () => Promise<string>>>();
@@ -381,13 +380,12 @@ describe("AR-08 site loads hosted releases; token sends telemetry; neither is ne
     expect(currentTelemetry()).toBeUndefined();
   });
 
-  it("token alone: telemetry to the hosted collector, no delivery", async () => {
-    const { currentTelemetry } = await import("../telemetry");
+  it("token alone is a configuration error: token needs site", () => {
     const fetch = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetch);
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), token: "t" });
-    expect(currentTelemetry()).toBeDefined();
-    expect(await cms.update()).toEqual({ updated: false });
+    expect(() => createCMS({ blocks: docsBlocks(), content: docsSnapshot(), token: "t" })).toThrow(
+      "token needs site: pass both, or site alone",
+    );
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -442,7 +440,7 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     expect(listError?.code).toBe("LOADER_FAILED");
   });
 
-  it("a pointer that doesn't parse, or names a host outside the preview API domains, is LOADER_FAILED with no fetch", async () => {
+  it("a pointer that doesn't parse, or names a host outside the draft hosts, is LOADER_FAILED with no fetch", async () => {
     const { fetch } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     for (const pointer of ["garbage", "api.deco.example/drafts/acme/main@9f3c1a"]) {
@@ -543,22 +541,6 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
     expect(String(fetch.mock.calls[0]![0])).toBe(String(fetch.mock.calls[1]![0]));
     expect(String(fetch.mock.calls[0]![0])).not.toContain("__variant");
     expect((await fetch.mock.results[1]!.value).status).toBe(304);
-  });
-});
-
-describe("AR-12 forRevision", () => {
-  it("pins a served revision; an unknown revision reads the release", async () => {
-    const { loader, publish } = swappableLoader(docsSnapshot("rev-1"));
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const old = await cms.forRelease().revision();
-    const next = docsSnapshot("rev-2");
-    (next.blocks.SummerSEO as { title: string }).title = "New";
-    publish(next);
-    expect(await cms.update()).toEqual({ updated: true });
-    expect(await cms.forRelease().revision()).toBe("rev-2");
-    const [pinned] = await cms.forRevision(old).resolve<{ title: string }>("SummerSEO");
-    expect(pinned?.title).toBe("Sunny!");
-    expect(await cms.forRevision("nope").revision()).toBe("rev-2");
   });
 });
 

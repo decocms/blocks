@@ -15,7 +15,7 @@ import { createInstrumentedFetch } from "../fetch";
 import { createCMS, matchRoute, parseDraftPointer, resetForTests } from "../index";
 import { resolveDestination, setCurrentTelemetry } from "../telemetry";
 import { docsBlocks, docsSnapshot } from "../testFixtures";
-import type { Blocks, Lazy, Loader, Snapshot } from "../types";
+import type { Blocks, Lazy, Snapshot } from "../types";
 
 beforeEach(() => resetForTests());
 afterEach(() => {
@@ -405,27 +405,6 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
     expect(some?.map((e) => e.n)).toEqual([3]);
     const [viaAlias] = await cms.forRelease().list<{ n: number }>("old-post");
     expect(viaAlias).toHaveLength(3);
-  });
-
-  it("X21 api-reference: forRevision pins to a served revision; an unknown revision (or a draft's) behaves like the release", async () => {
-    let current = docsSnapshot("rev-1");
-    const loader: Loader = {
-      load: async () => current,
-      update: async () => ({ updated: true }),
-    };
-    vi.stubGlobal("fetch", async () => Response.json({ set: {}, delete: [] }));
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    expect(await cms.forRelease().revision()).toBe("rev-1");
-    const draftRevision = await cms
-      .forDraft("delivery.decocms.com/sites/acme/drafts/x.json@v1")
-      .revision();
-    expect(draftRevision).toBe("rev-1~v1");
-    current = docsSnapshot("rev-2");
-    await cms.update();
-    expect(await cms.forRelease().revision()).toBe("rev-2");
-    expect(await cms.forRevision("rev-1").revision()).toBe("rev-1");
-    expect(await cms.forRevision("nope").revision()).toBe("rev-2");
-    expect(await cms.forRevision(draftRevision).revision()).toBe("rev-2");
   });
 
   it("X22 api-reference › Loaders: a loader without update() is asked on every client; update() never throws", async () => {

@@ -252,11 +252,11 @@ export interface CMSConfig {
      */
     hosts?: string[];
     /**
-     * The domains a draft pointer's host may fall under; replaces the
-     * defaults (`.decocms.com` and the loopback hosts). An entry starting
-     * with a dot matches any subdomain; any other entry, that exact host.
+     * The hosts a draft pointer may point at; replaces the defaults (v7's
+     * list: `.decocms.com` and the loopback hosts). An entry starting with a
+     * dot matches any subdomain; any other entry, that exact host.
      */
-    apiDomains?: string[];
+    draftHosts?: string[];
   };
   /** The private key that decrypts `secret` blocks. */
   secrets?: { key?: string };
@@ -267,7 +267,7 @@ export interface CMSConfig {
   site?: string;
   /**
    * Your site token (server-only secret): sends telemetry to the hosted Deco
-   * CMS collector. Releases and drafts don't use it.
+   * CMS collector. Releases and drafts don't use it. Needs `site`.
    */
   token?: string;
 }
@@ -309,13 +309,11 @@ export interface CMS {
   forRelease(): Client;
   /**
    * A client reading the draft a pointer names: its changes, fetched from a
-   * preview API domain (`*.decocms.com` and loopback by default;
-   * `createCMS({ preview: { apiDomains } })` replaces the list), over this
+   * draft host (`*.decocms.com` and loopback by default;
+   * `createCMS({ preview: { draftHosts } })` replaces the list), over this
    * server's production content.
    */
   forDraft(pointer: string): Client;
-  /** A client pinned to a revision this CMS has served; an unknown revision behaves like the release. */
-  forRevision(revision: string): Client;
   /** Ask the content source for newer content now; never throws. */
   update(): Promise<{ updated: boolean }>;
   /**

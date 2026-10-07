@@ -1,17 +1,14 @@
 /**
- * The content side of a CMS: one source (the content module or a `Loader`),
- * the caches every client shares, and the release revisions this process has
- * served. Clients only ever see whole `{ revision, blocks }` snapshots.
+ * The content side of a CMS: one source (the content module or a `Loader`)
+ * and the caches every client shares. Clients only ever see whole
+ * `{ revision, blocks }` snapshots.
  *
  * A draft is the release with a draft's changes layered over it (see
- * ./draftChanges.ts). Drafts are never recorded as served:
- * `forRevision(revision)` takes a revision string a client may hand back, so
- * it must only ever reach published content, never a draft someone loaded
- * with a pointer.
+ * ./draftChanges.ts).
  */
 import { formatDraftPointer, parseDraftPointer } from "./draft.ts";
 import {
-  DEFAULT_PREVIEW_API_DOMAINS,
+  DEFAULT_DRAFT_HOSTS,
   type DraftChanges,
   fetchDraftChanges,
   LOCAL_VERSION,
@@ -21,7 +18,6 @@ import { errors, isResolutionError } from "./errors.ts";
 import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
 
-const SERVED_REVISIONS = 16;
 /** Fetched drafts kept per CMS. */
 const CACHED_DRAFTS = 3;
 
@@ -71,17 +67,13 @@ export class ContentStore {
   readonly #drafts = new BoundedMap<string, CachedDraft>(CACHED_DRAFTS);
   /** Draft reads in flight, so concurrent renders of one draft share one request. */
   readonly #draftReads = new Map<string, Promise<CachedDraft>>();
-  readonly #apiDomains: readonly string[];
-  readonly #served = new BoundedMap<string, Snapshot>(SERVED_REVISIONS);
+  readonly #draftHosts: readonly string[];
   /** The release this store last handed a client, for a loader that can't peek. */
   #latest: Snapshot | undefined;
 
-  constructor(
-    source: Snapshot | Loader,
-    apiDomains: readonly string[] = DEFAULT_PREVIEW_API_DOMAINS,
-  ) {
+  constructor(source: Snapshot | Loader, draftHosts: readonly string[] = DEFAULT_DRAFT_HOSTS) {
     this.#source = source;
-    this.#apiDomains = apiDomains;
+    this.#draftHosts = draftHosts;
   }
 
   /** Whether the source can change while the process runs (has `update()`). */
@@ -110,7 +102,7 @@ export class ContentStore {
   }
 
   /**
-   * The draft a pointer names: its changes, fetched from a preview API domain,
+   * The draft a pointer names: its changes, fetched from a draft host,
    * layered over the release. A pointer that doesn't parse, or any failure, is
    * `LOADER_FAILED`, never a silent fallback to the release. A pointer whose
    * version is `local` names no draft: the release, with nothing fetched. The
@@ -129,7 +121,7 @@ export class ContentStore {
     let read = this.#draftReads.get(key);
     if (read === undefined) {
       const held = this.#drafts.get(key);
-      read = fetchDraftChanges(parsed, { domains: this.#apiDomains, etag: held?.etag }).then(
+      read = fetchDraftChanges(parsed, { domains: this.#draftHosts, etag: held?.etag }).then(
         (result) => {
           if (result.status === 304 && held !== undefined) return held;
           if (result.status === 304) throw new Error("draft changes: 304 without a held body");
@@ -170,12 +162,6 @@ export class ContentStore {
    */
   current(): Snapshot | undefined {
     return peekRelease(this.#source) ?? this.#latest;
-  }
-
-  /** A release revision this store has served, or the release when it's unknown (drafts included). */
-  revision(revision: string): Promise<Snapshot> {
-    const served = this.#served.get(revision);
-    return served === undefined ? this.release() : Promise.resolve(served);
   }
 
   /** Asks the source for newer content; never throws, and concurrent calls share one check. */
@@ -220,7 +206,6 @@ export class ContentStore {
       this.#drafts.clear();
       return;
     }
-    if (isSnapshot(previous)) this.#served.delete(previous.revision);
     this.#source = source;
     this.#release = undefined;
     this.#latest = undefined;
@@ -243,7 +228,6 @@ export class ContentStore {
 
   #serve(snapshot: Snapshot): Snapshot {
     this.#latest = snapshot;
-    this.#served.set(snapshot.revision, snapshot);
     return snapshot;
   }
 }

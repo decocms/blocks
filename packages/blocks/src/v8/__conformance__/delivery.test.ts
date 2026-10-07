@@ -510,15 +510,15 @@ describe("draft previews", () => {
     expect(await titleOf(cms.forDraft(upper))).toBe("Draft");
   });
 
-  it("DP-6: createCMS({ preview: { apiDomains } }) replaces the default list; no environment variable does; content can't widen it", async () => {
+  it("DP-6: createCMS({ preview: { draftHosts } }) replaces the default list; no environment variable does; content can't widen it", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     expect(
-      await failed(cmsOf({ preview: { apiDomains: ["studio.example.com"] } }).forDraft(pointer)),
+      await failed(cmsOf({ preview: { draftHosts: ["studio.example.com"] } }).forDraft(pointer)),
     ).toEqual(FAILED);
     expect(api.fetch).not.toHaveBeenCalled();
     resetForTests();
-    const both = cmsOf({ preview: { apiDomains: [" .decocms.com ", "studio.example.com"] } });
+    const both = cmsOf({ preview: { draftHosts: [" .decocms.com ", "studio.example.com"] } });
     expect(await titleOf(both.forDraft(pointer))).toBe("Draft");
     // DECO_PREVIEW_API_DOMAINS (v7's variable) is read by the site, if at all, never by the SDK.
     resetForTests();
@@ -575,7 +575,7 @@ describe("draft previews", () => {
     resetForTests();
     expect(
       (
-        await cmsOf({ preview: { apiDomains: ["[::1]"] } })
+        await cmsOf({ preview: { draftHosts: ["[::1]"] } })
           .forDraft("[::1]:4000/changes?token=t@v3")
           .revision()
       ).endsWith("~v3"),
@@ -903,34 +903,6 @@ describe("releases-and-deployment", () => {
     expect(r).toBe("rev-2");
     expect(n).toBe(2);
   });
-
-  it("RD-6: client.revision() and cms.forRevision(revision) read the same content", async () => {
-    let current = docsSnapshot("rev-1");
-    const loader: Loader = { load: async () => current, update: async () => ({ updated: true }) };
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const r = await cms.forRelease().revision();
-    current = structuredClone(docsSnapshot("rev-2"));
-    (current.blocks.SummerSEO as { title: string }).title = "Rev 2";
-    await cms.update();
-    expect(await titleOf(cms.forRelease())).toBe("Rev 2");
-    const pinned = cms.forRevision(r);
-    expect(await pinned.revision()).toBe("rev-1");
-    expect(await titleOf(pinned)).toBe("Sunny!");
-  });
-
-  it("RD-7: a revision unlocks nothing: forRevision(<draft revision>) never reaches the draft", async () => {
-    const api = deliveryApi();
-    const pointer = api.draft({ set: { SummerSEO: seoEntry("Secret draft") } });
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-    });
-    const draft = cms.forDraft(pointer);
-    expect(await titleOf(draft)).toBe("Secret draft");
-    const byRevision = cms.forRevision(await draft.revision());
-    expect(await titleOf(byRevision)).toBe("Sunny!");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -950,19 +922,21 @@ describe("hosted", () => {
     expect(await cms.forRelease().revision()).toBe("rev-1");
   });
 
-  it("H-3: without site the CMS reads content only, with no delivery request; a token alone turns on nothing but telemetry", async () => {
+  it("H-3: without site the CMS reads content only, with no delivery request; a token without site is a configuration error", async () => {
     const api = deliveryApi();
-    for (const [site, token] of [
-      [undefined, undefined],
-      ["", undefined],
-      [undefined, TOKEN],
-    ] as const) {
+    for (const site of [undefined, ""]) {
       resetForTests();
       const content = docsSnapshot();
-      const cms = createCMS({ blocks: docsBlocks(), content, site, token, telemetry: false });
+      const cms = createCMS({ blocks: docsBlocks(), content, site, telemetry: false });
       expect(await cms.forRelease().revision()).toBe(content.revision);
       await cms.update();
       await flush();
+    }
+    for (const site of [undefined, ""]) {
+      resetForTests();
+      expect(() =>
+        createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site, token: TOKEN }),
+      ).toThrow("token needs site: pass both, or site alone");
     }
     expect(api.fetch).not.toHaveBeenCalled();
   });

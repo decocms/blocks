@@ -247,7 +247,13 @@ describe("where telemetry goes (telemetry.mdx)", () => {
 
   it("tel-04: telemetry: false sends nothing, even with a token", async () => {
     const { fetch } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), token: "tok", telemetry: false });
+    createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: "acme",
+      token: "tok",
+      telemetry: false,
+    });
     expect(currentTelemetry()).toBeUndefined();
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
@@ -262,6 +268,7 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
+      site: "acme",
       token: "tok",
       telemetry: { endpoint: ENDPOINT, headers: { "x-team": "store" } },
     });

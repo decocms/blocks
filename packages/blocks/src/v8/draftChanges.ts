@@ -2,10 +2,10 @@
  * Draft changes (see /next/content-delivery#draft-previews): what a draft
  * pointer's address answers, and how the CMS layers it over production.
  *
- * - The pointer's host must fall under one of the preview API domains (the
- *   same rule as v7): by default `*.decocms.com` (Studio, the delivery CDN,
- *   `local.studio.decocms.com`) and the loopback hosts;
- *   `createCMS({ preview: { apiDomains } })` replaces the list. Any other host
+ * - The pointer's host must fall under one of the draft hosts (the same rule
+ *   as v7's preview API domains): by default `*.decocms.com` (Studio, the
+ *   delivery CDN, `local.studio.decocms.com`) and the loopback hosts;
+ *   `createCMS({ preview: { draftHosts } })` replaces the list. Any other host
  *   is refused before anything is fetched.
  * - `GET <scheme>://<host><path>?v=<version>`: the scheme comes from the
  *   domain that admitted the host, never from the pointer: plain `http` only
@@ -47,7 +47,7 @@ export type DraftRead =
  * matches that exact host. The first entry that matches decides whether a
  * port and plain `http` are allowed.
  */
-export const DEFAULT_PREVIEW_API_DOMAINS: readonly string[] = [
+export const DEFAULT_DRAFT_HOSTS: readonly string[] = [
   "local.studio.decocms.com", // the Studio dev origin (https, with a port)
   "localhost",
   "127.0.0.1",
@@ -56,31 +56,31 @@ export const DEFAULT_PREVIEW_API_DOMAINS: readonly string[] = [
 ];
 
 /**
- * `createCMS`'s `preview.apiDomains`, trimmed and lowercased, or the defaults
+ * `createCMS`'s `preview.draftHosts`, trimmed and lowercased, or the defaults
  * when it's left out. Throws a `TypeError` on anything but a list of
  * non-empty strings.
  */
-export function parseApiDomains(preview: { apiDomains?: unknown } | undefined): readonly string[] {
-  const domains = preview?.apiDomains;
-  if (domains === undefined) return DEFAULT_PREVIEW_API_DOMAINS;
+export function parseDraftHosts(preview: { draftHosts?: unknown } | undefined): readonly string[] {
+  const domains = preview?.draftHosts;
+  if (domains === undefined) return DEFAULT_DRAFT_HOSTS;
   if (
     !Array.isArray(domains) ||
     domains.some((domain) => typeof domain !== "string" || domain.trim() === "")
   ) {
-    throw new TypeError("createCMS: `preview.apiDomains` must be a list of domains");
+    throw new TypeError("createCMS: `preview.draftHosts` must be a list of hosts");
   }
   return domains.map((domain: string) => domain.trim().toLowerCase());
 }
 
 /**
- * The origin a pointer's host is fetched from, or `null` when no preview API
- * domain admits it. Loopback domains (and `local.studio.decocms.com`) may
+ * The origin a pointer's host is fetched from, or `null` when no draft host
+ * admits it. Loopback domains (and `local.studio.decocms.com`) may
  * carry a port; a public domain may not, so a pointer can't aim the fetch at
  * an odd port. Loopback hosts are `http`; everything else is `https`.
  */
 export function previewApiOrigin(
   authority: string,
-  domains: readonly string[] = DEFAULT_PREVIEW_API_DOMAINS,
+  domains: readonly string[] = DEFAULT_DRAFT_HOSTS,
 ): string | null {
   const lower = authority.toLowerCase();
   const end = lower.startsWith("[") ? lower.indexOf("]") + 1 : -1;
@@ -108,11 +108,11 @@ function isLoopbackDomain(domain: string): boolean {
 
 /**
  * The URL the SDK fetches for a pointer: the origin its host is admitted
- * under, the version as `v`. `null` when no preview API domain admits the host.
+ * under, the version as `v`. `null` when no draft host admits the host.
  */
 export function draftChangesUrl(
   pointer: DraftPointer,
-  domains: readonly string[] = DEFAULT_PREVIEW_API_DOMAINS,
+  domains: readonly string[] = DEFAULT_DRAFT_HOSTS,
 ): string | null {
   const origin = previewApiOrigin(pointer.host, domains);
   if (origin === null) return null;
@@ -122,7 +122,7 @@ export function draftChangesUrl(
 
 /**
  * Reads a draft's changes, revalidating `etag` (the ETag of the body the
- * caller holds) when given. Rejects on a host no preview API domain admits
+ * caller holds) when given. Rejects on a host no draft host admits
  * (without fetching), on a `304` to a request that sent no ETag, and on any
  * other failure.
  */
@@ -133,8 +133,8 @@ export async function fetchDraftChanges(
   const url = draftChangesUrl(pointer, options.domains);
   if (url === null) {
     throw new Error(
-      `draft pointer names "${pointer.host}", which isn't under a preview API domain ` +
-        "(createCMS({ preview: { apiDomains } })); nothing was fetched",
+      `draft pointer names "${pointer.host}", which isn't under a draft host ` +
+        "(createCMS({ preview: { draftHosts } })); nothing was fetched",
     );
   }
   const headers: Record<string, string> = { accept: "application/json" };

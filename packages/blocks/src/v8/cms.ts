@@ -13,7 +13,7 @@ import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
 import { draftCookieFor, endsPreview, parseDraftPointer, readDraftPointer } from "./draft.ts";
-import { parseApiDomains } from "./draftChanges.ts";
+import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
@@ -89,7 +89,7 @@ class CMSInstance {
   constructor(config: CMSConfig, interval: number) {
     this.config = config;
     this.#interval = interval;
-    this.#store = new ContentStore(contentOf(config), parseApiDomains(config.preview));
+    this.#store = new ContentStore(contentOf(config), parseDraftHosts(config.preview));
     this.fingerprint = fingerprintOf(config, interval);
     this.#caps = {
       hosts: parseCodeHosts(config.preview),
@@ -153,10 +153,6 @@ class CMSInstance {
     const variants = parseDraftPointer(pointer)?.variants;
     if (variants === undefined) return this.#client(blocks, load);
     return this.#client(blocks, () => load().then((snapshot) => forceVariants(snapshot, variants)));
-  }
-
-  forRevision(blocks: Blocks, revision: string): Client {
-    return this.#client(blocks, () => this.#store.revision(revision));
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -304,10 +300,6 @@ class CMSHandle implements CMS {
     return this.#instance.forDraft(this.#blocks, pointer);
   }
 
-  forRevision(revision: string): Client {
-    return this.#instance.forRevision(this.#blocks, revision);
-  }
-
   update(): Promise<{ updated: boolean }> {
     return this.#instance.update();
   }
@@ -385,8 +377,12 @@ function validate(config: CMSConfig): void {
       "createCMS: `content` must be the content module ({ revision, blocks }) or a loader with load()",
     );
   }
+  // The token is the site's credential: it means nothing without the site it belongs to.
+  if (config.token && !config.site) {
+    throw new TypeError("createCMS: token needs site: pass both, or site alone");
+  }
   parseCodeHosts(config.preview);
-  parseApiDomains(config.preview);
+  parseDraftHosts(config.preview);
 }
 
 function resolveInterval(configured: number | undefined): number {
