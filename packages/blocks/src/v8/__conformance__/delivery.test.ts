@@ -481,7 +481,7 @@ describe("draft previews", () => {
     expect(api.requests.filter((r) => r.url.includes("evil.example"))).toEqual([]);
   });
 
-  it("DP-7: HTTPS, except plain HTTP for localhost, *.localhost, 127.0.0.1 and [::1]; a port only on those and local.studio.decocms.com", async () => {
+  it("DP-7: HTTPS, except plain HTTP for localhost, *.localhost and 127.0.0.1; a port only on those and local.studio.decocms.com; [::1] only when configured", async () => {
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -495,7 +495,6 @@ describe("draft previews", () => {
       "localhost:4000",
       "studio.localhost",
       "127.0.0.1:4000",
-      "[::1]:4000",
       "local.studio.decocms.com:4000",
       "studio.decocms.com",
       "pr-12.pr.studio.decocms.com",
@@ -508,11 +507,21 @@ describe("draft previews", () => {
       "http://localhost:4000/changes?token=t&v=v1",
       "http://studio.localhost/changes?token=t&v=v1",
       "http://127.0.0.1:4000/changes?token=t&v=v1",
-      "http://[::1]:4000/changes?token=t&v=v1",
       "https://local.studio.decocms.com:4000/changes?token=t&v=v1",
       "https://studio.decocms.com/changes?token=t&v=v1",
       "https://pr-12.pr.studio.decocms.com/changes?token=t&v=v1",
     ]);
+
+    // The defaults are v7's, which never listed the IPv6 loopback.
+    urls.length = 0;
+    expect(await failed(cms.forDraft("[::1]:4000/changes?token=t@v2"))).toEqual(FAILED);
+    expect(urls).toEqual([]);
+    // Configured, it is a loopback domain like the others: plain HTTP, any port.
+    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "[::1]");
+    expect(
+      (await cmsOf().forDraft("[::1]:4000/changes?token=t@v3").revision()).endsWith("~v3"),
+    ).toBe(true);
+    expect(urls).toEqual(["http://[::1]:4000/changes?token=t&v=v3"]);
   });
 
   it("DP-8: only a 200 is accepted: an error status, or a redirect, is a failed draft", async () => {

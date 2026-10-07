@@ -46,7 +46,6 @@ export const DEFAULT_PREVIEW_API_DOMAINS: readonly string[] = [
   "local.studio.decocms.com", // the Studio dev origin (https, with a port)
   "localhost",
   "127.0.0.1",
-  "[::1]",
   ".localhost",
   ".decocms.com", // Studio and its preview deployments
 ];
