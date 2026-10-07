@@ -72,6 +72,15 @@ describe("productListingPage", () => {
     expect(plp!.seo).toMatchObject({ title: "Camisas", canonical: `${SITE}/camisas` });
   });
 
+  it("lists the category's default sort first, so a UI without ?sort_by= shows the real order", async () => {
+    const plp = await productListingPage({ __pageUrl: `${SITE}/camisas/` });
+    expect(plp!.sortOptions[0].value).toBe("created-descending");
+    configureNuvemshop({ storeId: "8336778", defaultSort: "price-ascending" });
+    const cheap = await productListingPage({ __pageUrl: `${SITE}/camisas/?x=1` });
+    expect(cheap!.sortOptions[0].value).toBe("price-ascending");
+    expect(cheap!.sortOptions).toHaveLength(plp!.sortOptions.length);
+  });
+
   it("asks the API for best-selling order (the only sort it must do itself)", async () => {
     await productListingPage({ __pageUrl: `${SITE}/camisas/?sort_by=best-selling` });
     expect(lastUrl("/products").searchParams.get("sort_by")).toBe("best-selling");

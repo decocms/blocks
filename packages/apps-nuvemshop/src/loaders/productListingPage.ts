@@ -77,6 +77,11 @@ export default async function productListingPage(
     "@type": "ProductListingPage",
     ...listing,
     ...withPageType(listing.pageInfo, leaf.parent ? "SubCategory" : "Category"),
+    // Default sort first: a sort UI with no ?sort_by= falls back to the first option.
+    sortOptions: [
+      ...listing.sortOptions.filter((o) => o.value === defaultSort),
+      ...listing.sortOptions.filter((o) => o.value !== defaultSort),
+    ],
     breadcrumb: toBreadcrumbList(leaf, categories, origin),
     seo: {
       title: leaf.seo_title || leaf.name,
