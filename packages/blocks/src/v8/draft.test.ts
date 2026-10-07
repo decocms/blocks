@@ -95,6 +95,98 @@ describe("formatDraftPointer", () => {
   });
 });
 
+describe("forced variants (the __variant parameters)", () => {
+  const forced = encodeURIComponent("Home Page@sections.3=1");
+
+  it("lifts them out of the path into variants, keeping the other parameters", () => {
+    expect(parseDraftPointer(`localhost:4547/live?a=1&__variant=${forced}&b=2@local`)).toEqual({
+      host: "localhost:4547",
+      path: "/live?a=1&b=2",
+      version: "local",
+      variants: [{ block: "Home Page", path: "sections.3", index: 1 }],
+    });
+  });
+
+  it("drops the query when only __variant parameters remain; an empty path addresses the block", () => {
+    const own = encodeURIComponent("Flag@=2");
+    expect(parseDraftPointer(`localhost:4547/?__variant=${own}&__variant=${forced}@v`)).toEqual({
+      host: "localhost:4547",
+      path: "/",
+      version: "v",
+      variants: [
+        { block: "Flag", path: "", index: 2 },
+        { block: "Home Page", path: "sections.3", index: 1 },
+      ],
+    });
+  });
+
+  it("splits on the last @ before the last =", () => {
+    const value = encodeURIComponent("a@b@sections.0=0");
+    expect(parseDraftPointer(`h/?__variant=${value}@v`)?.variants).toEqual([
+      { block: "a@b", path: "sections.0", index: 0 },
+    ]);
+  });
+
+  const bad: [string, string][] = [
+    ["no block", encodeURIComponent("@sections.1=0")],
+    ["no @", encodeURIComponent("Home=0")],
+    ["no index", encodeURIComponent("Home@sections")],
+    ["a negative index", encodeURIComponent("Home@sections=-1")],
+    ["a non-integer index", encodeURIComponent("Home@sections=1.5")],
+    ["an index past 9999", encodeURIComponent("Home@sections=10000")],
+    ["an empty path segment", encodeURIComponent("Home@sections..1=0")],
+    ["bad percent-encoding", "Home%E0%A4%A@x=0"],
+  ];
+  for (const [label, value] of bad) {
+    it(`a pointer with ${label} doesn't parse`, () => {
+      expect(parseDraftPointer(`h/x?__variant=${value}@v`)).toBeNull();
+    });
+  }
+
+  it("format appends them, encoded, and round-trips", () => {
+    const pointer = {
+      host: "api.deco.example",
+      path: "/drafts/acme/main?token=t",
+      version: "9f3c1a",
+      variants: [
+        { block: "Home (copy)", path: "sections.variants.0.value.2", index: 1 },
+        { block: "Header", path: "", index: 0 },
+      ],
+    };
+    const raw = formatDraftPointer(pointer);
+    expect(raw).toBe(
+      "api.deco.example/drafts/acme/main?token=t" +
+        "&__variant=Home%20%28copy%29%40sections.variants.0.value.2%3D1" +
+        "&__variant=Header%40%3D0@9f3c1a",
+    );
+    expect(parseDraftPointer(raw)).toEqual(pointer);
+    expect(formatDraftPointer({ host: "h", path: "/", version: "v", variants: [] })).toBe("h/@v");
+  });
+
+  it("format throws on a variant that wouldn't parse back, or a path that already carries one", () => {
+    const base = { host: "h", path: "/x", version: "v" };
+    expect(() =>
+      formatDraftPointer({ ...base, variants: [{ block: "", path: "", index: 0 }] }),
+    ).toThrow(TypeError);
+    expect(() =>
+      formatDraftPointer({ ...base, variants: [{ block: "B", path: "a..b", index: 0 }] }),
+    ).toThrow(TypeError);
+    expect(() =>
+      formatDraftPointer({ ...base, variants: [{ block: "B", path: "", index: 1.5 }] }),
+    ).toThrow(TypeError);
+    expect(() => formatDraftPointer({ ...base, path: `/x?__variant=${forced}` })).toThrow(
+      TypeError,
+    );
+  });
+
+  it("draftCookie stores a pointer with forced variants", () => {
+    const pointer = `localhost:4547/?__variant=${forced}@local`;
+    expect(
+      draftCookie(request(`https://s.example/?__draft=${encodeURIComponent(pointer)}`)),
+    ).toContain(`${DRAFT_COOKIE}=${encodeURIComponent(pointer)};`);
+  });
+});
+
 function request(url: string, cookie?: string): Request {
   return new Request(url, { headers: cookie ? { cookie } : {} });
 }

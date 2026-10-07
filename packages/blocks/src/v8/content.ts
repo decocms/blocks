@@ -70,8 +70,10 @@ export class ContentStore {
 
   /**
    * The draft a pointer names. A snapshot has no drafts and ignores the
-   * pointer. A loader gets `load(pointer)` only for a pointer that parses;
-   * anything else is `LOADER_FAILED`, never a silent fallback to the release.
+   * pointer. A loader gets `load(pointer)` only for a pointer that parses,
+   * formatted again without its `__variant` parameters (so every variant of
+   * one draft shares one load); anything else is `LOADER_FAILED`, never a
+   * silent fallback to the release.
    */
   draft(pointer: string): Promise<Snapshot> {
     const source = this.#source;
@@ -80,10 +82,15 @@ export class ContentStore {
     if (parsed === null) {
       return Promise.reject(errors.loaderFailed(`invalid draft pointer "${truncate(pointer)}"`));
     }
-    const key = formatDraftPointer(parsed);
+    // The draft itself, without the variants a preview forces: those apply per client.
+    const key = formatDraftPointer({
+      host: parsed.host,
+      path: parsed.path,
+      version: parsed.version,
+    });
     const cached = this.#drafts.get(key);
     if (cached !== undefined) return cached;
-    const pending = this.#load(source, pointer);
+    const pending = this.#load(source, key);
     this.#drafts.set(key, pending);
     pending.catch(() => this.#drafts.delete(key));
     return pending;

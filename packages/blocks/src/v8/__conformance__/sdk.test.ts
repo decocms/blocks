@@ -417,6 +417,91 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
   });
 });
 
+describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a-variant)", () => {
+  const flag = (n: number) => ({
+    rule: { __resolveType: "segment", n },
+    value: { __resolveType: "lazy", value: { __resolveType: "heavy", n } },
+  });
+  const content = (): Snapshot => ({
+    revision: "r1",
+    blocks: {
+      Home: {
+        __resolveType: "page",
+        name: "Home",
+        path: "/",
+        sections: [{ __resolveType: "multivariate", variants: [flag(0), flag(1), flag(2)] }],
+      },
+      Banner: {
+        __resolveType: "website/flags/multivariate.ts",
+        variants: [
+          { rule: { __resolveType: "always" }, value: "spring" },
+          { rule: { __resolveType: "never" }, value: "summer" },
+        ],
+      },
+    },
+  });
+  const pointer = (...variants: { block: string; path: string; index: number }[]) =>
+    formatDraftPointer({ host: "localhost:4547", path: "/", version: "local", variants });
+
+  it("the content module has no drafts, yet forDraft applies them; no rule runs; the release is untouched", async () => {
+    const segment = vi.fn(({ n }: { n: number }) => n === 0);
+    const heavy = vi.fn(({ n }: { n: number }) => `variant ${n}`);
+    const cms = createCMS({ blocks: { segment, heavy }, content: content() });
+    const draft = cms.forDraft(pointer({ block: "Home", path: "sections.0", index: 2 }));
+    const [page] = await draft.resolve<{ sections: unknown[] }>("Home");
+    expect(page?.sections).toEqual(["variant 2"]);
+    expect(segment).not.toHaveBeenCalled();
+    expect(heavy).toHaveBeenCalledTimes(1);
+    const [release] = await cms.forRelease().resolve<{ sections: unknown[] }>("Home");
+    expect(release?.sections).toEqual(["variant 0"]);
+    expect(await draft.revision()).toBe("r1");
+  });
+
+  it("the documented example, as written", () => {
+    expect(
+      formatDraftPointer({
+        host: "localhost:4547",
+        path: "/",
+        version: "local",
+        variants: [{ block: "Home", path: "sections.3", index: 1 }],
+      }),
+    ).toBe("localhost:4547/?__variant=Home%40sections.3%3D1@local");
+  });
+
+  it("a legacy multivariate saved on its own is addressed with an empty path", async () => {
+    const cms = createCMS({ blocks: docsBlocks(), content: content() });
+    const [value] = await cms
+      .forDraft(pointer({ block: "Banner", path: "", index: 1 }))
+      .resolve("Banner");
+    expect(value).toBe("summer");
+  });
+
+  it("a stale address renders the content as saved", async () => {
+    const cms = createCMS({ blocks: docsBlocks(), content: content() });
+    const [value, error] = await cms
+      .forDraft(pointer({ block: "Banner", path: "variants.0", index: 1 }))
+      .resolve("Banner");
+    expect([value, error]).toEqual(["spring", null]);
+  });
+
+  it("a loader gets the pointer without them, once for every variant of one draft", async () => {
+    const load = vi.fn(async (_pointer?: string | null) => content());
+    const cms = createCMS({ blocks: docsBlocks(), content: { load } });
+    const draft = (index: number) =>
+      formatDraftPointer({
+        host: "api.deco.example",
+        path: "/drafts/acme/main?token=t",
+        version: "9f3c1a",
+        variants: [{ block: "Banner", path: "", index }],
+      });
+    expect((await cms.forDraft(draft(1)).resolve("Banner"))[0]).toBe("summer");
+    expect((await cms.forDraft(draft(0)).resolve("Banner"))[0]).toBe("spring");
+    expect(load.mock.calls.filter(([p]) => p)).toEqual([
+      ["api.deco.example/drafts/acme/main?token=t@9f3c1a"],
+    ]);
+  });
+});
+
 describe("AR-12 forRevision", () => {
   it("pins a served revision; an unknown revision reads the release", async () => {
     const { loader, publish } = swappableLoader(docsSnapshot("rev-1"));

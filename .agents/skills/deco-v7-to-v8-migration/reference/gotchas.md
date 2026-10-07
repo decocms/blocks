@@ -45,6 +45,13 @@ v8 has no invoke endpoint. Every call the browser made through `/deco/invoke` be
 - `website/functions/requestToParam.ts` in a string field becomes the page's route `param` (`/:slug`) the block reads itself.
 - Register blocks under their v7 names only, or the site editor lists them twice (`57561bd`).
 
+## Editing locally (`deco serve`)
+
+v8 ships no dev hook for content changes; two pieces of template code make a save show up (recipes: the TanStack Start and Next.js guides, "Edit in the site editor"):
+
+- **Take a new content module without re-running `src/cms.ts`.** On Vite, accept `../.deco/blocks.gen` in `cms.ts` and hand the new module to `createCMS` again (it adopts it for the same `.deco` root and returns the same instance). Re-running `cms.ts` instead leaves server functions holding the old module, and the first request after a save fails with `client is not a function`.
+- **Reload open pages when `.deco/blocks.gen.ts` changes.** Only the server imports it, so Vite swaps it without touching the browser: a small Vite plugin (`apply: "serve"`, `hotUpdate`) sends `full-reload` to the client environment. Without it the site editor's preview keeps showing the old content until a manual reload.
+
 ## Telemetry and analytics
 
 - Telemetry: set `OTEL_EXPORTER_OTLP_ENDPOINT` to the OTLP collector and the auth header as the `OTEL_EXPORTER_OTLP_HEADERS` secret in production; send nothing in dev or parity runs (`89eae7d`).
