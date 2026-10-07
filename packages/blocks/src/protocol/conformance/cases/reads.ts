@@ -1,24 +1,14 @@
 /**
  * `describe`, `schema.get` and `blocks.list`, including conditional reads.
  */
-import { ErrorCode } from "../../errors.ts";
 import { PROTOCOL_NAME, SCHEMA_FORMAT } from "../../types.ts";
-import { assert, assertEqual, expectError } from "../context.ts";
+import { assert, assertEqual } from "../context.ts";
 import type { ConformanceCase } from "./types.ts";
-
-const LIMIT_KEYS = [
-  "maxOpsPerApply",
-  "maxBlockBytes",
-  "maxRequestBytes",
-  "maxListBytes",
-  "maxSchemaBytes",
-  "maxBatchResponseBytes",
-] as const;
 
 export const readCases: ConformanceCase[] = [
   {
     id: "describe/shape",
-    title: "describe reports the protocol, its version, kind, root, limits and features",
+    title: "describe reports the protocol, its version, kind, root and features",
     async run(ctx) {
       const d = await ctx.client.describe();
       assertEqual(d.protocol, PROTOCOL_NAME, "protocol");
@@ -29,14 +19,7 @@ export const readCases: ConformanceCase[] = [
       assert(typeof d.readOnly === "boolean", "readOnly");
       assert(typeof d.root === "string" && !d.root.startsWith("/"), "root is relative");
       assertEqual(d.schemaFormat, SCHEMA_FORMAT, "schemaFormat");
-      assert(d.refs === null || typeof d.refs.default === "string", "refs");
-      assert(
-        d.writes.idempotency === null || d.writes.idempotency.retentionMs > 0,
-        "writes.idempotency",
-      );
-      assert(typeof d.writes.schemaPreconditions === "boolean", "writes.schemaPreconditions");
       assert(d.pollIntervalMs > 0, "pollIntervalMs");
-      for (const key of LIMIT_KEYS) assert(d.limits[key] > 0, `limits.${key}`);
       assert(
         d.preview === null || /^https?:\/\//.test(String(d.preview?.url)),
         "preview is null or { url } with an http(s) URL",
@@ -63,18 +46,35 @@ export const readCases: ConformanceCase[] = [
     id: "schema/read",
     title: "schema.get returns the schema and a version, and 'not modified' for that version",
     async run(ctx) {
-      if (ctx.options.hasSchema === false) {
-        await expectError(ctx.client.schemaGet(), ErrorCode.NotFound, "no schema");
-        return;
-      }
+      if (ctx.options.hasSchema === false) return ctx.skip("no schema (see schema/absent)");
       const first = await ctx.client.schemaGet();
-      assert(!first.notModified, "the first read returns the schema");
+      assert(!first.notModified && first.schema !== null, "the first read returns the schema");
       assert(typeof first.version === "string" && first.version.length > 0, "a version");
       assert(typeof first.schema === "object" && first.schema !== null, "a schema object");
       const again = await ctx.client.schemaGet({ ifNoneMatch: first.version });
       assertEqual(again, { notModified: true, version: first.version }, "the conditional read");
       const stale = await ctx.client.schemaGet({ ifNoneMatch: `${first.version}-stale` });
       assert(!stale.notModified, "another version returns the schema");
+    },
+  },
+  {
+    id: "schema/absent",
+    title: "without a schema, schema.get is schema: null (not an error) and blocks still list",
+    async run(ctx) {
+      if (ctx.options.hasSchema !== false) return ctx.skip("the endpoint has a schema");
+      const result = await ctx.client.schemaGet();
+      assertEqual(
+        result,
+        {
+          notModified: false,
+          version: null,
+          resolvedRef: result.notModified ? null : result.resolvedRef,
+          schema: null,
+        },
+        "the no-schema result",
+      );
+      const list = await ctx.client.blocksList();
+      assert(!list.notModified, "blocks.list returns the map without a schema");
     },
   },
   {
@@ -90,8 +90,10 @@ export const readCases: ConformanceCase[] = [
         Object.keys(first.blocks).sort(),
         "one version per entry",
       );
-      const d = await ctx.describe();
-      if (d.refs === null) assertEqual(first.resolvedRef, null, "resolvedRef without refs");
+      assert(
+        first.resolvedRef === null || typeof first.resolvedRef === "string",
+        "resolvedRef is a branch or null",
+      );
       const again = await ctx.client.blocksList({ ifNoneMatch: first.revision });
       assertEqual(
         again,
@@ -112,7 +114,7 @@ export const readCases: ConformanceCase[] = [
           : [
               {
                 method: "schema.get" as const,
-                params: { ifNoneMatch: (await ctx.client.schemaGet()).version },
+                params: { ifNoneMatch: (await ctx.client.schemaGet()).version ?? undefined },
               },
               ...calls,
             ],
@@ -120,48 +122,6 @@ export const readCases: ConformanceCase[] = [
       for (const outcome of outcomes) {
         assert(outcome.ok, "every poll call succeeds");
         assert((outcome.result as { notModified: boolean }).notModified, "nothing changed");
-      }
-    },
-  },
-  {
-    id: "refs/unsupported",
-    title: "a ref on an endpoint without branches is Unsupported",
-    async run(ctx) {
-      const d = await ctx.describe();
-      if (d.refs !== null) return ctx.skip("the endpoint has branches");
-      await expectError(
-        ctx.client.blocksList({ ref: "main" }),
-        ErrorCode.Unsupported,
-        "blocks.list ref",
-      );
-      await expectError(
-        ctx.client.schemaGet({ ref: "main" }),
-        ErrorCode.Unsupported,
-        "schema.get ref",
-      );
-      if (!d.readOnly) {
-        await expectError(
-          ctx.client.blocksApply({ ref: "main", delete: [ctx.name()] }),
-          ErrorCode.Unsupported,
-          "blocks.apply ref",
-        );
-      }
-    },
-  },
-  {
-    id: "auth/token",
-    title: "a missing or wrong bearer token is HTTP 401 with Unauthorized",
-    async run(ctx) {
-      if (ctx.options.token === undefined) return ctx.skip("the endpoint has no token");
-      const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
-      for (const authorization of ["", "Bearer wrong-token"]) {
-        const response = await ctx.raw(body, { headers: { authorization } });
-        assertEqual(response.status, 401, `HTTP status with "${authorization}"`);
-        assertEqual(
-          (response.body as { error?: { code: number } }).error?.code,
-          ErrorCode.Unauthorized,
-          "the error code",
-        );
       }
     },
   },

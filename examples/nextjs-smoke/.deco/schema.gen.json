@@ -1,5 +1,6 @@
 {
   "major": 1,
+  "blocksMajor": 8,
   "version": "0.0.0",
   "namespace": "site",
   "site": "nextjs-smoke-fixture",
@@ -96,12 +97,8 @@
           "$ref": "#/definitions/c2Vv",
           "namespace": "site"
         },
-        "telemetry": {
-          "$ref": "#/definitions/dGVsZW1ldHJ5",
-          "namespace": "deco"
-        },
-        "analytics": {
-          "$ref": "#/definitions/YW5hbHl0aWNz",
+        "cms-settings": {
+          "$ref": "#/definitions/Y21zLXNldHRpbmdz",
           "namespace": "deco"
         }
       }
@@ -624,9 +621,10 @@
           }
         }
       },
-      "dGVsZW1ldHJ5": {
-        "title": "telemetry",
-        "description": "Telemetry switches and sample rates",
+      "Y21zLXNldHRpbmdz": {
+        "title": "cms-settings",
+        "description": "Preview hosts, telemetry and analytics: the saved block named CMS",
+        "icon": "settings",
         "type": "object",
         "required": [
           "__resolveType"
@@ -635,59 +633,68 @@
           "__resolveType": {
             "type": "string",
             "enum": [
-              "telemetry"
+              "cms-settings"
             ],
-            "default": "telemetry"
+            "default": "cms-settings"
           },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
+          "preview": {
+            "type": "object",
+            "title": "Preview",
+            "properties": {
+              "hosts": {
+                "type": "array",
+                "title": "Hosts",
+                "description": "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, every host (or the hosts code allows).",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           },
-          "metrics": {
-            "type": "boolean",
-            "title": "Metrics",
-            "default": true
+          "telemetry": {
+            "type": "object",
+            "title": "Telemetry",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "title": "Enabled",
+                "default": true
+              },
+              "metrics": {
+                "type": "boolean",
+                "title": "Metrics",
+                "default": true
+              },
+              "errorSampleRate": {
+                "type": "number",
+                "title": "Error sample rate",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.05
+              },
+              "traceSampleRate": {
+                "type": "number",
+                "title": "Trace sample rate",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0
+              }
+            }
           },
-          "errorSampleRate": {
-            "type": "number",
-            "title": "Error sample rate",
-            "minimum": 0,
-            "maximum": 1,
-            "default": 0.05
-          },
-          "traceSampleRate": {
-            "type": "number",
-            "title": "Trace sample rate",
-            "minimum": 0,
-            "maximum": 1,
-            "default": 0
-          }
-        }
-      },
-      "YW5hbHl0aWNz": {
-        "title": "analytics",
-        "description": "Page view analytics settings",
-        "type": "object",
-        "required": [
-          "__resolveType"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "analytics"
-            ],
-            "default": "analytics"
-          },
-          "collector": {
-            "type": "string",
-            "title": "Collector"
-          },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
+          "analytics": {
+            "type": "object",
+            "title": "Analytics",
+            "properties": {
+              "collector": {
+                "type": "string",
+                "title": "Collector"
+              },
+              "enabled": {
+                "type": "boolean",
+                "title": "Enabled",
+                "default": true
+              }
+            }
           }
         }
       },
@@ -1301,10 +1308,7 @@
             "$ref": "#/definitions/c2Vv"
           },
           {
-            "$ref": "#/definitions/dGVsZW1ldHJ5"
-          },
-          {
-            "$ref": "#/definitions/YW5hbHl0aWNz"
+            "$ref": "#/definitions/Y21zLXNldHRpbmdz"
           }
         ]
       }

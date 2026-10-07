@@ -321,6 +321,50 @@ export class TsNode {
     return t && typeof t === "object" && "kind" in t ? this.ctx.node(t) : undefined;
   }
 
+  /**
+   * The declarations of the type aliases a type annotation names, as written:
+   * `Kind` and `Kind | null` both give `Kind`'s. The checker drops the alias
+   * from `Kind | undefined`, so this is how a field finds its alias.
+   */
+  getAliasDeclarationTexts(): string[] {
+    const ts = this.ctx.ts;
+    const node = this.compilerNode as TS.TypeNode;
+    const members = ts.isUnionTypeNode(node) ? node.types : [node];
+    const texts: string[] = [];
+    for (const member of members) {
+      const decl = this.ctx.checker.getTypeFromTypeNode(member).aliasSymbol?.declarations?.[0];
+      if (decl) texts.push(decl.getText(decl.getSourceFile()));
+    }
+    return texts;
+  }
+
+  /**
+   * The `@format` on the type alias this annotation names: `Color`,
+   * `Color | null` and `Color[]` (then `items` is set) all give `Color`'s.
+   * Read from the alias's declaration, since the checker drops an alias of a
+   * primitive (`type Color = string` is just `string`).
+   */
+  getAliasFormat(): { format: string; items: boolean } | undefined {
+    const ts = this.ctx.ts;
+    const checker = this.ctx.checker;
+    const node = this.compilerNode as TS.TypeNode;
+    for (const member of ts.isUnionTypeNode(node) ? node.types : [node]) {
+      const items = ts.isArrayTypeNode(member);
+      const target = items ? member.elementType : member;
+      if (!ts.isTypeReferenceNode(target)) continue;
+      let symbol = checker.getSymbolAtLocation(target.typeName);
+      if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+      const decl = symbol?.declarations?.find(ts.isTypeAliasDeclaration);
+      if (!decl) continue;
+      for (const tag of ts.getJSDocTags(decl)) {
+        if (tag.tagName.text !== "format") continue;
+        const format = ts.getTextOfJSDocComment(tag.comment)?.trim();
+        if (format) return { format, items };
+      }
+    }
+    return undefined;
+  }
+
   /** Whether `other` is this node or inside it. */
   contains(other: TsNode): boolean {
     const a = this.compilerNode;

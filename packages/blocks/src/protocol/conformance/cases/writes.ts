@@ -274,46 +274,18 @@ export const writeCases: ConformanceCase[] = [
     },
   },
   {
-    id: "apply/schema-precondition",
-    title: "ifSchemaMatch rejects a write when the schema changed",
-    async run(ctx) {
-      const d = await writable(ctx);
-      const name = ctx.name("schema-guarded");
-      if (!d.writes.schemaPreconditions) {
-        await expectError(
-          ctx.client.blocksApply({ set: { [name]: {} }, ifSchemaMatch: "x" }),
-          ErrorCode.Unsupported,
-          "an unadvertised guard",
-        );
-        return;
-      }
-      if (ctx.options.hasSchema === false) return ctx.skip("no schema");
-      const { version } = await ctx.client.schemaGet();
-      const error = await expectError(
-        ctx.client.blocksApply({ set: { [name]: {} }, ifSchemaMatch: `${version}-old` }),
-        ErrorCode.Conflict,
-        "a stale schema version",
-      );
-      assertEqual(
-        (error.data as { schema?: unknown }).schema,
-        { expected: `${version}-old`, actual: version },
-        "the conflict's schema versions",
-      );
-      assert(!(name in (await list(ctx)).blocks), "nothing was written");
-      await ctx.client.blocksApply({ set: { [name]: {} }, ifSchemaMatch: version });
-    },
-  },
-  {
     id: "apply/unknown-params",
     title: "an unknown parameter is refused, so an unknown guard never becomes an unguarded write",
     async run(ctx) {
       await writable(ctx);
       const name = ctx.name("unknown-param");
-      await expectError(
-        ctx.client.call("blocks.apply", { set: { [name]: {} }, ifUnmodifiedSince: "x" } as never),
-        ErrorCode.InvalidParams,
-        "an unknown guard",
-      );
+      for (const param of ["ifUnmodifiedSince", "ifSchemaMatch", "requestKey", "ref"]) {
+        await expectError(
+          ctx.client.call("blocks.apply", { set: { [name]: {} }, [param]: "x" } as never),
+          ErrorCode.InvalidParams,
+          `the unknown parameter ${param}`,
+        );
+      }
       assert(!(name in (await list(ctx)).blocks), "nothing was written");
     },
   },

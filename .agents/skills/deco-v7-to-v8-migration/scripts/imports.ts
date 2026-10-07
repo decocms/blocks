@@ -30,11 +30,10 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "Client",
     "CMS",
     "CMSError",
+    "CMSSettings",
     "createCMS",
-    "DRAFT_COOKIE",
     "DraftPointer",
-    "draftCookie",
-    "draftPointer",
+    "EffectiveSettings",
     "formatDraftPointer",
     "Lazy",
     "ListOptions",
@@ -44,6 +43,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "Page",
     "parseDraftPointer",
     "Redirect",
+    "RequestLike",
     "Result",
     "Route",
     "remoteLoader",
@@ -70,7 +70,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /(^|\/)(invoke|createInvoke)$|\/sdk\/invoke/,
-    "/deco/invoke is gone: call upstream clients from server functions or route handlers (/next/renames-and-migrations#loaders-actions-and-invoke)",
+    "/deco/invoke is gone: one server function per loader or action, imported by each call site, never a rebuilt invoke tree (/next/renames-and-migrations#loaders-actions-and-invoke)",
   ],
   [
     /^@decocms\/blocks-admin(\/|$)/,
@@ -98,7 +98,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /(OneDollarStats|Analytics)$|^@decocms\/blocks\/sdk\/analytics$/,
-    "AnalyticsScript and track from @decocms/blocks/analytics, with the built-in analytics block (/next/analytics)",
+    "AnalyticsScript and track from @decocms/blocks/analytics, with the analytics section of cms.settings() (/next/analytics)",
   ],
   [
     /^@decocms\/apps-salesforce(\/|$)|^@decocms\/apps\/salesforce(\/|$)/,
@@ -122,6 +122,10 @@ const HINTS: [RegExp, string][] = [
   ],
 ];
 const DEFAULT_HINT = "no v8 equivalent";
+/** Prerelease root exports that became CMS methods. */
+const DRAFT_HELPERS = new Set(["draftPointer", "draftCookie", "DRAFT_COOKIE"]);
+const DRAFT_HINT =
+  "draftPointer and draftCookie are the async cms.draftPointer and cms.draftCookie now (they check the preview hosts), and DRAFT_COOKIE is gone: pass cms.draftPointer the request, or { url, headers } (/next/api-reference#draft-pointers)";
 
 const SOURCE = /\.(tsx?|mts|cts)$/;
 
@@ -195,7 +199,10 @@ function isDocumented(specifier: string, names: string[]): boolean {
   return api === "*" || names.every((n) => api.has(n));
 }
 
-function hintFor(specifier: string): string {
+function hintFor(specifier: string, names: Iterable<string>): string {
+  if (specifier === "@decocms/blocks" && [...names].some((n) => DRAFT_HELPERS.has(n))) {
+    return DRAFT_HINT;
+  }
   return HINTS.find(([pattern]) => pattern.test(specifier))?.[1] ?? DEFAULT_HINT;
 }
 
@@ -328,7 +335,7 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
     report.manual.push({
       step: "imports",
       subject: `${specifier} {${[...names].join(", ")}}`,
-      message: `${hintFor(specifier)}; in ${where}`,
+      message: `${hintFor(specifier, names)}; in ${where}`,
     });
   }
 }

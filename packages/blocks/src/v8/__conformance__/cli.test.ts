@@ -3,9 +3,9 @@
  * Docs conformance: the `deco` CLI, `deco schema`, `deco check`, `deco serve`
  * and the content protocol as the local server exposes it.
  *
- * Source of truth: docs/content/next/{cli,schema,checking,site-editor,
- * content-protocol,studio-compatibility,studio-implementation}.mdx on the
- * blocks-site `docs/blocks-site` branch. Each test is named after the claim it
+ * Source of truth: src/content/docs/en/storefront/blocks/next/{cli,schema,checking,site-editor,
+ * content-protocol,studio-compatibility,studio-implementation}.mdx in
+ * deco-sites/docs-tanstack. Each test is named after the claim it
  * checks (cli-01, sch-03, …). Tests for claims the code doesn't meet yet are
  * left failing on purpose: the fix step turns them green.
  */
@@ -19,6 +19,7 @@ import { gunzipSync } from "node:zlib";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorCode } from "../../protocol/errors";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
+import { BLOCKS_MAJOR } from "../../protocol/types";
 import {
   createFixture,
   type Fixture,
@@ -101,7 +102,6 @@ function rpcCall(server: RunningServer, body: unknown, headers: Record<string, s
   return raw(server.endpoint, {
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${server.token}`,
       ...headers,
     },
     body: JSON.stringify(body),
@@ -137,7 +137,7 @@ async function serveFixture(
   options: Parameters<typeof startServer>[0] = {},
 ): Promise<RunningServer & { log: ReturnType<typeof recorder> }> {
   const log = recorder();
-  const s = await startServer({ cwd: root, port: 0, token: "t0k3n", reporter: log, ...options });
+  const s = await startServer({ cwd: root, port: 0, reporter: log, ...options });
   servers.push(s);
   return Object.assign(s, { log });
 }
@@ -172,11 +172,15 @@ export interface Seo { title: string; description: string }
 export interface Post extends Route { body: string }
 export interface Hero { title: string }
 export enum Tone { Light = "light", Dark = "dark" }
+/** @format color */
+export type BrandColor = string;
+/** @format color */
+export type TextTone = "black" | "white";
 `,
   "src/sections.tsx": `
 import type { ReactNode } from "react";
 import type { Lazy, Secret } from "@decocms/blocks";
-import type { Hero, Post, Product, Seo, Tone } from "./model";
+import type { BrandColor, Hero, Post, Product, Seo, TextTone, Tone } from "./model";
 
 export interface AllProps {
   text: string;
@@ -222,6 +226,11 @@ export interface AllProps {
   fTextarea?: string;
   /** @format color */
   fColor?: string;
+  brand?: BrandColor;
+  textTone?: TextTone | null;
+  palette?: BrandColor[];
+  /** @format textarea */
+  notes?: BrandColor;
   /** @format image-uri */
   fImage?: string;
   /** @options ["sm", "md", "lg"] */
@@ -625,12 +634,6 @@ describe("cli.mdx", () => {
         "127.0.0.1",
         "--preview",
         "localhost:8001",
-        "--token",
-        "t",
-        "--allow-origin",
-        "https://a",
-        "--allow-origin",
-        "https://b",
         "--assets",
         "static",
         "--read-only",
@@ -640,12 +643,10 @@ describe("cli.mdx", () => {
       port: "1",
       host: "127.0.0.1",
       preview: "localhost:8001",
-      token: "t",
-      "allow-origin": ["https://a", "https://b"],
       assets: "static",
       "read-only": true,
     });
-    for (const flag of ["--watch", "--studio", "--open", "--cors"]) {
+    for (const flag of ["--watch", "--studio", "--open", "--cors", "--token", "--allow-origin"]) {
       const r = await deco(["serve", flag], f.root);
       expect(r.code).toBe(1);
       expect(r.out).toContain(`unknown flag ${flag}`);
@@ -657,7 +658,7 @@ describe("cli.mdx", () => {
     const log = recorder();
     let s: RunningServer;
     try {
-      s = await startServer({ cwd: f.root, reporter: log, token: "x" });
+      s = await startServer({ cwd: f.root, reporter: log });
     } catch (error) {
       // Something else holds 4545 on this machine: the error names the port.
       expect(String(error)).toContain("port 4545 is in use");
@@ -665,19 +666,19 @@ describe("cli.mdx", () => {
     }
     servers.push(s);
     expect(s.port).toBe(4545);
-    expect(s.endpoint).toBe("http://127.0.0.1:4545/rpc");
-    expect(log.text()).toContain("http://127.0.0.1:4545/rpc");
+    expect(s.endpoint).toBe("http://localhost:4545/rpc");
+    expect(log.text()).toContain("http://localhost:4545/rpc");
   });
 
-  it("cli-15: --host defaults to loopback; another address warns", async () => {
+  it("cli-15: --host defaults to loopback, shown as localhost; another address warns", async () => {
     const f = fixture();
     const loop = await serveFixture(f.root);
-    expect(loop.endpoint.startsWith("http://127.0.0.1:")).toBe(true);
+    expect(loop.endpoint.startsWith("http://localhost:")).toBe(true);
     expect(loop.log.lines.filter((l) => l.level === "warn")).toEqual([]);
 
     const open = await serveFixture(f.root, { host: "0.0.0.0" });
     const warns = open.log.lines.filter((l) => l.level === "warn").map((l) => l.message);
-    expect(warns.join("\n")).toMatch(/other machines can reach this server/);
+    expect(warns.join("\n")).toMatch(/other machines on the network can reach this server/);
   });
 
   it("cli-16: --preview defaults to the Vite config's port, else http://localhost:5173", async () => {
@@ -698,47 +699,44 @@ describe("cli.mdx", () => {
     });
   });
 
-  it("cli-17: --token / DECO_SERVE_TOKEN fix the token; otherwise random per run", async () => {
+  it("cli-17: deco serve has no token: no Authorization, DECO_SERVE_TOKEN ignored, none in the link", async () => {
     const f = fixture();
-    const a = await serveFixture(f.root, { token: "abc" });
-    expect(a.token).toBe("abc");
-    expect((await call(a, "describe")).result.protocol).toBe("deco-content");
-
-    const b = await serveFixture(f.root, { token: undefined, env: { DECO_SERVE_TOKEN: "abc" } });
-    expect(b.token).toBe("abc");
-    const ok = await raw(b.endpoint, {
-      headers: { "content-type": "application/json", authorization: "Bearer abc" },
+    process.env.DECO_SERVE_TOKEN = "abc";
+    let a: Awaited<ReturnType<typeof serveFixture>>;
+    try {
+      a = await serveFixture(f.root);
+    } finally {
+      delete process.env.DECO_SERVE_TOKEN;
+    }
+    expect("token" in a).toBe(false);
+    expect(a.siteEditorUrl).toBe(
+      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(a.endpoint)}`,
+    );
+    expect(a.log.text()).not.toMatch(/token/i);
+    const plain = await raw(a.endpoint, {
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
-    expect(ok.json().result.protocol).toBe("deco-content");
-
-    const c = await serveFixture(f.root, { token: undefined, env: {} });
-    const d = await serveFixture(f.root, { token: undefined, env: {} });
-    expect(c.token).not.toBe(d.token);
-    expect(c.token.length).toBeGreaterThanOrEqual(32);
+    expect(plain.status).toBe(200);
+    expect(plain.json().result.protocol).toBe("deco-content");
+    // An Authorization header is neither needed nor checked.
+    const stray = await rpcCall(
+      a,
+      { jsonrpc: "2.0", id: 1, method: "describe" },
+      { authorization: "Bearer anything" },
+    );
+    expect(stray.status).toBe(200);
   });
 
-  it("cli-18 / cp-42: --allow-origin is repeatable; other origins are refused", async () => {
+  it("cli-18 / cp-42: any origin is answered, its Origin reflected", async () => {
     const f = fixture();
-    const s = await serveFixture(f.root, {
-      allowOrigins: ["https://one.example", "https://two.example"],
-    });
-    for (const origin of [
-      "https://one.example",
-      "https://two.example",
-      "https://studio.decocms.com",
-    ]) {
+    const s = await serveFixture(f.root);
+    for (const origin of ["https://studio.decocms.com", "https://example.com"]) {
       const r = await rpcCall(s, { jsonrpc: "2.0", id: 1, method: "describe" }, { origin });
       expect(r.status).toBe(200);
       expect(r.headers["access-control-allow-origin"]).toBe(origin);
+      expect(r.headers.vary).toBe("Origin");
     }
-    const evil = await rpcCall(
-      s,
-      { jsonrpc: "2.0", id: 1, method: "describe" },
-      { origin: "https://evil.example" },
-    );
-    expect(evil.status).toBe(403);
-    expect(evil.json().error.code).toBe(ErrorCode.Forbidden);
   });
 
   it("cli-19: --assets is relative to the app root; the field always stores /assets/<name>", async () => {
@@ -746,7 +744,7 @@ describe("cli.mdx", () => {
     const s = await serveFixture(f.root, { assets: "static/img" });
     const r = await raw(s.endpoint.replace("/rpc", "/assets/x.png"), {
       method: "PUT",
-      headers: { "content-type": "image/png", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "image/png" },
       body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
     });
     expect(r.status).toBeGreaterThanOrEqual(200);
@@ -767,7 +765,7 @@ describe("cli.mdx", () => {
     expect(f.exists(".deco/blocks/A.json")).toBe(false);
     const up = await raw(s.endpoint.replace("/rpc", "/assets/x.png"), {
       method: "PUT",
-      headers: { "content-type": "image/png", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "image/png" },
       body: Buffer.from([1, 2, 3]),
     });
     expect(up.status).toBeGreaterThanOrEqual(400);
@@ -785,7 +783,6 @@ describe("cli.mdx", () => {
     expect(d.root).toBe("apps/storefront");
     expect(d.server.name).toBe("deco-cli");
     expect(d.kind).toBe("working-tree");
-    expect(d.refs).toBeNull();
     expect(d.pollIntervalMs).toBe(2000);
     expect(d.assets.dir).toBe("apps/storefront/public/assets");
     expect(d.preview).toEqual({ url: "http://localhost:3001" });
@@ -968,6 +965,25 @@ describe("schema.mdx", () => {
     expect(p.fTextarea.format).toBe("textarea");
     expect(p.fColor.format).toBe("color");
     expect(p.fImage.format).toBe("image-uri");
+  });
+
+  it("sch-26: @format on a type alias reaches every field of that type, a select included", () => {
+    const p = propsOf("everything").properties;
+    expect(p.brand).toMatchObject({ type: "string", format: "color" });
+    expect(p.textTone).toMatchObject({ type: "string", enum: ["black", "white"], format: "color" });
+    expect(p.palette.items).toMatchObject({ type: "string", format: "color" });
+    expect(p.notes.format).toBe("textarea"); // the field's own tag wins
+  });
+
+  it('sch-27: the schema declares a top-level "blocksMajor": 8, the package major', () => {
+    expect(meta.blocksMajor).toBe(8);
+    expect(meta.blocksMajor).toBe(BLOCKS_MAJOR);
+    // The major, not the version string. A published build's package.json
+    // major must agree with it (the source tree sits at 0.0.0).
+    const version: string = JSON.parse(
+      fs.readFileSync(path.join(PKG, "package.json"), "utf8"),
+    ).version;
+    if (version !== "0.0.0") expect(Number(version.split(".")[0])).toBe(BLOCKS_MAJOR);
   });
 
   it("sch-18 / sch-21: @options, literal unions and enums all become a JSON Schema enum", () => {
@@ -1236,6 +1252,21 @@ describe("checking.mdx", () => {
     }).forRelease();
     expect(await cms.resolve("H")).toEqual([{ hero: "x" }, null]);
   });
+
+  it('chk-16: deco check rejects a schema without "blocksMajor": 8 and says to run deco schema', async () => {
+    const f = fixture(STORE_FILES);
+    expect((await deco(["schema"], f.root)).code).toBe(0);
+    expect(JSON.parse(f.read(".deco/schema.gen.json")).blocksMajor).toBe(8);
+    expect((await deco(["check"], f.root)).code).toBe(0);
+    const { blocksMajor: _, ...legacy } = JSON.parse(f.read(".deco/schema.gen.json"));
+    for (const schema of [legacy, { ...legacy, blocksMajor: 7 }]) {
+      f.write(".deco/schema.gen.json", schema);
+      const r = await deco(["check"], f.root);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('expected "blocksMajor": 8');
+      expect(r.out).toContain("run deco schema");
+    }
+  }, 60_000);
 });
 
 // ===========================================================================
@@ -1250,23 +1281,20 @@ describe("site-editor.mdx", () => {
       ".deco/blocks/B.json": { __resolveType: "page", name: "B", path: "/b" },
     });
     fs.writeFileSync(path.join(appRoot, ".deco/schema.gen.json"), "{}\n");
-    const s = await serveFixture(path.join(appRoot, "src"), {
-      env: {},
-      token: "secret-token",
-    });
+    const s = await serveFixture(path.join(appRoot, "src"));
     expect(repo).toBeTruthy();
     const lines = s.log.lines.map((l) => l.message);
     const port = s.port;
     expect(lines).toEqual([
-      `Deco server          http://127.0.0.1:${port}/rpc`,
+      `Deco server          http://localhost:${port}/rpc`,
       "Root                 apps/storefront   (.deco/schema.gen.json, 2 blocks)",
       "Assets               apps/storefront/public/assets   (PUT /assets/<name>)",
       "Preview              http://localhost:5173",
-      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://127.0.0.1:${port}/rpc`)}&token=secret-token`,
+      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://localhost:${port}/rpc`)}`,
     ]);
     const url = new URL(s.siteEditorUrl);
     expect(url.search).toBe("");
-    expect(url.hash).toContain("token=secret-token");
+    expect(url.hash).not.toContain("token");
   });
 
   it("se-02: the RPC endpoint is /rpc; other paths 404", async () => {
@@ -1274,7 +1302,7 @@ describe("site-editor.mdx", () => {
     const s = await serveFixture(f.root);
     expect((await call(s, "describe")).result.protocol).toBe("deco-content");
     const other = await raw(s.endpoint.replace("/rpc", "/api"), {
-      headers: { "content-type": "application/json", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
     expect(other.status).toBe(404);
@@ -1324,10 +1352,10 @@ describe("site-editor.mdx", () => {
   it("se-05 / cp-45: uploads never reuse a name", async () => {
     const f = fixture();
     const s = await serveFixture(f.root);
-    const put = (body: Buffer, type = "image/jpeg", token = s.token, name = "summer-banner.jpg") =>
+    const put = (body: Buffer, type = "image/jpeg", name = "summer-banner.jpg") =>
       raw(s.endpoint.replace("/rpc", `/assets/${name}`), {
         method: "PUT",
-        headers: { "content-type": type, authorization: `Bearer ${token}` },
+        headers: { "content-type": type },
         body,
       });
     const ok = (status: number) => status >= 200 && status < 300;
@@ -1340,32 +1368,31 @@ describe("site-editor.mdx", () => {
     expect(second.json().path).toMatch(/^\/assets\/summer-banner.+\.jpg$/);
     expect(f.read("public/assets/summer-banner.jpg")).toBe("first");
     expect(ok((await put(Buffer.from("<p>"), "text/html")).status)).toBe(false);
-    expect((await put(Buffer.from("x"), "image/jpeg", "wrong")).status).toBe(401);
     for (const [type, name] of [
       ["video/mp4", "clip.mp4"],
       ["font/woff2", "brand.woff2"],
       ["application/pdf", "terms.pdf"],
     ]) {
-      expect(ok((await put(Buffer.from("x"), type, s.token, name)).status), type).toBe(true);
+      expect(ok((await put(Buffer.from("x"), type, name)).status), type).toBe(true);
     }
     const max = (await call(s, "describe")).result.assets.maxBytes;
     expect(typeof max).toBe("number");
   });
 
-  it("se-06: answers Chrome's local-network preflight", async () => {
+  it("se-06: answers Chrome's local-network preflight, from any origin", async () => {
     const f = fixture();
     const s = await serveFixture(f.root);
     const r = await raw(s.endpoint, {
       method: "OPTIONS",
       headers: {
-        origin: "https://studio.decocms.com",
+        origin: "https://example.com",
         "access-control-request-method": "POST",
         "access-control-request-private-network": "true",
       },
     });
     expect(r.status).toBe(204);
     expect(r.headers["access-control-allow-private-network"]).toBe("true");
-    expect(r.headers["access-control-allow-origin"]).toBe("https://studio.decocms.com");
+    expect(r.headers["access-control-allow-origin"]).toBe("https://example.com");
   });
 
   it("se-07: describe.secrets.publicKey is .deco/secrets.pub", async () => {
@@ -1437,7 +1464,6 @@ describe("content-protocol.mdx", () => {
     expect(batch.json().map((r: Json) => r.id)).toEqual([1, 2]);
     const get = await raw(s.endpoint, {
       method: "GET",
-      headers: { authorization: `Bearer ${s.token}` },
     });
     expect(get.status).toBeGreaterThanOrEqual(400);
   });
@@ -1464,25 +1490,23 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp06.json")).toBe(false);
   });
 
-  it("cp-07 / cp-41: 401 for a bad token, 413 for an oversized body, 200 for a conflict", async () => {
+  it("cp-07 / cp-41: deco serve never answers 401; 413 for an oversized body, 200 for a conflict", async () => {
     const noAuth = await raw(s.endpoint, {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
-    expect(noAuth.status).toBe(401);
-    expect(noAuth.json().error.code).toBe(ErrorCode.Unauthorized);
-    const bad = await rpcCall(
+    expect(noAuth.status).toBe(200);
+    const stray = await rpcCall(
       s,
       { jsonrpc: "2.0", id: 1, method: "describe" },
-      {
-        authorization: "Bearer nope",
-      },
+      { authorization: "Bearer nope" },
     );
-    expect(bad.status).toBe(401);
+    expect(stray.status).toBe(200);
+    expect(stray.json().error).toBeUndefined();
     // fetch, like a browser: Node's raw http client sees the early 413 as a reset.
     const huge = await fetch(s.endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
@@ -1549,10 +1573,7 @@ describe("content-protocol.mdx", () => {
         "readOnly",
         "root",
         "schemaFormat",
-        "refs",
-        "writes",
         "pollIntervalMs",
-        "limits",
         "preview",
         "assets",
         "secrets",
@@ -1563,17 +1584,6 @@ describe("content-protocol.mdx", () => {
     expect(typeof d.version.minor).toBe("number");
     expect(Object.keys(d.server).sort()).toEqual(["name", "version"]);
     expect(d.schemaFormat).toBe("deco-meta@1");
-    expect(Object.keys(d.writes).sort()).toEqual(["idempotency", "schemaPreconditions"]);
-    expect(Object.keys(d.limits).sort()).toEqual(
-      [
-        "maxOpsPerApply",
-        "maxBlockBytes",
-        "maxRequestBytes",
-        "maxListBytes",
-        "maxSchemaBytes",
-        "maxBatchResponseBytes",
-      ].sort(),
-    );
     expect(Object.keys(d.assets).sort()).toEqual(["dir", "maxBytes", "urlPrefix"]);
     expect(d.assets.urlPrefix).toBe("/assets/");
   });
@@ -1638,9 +1648,21 @@ describe("content-protocol.mdx", () => {
     expect(torn.error).toBeDefined();
   });
 
-  it("cp-17: ref on the local server is Unsupported", async () => {
-    expect((await call(s, "blocks.list", { ref: "main" })).error.code).toBe(ErrorCode.Unsupported);
-    expect((await call(s, "schema.get", { ref: "main" })).error.code).toBe(ErrorCode.Unsupported);
+  it('cp-51: schema.get serves "blocksMajor" untouched, and a schema without it as it is', async () => {
+    const served = (await call(s, "schema.get")).result.schema;
+    expect(served.blocksMajor).toBe(8);
+    expect(served).toEqual(JSON.parse(app.read(".deco/schema.gen.json")));
+    const f = fixture();
+    f.write(".deco/meta.gen.json", { manifest: { blocks: {} }, schema: { definitions: {} } });
+    const s1 = await serveFixture(f.root);
+    expect((await call(s1, "schema.get")).result.schema).not.toHaveProperty("blocksMajor");
+  });
+
+  it("cp-17: the protocol has no ref parameter; one is an unknown parameter", async () => {
+    expect((await call(s, "blocks.list", { ref: "main" })).error.code).toBe(
+      ErrorCode.InvalidParams,
+    );
+    expect((await call(s, "schema.get", { ref: "main" })).error.code).toBe(ErrorCode.InvalidParams);
   });
 
   it("cp-18 / cp-21: validation first, every violation at once, nothing written", async () => {
@@ -1693,34 +1715,12 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp24new.json")).toBe(true);
   });
 
-  it("cp-25: unadvertised requestKey / ifSchemaMatch are rejected, not ignored", async () => {
-    const d = (await call(s, "describe")).result;
-    if (d.writes.idempotency === null) {
-      const r = await call(s, "blocks.apply", { set: { cp25: entry("cp25") }, requestKey: "k1" });
-      expect(r.error.code).toBe(ErrorCode.Unsupported);
-      expect(app.exists(".deco/blocks/cp25.json")).toBe(false);
+  it("cp-25: unknown parameters (requestKey, ifSchemaMatch, ref) are rejected, not ignored", async () => {
+    for (const param of ["requestKey", "ifSchemaMatch", "ref"]) {
+      const r = await call(s, "blocks.apply", { set: { cp25: entry("cp25") }, [param]: "x" });
+      expect(r.error.code).toBe(ErrorCode.InvalidParams);
     }
-    if (d.writes.schemaPreconditions === false) {
-      const r = await call(s, "blocks.apply", { set: { cp25: entry("cp25") }, ifSchemaMatch: "v" });
-      expect(r.error.code).toBe(ErrorCode.Unsupported);
-    }
-  });
-
-  it("cp-27: ifSchemaMatch mismatch is a Conflict with schema versions (when advertised)", async () => {
-    const d = (await call(s, "describe")).result;
-    expect(d.writes.schemaPreconditions).toBe(true);
-    const { version } = (await call(s, "schema.get")).result;
-    const r = await call(s, "blocks.apply", {
-      set: { cp27: entry("cp27") },
-      ifSchemaMatch: `${version}-old`,
-    });
-    expect(r.error.code).toBe(ErrorCode.Conflict);
-    expect(r.error.data.schema).toEqual({ expected: `${version}-old`, actual: version });
-    const ok = await call(s, "blocks.apply", {
-      set: { cp27: entry("cp27") },
-      ifSchemaMatch: version,
-    });
-    expect(ok.result).toBeDefined();
+    expect(app.exists(".deco/blocks/cp25.json")).toBe(false);
   });
 
   it("cp-28 / cp-29: the poll batch, and adopting the own write's revision", async () => {
@@ -1757,10 +1757,18 @@ describe("content-protocol.mdx", () => {
     });
   });
 
-  it("cp-31: no schema file gives NotFound", async () => {
+  it("cp-31: no schema file gives schema: null, and blocks still list and save", async () => {
     const f = fixture();
     const s1 = await serveFixture(f.root);
-    expect((await call(s1, "schema.get")).error.code).toBe(ErrorCode.NotFound);
+    expect((await call(s1, "schema.get")).result).toEqual({
+      notModified: false,
+      version: null,
+      resolvedRef: null,
+      schema: null,
+    });
+    const block = { __resolveType: "site/sections/Hero.tsx", title: "Hi", items: [{ n: 1 }] };
+    expect((await call(s1, "blocks.apply", { set: { cp31: block } })).result).toBeTruthy();
+    expect((await call(s1, "blocks.list")).result.blocks.cp31).toEqual(block);
   });
 
   it("cp-32: a Secret field holding a plain string is InvalidBlock", async () => {
@@ -1771,16 +1779,8 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp32.json")).toBe(false);
   });
 
-  it("cp-33 / si-05 / si-06: default limits", async () => {
-    const { limits } = (await call(s, "describe")).result;
-    expect(limits).toEqual({
-      maxOpsPerApply: 500,
-      maxBlockBytes: 1024 * 1024,
-      maxRequestBytes: 8 * 1024 * 1024,
-      maxListBytes: 16 * 1024 * 1024,
-      maxSchemaBytes: 16 * 1024 * 1024,
-      maxBatchResponseBytes: 32 * 1024 * 1024,
-    });
+  it("cp-33 / si-05 / si-06: blocks.apply takes at most 500 names; describe advertises no limits", async () => {
+    expect((await call(s, "describe")).result.limits).toBeUndefined();
     const set = Object.fromEntries(
       Array.from({ length: 501 }, (_, i) => [`cp33-${i}`, { __resolveType: "page" }]),
     );
@@ -1839,25 +1839,9 @@ describe("content-protocol.mdx", () => {
     expect(read("protocol/storage/fs/index.ts")).toMatch(/from "\.\.\/\.\.\/keys\.ts"/);
   });
 
-  it("cp-43: Host must be the server's own loopback address", async () => {
-    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" });
-    const headers = (host: string) => ({
-      host,
-      "content-type": "application/json",
-      authorization: `Bearer ${s.token}`,
-    });
-    expect((await raw(s.endpoint, { headers: headers("attacker.com"), body })).status).toBe(403);
-    expect((await raw(s.endpoint, { headers: headers(`127.0.0.1:${s.port}`), body })).status).toBe(
-      200,
-    );
-    expect((await raw(s.endpoint, { headers: headers(`localhost:${s.port}`), body })).status).toBe(
-      200,
-    );
-  });
-
   it("cp-44: non-JSON Content-Type on /rpc is refused", async () => {
     const r = await raw(s.endpoint, {
-      headers: { "content-type": "text/plain", authorization: `Bearer ${s.token}` },
+      headers: { "content-type": "text/plain" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
     });
     expect(r.status).toBe(415);
@@ -1934,12 +1918,8 @@ describe("content-protocol.mdx", () => {
       "apply/atomic-set-delete",
       "apply/set-wins",
       "apply/if-match",
-      "apply/schema-precondition",
-      "idempotency/retry",
-      "idempotency/simultaneous",
-      "idempotency/restart",
-      "idempotency/tenant-isolation",
-      "limits/list-bytes",
+      "apply/unknown-params",
+      "schema/absent",
       "limits/request-bytes",
     ]) {
       expect(ids).toContain(id);
@@ -1959,7 +1939,6 @@ describe("content-protocol.mdx", () => {
     const report = await runConformance({
       endpoint: s1.endpoint,
       assetsEndpoint: s1.endpoint.replace("/rpc", "/assets/"),
-      token: s1.token,
       secretField: { blockType: "hero", field: "apiKey" },
       secretsPublicKey: publicKeyPem,
     } as never);
@@ -2005,7 +1984,7 @@ describe("studio-compatibility.mdx", () => {
     );
     expect(Object.keys(g.pages)).toEqual(expect.arrayContaining(["page", "post"]));
     expect(Object.keys(g.redirects)).toContain("redirect");
-    expect(Object.keys(g.content)).toEqual(expect.arrayContaining(["seo", "hero", "telemetry"]));
+    expect(Object.keys(g.content)).toEqual(expect.arrayContaining(["seo", "hero", "cms-settings"]));
   });
 
   it("sc-02: a render-descriptor-returning function is a section", async () => {
@@ -2211,14 +2190,8 @@ export default { page } satisfies Blocks;
 // ===========================================================================
 
 describe("studio-implementation.mdx", () => {
-  it("si-02 / si-03 / si-04: canonical hashing, goldens and a separate request-digest domain", async () => {
-    const {
-      canonicalJson,
-      computeContentRevision,
-      applyRequestDigest,
-      APPLY_DIGEST_DOMAIN,
-      sha256Hex,
-    } = await import("@decocms/blocks/protocol");
+  it("si-02 / si-03 / si-04: canonical hashing and goldens", async () => {
+    const { canonicalJson, computeContentRevision } = await import("@decocms/blocks/protocol");
     expect(canonicalJson({ b: 1, a: [2, 1], "10": 0, "9": 0 })).toBe(
       '{"10":0,"9":0,"a":[2,1],"b":1}',
     );
@@ -2226,15 +2199,6 @@ describe("studio-implementation.mdx", () => {
     for (const bad of [undefined, Number.NaN, () => 1, 1n]) {
       expect(() => canonicalJson({ x: bad }), String(bad)).toThrow();
     }
-    const blocks = { a: { __resolveType: "x" } };
-    expect(await computeContentRevision(blocks)).not.toBe(
-      await applyRequestDigest({ set: blocks }),
-    );
-    expect(APPLY_DIGEST_DOMAIN).toMatch(/blocks\.apply/);
-    expect(await applyRequestDigest({ set: blocks })).toBe(
-      await sha256Hex(APPLY_DIGEST_DOMAIN + canonicalJson({ set: blocks })),
-    );
-
     const { contentHashFixtures } = await import("@decocms/blocks/protocol/conformance");
     expect(contentHashFixtures.length).toBeGreaterThan(0);
     for (const fx of contentHashFixtures as any[]) {
@@ -2327,14 +2291,26 @@ describe("studio-implementation.mdx", () => {
       expect(await loader.update!()).toEqual({ updated: true });
     });
 
-    it("si-10: an exact draft revision is fetched with If-Match; a failure is an error, not the head", async () => {
+    it("si-10: a draft's changes apply to the production this server has; no matching base is fetched", async () => {
       const fallback = await snap("bundled");
-      const loader = remoteLoader(fallback, { site: "acme", token: "t" }) as Loader;
-      await expect(loader.load("delivery.decocms.com/drafts/acme/feat@v1")).rejects.toThrow(
-        /HTTP 404/,
-      );
-      // Before any release check, the bundled fallback is served.
-      expect(await loader.load()).toBe(fallback);
+      const published = await snap("published");
+      publish(1, published);
+      gates.set(`/sites/acme/revisions/${published.revision}.json`, new Promise(() => {})); // never arrives
+      const studio = "https://studio.decocms.com/api/acme/decofile/store/b/changes";
+      const fetch = globalThis.fetch;
+      const urls: string[] = [];
+      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+        urls.push(String(input));
+        return String(input).startsWith(studio)
+          ? Response.json({ format: 1, set: { New: { __resolveType: "seo" } }, delete: [] })
+          : fetch(input);
+      });
+      const cms = createCMS({ blocks: {}, content: fallback, site: "acme", token: "t" });
+      const draft = cms.forDraft("studio.decocms.com/api/acme/decofile/store/b/changes?token=x@c1");
+      const [entry] = await draft.resolve("S", { run: false });
+      expect(entry).toEqual(fallback.blocks.S); // the bundled release, never waiting for the new one
+      expect(urls.filter((url) => url.startsWith(studio))).toHaveLength(1);
+      expect(urls.filter((url) => url.includes("/revisions/"))).toHaveLength(0);
     });
   });
 });

@@ -9,12 +9,11 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 describe("createContentClient", () => {
-  it("posts JSON-RPC 2.0 with the bearer token and extra headers", async () => {
+  it("posts JSON-RPC 2.0 with the extra headers", async () => {
     const fetch = vi.fn(async (request: Request) => {
       expect(request.method).toBe("POST");
       expect(request.url).toBe("http://h/rpc");
       expect(request.headers.get("content-type")).toBe("application/json");
-      expect(request.headers.get("authorization")).toBe("Bearer t0k");
       expect(request.headers.get("x-project")).toBe("p");
       const body = await request.json();
       expect(body).toEqual({
@@ -31,7 +30,6 @@ describe("createContentClient", () => {
     });
     const client = createContentClient({
       endpoint: "http://h/rpc",
-      token: "t0k",
       headers: { "x-project": "p" },
       fetch,
     });
@@ -65,7 +63,7 @@ describe("createContentClient", () => {
     });
   });
 
-  it("throws the whole-request error of a 401 or 413", async () => {
+  it("throws the whole-request error of a 401 (from the host's own auth) or 413", async () => {
     for (const [status, code] of [
       [401, ErrorCode.Unauthorized],
       [413, ErrorCode.LimitExceeded],

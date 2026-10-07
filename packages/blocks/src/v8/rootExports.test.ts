@@ -13,11 +13,15 @@ describe("@decocms/blocks root", () => {
     expect(root.resetForTests).toBe(v8.resetForTests);
     expect(root.matchRoute).toBe(v8.matchRoute);
     expect(root.remoteLoader).toBe(v8.remoteLoader);
-    expect(root.draftPointer).toBe(v8.draftPointer);
-    expect(root.draftCookie).toBe(v8.draftCookie);
-    expect(root.DRAFT_COOKIE).toBe(v8.DRAFT_COOKIE);
     expect(root.parseDraftPointer).toBe(v8.parseDraftPointer);
     expect(root.formatDraftPointer).toBe(v8.formatDraftPointer);
+  });
+
+  it("has no free draft helpers: draftPointer and draftCookie are CMS methods that check the host", () => {
+    const names = Object.keys(root);
+    for (const name of ["draftPointer", "draftCookie", "DRAFT_COOKIE"]) {
+      expect(names).not.toContain(name);
+    }
   });
 
   it("exports nothing outside the v8 API", () => {

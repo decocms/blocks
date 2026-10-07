@@ -96,6 +96,3 @@ export const route =
   (rpc: (request: Request) => Promise<Response>, assets: (request: Request) => Promise<Response>) =>
   (request: Request) =>
     new URL(request.url).pathname.startsWith("/assets/") ? assets(request) : rpc(request);
-
-/** Limits low enough for the conformance suite to probe the list and batch-response bounds. */
-export const PROBE_LIMITS = { maxListBytes: 256 * 1024, maxBatchResponseBytes: 384 * 1024 };

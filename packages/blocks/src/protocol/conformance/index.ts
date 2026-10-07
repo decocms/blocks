@@ -10,14 +10,14 @@
  * import { describe, it } from "vitest";
  * import { defineConformanceSuite } from "@decocms/blocks/protocol/conformance";
  *
- * defineConformanceSuite({ describe, it }, { endpoint: "http://127.0.0.1:4545/rpc", token });
+ * defineConformanceSuite({ describe, it }, { endpoint: "http://localhost:4545/rpc" });
  * ```
  *
  * or collect a report with `runConformance(options)`. The suite writes only
  * names under its own prefix and deletes them after each case (uploads, which
  * the protocol can't delete, stay in the asset folder). Cases that
- * don't apply to an endpoint (a read-only one, one without request keys)
- * skip themselves. Browser-safe: it only needs `fetch`.
+ * don't apply to an endpoint (a read-only one, one without a schema) skip
+ * themselves. Browser-safe: it only needs `fetch`.
  */
 import { assetCases } from "./cases/assets.ts";
 import { guardCases } from "./cases/guards.ts";

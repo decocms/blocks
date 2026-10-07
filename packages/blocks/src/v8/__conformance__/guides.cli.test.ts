@@ -257,17 +257,19 @@ const _b: Blocks = blocks;
   );
 
   it(
-    "qs-06/tr-16: deco serve prints a site editor link with a fresh token; saves write .deco/blocks",
+    "qs-06/tr-16: deco serve prints a site editor link with no token; saves write .deco/blocks",
     async () => {
       const p = quickstart();
       fs.mkdirSync(path.join(p.root, ".git"));
       expect(p.deco("schema").code).toBe(0);
       const first = await serve(p, ["--port", "0"]);
-      const second = await serve(p, ["--port", "0"]);
-      expect(first.token).not.toBe(second.token);
+      expect(first.out).toContain(
+        `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(first.endpoint)}\n`,
+      );
+      expect(first.out).not.toMatch(/token/i);
       const reply = await fetch(first.endpoint, {
         method: "POST",
-        headers: { authorization: `Bearer ${first.token}`, "content-type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -339,28 +341,23 @@ const _b: Blocks = blocks;
 async function serve(
   p: Project,
   args: string[],
-): Promise<{ endpoint: string; token: string; out: string; child: ChildProcess }> {
+): Promise<{ endpoint: string; out: string; child: ChildProcess }> {
   const child = spawn(process.execPath, [BIN, "serve", ...args], {
     cwd: p.root,
-    env: (() => {
-      const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
-      delete env.DECO_SERVE_TOKEN;
-      return env;
-    })(),
+    env: { ...process.env, NO_COLOR: "1" },
   });
   children.push(child);
   let out = "";
   child.stdout?.on("data", (d) => (out += d));
   child.stderr?.on("data", (d) => (out += d));
   const started = Date.now();
-  while (!/token=/.test(out)) {
+  while (!/site-editor#endpoint=\S+\n/.test(out)) {
     if (child.exitCode !== null) throw new Error(`serve exited: ${out}`);
     if (Date.now() - started > 30_000) throw new Error(`serve never printed a link: ${out}`);
     await new Promise((r) => setTimeout(r, 50));
   }
   const endpoint = /(http:\/\/[^\s]+\/rpc)/.exec(out)![1];
-  const token = decodeURIComponent(/token=([^\s&]+)/.exec(out)![1]);
-  return { endpoint, token, out, child };
+  return { endpoint, out, child };
 }
 
 describe("serve flags", () => {
@@ -379,12 +376,12 @@ describe("serve flags", () => {
   );
 
   it(
-    "tr-16: --allow-origin admits another origin, and local-network preflights are answered",
+    "tr-16: any origin is answered, and local-network preflights too",
     async () => {
       const p = project();
       fs.mkdirSync(path.join(p.root, ".git"));
       p.write(".deco/schema.gen.json", {});
-      const s = await serve(p, ["--port", "0", "--allow-origin", "https://editor.example.com"]);
+      const s = await serve(p, ["--port", "0"]);
       const reply = await fetch(s.endpoint, {
         method: "OPTIONS",
         headers: {
@@ -881,7 +878,7 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
       const s = await serve(p, ["--port", "0"]);
       const reply = await fetch(s.endpoint, {
         method: "POST",
-        headers: { authorization: `Bearer ${s.token}`, "content-type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
       });
       const body = await reply.json();

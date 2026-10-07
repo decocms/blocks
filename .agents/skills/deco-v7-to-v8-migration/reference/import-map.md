@@ -11,7 +11,7 @@ What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `s
 
 ## Left alone (already the v8 API)
 
-`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `draftPointer`, `Blocks`, `Lazy`, `Seo`, …), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`.
+`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, `Seo`, …; drafts are read with `cms.draftPointer`), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`.
 
 ## Reported, with where the replacement lives (first match wins)
 
@@ -19,14 +19,14 @@ What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `s
 |---|---|
 | `@decocms/start`, `@decocms/start/*` | a 6.x import: upgrade the site to 7.x first |
 | `@decocms/blocks/sdk/cachedLoader` | gone: an upstream cache is your own `fetch`, passed to `createInstrumentedFetch` (`/next/caching#upstream-data`) |
-| `…/invoke`, `createInvoke`, `@decocms/blocks/sdk/invoke` | `/deco/invoke` is gone: call upstream clients from server functions or route handlers (`/next/renames-and-migrations#loaders-actions-and-invoke`) |
+| `…/invoke`, `createInvoke`, `@decocms/blocks/sdk/invoke` | `/deco/invoke` is gone: one server function per loader or action, imported by each call site, never a rebuilt invoke tree (`/next/renames-and-migrations#loaders-actions-and-invoke`) |
 | `@decocms/blocks-admin/*` | v8 sites serve no admin endpoints; the site editor uses the content protocol (`/next/studio-compatibility`) |
 | `@decocms/blocks-cli/*` | codegen is the `deco` CLI in `@decocms/blocks`: `deco schema`, `deco content`, `deco check` (`/next/cli`) |
 | `@decocms/blocks/setup`, `@decocms/blocks/cms/*` | `createCMS` from `@decocms/blocks`, with the block map in `.deco/index.ts` (`/next/content#create-the-cms`) |
 | `@decocms/blocks/sdk/instrumentedFetch` (other names) | `createInstrumentedFetch({ provider, fetch?, retry?, circuitBreaker? })` from `@decocms/blocks/fetch` |
 | `@decocms/blocks/sdk/otel`, `/sdk/observability`, `/sdk/logger`, `/middleware/observability` | the `telemetry` option of `createCMS` (`/next/telemetry`) |
 | `@decocms/blocks/types/widgets` | type the field as a `string` with a `@format` tag (`/next/schema#widgets`) |
-| `…/Analytics`, `…/OneDollarStats`, `@decocms/blocks/sdk/analytics` | `AnalyticsScript` and `track` from `@decocms/blocks/analytics`, with the built-in `analytics` block (`/next/analytics`) |
+| `…/Analytics`, `…/OneDollarStats`, `@decocms/blocks/sdk/analytics` | `AnalyticsScript` and `track` from `@decocms/blocks/analytics`, with the `analytics` section of `cms.settings()` (`/next/analytics`) |
 | `@decocms/apps-salesforce`, `@decocms/apps/salesforce` | `@decocms/apps-sfmc-personalization` |
 | `@decocms/apps-commerce`, `@decocms/apps/commerce` | converters, hooks and shared commerce types live in your platform template (copy them into the site) |
 | `@decocms/apps-website`, `@decocms/apps/website` | SEO, sitemaps, redirects live in your platform template |

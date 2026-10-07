@@ -9,7 +9,8 @@
  * entry must carry a well-formed `ciphertext`, whatever its field.
  *
  * The schema marks a `Secret` field with `"format": "secret"` — the contract
- * `deco schema` emits for the `Secret` type. Browser-safe.
+ * `deco schema` emits for the `Secret` type. A legacy secret loader block
+ * (`website/loaders/secret.ts`) is left alone. Browser-safe.
  */
 import { parseCiphertext } from "./ciphertext.ts";
 import type { BlockViolation } from "./errors.ts";
@@ -23,6 +24,12 @@ export const SECRET_FORMAT = "secret";
 
 const MULTIVARIATE_TYPES = new Set(["multivariate", "website/flags/multivariate.ts"]);
 const LAZY_TYPE = "lazy";
+/**
+ * The legacy (v7) secret loader. Its `encrypted` prop is a string marked
+ * `"format": "secret"` that already holds the site's own ciphertext, so it
+ * isn't a `Secret` field; its blocks are migrated, not guarded.
+ */
+const LEGACY_SECRET_LOADER = /(^|\/)loaders\/secret\.ts$/;
 const MAX_DEPTH = 512;
 
 type Json = Record<string, unknown>;
@@ -180,7 +187,8 @@ class SecretWalker {
         'a "secret" block must carry a well-formed "ciphertext" (v1.<wrappedKey>.<iv>.<ciphertext>)',
       );
     }
-    const definition = this.meta ? blockIndex(this.meta).get(type) : undefined;
+    const definition =
+      this.meta && !LEGACY_SECRET_LOADER.test(type) ? blockIndex(this.meta).get(type) : undefined;
     this.walkObject(block, definition, pointer, depth);
   }
 

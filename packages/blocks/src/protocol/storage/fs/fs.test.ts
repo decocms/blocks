@@ -43,7 +43,7 @@ describe("versions", () => {
     }).trim();
     expect(gitBlobHash(content)).toBe(expected);
     await writeFile(join(blocksDir(), "a.json"), content);
-    const snapshot = await createFsStorage({ root }).snapshot({});
+    const snapshot = await createFsStorage({ root }).snapshot();
     expect(snapshot.files).toEqual([
       { file: "a.json", version: expected, size: Buffer.byteLength(content) },
     ]);
@@ -52,10 +52,10 @@ describe("versions", () => {
   it("change with the content, and the revision with any file", async () => {
     const storage = createFsStorage({ root });
     await writeFile(join(blocksDir(), "a.json"), "{}\n");
-    const first = await storage.snapshot({});
-    expect((await storage.snapshot({})).revision).toBe(first.revision);
+    const first = await storage.snapshot();
+    expect((await storage.snapshot()).revision).toBe(first.revision);
     await writeFile(join(blocksDir(), "a.json"), '{"v":2}\n');
-    const second = await storage.snapshot({});
+    const second = await storage.snapshot();
     expect(second.revision).not.toBe(first.revision);
     expect(second.files[0].version).not.toBe(first.files[0].version);
   });
@@ -68,21 +68,19 @@ describe("snapshot", () => {
     await writeFile(join(blocksDir(), "notes.md"), "x");
     await writeFile(join(blocksDir(), ".hidden.json"), "{}");
     await mkdir(join(blocksDir(), "sub.json"));
-    const snapshot = await createFsStorage({ root }).snapshot({});
+    const snapshot = await createFsStorage({ root }).snapshot();
     expect(snapshot.files.map((f) => f.file)).toEqual(["a.json", "b.json"]);
     expect(snapshot.resolvedRef).toBeNull();
   });
 
   it("is empty when .deco has no blocks folder yet", async () => {
     await rm(blocksDir(), { recursive: true });
-    expect((await createFsStorage({ root }).snapshot({})).files).toEqual([]);
+    expect((await createFsStorage({ root }).snapshot()).files).toEqual([]);
   });
 
   it("fails with NotFound without a .deco folder", async () => {
     await rm(join(root, ".deco"), { recursive: true });
-    await expect(createFsStorage({ root }).snapshot({})).rejects.toBeInstanceOf(
-      StorageNotFoundError,
-    );
+    await expect(createFsStorage({ root }).snapshot()).rejects.toBeInstanceOf(StorageNotFoundError);
     await expect(clientFor().blocksList()).rejects.toMatchObject({ code: ErrorCode.NotFound });
   });
 });
@@ -90,11 +88,11 @@ describe("snapshot", () => {
 describe("schema and secrets", () => {
   it("reads schema.gen.json, falling back to meta.gen.json", async () => {
     const storage = createFsStorage({ root });
-    expect(await storage.readSchema({})).toBeNull();
+    expect(await storage.readSchema()).toBeNull();
     await writeFile(join(root, ".deco", "meta.gen.json"), '{"v7":true}');
-    expect((await storage.readSchema({}))?.text).toBe('{"v7":true}');
+    expect((await storage.readSchema())?.text).toBe('{"v7":true}');
     await writeFile(join(root, ".deco", "schema.gen.json"), '{"v8":true}');
-    const stored = await storage.readSchema({});
+    const stored = await storage.readSchema();
     expect(stored).toEqual({
       text: '{"v8":true}',
       version: gitBlobHash('{"v8":true}'),
@@ -126,8 +124,6 @@ describe("describe", () => {
       kind: "working-tree",
       root: "apps/storefront",
       readOnly: false,
-      refs: null,
-      idempotency: null,
       pollIntervalMs: 2000,
       assets: { dir: "apps/storefront/public/assets", maxBytes: 25 * 1024 * 1024 },
     });
@@ -178,7 +174,7 @@ describe("commits", () => {
 
   it("refuse file names that would escape the folder or be hidden, with a typed error", async () => {
     const storage = createFsStorage({ root });
-    const base = await storage.snapshot({});
+    const base = await storage.snapshot();
     for (const file of ["../x.json", "a/b.json", ".lock.json", "..json"]) {
       await expect(
         storage.commit({ base, put: { [file]: "{}" }, delete: [], expected: {} }),
@@ -204,8 +200,8 @@ describe("commits", () => {
   it("are stale when the schema changed since the core read it", async () => {
     await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":1}');
     const storage = createFsStorage({ root });
-    const base = await storage.snapshot({});
-    const schema = await storage.readSchema({});
+    const base = await storage.snapshot();
+    const schema = await storage.readSchema();
     await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":2}');
     const attempt = { base, put: { "a.json": "{}\n" }, delete: [], expected: {} };
     expect(await storage.commit({ ...attempt, expectedSchemaVersion: schema!.version })).toEqual({
@@ -215,7 +211,7 @@ describe("commits", () => {
       status: "stale",
     });
     expect(await list()).toEqual([]);
-    const current = await storage.readSchema({});
+    const current = await storage.readSchema();
     expect(
       (await storage.commit({ ...attempt, expectedSchemaVersion: current!.version })).status,
     ).toBe("committed");
@@ -224,8 +220,8 @@ describe("commits", () => {
   it("compare the meta.gen.json fallback when there's no schema.gen.json", async () => {
     await writeFile(join(root, ".deco", "meta.gen.json"), '{"v":1}');
     const storage = createFsStorage({ root });
-    const base = await storage.snapshot({});
-    const legacy = await storage.readSchema({});
+    const base = await storage.snapshot();
+    const legacy = await storage.readSchema();
     await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":2}');
     const result = await storage.commit({
       base,
@@ -240,7 +236,7 @@ describe("commits", () => {
   it("read bodies with the version of the bytes actually read", async () => {
     const storage = createFsStorage({ root });
     await writeFile(join(blocksDir(), "a.json"), "{}\n");
-    const snapshot = await storage.snapshot({});
+    const snapshot = await storage.snapshot();
     await writeFile(join(blocksDir(), "a.json"), '{"edited":true}\n');
     const bodies = await storage.readFiles(snapshot, ["a.json", "gone.json"]);
     expect(bodies).toEqual({
@@ -279,7 +275,7 @@ describe("commits", () => {
   it("are stale when an expected version changed, and write nothing", async () => {
     const storage = createFsStorage({ root });
     await writeFile(join(blocksDir(), "a.json"), "{}\n");
-    const base = await storage.snapshot({});
+    const base = await storage.snapshot();
     await writeFile(join(blocksDir(), "a.json"), '{"edited":true}\n');
     const result = await storage.commit({
       base,

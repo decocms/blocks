@@ -161,6 +161,38 @@ describe("the secret guard", () => {
     );
   });
 
+  it("leaves a legacy secret loader block's encrypted string alone", () => {
+    const loader = "website/loaders/secret.ts";
+    const meta = {
+      manifest: {
+        blocks: {
+          ...schemaFixture.manifest?.blocks,
+          loaders: { [loader]: { $ref: "#/definitions/djc=" } },
+        },
+      },
+      schema: {
+        definitions: {
+          ...schemaFixture.schema?.definitions,
+          "djc=": {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              encrypted: { type: "string", format: "secret" },
+            },
+          },
+        },
+      },
+    };
+    const entry = {
+      __resolveType: "settings",
+      apps: { __resolveType: loader, name: "API_KEY", encrypted: "0a1b2c" },
+    };
+    expect(rules(entry, meta)).toEqual([]);
+    expect(rules({ __resolveType: loader, encrypted: secretBlock("bad") }, meta)).toEqual([
+      "secret-ciphertext@/encrypted",
+    ]);
+  });
+
   it("names the entry in every violation", () => {
     const [violation] = checkSecrets("Newsletter", newsletter("x"), schemaFixture);
     expect(violation).toMatchObject({

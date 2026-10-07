@@ -123,9 +123,20 @@ function parseOptions(raw: string): { values: (string | number)[]; labels?: stri
   return labelled ? { values, labels } : { values };
 }
 
+/**
+ * `@format` spellings that name a standard format under another name, kept
+ * from v7: `@format datetime` (Eitri's vocabulary) is the `date-time` picker,
+ * and `deco check` validates it as one.
+ */
+const FORMAT_ALIASES: Record<string, string> = { datetime: "date-time" };
+
 function applyJsDocToSchema(schema: any, tags: Record<string, string>): void {
   for (const [tag, value] of Object.entries(tags)) {
     if (tag === "ignore") continue;
+    if (tag === "format") {
+      schema.format = FORMAT_ALIASES[value] ?? value;
+      continue;
+    }
     if (tag === "hide") {
       schema.hide = "true";
       continue;
@@ -218,6 +229,20 @@ function applyWidgetFormat(schema: any, typeHint: string): void {
     schema.type = "string";
     schema.format = format;
   }
+}
+
+/**
+ * `@format` written on a type alias (`/** @format color *\/ type Color = string`)
+ * reaches every field of that type, a literal select included; a field's own
+ * `@format` still wins, since its tags apply afterwards.
+ */
+function applyAliasFormat(
+  schema: any,
+  alias: { format: string; items: boolean } | undefined,
+): void {
+  if (!alias) return;
+  const target = alias.items ? schema.items : schema;
+  if (target?.type === "string") target.format ??= FORMAT_ALIASES[alias.format] ?? alias.format;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +347,19 @@ export function nonNullable(type: Type): Type {
   if (!type.isUnion()) return type;
   const parts = type.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
   return parts.length === 1 ? parts[0] : type.getNonNullableType();
+}
+
+/**
+ * `Record<string, any>` and friends: a map of anything, which every block's
+ * output fits. It's a free-form value, not a place for a block, so the field
+ * doesn't offer the saved-block picker or list every block as a choice.
+ */
+export function isFreeFormMap(type: Type): boolean {
+  const t = nonNullable(type);
+  if (!t.isObject() || t.getProperties().length > 0 || t.getCallSignatures().length > 0)
+    return false;
+  const value = t.getStringIndexType() ?? t.getNumberIndexType();
+  return value !== undefined && (value.isAny() || value.isUnknown());
 }
 
 /** Types a block can fill: objects, arrays and intersections of objects, not primitives. */
@@ -434,8 +472,49 @@ function fieldSchema(
   }
 
   const schema = typeToJsonSchema(propType, new Set(visited), ctx);
+  orderEnumByHint(schema, typeHint);
   applyWidgetFormat(schema, typeHint);
   return schema;
+}
+
+/**
+ * Literal values in the order `text` (the declaration as written) spells them.
+ * The checker orders a union's members by when it first met each literal,
+ * which another file can change, so `"a" | "b"` could come out as `["b", "a"]`.
+ * Values `text` doesn't spell all of keep the checker's order.
+ */
+export function inDeclaredOrder<T extends string | number>(values: T[], text: string): T[] {
+  const at = values.map((value) => {
+    const spelled =
+      typeof value === "string"
+        ? [`"${value}"`, `'${value}'`, `\`${value}\``]
+            .map((q) => text.indexOf(q))
+            .filter((i) => i >= 0)
+        : [
+            ...text.matchAll(
+              new RegExp(`(?<![\\w.])${String(value).replace(".", "\\.")}(?![\\w.])`, "g"),
+            ),
+          ].map((m) => m.index ?? -1);
+    return spelled.length > 0 ? Math.min(...spelled) : -1;
+  });
+  if (at.some((i) => i < 0)) return values;
+  return values
+    .map((value, i) => ({ value, at: at[i] }))
+    .sort((a, b) => a.at - b.at)
+    .map((e) => e.value);
+}
+
+/** Reorder a literal select (or a list of them) by the field's annotation. */
+function orderEnumByHint(schema: any, typeHint: string): void {
+  if (Array.isArray(schema?.enum)) schema.enum = inDeclaredOrder(schema.enum, typeHint);
+  else if (Array.isArray(schema?.items?.enum)) {
+    schema.items.enum = inDeclaredOrder(schema.items.enum, typeHint);
+  }
+}
+
+/** The declaration text of a type alias, for ordering its literal members. */
+function aliasDeclarationText(type: Type): string {
+  return type.getAliasSymbol()?.getDeclarations()[0]?.getText() ?? "";
 }
 
 /** The "plain value" branch of a field that blocks can fill. */
@@ -514,12 +593,20 @@ export function typeToJsonSchema(
       }
       // String-literal unions and string enums: a select, written into the schema.
       if (nonNull.every((t) => t.isStringLiteral())) {
-        const result: any = { type: "string", enum: nonNull.map((t) => t.getLiteralValue()) };
+        const values = nonNull.map((t) => t.getLiteralValue() as string);
+        const result: any = {
+          type: "string",
+          enum: inDeclaredOrder(values, aliasDeclarationText(type)),
+        };
         if (isNullable) result.nullable = true;
         return result;
       }
       if (nonNull.every((t) => t.isNumberLiteral())) {
-        const result: any = { type: "number", enum: nonNull.map((t) => t.getLiteralValue()) };
+        const values = nonNull.map((t) => t.getLiteralValue() as number);
+        const result: any = {
+          type: "number",
+          enum: inDeclaredOrder(values, aliasDeclarationText(type)),
+        };
         if (isNullable) result.nullable = true;
         return result;
       }
@@ -630,6 +717,10 @@ export function typeToJsonSchema(
         }
 
         const schema = fieldSchema(propType, typeHint, ctx, visited);
+        if (typeNode) {
+          orderEnumByHint(schema, typeNode.getAliasDeclarationTexts().join("\n"));
+          applyAliasFormat(schema, typeNode.getAliasFormat());
+        }
         if (schema.anyOf && schema.anyOf[0]?.$ref === resolvableRef().$ref) {
           // A block-ref field: nullability lives on the wrapper.
           if (isNullableHint(optional, typeHint)) schema.nullable = true;

@@ -4,17 +4,19 @@
  *
  * The content protocol is `@decocms/blocks/protocol`'s `createContentHandler`
  * (at `/rpc`) and `createAssetHandler` (at `/assets/<name>`) over the
- * filesystem storage; they own the bearer token, `Content-Type`, size limits
- * and upload rules. This file is the Node HTTP layer and the checks that
- * depend on where it runs:
+ * filesystem storage; they own `Content-Type`, size limits and upload rules.
+ * `deco serve` has no authentication and answers any origin: any website open
+ * in the browser can read and write the content through it, so it is meant
+ * to run only while editing. This file is the Node HTTP layer:
  *
- * - Listens on 127.0.0.1 unless `--host` says otherwise (with a warning).
- * - Browser requests are accepted only from the site editor's origins and
- *   `--allow-origin`; CORS and Chrome's local-network preflights are answered.
- * - Any `Host` other than the server's own address is refused (DNS rebinding).
+ * - Listens on loopback, 127.0.0.1 and ::1 on one port, so
+ *   `http://localhost:<port>` reaches it whichever address the OS gives
+ *   localhost; `--host` listens on that one address instead (with a warning
+ *   beyond loopback: the network can reach it then).
+ * - CORS is answered for any `Origin` (reflected, with `Vary: Origin`), and
+ *   so are Chrome's Private/Local Network Access preflights.
  * - Every save regenerates `.deco/blocks.gen.ts`.
  */
-import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -30,18 +32,12 @@ import { readSavedBlocks, writeContent } from "../content.ts";
 import { consoleReporter, type Reporter } from "../log.ts";
 import { CliError, decoPaths, findDecoRoot, packageVersion } from "../root.ts";
 
-/** The site editor's origins: the browser origins allowed by default. */
-const STUDIO_ORIGINS = [
-  "https://studio.decocms.com",
-  "https://admin.decocms.com",
-  "https://admin.deco.cx",
-];
-
 /** Where the site editor link points. */
-const STUDIO_ORIGIN = STUDIO_ORIGINS[0];
+const STUDIO_ORIGIN = "https://studio.decocms.com";
 
 const DEFAULT_PORT = 4545;
-const DEFAULT_HOST = "127.0.0.1";
+/** Where it listens without `--host`; ::1 is skipped where IPv6 is unavailable. */
+const DEFAULT_HOSTS = ["127.0.0.1", "::1"];
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
@@ -52,19 +48,15 @@ export interface ServeOptions {
   host?: string;
   /** The local app the site editor previews: `localhost:8001` or a full loopback URL. */
   preview?: string;
-  token?: string;
-  allowOrigins?: string[];
   /** The upload folder, relative to the folder that contains `.deco`. */
   assets?: string;
   readOnly?: boolean;
   reporter?: Reporter;
-  env?: NodeJS.ProcessEnv;
 }
 
 export interface RunningServer {
-  /** The content protocol endpoint, `http://127.0.0.1:4545/rpc`. */
+  /** The content protocol endpoint, `http://localhost:4545/rpc`. */
   endpoint: string;
-  token: string;
   siteEditorUrl: string;
   port: number;
   close(): Promise<void>;
@@ -111,24 +103,11 @@ function previewUrl(input: string): string {
 /** Start the server; resolves once it listens. */
 export async function startServer(options: ServeOptions = {}): Promise<RunningServer> {
   const reporter = options.reporter ?? consoleReporter;
-  const env = options.env ?? process.env;
   const paths = decoPaths(findDecoRoot(options));
-  const host = options.host ?? DEFAULT_HOST;
+  const host = options.host?.toLowerCase();
   const requestedPort = options.port ?? DEFAULT_PORT;
   const readOnly = options.readOnly ?? false;
-  if (options.token !== undefined && options.token.trim() === "") {
-    throw new CliError("--token can't be empty: pass a token, or leave it out for a random one");
-  }
-  if (options.token === undefined && env.DECO_SERVE_TOKEN?.trim() === "") {
-    throw new CliError(
-      "DECO_SERVE_TOKEN can't be empty: set a token, or unset it for a random one",
-    );
-  }
-  const token = options.token ?? env.DECO_SERVE_TOKEN ?? randomBytes(32).toString("base64url");
   const preview = previewUrl(options.preview ?? defaultPreviewUrl(paths.root));
-  const allowedOrigins = new Set(
-    [...STUDIO_ORIGINS, ...(options.allowOrigins ?? [])].map((o) => o.replace(/\/+$/, "")),
-  );
 
   if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65535) {
     throw new CliError(`--port must be a port number, got ${requestedPort}`);
@@ -161,21 +140,13 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     },
   };
   const rpc = createContentHandler(storage, {
-    token,
     server: { name: "deco-cli", version: packageVersion() },
     preview: { url: preview },
     onError: (error) => reporter.warn(String((error as Error)?.message ?? error)),
   });
-  const assets = createAssetHandler(storage, { token });
+  const assets = createAssetHandler(storage);
 
-  let port = requestedPort;
-  const allowedHosts = () => {
-    const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
-    if (!LOOPBACK.has(host)) hosts.add(`${host.includes(":") ? `[${host}]` : host}:${port}`);
-    return hosts;
-  };
-
-  const server = http.createServer(async (req, res) => {
+  const handle: http.RequestListener = async (req, res) => {
     const origin = req.headers.origin;
     const cors: Record<string, string> = {};
     const refuse = (status: number, code: number, message: string) => {
@@ -184,21 +155,14 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     };
 
     try {
-      // DNS rebinding: only our own address.
-      if (!allowedHosts().has(String(req.headers.host ?? "").toLowerCase())) {
-        return refuse(403, ErrorCode.Forbidden, "unexpected Host header");
-      }
       if (origin !== undefined) {
-        if (!allowedOrigins.has(origin)) {
-          return refuse(403, ErrorCode.Forbidden, `origin ${origin} isn't allowed`);
-        }
         cors["access-control-allow-origin"] = origin;
         cors.vary = "Origin";
       }
       if (req.method === "OPTIONS") {
         const preflight: Record<string, string> = {
           "access-control-allow-methods": "POST, PUT, OPTIONS",
-          "access-control-allow-headers": "authorization, content-type",
+          "access-control-allow-headers": "content-type",
           "access-control-max-age": "600",
         };
         // Chrome's Local Network Access / Private Network Access preflight.
@@ -220,34 +184,30 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     } catch (error) {
       refuse(500, ErrorCode.InternalError, (error as Error).message);
     }
-  });
+  };
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", (error: NodeJS.ErrnoException) =>
-      reject(
-        error.code === "EADDRINUSE"
-          ? new CliError(`port ${requestedPort} is in use; pass --port`)
-          : error,
-      ),
-    );
-    server.listen(requestedPort, host, () => resolve());
-  });
-  port = (server.address() as AddressInfo).port;
+  const servers = await listen(handle, host ? [host] : DEFAULT_HOSTS, requestedPort);
+  const port = (servers[0].address() as AddressInfo).port;
 
-  const displayHost = host.includes(":") ? `[${host}]` : host;
+  const displayHost = !host ? "localhost" : host.includes(":") ? `[${host}]` : host;
   const endpoint = `http://${displayHost}:${port}/rpc`;
-  const siteEditorUrl = `${STUDIO_ORIGIN}/site-editor#endpoint=${encodeURIComponent(endpoint)}&token=${encodeURIComponent(token)}`;
+  // The site editor connects only through loopback; a wildcard address
+  // listens there too, so its link uses localhost.
+  const wildcard = host === "0.0.0.0" || host === "::";
+  const linkEndpoint = wildcard ? `http://localhost:${port}/rpc` : endpoint;
+  const siteEditorUrl = `${STUDIO_ORIGIN}/site-editor#endpoint=${encodeURIComponent(linkEndpoint)}`;
 
-  if (!LOOPBACK.has(host)) {
+  if (host && !LOOPBACK.has(host)) {
     reporter.warn(
-      `warning: listening on ${host}: other machines can reach this server (the token still applies)`,
+      `warning: listening on ${host}: other machines on the network can reach this server and read and write the content` +
+        (wildcard ? "" : "; the site editor connects only through localhost"),
     );
   }
   const schemaFile = fs.existsSync(paths.schema)
     ? ".deco/schema.gen.json"
     : fs.existsSync(paths.legacySchema)
       ? ".deco/meta.gen.json"
-      : "no schema: run deco schema";
+      : "no schema yet: run deco schema for typed forms";
   const count = Object.keys(readSavedBlocks(paths.blocks).blocks).length;
   const description = await storage.describe();
   const label = (name: string) => name.padEnd(21);
@@ -263,15 +223,56 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
 
   return {
     endpoint,
-    token,
     siteEditorUrl,
     port,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections?.();
-        server.close(() => resolve());
-      }),
+    close: () => Promise.all(servers.map(close)).then(() => undefined),
   };
+}
+
+/**
+ * One server per address, all on the port the first one gets. An address
+ * after the first that the machine doesn't have (::1 without IPv6) is
+ * skipped; with port 0, a port the next address can't take is tried again.
+ */
+async function listen(
+  handle: http.RequestListener,
+  hosts: string[],
+  requestedPort: number,
+): Promise<http.Server[]> {
+  for (let attempt = 0; ; attempt++) {
+    const servers: http.Server[] = [];
+    let port = requestedPort;
+    try {
+      for (const [i, host] of hosts.entries()) {
+        const server = http.createServer(handle);
+        try {
+          await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(port, host, () => resolve());
+          });
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (i > 0 && (code === "EADDRNOTAVAIL" || code === "EAFNOSUPPORT")) continue;
+          throw error;
+        }
+        servers.push(server);
+        port = (server.address() as AddressInfo).port;
+      }
+      return servers;
+    } catch (error) {
+      await Promise.all(servers.map(close));
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+      if (requestedPort === 0 && attempt < 5) continue;
+      throw new CliError(`port ${port} is in use; pass --port`);
+    }
+  }
+}
+
+function close(server: http.Server): Promise<void> {
+  return new Promise((resolve) => {
+    server.closeAllConnections?.();
+    server.close(() => resolve());
+  });
 }
 
 /** A Node request as a fetch `Request`, its body streamed. */

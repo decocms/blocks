@@ -15,7 +15,7 @@ import { type ContentProtocolError, ErrorCode } from "../errors";
 import { serializeBlock } from "../keys";
 import type { CommitAttempt, ContentStorage } from "../storage";
 import { createMemoryStorage, type MemoryStorageOptions } from "../storage/memory";
-import type { ContentHandlerOptions } from "./core";
+import { type ContentHandlerOptions, MAX_BLOCK_BYTES, MAX_OPS_PER_APPLY } from "./core";
 import { createContentHandler } from "./handler";
 
 function setup(
@@ -54,7 +54,7 @@ describe("schema.get", () => {
       resolvedRef: null,
       schema: schemaFixture,
     });
-    expect(await client.schemaGet({ ifNoneMatch: first.version })).toEqual({
+    expect(await client.schemaGet({ ifNoneMatch: first.version ?? undefined })).toEqual({
       notModified: true,
       version: first.version,
     });
@@ -66,8 +66,38 @@ describe("schema.get", () => {
     expect(!result.notModified && result.schema).toEqual({ v7: true });
   });
 
-  it("is NotFound without a schema", async () => {
+  it("reports 'no schema yet' as schema: null, not an error", async () => {
     const { client } = setup({ state: { schema: null } });
+    expect(await client.schemaGet()).toEqual({
+      notModified: false,
+      version: null,
+      resolvedRef: null,
+      schema: null,
+    });
+  });
+
+  it("serves the schema once it appears, and null again once it's gone", async () => {
+    const { client, storage } = setup({ state: { schema: null } });
+    expect((await client.schemaGet()).version).toBeNull();
+    storage.setSchema(schemaFixture);
+    const first = await client.schemaGet();
+    expect(first).toMatchObject({ notModified: false, schema: schemaFixture });
+    expect(typeof first.version).toBe("string");
+    storage.setSchema(null);
+    expect(await client.schemaGet()).toMatchObject({ version: null, schema: null });
+  });
+
+  it("lists, reads and writes blocks without a schema", async () => {
+    const { client } = setup({ state: { schema: null } });
+    const block = { __resolveType: "site/sections/Hero.tsx", title: "Hi", n: 1, ok: true };
+    const { versions } = await client.blocksApply({ set: { hero: block } });
+    const list = await client.blocksList();
+    expect(!list.notModified && list.blocks).toEqual({ hero: block });
+    expect(!list.notModified && list.versions.hero).toBe(versions.hero);
+  });
+
+  it("is NotFound without a .deco folder, schema or not", async () => {
+    const { client } = setup({ state: { schema: null, hasDecoFolder: false } });
     await rejects(client.schemaGet(), ErrorCode.NotFound);
   });
 
@@ -75,14 +105,6 @@ describe("schema.get", () => {
     const { client } = setup({ state: { schema: '{"manifest": {' } });
     const error = await rejects(client.schemaGet(), ErrorCode.Unavailable);
     expect(error.data).toEqual({ retryAfterMs: expect.any(Number) });
-  });
-
-  it("is LimitExceeded over maxSchemaBytes, even though gzip would make it small", async () => {
-    const { client } = setup(
-      { state: { schema: JSON.stringify({ pad: "x".repeat(5000) }) } },
-      { limits: { maxSchemaBytes: 4096 } },
-    );
-    await rejects(client.schemaGet(), ErrorCode.LimitExceeded);
   });
 });
 
@@ -122,20 +144,17 @@ describe("blocks.list", () => {
   });
 
   it("reports files it skips: invalid JSON, non-objects and oversized files", async () => {
-    const { client } = setup(
-      {
-        state: {
-          files: {
-            "ok.json": file({ fine: true }),
-            "broken.json": "{ nope",
-            "array.json": "[]",
-            "null.json": "null",
-            "huge.json": file({ t: "x".repeat(3000) }),
-          },
+    const { client } = setup({
+      state: {
+        files: {
+          "ok.json": file({ fine: true }),
+          "broken.json": "{ nope",
+          "array.json": "[]",
+          "null.json": "null",
+          "huge.json": file({ t: "x".repeat(MAX_BLOCK_BYTES) }),
         },
       },
-      { limits: { maxBlockBytes: 2048 } },
-    );
+    });
     const result = await client.blocksList();
     if (result.notModified) throw new Error("expected the map");
     expect(result.blocks).toEqual({ ok: { fine: true } });
@@ -200,31 +219,6 @@ describe("blocks.list", () => {
     if (result.notModified) throw new Error("expected the map");
     expect(Object.keys(result.blocks).sort()).toEqual(["__proto__", "constructor"]);
     expect(Object.getOwnPropertyDescriptor(result.blocks, "__proto__")?.value).toEqual({ x: 1 });
-  });
-
-  it("is LimitExceeded over maxListBytes, never a partial map", async () => {
-    const files: Record<string, string> = {};
-    for (let i = 0; i < 10; i++) files[`e${i}.json`] = file({ t: "x".repeat(500) });
-    const { client } = setup({ state: { files } }, { limits: { maxListBytes: 4096 } });
-    await rejects(client.blocksList(), ErrorCode.LimitExceeded);
-  });
-
-  it("counts bytes even when the storage doesn't report sizes", async () => {
-    const memory = createMemoryStorage({
-      state: { files: { "a.json": file({ t: "x".repeat(5000) }) } },
-    });
-    const sizeless: ContentStorage = {
-      ...memory,
-      snapshot: async (o) => {
-        const snap = await memory.snapshot(o);
-        return { ...snap, files: snap.files.map(({ size: _size, ...f }) => f) };
-      },
-    };
-    const client = createContentClient({
-      endpoint: "http://t/rpc",
-      fetch: createContentHandler(sizeless, { limits: { maxListBytes: 4096 } }),
-    });
-    await rejects(client.blocksList(), ErrorCode.LimitExceeded);
   });
 
   it("is NotFound when there's no .deco folder at all", async () => {
@@ -309,10 +303,10 @@ describe("blocks.apply", () => {
     expect(storage.commits).toBe(0);
   });
 
-  it("refuses an entry over maxBlockBytes", async () => {
-    const { client } = setup({}, { limits: { maxBlockBytes: 64 } });
+  it("refuses an entry over the block size limit", async () => {
+    const { client } = setup();
     const error = await rejects(
-      client.blocksApply({ set: { a: { t: "x".repeat(100) } } }),
+      client.blocksApply({ set: { a: { t: "x".repeat(MAX_BLOCK_BYTES) } } }),
       ErrorCode.InvalidBlock,
     );
     expect(error.data).toEqual({
@@ -320,14 +314,20 @@ describe("blocks.apply", () => {
     });
   });
 
-  it("refuses more names than maxOpsPerApply", async () => {
-    const { client } = setup({}, { limits: { maxOpsPerApply: 3 } });
+  it("refuses more names than one blocks.apply takes", async () => {
+    const { client } = setup();
+    const names = (prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+    const set = Object.fromEntries(names("s", MAX_OPS_PER_APPLY / 2).map((n) => [n, {}]));
     await rejects(
-      client.blocksApply({ set: { a: {}, b: {} }, delete: ["c", "d"] }),
+      client.blocksApply({ set, delete: names("d", MAX_OPS_PER_APPLY / 2 + 1) }),
       ErrorCode.LimitExceeded,
     );
     // set-wins normalization happens first: a name in both counts once.
-    await client.blocksApply({ set: { a: {}, b: {} }, delete: ["a", "c"] });
+    await client.blocksApply({
+      set,
+      delete: [...Object.keys(set), ...names("d", MAX_OPS_PER_APPLY / 2)],
+    });
   });
 
   it("refuses a new name that differs from an existing entry's, or another new name's, only in case", async () => {
@@ -414,19 +414,6 @@ describe("blocks.apply", () => {
       await client.blocksApply({ set: { a: { v: 1 } } });
       await client.blocksApply({ set: { a: { v: 2 } } });
       expect(storage.dump().files["a.json"]).toBe(file({ v: 2 }));
-    });
-
-    it("rejects a write when the schema changed (ifSchemaMatch)", async () => {
-      const { client, storage } = setup();
-      const { version } = await client.schemaGet();
-      storage.setSchema({ ...schemaFixture, changed: true });
-      const error = await rejects(
-        client.blocksApply({ set: { a: {} }, ifSchemaMatch: version }),
-        ErrorCode.Conflict,
-      );
-      expect(error.data).toEqual({ schema: { expected: version, actual: expect.any(String) } });
-      const fresh = await client.schemaGet();
-      await client.blocksApply({ set: { a: {} }, ifSchemaMatch: fresh.version });
     });
 
     it("rechecks every guard after storage moved under a commit attempt", async () => {
@@ -527,14 +514,18 @@ describe("blocks.apply", () => {
       await rejects(client.blocksApply({ set: { a: {} } }), ErrorCode.ReadOnly);
     });
 
-    it("refuses a ref without branches", async () => {
-      const { client } = setup();
-      await rejects(client.blocksApply({ ref: "draft", set: { a: {} } }), ErrorCode.Unsupported);
-    });
-
-    it("refuses a request key the endpoint doesn't advertise", async () => {
-      const { client } = setup({ description: { idempotency: null } });
-      await rejects(client.blocksApply({ requestKey: "k", set: { a: {} } }), ErrorCode.Unsupported);
+    it("refuses the removed ref, requestKey and ifSchemaMatch parameters as unknown", async () => {
+      const { client, storage } = setup();
+      for (const param of ["ref", "requestKey", "ifSchemaMatch"]) {
+        await rejects(
+          client.call("blocks.apply", { set: { a: {} }, [param]: "x" } as never),
+          ErrorCode.InvalidParams,
+        );
+      }
+      for (const method of ["blocks.list", "schema.get"] as const) {
+        await rejects(client.call(method, { ref: "main" } as never), ErrorCode.InvalidParams);
+      }
+      expect(storage.commits).toBe(0);
     });
 
     it("skips the commit for an empty apply", async () => {
@@ -542,97 +533,6 @@ describe("blocks.apply", () => {
       const result = await client.blocksApply({});
       expect(result).toEqual({ revision: (await client.blocksList()).revision, versions: {} });
       expect(storage.commits).toBe(0);
-    });
-  });
-
-  describe("request keys", () => {
-    it("replay the original result, even after the content moved", async () => {
-      const { client, storage } = setup();
-      const params = { requestKey: "save-1", set: { a: { v: 1 } } };
-      const first = await client.blocksApply(params);
-      await client.blocksApply({ set: { b: {} } });
-      expect(await client.blocksApply(params)).toEqual(first);
-      expect(storage.commits).toBe(2);
-    });
-
-    it("bind the key to every parameter", async () => {
-      const { client } = setup();
-      await client.blocksApply({ requestKey: "k", set: { a: { v: 1 } } });
-      await rejects(
-        client.blocksApply({ requestKey: "k", set: { a: { v: 2 } } }),
-        ErrorCode.InvalidParams,
-      );
-      await rejects(
-        client.blocksApply({ requestKey: "k", set: { a: { v: 1 } }, ifMatch: { a: null } }),
-        ErrorCode.InvalidParams,
-      );
-    });
-
-    it("resolve before guards are rechecked", async () => {
-      const { client } = setup();
-      const params = { requestKey: "create", set: { a: {} }, ifMatch: { a: null } };
-      const first = await client.blocksApply(params);
-      // The guard would now fail, but the receipt answers first.
-      expect(await client.blocksApply(params)).toEqual(first);
-    });
-
-    it("commit simultaneous duplicates once", async () => {
-      const { client, storage } = setup();
-      const params = { requestKey: "dup", set: { a: { v: 1 } } };
-      const results = await Promise.all([
-        client.blocksApply(params),
-        client.blocksApply(params),
-        client.blocksApply(params),
-      ]);
-      expect(results[1]).toEqual(results[0]);
-      expect(results[2]).toEqual(results[0]);
-      expect(storage.commits).toBe(1);
-    });
-
-    it("survive a restart", async () => {
-      const first = setup();
-      const params = { requestKey: "r", set: { a: { v: 1 } } };
-      const result = await first.client.blocksApply(params);
-      const restarted = createMemoryStorage({ state: first.storage.dump() });
-      const client = createContentClient({
-        endpoint: "http://t/rpc",
-        fetch: createContentHandler(restarted),
-      });
-      expect(await client.blocksApply(params)).toEqual(result);
-      expect(restarted.commits).toBe(0);
-    });
-
-    it("expire after the retention window", async () => {
-      let now = 0;
-      const { client, storage } = setup({
-        now: () => now,
-        description: { idempotency: { retentionMs: 1000 } },
-      });
-      const params = { requestKey: "old", set: { a: { v: 1 } } };
-      await client.blocksApply(params);
-      now = 5000;
-      await client.blocksApply(params);
-      expect(storage.commits).toBe(2);
-    });
-
-    it("are scoped to the tenant", async () => {
-      const storage = createMemoryStorage();
-      const handler = createContentHandler(storage, {
-        authorize: (r) => ({ scope: r.headers.get("x-tenant") ?? "" }),
-      });
-      const as = (tenant: string) =>
-        createContentClient({
-          endpoint: "http://t/rpc",
-          fetch: handler,
-          headers: { "x-tenant": tenant },
-        });
-      await as("a").blocksApply({ requestKey: "k", set: { a: {} } });
-      await as("b").blocksApply({ requestKey: "k", set: { b: {} } });
-      expect(storage.commits).toBe(2);
-      await rejects(
-        as("a").blocksApply({ requestKey: "k", set: { b: {} } }),
-        ErrorCode.InvalidParams,
-      );
     });
   });
 });

@@ -20,6 +20,8 @@
 import fs from "node:fs";
 import { Ajv, type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
+import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
+import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
 import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
@@ -69,6 +71,12 @@ function blockDefinitionName(schema: Json): string | null {
   const e = resolveTypeEnum(schema);
   return e && e.length === 1 && typeof schema.title === "string" && !schema.format ? e[0] : null;
 }
+
+/** Prerelease built-ins folded into the CMS settings block, with no alias. */
+const FOLDED_BUILT_INS: Record<string, string> = {
+  telemetry: `the built-in is now the telemetry section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
+  analytics: `the built-in is now the analytics section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
+};
 
 // ---------------------------------------------------------------------------
 // The validation document: the schema, with every field also accepting a block
@@ -481,7 +489,13 @@ class Checker {
 
     if (type === null) {
       if (!Object.hasOwn(this.saved.blocks, name)) {
-        this.report(ctx, path, `unknown block type "${name}"`);
+        this.report(
+          ctx,
+          path,
+          Object.hasOwn(FOLDED_BUILT_INS, name)
+            ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
+            : `unknown block type "${name}"`,
+        );
         return;
       }
       // A reference to a saved block: check what it resolves to against the field.
@@ -650,6 +664,15 @@ class Checker {
         this.report(ctx, "", "missing __resolveType: a saved block names the function it calls");
         continue;
       }
+      if (name === SETTINGS_BLOCK && entry.__resolveType !== SETTINGS_TYPE) {
+        this.report(
+          ctx,
+          "",
+          `"${SETTINGS_BLOCK}" is the name of the CMS settings block (type "${SETTINGS_TYPE}"); ` +
+            "this one is ignored as settings, so rename it",
+          "warning",
+        );
+      }
       this.checkBlock(ctx, entry, "", null);
     }
     problems.push(...this.routeProblems());
@@ -745,11 +768,34 @@ function readSchemaFile(file: string): DecoMeta {
   } catch {
     throw new CliError(`no ${file}; run deco schema first`);
   }
+  let meta: DecoMeta;
   try {
-    return JSON.parse(text) as DecoMeta;
+    meta = JSON.parse(text) as DecoMeta;
   } catch (error) {
     throw new CliError(`${file}: invalid JSON: ${(error as Error).message}`);
   }
+  assertBlocksMajor(meta, file);
+  return meta;
+}
+
+/**
+ * A schema must declare `"blocksMajor": 8`: the site editor treats a site as
+ * v8 only on that field, so a schema without it would edit as a v7 site.
+ */
+export function assertBlocksMajor(meta: unknown, file: string): void {
+  const found =
+    typeof meta === "object" && meta !== null && !Array.isArray(meta)
+      ? (meta as { blocksMajor?: unknown }).blocksMajor
+      : undefined;
+  if (found === BLOCKS_MAJOR) return;
+  const what =
+    found === undefined
+      ? 'has no top-level "blocksMajor"'
+      : `has "blocksMajor": ${JSON.stringify(found)}`;
+  throw new CliError(
+    `${file} ${what}; expected "blocksMajor": ${BLOCKS_MAJOR}. ` +
+      "It was written by an older or different deco schema: run deco schema to regenerate it, then commit it.",
+  );
 }
 
 /** `deco check`. Returns the exit code: 0 when everything fits (warnings aside), 1 otherwise. */

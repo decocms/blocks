@@ -84,3 +84,54 @@ export function docsSnapshot(revision = "rev-1"): Snapshot {
     },
   };
 }
+
+/** The host and token of the fake Studio API below. */
+export const STUDIO_HOST = "studio.decocms.com";
+export const STUDIO_TOKEN = "signed-token";
+
+/**
+ * A fake Studio API answering draft pointers the way the docs describe
+ * (/next/content-delivery#draft-previews): per draft branch, the changes
+ * compared with production, behind the token Studio signed. Hand `fetch` to
+ * `vi.stubGlobal("fetch", …)`.
+ */
+export function fakeStudio() {
+  const branches = new Map<string, { set?: Record<string, unknown>; delete?: string[] }>();
+  const overrides = new Map<string, () => Response>();
+  const requests: { url: string; init: RequestInit | undefined }[] = [];
+  const PATH = /^\/api\/acme\/decofile\/store\/([^/]+)\/changes$/;
+  const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input));
+    requests.push({ url: url.href, init });
+    const branch = PATH.exec(url.pathname)?.[1];
+    if (url.host !== STUDIO_HOST || branch === undefined) {
+      return new Response("not found", { status: 404 });
+    }
+    const override = overrides.get(branch);
+    if (override) return override();
+    if (url.searchParams.get("token") !== STUDIO_TOKEN) {
+      return Response.json({ error: "invalid token" }, { status: 401 });
+    }
+    const changes = branches.get(branch) ?? {};
+    return Response.json(
+      { format: 1, set: changes.set ?? {}, delete: changes.delete ?? [] },
+      { headers: { "cache-control": "no-store", "access-control-allow-origin": "*" } },
+    );
+  };
+  return {
+    fetch,
+    requests,
+    /** Saves a draft branch's changes and returns the pointer Studio would mint for them. */
+    draft(
+      changes: { set?: Record<string, unknown>; delete?: string[] },
+      { branch = "summer-sale", version = "9f3c1a", token = STUDIO_TOKEN } = {},
+    ): string {
+      branches.set(branch, changes);
+      return `${STUDIO_HOST}/api/acme/decofile/store/${branch}/changes?token=${token}@${version}`;
+    },
+    /** Answers a branch with this response instead. */
+    respond(branch: string, response: () => Response) {
+      overrides.set(branch, response);
+    },
+  };
+}

@@ -4,39 +4,40 @@
  * clients, loaders, drafts, revisions, update(), and one instance per process.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createCMS, resetForTests } from "./cms";
-import { docsBlocks, docsSnapshot } from "./testFixtures";
+import { createCMS, instanceOf, resetForTests } from "./cms";
+import { docsBlocks, docsSnapshot, fakeStudio } from "./testFixtures";
 import type { Loader, Snapshot } from "./types";
-
-const POINTER = "api.deco.example/drafts/acme/main?token=abc@9f3c1a";
 
 beforeEach(() => resetForTests());
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
-function draftSnapshot(): Snapshot {
-  return {
-    revision: "draft-9f3c1a",
-    blocks: {
-      SummerSEO: { __resolveType: "seo", title: "Draft title", description: "Draft" },
-    },
-  };
+const DRAFT_SEO = { __resolveType: "seo", title: "Draft title", description: "Draft" };
+
+/** A fake Studio with one saved draft: its pointer, and the fetch the CMS makes. */
+function studioDraft() {
+  const studio = fakeStudio();
+  const fetch = vi.fn(studio.fetch);
+  vi.stubGlobal("fetch", fetch);
+  const pointer = studio.draft({ set: { SummerSEO: DRAFT_SEO }, delete: ["HelloWorld"] });
+  return { studio, fetch, pointer };
 }
 
-/** A loader serving the release and one draft, recording every call. */
-function draftLoader(overrides: Partial<Loader> = {}) {
-  const calls: (string | null | undefined)[] = [];
+/** A loader recording every load. */
+function countingLoader(overrides: Partial<Loader> = {}) {
+  let loads = 0;
   const loader: Loader = {
-    async load(pointer) {
-      calls.push(pointer);
-      return pointer ? draftSnapshot() : docsSnapshot();
+    async load() {
+      loads++;
+      return docsSnapshot();
     },
     ...overrides,
   };
-  return { loader, calls };
+  return { loader, loads: () => loads };
 }
 
 describe("createCMS with the content module", () => {
@@ -49,13 +50,16 @@ describe("createCMS with the content module", () => {
     expect(await client.revision()).toBe("rev-1");
   });
 
-  it("forDraft acts like forRelease: the content module has no drafts and ignores the pointer", async () => {
+  it("forDraft layers the draft's changes over the content module, with no site or token", async () => {
+    const { pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    for (const pointer of [POINTER, "not a pointer", ""]) {
-      const [seo, error] = await cms.forDraft(pointer).resolve("SummerSEO");
-      expect(error).toBeNull();
-      expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
-    }
+    const draft = cms.forDraft(pointer);
+    expect(await draft.resolve("SummerSEO")).toEqual([
+      { title: "Draft title", description: "Draft" },
+      null,
+    ]);
+    expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
+    expect((await draft.resolve("HomePage"))[1]).toBeNull(); // inherited
   });
 
   it("update() reports nothing new: a snapshot never changes", async () => {
@@ -72,44 +76,26 @@ describe("createCMS with the content module", () => {
 });
 
 describe("loaders", () => {
-  it("load() with no argument is the release", async () => {
-    const { loader, calls } = draftLoader();
+  it("load() is the release; a draft is layered over what it returned", async () => {
+    const { pointer } = studioDraft();
+    const { loader, loads } = countingLoader();
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     const [seo] = await cms.forRelease().resolve("SummerSEO");
     expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
-    expect(calls).toEqual([undefined]);
-  });
-
-  it("forDraft passes the pointer to load(pointer) and reads the draft", async () => {
-    const { loader, calls } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const client = cms.forDraft(POINTER);
-    const [seo, error] = await client.resolve("SummerSEO");
-    expect(error).toBeNull();
-    expect(seo).toEqual({ title: "Draft title", description: "Draft" });
-    expect(calls).toEqual([POINTER]);
-    expect(await client.revision()).toBe("draft-9f3c1a");
-  });
-
-  it("a draft client never mixes in published entries", async () => {
-    const { loader } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const [, error] = await cms.forDraft(POINTER).resolve("HomePage");
-    expect(error?.code).toBe("NOT_FOUND");
+    const client = cms.forDraft(pointer);
+    expect((await client.resolve("SummerSEO"))[0]).toEqual({
+      title: "Draft title",
+      description: "Draft",
+    });
+    expect(await client.revision()).toBe("rev-1~9f3c1a");
+    expect(loads()).toBe(2); // a loader without update() is asked per client
   });
 
   it("a failing draft makes every call on that client return [null, LOADER_FAILED]", async () => {
-    const boom = new Error("403 from the draft host");
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: {
-        async load(pointer) {
-          if (pointer) throw boom;
-          return docsSnapshot();
-        },
-      },
-    });
-    const client = cms.forDraft(POINTER);
+    const { studio, pointer } = studioDraft();
+    studio.respond("summer-sale", () => new Response("down", { status: 502 }));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const client = cms.forDraft(pointer);
     const [v1, e1] = await client.resolve("SummerSEO");
     const [v2, e2] = await client.list("page");
     const [v3, e3] = await client.resolve({ title: "literal" });
@@ -119,7 +105,8 @@ describe("loaders", () => {
       [v3, e3],
     ] as const) {
       expect(value).toBeNull();
-      expect(error).toMatchObject({ code: "LOADER_FAILED", cause: boom });
+      expect(error).toMatchObject({ code: "LOADER_FAILED" });
+      expect(String((error?.cause as Error)?.message)).toContain("HTTP 502");
     }
     await expect(client.revision()).rejects.toMatchObject({ code: "LOADER_FAILED" });
     // …and the release is unaffected.
@@ -127,14 +114,14 @@ describe("loaders", () => {
   });
 
   it("a pointer that doesn't parse is LOADER_FAILED, never a silent fallback to the release", async () => {
-    const { loader, calls } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
+    const { fetch } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     for (const bad of ["https://evil.example/x@1", "no-path@1", "host/path", "", "a b/x@1"]) {
       const [value, error] = await cms.forDraft(bad).resolve("SummerSEO");
       expect(value, bad).toBeNull();
       expect(error?.code, bad).toBe("LOADER_FAILED");
     }
-    expect(calls).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("a loader that returns something other than a snapshot is LOADER_FAILED", async () => {
@@ -204,34 +191,39 @@ describe("loaders", () => {
     expect(update).toHaveBeenCalledTimes(1);
   });
 
-  it("an update drops cached drafts, so a loader that ignores the pointer can't serve a stale release", async () => {
+  it("an update drops fetched drafts, and the next draft client follows the new release", async () => {
+    const { fetch, pointer } = studioDraft();
     let revision = "r1";
-    const load = vi.fn(async () => ({ revision, blocks: { Name: revision } }));
     const cms = createCMS({
       blocks: {},
-      content: { load, update: async () => ({ updated: true }) },
+      content: {
+        load: async () => ({ revision, blocks: { Name: revision } }),
+        update: async () => ({ updated: true }),
+      },
     });
-    expect(await cms.forDraft(POINTER).resolve("Name")).toEqual(["r1", null]);
+    expect(await cms.forDraft(pointer).resolve("Name")).toEqual(["r1", null]);
     revision = "r2";
     await cms.update();
-    expect(await cms.forDraft(POINTER).resolve("Name")).toEqual(["r2", null]);
+    expect(await cms.forDraft(pointer).resolve("Name")).toEqual(["r2", null]);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("an update that finds nothing new keeps cached drafts", async () => {
-    const { loader, calls } = draftLoader({ update: async () => ({ updated: false }) });
+  it("an update that finds nothing new keeps fetched drafts", async () => {
+    const { fetch, pointer } = studioDraft();
+    const { loader } = countingLoader({ update: async () => ({ updated: false }) });
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    await cms.forDraft(POINTER).resolve("SummerSEO");
+    await cms.forDraft(pointer).resolve("SummerSEO");
     await cms.update();
-    await cms.forDraft(POINTER).resolve("SummerSEO");
-    expect(calls).toEqual([POINTER]);
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("drafts are cached per pointer (the version is immutable)", async () => {
-    const { loader, calls } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    await cms.forDraft(POINTER).resolve("SummerSEO");
-    await cms.forDraft(POINTER).resolve("SummerSEO");
-    expect(calls).toEqual([POINTER]);
+  it("drafts are fetched once per pointer within a minute", async () => {
+    const { fetch, pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -273,10 +265,10 @@ describe("one revision per client", () => {
   });
 
   it("forRevision never reaches a draft: a draft revision behaves like the release", async () => {
-    const { loader } = draftLoader();
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    expect(await cms.forDraft(POINTER).revision()).toBe("draft-9f3c1a");
-    const client = cms.forRevision("draft-9f3c1a");
+    const { pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    expect(await cms.forDraft(pointer).revision()).toBe("rev-1~9f3c1a");
+    const client = cms.forRevision("rev-1~9f3c1a");
     expect(await client.revision()).toBe("rev-1");
     expect(await client.resolve("SummerSEO")).toEqual([
       { title: "Sunny!", description: "Light layers for long days." },
@@ -295,8 +287,22 @@ describe("one revision per client", () => {
 });
 
 describe("update() checks on an interval", () => {
-  /** Background work runs at an idle moment (here, a timer): give it a turn. */
-  const idle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  // Background work goes through the host hook, deferred to a timer so a
+  // request never runs it; `idle` waits for exactly what was scheduled (a
+  // fixed sleep could return first on a loaded machine and read a count short).
+  const HOOK = Symbol.for("decocms.blocks.background");
+  const g = globalThis as { [HOOK]?: (task: () => Promise<void>) => void };
+  let background: Promise<void>[] = [];
+  beforeEach(() => {
+    background = [];
+    g[HOOK] = (task) => {
+      background.push(new Promise((resolve) => setTimeout(resolve, 0)).then(task));
+    };
+  });
+  afterEach(() => {
+    delete g[HOOK];
+  });
+  const idle = () => Promise.all(background.splice(0));
 
   /** A CMS over a loader with update(), with the clock and the jitter under test control. */
   function scheduled(interval?: number, random = 0.5) {
@@ -418,10 +424,30 @@ describe("update() checks on an interval", () => {
 });
 
 describe("one instance per process", () => {
+  it("two calls on one content root share the content but each resolves with its own block map", async () => {
+    // Next runs the proxy bundle in the app's process: its createCMS must not replace the app's map.
+    const content = { revision: "r1", root: ".deco", blocks: { Hero: { __resolveType: "hero" } } };
+    const app = createCMS({ blocks: { hero: () => "app" }, content });
+    const proxy = createCMS({ blocks: { hero: () => "proxy" }, content });
+    expect(instanceOf(proxy)).toBe(instanceOf(app));
+    expect(await app.forRelease().resolve("Hero")).toEqual(["app", null]);
+    expect(await proxy.forRelease().resolve("Hero")).toEqual(["proxy", null]);
+    expect(await app.forRevision("r1").resolve("Hero")).toEqual(["app", null]);
+    expect(await app.forDraft("localhost:4547/@local").resolve("Hero")).toEqual(["app", null]);
+    // Still one store: an update through either is seen by both.
+    createCMS({
+      blocks: { hero: () => "proxy" },
+      content: { revision: "r2", root: ".deco", blocks: content.blocks },
+    });
+    expect(await app.forRelease().revision()).toBe("r2");
+  });
+
   it("the same config returns the same instance", () => {
     const blocks = docsBlocks();
     const content = docsSnapshot();
-    expect(createCMS({ blocks, content })).toBe(createCMS({ blocks, content }));
+    expect(instanceOf(createCMS({ blocks, content }))).toBe(
+      instanceOf(createCMS({ blocks, content })),
+    );
   });
 
   it("is keyed by the content's identity, never its revision (a hot reload keeps the instance and serves the new content)", async () => {
@@ -432,7 +458,7 @@ describe("one instance per process", () => {
     const next = { ...docsSnapshot("rev-2"), root: ".deco" };
     (next.blocks.SummerSEO as Record<string, unknown>).title = "Reloaded";
     const second = createCMS({ blocks: docsBlocks(), content: next });
-    expect(second).toBe(first);
+    expect(instanceOf(second)).toBe(instanceOf(first));
     expect(await first.forRelease().revision()).toBe("rev-2");
     expect((await first.forRelease().resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe(
       "Reloaded",
@@ -448,7 +474,7 @@ describe("one instance per process", () => {
       blocks: docsBlocks(),
       content: { ...docsSnapshot(), root: "sites/b/.deco" } as Snapshot,
     });
-    expect(a).not.toBe(b);
+    expect(instanceOf(a)).not.toBe(instanceOf(b));
   });
 
   it("two content modules without a root never share an instance", async () => {
@@ -457,10 +483,10 @@ describe("one instance per process", () => {
     const modB: Snapshot = { revision: "same", blocks: { Home: "B" } };
     const a = createCMS({ blocks: {}, content: modA });
     const b = createCMS({ blocks: {}, content: modB });
-    expect(a).not.toBe(b);
+    expect(instanceOf(a)).not.toBe(instanceOf(b));
     expect(await a.forRelease().resolve("Home")).toEqual(["A", null]);
     expect(await b.forRelease().resolve("Home")).toEqual(["B", null]);
-    expect(createCMS({ blocks: {}, content: modA })).toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content: modA }))).toBe(instanceOf(a));
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -480,21 +506,29 @@ describe("one instance per process", () => {
   });
 
   it("a loader you write is identified by the loader object", () => {
-    const one = draftLoader().loader;
-    const two = draftLoader().loader;
-    expect(createCMS({ blocks: {}, content: one })).toBe(createCMS({ blocks: {}, content: one }));
-    expect(createCMS({ blocks: {}, content: one })).not.toBe(
-      createCMS({ blocks: {}, content: two }),
+    const one = countingLoader().loader;
+    const two = countingLoader().loader;
+    expect(instanceOf(createCMS({ blocks: {}, content: one }))).toBe(
+      instanceOf(createCMS({ blocks: {}, content: one })),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content: one }))).not.toBe(
+      instanceOf(createCMS({ blocks: {}, content: two })),
     );
   });
 
   it("with the hosted Deco CMS, the site ID and token are part of the key", () => {
     const content = docsSnapshot();
     const a = createCMS({ blocks: {}, content, site: "acme", token: "t1" });
-    expect(createCMS({ blocks: {}, content, site: "acme", token: "t1" })).toBe(a);
-    expect(createCMS({ blocks: {}, content, site: "other", token: "t1" })).not.toBe(a);
-    expect(createCMS({ blocks: {}, content, site: "acme", token: "t2" })).not.toBe(a);
-    expect(createCMS({ blocks: {}, content })).not.toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t1" }))).toBe(
+      instanceOf(a),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content, site: "other", token: "t1" }))).not.toBe(
+      instanceOf(a),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t2" }))).not.toBe(
+      instanceOf(a),
+    );
+    expect(instanceOf(createCMS({ blocks: {}, content }))).not.toBe(instanceOf(a));
   });
 
   it("never puts the token in the global symbol registry", () => {
@@ -514,7 +548,7 @@ describe("one instance per process", () => {
       interval: 120_000,
       telemetry: { endpoint: "https://otel.example.com" },
     });
-    expect(second).toBe(first);
+    expect(instanceOf(second)).toBe(instanceOf(first));
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain("interval");
     expect(warn.mock.calls[0]?.[0]).toContain("telemetry");
@@ -545,14 +579,27 @@ describe("one instance per process", () => {
       Symbol.keyFor(s)?.startsWith("decocms.blocks.cms:"),
     );
     expect(symbols).toHaveLength(1);
-    expect((globalThis as unknown as Record<symbol, unknown>)[symbols[0]!]).toBe(cms);
+    expect((globalThis as unknown as Record<symbol, unknown>)[symbols[0]!]).toBe(instanceOf(cms));
+  });
+
+  it("an instance an older copy of the package stored (no handles) is replaced, not adopted", async () => {
+    const content = { revision: "r1", root: ".deco-old", blocks: { Home: "home" } };
+    createCMS({ blocks: {}, content });
+    const key = Object.getOwnPropertySymbols(globalThis).find((s) =>
+      Symbol.keyFor(s)?.startsWith("decocms.blocks.cms:"),
+    )!;
+    const store = globalThis as unknown as Record<symbol, unknown>;
+    store[key] = { adopt: () => {}, fingerprint: {} };
+    const cms = createCMS({ blocks: {}, content });
+    expect(await cms.forRelease().resolve("Home")).toEqual(["home", null]);
+    expect(store[key]).toBe(instanceOf(cms));
   });
 
   it("resetForTests clears every stored instance", () => {
     const content = docsSnapshot();
     const first = createCMS({ blocks: {}, content });
     resetForTests();
-    expect(createCMS({ blocks: {}, content })).not.toBe(first);
+    expect(instanceOf(createCMS({ blocks: {}, content }))).not.toBe(instanceOf(first));
     expect(
       Object.getOwnPropertySymbols(globalThis).filter((s) =>
         Symbol.keyFor(s)?.startsWith("decocms.blocks.cms:"),

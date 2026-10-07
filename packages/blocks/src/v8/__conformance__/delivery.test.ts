@@ -2,9 +2,9 @@
 /**
  * Docs conformance: content-delivery, draft-synchronization,
  * releases-and-deployment, hosted, hosted-publishing, hosted-drafts and
- * hosted-releases-internals (docs/content/next/*.mdx on the blocks-site
- * branch). Each test names the claim it checks (CD-*, RD-*, H-*, HP-*, HD-*,
- * HRI-*). A failing test is a claim the code doesn't meet yet.
+ * hosted-releases-internals (src/content/docs/en/storefront/blocks/next/*.mdx in
+ * deco-sites/docs-tanstack). Each test names the claim it checks (CD-*, RD-*, H-*, HP-*, HD-*,
+ * HRI-*, DP-*). A failing test is a claim the code doesn't meet yet.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -13,11 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as root from "../../index";
 import { computeContentRevision } from "../../protocol/canonical";
 import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
+import { instanceOf } from "../cms";
 import {
   createCMS,
-  DRAFT_COOKIE,
-  draftCookie,
-  draftPointer,
   formatDraftPointer,
   matchRoute,
   parseDraftPointer,
@@ -25,16 +23,24 @@ import {
   resetForTests,
 } from "../index";
 import { resolveDestination } from "../telemetry";
-import { docsBlocks, docsSnapshot } from "../testFixtures";
-import type { Loader, Snapshot } from "../types";
+import { docsBlocks, docsSnapshot, fakeStudio, STUDIO_HOST, STUDIO_TOKEN } from "../testFixtures";
+import type { Loader, RequestLike, Snapshot } from "../types";
+
+/** cms.draftPointer and cms.draftCookie on a CMS with no settings: every host may preview. */
+const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
+const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
+const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
+const DRAFT_COOKIE = "__deco_draft";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "https://delivery.decocms.com";
-const HOST = new URL(ORIGIN).host;
 const SITE = "acme";
 const TOKEN = "site-token";
 const MANIFEST_URL = `${ORIGIN}/sites/acme/channels/production.json`;
-const POINTER = `${HOST}/drafts/acme/feat-summer?token=abc@9f3c1a`;
+/** A pointer string, for the cookie and parsing claims; drafts that load come from api.draft(). */
+const POINTER = `${STUDIO_HOST}/api/acme/decofile/store/summer-sale/changes?token=abc@9f3c1a`;
+/** Where the fake Studio answers drafts. */
+const STUDIO = `https://${STUDIO_HOST}`;
 
 const remote = (fallback: Snapshot | Loader) =>
   remoteLoader(fallback, { site: SITE, token: TOKEN }) as Loader;
@@ -79,34 +85,37 @@ function deferred(): Deferred {
   return { promise, resolve };
 }
 
-/** A fake delivery API: a channel manifest, immutable revision assets and drafts by version. */
+/** A saved seo entry, as a draft changes it. */
+const seoEntry = (title: string) => ({ __resolveType: "seo", title, description: "d" });
+
+/**
+ * A fake delivery API (a channel manifest and immutable revision assets) and
+ * a fake Studio API answering draft pointers (see testFixtures' fakeStudio).
+ */
 function deliveryApi() {
+  const studio = fakeStudio();
   const assets = new Map<string, unknown>();
-  const drafts = new Map<string, unknown>();
   const gates = new Map<string, Deferred>();
   let manifest: Record<string, unknown> | undefined;
   let failAll = false;
-  const requests: { url: string; headers: Record<string, string> }[] = [];
+  const requests: { url: string; headers: Record<string, string>; init?: RequestInit }[] = [];
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
-    requests.push({ url, headers });
+    requests.push({ url, headers, init });
     if (failAll) throw new TypeError("fetch failed");
+    await gates.get(new URL(url).pathname)?.promise;
+    if (url.startsWith(`${STUDIO}/`)) return studio.fetch(url, init);
+    if (!url.startsWith(ORIGIN)) return new Response("wrong host", { status: 599 });
+    const p = url.slice(ORIGIN.length).split("?")[0] ?? "";
     if (url === MANIFEST_URL) {
       if (!manifest) return new Response("missing", { status: 404 });
       return Response.json(manifest);
     }
-    if (!url.startsWith(ORIGIN)) return new Response("wrong host", { status: 599 });
-    const pathname = url.slice(ORIGIN.length);
-    if (pathname.startsWith("/drafts/")) {
-      const body = drafts.get(headers["if-match"] ?? "");
-      return body === undefined ? new Response("gone", { status: 404 }) : Response.json(body);
-    }
-    const p = pathname.split("?")[0] ?? "";
-    await gates.get(p)?.promise;
     if (assets.has(p)) {
       const body = assets.get(p);
-      return body instanceof Response ? body : Response.json(body);
+      if (body instanceof Response) return body;
+      return Response.json(body);
     }
     return new Response("not found", { status: 404 });
   });
@@ -134,9 +143,11 @@ function deliveryApi() {
     asset(p: string, body: unknown) {
       assets.set(p, body);
     },
-    draft(version: string, snapshot: Snapshot) {
-      drafts.set(version, snapshot);
-    },
+    /** Saves a draft branch's changes on the fake Studio; returns the pointer it would mint. */
+    draft: studio.draft,
+    /** Answers a draft branch with this response instead. */
+    respond: studio.respond,
+    draftFetches: () => requests.filter((r) => r.url.startsWith(`${STUDIO}/`)),
     gate(p: string) {
       const d = deferred();
       gates.set(p, d);
@@ -161,17 +172,25 @@ const titleOf = async (client: ReturnType<ReturnType<typeof createCMS>["forRelea
 // ---------------------------------------------------------------------------
 
 describe("content-delivery", () => {
-  it("CD-1: the SDK never calls GitHub; every fetch goes to the delivery origin", async () => {
-    const source = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
-    expect(source).not.toMatch(/github/i);
+  it("CD-1: the SDK never calls GitHub; releases come from the delivery origin, drafts from the pointer's Studio host", async () => {
+    for (const file of ["../remoteLoader.ts", "../draftChanges.ts"]) {
+      expect(fs.readFileSync(path.join(HERE, file), "utf8")).not.toMatch(/github/i);
+    }
     const api = deliveryApi();
     api.publish(1, await hashed("Published"));
-    api.draft("9f3c1a", await hashed("Draft"));
-    const loader = remote(docsSnapshot());
-    await loader.update?.();
-    await loader.load(POINTER);
-    expect(api.requests.length).toBeGreaterThan(0);
-    for (const { url } of api.requests) expect(url.startsWith(`${ORIGIN}/`)).toBe(true);
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: SITE,
+      token: TOKEN,
+    });
+    await cms.update();
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    const urls = api.requests.map((r) => r.url);
+    expect(urls.filter((url) => url.startsWith(`${ORIGIN}/`))).toHaveLength(2); // manifest, release
+    expect(urls.filter((url) => url.startsWith(`${STUDIO}/`))).toHaveLength(1);
+    expect(urls).toHaveLength(3);
   });
 
   it("CD-3: one canonical hash, insertion-order independent, shared by the CLI and remoteLoader", async () => {
@@ -270,22 +289,6 @@ describe("content-delivery", () => {
     expect(await titleOf(cms.forRelease())).toBe("A");
   });
 
-  it("CD-14: a draft is fetched at the exact version the pointer names, from the delivery origin", async () => {
-    const api = deliveryApi();
-    api.draft("9f3c1a", await hashed("Draft 9f3c1a"));
-    api.draft("aaaaaa", await hashed("Newer head"));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
-    expect(await titleOf(cms.forDraft(POINTER))).toBe("Draft 9f3c1a");
-    const draftRequest = api.requests.find((r) => r.url.includes("/drafts/"));
-    expect(draftRequest?.url).toBe(`${ORIGIN}/drafts/acme/feat-summer?token=abc`);
-    expect(draftRequest?.headers["if-match"]).toBe("9f3c1a");
-  });
-
   it("CD-16: the SDK bounds the snapshot size it accepts (stops reading an oversized asset)", async () => {
     const api = deliveryApi();
     const CHUNK = new Uint8Array(1024 * 1024).fill(0x20); // JSON whitespace
@@ -309,21 +312,484 @@ describe("content-delivery", () => {
     // Rejected by a size bound, not after buffering and failing to parse all of it.
     expect(pulled).toBeLessThan(TOTAL_MB);
   }, 60_000);
+});
 
-  it("CD-16: drafts kept in memory are bounded (old versions are evicted)", async () => {
+// ---------------------------------------------------------------------------
+// content-delivery.mdx#draft-previews, hosted-drafts.mdx#who-may-preview:
+// a draft pointer names Studio's API, which answers only the changes
+// ---------------------------------------------------------------------------
+
+/** A body that streams `mb` MiB of JSON whitespace after `[`, counting what was pulled. */
+function hugeBody(mb: number) {
+  const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+  const state = { pulled: 0 };
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (state.pulled === 0) controller.enqueue(new TextEncoder().encode("["));
+      if (state.pulled >= mb) return controller.close();
+      state.pulled++;
+      controller.enqueue(chunk);
+    },
+  });
+  return { body, state };
+}
+
+describe("draft previews", () => {
+  const cmsOf = (options: Partial<Parameters<typeof createCMS>[0]> = {}) =>
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), ...options });
+  const failed = async (client: ReturnType<ReturnType<typeof createCMS>["forDraft"]>) => {
+    const [value, error] = await client.resolve("SummerSEO");
+    const [list, listError] = await client.list("seo");
+    return { value, code: error?.code, list, listCode: listError?.code };
+  };
+  const FAILED = { value: null, code: "LOADER_FAILED", list: null, listCode: "LOADER_FAILED" };
+
+  it("DP-1: GET https://<host><path>&v=<version>: forced variants removed, no cookies or credentials, fetched once", async () => {
     const api = deliveryApi();
-    const versions = Array.from({ length: 40 }, (_, i) => `v${i}`);
-    for (const v of versions) api.draft(v, await hashed(`Draft ${v}`));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const withVariant = formatDraftPointer({
+      ...parseDraftPointer(pointer)!,
+      variants: [{ block: "Home", path: "", index: 1 }],
     });
-    for (const v of versions) await titleOf(cms.forDraft(`${HOST}/drafts/acme/x@${v}`));
-    const before = api.requests.length;
-    await titleOf(cms.forDraft(`${HOST}/drafts/acme/x@v0`));
-    expect(api.requests.length).toBe(before + 1); // v0 was evicted and fetched again
+    const cms = cmsOf({ site: SITE, token: TOKEN });
+    expect(await titleOf(cms.forDraft(withVariant))).toBe("Draft");
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    const [request, ...more] = api.draftFetches();
+    expect(more).toEqual([]);
+    expect(request!.url).toBe(
+      `${STUDIO}/api/acme/decofile/store/summer-sale/changes?token=${STUDIO_TOKEN}&v=9f3c1a`,
+    );
+    expect(request!.headers).not.toHaveProperty("cookie");
+    expect(request!.headers).not.toHaveProperty("authorization"); // never the site token
+    expect(request!.init?.credentials).not.toBe("include");
+    expect(request!.init?.redirect).toBe("manual");
+  });
+
+  it("DP-2: set replaces production's block whole, delete removes it, every other block is production's", async () => {
+    const api = deliveryApi();
+    const production = docsSnapshot();
+    const before = JSON.stringify(production);
+    const pointer = api.draft({
+      set: {
+        SummerSEO: { __resolveType: "seo", title: "Draft" }, // no description: never merged
+        NewPost: { __resolveType: "post", name: "New", path: "/blog/new", date: "2026-10-01" },
+      },
+      delete: ["HelloWorld", "LegacySummer"],
+    });
+    const draft = cmsOf({ content: production }).forDraft(pointer);
+    expect(await draft.resolve("SummerSEO", { run: false })).toEqual([
+      { __resolveType: "seo", title: "Draft" },
+      null,
+    ]);
+    expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
+    expect((await draft.resolve("LegacySummer"))[1]?.code).toBe("NOT_FOUND");
+    const [card] = await draft.resolve("SummerCard", { run: false });
+    expect(card).toEqual({
+      __resolveType: "product-card",
+      title: "Summer collection",
+      product: { __resolveType: "catalog-product", slug: "summer-shirt" },
+    });
+    // list: production's names plus set's, minus delete.
+    const [posts] = await draft.list<{ name: string }>("post");
+    expect(posts?.map((post) => post.name)).toEqual(["New"]);
+    expect(await draft.list("redirect")).toEqual([[], null]);
+    const [pages] = await draft.list<{ name: string }>("page");
+    expect(pages?.map((page) => page.name).sort()).toEqual(["Home", "Summer campaign"]);
+    expect(JSON.stringify(production)).toBe(before); // never mutated
+  });
+
+  it("DP-3: a client captures production once; the next client gets the new release and fetches the draft again", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE, token: TOKEN });
+    const first = cms.forDraft(pointer);
+    expect(await titleOf(first)).toBe("Draft");
+    api.publish(
+      1,
+      await hashed("Published", {
+        HelloWorld: { __resolveType: "post", name: "Republished", path: "/x", date: "2026-10-02" },
+      }),
+    );
+    await cms.update();
+    const [oldPosts] = await first.list<{ name: string }>("post");
+    expect(oldPosts?.map((p) => p.name)).toEqual(["Hello, world"]); // its captured base
+    const next = cms.forDraft(pointer);
+    expect(await titleOf(next)).toBe("Draft");
+    const [newPosts] = await next.list<{ name: string }>("post");
+    expect(newPosts?.map((p) => p.name)).toEqual(["Republished"]);
+    expect(api.draftFetches()).toHaveLength(2); // dropped when the release changed
+    expect(await next.revision()).not.toBe(await first.revision());
+  });
+
+  it("DP-4: the draft's revision is an opaque identity of the production revision and the version", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const draft = cmsOf().forDraft(pointer);
+    const revision = await draft.revision();
+    expect(revision).toContain("rev-1");
+    expect(revision).toContain("9f3c1a");
+    expect(revision).not.toBe("rev-1");
+  });
+
+  it("DP-5: only *.decocms.com and loopback hosts by default; any other host, or a look-alike, is refused before anything is fetched", async () => {
+    const api = deliveryApi();
+    const cms = cmsOf();
+    const changes = "/api/acme/decofile/store/summer-sale/changes?token=t";
+    for (const pointer of [
+      `evil.example${changes}@1`,
+      `studio.decocms.com.evil.example${changes}@1`,
+      `evil.example/studio.decocms.com${changes}@1`,
+      `evil-decocms.com${changes}@1`,
+      `decocms.com${changes}@1`,
+      `studio.decocms.com:8443${changes}@1`,
+      `169.254.169.254/latest/meta-data?x=1@1`,
+      `studio.decocms.com@evil.example${changes}@1`,
+      `https://studio.decocms.com${changes}@1`,
+      `studio.decocms.com//evil.example/x@1`,
+      `studio.decocms.com\\@evil.example/x@1`,
+    ]) {
+      expect({ pointer, ...(await failed(cms.forDraft(pointer))) }).toEqual({ pointer, ...FAILED });
+    }
+    expect(api.fetch).not.toHaveBeenCalled();
+    // The host is compared lowercase, so an uppercase pointer still reaches Studio.
+    const upper = api
+      .draft({ set: { SummerSEO: seoEntry("Draft") } })
+      .replace(STUDIO_HOST, STUDIO_HOST.toUpperCase());
+    expect(await titleOf(cms.forDraft(upper))).toBe("Draft");
+  });
+
+  it("DP-6: DECO_PREVIEW_API_DOMAINS replaces the default list; content can't widen it", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "studio.example.com");
+    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
+    expect(api.fetch).not.toHaveBeenCalled();
+    resetForTests();
+    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", " .decocms.com , studio.example.com ");
+    expect(await titleOf(cmsOf().forDraft(pointer))).toBe("Draft");
+    // Content can't widen it: the CMS block has no say over where drafts come from.
+    resetForTests();
+    vi.unstubAllEnvs();
+    const release = docsSnapshot();
+    release.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["*"] } };
+    const fromContent = cmsOf({ content: release });
+    expect(
+      await failed(
+        fromContent.forDraft("evil.example/api/acme/decofile/store/x/changes?token=t@1"),
+      ),
+    ).toEqual(FAILED);
+    expect(api.requests.filter((r) => r.url.includes("evil.example"))).toEqual([]);
+  });
+
+  it("DP-7: HTTPS, except plain HTTP for localhost, *.localhost and 127.0.0.1; a port only on those and local.studio.decocms.com; [::1] only when configured", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        urls.push(String(input));
+        return Response.json({ format: 1, set: {}, delete: [] });
+      }),
+    );
+    const cms = cmsOf();
+    for (const host of [
+      "localhost:4000",
+      "studio.localhost",
+      "127.0.0.1:4000",
+      "local.studio.decocms.com:4000",
+      "studio.decocms.com",
+      "pr-12.pr.studio.decocms.com",
+    ]) {
+      expect((await cms.forDraft(`${host}/changes?token=t@v1`).revision()).endsWith("~v1")).toBe(
+        true,
+      );
+    }
+    expect(urls).toEqual([
+      "http://localhost:4000/changes?token=t&v=v1",
+      "http://studio.localhost/changes?token=t&v=v1",
+      "http://127.0.0.1:4000/changes?token=t&v=v1",
+      "https://local.studio.decocms.com:4000/changes?token=t&v=v1",
+      "https://studio.decocms.com/changes?token=t&v=v1",
+      "https://pr-12.pr.studio.decocms.com/changes?token=t&v=v1",
+    ]);
+
+    // The defaults are v7's, which never listed the IPv6 loopback.
+    urls.length = 0;
+    expect(await failed(cms.forDraft("[::1]:4000/changes?token=t@v2"))).toEqual(FAILED);
+    expect(urls).toEqual([]);
+    // Configured, it is a loopback domain like the others: plain HTTP, any port.
+    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "[::1]");
+    expect(
+      (await cmsOf().forDraft("[::1]:4000/changes?token=t@v3").revision()).endsWith("~v3"),
+    ).toBe(true);
+    expect(urls).toEqual(["http://[::1]:4000/changes?token=t&v=v3"]);
+  });
+
+  it("DP-8: only a 200 is accepted: an error status, or a redirect, is a failed draft", async () => {
+    for (const status of [201, 204, 301, 302, 400, 401, 403, 404, 413, 500, 502]) {
+      resetForTests();
+      const api = deliveryApi();
+      const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+      api.respond("summer-sale", () =>
+        status === 204
+          ? new Response(null, { status })
+          : new Response(JSON.stringify({ format: 1, set: {}, delete: [] }), {
+              status,
+              headers: status >= 300 && status < 400 ? { location: "https://evil.example/" } : {},
+            }),
+      );
+      const cms = cmsOf();
+      await cms.forRelease().revision();
+      expect({ status, ...(await failed(cms.forDraft(pointer))) }).toEqual({ status, ...FAILED });
+      expect(api.requests.filter((r) => r.url.includes("evil.example"))).toEqual([]);
+    }
+  });
+
+  it("DP-9: a response over 16 MiB is refused while it downloads", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({});
+    const { body, state } = hugeBody(64);
+    api.respond("summer-sale", () => new Response(body));
+    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
+    expect(state.pulled).toBeLessThanOrEqual(18);
+    // A declared length over the limit isn't read at all.
+    resetForTests();
+    const declared = deliveryApi();
+    const big = declared.draft({});
+    const huge = hugeBody(64);
+    declared.respond(
+      "summer-sale",
+      () => new Response(huge.body, { headers: { "content-length": String(17 * 1024 * 1024) } }),
+    );
+    expect(await failed(cmsOf().forDraft(big))).toEqual(FAILED);
+    expect(huge.state.pulled).toBeLessThanOrEqual(1);
+  }, 60_000);
+
+  it("DP-10: a response that doesn't arrive within 10 seconds is a failed draft", async () => {
+    const timeouts: number[] = [];
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return controller.signal;
+    });
+    let started!: () => void;
+    const fetching = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: unknown, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            started();
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
+    const client = cmsOf().forDraft(POINTER);
+    const result = failed(client);
+    await fetching;
+    expect(timeouts).toEqual([10_000]);
+    controller.abort(new DOMException("timed out", "TimeoutError"));
+    expect(await result).toEqual(FAILED);
+  });
+
+  it("DP-11: the shape is checked: exactly format 1, set and delete, disjoint", async () => {
+    const bodies: unknown[] = [
+      { format: 2, set: {}, delete: [] },
+      { set: {}, delete: [] },
+      { format: 1, set: {}, delete: [], baseRevision: "x" },
+      { format: 1, set: [], delete: [] },
+      { format: 1, set: null, delete: [] },
+      { format: 1, set: {} },
+      { format: 1, set: {}, delete: "HelloWorld" },
+      { format: 1, set: {}, delete: [1] },
+      { format: 1, set: {}, delete: ["A", "A"] },
+      { format: 1, set: { A: seoEntry("x") }, delete: ["A"] },
+      [{ format: 1, set: {}, delete: [] }],
+      "changes",
+      null,
+    ];
+    for (const body of [...bodies, "not json"]) {
+      resetForTests();
+      const api = deliveryApi();
+      const pointer = api.draft({});
+      api.respond("summer-sale", () =>
+        body === "not json" ? new Response("{oops") : Response.json(body),
+      );
+      expect({ body, ...(await failed(cmsOf().forDraft(pointer))) }).toEqual({ body, ...FAILED });
+    }
+  });
+
+  it("DP-12: a failed draft is LOADER_FAILED on every call, never published content, and isn't reused", async () => {
+    const api = deliveryApi();
+    api.publish(1, await hashed("Release"));
+    const cms = cmsOf({ site: SITE, token: TOKEN });
+    await cms.update();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    api.respond("summer-sale", () => new Response("bad gateway", { status: 502 }));
+    const client = cms.forDraft(pointer);
+    expect(await failed(client)).toEqual(FAILED);
+    await expect(client.revision()).rejects.toMatchObject({ code: "LOADER_FAILED" });
+    const [, error] = await client.resolve("SummerSEO");
+    expect(String((error?.cause as Error | undefined)?.message)).toContain("HTTP 502");
+    api.respond("summer-sale", () =>
+      Response.json({ format: 1, set: { SummerSEO: seoEntry("Back") }, delete: [] }),
+    );
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Back");
+    expect(api.draftFetches()).toHaveLength(2);
+  });
+
+  it("DP-13: an expired or wrong token gets no content", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } }, { token: "expired" });
+    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
+    expect(api.draftFetches()).toHaveLength(1);
+  });
+
+  it("DP-14: a fetched draft is reused for up to a minute per pointer, at most three per CMS", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const api = deliveryApi();
+    const pointer = (branch: string) =>
+      api.draft({ set: { SummerSEO: seoEntry(branch) } }, { branch });
+    const cms = cmsOf();
+    expect(await titleOf(cms.forDraft(pointer("a")))).toBe("a");
+    now += 59_000;
+    expect(await titleOf(cms.forDraft(pointer("a")))).toBe("a");
+    expect(api.draftFetches()).toHaveLength(1);
+    now += 2_000;
+    await titleOf(cms.forDraft(pointer("a")));
+    expect(api.draftFetches()).toHaveLength(2); // a minute passed: fetched (and its token checked) again
+    for (const branch of ["b", "c", "d"]) await titleOf(cms.forDraft(pointer(branch)));
+    expect(api.draftFetches()).toHaveLength(5);
+    await titleOf(cms.forDraft(pointer("a"))); // the fourth evicted the oldest
+    expect(api.draftFetches()).toHaveLength(6);
+    await titleOf(cms.forDraft(pointer("d")));
+    expect(api.draftFetches()).toHaveLength(6);
+  });
+
+  it("DP-15: drafts need no site or token, and never send them", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    expect(await titleOf(cmsOf().forDraft(pointer))).toBe("Draft");
+    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([STUDIO_HOST]);
+    resetForTests();
+    const hosted = deliveryApi();
+    const hostedPointer = hosted.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    expect(await titleOf(cmsOf({ site: SITE, token: TOKEN }).forDraft(hostedPointer))).toBe(
+      "Draft",
+    );
+    for (const r of hosted.draftFetches()) expect(r.headers.authorization).toBeUndefined();
+  });
+
+  it("DP-16: a pointer whose version is local names no draft: nothing is fetched, forced variants apply", async () => {
+    const api = deliveryApi();
+    const content = docsSnapshot();
+    content.blocks.Banner = {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "always" }, value: "spring" },
+        { rule: { __resolveType: "never" }, value: "summer" },
+      ],
+    };
+    const cms = cmsOf({ content });
+    const local = formatDraftPointer({
+      host: "localhost:4547",
+      path: "/",
+      version: "local",
+      variants: [{ block: "Banner", path: "", index: 1 }],
+    });
+    expect(await cms.forDraft(local).resolve("Banner")).toEqual(["summer", null]);
+    expect(await titleOf(cms.forDraft("localhost:4547/@local"))).toBe("Sunny!");
+    expect(await cms.forDraft("localhost:4547/@local").revision()).toBe("rev-1");
+    expect(api.fetch).not.toHaveBeenCalled();
+  });
+
+  it("DP-17: forced variants apply on top of the draft's changes; every variant shares one fetch", async () => {
+    const api = deliveryApi();
+    const banner = {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "never" }, value: "draft fallback" },
+        { rule: { __resolveType: "never" }, value: "draft summer" },
+      ],
+    };
+    const pointer = api.draft({ set: { Banner: banner } });
+    const parsed = parseDraftPointer(pointer)!;
+    const cms = cmsOf();
+    const forced = (index: number) =>
+      formatDraftPointer({ ...parsed, variants: [{ block: "Banner", path: "", index }] });
+    expect(await cms.forDraft(forced(1)).resolve("Banner")).toEqual(["draft summer", null]);
+    expect(await cms.forDraft(forced(0)).resolve("Banner")).toEqual(["draft fallback", null]);
+    expect(await cms.forDraft(pointer).resolve("Banner")).toEqual([undefined, null]); // the rules
+    expect(api.draftFetches()).toHaveLength(1);
+  });
+
+  it("DP-18: empty changes (a branch before its first save) show production", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({}, { branch: "not-saved-yet" });
+    const cms = cmsOf();
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Sunny!");
+    const [pages] = await cms.forDraft(pointer).list("page");
+    expect(pages).toHaveLength(2);
+  });
+
+  it("DP-19: release checks don't depend on drafts: a draft client schedules the same check, never in front of it", async () => {
+    const api = deliveryApi();
+    api.publish(
+      1,
+      await hashed("Published", {
+        HelloWorld: { __resolveType: "post", name: "Republished", path: "/x", date: "2026-10-02" },
+      }),
+    );
+    const channel = api.gate("/sites/acme/channels/production.json"); // the background check hangs
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE, token: TOKEN });
+    const first = cms.forDraft(pointer);
+    expect((await first.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
+      "Hello, world",
+    ]); // cold: the fallback is the base
+    expect(api.assetFetches()).toBe(0);
+    expect(api.manifestFetches()).toBeLessThanOrEqual(1); // scheduled beside the draft, still pending
+    channel.resolve();
+    await flush();
+    const next = cms.forDraft(pointer);
+    expect(await titleOf(next)).toBe("Draft");
+    expect((await next.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
+      "Republished",
+    ]);
+  });
+
+  it("DP-20: an entry named __proto__ in set stays an entry", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({
+      set: JSON.parse(
+        '{"__proto__": {"__resolveType": "seo", "title": "Odd", "description": "d"}}',
+      ),
+    });
+    const [entry] = await cmsOf().forDraft(pointer).resolve("__proto__", { run: false });
+    expect(entry).toEqual({ __resolveType: "seo", title: "Odd", description: "d" });
+    expect(({} as Record<string, unknown>).title).toBeUndefined();
+  });
+
+  it("DP-21: a response that was redirected anyway (a fetch polyfill ignoring redirect: manual) is refused", async () => {
+    const changes = { format: 1, set: { SummerSEO: seoEntry("Elsewhere") }, delete: [] };
+    const redirected = (url: string, flag: boolean) => {
+      const response = Response.json(changes);
+      Object.defineProperty(response, "redirected", { value: flag });
+      Object.defineProperty(response, "url", { value: url });
+      return response;
+    };
+    for (const [url, flag] of [
+      ["https://evil.example/changes", false],
+      [`https://${STUDIO_HOST}/elsewhere`, true],
+    ] as const) {
+      resetForTests();
+      const api = deliveryApi();
+      const pointer = api.draft({});
+      api.respond("summer-sale", () => redirected(url, flag));
+      expect({ url, ...(await failed(cmsOf().forDraft(pointer))) }).toEqual({ url, ...FAILED });
+    }
   });
 });
 
@@ -383,16 +849,16 @@ describe("releases-and-deployment", () => {
 
   it("RD-7: a revision unlocks nothing: forRevision(<draft revision>) never reaches the draft", async () => {
     const api = deliveryApi();
-    const draft = await hashed("Secret draft");
-    api.draft("9f3c1a", draft);
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Secret draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
       token: TOKEN,
     });
-    expect(await titleOf(cms.forDraft(POINTER))).toBe("Secret draft");
-    const byRevision = cms.forRevision(draft.revision);
+    const draft = cms.forDraft(pointer);
+    expect(await titleOf(draft)).toBe("Secret draft");
+    const byRevision = cms.forRevision(await draft.revision());
     expect(await titleOf(byRevision)).toBe("Sunny!");
   });
 });
@@ -448,7 +914,7 @@ describe("hosted", () => {
     vi.stubEnv("NODE_ENV", "development");
     const api = deliveryApi();
     api.publish(1, await hashed("Published"));
-    api.draft("9f3c1a", await hashed("Draft"));
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -460,7 +926,7 @@ describe("hosted", () => {
     await cms.update();
     expect(api.manifestFetches()).toBe(0);
     expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    expect(await titleOf(cms.forDraft(POINTER))).toBe("Draft");
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
   });
 
   it("H-6: site and token alone never send telemetry", async () => {
@@ -486,10 +952,8 @@ describe("hosted", () => {
     expect(destination?.endpoint).toMatch(/^https:\/\/[^/]*decocms\.com/);
     expect(destination?.headers.authorization).toBe(`Bearer ${TOKEN}`);
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    const [analytics] = await cms
-      .forRelease()
-      .resolve<{ collector: string }>({ __resolveType: "analytics" });
-    expect(analytics?.collector).toBe(HOSTED_ANALYTICS_COLLECTOR);
+    const { analytics } = await cms.settings();
+    expect(analytics.collector).toBe(HOSTED_ANALYTICS_COLLECTOR);
   });
 });
 
@@ -563,10 +1027,21 @@ describe("hosted-publishing", () => {
   });
 
   describe("check schedule", () => {
+    // Background work goes through the host hook so a tick awaits exactly the
+    // checks it scheduled: a timer-based flush can return before a loaded
+    // machine runs them, and the counts below would read one short.
+    const HOOK = Symbol.for("decocms.blocks.background");
+    const g = globalThis as { [HOOK]?: (task: () => Promise<void>) => void };
+    let background: Promise<void>[] = [];
     let now = 1_000_000;
     beforeEach(() => {
       now = 1_000_000;
       vi.spyOn(Date, "now").mockImplementation(() => now);
+      background = [];
+      g[HOOK] = (task) => void background.push(task());
+    });
+    afterEach(() => {
+      delete g[HOOK];
     });
 
     /** Creates a CMS over an updatable loader and returns a probe of when checks run. */
@@ -579,7 +1054,7 @@ describe("hosted-publishing", () => {
         async tick(ms: number) {
           now += ms;
           cms.forRelease();
-          await flush();
+          await Promise.all(background.splice(0));
           return update.mock.calls.length;
         },
       };
@@ -785,7 +1260,7 @@ describe("hosted-publishing", () => {
 // ---------------------------------------------------------------------------
 
 describe("hosted-drafts", () => {
-  it("HD-1: pointer is <host><path>@<version>, version after the last @; format round-trips", () => {
+  it("HD-1: pointer is <host><path>@<version>, version after the last @; format round-trips", async () => {
     const raw = "api.deco.example/drafts/acme/feat-summer?token=abc@9f3c1a";
     const parsed = parseDraftPointer(raw);
     expect(parsed).toEqual({
@@ -795,40 +1270,48 @@ describe("hosted-drafts", () => {
     });
     expect(formatDraftPointer(parsed!)).toBe(raw);
     const link = new URL(`https://store.example.com/summer?__draft=${encodeURIComponent(raw)}`);
-    expect(draftPointer(new Request(link))).toBe(raw);
+    expect(await draftPointer(new Request(link))).toBe(raw);
   });
 
-  it("HD-2: forDraft fetches that version once and serves it from memory afterwards", async () => {
+  it("HD-2: forDraft fetches the pointer once and serves it from memory afterwards", async () => {
     const api = deliveryApi();
-    api.draft("9f3c1a", await hashed("Draft"));
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
       token: TOKEN,
     });
-    expect(await titleOf(cms.forDraft(POINTER))).toBe("Draft");
-    expect(await titleOf(cms.forDraft(POINTER))).toBe("Draft");
-    expect(api.requests.filter((r) => r.url.includes("/drafts/"))).toHaveLength(1);
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    expect(api.draftFetches()).toHaveLength(1);
   });
 
-  it("HD-3: a draft replaces the whole revision, deletions included", async () => {
+  it("HD-3: a draft holds only changed blocks and deletions; every other block is inherited", async () => {
     const api = deliveryApi();
-    api.draft("9f3c1a", await hashed("Draft")); // only SummerSEO
+    const pointer = api.draft({
+      set: { SummerSEO: seoEntry("Draft") },
+      delete: ["HelloWorld"],
+    });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
       token: TOKEN,
     });
-    const [pages] = await cms.forDraft(POINTER).list("page");
-    expect(pages).toEqual([]);
+    const draft = cms.forDraft(pointer);
+    expect(await titleOf(draft)).toBe("Draft");
+    const [pages] = await draft.list("page");
     const [released] = await cms.forRelease().list("page");
-    expect(released?.length).toBeGreaterThan(0);
+    const names = (list: unknown) => (list as { name: string }[]).map((page) => page.name);
+    expect(names(pages)).toEqual(names(released)); // inherited from production
+    expect(names(pages).length).toBeGreaterThan(0);
+    expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
+    expect(await draft.list("post")).toEqual([[], null]);
   });
 
   it("HD-4: a draft that can't be fetched is an error, never published content", async () => {
-    deliveryApi(); // no such draft: 404
+    deliveryApi(); // the token in POINTER isn't the one the fake Studio signed: 401
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -844,31 +1327,31 @@ describe("hosted-drafts", () => {
     expect(listError?.code).toBe("LOADER_FAILED");
   });
 
-  it("HD-5: draftPointer reads ?__draft= or the cookie; draftCookie only answers ?__draft=", () => {
+  it("HD-5: draftPointer reads ?__draft= or the cookie; draftCookie only answers ?__draft=", async () => {
     const fromUrl = new Request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`);
-    expect(draftPointer(fromUrl)).toBe(POINTER);
-    expect(draftCookie(fromUrl)).toMatch(new RegExp(`^${DRAFT_COOKIE}=`));
+    expect(await draftPointer(fromUrl)).toBe(POINTER);
+    expect(await draftCookie(fromUrl)).toMatch(new RegExp(`^${DRAFT_COOKIE}=`));
     const fromCookie = new Request("https://s.example/", {
       headers: { cookie: `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}` },
     });
-    expect(draftPointer(fromCookie)).toBe(POINTER);
-    expect(draftCookie(fromCookie)).toBeNull();
+    expect(await draftPointer(fromCookie)).toBe(POINTER);
+    expect(await draftCookie(fromCookie)).toBeNull();
     const plain = new Request("https://s.example/");
-    expect(draftPointer(plain)).toBeNull();
-    expect(draftCookie(plain)).toBeNull();
+    expect(await draftPointer(plain)).toBeNull();
+    expect(await draftCookie(plain)).toBeNull();
   });
 
-  it("HD-6: ?__draft=off expires the cookie and reads no pointer", () => {
+  it("HD-6: ?__draft=off expires the cookie and reads no pointer", async () => {
     const off = new Request("https://s.example/?__draft=off", {
       headers: { cookie: `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}` },
     });
-    expect(draftPointer(off)).toBeNull();
-    expect(draftCookie(off)).toMatch(/Max-Age=0/);
+    expect(await draftPointer(off)).toBeNull();
+    expect(await draftCookie(off)).toMatch(/Max-Age=0/);
   });
 
   it("HD-7: the plain request handler example runs as written", async () => {
     const api = deliveryApi();
-    api.draft("9f3c1a", await hashed("Draft"));
+    const POINTER = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -878,10 +1361,10 @@ describe("hosted-drafts", () => {
     const render = async (client: ReturnType<typeof cms.forRelease>, _request: Request) =>
       new Response(await titleOf(client));
     async function handle(request: Request) {
-      const pointer = draftPointer(request);
+      const pointer = await cms.draftPointer(request);
       const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
       const response = await render(client, request);
-      const cookie = draftCookie(request);
+      const cookie = await cms.draftCookie(request);
       if (cookie) response.headers.append("Set-Cookie", cookie);
       return response;
     }
@@ -899,22 +1382,22 @@ describe("hosted-drafts", () => {
     expect(await visitor.text()).toBe("Sunny!");
   });
 
-  it("HD-8: without site and token, forDraft reads the content module (no fetch, no error)", async () => {
+  it("HD-8: without site and token, forDraft layers the draft over the content module; only Studio is asked", async () => {
     const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    expect(await titleOf(cms.forDraft(POINTER))).toBe("Sunny!");
-    expect(api.fetch).not.toHaveBeenCalled();
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([STUDIO_HOST]);
   });
 
-  it("HD-10: DRAFT_COOKIE is the cookie draftCookie writes and draftPointer reads", () => {
-    expect(DRAFT_COOKIE).toBe("deco-draft");
-    const set = draftCookie(
+  it("HD-10: __deco_draft is the cookie draftCookie writes and draftPointer reads", async () => {
+    const set = await draftCookie(
       new Request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`),
     );
     expect(set?.startsWith(`${DRAFT_COOKIE}=`)).toBe(true);
   });
 
-  it("HD-12: examples never spell __draft or deco-draft", () => {
+  it("HD-12: examples never spell __draft or __deco_draft", () => {
     const examples = path.resolve(HERE, "../../../../../examples");
     const hits: string[] = [];
     const walk = (dir: string) => {
@@ -924,7 +1407,7 @@ describe("hosted-drafts", () => {
         if (entry.isDirectory()) walk(full);
         else if (/\.(ts|tsx)$/.test(entry.name)) {
           const text = fs.readFileSync(full, "utf8");
-          if (/__draft|deco-draft/.test(text)) hits.push(full);
+          if (/__draft|__deco_draft/.test(text)) hits.push(full);
         }
       }
     };
@@ -934,7 +1417,7 @@ describe("hosted-drafts", () => {
 
   it("HD-13: forDraft takes only the pointer string (the React Native example)", async () => {
     const api = deliveryApi();
-    api.draft("9f3c1a", await hashed("Mobile draft"));
+    const POINTER = api.draft({ set: { SummerSEO: seoEntry("Mobile draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -975,7 +1458,7 @@ describe("hosted-drafts", () => {
       site: SITE,
       token: TOKEN,
     });
-    for (const pointer of ["garbage", "https://x/y@1", "@1", `${HOST}/x@`]) {
+    for (const pointer of ["garbage", "https://x/y@1", "@1", `${STUDIO_HOST}/x@`]) {
       const [value, error] = await cms.forDraft(pointer).list("seo");
       expect(value).toBeNull();
       expect(error?.code).toBe("LOADER_FAILED");
@@ -983,25 +1466,89 @@ describe("hosted-drafts", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("HD-18: the preview-domain example only reads the pointer on the preview host", async () => {
+  it("HD-18: preview hosts from the release's CMS block: a draft previews on staging only, every other host serves the release", async () => {
     const api = deliveryApi();
-    api.draft("9f3c1a", await hashed("Preview"));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
+    // The draft tries to allow its own host: settings come from the release, so it can't.
+    const POINTER = api.draft({
+      set: {
+        SummerSEO: seoEntry("Preview"),
+        CMS: { __resolveType: "cms-settings", preview: { hosts: ["*"] } },
+      },
     });
-    const pick = (request: Request) => {
-      const host = new URL(request.url).host;
-      const pointer = host === "preview.store.example.com" ? draftPointer(request) : null;
-      return pointer ? cms.forDraft(pointer) : cms.forRelease();
+    const release = docsSnapshot();
+    release.blocks.CMS = {
+      __resolveType: "cms-settings",
+      preview: { hosts: ["staging.store.example.com"] },
+    };
+    const cms = createCMS({ blocks: docsBlocks(), content: release, site: SITE, token: TOKEN });
+    const pick = async (request: Request) => {
+      const pointer = await cms.draftPointer(request);
+      const cookie = await cms.draftCookie(request);
+      return { client: pointer ? cms.forDraft(pointer) : cms.forRelease(), cookie };
     };
     const q = `?__draft=${encodeURIComponent(POINTER)}`;
-    expect(await titleOf(pick(new Request(`https://preview.store.example.com/${q}`)))).toBe(
-      "Preview",
+    const staging = await pick(new Request(`https://staging.store.example.com/${q}`));
+    expect(await titleOf(staging.client)).toBe("Preview");
+    expect(staging.cookie).not.toBeNull();
+    // A preview of that draft doesn't change the settings either.
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.store.example.com"]);
+    const live = await pick(new Request(`https://store.example.com/${q}`));
+    expect(await titleOf(live.client)).toBe("Sunny!");
+    expect(live.cookie).toBeNull();
+    // A cookie set on staging is ignored on the public host too, without an error.
+    const withCookie = await pick(
+      new Request("https://store.example.com/", {
+        headers: { cookie: `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}` },
+      }),
     );
-    expect(await titleOf(pick(new Request(`https://store.example.com/${q}`)))).toBe("Sunny!");
+    expect(await titleOf(withCookie.client)).toBe("Sunny!");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// api-reference.mdx › cms.settings() with hosted releases
+// ---------------------------------------------------------------------------
+
+describe("CMS settings from hosted releases", () => {
+  const bundled = (): Snapshot => {
+    const snapshot = docsSnapshot();
+    snapshot.blocks.CMS = {
+      __resolveType: "cms-settings",
+      preview: { hosts: ["staging.example.com"] },
+      analytics: { collector: "https://bundled.example/events" },
+    };
+    return snapshot;
+  };
+
+  it("S-1: offline, at boot, settings come from the bundled content module, with no fetch", async () => {
+    const api = deliveryApi();
+    api.fail(true);
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE, token: TOKEN });
+    const settings = await cms.settings();
+    expect(settings.preview.hosts).toEqual(["staging.example.com"]);
+    expect(settings.analytics.collector).toBe("https://bundled.example/events");
+    expect(api.fetch).not.toHaveBeenCalled();
+    // Drafts are gated by them even while the Deco API can't be reached.
+    const link = `?__draft=${encodeURIComponent("delivery.decocms.com/x@v")}`;
+    expect(await cms.draftPointer(new Request(`https://www.example.com/${link}`))).toBeNull();
+    expect(api.fetch).not.toHaveBeenCalled();
+    // A request serves the bundled release; the failed background check changes nothing.
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    await flush(50);
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+  });
+
+  it("S-2: a newer release's settings arrive with the background check, never before", async () => {
+    const api = deliveryApi();
+    const next = await hashed("Published", {
+      CMS: { __resolveType: "cms-settings", preview: { hosts: ["www.example.com"] } },
+    });
+    api.publish(1, next);
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE, token: TOKEN });
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+    expect(api.fetch).not.toHaveBeenCalled();
+    expect(await cms.update()).toEqual({ updated: true });
+    expect((await cms.settings()).preview.hosts).toEqual(["www.example.com"]);
   });
 });
 
@@ -1168,7 +1715,9 @@ describe("hosted-releases-internals", () => {
       token: TOKEN,
     });
     await cms.update();
-    const [value, error] = await cms.forDraft(POINTER).resolve("SummerSEO");
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    api.respond("summer-sale", () => new Response("no such project", { status: 404 }));
+    const [value, error] = await cms.forDraft(pointer).resolve("SummerSEO");
     expect(value).toBeNull();
     expect(error?.code).toBe("LOADER_FAILED");
   });
@@ -1182,7 +1731,7 @@ describe("hosted-releases-internals", () => {
     };
     const a = createCMS(config);
     const b = createCMS({ ...config, content: { ...docsSnapshot(), root: ".deco" } });
-    expect(b).toBe(a);
+    expect(instanceOf(b)).toBe(instanceOf(a));
     const keys = Object.getOwnPropertySymbols(globalThis)
       .map((s) => Symbol.keyFor(s))
       .filter((k): k is string => typeof k === "string" && k.startsWith("decocms.blocks"));
@@ -1228,7 +1777,7 @@ describe("hosted-releases-internals", () => {
     const content = { ...docsSnapshot(), root: ".deco" };
     const a = createCMS({ blocks: docsBlocks(), content, interval: 60_000 });
     const b = createCMS({ blocks: docsBlocks(), content, interval: 120_000 });
-    expect(b).toBe(a);
+    expect(instanceOf(b)).toBe(instanceOf(a));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("interval"));
   });
 

@@ -12,7 +12,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { SCHEMA_FORMAT } from "../../../protocol/types.ts";
+import { BLOCKS_MAJOR, SCHEMA_FORMAT } from "../../../protocol/types.ts";
 import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "../builtins.ts";
 import { CliError, type DecoPaths, packageVersion } from "../root.ts";
 import {
@@ -27,6 +27,7 @@ import {
   awaitedOf,
   getJsDocTags,
   isDescriptorType,
+  isFreeFormMap,
   isJsxType,
   nonNullable,
   RESOLVABLE_KEY,
@@ -50,6 +51,8 @@ type ManifestEntry = { $ref: string; namespace: string };
 
 export interface DecoMeta {
   major: 1;
+  /** The Blocks major that generated this schema; `deco check` requires it. */
+  blocksMajor: typeof BLOCKS_MAJOR;
   version: string;
   namespace: string;
   site: string;
@@ -283,7 +286,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     root,
     fitting(type) {
       const target = nonNullable(type);
-      if (target.isAny() || target.isUnknown()) return [];
+      if (target.isAny() || target.isUnknown() || isFreeFormMap(target)) return [];
       const cached = fitCache.get(target.compilerType);
       if (cached) return cached;
       const keys = candidates
@@ -423,6 +426,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
 
   const meta: DecoMeta = {
     major: 1,
+    blocksMajor: BLOCKS_MAJOR,
     version: packageVersion(),
     namespace: "site",
     site: siteName(paths.root),

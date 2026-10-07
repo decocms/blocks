@@ -1,11 +1,9 @@
 /**
  * HTTP plumbing for the content handler: bounded body reads (gzip request
- * bodies included), gzip responses and bearer-token checks. Web-standard APIs
+ * bodies included) and gzip responses. Web-standard APIs
  * only (Request, Response, CompressionStream), so it runs on Node, Bun,
  * Workers and Deno.
  */
-import { sha256Hex } from "../canonical.ts";
-
 /** The body was larger than allowed (after decompression). */
 export class BodyTooLargeError extends Error {
   constructor(readonly limit: number) {
@@ -120,20 +118,4 @@ export function jsonResponse(
 export function isJsonContentType(request: Request): boolean {
   const type = request.headers.get("content-type");
   return type !== null && type.split(";")[0]!.trim().toLowerCase() === "application/json";
-}
-
-/** The bearer token of the request, or `null` without one. */
-export function bearerToken(request: Request): string | null {
-  const header = request.headers.get("authorization");
-  if (!header) return null;
-  const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
-  return match?.[1] ?? null;
-}
-
-/** Compares two strings in time independent of where they differ. */
-export async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {
-  const [ha, hb] = await Promise.all([sha256Hex(a), sha256Hex(b)]);
-  let diff = 0;
-  for (let i = 0; i < ha.length; i++) diff |= ha.charCodeAt(i) ^ hb.charCodeAt(i);
-  return diff === 0;
 }

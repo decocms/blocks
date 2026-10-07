@@ -131,7 +131,6 @@ describe("draft-synchronization", () => {
   describe("against a running deco serve", () => {
     let site: Fixture;
     let server: Awaited<ReturnType<typeof startServer>>;
-    const TOKEN = "conformance-token";
     beforeAll(async () => {
       site = createFixture({ ".deco/blocks/Hero.json": hero });
       site.write(".deco/schema.gen.json", meta);
@@ -139,16 +138,14 @@ describe("draft-synchronization", () => {
       server = await startServer({
         cwd: site.root,
         port: 0,
-        token: TOKEN,
         reporter: recorder(),
-        env: {},
       });
     });
     afterAll(async () => {
       await server?.close();
       site?.remove();
     });
-    const client = () => createContentClient({ endpoint: server.endpoint, token: TOKEN });
+    const client = () => createContentClient({ endpoint: server.endpoint });
 
     it("DS-5: a save with a stale ifMatch is a Conflict; without ifMatch the last writer wins", async () => {
       const listed = await client().blocksList();
@@ -205,20 +202,17 @@ describe("hosted-site-editor", () => {
     fixture = createFixture({ ".deco/blocks/Hero.json": hero });
     fixture.write(".deco/schema.gen.json", meta);
     fs.mkdirSync(path.join(fixture.root, "src", "deep"), { recursive: true });
-    const TOKEN = "t";
     for (const options of [
       { cwd: path.join(fixture.root, "src", "deep") },
       { cwd: "/", root: fixture.root, assets: "static/uploads" },
     ]) {
       const server = await startServer({
         port: 0,
-        token: TOKEN,
         reporter: recorder(),
-        env: {},
         ...options,
       });
       try {
-        const c = createContentClient({ endpoint: server.endpoint, token: TOKEN });
+        const c = createContentClient({ endpoint: server.endpoint });
         const listed = await c.blocksList();
         expect(listed.notModified ? null : Object.keys(listed.blocks)).toEqual(["Hero"]);
         const d = await c.describe();

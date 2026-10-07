@@ -3,8 +3,10 @@
  * renames-and-migrations › Migrating from v7). The steps, in order:
  *
  * 1. content: saved blocks in `.deco/blocks`, v7 generated files removed,
+ *    v7 async-rendering wrappers (Lazy, Deferred) unwrapped to their sections,
  *    legacy type names outside the alias table renamed, and A/B tests keyed
  *    on a random matcher get its name as `experiment`;
+ *    then site settings folded into the `CMS` block (`.deco/blocks/CMS.json`);
  * 2. secrets: v7 secrets re-encrypted with `.deco/secrets.pub`;
  * 3. block map: `.deco/index.ts` with aliases under the v7 names, after
  *    vendoring the app loaders and actions the content calls;
@@ -16,6 +18,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
@@ -23,6 +26,7 @@ import { rewriteImports } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
 import { reencryptSecrets } from "./secrets";
+import { foldSiteSettings } from "./siteSettings";
 
 interface MigrateOptions {
   /** The app root: the folder with the site's package.json. */
@@ -78,8 +82,10 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   }
   const report = createReport();
   moveContent(root, report, { decofile: options.decofile });
+  unwrapAsyncRendering(root, report);
   renameLegacyTypes(root, report);
   copyExperimentIds(root, report);
+  foldSiteSettings(root, report);
   await reencryptSecrets(root, report);
   const { vendored } = writeBlockMap(root, report);
   rewriteImports(root, report, vendored);

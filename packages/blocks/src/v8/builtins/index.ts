@@ -1,5 +1,5 @@
 import type { BlockFunction } from "../types.ts";
-import { analytics, page, redirect, telemetry } from "./data.ts";
+import { cmsSettings, page, redirect, SETTINGS_TYPE } from "./data.ts";
 import { lazy } from "./lazy.ts";
 import { always, date, never } from "./matchers.ts";
 import { multivariate } from "./multivariate.ts";
@@ -17,8 +17,7 @@ export const builtIns: Readonly<Record<string, BlockFunction>> = Object.freeze({
   date,
   page,
   redirect,
-  telemetry,
-  analytics,
+  [SETTINGS_TYPE]: cmsSettings,
   secret: secretBlock(),
 });
 

@@ -1,13 +1,15 @@
 // @vitest-environment node
 /** Draft pointers (api-reference#draft-pointers, hosted-drafts.mdx). */
 import { describe, expect, it } from "vitest";
-import {
-  DRAFT_COOKIE,
-  draftCookie,
-  draftPointer,
-  formatDraftPointer,
-  parseDraftPointer,
-} from "./draft";
+import { createCMS } from "./cms";
+import { formatDraftPointer, parseDraftPointer } from "./draft";
+import type { RequestLike } from "./types";
+
+/** The helpers as a site calls them: methods of a CMS with no settings, so every host may preview. */
+const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
+const draftPointer = (request: RequestLike) => cms.draftPointer(request);
+const draftCookie = (request: RequestLike) => cms.draftCookie(request);
+const DRAFT_COOKIE = "__deco_draft";
 
 const POINTER = "api.deco.example/drafts/acme/main?token=abc.def-ghi@9f3c1a";
 
@@ -26,6 +28,15 @@ describe("parseDraftPointer", () => {
       path: "/drafts/x",
       version: "v1",
     });
+  });
+
+  it("accepts a bracketed IPv6 host, with or without a port, in a URL's form", () => {
+    expect(parseDraftPointer("[::1]:4000/changes?token=t@v1")).toEqual({
+      host: "[::1]:4000",
+      path: "/changes?token=t",
+      version: "v1",
+    });
+    expect(parseDraftPointer("[0:0:0:0:0:0:0:1]/x@v1")?.host).toBe("[::1]");
   });
 
   it("lowercases the host and keeps path and version as they are", () => {
@@ -64,6 +75,10 @@ describe("parseDraftPointer", () => {
     ["whitespace", "api.deco.example/drafts/x y@v1"],
     ["a fragment", "api.deco.example/drafts/x#frag@v1"],
     ["a double slash path", "api.deco.example//evil.example/x@v1"],
+    ["an unclosed IPv6 bracket", "[::1/x@v1"],
+    ["a name in brackets", "[evil.example]/x@v1"],
+    ["junk after an IPv6 bracket", "[::1]evil.example/x@v1"],
+    ["an IPv6 port out of range", "[::1]:70000/x@v1"],
     ["something absurdly long", `api.deco.example/${"a".repeat(5000)}@v1`],
   ];
   for (const [label, raw] of invalid) {
@@ -179,10 +194,10 @@ describe("forced variants (the __variant parameters)", () => {
     );
   });
 
-  it("draftCookie stores a pointer with forced variants", () => {
+  it("draftCookie stores a pointer with forced variants", async () => {
     const pointer = `localhost:4547/?__variant=${forced}@local`;
     expect(
-      draftCookie(request(`https://s.example/?__draft=${encodeURIComponent(pointer)}`)),
+      await draftCookie(request(`https://s.example/?__draft=${encodeURIComponent(pointer)}`)),
     ).toContain(`${DRAFT_COOKIE}=${encodeURIComponent(pointer)};`);
   });
 });
@@ -194,72 +209,82 @@ function request(url: string, cookie?: string): Request {
 describe("draftPointer", () => {
   const encoded = encodeURIComponent(POINTER);
 
-  it("reads ?__draft= from the URL first", () => {
-    expect(draftPointer(request(`https://store.example.com/summer?__draft=${encoded}`))).toBe(
+  it("reads ?__draft= from the URL first", async () => {
+    expect(await draftPointer(request(`https://store.example.com/summer?__draft=${encoded}`))).toBe(
       POINTER,
     );
   });
 
-  it("prefers the URL over the cookie", () => {
+  it("prefers the URL over the cookie", async () => {
     const other = encodeURIComponent("api.deco.example/drafts/other@v2");
     expect(
-      draftPointer(
+      await draftPointer(
         request(`https://store.example.com/?__draft=${encoded}`, `${DRAFT_COOKIE}=${other}`),
       ),
     ).toBe(POINTER);
   });
 
-  it("then reads the deco-draft cookie", () => {
+  it("then reads the __deco_draft cookie", async () => {
     expect(
-      draftPointer(
+      await draftPointer(
         request("https://store.example.com/summer", `theme=dark; ${DRAFT_COOKIE}=${encoded}; x=1`),
       ),
     ).toBe(POINTER);
   });
 
-  it("returns null when neither is present", () => {
-    expect(draftPointer(request("https://store.example.com/summer"))).toBeNull();
-    expect(draftPointer(request("https://store.example.com/summer", "other=1"))).toBeNull();
+  it("returns null when neither is present", async () => {
+    expect(await draftPointer(request("https://store.example.com/summer"))).toBeNull();
+    expect(await draftPointer(request("https://store.example.com/summer", "other=1"))).toBeNull();
   });
 
-  it("returns null when the URL says ?__draft=off, even with a cookie", () => {
+  it("returns null when the URL says ?__draft=off, even with a cookie", async () => {
     expect(
-      draftPointer(request("https://store.example.com/?__draft=off", `${DRAFT_COOKIE}=${encoded}`)),
+      await draftPointer(
+        request("https://store.example.com/?__draft=off", `${DRAFT_COOKIE}=${encoded}`),
+      ),
     ).toBeNull();
   });
 
-  it("an empty ?__draft= falls back to the cookie", () => {
+  it("an empty ?__draft= falls back to the cookie", async () => {
     expect(
-      draftPointer(request("https://store.example.com/?__draft=", `${DRAFT_COOKIE}=${encoded}`)),
+      await draftPointer(
+        request("https://store.example.com/?__draft=", `${DRAFT_COOKIE}=${encoded}`),
+      ),
     ).toBe(POINTER);
   });
 
-  it("returns the value as is: forDraft validates it", () => {
-    expect(draftPointer(request("https://store.example.com/?__draft=garbage"))).toBe("garbage");
+  it("returns the value as is: forDraft validates it", async () => {
+    expect(await draftPointer(request("https://store.example.com/?__draft=garbage"))).toBe(
+      "garbage",
+    );
   });
 
-  it("takes anything with url and headers (a framework wrapper)", () => {
+  it("takes anything with url and headers (a framework wrapper)", async () => {
     expect(
-      draftPointer({
+      await draftPointer({
         url: `https://store.example.com/?__draft=${encoded}`,
         headers: new Headers(),
       }),
     ).toBe(POINTER);
-    expect(draftPointer({ url: "/relative?__draft=x", headers: new Headers() })).toBe("x");
+    expect(await draftPointer({ url: "/relative?__draft=x", headers: new Headers() })).toBe("x");
   });
 
-  it("ignores a cookie whose name only ends with deco-draft", () => {
-    expect(draftPointer(request("https://s.example/", `not-deco-draft=${encoded}`))).toBeNull();
+  it("ignores a cookie whose name only ends with __deco_draft", async () => {
+    expect(
+      await draftPointer(request("https://s.example/", `not__deco_draft=${encoded}`)),
+    ).toBeNull();
   });
 
-  it("returns null on an undecodable cookie", () => {
-    expect(draftPointer(request("https://s.example/", `${DRAFT_COOKIE}=%E0%A4%A`))).toBeNull();
+  it("returns null on an undecodable cookie", async () => {
+    expect(
+      await draftPointer(request("https://s.example/", `${DRAFT_COOKIE}=%E0%A4%A`)),
+    ).toBeNull();
   });
 });
 
 describe("draftCookie", () => {
-  it("stores the pointer when the URL carries ?__draft= (Secure; SameSite=None; Partitioned — D4)", () => {
-    const cookie = draftCookie(
+  it("stores the pointer when the URL carries ?__draft= (Secure; SameSite=None; Partitioned — D4)", async () => {
+    const cookie = await draftCookie(
       request(`https://store.example.com/summer?__draft=${encodeURIComponent(POINTER)}`),
     );
     expect(cookie).toBe(
@@ -267,41 +292,37 @@ describe("draftCookie", () => {
     );
   });
 
-  it("round-trips: the stored cookie is read back by draftPointer", () => {
-    const cookie = draftCookie(
+  it("round-trips: the stored cookie is read back by draftPointer", async () => {
+    const cookie = await draftCookie(
       request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`),
-    )!;
-    const pair = cookie.split(";")[0]!;
-    expect(draftPointer(request("https://s.example/next-page", pair))).toBe(POINTER);
+    );
+    const pair = cookie!.split(";")[0]!;
+    expect(await draftPointer(request("https://s.example/next-page", pair))).toBe(POINTER);
   });
 
-  it("expires the cookie on ?__draft=off (how the site editor ends a preview)", () => {
-    expect(draftCookie(request("https://store.example.com/?__draft=off"))).toBe(
+  it("expires the cookie on ?__draft=off (how the site editor ends a preview)", async () => {
+    expect(await draftCookie(request("https://store.example.com/?__draft=off"))).toBe(
       `${DRAFT_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned`,
     );
   });
 
-  it("is null on every other request", () => {
-    expect(draftCookie(request("https://store.example.com/summer"))).toBeNull();
+  it("is null on every other request", async () => {
+    expect(await draftCookie(request("https://store.example.com/summer"))).toBeNull();
     expect(
-      draftCookie(
+      await draftCookie(
         request(
           "https://store.example.com/summer",
           `${DRAFT_COOKIE}=${encodeURIComponent(POINTER)}`,
         ),
       ),
     ).toBeNull();
-    expect(draftCookie(request("https://store.example.com/?__draft="))).toBeNull();
+    expect(await draftCookie(request("https://store.example.com/?__draft="))).toBeNull();
   });
 
-  it("never stores a pointer that doesn't parse", () => {
+  it("never stores a pointer that doesn't parse", async () => {
     expect(
-      draftCookie(request("https://store.example.com/?__draft=https://evil.example/x@1")),
+      await draftCookie(request("https://store.example.com/?__draft=https://evil.example/x@1")),
     ).toBeNull();
-    expect(draftCookie(request("https://store.example.com/?__draft=garbage"))).toBeNull();
-  });
-
-  it("names the cookie DRAFT_COOKIE", () => {
-    expect(DRAFT_COOKIE).toBe("deco-draft");
+    expect(await draftCookie(request("https://store.example.com/?__draft=garbage"))).toBeNull();
   });
 });

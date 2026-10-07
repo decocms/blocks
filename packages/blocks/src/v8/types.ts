@@ -37,19 +37,22 @@ export type Snapshot = {
  */
 export type ContentModule = Snapshot & { root?: string };
 
-/** A source of content. `load()` is the release; `load(pointer)` is a draft. */
+/**
+ * A source of content: `load()` returns it. Drafts aren't a loader's job:
+ * `forDraft` layers a draft's changes over what `load()` returned.
+ */
 export interface Loader {
-  load(pointer?: string | null): Promise<Snapshot>;
+  load(): Promise<Snapshot>;
   update?(): Promise<{ updated: boolean }>;
 }
 
 /** The parts of a draft pointer, `<host[:port]><path[?query]>@<version>`. */
 export interface DraftPointer {
-  /** `host[:port]` of the content source that holds the draft. */
+  /** `host[:port]` of the Studio API that serves the draft's changes. */
   host: string;
   /** Starts with `/`; opaque to the app. Never carries the `__variant` parameters. */
   path: string;
-  /** Opaque and immutable: the branch head or ETag. */
+  /** Opaque: the commit of the editor's last save. `"local"` names no draft (`deco serve`). */
   version: string;
   /** The variants this preview forces (the query's `__variant` parameters); absent when none. */
   variants?: ForcedVariant[];
@@ -130,7 +133,28 @@ export interface Variant<T> {
   value: Lazy<T>;
 }
 
-/** The `Telemetry` saved block's type (built-in `telemetry`). */
+/**
+ * The built-in `cms-settings` block's props: the type of the well-known saved
+ * block `CMS`. Every field is optional, and any field can have variants. Read
+ * it through `cms.settings()`, which fills in the defaults and applies code's
+ * caps (see /next/built-in-blocks#cms-settings).
+ */
+export interface CMSSettings {
+  /** Host patterns previews are allowed on, within `createCMS`'s `preview.hosts`. */
+  preview?: { hosts?: string[] };
+  telemetry?: Telemetry;
+  analytics?: Analytics;
+}
+
+/** What `cms.settings()` returns: every section, defaults filled in, caps applied. */
+export interface EffectiveSettings {
+  /** `["*"]` means every host; an empty list, none. */
+  preview: { hosts: string[] };
+  telemetry: Required<Telemetry>;
+  analytics: Required<Analytics>;
+}
+
+/** The `telemetry` section of the CMS settings. */
 export interface Telemetry {
   /** Default `true`; `false` switches telemetry off. */
   enabled?: boolean;
@@ -142,13 +166,16 @@ export interface Telemetry {
   traceSampleRate?: number;
 }
 
-/** The built-in `analytics` block's props. Separate from telemetry. */
+/** The `analytics` section of the CMS settings, and `AnalyticsScript`'s props. */
 export interface Analytics {
   /** An endpoint that accepts the One Dollar Stats format; default: the hosted Deco CMS collector. */
   collector?: string;
   /** Default `true`; `false` makes `AnalyticsScript` render nothing. */
   enabled?: boolean;
 }
+
+/** Anything with a `url` and `headers`: a fetch `Request`, a `NextRequest`, a framework wrapper. */
+export type RequestLike = Request | { url: string; headers: { get(name: string): string | null } };
 
 // ---------------------------------------------------------------------------
 // Results and errors
@@ -201,11 +228,18 @@ export interface CMSConfig {
   interval?: number;
   /** Where telemetry goes; see /next/telemetry. */
   telemetry?: false | TelemetryConfig;
+  preview?: {
+    /**
+     * The most content may allow previews on, in the host pattern format
+     * (/next/api-reference#host-patterns). Without it, content may allow any host.
+     */
+    hosts?: string[];
+  };
   /** The private key that decrypts `secret` blocks. */
   secrets?: { key?: string };
-  /** Your site's ID, for hosted releases and drafts. */
+  /** Your site's ID, for hosted releases. Drafts don't need it. */
   site?: string;
-  /** Your site token (secret), for hosted releases and drafts. */
+  /** Your site token (secret), for hosted releases. Drafts don't need it. */
   token?: string;
 }
 
@@ -244,10 +278,32 @@ export interface Client {
 export interface CMS {
   /** A client reading the current release. */
   forRelease(): Client;
-  /** A client reading the draft a pointer names. */
+  /**
+   * A client reading the draft a pointer names: its changes, fetched from a
+   * preview API domain (`*.decocms.com` and loopback by default;
+   * `DECO_PREVIEW_API_DOMAINS` replaces the list), over this server's
+   * production content.
+   */
   forDraft(pointer: string): Client;
   /** A client pinned to a revision this CMS has served; an unknown revision behaves like the release. */
   forRevision(revision: string): Client;
   /** Ask the content source for newer content now; never throws. */
   update(): Promise<{ updated: boolean }>;
+  /**
+   * The release's CMS settings (the saved block `CMS`), defaults filled in and
+   * code's caps applied. Reads the release already in memory, never a draft;
+   * never fetches, never rejects.
+   */
+  settings(): Promise<EffectiveSettings>;
+  /**
+   * The request's draft pointer: `?__draft=` first, then the `__deco_draft`
+   * cookie. `null` when neither is present, for `?__draft=off`, and on a host
+   * outside `settings().preview.hosts`, where the request gets the release.
+   */
+  draftPointer(request: RequestLike): Promise<string | null>;
+  /**
+   * The `Set-Cookie` value that starts a preview (a valid `?__draft=` on an
+   * allowed host) or ends one (`?__draft=off`, on any host); `null` otherwise.
+   */
+  draftCookie(request: RequestLike): Promise<string | null>;
 }

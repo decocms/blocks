@@ -79,7 +79,7 @@ describe("groups", () => {
     expect(meta.manifest.blocks.pages.post).toBeDefined();
     expect(meta.manifest.blocks.pages.page).toBeDefined();
     expect(meta.manifest.blocks.content.menu).toBeDefined();
-    expect(meta.manifest.blocks.content.telemetry).toBeDefined();
+    expect(meta.manifest.blocks.content["cms-settings"]).toBeDefined();
   });
 
   it("puts every other function in loaders, multivariate and lazy included", () => {
@@ -282,7 +282,7 @@ describe("interchangeable blocks", () => {
 });
 
 describe("built-ins and aliases", () => {
-  it("adds the ten built-ins", () => {
+  it("adds the nine built-ins", () => {
     for (const name of [
       "lazy",
       "multivariate",
@@ -291,8 +291,7 @@ describe("built-ins and aliases", () => {
       "date",
       "page",
       "redirect",
-      "telemetry",
-      "analytics",
+      "cms-settings",
       "secret",
     ]) {
       expect(def(name), name).toBeDefined();
@@ -381,6 +380,85 @@ export const page = (props: StorePage) => props;`,
       expect(m.manifest.blocks.pages.page.namespace).toBe("site");
       // The legacy page name now names the override.
       expect(m.schema.definitions[b64("website/pages/Page.tsx")].properties.theme).toBeDefined();
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
+describe("v7 field fidelity", () => {
+  it("keeps literal selects in declared order, maps @format datetime, and keeps free-form maps plain", async () => {
+    const fixture = createFixture({
+      "src/card.ts": `
+// Literals the checker meets first get lower ids; a union of them would
+// otherwise come out in that order instead of the order written below.
+export type Earlier = "page" | "product";
+export type Kind = "search" | "collection" | "page" | "product";
+export interface Badge { label: string }
+export interface Props {
+  earlier?: Earlier;
+  kind: "search" | "collection" | "page" | "product";
+  aliased?: Kind;
+  /** @format datetime */
+  endsAt?: string;
+  entities?: Record<string, any>;
+}
+export const card = (props: Props) => ({ component: "card", props });
+export const badge = (): Badge => ({ label: "" });`,
+      ".deco/index.ts": `import { badge, card } from "../src/card"; export default { badge, card };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const p = m.schema.definitions[`${b64("card")}@Props`]?.properties;
+      expect(p, Object.keys(m.schema.definitions).join(" ")).toBeDefined();
+      expect(p.kind.enum).toEqual(["search", "collection", "page", "product"]);
+      expect(p.aliased.enum).toEqual(["search", "collection", "page", "product"]);
+      expect(p.endsAt.format).toBe("date-time");
+      expect(p.entities).toEqual({
+        type: "object",
+        additionalProperties: {},
+        nullable: true,
+        title: "Entities",
+      });
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
+describe("@format on a type alias", () => {
+  it("gives every field of an imported alias its format: plain, optional, nullable, listed, a select", async () => {
+    const fixture = createFixture({
+      "src/widgets.ts": `
+/** @format color */
+export type Paint = string;
+/** @format color */
+export type TextTone = "black" | "white";
+export type Plain = string;`,
+      "src/banner.ts": `
+import type { Paint, Plain, TextTone } from "./widgets";
+export interface Props {
+  background: Paint;
+  border?: Paint | null;
+  stripes?: Paint[];
+  titleTone?: TextTone;
+  /** @format textarea */
+  note?: Paint;
+  plain?: Plain;
+}
+export const banner = (props: Props) => ({ component: "banner", props });`,
+      ".deco/index.ts": `import { banner } from "../src/banner"; export default { banner };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const p = m.schema.definitions[`${b64("banner")}@Props`]?.properties;
+      expect(p, Object.keys(m.schema.definitions).join(" ")).toBeDefined();
+      expect(p.background).toEqual({ type: "string", format: "color", title: "Background" });
+      expect(p.border).toMatchObject({ type: "string", format: "color", nullable: true });
+      expect(p.stripes.items).toEqual({ type: "string", format: "color" });
+      expect(p.titleTone).toMatchObject({ enum: ["black", "white"], format: "color" });
+      expect(p.note.format).toBe("textarea");
+      expect(p.plain.format).toBeUndefined();
     } finally {
       fixture.remove();
     }

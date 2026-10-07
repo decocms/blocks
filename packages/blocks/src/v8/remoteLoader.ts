@@ -1,7 +1,8 @@
 /**
- * `remoteLoader`: hosted releases and drafts from the Deco API, over a
- * fallback (the content module, or any loader). See
- * /next/hosted-releases-internals and /next/hosted-publishing.
+ * `remoteLoader`: hosted releases from the Deco API, over a fallback (the
+ * content module, or any loader). See /next/hosted-releases-internals and
+ * /next/hosted-publishing. Drafts aren't a loader's job: the CMS layers a
+ * draft's changes over what `load()` returns (see ./draftChanges.ts).
  *
  * - `load()` never touches the network: it returns the newest release this
  *   process fetched, or the fallback's content until one is fetched.
@@ -11,31 +12,28 @@
  *   ignored; a revision equal to the fallback's is served from the fallback
  *   without a download; anything else is fetched, verified against its
  *   content hash and swapped in whole. Any error keeps memory as it was.
- * - `load(pointer)` fetches the draft a pointer names and waits for it. Only
- *   pointers to the delivery host are fetched; anything else is refused.
  * - In development (`NODE_ENV=development`), releases stay on the fallback so
- *   local files win; drafts still load.
- * - A release or draft larger than `MAX_SNAPSHOT_BYTES` is refused while it
- *   downloads, before it's buffered whole (a Worker isolate has 128 MB).
- * - Without `site` or `token` it's a plain loader over the fallback: no
- *   releases, no drafts beyond what the fallback serves.
+ *   local files win.
+ * - A release larger than `MAX_SNAPSHOT_BYTES` is refused while it downloads,
+ *   before it's buffered whole (a Worker isolate has 128 MB).
+ * - Without `site` or `token` it's a plain loader over the fallback.
  *
  * Instances are process-wide singletons, like `createCMS`'s.
  */
+import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
 import { computeContentRevision } from "./canonical.ts";
-import { isSnapshot } from "./content.ts";
-import { parseDraftPointer } from "./draft.ts";
+import { isSnapshot, PEEK_RELEASE, peekRelease } from "./content.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
 
-/** The hosted delivery origin: channel manifests, release assets and drafts. */
+/** The hosted delivery origin: channel manifests and release assets. */
 const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
 
 const INSTANCE_PREFIX = "decocms.blocks.remote:";
 const MANIFEST_FORMAT = 1;
 const FETCH_TIMEOUT_MS = 10_000;
-/** The largest release or draft accepted, in bytes of JSON. */
+/** The largest release accepted, in bytes of JSON. */
 const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 
 interface RemoteLoaderOptions {
@@ -58,6 +56,8 @@ class RemoteLoader implements Loader {
   readonly interval: number | undefined;
   #fallback: Snapshot | Loader;
   #fallbackRevision: string | undefined;
+  /** The fallback's content as last loaded, for a fallback that is itself a loader. */
+  #fallbackSnapshot: Snapshot | undefined;
   #current: Snapshot | undefined;
   #generation = -1;
 
@@ -76,10 +76,15 @@ class RemoteLoader implements Loader {
     if (fallback === this.#fallback) return;
     this.#fallback = fallback;
     this.#fallbackRevision = undefined;
+    this.#fallbackSnapshot = undefined;
   }
 
-  load(pointer?: string | null): Promise<Snapshot> {
-    if (pointer) return this.#draft(pointer);
+  /** What `load()` would return now, from memory only (see `peekRelease`). */
+  [PEEK_RELEASE](): Snapshot | undefined {
+    return this.#current ?? peekRelease(this.#fallback) ?? this.#fallbackSnapshot;
+  }
+
+  load(): Promise<Snapshot> {
     if (this.#current !== undefined) return Promise.resolve(this.#current);
     return this.#loadFallback();
   }
@@ -114,7 +119,10 @@ class RemoteLoader implements Loader {
   async #loadFallback(): Promise<Snapshot> {
     const fallback = this.#fallback;
     const snapshot = isSnapshot(fallback) ? fallback : await (fallback as Loader).load();
-    if (fallback === this.#fallback) this.#fallbackRevision = snapshot.revision;
+    if (fallback === this.#fallback) {
+      this.#fallbackRevision = snapshot.revision;
+      this.#fallbackSnapshot = snapshot;
+    }
     return snapshot;
   }
 
@@ -152,7 +160,11 @@ class RemoteLoader implements Loader {
       this.#auth(),
     );
     if (!response.ok) throw new Error(`release ${manifest.revision}: HTTP ${response.status}`);
-    const snapshot = await readBoundedJson(response, `release ${manifest.revision}`);
+    const snapshot = await readBoundedJson(
+      response,
+      `release ${manifest.revision}`,
+      MAX_SNAPSHOT_BYTES,
+    );
     if (
       !isSnapshot(snapshot) ||
       snapshot.revision !== manifest.revision ||
@@ -160,23 +172,6 @@ class RemoteLoader implements Loader {
     ) {
       throw new Error(`release ${manifest.revision}: content doesn't match its revision`);
     }
-    return snapshot;
-  }
-
-  async #draft(raw: string): Promise<Snapshot> {
-    const pointer = parseDraftPointer(raw);
-    if (pointer === null) throw new Error("invalid draft pointer");
-    if (pointer.host !== new URL(HOSTED_DELIVERY_ORIGIN).host) {
-      throw new Error(`draft pointer names an unexpected host "${pointer.host}"`);
-    }
-    // If-Match: serve exactly this version or fail, never the branch's newer head.
-    const response = await fetchWithTimeout(`https://${pointer.host}${pointer.path}`, {
-      ...this.#auth(),
-      "if-match": pointer.version,
-    });
-    if (!response.ok) throw new Error(`draft: HTTP ${response.status}`);
-    const snapshot = await readBoundedJson(response, "draft");
-    if (!isSnapshot(snapshot)) throw new Error("draft: not a snapshot");
     return snapshot;
   }
 
@@ -197,14 +192,18 @@ class LocalLoader implements Loader {
     this.#fallback = fallback;
   }
 
-  load(pointer?: string | null): Promise<Snapshot> {
+  [PEEK_RELEASE](): Snapshot | undefined {
+    return peekRelease(this.#fallback);
+  }
+
+  load(): Promise<Snapshot> {
     const fallback = this.#fallback;
-    return isSnapshot(fallback) ? Promise.resolve(fallback) : fallback.load(pointer);
+    return isSnapshot(fallback) ? Promise.resolve(fallback) : fallback.load();
   }
 }
 
 /**
- * Hosted releases and drafts over a fallback. `createCMS` builds it for you
+ * Hosted releases over a fallback. `createCMS` builds it for you
  * when `site` and `token` are set. With either unset (a dev or test
  * environment without the variables), it's a loader over the fallback alone.
  */
@@ -238,38 +237,8 @@ export function resetRemoteLoaders(): void {
   clearGlobals(INSTANCE_PREFIX);
 }
 
-/** Parses a JSON body, refusing it as soon as it's larger than `MAX_SNAPSHOT_BYTES`. */
-async function readBoundedJson(response: Response, label: string): Promise<unknown> {
-  const tooLarge = () => new Error(`${label}: larger than ${MAX_SNAPSHOT_BYTES} bytes`);
-  if (Number(response.headers.get("content-length")) > MAX_SNAPSHOT_BYTES) {
-    await response.body?.cancel();
-    throw tooLarge();
-  }
-  if (response.body === null) return response.json();
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const parts: string[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_SNAPSHOT_BYTES) {
-      await reader.cancel();
-      throw tooLarge();
-    }
-    parts.push(decoder.decode(value, { stream: true }));
-  }
-  parts.push(decoder.decode());
-  return JSON.parse(parts.join(""));
-}
-
 function fetchWithTimeout(url: string, headers: Record<string, string>): Promise<Response> {
-  const signal =
-    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-      ? AbortSignal.timeout(FETCH_TIMEOUT_MS)
-      : undefined;
-  return fetch(url, { headers, signal });
+  return fetch(url, { headers, signal: timeoutSignal(FETCH_TIMEOUT_MS) });
 }
 
 function isDevelopment(): boolean {

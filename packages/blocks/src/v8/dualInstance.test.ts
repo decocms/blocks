@@ -5,6 +5,7 @@
  * This is the module-duplication bug the package split exists to prevent.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { instanceOf } from "./cms";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
 
 type CMSModule = typeof import("./index");
@@ -31,7 +32,7 @@ describe("two copies of the module", () => {
     const content = docsSnapshot();
     const fromA = a.createCMS({ blocks: docsBlocks(), content });
     const fromB = b.createCMS({ blocks: docsBlocks(), content });
-    expect(fromB).toBe(fromA);
+    expect(instanceOf(fromB)).toBe(instanceOf(fromA));
   });
 
   it("share one instance and one content cache for the same loader", async () => {
@@ -41,7 +42,7 @@ describe("two copies of the module", () => {
     const loader = { load, update: async () => ({ updated: false }) };
     const cmsA = a.createCMS({ blocks: docsBlocks(), content: loader });
     const cmsB = b.createCMS({ blocks: docsBlocks(), content: loader });
-    expect(cmsB).toBe(cmsA);
+    expect(instanceOf(cmsB)).toBe(instanceOf(cmsA));
     await cmsA.forRelease().resolve("SummerSEO");
     await cmsB.forRelease().resolve("SummerSEO");
     expect(load).toHaveBeenCalledTimes(1);

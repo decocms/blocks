@@ -85,42 +85,15 @@ describe("two spellings of one name under guards", () => {
     expect(result.versions).toEqual({ "a b": null, "a%20b": null });
     expect(storage.dump().files).toEqual({});
   });
-
-  it("replays the same versions, deleted spellings included, for a retried request key", async () => {
-    const { client } = setup(encodedOnly);
-    const params = { requestKey: "k1", set: { "a b": { v: 2 } } };
-    const first = await client.blocksApply(params);
-    expect(first.versions["a%20b"]).toBeNull();
-    expect(await client.blocksApply(params)).toEqual(first);
-  });
 });
 
 describe("the schema a write depends on", () => {
-  it("rejects ifSchemaMatch when the schema changes between the check and the commit", async () => {
-    let changed = false;
-    const { client, storage } = setup({
-      beforeCommit: (_attempt, s) => {
-        if (changed) return;
-        changed = true;
-        s.setSchema({ ...schemaFixture, changed: true });
-      },
-    });
-    const { version } = await client.schemaGet();
-    const error = await rejects(
-      client.blocksApply({ set: { a: {} }, ifSchemaMatch: version }),
-      ErrorCode.Conflict,
-    );
-    expect(error.data).toEqual({ schema: { expected: version, actual: expect.any(String) } });
-    expect(storage.dump().files).toEqual({});
-  });
-
   it("passes the schema version to the commit, so the storage checks it atomically", async () => {
     const attempts: Array<string | null | undefined> = [];
     const { client } = setup({ beforeCommit: (a) => void attempts.push(a.expectedSchemaVersion) });
     const { version } = await client.schemaGet();
     await client.blocksApply({ set: { a: {} } });
     await client.blocksApply({ delete: ["a"] });
-    await client.blocksApply({ delete: ["b"], ifSchemaMatch: version });
     // A set depends on the schema (the secret guard); a plain delete doesn't.
     expect(attempts).toEqual([version, undefined]);
   });
@@ -233,23 +206,6 @@ describe("commit retries", () => {
     await rejects(client.blocksApply({ set: { a: {} } }), ErrorCode.Unavailable);
     expect(commitTimes).toHaveLength(3);
     expect(waits).toEqual([]);
-  });
-});
-
-describe("response budgets", () => {
-  const names = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`entry-${i}`, {}]));
-
-  it("never replaces a single write's response, even over maxBatchResponseBytes", async () => {
-    const { client, storage } = setup({}, { limits: { maxBatchResponseBytes: 64 } });
-    const result = await client.blocksApply({ set: names });
-    expect(Object.keys(result.versions)).toHaveLength(20);
-    expect(storage.commits).toBe(1);
-  });
-
-  it("still answers a single read over maxBatchResponseBytes with LimitExceeded", async () => {
-    const { client } = setup({}, { limits: { maxBatchResponseBytes: 64 } });
-    const error = await rejects(client.schemaGet(), ErrorCode.LimitExceeded);
-    expect(error.data).toEqual({ limit: "maxBatchResponseBytes" });
   });
 });
 

@@ -10,6 +10,17 @@ export const PROTOCOL_VERSION = { major: 1, minor: 0 } as const;
 
 export const SCHEMA_FORMAT = "deco-meta@1";
 
+/**
+ * The Blocks major a generated schema declares, as its top-level
+ * `blocksMajor`. `deco schema` writes it and `deco check` requires it. It is
+ * the package's major version, not the full version string, and it is the
+ * only signal a host such as the site editor should read to tell a v8 site
+ * from a v7 one: the schema's file name (`schema.gen.json` or
+ * `meta.gen.json`) doesn't tell. A schema without it, or with another value,
+ * is not a v8 schema.
+ */
+export const BLOCKS_MAJOR = 8;
+
 /** The path the local server (`deco serve`) mounts the endpoint at. */
 export const RPC_PATH = "/rpc";
 
@@ -18,33 +29,6 @@ export const MAX_BATCH_CALLS = 10;
 
 /** The URL prefix every uploaded asset is stored under in a field. */
 export const ASSETS_URL_PREFIX = "/assets/";
-
-export interface Limits {
-  /** Names (set plus delete) in one `blocks.apply`. */
-  maxOpsPerApply: number;
-  /** Bytes of one stored entry. */
-  maxBlockBytes: number;
-  /** Bytes of one HTTP request body, uncompressed. */
-  maxRequestBytes: number;
-  /** Uncompressed bytes of the whole block list. */
-  maxListBytes: number;
-  /** Uncompressed bytes of the schema. */
-  maxSchemaBytes: number;
-  /** Uncompressed bytes of a whole batch response. */
-  maxBatchResponseBytes: number;
-}
-
-const MiB = 1024 * 1024;
-
-/** The protocol's default limits. A storage or a server can lower them. */
-export const DEFAULT_LIMITS: Readonly<Limits> = Object.freeze({
-  maxOpsPerApply: 500,
-  maxBlockBytes: 1 * MiB,
-  maxRequestBytes: 8 * MiB,
-  maxListBytes: 16 * MiB,
-  maxSchemaBytes: 16 * MiB,
-  maxBatchResponseBytes: 32 * MiB,
-});
 
 export type StorageKind = "working-tree" | "git";
 
@@ -58,12 +42,8 @@ export interface DescribeResult {
   /** The app root: the folder that contains `.deco/`, relative to the repository root. */
   root: string;
   schemaFormat: typeof SCHEMA_FORMAT;
-  /** Branches; `null` on the local server. */
-  refs: null | { default: string; autoCreate: boolean };
-  writes: { idempotency: null | { retentionMs: number }; schemaPreconditions: boolean };
   /** Local: 2000; git: 30000, plus on window focus. */
   pollIntervalMs: number;
-  limits: Limits;
   /**
    * The app the site editor shows in its Preview tab (and where "open the real
    * page" points); the local server reports `deco serve --preview`. `null`: no preview.
@@ -83,15 +63,23 @@ export interface DecoMeta {
 }
 
 export interface ReadParams {
-  ref?: string;
   ifNoneMatch?: string;
 }
 
 export type SchemaGetParams = ReadParams;
 
+/**
+ * `schema: null` (with `version: null`) means the site has no schema yet:
+ * neither `.deco/schema.gen.json` nor `.deco/meta.gen.json` exists. It's a
+ * normal state, not an error: `blocks.list` and `blocks.apply` work without a
+ * schema, so a client still lists and edits the blocks (without typed forms)
+ * and keeps polling until a schema appears. There's no version to send as
+ * `ifNoneMatch`, so the poll reads it unconditionally; the answer is tiny.
+ */
 export type SchemaGetResult =
   | { notModified: true; version: string }
-  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta };
+  | { notModified: false; version: string; resolvedRef: string | null; schema: DecoMeta }
+  | { notModified: false; version: null; resolvedRef: string | null; schema: null };
 
 export type BlocksListParams = ReadParams;
 
@@ -122,11 +110,6 @@ export type BlocksListResult =
     };
 
 export interface BlocksApplyParams {
-  ref?: string;
-  /** Retry the same logical write; only when advertised. */
-  requestKey?: string;
-  /** Reject if the schema changed; only when advertised. */
-  ifSchemaMatch?: string;
   /** Whole-entry replace (create or update). */
   set?: Record<string, Record<string, unknown>>;
   /** A missing name counts as deleted. */

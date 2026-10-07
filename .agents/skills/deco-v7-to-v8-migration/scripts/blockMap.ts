@@ -47,7 +47,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^website\/sections\/Rendering\/(Lazy|Deferred|SingleDeferred)\.tsx?$/,
-    "v7's Lazy section wrapper: register a block under this name that returns its `section` (it renders normally), or unwrap it in the content",
+    "a v7 async-rendering wrapper the migration couldn't unwrap (no section, or several where one block goes); the next major has no async rendering: replace it with its section(s) in the content",
   ],
   [
     /\/sections\/Seo\//,

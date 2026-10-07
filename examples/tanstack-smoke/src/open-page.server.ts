@@ -4,7 +4,7 @@ import { client } from "./cms";
 import type { StoredPage } from "./model";
 
 export async function openPage<T>(href: string, request: Request) {
-  const c = client(request);
+  const c = await client(request);
   const [pages, pagesError] = await c.list<StoredPage>("page");
   if (pagesError) throw pagesError;
   const [redirects, redirectsError] = await c.list<Redirect>("redirect");

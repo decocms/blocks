@@ -7,12 +7,13 @@ import { type ContentClient, createContentClient, readResponseJson } from "../cl
 import { ContentProtocolError } from "../errors.ts";
 import type { DescribeResult } from "../types.ts";
 
+/** Names deleted per `blocks.apply` when a case cleans up. */
+const CLEANUP_CHUNK = 100;
+
 export interface ConformanceOptions {
-  /** The endpoint URL, such as `http://127.0.0.1:4545/rpc`. */
+  /** The endpoint URL, such as `http://localhost:4545/rpc`. */
   endpoint: string | URL;
-  /** The bearer token the endpoint expects, if any. */
-  token?: string;
-  /** Extra headers on every request (an auth cookie, a tenant header). */
+  /** Extra headers on every request (such as the host's auth cookie). */
   headers?: Record<string, string>;
   /** A fetch implementation (defaults to the global one); use it to call a handler in process. */
   fetch?: (request: Request) => Promise<Response>;
@@ -23,28 +24,13 @@ export interface ConformanceOptions {
   secretField?: { blockType: string; field: string };
   /** The `.deco/secrets.pub` content the endpoint should report, if the harness wrote one. */
   secretsPublicKey?: string;
-  /** Whether the endpoint has a schema (default true). `false` checks NotFound instead. */
+  /** Whether the endpoint has a schema (default true). `false` checks the `schema: null` result instead. */
   hasSchema?: boolean;
   /**
-   * The endpoint serves a schema larger than its `limits.maxSchemaBytes`, so
-   * reading it and writes that depend on it must be LimitExceeded. Run such
-   * an endpoint with only the `limits/schema-bytes` case (pass a filter to
-   * `runConformance` or `defineConformanceSuite`): every other case expects
-   * a schema it can read.
-   */
-  schemaOverLimit?: boolean;
-  /**
    * The URL prefix uploads are served under (`PUT <assetsEndpoint><name>`),
-   * such as `http://127.0.0.1:4545/assets/`. Leave out to skip the upload cases.
+   * such as `http://localhost:4545/assets/`. Leave out to skip the upload cases.
    */
   assetsEndpoint?: string | URL;
-  /**
-   * Restarts the server, keeping its durable state, to check that request-key
-   * receipts survive a restart. Leave out to skip that case.
-   */
-  restart?: () => Promise<void>;
-  /** Credentials of another tenant on the same storage, to check receipt isolation. */
-  otherTenant?: { token?: string; headers?: Record<string, string> };
   /** Prefix of every name the suite creates (default `conformance-<random>`). */
   namePrefix?: string;
 }
@@ -83,11 +69,6 @@ export class ConformanceContext {
     this.client = createContentClient(options);
   }
 
-  /** A client with other credentials (for tenant isolation). */
-  clientFor(credentials: { token?: string; headers?: Record<string, string> }): ContentClient {
-    return createContentClient({ ...this.options, ...credentials });
-  }
-
   async describe(): Promise<DescribeResult> {
     this.describeResult ??= await this.client.describe();
     return this.describeResult;
@@ -112,10 +93,8 @@ export class ConformanceContext {
     this.created.clear();
     const description = await this.describe();
     if (description.readOnly) return;
-    for (let i = 0; i < names.length; i += description.limits.maxOpsPerApply) {
-      await this.client
-        .blocksApply({ delete: names.slice(i, i + description.limits.maxOpsPerApply) })
-        .catch(() => {});
+    for (let i = 0; i < names.length; i += CLEANUP_CHUNK) {
+      await this.client.blocksApply({ delete: names.slice(i, i + CLEANUP_CHUNK) }).catch(() => {});
     }
   }
 
@@ -133,9 +112,6 @@ export class ConformanceContext {
       ...this.options.headers,
       ...init.headers,
     };
-    if (this.options.token !== undefined && !("authorization" in headers)) {
-      headers.authorization = `Bearer ${this.options.token}`;
-    }
     for (const [key, value] of Object.entries(headers)) if (value === "") delete headers[key];
     const method = init.method ?? "POST";
     const doFetch = this.options.fetch ?? ((request: Request) => fetch(request));
@@ -163,7 +139,6 @@ export class ConformanceContext {
       ...this.options.headers,
       "content-type": contentType,
     };
-    if (this.options.token !== undefined) headers.authorization = `Bearer ${this.options.token}`;
     const doFetch = this.options.fetch ?? ((request: Request) => fetch(request));
     const url = new URL(encodeURIComponent(name), new URL(String(base)).href.replace(/\/?$/, "/"));
     const response = await doFetch(

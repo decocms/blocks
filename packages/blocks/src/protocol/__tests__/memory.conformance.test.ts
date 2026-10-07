@@ -6,7 +6,6 @@ import { createAssetHandler } from "../server/assets";
 import { createMemoryStorage, type MemoryStorage } from "../storage/memory";
 import {
   generateSecretsKeyPair,
-  PROBE_LIMITS,
   route,
   SECRET_BLOCK,
   SECRET_FIELD,
@@ -15,39 +14,19 @@ import {
 
 const { publicKeyPem: PUBLIC_KEY } = await generateSecretsKeyPair();
 
-let storage: MemoryStorage = createMemoryStorage({
+const storage: MemoryStorage = createMemoryStorage({
   state: { schema: JSON.stringify(schemaFixture), secretsPublicKey: PUBLIC_KEY },
 });
-let handler = createHandler();
-
-function createHandler() {
-  const authorize = (request: Request) => {
-    const auth = request.headers.get("authorization");
-    if (auth === "Bearer tenant-a") return { scope: "tenant-a" };
-    if (auth === "Bearer tenant-b") return { scope: "tenant-b" };
-    return "unauthorized" as const;
-  };
-  return route(
-    createContentHandler(storage, { authorize, limits: PROBE_LIMITS }),
-    createAssetHandler(storage, { authorize }),
-  );
-}
+const handler = route(createContentHandler(storage), createAssetHandler(storage));
 
 defineConformanceSuite(
   { describe, it },
   {
     endpoint: "http://memory.test/rpc",
-    token: "tenant-a",
     fetch: (request) => handler(request),
     assetsEndpoint: "http://memory.test/assets/",
     secretField: { blockType: SECRET_BLOCK, field: SECRET_FIELD },
     secretsPublicKey: PUBLIC_KEY,
-    otherTenant: { token: "tenant-b" },
-    restart: async () => {
-      // A new process: fresh handler, storage rebuilt from its durable state.
-      storage = createMemoryStorage({ state: storage.dump() });
-      handler = createHandler();
-    },
   },
 );
 
@@ -57,22 +36,6 @@ defineConformanceSuite(
   { describe, it },
   { endpoint: "http://memory.test/rpc", fetch: (request) => schemaless(request), hasSchema: false },
   "schemaless memory storage conformance",
-);
-
-const schemaOverLimit = createContentHandler(
-  createMemoryStorage({ state: { schema: JSON.stringify(schemaFixture) } }),
-  { limits: { maxSchemaBytes: 128 } },
-);
-
-defineConformanceSuite(
-  { describe, it },
-  {
-    endpoint: "http://memory.test/rpc",
-    fetch: (request) => schemaOverLimit(request),
-    schemaOverLimit: true,
-  },
-  "memory storage with a schema over its limit",
-  (testCase) => testCase.id === "limits/schema-bytes",
 );
 
 const readOnlyStorage = createMemoryStorage({ description: { readOnly: true } });

@@ -1,8 +1,9 @@
 // @vitest-environment node
 /**
  * remoteLoader (hosted-releases-internals.mdx, hosted-publishing.mdx,
- * content-delivery.mdx, hosted-drafts.mdx): requests read memory, the
- * background check follows the channel manifest, drafts are fetched exactly.
+ * content-delivery.mdx): requests read memory, and the background check
+ * follows the channel manifest. Drafts aren't the loader's (see
+ * draftChanges.test.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeContentRevision } from "./canonical";
@@ -17,7 +18,6 @@ const remote = (...args: Parameters<typeof remoteLoader>) => remoteLoader(...arg
 const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
 const SITE = "acme";
 const TOKEN = "site-token";
-const HOST = new URL(HOSTED_DELIVERY_ORIGIN).host;
 const MANIFEST_URL = `${HOSTED_DELIVERY_ORIGIN}/sites/acme/channels/production.json`;
 
 beforeEach(() => resetForTests());
@@ -221,44 +221,6 @@ describe("remoteLoader: releases", () => {
     const loader = remote({ load }, { site: SITE, token: TOKEN });
     expect(await loader.load()).toBe(fallback);
     expect(load).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("remoteLoader: drafts", () => {
-  it("fetches exactly the pointer's version from the delivery host, with the site token", async () => {
-    const api = deliveryApi();
-    const draft = await hashed("Draft");
-    api.asset("/drafts/acme/feat", draft);
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
-
-    expect(await loader.load(`${HOST}/drafts/acme/feat?token=signed@9f3c1a`)).toEqual(draft);
-    expect(api.requests[0]).toMatchObject({
-      url: `https://${HOST}/drafts/acme/feat?token=signed`,
-      headers: { authorization: `Bearer ${TOKEN}`, "if-match": "9f3c1a" },
-    });
-  });
-
-  it("refuses a pointer to any other host without fetching (LOADER_FAILED)", async () => {
-    const api = deliveryApi();
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
-    const [value, error] = await cms.forDraft("evil.example/steal@v1").resolve("SummerSEO");
-    expect(value).toBeNull();
-    expect(error?.code).toBe("LOADER_FAILED");
-    expect(api.fetch).not.toHaveBeenCalled();
-  });
-
-  it("loads drafts in development too", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const api = deliveryApi();
-    const draft = await hashed("Draft");
-    api.asset("/drafts/acme/feat", draft);
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
-    expect(await loader.load(`${HOST}/drafts/acme/feat@v1`)).toEqual(draft);
   });
 });
 

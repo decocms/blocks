@@ -10,9 +10,9 @@ import { ErrorCode } from "../errors";
 import { createMemoryStorage, type MemoryStorageOptions } from "../storage/memory";
 import { createAssetHandler } from "./assets";
 
-function setup(options: MemoryStorageOptions = {}, token?: string, allowSvg?: boolean) {
+function setup(options: MemoryStorageOptions = {}, allowSvg?: boolean) {
   const storage = createMemoryStorage(options);
-  return { storage, handler: createAssetHandler(storage, { token, allowSvg }) };
+  return { storage, handler: createAssetHandler(storage, { allowSvg }) };
 }
 
 const put = (
@@ -106,25 +106,9 @@ describe("PUT /assets/<name>", () => {
   it("refuses SVG (it can carry scripts) unless allowSvg is set", async () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
     expect((await setup().handler(put("logo.svg", svg, "image/svg+xml"))).status).toBe(415);
-    const allowed = await setup({}, undefined, true).handler(put("logo.svg", svg, "image/svg+xml"));
+    const allowed = await setup({}, true).handler(put("logo.svg", svg, "image/svg+xml"));
     expect(allowed.status).toBe(201);
     expect(await allowed.json()).toEqual({ path: "/assets/logo.svg" });
-  });
-
-  it("refuses an empty token at construction", () => {
-    expect(() => createAssetHandler(createMemoryStorage(), { token: "" })).toThrow(TypeError);
-  });
-
-  it("checks the same bearer token as the protocol", async () => {
-    const { handler } = setup({}, "tok");
-    expect((await handler(put("a.png", new Uint8Array([1])))).status).toBe(401);
-    expect(
-      (
-        await handler(
-          put("a.png", new Uint8Array([1]), "image/png", { authorization: "Bearer tok" }),
-        )
-      ).status,
-    ).toBe(201);
   });
 
   it("refuses uploads over the advertised size with HTTP 413", async () => {

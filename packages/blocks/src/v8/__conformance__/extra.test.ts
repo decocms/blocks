@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
- * Conformance, second pass: claims from the docs (blocks-site
- * docs/content/next) that the other conformance files test weakly or not at
+ * Conformance, second pass: claims from the docs (deco-sites/docs-tanstack
+ * src/content/docs/en/storefront/blocks/next) that the other conformance files test weakly or not at
  * all. Each `it` quotes the page and the claim it checks.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,15 +10,9 @@ import { readResponseJson } from "../../protocol/client";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
 import { createContentHandler } from "../../protocol/server/handler";
 import { createMemoryStorage } from "../../protocol/storage/memory";
+import { instanceOf } from "../cms";
 import { createInstrumentedFetch } from "../fetch";
-import {
-  createCMS,
-  draftCookie,
-  draftPointer,
-  matchRoute,
-  parseDraftPointer,
-  resetForTests,
-} from "../index";
+import { createCMS, matchRoute, parseDraftPointer, resetForTests } from "../index";
 import { resolveDestination, setCurrentTelemetry } from "../telemetry";
 import { docsBlocks, docsSnapshot } from "../testFixtures";
 import type { Blocks, Lazy, Loader, Snapshot } from "../types";
@@ -380,9 +374,11 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
       .forRelease()
       .resolve({ __resolveType: "page", name: "n", path: "/", sections: [] });
     expect(page).toMatchObject({ wrapped: true });
-    const [analytics] = await cms.forRelease().resolve({ __resolveType: "analytics" });
-    expect(analytics).toMatchObject({ enabled: true });
-    expect(typeof (analytics as { collector: string }).collector).toBe("string");
+    const [settings] = await cms.forRelease().resolve<{ analytics: { collector: string } }>({
+      __resolveType: "cms-settings",
+    });
+    expect(settings?.analytics).toMatchObject({ enabled: true });
+    expect(typeof settings?.analytics.collector).toBe("string");
   });
 });
 
@@ -414,18 +410,22 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
   it("X21 api-reference: forRevision pins to a served revision; an unknown revision (or a draft's) behaves like the release", async () => {
     let current = docsSnapshot("rev-1");
     const loader: Loader = {
-      load: async (pointer) => (pointer ? docsSnapshot("draft-rev") : current),
+      load: async () => current,
       update: async () => ({ updated: true }),
     };
+    vi.stubGlobal("fetch", async () => Response.json({ format: 1, set: {}, delete: [] }));
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     expect(await cms.forRelease().revision()).toBe("rev-1");
-    expect(await cms.forDraft("api.deco.example/drafts/x@v1").revision()).toBe("draft-rev");
+    const draftRevision = await cms
+      .forDraft("studio.decocms.com/api/acme/decofile/store/x/changes?token=t@v1")
+      .revision();
+    expect(draftRevision).toBe("rev-1~v1");
     current = docsSnapshot("rev-2");
     await cms.update();
     expect(await cms.forRelease().revision()).toBe("rev-2");
     expect(await cms.forRevision("rev-1").revision()).toBe("rev-1");
     expect(await cms.forRevision("nope").revision()).toBe("rev-2");
-    expect(await cms.forRevision("draft-rev").revision()).toBe("rev-2");
+    expect(await cms.forRevision(draftRevision).revision()).toBe("rev-2");
   });
 
   it("X22 api-reference › Loaders: a loader without update() is asked on every client; update() never throws", async () => {
@@ -454,17 +454,22 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
     const content = snap({});
     const a = createCMS({ blocks: {}, content, interval: 1000 });
     const b = createCMS({ blocks: {}, content, interval: 120_000 });
-    expect(b).toBe(a);
+    expect(instanceOf(b)).toBe(instanceOf(a));
     expect(warn.mock.calls.flat().join("\n")).toMatch(/interval/);
   });
 
-  it("X24 api-reference › Draft pointers: ?__draft=off wins over the cookie; parse rejects schemes, stray @, unrooted paths", () => {
+  it("X24 api-reference › Draft pointers: ?__draft=off wins over the cookie; parse rejects schemes, stray @, unrooted paths", async () => {
     const req = (url: string, cookie?: string) =>
       new Request(url, { headers: cookie ? { cookie } : {} });
-    expect(draftPointer(req("https://s.example/?__draft=off", "deco-draft=h/p@v"))).toBeNull();
-    expect(draftPointer(req("https://s.example/", "deco-draft=h%2Fp%40v"))).toBe("h/p@v");
-    expect(draftCookie(req("https://s.example/?__draft=off"))).toMatch(/Max-Age=0/);
-    expect(draftCookie(req("https://s.example/"))).toBeNull();
+    const cms = createCMS({ blocks: {}, content: { revision: "x24", blocks: {} } });
+    expect(
+      await cms.draftPointer(req("https://s.example/?__draft=off", "__deco_draft=h/p@v")),
+    ).toBeNull();
+    expect(await cms.draftPointer(req("https://s.example/", "__deco_draft=h%2Fp%40v"))).toBe(
+      "h/p@v",
+    );
+    expect(await cms.draftCookie(req("https://s.example/?__draft=off"))).toMatch(/Max-Age=0/);
+    expect(await cms.draftCookie(req("https://s.example/"))).toBeNull();
     expect(parseDraftPointer("https://h.example/p@v")).toBeNull();
     expect(parseDraftPointer("h.example/p@x@v")).toBeNull();
     expect(parseDraftPointer("h.example@v")).toBeNull();
@@ -599,20 +604,23 @@ describe("the content protocol (content-protocol.mdx)", () => {
 });
 
 describe("telemetry settings are content (telemetry.mdx)", () => {
-  it("X31 the Telemetry block's rates are capped by telemetry.limits (trace default cap 0); enabled: false switches it off", async () => {
-    const { TelemetryPipeline } = await import("../telemetry");
-    const block = (props: Record<string, unknown>) =>
-      snap({ Telemetry: { __resolveType: "telemetry", ...props } }, JSON.stringify(props));
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
-    const capped = new TelemetryPipeline(resolveDestination({ endpoint: "https://otel.example" })!);
-    capped.useRelease(block({ traceSampleRate: 1 }));
-    expect(capped.sampleTrace()).toBe(false);
-    const open = new TelemetryPipeline(
-      resolveDestination({ endpoint: "https://otel.example", limits: { traceSampleRate: 1 } })!,
-    );
-    open.useRelease(block({ traceSampleRate: 1 }));
-    expect(open.sampleTrace()).toBe(true);
-    open.useRelease(block({ traceSampleRate: 1, enabled: false }));
-    expect(open.sampleTrace()).toBe(false);
+  it("X31 the telemetry section's rates are capped by telemetry.limits (trace default cap 0); enabled: false switches it off", async () => {
+    const settings = (telemetry: Record<string, unknown>, limits?: { traceSampleRate: number }) =>
+      createCMS({
+        blocks: {},
+        content: snap(
+          { CMS: { __resolveType: "cms-settings", telemetry } },
+          JSON.stringify(telemetry),
+        ),
+        telemetry: { endpoint: "https://otel.example", ...(limits ? { limits } : {}) },
+      }).settings();
+    expect((await settings({ traceSampleRate: 1 })).telemetry.traceSampleRate).toBe(0);
+    expect(
+      (await settings({ traceSampleRate: 1 }, { traceSampleRate: 1 })).telemetry.traceSampleRate,
+    ).toBe(1);
+    expect(
+      (await settings({ traceSampleRate: 1, enabled: false }, { traceSampleRate: 1 })).telemetry
+        .enabled,
+    ).toBe(false);
   });
 });

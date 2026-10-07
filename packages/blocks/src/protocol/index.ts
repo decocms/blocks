@@ -14,11 +14,10 @@
  *
  * The SDK's runtime never imports the protocol, so it never reaches an app
  * bundle. The canonical hash it re-exports is the SDK's own dependency-free
- * leaf module (see ./canonical.ts).
+ * leaf module (see ./canonical.ts). Draft previews and the draft lifecycle
+ * are outside the protocol (see /next/content-delivery#draft-previews).
  */
 export {
-  APPLY_DIGEST_DOMAIN,
-  applyRequestDigest,
   CanonicalJsonError,
   CONTENT_HASH_FORMAT,
   canonicalJson,

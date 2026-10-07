@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Conformance: the docs (blocks-site docs/content/next: api-reference,
+ * Conformance: the docs (deco-sites/docs-tanstack src/content/docs/en/storefront/blocks/next: api-reference,
  * content, releases-and-drafts, routing, router-internals, rendering) are the
  * source of truth. Each `describe` names the claim it checks. A failing test
  * here is a gap between the docs and the code, to be fixed in one of them.
@@ -14,14 +14,12 @@ import * as root from "../../index";
 import { generateSecretsKeyPair } from "../../protocol/__tests__/fixtures";
 import * as analyticsModule from "../analytics";
 import { AnalyticsScript, track } from "../analytics";
+import { instanceOf } from "../cms";
 import * as fetchModule from "../fetch";
 import { createInstrumentedFetch } from "../fetch";
 import * as v8 from "../index";
 import {
   createCMS,
-  DRAFT_COOKIE,
-  draftCookie,
-  draftPointer,
   formatDraftPointer,
   matchRoute,
   parseDraftPointer,
@@ -31,9 +29,26 @@ import {
 import * as secretsModule from "../secrets";
 import { encryptSecret } from "../secrets";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
-import { docsBlocks, docsSnapshot, hero, seo } from "../testFixtures";
-import type { Blocks, Loader, Redirect, Route, Snapshot } from "../types";
+import { docsBlocks, docsSnapshot, fakeStudio, hero, seo } from "../testFixtures";
+import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
+
+/** cms.draftPointer and cms.draftCookie, on a CMS with no settings: every host may preview. */
+const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
+const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
+const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
+const DRAFT_COOKIE = "__deco_draft";
+
+/** A fake Studio holding one draft that retitles SummerSEO; returns its pointer and the stubbed fetch. */
+function studioDraft(title = "Draft!") {
+  const studio = fakeStudio();
+  const fetch = vi.fn(studio.fetch);
+  vi.stubGlobal("fetch", fetch);
+  const pointer = studio.draft({
+    set: { SummerSEO: { __resolveType: "seo", title, description: "Light layers for long days." } },
+  });
+  return { studio, fetch, pointer };
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkgRoot = path.resolve(here, "../../..");
@@ -110,10 +125,7 @@ function exportedNames(source: string, from: string): string[] {
 // ---------------------------------------------------------------------------
 
 const DOCUMENTED_ROOT_VALUES = [
-  "DRAFT_COOKIE",
   "createCMS",
-  "draftCookie",
-  "draftPointer",
   "formatDraftPointer",
   "matchRoute",
   "parseDraftPointer",
@@ -136,6 +148,9 @@ const DOCUMENTED_ROOT_TYPES = [
   "Variant",
   "Telemetry",
   "Analytics",
+  "CMSSettings",
+  "EffectiveSettings",
+  "RequestLike",
   "Match",
   "Result",
   "CMSError",
@@ -214,7 +229,8 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
       "sig.ts": `
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
-  type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics } from "@decocms/blocks";
+  type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
+  type CMSSettings, type EffectiveSettings, type RequestLike } from "@decocms/blocks";
 import type { ReactNode } from "react";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -227,10 +243,19 @@ createCMS({ blocks, content });
 createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, secrets: { key: "k" }, site: "s", token: "t" });
 createCMS({ blocks, content, telemetry: { site: "s", token: "t", limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" } } });
+createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"] } });
+// @ts-expect-error draft hosts come from DECO_PREVIEW_API_DOMAINS, not code
+createCMS({ blocks, content, preview: { sources: ["studio.example.com"] } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "forRelease" | "forDraft" | "forRevision" | "update">>();
+assert<Equal<keyof CMS, "forRelease" | "forDraft" | "forRevision" | "update" | "settings" | "draftPointer" | "draftCookie">>();
+assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
+assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
+assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
+assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string): string | null } }>>();
+assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
+assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
 assert<Equal<CMS["forRevision"], (revision: string) => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
@@ -245,7 +270,7 @@ assert<Equal<ListOptions<number>, { where?: (entry: number) => boolean; sort?: (
 assert<Equal<Block, { __resolveType: string; [input: string]: unknown }>>();
 assert<Equal<BlockFunction, (inputs: any) => unknown | Promise<unknown>>>();
 assert<Equal<Blocks, Record<string, BlockFunction>>>();
-assert<Equal<Loader["load"], (pointer?: string | null) => Promise<Snapshot>>>();
+assert<Equal<Loader["load"], () => Promise<Snapshot>>>();
 assert<Equal<Route, { name: string; path: string }>>();
 assert<Equal<Seo, { title: string; description: string }>>();
 assert<Equal<Page, { name: string; path: string; seo?: Seo; sections: ReactNode[] }>>();
@@ -279,8 +304,8 @@ assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; alia
 });
 
 describe("AR-05 interval: default DECO_CONTENT_INTERVAL or 60 000, minimum 60 000", () => {
-  const intervalOf = (cms: unknown) =>
-    (cms as { fingerprint: { interval: number } }).fingerprint.interval;
+  const intervalOf = (cms: CMS) =>
+    (instanceOf(cms) as { fingerprint: { interval: number } }).fingerprint.interval;
 
   it("clamps a value below the minimum", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -341,10 +366,17 @@ describe("AR-08 site and token load hosted content only, never telemetry", () =>
     const fetch = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetch);
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
-    const [seo] = await cms.forDraft("delivery.decocms.com/drafts/acme/x@v1").resolve("SummerSEO");
+    const [seo] = await cms.forRelease().resolve("SummerSEO");
     expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
     expect(await cms.update()).toEqual({ updated: false });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("drafts don't need site or token", async () => {
+    const { pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const [seo] = await cms.forDraft(pointer).resolve<{ title: string }>("SummerSEO");
+    expect(seo?.title).toBe("Draft!");
   });
 
   it("site and token with telemetry omitted and no OTEL env: no telemetry", async () => {
@@ -374,38 +406,38 @@ describe("AR-09 / AR-56 secrets", () => {
 });
 
 describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
-  it("a snapshot source ignores the pointer: forDraft reads the release", async () => {
+  it("forDraft layers the pointer's changes over the content module", async () => {
+    const { pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    const draft = cms.forDraft("api.deco.example/drafts/acme/main@9f3c1a");
-    expect(await draft.resolve("SummerSEO")).toEqual(await cms.forRelease().resolve("SummerSEO"));
-    expect(await draft.revision()).toBe("rev-1");
+    const draft = cms.forDraft(pointer);
+    expect((await draft.resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("Draft!");
+    expect((await draft.resolve("HomePage"))[1]).toBeNull();
+    expect(await draft.revision()).toBe("rev-1~9f3c1a");
   });
 
-  it("a draft whose load(pointer) fails makes every call return LOADER_FAILED with the cause", async () => {
-    const cause = new Error("storage down");
-    const loader: Loader = {
-      load: async (pointer) => {
-        if (pointer) throw cause;
-        return docsSnapshot();
-      },
-    };
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const client = cms.forDraft("api.deco.example/drafts/acme/main@9f3c1a");
+  it("a draft whose changes can't be fetched makes every call return LOADER_FAILED with the cause", async () => {
+    const { studio, pointer } = studioDraft();
+    studio.respond("summer-sale", () => new Response("down", { status: 502 }));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const client = cms.forDraft(pointer);
     const [value, error] = await client.resolve("SummerSEO");
     expect(value).toBeNull();
-    expect(error).toMatchObject({ code: "LOADER_FAILED", cause });
+    expect(error?.code).toBe("LOADER_FAILED");
+    expect(String((error?.cause as Error | undefined)?.message)).toContain("HTTP 502");
     const [list, listError] = await client.list("page");
     expect(list).toBeNull();
     expect(listError?.code).toBe("LOADER_FAILED");
   });
 
-  it("a pointer that doesn't parse makes every call return LOADER_FAILED; load(pointer) is never called", async () => {
-    const load = vi.fn(async () => docsSnapshot());
-    const cms = createCMS({ blocks: docsBlocks(), content: { load } });
-    const client = cms.forDraft("garbage");
-    expect((await client.resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
-    expect((await client.list("page"))[1]?.code).toBe("LOADER_FAILED");
-    expect(load).not.toHaveBeenCalledWith("garbage");
+  it("a pointer that doesn't parse, or names a host outside the preview API domains, is LOADER_FAILED with no fetch", async () => {
+    const { fetch } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    for (const pointer of ["garbage", "api.deco.example/drafts/acme/main@9f3c1a"]) {
+      const client = cms.forDraft(pointer);
+      expect((await client.resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
+      expect((await client.list("page"))[1]?.code).toBe("LOADER_FAILED");
+    }
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("a snapshot source has no scheduled checks", async () => {
@@ -484,21 +516,18 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
     expect([value, error]).toEqual(["spring", null]);
   });
 
-  it("a loader gets the pointer without them, once for every variant of one draft", async () => {
-    const load = vi.fn(async (_pointer?: string | null) => content());
-    const cms = createCMS({ blocks: docsBlocks(), content: { load } });
+  it("a draft is fetched without them, once for every variant of one draft", async () => {
+    const { fetch, pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: content() });
     const draft = (index: number) =>
       formatDraftPointer({
-        host: "api.deco.example",
-        path: "/drafts/acme/main?token=t",
-        version: "9f3c1a",
+        ...parseDraftPointer(pointer)!,
         variants: [{ block: "Banner", path: "", index }],
       });
     expect((await cms.forDraft(draft(1)).resolve("Banner"))[0]).toBe("summer");
     expect((await cms.forDraft(draft(0)).resolve("Banner"))[0]).toBe("spring");
-    expect(load.mock.calls.filter(([p]) => p)).toEqual([
-      ["api.deco.example/drafts/acme/main?token=t@9f3c1a"],
-    ]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]![0])).not.toContain("__variant");
   });
 });
 
@@ -596,17 +625,17 @@ describe("AR-17 clients are cheap: the content cache lives in the CMS", () => {
 });
 
 describe("AR-18 / AR-19 content: a snapshot or any loader", () => {
-  it("accepts both; load() for the release, load(pointer) for a draft", async () => {
+  it("accepts both; load() takes no argument, and a draft is layered over what it returned", async () => {
     const fromSnapshot = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect((await fromSnapshot.forRelease().resolve("SummerSEO"))[1]).toBeNull();
 
-    const load = vi.fn(async (_pointer?: string | null) => docsSnapshot());
+    const { pointer } = studioDraft();
+    const load = vi.fn(async () => docsSnapshot());
     const cms = createCMS({ blocks: docsBlocks(), content: { load } });
     await cms.forRelease().resolve("SummerSEO");
-    expect(load).toHaveBeenLastCalledWith();
-    const pointer = "api.deco.example/drafts/acme/main@9f3c1a";
-    await cms.forDraft(pointer).resolve("SummerSEO");
-    expect(load).toHaveBeenLastCalledWith(pointer);
+    const [seo] = await cms.forDraft(pointer).resolve<{ title: string }>("SummerSEO");
+    expect(seo?.title).toBe("Draft!");
+    for (const call of load.mock.calls) expect(call).toEqual([]);
   });
 });
 
@@ -617,8 +646,10 @@ describe("AR-22 remoteLoader", () => {
     expect(await remoteLoader(fallback, { site: "", token: "" }).load()).toBe(fallback);
   });
 
-  it("createCMS builds it when site and token are set: forDraft reaches the Deco API", async () => {
-    const fetch = vi.fn(async () => new Response("nope", { status: 404 }));
+  it("createCMS builds it when site and token are set: update() reaches the Deco API", async () => {
+    const fetch = vi.fn(
+      async (_input: string | URL | Request) => new Response("nope", { status: 404 }),
+    );
     vi.stubGlobal("fetch", fetch);
     const cms = createCMS({
       blocks: docsBlocks(),
@@ -626,11 +657,10 @@ describe("AR-22 remoteLoader", () => {
       site: "acme",
       token: "t",
     });
-    const [, error] = await cms
-      .forDraft("delivery.decocms.com/drafts/acme/x@v1")
-      .resolve("SummerSEO");
-    expect(error?.code).toBe("LOADER_FAILED");
-    expect(fetch).toHaveBeenCalled();
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "https://delivery.decocms.com/sites/acme/channels/production.json",
+    );
   });
 });
 
@@ -687,8 +717,10 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
   it("same content module object -> same instance; different -> different", () => {
     const content = docsSnapshot();
     const a = createCMS({ blocks: docsBlocks(), content });
-    expect(createCMS({ blocks: docsBlocks(), content })).toBe(a);
-    expect(createCMS({ blocks: docsBlocks(), content, site: "acme", token: "t" })).not.toBe(a);
+    expect(instanceOf(createCMS({ blocks: docsBlocks(), content }))).toBe(instanceOf(a));
+    expect(
+      instanceOf(createCMS({ blocks: docsBlocks(), content, site: "acme", token: "t" })),
+    ).not.toBe(instanceOf(a));
   });
 
   it("a hot reload that hands in a new content module (new revision) keeps the instance", () => {
@@ -696,7 +728,7 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
     const before = { revision: "rev-1", blocks: {}, aliases: {}, root: "apps/site/.deco" };
     const after = { revision: "rev-2", blocks: {}, aliases: {}, root: "apps/site/.deco" };
     const a = createCMS({ blocks: {}, content: before });
-    expect(createCMS({ blocks: {}, content: after })).toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content: after }))).toBe(instanceOf(a));
   });
 
   it("the key is a Symbol.for('decocms.blocks…') on globalThis", () => {
@@ -711,7 +743,7 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = docsSnapshot();
     const a = createCMS({ blocks: {}, content });
-    expect(createCMS({ blocks: {}, content, interval: 120_000 })).toBe(a);
+    expect(instanceOf(createCMS({ blocks: {}, content, interval: 120_000 }))).toBe(instanceOf(a));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("interval"));
   });
 
@@ -778,38 +810,45 @@ if (pointer) console.log(\`previewing \${pointer.version} from \${pointer.host}\
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-35 draftPointer: URL first, then the cookie; null for neither or ?__draft=off", () => {
+  it("AR-35 draftPointer: URL first, then the cookie; null for neither or ?__draft=off", async () => {
     const cookie = { cookie: `${DRAFT_COOKIE}=${encodeURIComponent("h/c@v1")}` };
-    expect(draftPointer(new Request("https://s/x?__draft=h/u@v1", { headers: cookie }))).toBe(
+    expect(await draftPointer(new Request("https://s/x?__draft=h/u@v1", { headers: cookie }))).toBe(
       "h/u@v1",
     );
-    expect(draftPointer(new Request("https://s/x", { headers: cookie }))).toBe("h/c@v1");
-    expect(draftPointer(new Request("https://s/x"))).toBeNull();
-    expect(draftPointer(new Request("https://s/x?__draft=off", { headers: cookie }))).toBeNull();
+    expect(await draftPointer(new Request("https://s/x", { headers: cookie }))).toBe("h/c@v1");
+    expect(await draftPointer(new Request("https://s/x"))).toBeNull();
+    expect(
+      await draftPointer(new Request("https://s/x?__draft=off", { headers: cookie })),
+    ).toBeNull();
   });
 
-  it("AR-36 draftCookie: HttpOnly; Secure; SameSite=None; Partitioned; Path=/; off expires it; null otherwise", () => {
-    const set = draftCookie(new Request("https://s/x?__draft=h/u@v1"));
-    expect(set).toContain("deco-draft=");
+  it("AR-36 draftCookie: HttpOnly; Secure; SameSite=None; Partitioned; Path=/; off expires it; null otherwise", async () => {
+    const set = await draftCookie(new Request("https://s/x?__draft=h/u@v1"));
+    expect(set).toContain("__deco_draft=");
     for (const attribute of ["HttpOnly", "Secure", "SameSite=None", "Partitioned", "Path=/"]) {
       expect(set).toContain(attribute);
     }
     expect(set).not.toContain("SameSite=Lax");
-    const off = draftCookie(new Request("https://s/x?__draft=off"));
+    const off = await draftCookie(new Request("https://s/x?__draft=off"));
     expect(off).toMatch(/Max-Age=0|Expires=/);
-    expect(draftCookie(new Request("https://s/x"))).toBeNull();
+    expect(await draftCookie(new Request("https://s/x"))).toBeNull();
     // An invalid ?__draft= gives null too.
-    expect(draftCookie(new Request("https://s/x?__draft=not-a-pointer"))).toBeNull();
+    expect(await draftCookie(new Request("https://s/x?__draft=not-a-pointer"))).toBeNull();
   });
 
-  it("AR-37 DRAFT_COOKIE is deco-draft", () => {
-    expect(DRAFT_COOKIE).toBe("deco-draft");
+  it("AR-37 the helpers are CMS methods; the package root has no free draftPointer, draftCookie or DRAFT_COOKIE", () => {
+    for (const name of ["draftPointer", "draftCookie", "DRAFT_COOKIE"]) {
+      expect(Object.keys(root)).not.toContain(name);
+    }
+    const cms = helpers();
+    expect(typeof cms.draftPointer).toBe("function");
+    expect(typeof cms.draftCookie).toBe("function");
   });
 
-  it("AR-38 both helpers take anything with url and headers", () => {
+  it("AR-38 both helpers take anything with url and headers", async () => {
     const like = { url: "https://s/x?__draft=h/u@v1", headers: new Headers() };
-    expect(draftPointer(like)).toBe("h/u@v1");
-    expect(draftCookie(like)).not.toBeNull();
+    expect(await draftPointer(like)).toBe("h/u@v1");
+    expect(await draftCookie(like)).not.toBeNull();
   });
 });
 
@@ -1165,10 +1204,10 @@ describe("AR-55 / AR-61 analytics", () => {
     expect(() => track("signup", { plan: "pro" })).not.toThrow();
   });
 
-  it("the analytics block fills the defaults", async () => {
+  it("the analytics section of cms.settings() fills the defaults", async () => {
     const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
-    const [value] = await cms.forRelease().resolve({ __resolveType: "analytics" });
-    expect(value).toEqual({ collector: expect.stringMatching(/^https:\/\//), enabled: true });
+    const { analytics } = await cms.settings();
+    expect(analytics).toEqual({ collector: expect.stringMatching(/^https:\/\//), enabled: true });
   });
 });
 
@@ -1211,7 +1250,7 @@ describe("AR-59 multivariate and lazy", () => {
   });
 });
 
-describe("AR-60 the Telemetry block: defaults and caps", () => {
+describe("AR-60 the telemetry section: defaults and caps", () => {
   it("defaults 0.05 / 0, capped by limits", async () => {
     const sent: string[] = [];
     vi.stubGlobal(
@@ -1223,15 +1262,11 @@ describe("AR-60 the Telemetry block: defaults and caps", () => {
     );
     const pipeline = (limits?: { errorSampleRate?: number; traceSampleRate?: number }) =>
       new TelemetryPipeline(resolveDestination({ endpoint: "https://otel.example", limits })!);
-    const withBlock = (block: Record<string, unknown>): Snapshot => ({
-      revision: `r-${JSON.stringify(block)}`,
-      blocks: { Telemetry: { __resolveType: "telemetry", ...block } },
-    });
     const random = vi.spyOn(Math, "random");
 
     // errorSampleRate 0.5 under the default limit 0.1: a draw of 0.2 is dropped, 0.09 kept.
     const capped = pipeline();
-    capped.useRelease(withBlock({ errorSampleRate: 0.5 }));
+    capped.apply({ errorSampleRate: 0.5 });
     random.mockReturnValue(0.2);
     capped.error("e", {});
     await capped.flush();
@@ -1244,7 +1279,7 @@ describe("AR-60 the Telemetry block: defaults and caps", () => {
     // Default errorSampleRate 0.05: 0.06 dropped.
     sent.length = 0;
     const defaults = pipeline({ errorSampleRate: 1 });
-    defaults.useRelease({ revision: "none", blocks: {} });
+    defaults.apply({});
     random.mockReturnValue(0.06);
     defaults.error("e", {});
     await defaults.flush();
@@ -1253,12 +1288,14 @@ describe("AR-60 the Telemetry block: defaults and caps", () => {
     // traceSampleRate defaults to 0 and is capped at limit 0.
     random.mockReturnValue(0);
     const traces = pipeline();
-    traces.useRelease(withBlock({ traceSampleRate: 1 }));
+    traces.apply({ traceSampleRate: 1 });
     expect(traces.sampleTrace()).toBe(false);
   });
 
   it("is always in the schema", () => {
-    expect(readSource("src/v8/cli/schema/builtinSchemas.ts")).toMatch(/telemetry/);
+    expect(readSource("src/v8/cli/schema/builtinSchemas.ts")).toMatch(
+      /"cms-settings"[\s\S]*telemetry/,
+    );
   });
 });
 
@@ -1343,33 +1380,32 @@ describe("AR-64 / AR-65 error codes and paths", () => {
 // ---------------------------------------------------------------------------
 
 describe("RD-02 / RD-04 the draft client works like the release client", () => {
-  it("forDraft passes the pointer to load(pointer); draftPointer picks the client", async () => {
-    const draft = docsSnapshot("draft-1");
-    (draft.blocks.SummerSEO as { title: string }).title = "Draft!";
-    const load = vi.fn(async (pointer?: string | null) => (pointer ? draft : docsSnapshot()));
-    const cms = createCMS({ blocks: docsBlocks(), content: { load } });
-    const pick = (request: Request) => {
-      const pointer = draftPointer(request);
+  it("forDraft reads the draft the pointer names; draftPointer picks the client", async () => {
+    const { pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const pick = async (request: Request) => {
+      const pointer = await cms.draftPointer(request);
       return pointer ? cms.forDraft(pointer) : cms.forRelease();
     };
-    const pointer = "api.deco.example/drafts/acme/main@9f3c1a";
-    const [d] = await pick(new Request(`https://s/?__draft=${pointer}`)).resolve<{ title: string }>(
+    const link = `https://s/?__draft=${encodeURIComponent(pointer)}`;
+    const [d] = await (await pick(new Request(link))).resolve<{
+      title: string;
+    }>("SummerSEO");
+    expect(d?.title).toBe("Draft!");
+    const [r] = await (await pick(new Request("https://s/"))).resolve<{ title: string }>(
       "SummerSEO",
     );
-    expect(load).toHaveBeenCalledWith(pointer);
-    expect(d?.title).toBe("Draft!");
-    const [r] = await pick(new Request("https://s/")).resolve<{ title: string }>("SummerSEO");
     expect(r?.title).toBe("Sunny!");
   });
 
   it("RD-04 snippet typechecks", () => {
     const errors = typecheck({
       "preview.ts": `
-import { createCMS, draftPointer, type Snapshot } from "@decocms/blocks";
+import { createCMS, type Snapshot } from "@decocms/blocks";
 declare const content: Snapshot;
 declare const request: Request;
 const cms = createCMS({ blocks: {}, content });
-const pointer = draftPointer(request);
+const pointer = await cms.draftPointer(request);
 const client = pointer ? cms.forDraft(pointer) : cms.forRelease();
 export { client };
 `,
@@ -1602,13 +1638,24 @@ export { views };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("RN-06 the SDK never sees the request: no requestScope, no Request/signal in createCMS or Client", () => {
+  it("RN-06 resolution never sees the request: no requestScope, no Request/signal in createCMS or Client; only the draft helpers read one", () => {
     const r = root as Record<string, unknown>;
     expect(Object.keys(r).filter((k) => /requestScope/i.test(k))).toEqual([]);
     expect(Object.keys(v8).filter((k) => /request/i.test(k))).toEqual([]);
     const types = readSource("src/v8/types.ts");
-    const cmsAndClient = types.slice(types.indexOf("export interface Client"));
-    expect(cmsAndClient).not.toMatch(/Request|signal/);
+    const section = (start: string) => {
+      const from = types.indexOf(start);
+      return types.slice(from, types.indexOf("\n}\n", from));
+    };
+    expect(section("export interface CMSConfig")).not.toMatch(/Request|signal/);
+    expect(section("export interface Client")).not.toMatch(/Request|signal/);
+    const cmsMethods = section("export interface CMS {")
+      .split("\n")
+      .filter((line) => /^\s{2}\w+\(/.test(line) && /Request|signal/.test(line));
+    expect(cmsMethods.map((line) => line.trim().split("(")[0])).toEqual([
+      "draftPointer",
+      "draftCookie",
+    ]);
   });
 });
 

@@ -3,10 +3,14 @@
  * /next/telemetry and /next/telemetry-internals.
  *
  * - **Where** comes from code: `createCMS({ telemetry })`, or the standard
- *   `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_EXPORTER_OTLP_HEADERS` when it's left
- *   out. `false` sends nothing.
- * - **How much** comes from content: the `Telemetry` saved block of the
- *   release being served, capped by `telemetry.limits`.
+ *   `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_EXPORTER_OTLP_HEADERS` (and the
+ *   per-signal `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_ENDPOINT`) when it's
+ *   left out. v7's `DECO_OTEL_*` names are read as aliases; the standard name
+ *   wins when both are set. `false` sends nothing.
+ * - **How much** comes from content: the `telemetry` section of the CMS
+ *   settings (`cms.settings()`, the release's `CMS` block), capped by
+ *   `telemetry.limits`. The CMS reads it outside any request, when the
+ *   release changes and then at most once a minute.
  * - Metrics are aggregated in memory (delta histograms); error logs and traces
  *   are sampled. Batches leave in the background (after the response on
  *   Workers, on an unref'd timer elsewhere); a send that fails is retried
@@ -15,10 +19,10 @@
  *   cookies or authorization values, and no value a secret block decrypted.
  */
 import { hasBackgroundHook, later, runInBackground } from "./background.ts";
+import { rate, TELEMETRY_DEFAULTS } from "./builtins/data.ts";
 import { isResolutionError } from "./errors.ts";
 import { readEnv } from "./identity.ts";
-import { isPlainObject } from "./json.ts";
-import type { CMSError, Snapshot, TelemetryConfig } from "./types.ts";
+import type { CMSError, Snapshot, Telemetry, TelemetryConfig } from "./types.ts";
 
 /** The hosted Deco CMS collector, for `telemetry: { site, token }`. */
 const HOSTED_TELEMETRY_ENDPOINT = "https://otel.decocms.com";
@@ -31,13 +35,29 @@ const MAX_SECRETS = 1_000;
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
 /** OpenTelemetry's recommended `http.*.request.duration` buckets, in seconds. */
 const BOUNDS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10];
-const DEFAULTS = { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 };
 const DEFAULT_LIMITS = { errorSampleRate: 0.1, traceSampleRate: 0 };
+
+/** The caps on content's sample rates: `telemetry.limits`, defaults 0.1 and 0. */
+export function telemetryLimits(config: false | TelemetryConfig | undefined): {
+  errorSampleRate: number;
+  traceSampleRate: number;
+} {
+  const limits = config ? config.limits : undefined;
+  return {
+    errorSampleRate: rate(limits?.errorSampleRate, DEFAULT_LIMITS.errorSampleRate),
+    traceSampleRate: rate(limits?.traceSampleRate, DEFAULT_LIMITS.traceSampleRate),
+  };
+}
 
 type Attributes = Record<string, string | number | boolean | undefined>;
 
+type Signal = "metrics" | "logs" | "traces";
+
 interface Destination {
+  /** The base URL each signal's `/v1/<signal>` is appended to; `""` with per-signal URLs only. */
   endpoint: string;
+  /** Full per-signal URLs, used as they are (the `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` form). */
+  signals?: Partial<Record<Signal, string>>;
   headers: Record<string, string>;
   site?: string;
   limits: { errorSampleRate: number; traceSampleRate: number };
@@ -86,16 +106,8 @@ export function resolveDestination(
   site?: string,
 ): Destination | null {
   if (config === false) return null;
-  if (config === undefined || config === null) {
-    const endpoint = readEnv("OTEL_EXPORTER_OTLP_ENDPOINT");
-    if (!endpoint) return null;
-    const headers = parseKeyValues(readEnv("OTEL_EXPORTER_OTLP_HEADERS"));
-    return { endpoint, headers, site, limits: DEFAULT_LIMITS };
-  }
-  const limits = {
-    errorSampleRate: rate(config.limits?.errorSampleRate, DEFAULT_LIMITS.errorSampleRate),
-    traceSampleRate: rate(config.limits?.traceSampleRate, DEFAULT_LIMITS.traceSampleRate),
-  };
+  if (config === undefined || config === null) return destinationFromEnv(site);
+  const limits = telemetryLimits(config);
   if ("endpoint" in config) {
     if (typeof config.endpoint !== "string" || !config.endpoint) return null;
     return { endpoint: config.endpoint, headers: { ...config.headers }, site, limits };
@@ -109,10 +121,49 @@ export function resolveDestination(
   };
 }
 
+/** v7's names for the standard OTLP variables, read when the standard one is unset. */
+const V7_ALIASES = {
+  OTEL_EXPORTER_OTLP_HEADERS: "DECO_OTEL_HEADERS",
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "DECO_OTEL_METRICS_ENDPOINT",
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "DECO_OTEL_LOGS_ENDPOINT",
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "DECO_OTEL_TRACES_ENDPOINT",
+} as const;
+
+/** The standard variable, else its v7 alias. */
+function readOtlpEnv(name: keyof typeof V7_ALIASES | "OTEL_EXPORTER_OTLP_ENDPOINT") {
+  return (
+    readEnv(name) ||
+    (name in V7_ALIASES ? readEnv(V7_ALIASES[name as keyof typeof V7_ALIASES]) : undefined)
+  );
+}
+
+/**
+ * The destination the environment names: the standard OTLP variables, with
+ * v7's `DECO_OTEL_*` names as aliases. `DECO_OTEL_AUTH_TOKEN` (v7's secret
+ * for the collector) becomes the `authorization` header unless the headers
+ * set one. `null` when no endpoint is set.
+ */
+function destinationFromEnv(site: string | undefined): Destination | null {
+  const endpoint = readOtlpEnv("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "";
+  const signals: Partial<Record<Signal, string>> = {};
+  for (const signal of ["metrics", "logs", "traces"] as const) {
+    const url = readOtlpEnv(
+      `OTEL_EXPORTER_OTLP_${signal.toUpperCase() as Uppercase<Signal>}_ENDPOINT`,
+    );
+    if (url) signals[signal] = url;
+  }
+  if (!endpoint && Object.keys(signals).length === 0) return null;
+  const token = readEnv("DECO_OTEL_AUTH_TOKEN");
+  const headers = {
+    ...(token ? { authorization: token } : {}),
+    ...parseKeyValues(readOtlpEnv("OTEL_EXPORTER_OTLP_HEADERS")),
+  };
+  return { endpoint, signals, headers, site, limits: DEFAULT_LIMITS };
+}
+
 export class TelemetryPipeline {
   readonly #destination: Destination;
-  #settings = { ...DEFAULTS };
-  #settingsRevision: string | undefined;
+  #settings: Required<Telemetry> = { ...TELEMETRY_DEFAULTS };
   #release: string | undefined;
   #histograms = new Map<string, Histogram>();
   #logs: LogRecord[] = [];
@@ -124,7 +175,7 @@ export class TelemetryPipeline {
 
   constructor(destination: Destination) {
     this.#destination = destination;
-    this.#apply(undefined);
+    this.apply(TELEMETRY_DEFAULTS);
   }
 
   /** Never send `value`: it's replaced with `[redacted]` in every log, span and label. */
@@ -132,13 +183,29 @@ export class TelemetryPipeline {
     if (value.length > 0 && this.#secrets.size < MAX_SECRETS) this.#secrets.add(value);
   }
 
-  /** The release being served: its revision labels batches and its `Telemetry` block sets the rates. */
+  /** The release being served: its revision labels batches. */
   useRelease(snapshot: Snapshot): void {
     this.#release = snapshot.revision;
-    if (this.#settingsRevision === snapshot.revision) return;
-    this.#settingsRevision = snapshot.revision;
-    const entry = snapshot.blocks.Telemetry;
-    this.#apply(isPlainObject(entry) && entry.__resolveType === "telemetry" ? entry : undefined);
+  }
+
+  /**
+   * The `telemetry` section to follow (from `cms.settings()`). Rates are
+   * capped by the destination's limits here too, whatever the caller passed.
+   */
+  apply(section: Telemetry): void {
+    const { limits } = this.#destination;
+    this.#settings = {
+      enabled: typeof section.enabled === "boolean" ? section.enabled : TELEMETRY_DEFAULTS.enabled,
+      metrics: typeof section.metrics === "boolean" ? section.metrics : TELEMETRY_DEFAULTS.metrics,
+      errorSampleRate: Math.min(
+        rate(section.errorSampleRate, TELEMETRY_DEFAULTS.errorSampleRate),
+        limits.errorSampleRate,
+      ),
+      traceSampleRate: Math.min(
+        rate(section.traceSampleRate, TELEMETRY_DEFAULTS.traceSampleRate),
+        limits.traceSampleRate,
+      ),
+    };
   }
 
   histogram(name: string, attributes: Attributes, seconds: number): void {
@@ -188,7 +255,7 @@ export class TelemetryPipeline {
   /**
    * The hooks one client reports through. The trace decision is made once per
    * client, on its first block, after its release is loaded, so the first
-   * client of a release already uses that release's `Telemetry` block.
+   * client of a release already uses that release's `telemetry` section.
    */
   forClient(): ClientTelemetry {
     let decided = false;
@@ -248,7 +315,7 @@ export class TelemetryPipeline {
       const byName = new Map<string, Histogram[]>();
       for (const h of histograms) byName.set(h.name, [...(byName.get(h.name) ?? []), h]);
       sends.push(
-        this.#send("/v1/metrics", {
+        this.#send("metrics", {
           resourceMetrics: [
             {
               resource,
@@ -282,7 +349,7 @@ export class TelemetryPipeline {
     }
     if (logs.length > 0) {
       sends.push(
-        this.#send("/v1/logs", {
+        this.#send("logs", {
           resourceLogs: [
             {
               resource,
@@ -306,7 +373,7 @@ export class TelemetryPipeline {
     if (spans.length > 0) {
       const kinds = { internal: 1, server: 2, client: 3 };
       sends.push(
-        this.#send("/v1/traces", {
+        this.#send("traces", {
           resourceSpans: [
             {
               resource,
@@ -338,22 +405,6 @@ export class TelemetryPipeline {
     let out = text;
     for (const secret of this.#secrets) out = out.split(secret).join("[redacted]");
     return scrubText(out);
-  }
-
-  #apply(block: Record<string, unknown> | undefined): void {
-    const { limits } = this.#destination;
-    this.#settings = {
-      enabled: typeof block?.enabled === "boolean" ? block.enabled : DEFAULTS.enabled,
-      metrics: typeof block?.metrics === "boolean" ? block.metrics : DEFAULTS.metrics,
-      errorSampleRate: Math.min(
-        rate(block?.errorSampleRate, DEFAULTS.errorSampleRate),
-        limits.errorSampleRate,
-      ),
-      traceSampleRate: Math.min(
-        rate(block?.traceSampleRate, DEFAULTS.traceSampleRate),
-        limits.traceSampleRate,
-      ),
-    };
   }
 
   #schedule(): void {
@@ -392,8 +443,11 @@ export class TelemetryPipeline {
     };
   }
 
-  async #send(path: string, payload: unknown): Promise<void> {
-    const url = this.#destination.endpoint.replace(/\/+$/, "") + path;
+  async #send(signal: Signal, payload: unknown): Promise<void> {
+    const { endpoint, signals } = this.#destination;
+    const url =
+      signals?.[signal] ?? (endpoint ? `${endpoint.replace(/\/+$/, "")}/v1/${signal}` : "");
+    if (!url) return; // this signal has no destination
     const { body, gzipped } = await gzip(JSON.stringify(payload));
     const headers: Record<string, string> = {
       ...this.#destination.headers,
@@ -481,12 +535,6 @@ export function describe(error: unknown): string {
 function randomHex(bytes: number): string {
   const values = crypto.getRandomValues(new Uint8Array(bytes));
   return Array.from(values, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function rate(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(1, Math.max(0, value))
-    : fallback;
 }
 
 /** `k1=v1,k2=v2` with URL-encoded values, the format of the OTEL_* environment variables. */
