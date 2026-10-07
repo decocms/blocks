@@ -9,8 +9,45 @@
  * production — see `client.ts` for the rate-limit trade-off.
  */
 import type { AppDefinition, ResolveSecretFn } from "@decocms/apps-commerce/app-types";
+import type { Secret } from "@decocms/apps-website/mod";
 import { configureNuvemshop, type NuvemshopConfig } from "./client";
 import manifest from "./manifest.gen";
+import type { SortValue } from "./utils/listing";
+
+// -------------------------------------------------------------------------
+// CMS Props — the admin form for the `deco-nuvemshop` block. Sites expose it
+// through a bridge (`src/apps/nuvemshop.ts` re-exporting this module's default
+// and `Props`); generate-schema builds the form from this interface.
+// -------------------------------------------------------------------------
+
+/** @title Nuvemshop */
+export interface Props {
+  /**
+   * @title Store ID
+   * @description Numeric Nuvemshop/Tiendanube store id (e.g. 8336778).
+   */
+  storeId: string;
+  /**
+   * @title Storefront token
+   * @description Optional. Without it all buyers share 120 req/min per IP; with it the store gets 1,200 req/min.
+   */
+  token?: Secret;
+  /**
+   * @title Currency
+   * @description The API returns no currency. @default BRL
+   */
+  currency?: string;
+  /**
+   * @title Default category sort
+   * @description The API doesn't expose the category's configured sort. @default created-descending
+   */
+  defaultSort?: SortValue;
+  /**
+   * @title API version
+   * @default v2026-11
+   */
+  apiVersion?: string;
+}
 
 export interface NuvemshopState {
   config: NuvemshopConfig;
@@ -40,3 +77,8 @@ export async function configure(
 }
 
 export const preview = undefined;
+
+/** Default export for schema generation and app bridges. */
+export default function Nuvemshop(props: Props) {
+  return { state: props };
+}

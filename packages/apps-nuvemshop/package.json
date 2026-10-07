@@ -28,7 +28,8 @@
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*",
-    "@decocms/apps-commerce": "workspace:*"
+    "@decocms/apps-commerce": "workspace:*",
+    "@decocms/apps-website": "workspace:*"
   },
   "peerDependencies": { "react": "^19.0.0" },
   "devDependencies": {
